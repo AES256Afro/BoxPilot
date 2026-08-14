@@ -1,6 +1,7 @@
 export type ViewName =
   | "overview"
   | "applications"
+  | "virtualization"
   | "backups"
   | "migrations"
   | "logs"
@@ -32,6 +33,7 @@ export interface Application {
 export const navItems: Array<{ id: ViewName; label: string; short: string }> = [
   { id: "overview", label: "Overview", short: "OV" },
   { id: "applications", label: "Applications", short: "AP" },
+  { id: "virtualization", label: "Virtual Machines", short: "VM" },
   { id: "backups", label: "Backups", short: "BK" },
   { id: "migrations", label: "Migrations", short: "MG" },
   { id: "logs", label: "Logs", short: "LG" },

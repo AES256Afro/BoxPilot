@@ -1,0 +1,230 @@
+import { execFile } from "node:child_process";
+import { constants as fsConstants } from "node:fs";
+import { access } from "node:fs/promises";
+import os from "node:os";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+const connectionUri = process.env.BOXPILOT_LIBVIRT_URI ?? "qemu:///system";
+const qemuSystemBinary = process.arch === "arm64" ? "qemu-system-aarch64" : "qemu-system-x86_64";
+const domainPattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$/;
+const supportedActions = new Map([
+  ["start", ["start"]],
+  ["shutdown", ["shutdown"]],
+  ["reboot", ["reboot"]],
+  ["autostart-on", ["autostart"]],
+  ["autostart-off", ["autostart", "--disable"]],
+]);
+
+async function defaultRunCommand(command, args, options = {}) {
+  try {
+    const result = await execFileAsync(command, args, {
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024,
+      timeout: options.timeout ?? 8000,
+      windowsHide: true,
+      env: {
+        PATH: process.env.PATH ?? "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        LANG: "C.UTF-8",
+        LC_ALL: "C.UTF-8",
+      },
+    });
+    return { ok: true, stdout: result.stdout.trim(), stderr: result.stderr.trim() };
+  } catch (error) {
+    return {
+      ok: false,
+      stdout: typeof error.stdout === "string" ? error.stdout.trim() : "",
+      stderr: typeof error.stderr === "string" ? error.stderr.trim() : error.message,
+      code: error.code,
+    };
+  }
+}
+
+function parseKeyValueOutput(output) {
+  const values = {};
+  for (const line of output.split("\n")) {
+    const separator = line.indexOf(":");
+    if (separator === -1) continue;
+    const key = line.slice(0, separator).trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+    values[key] = line.slice(separator + 1).trim();
+  }
+  return values;
+}
+
+function parseAddresses(output) {
+  return output
+    .split("\n")
+    .map((line) => line.trim().split(/\s+/))
+    .filter((parts) => parts.length >= 4 && (parts[2] === "ipv4" || parts[2] === "ipv6"))
+    .map((parts) => ({ interface: parts[0], protocol: parts[2], address: parts[3] }));
+}
+
+function normalizeState(state = "unknown") {
+  if (state === "shut off") return "stopped";
+  if (state === "in shutdown") return "stopping";
+  if (state === "pmsuspended") return "suspended";
+  return state;
+}
+
+function safeUsername() {
+  const candidate = process.env.SUDO_USER ?? process.env.USER ?? "";
+  return /^[a-z_][a-z0-9_-]{0,31}$/.test(candidate) ? candidate : "<your-user>";
+}
+
+export function getSetupPlan() {
+  const username = safeUsername();
+  return {
+    title: "Install and prepare QEMU/KVM with libvirt",
+    destructive: false,
+    requiresConsoleApproval: true,
+    commands: [
+      "sudo apt update",
+      "sudo apt install -y qemu-kvm libvirt-daemon-system libvirt-clients virtinst cpu-checker",
+      `sudo adduser ${username} libvirt`,
+      `sudo adduser ${username} kvm`,
+      "sudo virsh net-start default || true",
+      "sudo virsh net-autostart default",
+      "sudo virsh pool-start default || true",
+      "sudo virsh pool-autostart default",
+      "virsh --connect qemu:///system list --all",
+    ],
+    notes: [
+      "Log out and back in after adding the user to the libvirt group.",
+      "Use the default NAT network first. Bridging is a separate high-risk network change.",
+      "Do not create production VMs until their storage pool has backup coverage.",
+    ],
+  };
+}
+
+export function validateDomainName(name) {
+  return typeof name === "string" && domainPattern.test(name);
+}
+
+export function validateAction(action) {
+  return typeof action === "string" && supportedActions.has(action);
+}
+
+export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmAccess } = {}) {
+  const hasKvmAccess = checkKvmAccess ?? (async () => {
+    try {
+      await access("/dev/kvm", fsConstants.R_OK | fsConstants.W_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  async function inspectResource(resource, name) {
+    const result = await runCommand("virsh", ["--connect", connectionUri, `${resource}-info`, name]);
+    if (!result.ok) return { exists: false, active: false, detail: result.stderr };
+    const info = parseKeyValueOutput(result.stdout);
+    return {
+      exists: true,
+      active: info.active === "yes" || info.state === "running",
+      autostart: info.autostart === "yes",
+      detail: info,
+    };
+  }
+
+  async function getTailscale() {
+    const status = await runCommand("tailscale", ["status", "--json"]);
+    if (!status.ok) return { installed: false, connected: false, dnsName: null, serveUrls: [] };
+    try {
+      const parsed = JSON.parse(status.stdout);
+      const dnsName = parsed.Self?.DNSName?.replace(/\.$/, "") ?? null;
+      const serveStatus = await runCommand("tailscale", ["serve", "status"]);
+      const serveUrls = serveStatus.ok
+        ? Array.from(new Set(serveStatus.stdout.match(/https:\/\/[^\s|]+/g) ?? []))
+        : [];
+      return {
+        installed: true,
+        connected: parsed.BackendState === "Running",
+        dnsName,
+        serveUrls,
+      };
+    } catch {
+      return { installed: true, connected: false, dnsName: null, serveUrls: [] };
+    }
+  }
+
+  async function getStatus() {
+    const linux = process.platform === "linux";
+    const [kvmAccess, virshVersion, qemuVersion, virtInstallVersion, uri, network, pool, groups, tailscale] =
+      await Promise.all([
+        linux ? hasKvmAccess() : false,
+        runCommand("virsh", ["--version"]),
+        runCommand(qemuSystemBinary, ["--version"]),
+        runCommand("virt-install", ["--version"]),
+        runCommand("virsh", ["--connect", connectionUri, "uri"]),
+        inspectResource("net", "default"),
+        inspectResource("pool", "default"),
+        runCommand("id", ["-nG"]),
+        getTailscale(),
+      ]);
+
+    const libvirtGroup = groups.ok && groups.stdout.split(/\s+/).includes("libvirt");
+    const checks = [
+      { id: "linux", label: "Ubuntu or Linux host", ok: linux, detail: linux ? `${os.type()} ${os.release()}` : `${os.type()} is preview-only` },
+      { id: "kvm", label: "KVM device access", ok: kvmAccess, detail: kvmAccess ? "/dev/kvm is readable and writable" : "Enable virtualization and grant KVM access" },
+      { id: "qemu", label: "QEMU installed", ok: qemuVersion.ok, detail: qemuVersion.ok ? qemuVersion.stdout.split("\n")[0] : `${qemuSystemBinary} not found` },
+      { id: "virsh", label: "libvirt client installed", ok: virshVersion.ok, detail: virshVersion.ok ? `virsh ${virshVersion.stdout}` : "virsh not found" },
+      { id: "connection", label: "System libvirt connection", ok: uri.ok, detail: uri.ok ? uri.stdout : "Cannot connect to qemu:///system" },
+      { id: "group", label: "BoxPilot user permissions", ok: Boolean(libvirtGroup), detail: libvirtGroup ? "User belongs to libvirt" : "Add the service user to libvirt" },
+      { id: "network", label: "Default NAT network", ok: network.exists && network.active, detail: network.exists ? (network.active ? "Active" : "Defined but inactive") : "Not defined" },
+      { id: "pool", label: "Default storage pool", ok: pool.exists && pool.active, detail: pool.exists ? (pool.active ? "Active" : "Defined but inactive") : "Not defined" },
+      { id: "virt-install", label: "VM creation tools", ok: virtInstallVersion.ok, detail: virtInstallVersion.ok ? `virt-install ${virtInstallVersion.stdout}` : "virt-install not found" },
+    ];
+
+    return {
+      platform: process.platform,
+      architecture: process.arch,
+      connectionUri,
+      ready: checks.every((check) => check.ok),
+      checks,
+      resources: { network, pool },
+      tailscale,
+      setupPlan: getSetupPlan(),
+    };
+  }
+
+  async function getDomain(name) {
+    if (!validateDomainName(name)) return null;
+    const infoResult = await runCommand("virsh", ["--connect", connectionUri, "dominfo", name]);
+    if (!infoResult.ok) return null;
+    const info = parseKeyValueOutput(infoResult.stdout);
+    const addressResult = await runCommand("virsh", ["--connect", connectionUri, "domifaddr", name, "--source", "lease"]);
+    return {
+      name: info.name ?? name,
+      uuid: info.uuid ?? null,
+      state: normalizeState(info.state),
+      vcpus: Number.parseInt(info.cpu_s ?? "0", 10),
+      memoryKiB: Number.parseInt(info.max_memory?.replace(/\s*KiB$/i, "") ?? "0", 10),
+      persistent: info.persistent === "yes",
+      autostart: info.autostart === "enable" || info.autostart === "yes",
+      managed: validateDomainName(info.name ?? name),
+      addresses: addressResult.ok ? parseAddresses(addressResult.stdout) : [],
+    };
+  }
+
+  async function listDomains() {
+    const result = await runCommand("virsh", ["--connect", connectionUri, "list", "--all", "--name"]);
+    if (!result.ok) {
+      return { connected: false, domains: [], error: result.stderr || "Unable to query libvirt" };
+    }
+    const names = result.stdout.split("\n").map((name) => name.trim()).filter(Boolean);
+    const domains = (await Promise.all(names.map(getDomain))).filter(Boolean);
+    return { connected: true, domains, error: null };
+  }
+
+  async function runDomainAction(name, action) {
+    if (!validateDomainName(name)) throw new Error("Invalid domain name");
+    if (!validateAction(action)) throw new Error("Unsupported VM action");
+    const verb = supportedActions.get(action);
+    const args = ["--connect", connectionUri, ...verb, name];
+    const result = await runCommand("virsh", args, { timeout: 30000 });
+    if (!result.ok) throw new Error(result.stderr || `virsh ${verb[0]} failed`);
+    return { action, domain: name, output: result.stdout, current: await getDomain(name) };
+  }
+
+  return { getStatus, listDomains, getDomain, runDomainAction };
+}

@@ -23,6 +23,8 @@ Acceptance:
 
 ## Phase 1: real read-only inventory
 
+Status: libvirt VM, network, pool, and Tailscale access discovery included in `0.2.0`; remaining collectors are pending.
+
 - Host identity, OS, kernel, uptime, CPU, memory, mounts, and disk space
 - SMART and filesystem health
 - systemd unit status and selected journald streams
@@ -121,7 +123,8 @@ Acceptance:
 
 ## Phase 7: virtual machines and storage
 
-- libvirt VM creation, lifecycle, console, snapshot, export, and restore
+- Live libvirt discovery and guarded start, graceful shutdown, reboot, and autostart controls included in `0.2.0`
+- Guided VM creation, console, snapshot, export, and restore
 - Storage pool management with destructive-operation confirmation
 - Cloud-init templates and bridged-network planning
 - UPS state, shutdown policy, and disk replacement runbooks

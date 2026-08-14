@@ -4,7 +4,7 @@ BoxPilot is a safety-first, local control plane for an Ubuntu home server. It is
 
 ## Current status
 
-Version `0.1.0` is a runnable interface and architecture prototype. It intentionally cannot execute host commands, access the Docker socket, install packages, edit the firewall, or change networking.
+Version `0.2.0` adds a live QEMU/KVM and libvirt module. BoxPilot can inspect host readiness, discover virtual machines, show leased guest addresses, and optionally request a small allowlist of lifecycle operations. VM controls are disabled by default. Package installation, VM creation, deletion, force-off, bridges, storage changes, snapshots, consoles, Docker socket access, firewall edits, and arbitrary command execution remain unavailable.
 
 The current slice includes:
 
@@ -15,10 +15,13 @@ The current slice includes:
 - Non-destructive migration workflow
 - Prototype logs and downloadable redacted support bundle
 - Read-only health and capability API endpoints
+- Live QEMU/KVM host preflight and libvirt VM inventory
+- Token-protected start, graceful shutdown, reboot, and autostart controls
+- Copyable Ubuntu virtualization setup plan
 - Hardened, loopback-only Docker deployment
 - Full USB-to-headless Ubuntu installation runbook
 
-All displayed server measurements are realistic demonstration data until the read-only inventory agent is implemented.
+The Virtual Machines page uses live libvirt data when BoxPilot runs natively on the Ubuntu host. Other dashboard measurements remain demonstration data until their collectors are implemented.
 
 ## Safety contract
 
@@ -31,7 +34,7 @@ Every future host change must follow:
 5. Apply with streamed logs
 6. Verify or roll back
 
-The future privileged helper will expose narrow, typed operations. BoxPilot will not mount the Docker socket into its web container or provide an arbitrary root shell.
+The current VM action route maps validated requests to fixed `virsh` argument arrays and never invokes a shell. A separate privileged helper, durable approvals, and an audit log are still required before higher-impact operations can ship. BoxPilot will not provide an arbitrary root shell.
 
 ## Run for development
 
@@ -63,6 +66,8 @@ Health endpoint:
 curl http://127.0.0.1:8787/api/v1/health
 ```
 
+On Ubuntu, a native service is required for live libvirt access. Follow [QEMU/KVM setup and operation](docs/VIRTUALIZATION.md) after the base operating-system installation.
+
 ## Run with Docker
 
 ```bash
@@ -80,6 +85,8 @@ The Compose stack:
 - Uses a read-only root filesystem
 - Does not mount host directories or the Docker socket
 
+The default container is the safest preview deployment, but it cannot inspect host libvirt because it has no libvirt client or socket. Do not add `/run/libvirt` to this container. Use the documented native system service for the VM module until BoxPilot has a separate local agent.
+
 ## Private Tailscale access
 
 After BoxPilot is healthy on the Ubuntu server, publish it privately to the tailnet:
@@ -89,7 +96,7 @@ sudo tailscale serve --bg http://127.0.0.1:8787
 tailscale serve status
 ```
 
-Open the HTTPS URL shown by `tailscale serve status` from another device on the same tailnet. Keep Tailscale Funnel disabled. LAN exposure and an application authentication layer will be added before BoxPilot gains any host-changing capability.
+Open the HTTPS URL shown by `tailscale serve status` from another device on the same tailnet. Keep Tailscale Funnel disabled. The administrator token protects only allowlisted VM lifecycle requests, not the whole interface, so BoxPilot must remain loopback-only behind private Tailscale Serve.
 
 ## Validation
 
@@ -102,6 +109,7 @@ docker build -t boxpilot:local .
 
 - [Architecture and security boundaries](docs/ARCHITECTURE.md)
 - [Dependency-ordered roadmap](docs/ROADMAP.md)
+- [QEMU/KVM setup and operation](docs/VIRTUALIZATION.md)
 - [Ubuntu Server installation runbook](UBUNTU-SERVER-INSTALL-RUNBOOK.md)
 
 ## Keel Notes integration target

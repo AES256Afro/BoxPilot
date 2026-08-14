@@ -1,0 +1,204 @@
+import { useCallback, useEffect, useState } from "react";
+import {
+  fetchVirtualization,
+  formatMemory,
+  runVirtualMachineAction,
+  type DomainList,
+  type VirtualDomain,
+  type VirtualizationStatus,
+} from "./virtualization";
+
+function stateTone(state: string): string {
+  if (state === "running") return "good";
+  if (state === "stopped") return "neutral";
+  return "warning";
+}
+
+function availableActions(domain: VirtualDomain) {
+  const actions: Array<[string, string]> = [];
+  if (domain.state === "running") {
+    actions.push(
+        ["shutdown", "Shut down"],
+        ["reboot", "Reboot"],
+    );
+  } else if (domain.state === "stopped") {
+    actions.push(["start", "Start"]);
+  }
+  actions.push([
+    domain.autostart ? "autostart-off" : "autostart-on",
+    domain.autostart ? "Disable autostart" : "Enable autostart",
+  ]);
+  return actions;
+}
+
+export default function VirtualMachines() {
+  const [status, setStatus] = useState<VirtualizationStatus | null>(null);
+  const [domainList, setDomainList] = useState<DomainList | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [token, setToken] = useState("");
+  const [pending, setPending] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [nextStatus, nextDomains] = await fetchVirtualization();
+      setStatus(nextStatus);
+      setDomainList(nextDomains);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to load virtualization status");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const copySetupCommands = async () => {
+    if (!status) return;
+    try {
+      await navigator.clipboard.writeText(status.setupPlan.commands.join("\n"));
+      setMessage("Setup commands copied. Review every command in the Ubuntu console before running it.");
+    } catch {
+      setMessage("Clipboard access was unavailable. Select the commands and copy them manually.");
+    }
+  };
+
+  const performAction = async (domain: VirtualDomain, action: string, label: string) => {
+    if (!status?.actions.enabled || token.length < 32) {
+      setMessage("Enter the administrator token before requesting a VM action.");
+      return;
+    }
+    if (!window.confirm(`${label} ${domain.name}? BoxPilot will send one allowlisted libvirt operation.`)) return;
+    const operation = `${domain.name}:${action}`;
+    setPending(operation);
+    setMessage(null);
+    try {
+      await runVirtualMachineAction(domain.name, action, token);
+      setMessage(`${label} requested for ${domain.name}. Live state refreshed.`);
+      await refresh();
+    } catch (actionError) {
+      setMessage(actionError instanceof Error ? actionError.message : "VM action failed");
+    } finally {
+      setPending(null);
+    }
+  };
+
+  if (loading && !status) {
+    return <section className="vm-loading" aria-live="polite">Inspecting QEMU, KVM, and libvirt...</section>;
+  }
+
+  if (error || !status) {
+    return (
+      <section className="vm-error">
+        <strong>Virtualization status is unavailable</strong>
+        <span>{error ?? "The server did not return virtualization status."}</span>
+        <button type="button" className="secondary-button" onClick={() => void refresh()}>Try again</button>
+      </section>
+    );
+  }
+
+  const domains = domainList?.domains ?? [];
+  const firstServeUrl = status.tailscale.serveUrls[0] ?? null;
+
+  return (
+    <div className="vm-page">
+      <section className={`vm-readiness ${status.ready ? "vm-ready" : "vm-setup-required"}`}>
+        <div>
+          <span className="eyebrow">Live host inspection</span>
+          <strong>{status.ready ? "KVM host is ready" : "KVM setup needs attention"}</strong>
+          <p>{status.connectionUri} | {status.platform}/{status.architecture} | {domains.length} VM{domains.length === 1 ? "" : "s"} discovered</p>
+        </div>
+        <button type="button" className="secondary-button" onClick={() => void refresh()} disabled={loading}>
+          {loading ? "Refreshing..." : "Refresh host"}
+        </button>
+      </section>
+
+      <div className="vm-layout">
+        <section className="panel vm-domains-panel">
+          <header className="panel-header">
+            <div><strong>Virtual machines</strong><span>Live from libvirt</span></div>
+            <button type="button" className="secondary-button" disabled title="VM creation is the next guarded operation">New VM</button>
+          </header>
+
+          {!domainList?.connected ? (
+            <div className="vm-empty"><strong>libvirt is not connected</strong><p>{domainList?.error ?? "Complete the host setup checklist, then refresh."}</p></div>
+          ) : domains.length === 0 ? (
+            <div className="vm-empty"><strong>No virtual machines found</strong><p>The system connection works. Guided VM creation is the next guarded operation.</p></div>
+          ) : (
+            <div className="vm-domain-list">
+              {domains.map((domain) => (
+                <article className="vm-domain" key={domain.uuid ?? domain.name}>
+                  <div className="vm-domain-summary">
+                    <div className="vm-domain-name"><span className="vm-icon">VM</span><div><strong>{domain.name}</strong><span>{domain.vcpus} vCPU | {formatMemory(domain.memoryKiB)} | {domain.autostart ? "Autostart on" : "Autostart off"}</span></div></div>
+                    <span className={`status-pill status-${stateTone(domain.state)}`}>{domain.state}</span>
+                  </div>
+                  <div className="vm-addresses">
+                    {domain.addresses.length
+                      ? domain.addresses.map((address) => <code key={`${address.interface}-${address.address}`}>{address.address}</code>)
+                      : <span>No leased IP reported</span>}
+                  </div>
+                  <div className="vm-actions">
+                    {availableActions(domain).map(([action, label]) => (
+                      <button
+                        type="button"
+                        className="text-button"
+                        key={action}
+                        disabled={!status.actions.enabled || pending !== null || !domain.managed}
+                        onClick={() => void performAction(domain, action, label)}
+                      >
+                        {pending === `${domain.name}:${action}` ? "Working..." : label}
+                      </button>
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+
+          <div className="vm-control-lock">
+            <div><strong>{status.actions.enabled ? "Lifecycle controls available" : "Lifecycle controls locked"}</strong><span>{status.actions.reason}</span></div>
+            {status.actions.enabled && (
+              <label>
+                Administrator token
+                <input type="password" value={token} onChange={(event) => setToken(event.target.value)} autoComplete="off" placeholder="32 or more characters" />
+              </label>
+            )}
+          </div>
+        </section>
+
+        <aside className="panel vm-preflight-panel">
+          <header className="panel-header"><div><strong>Host preflight</strong><span>{status.checks.filter((check) => check.ok).length} of {status.checks.length} passed</span></div></header>
+          <div className="vm-checks">
+            {status.checks.map((check) => (
+              <div className="vm-check" key={check.id}><i className={check.ok ? "check-pass" : "check-fail"}>{check.ok ? "OK" : "!"}</i><div><strong>{check.label}</strong><span>{check.detail}</span></div></div>
+            ))}
+          </div>
+        </aside>
+      </div>
+
+      <div className="vm-bottom-grid">
+        <section className="panel vm-setup-panel">
+          <header className="panel-header"><div><strong>Guided Ubuntu setup</strong><span>Review in the physical or SSH console</span></div><button type="button" className="secondary-button" onClick={() => void copySetupCommands()}>Copy commands</button></header>
+          <ol>{status.setupPlan.commands.map((command) => <li key={command}><code>{command}</code></li>)}</ol>
+          <div className="vm-notes">{status.setupPlan.notes.map((note) => <span key={note}>{note}</span>)}</div>
+        </section>
+
+        <aside className="panel vm-access-panel">
+          <span className="eyebrow">Remote access</span>
+          <h3>Tailscale link guidance</h3>
+          {firstServeUrl
+            ? <a href={firstServeUrl}>{firstServeUrl}</a>
+            : <p>{status.tailscale.connected ? `Tailscale is connected${status.tailscale.dnsName ? ` as ${status.tailscale.dnsName}` : ""}, but no Serve HTTPS URL was reported.` : "Tailscale is not connected on this host."}</p>}
+          <p>For a service inside a VM, install Tailscale in the guest or use a bridged LAN address. A web console proxy is not enabled in this release.</p>
+        </aside>
+      </div>
+
+      {message && <p className="vm-message" aria-live="polite">{message}</p>}
+    </div>
+  );
+}
