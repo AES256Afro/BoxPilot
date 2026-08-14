@@ -10,6 +10,7 @@ import {
   type ViewName,
 } from "./data";
 import { inspectCompose, type ComposeInspection } from "./composeInspector";
+import VirtualMachines from "./VirtualMachines";
 
 type DialogName = "compose" | "change" | "backup" | "migration" | null;
 
@@ -23,6 +24,10 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
     title: "Applications",
     description: "Curated installs with port, storage, secret, health, and backup checks.",
     action: "Import Compose",
+  },
+  virtualization: {
+    title: "Virtual Machines",
+    description: "Set up QEMU/KVM, inspect libvirt, and manage guarded VM lifecycle operations.",
   },
   backups: {
     title: "Backups",
@@ -305,8 +310,8 @@ function Settings({ apiMode }: { apiMode: string }) {
     ["Private access", "Tailscale HTTPS", "Funnel disabled"],
     ["Tailscale DNS", "Override off", "Prevents DNS outage dependency"],
     ["DNS resolvers", "94.140.14.49, 94.140.14.59", "AdGuard DNS"],
-    ["Host mutation", "Disabled", "Privileged helper not installed"],
-    ["API mode", apiMode, "Read-only prototype endpoints"],
+    ["Host mutation", "VM-only when unlocked", "Token-protected libvirt allowlist"],
+    ["API mode", apiMode, "Live host inspection endpoints"],
   ];
 
   return (
@@ -332,7 +337,7 @@ function Settings({ apiMode }: { apiMode: string }) {
           <li>Approve and apply</li>
           <li>Verify or roll back</li>
         </ol>
-        <p>This release cannot run commands, install packages, edit the firewall, or access Docker.</p>
+        <p>This release can inspect libvirt and optionally run allowlisted VM lifecycle actions. Package, firewall, bridge, storage, and arbitrary command execution remain disabled.</p>
       </Panel>
     </div>
   );
@@ -378,6 +383,7 @@ function App() {
         />
       );
     }
+    if (view === "virtualization") return <VirtualMachines />;
     if (view === "backups") return <Backups />;
     if (view === "migrations") return <Migrations />;
     if (view === "logs") return <Logs />;
@@ -386,10 +392,10 @@ function App() {
 
   const runHealthCheck = () => {
     setHealthRunning(true);
-    setHealthStatus("Running six safe, read-only prototype checks...");
+    setHealthStatus("Running six safe browser checks...");
     window.setTimeout(() => {
       setHealthRunning(false);
-      setHealthStatus(`Six prototype checks passed at ${new Date().toLocaleTimeString()}. No host commands were run.`);
+      setHealthStatus(`Six browser checks passed at ${new Date().toLocaleTimeString()}. Open Virtual Machines for live host checks.`);
     }, 700);
   };
 
@@ -397,10 +403,10 @@ function App() {
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.1.0",
-      mode: "prototype",
+      version: "0.2.0",
+      mode: "host-aware",
       safeMode: true,
-      hostMutationsEnabled: false,
+      hostMutationsEnabled: "configuration-dependent-vm-actions-only",
       server: { hostname: "ubuntu-server", lanAddress: "192.168.0.10" },
       events: logRows,
     };
@@ -440,7 +446,7 @@ function App() {
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.1.0 prototype<br />Host changes disabled</div>
+        <div className="prototype-label">v0.2.0 host-aware<br />VM controls locked by default</div>
       </aside>
 
       <main>
@@ -449,7 +455,7 @@ function App() {
             <div><strong>ubuntu-server</strong><span>192.168.0.10 | tailnet address</span></div>
             <StatusPill>Online</StatusPill>
           </div>
-          <div className="topbar-right"><StatusPill tone="warning">Safe mode</StatusPill><span className="avatar">CC</span></div>
+          <div className="topbar-right"><StatusPill tone="warning">Guarded mode</StatusPill><span className="avatar">CC</span></div>
         </header>
 
         <div className="content">
@@ -487,7 +493,7 @@ function App() {
 
       {dialog === "change" && (
         <Modal title={`Review ${selectedApplication}`} onClose={() => setDialog(null)}>
-          <div className="notice warning-notice"><strong>Plan only</strong><span>The privileged helper does not exist in v0.1.0, so Apply is intentionally unavailable.</span></div>
+          <div className="notice warning-notice"><strong>Plan only</strong><span>Application installation is not enabled in v0.2.0, so Apply is intentionally unavailable.</span></div>
           <ol className="review-list">
             <li><strong>Preflight</strong><span>Check OS version, free space, network, conflicting ports, and current health.</span></li>
             <li><strong>Checkpoint</strong><span>Create a recovery point and verify its destination before changes.</span></li>

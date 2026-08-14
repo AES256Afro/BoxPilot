@@ -1,0 +1,32 @@
+[Unit]
+Description=BoxPilot local server control plane
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=boxpilot
+Group=boxpilot
+SupplementaryGroups=libvirt kvm
+WorkingDirectory=/opt/boxpilot
+EnvironmentFile=/etc/boxpilot/boxpilot.env
+ExecStart=/usr/bin/node /opt/boxpilot/server/index.mjs
+Restart=on-failure
+RestartSec=5s
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
