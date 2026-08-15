@@ -1,5 +1,7 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { chmod, copyFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { chmod, copyFile, mkdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { applicationInternals } from "./applications.mjs";
@@ -25,6 +27,17 @@ async function defaultDockerRunner(binary, args, { timeout = 120000 } = {}) {
   return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };
 }
 
+async function defaultArchiveRunner(binary, args, { timeout = 180000 } = {}) {
+  const result = await execFile(binary, args, { timeout, maxBuffer: 1024 * 1024, encoding: "utf8", env: { PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" } });
+  return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };
+}
+
+async function checksum(filePath) {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(filePath)) hash.update(chunk);
+  return hash.digest("hex");
+}
+
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -32,10 +45,14 @@ function delay(milliseconds) {
 export function createApplicationHelper({
   appRoot = process.env.BOXPILOT_APP_ROOT ?? "/var/lib/boxpilot-managed/apps",
   dockerBinary = process.env.BOXPILOT_DOCKER_BINARY ?? "/usr/bin/docker",
+  tarBinary = process.env.BOXPILOT_TAR_BINARY ?? "/usr/bin/tar",
   runDocker = defaultDockerRunner,
+  runArchive = defaultArchiveRunner,
   wait = delay,
+  clock = () => Date.now(),
 } = {}) {
   const resolvedRoot = path.resolve(appRoot);
+  const managedRoot = path.dirname(resolvedRoot);
   const appDirectory = path.join(resolvedRoot, "uptime-kuma");
   const dataDirectory = path.join(appDirectory, "data");
   const composePath = path.join(appDirectory, "compose.yaml");
@@ -74,11 +91,11 @@ export function createApplicationHelper({
     return { available: true, version: result.stdout || "available" };
   }
 
-  async function verifyHealth() {
+  async function verifyHealth(targetContainer = containerName) {
     let lastError = "Container health status did not become healthy";
     for (let attempt = 0; attempt < 30; attempt += 1) {
       try {
-        const result = await docker(["inspect", "--format", "{{.State.Health.Status}}", containerName], { timeout: 10000 });
+        const result = await docker(["inspect", "--format", "{{.State.Health.Status}}", targetContainer], { timeout: 10000 });
         if (result.stdout === "healthy") return true;
         lastError = `Container health status is ${result.stdout || "unavailable"}`;
       } catch (error) {
@@ -89,20 +106,93 @@ export function createApplicationHelper({
     throw new Error(lastError);
   }
 
+  async function backup({ backupId }) {
+    if (!/^[a-f0-9-]{36}$/.test(backupId)) throw new Error("Backup id must be a UUID");
+    const live = await inspect();
+    if (!live.installed || !live.healthy) throw new Error("Uptime Kuma must be installed and healthy before backup");
+
+    const backupDirectory = path.join(managedRoot, "backups", "uptime-kuma");
+    const archivePath = path.join(backupDirectory, `${backupId}.tar.gz`);
+    const partialPath = `${archivePath}.partial`;
+    const drillContainer = "boxpilot-uptime-kuma-restore-drill";
+    const drillDirectory = path.join(managedRoot, "restore-drills", backupId);
+    const drillData = path.join(drillDirectory, "data");
+    await mkdir(backupDirectory, { recursive: true, mode: 0o700 });
+    await stat(archivePath).then(() => { throw new Error("Backup artifact already exists"); }).catch((error) => {
+      if (error.message === "Backup artifact already exists") throw error;
+      if (error.code !== "ENOENT") throw error;
+    });
+
+    const stoppedAt = clock();
+    await docker(["stop", "--time", "30", containerName], { timeout: 45000 });
+    let archiveError = null;
+    try {
+      await runArchive(tarBinary, ["--create", "--gzip", "--file", partialPath, "--directory", appDirectory, "data", "compose.yaml"], { timeout: 180000 });
+      await chmod(partialPath, 0o600);
+      await rename(partialPath, archivePath);
+    } catch (error) {
+      archiveError = error;
+      await unlink(partialPath).catch(() => {});
+    }
+
+    let restartError = null;
+    try {
+      await docker(["start", containerName], { timeout: 30000 });
+      await verifyHealth(containerName);
+    } catch (error) {
+      restartError = error;
+    }
+    const downtimeMs = clock() - stoppedAt;
+    if (restartError) throw new Error("Backup stopped Uptime Kuma but its automatic restart verification failed; follow the recovery instructions immediately");
+    if (archiveError) throw new Error("Backup archive creation failed; Uptime Kuma was restarted and its health check passed");
+
+    const sha256 = await checksum(archivePath);
+    const archiveStat = await stat(archivePath);
+    await rm(drillDirectory, { recursive: true, force: true });
+    await mkdir(drillDirectory, { recursive: true, mode: 0o700 });
+    let restoreVerified = false;
+    try {
+      await runArchive(tarBinary, ["--extract", "--gzip", "--file", archivePath, "--directory", drillDirectory, "--no-same-owner", "--no-same-permissions"], { timeout: 180000 });
+      await docker(["rm", "--force", drillContainer], { timeout: 30000 }).catch(() => {});
+      await docker([
+        "run", "--detach", "--name", drillContainer, "--network", "none",
+        "--volume", `${drillData}:/app/data`, applicationInternals.uptimeKumaImage,
+      ], { timeout: 180000 });
+      await verifyHealth(drillContainer);
+      restoreVerified = true;
+    } finally {
+      await docker(["rm", "--force", drillContainer], { timeout: 30000 }).catch(() => {});
+      await rm(drillDirectory, { recursive: true, force: true });
+    }
+    if (!restoreVerified) throw new Error("Backup artifact was created but its isolated restore drill failed");
+
+    return {
+      backupId,
+      applicationId: "uptime-kuma",
+      destination: "local-managed",
+      artifactPath: archivePath,
+      checksumSha256: sha256,
+      sizeBytes: archiveStat.size,
+      downtimeMs,
+      sourceRestartVerified: true,
+      restoreDrill: { passed: true, network: "none", publishedPorts: 0, image: applicationInternals.uptimeKumaImage },
+    };
+  }
+
   async function deploy({ hostPort }) {
     await docker(["version", "--format", "{{.Server.Version}}"], { timeout: 5000 });
-    await mkdir(dataDirectory, { recursive: true, mode: 0o750 });
+    await mkdir(dataDirectory, { recursive: true, mode: 0o700 });
     let previous = null;
     try {
       previous = await readFile(composePath, "utf8");
       await copyFile(composePath, previousPath);
-      await chmod(previousPath, 0o640);
+      await chmod(previousPath, 0o600);
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
 
     const temporaryPath = path.join(appDirectory, `.compose-${process.pid}.tmp`);
-    await writeFile(temporaryPath, composeDefinition(hostPort), { encoding: "utf8", mode: 0o640, flag: "wx" });
+    await writeFile(temporaryPath, composeDefinition(hostPort), { encoding: "utf8", mode: 0o600, flag: "wx" });
     await rename(temporaryPath, composePath);
     try {
       await docker(["compose", "--project-name", containerName, "--file", composePath, "up", "--detach", "--remove-orphans"], { timeout: 180000 });
@@ -137,7 +227,7 @@ export function createApplicationHelper({
     }
   }
 
-  return { appDirectory, composePath, inspectDocker, inspect, deploy };
+  return { appDirectory, composePath, inspectDocker, inspect, deploy, backup };
 }
 
 export const applicationHelperInternals = { composeDefinition, containerName };
