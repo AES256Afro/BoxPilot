@@ -19,7 +19,7 @@ async function authRequest(path: string, body?: Record<string, string>): Promise
   } : undefined);
   const result = await response.json() as AuthStatus & { error?: string };
   if (!response.ok) throw new Error(result.error ?? "Authentication request failed");
-  return { ...result, bootstrapRequired: false };
+  return result;
 }
 
 export function fetchAuthStatus(): Promise<AuthStatus> {
@@ -27,11 +27,13 @@ export function fetchAuthStatus(): Promise<AuthStatus> {
 }
 
 export function bootstrapOwner(username: string, password: string, bootstrapToken: string): Promise<AuthStatus> {
-  return authRequest("/api/v1/auth/bootstrap", { username, password, bootstrapToken });
+  return authRequest("/api/v1/auth/bootstrap", { username, password, bootstrapToken })
+    .then((result) => ({ ...result, bootstrapRequired: false }));
 }
 
 export function loginOwner(username: string, password: string): Promise<AuthStatus> {
-  return authRequest("/api/v1/auth/login", { username, password });
+  return authRequest("/api/v1/auth/login", { username, password })
+    .then((result) => ({ ...result, bootstrapRequired: false }));
 }
 
 export async function logoutOwner(csrfToken: string): Promise<void> {
