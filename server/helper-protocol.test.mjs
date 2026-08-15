@@ -43,6 +43,17 @@ function recoveryParameters(overrides = {}) {
   };
 }
 
+function retentionParameters(overrides = {}) {
+  return {
+    retentionId: "77777777-7777-4777-8777-777777777777",
+    repositoryId: "a".repeat(64),
+    expectedDestinationRevision: "b".repeat(64),
+    expectedSnapshotSetRevision: "c".repeat(64),
+    forgetSnapshotIds: ["d".repeat(64)],
+    ...overrides,
+  };
+}
+
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
@@ -159,6 +170,20 @@ describe("restricted helper protocol", () => {
     };
     await expect(executeHelperOperation(request({ operation: "virtualization.export.backup.inspect", parameters: {} }), { vmProtection })).resolves.toMatchObject({ ok: true, result: { ready: true, encrypted: true } });
     await expect(executeHelperOperation(request({ operation: "virtualization.export.backup.create", parameters: protectionParameters() }), { vmProtection })).resolves.toMatchObject({ ok: true, result: { created: true, protected: false } });
+  });
+
+  it("accepts only exact retention evidence and never accepts paths, passwords, selectors, or prune flags", async () => {
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.retention.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.retention.inspect", parameters: { repository: "/tmp" } }))).toContain("accepts no parameters");
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.retention.apply", parameters: retentionParameters() }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.retention.apply", parameters: retentionParameters({ prune: true }) }))).toContain("only the fixed typed evidence fields");
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.retention.apply", parameters: retentionParameters({ forgetSnapshotIds: ["latest"] }) }))).toContain("exact SHA-256 id");
+    const vmRetention = {
+      inspect: async () => ({ ready: true, snapshots: [] }),
+      apply: async (parameters) => ({ applied: true, retentionId: parameters.retentionId, forgottenSnapshotIds: parameters.forgetSnapshotIds, prunePerformed: false }),
+    };
+    await expect(executeHelperOperation(request({ operation: "virtualization.export.backup.retention.inspect", parameters: {} }), { vmRetention })).resolves.toMatchObject({ ok: true, result: { ready: true } });
+    await expect(executeHelperOperation(request({ operation: "virtualization.export.backup.retention.apply", parameters: retentionParameters() }), { vmRetention })).resolves.toMatchObject({ ok: true, result: { applied: true, prunePerformed: false } });
   });
 
   it("accepts only exact restore evidence and delegates fixed no-network drill handling", async () => {

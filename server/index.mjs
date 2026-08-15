@@ -19,6 +19,7 @@ import { createVmLifecycleService } from "./vm-lifecycle.mjs";
 import { createVmPlanner, validateVmPlanInput } from "./vm-plan.mjs";
 import { createVmProtectionService } from "./vm-protection.mjs";
 import { createVmRecoveryService } from "./vm-recovery.mjs";
+import { createVmRetentionService } from "./vm-retention.mjs";
 import { createVmRestoreDrillService } from "./vm-restore-drill.mjs";
 import { createVmSnapshotService } from "./vm-snapshot.mjs";
 
@@ -47,6 +48,7 @@ const vmLifecycle = createVmLifecycleService({ store: state, libvirt });
 const vmSnapshots = createVmSnapshotService({ store: state, libvirt });
 const vmProtection = createVmProtectionService({ store: state, helper });
 const vmRecoveries = createVmRecoveryService({ store: state, helper });
+const vmRetention = createVmRetentionService({ store: state, helper });
 const vmRestoreDrills = createVmRestoreDrillService({ store: state, helper });
 const jobs = createJobService(state, helper, {
   validateApplicationJob: applications.validateJob,
@@ -57,6 +59,8 @@ const jobs = createJobService(state, helper, {
   recordVmExportResult: vmExports.recordResult,
   validateVmProtectionJob: vmProtection.validateJob,
   recordVmProtectionResult: vmProtection.recordResult,
+  validateVmRetentionJob: vmRetention.validateJob,
+  recordVmRetentionResult: vmRetention.recordResult,
   validateVmRestoreDrillJob: vmRestoreDrills.validateJob,
   recordVmRestoreDrillResult: vmRestoreDrills.recordResult,
   validateVmRecoveryJob: vmRecoveries.validateJob,
@@ -86,7 +90,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.15.0",
+    version: "0.16.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -116,18 +120,18 @@ app.get("/api/v1/capabilities", (_request, response) => {
     composeInspection: "browser-only",
     applications: "curated-plans-and-uptime-kuma-adapter",
     supportBundle: "browser-only",
-    backups: "uptime-kuma-local-restore-drill-and-vm-independent-restic-copy-with-isolated-boot-validation-and-recovery-clones",
+    backups: "uptime-kuma-local-restore-drill-and-vm-independent-restic-copy-with-isolated-boot-validation-recovery-clones-and-guarded-retention",
     migrations: "read-only-sanitized-manifests-and-compatibility-plans",
-    privilegedHelper: "typed-canary-applications-backups-inventory-logs-vm-creation-lifecycle-snapshots-exports-mounted-restic-isolated-restore-drills-and-recovery-clones",
+    privilegedHelper: "typed-canary-applications-backups-inventory-logs-vm-creation-lifecycle-snapshots-exports-mounted-restic-isolated-restore-drills-recovery-clones-and-retention",
     identity: "owner-password-foundation",
-    durableJobs: "sqlite-approved-application-backup-vm-creation-lifecycle-snapshot-export-protection-restore-drill-and-recovery-workflows",
+    durableJobs: "sqlite-approved-application-backup-vm-creation-lifecycle-snapshot-export-protection-restore-drill-recovery-and-retention-workflows",
     virtualization: "live-libvirt-via-restricted-helper",
     vmCreationPlanning: "validated-durable-approved",
     audit: "redacted-jsonl-foundation",
     vmActions: { enabled: true, mode: "durable-approved-helper-jobs" },
     vmSnapshots: { create: "offline-stopped-managed-qcow2-only", revert: false, delete: false, countsAsBackup: false },
     vmExports: { create: "offline-stopped-managed-qcow2-only", destination: "local-managed", integrityVerified: true, encrypted: false, protectedBackup: false, restoreDrill: false },
-    vmProtection: { destination: "fixed-independent-mounted-restic", encrypted: true, repositoryReadVerified: true, isolatedRestoreDrill: "transient-no-network-guest-agent", protectedBackup: "after-passing-restore-drill", retentionMutation: false },
+    vmProtection: { destination: "fixed-independent-mounted-restic", encrypted: true, repositoryReadVerified: true, isolatedRestoreDrill: "transient-no-network-guest-agent", protectedBackup: "after-passing-restore-drill", retentionMutation: "exact-protected-old-snapshot-forget-without-prune" },
     vmRecovery: { create: "protected-snapshot-to-new-stopped-persistent-domain", network: "none", autostart: false, inPlaceRestore: false, sourceDeletion: false },
     vmConsole: { nativeProxy: false, cockpitHandoff: "detect-existing-only" },
   });
@@ -240,7 +244,7 @@ app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = ["virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
+    const background = ["virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, request.body?.password)
       : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
@@ -415,6 +419,33 @@ app.post("/api/v1/virtualization/protection-plans/:id/stage", async (request, re
   }
 });
 
+app.get("/api/v1/virtualization/retention", async (_request, response) => {
+  try {
+    response.json(await vmRetention.inspect());
+  } catch (error) {
+    response.status(503).json({ error: error.message, code: "vm_retention_inspection_failed" });
+  }
+});
+
+app.post("/api/v1/virtualization/retention-plans", async (request, response) => {
+  try {
+    const plan = await vmRetention.plan(request.boxpilotSession.owner.id);
+    response.status(201).json({ plan });
+  } catch (error) {
+    response.status(503).json({ error: error.message, code: "vm_retention_plan_failed" });
+  }
+});
+
+app.post("/api/v1/virtualization/retention-plans/:id/stage", async (request, response) => {
+  try {
+    const job = await vmRetention.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
+    response.status(201).json({ job });
+  } catch (error) {
+    const status = error.message.includes("not found") ? 404 : error.message.includes("unavailable") ? 503 : 409;
+    response.status(status).json({ error: error.message, code: "vm_retention_stage_failed" });
+  }
+});
+
 app.post("/api/v1/virtualization/backups/:id/restore-drill-plans", async (request, response) => {
   try {
     const plan = await vmRestoreDrills.plan(request.params.id, request.boxpilotSession.owner.id);
@@ -474,7 +505,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.15.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.16.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

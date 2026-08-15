@@ -177,6 +177,29 @@ export function createStateStore({
       created_by TEXT NOT NULL REFERENCES owners(id),
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS vm_retention_runs (
+      id TEXT PRIMARY KEY,
+      repository_id TEXT NOT NULL,
+      before_snapshot_revision TEXT NOT NULL,
+      after_snapshot_revision TEXT,
+      before_count INTEGER NOT NULL,
+      after_count INTEGER,
+      forgotten_json TEXT NOT NULL,
+      kept_snapshot_ids_json TEXT NOT NULL,
+      repository_verified INTEGER NOT NULL,
+      complete INTEGER NOT NULL,
+      prune_performed INTEGER NOT NULL,
+      verification_json TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS vm_retention_members (
+      run_id TEXT NOT NULL REFERENCES vm_retention_runs(id),
+      backup_id TEXT NOT NULL UNIQUE REFERENCES vm_backups(id),
+      snapshot_id TEXT NOT NULL UNIQUE,
+      forgotten_at TEXT NOT NULL,
+      PRIMARY KEY (run_id, backup_id)
+    );
     CREATE TABLE IF NOT EXISTS migration_sources (
       id TEXT PRIMARY KEY,
       fingerprint TEXT NOT NULL UNIQUE,
@@ -199,6 +222,7 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_vm_exports_created_at ON vm_exports(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_vm_backups_created_at ON vm_backups(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_vm_recoveries_created_at ON vm_recoveries(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_vm_retention_runs_created_at ON vm_retention_runs(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_migration_sources_imported_at ON migration_sources(imported_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_events(created_at DESC);
   `);
@@ -411,6 +435,10 @@ export function createStateStore({
     return database.prepare("SELECT id FROM jobs ORDER BY created_at DESC LIMIT ?").all(safeLimit).map((row) => getJob(row.id));
   }
 
+  function listActiveJobs() {
+    return database.prepare("SELECT id FROM jobs WHERE state IN ('applying', 'verifying') ORDER BY created_at").all().map((row) => getJob(row.id));
+  }
+
   function recordBackup({ id, applicationId, destination, artifactPath, checksumSha256, sizeBytes, downtimeMs, restoreDrill, createdBy }) {
     const at = timestamp();
     database.prepare(`
@@ -499,6 +527,8 @@ export function createStateStore({
       repositoryVerified: Boolean(row.repository_verified),
       protected: Boolean(row.protected),
       restoreDrill: parseJson(row.restore_drill_json),
+      retained: row.retention_run_id == null,
+      retention: row.retention_run_id == null ? null : { runId: row.retention_run_id, forgottenAt: row.forgotten_at },
       createdBy: row.created_by,
       createdAt: row.created_at,
     } : null;
@@ -506,11 +536,27 @@ export function createStateStore({
 
   function listVmBackups(limit = 50) {
     const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
-    return database.prepare("SELECT * FROM vm_backups ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapVmBackup);
+    return database.prepare(`
+      SELECT vm_backups.*, vm_retention_members.run_id AS retention_run_id, vm_retention_members.forgotten_at
+      FROM vm_backups LEFT JOIN vm_retention_members ON vm_retention_members.backup_id = vm_backups.id
+      ORDER BY vm_backups.created_at DESC LIMIT ?
+    `).all(safeLimit).map(mapVmBackup);
+  }
+
+  function listAllVmBackups() {
+    return database.prepare(`
+      SELECT vm_backups.*, vm_retention_members.run_id AS retention_run_id, vm_retention_members.forgotten_at
+      FROM vm_backups LEFT JOIN vm_retention_members ON vm_retention_members.backup_id = vm_backups.id
+      ORDER BY vm_backups.created_at DESC
+    `).all().map(mapVmBackup);
   }
 
   function getVmBackup(id) {
-    return mapVmBackup(database.prepare("SELECT * FROM vm_backups WHERE id = ?").get(id));
+    return mapVmBackup(database.prepare(`
+      SELECT vm_backups.*, vm_retention_members.run_id AS retention_run_id, vm_retention_members.forgotten_at
+      FROM vm_backups LEFT JOIN vm_retention_members ON vm_retention_members.backup_id = vm_backups.id
+      WHERE vm_backups.id = ?
+    `).get(id));
   }
 
   function recordVmRestoreDrill({ backupId, restoreDrill, createdBy }) {
@@ -582,6 +628,67 @@ export function createStateStore({
     return database.prepare("SELECT * FROM vm_recoveries ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapVmRecovery);
   }
 
+  function listAllVmRecoveries() {
+    return database.prepare("SELECT * FROM vm_recoveries ORDER BY created_at DESC").all().map(mapVmRecovery);
+  }
+
+  function mapVmRetentionRun(row) {
+    return row ? {
+      id: row.id,
+      repositoryId: row.repository_id,
+      beforeSnapshotSetRevision: row.before_snapshot_revision,
+      afterSnapshotSetRevision: row.after_snapshot_revision,
+      beforeCount: Number(row.before_count),
+      afterCount: row.after_count == null ? null : Number(row.after_count),
+      forgotten: parseJson(row.forgotten_json, []),
+      keptSnapshotIds: parseJson(row.kept_snapshot_ids_json, []),
+      repositoryVerified: Boolean(row.repository_verified),
+      complete: Boolean(row.complete),
+      prunePerformed: Boolean(row.prune_performed),
+      verification: parseJson(row.verification_json, []),
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+    } : null;
+  }
+
+  function recordVmRetention({ id, repositoryId, beforeSnapshotSetRevision, afterSnapshotSetRevision, beforeCount, afterCount, forgotten, keptSnapshotIds, repositoryVerified, complete = repositoryVerified, prunePerformed, verification = [], createdBy }) {
+    const at = timestamp();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      if (!Array.isArray(forgotten) || forgotten.length < 1) throw new Error("A retention run must identify forgotten backups");
+      database.prepare(`
+        INSERT INTO vm_retention_runs (id, repository_id, before_snapshot_revision, after_snapshot_revision, before_count, after_count, forgotten_json, kept_snapshot_ids_json, repository_verified, complete, prune_performed, verification_json, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, repositoryId, beforeSnapshotSetRevision, afterSnapshotSetRevision ?? null, beforeCount, afterCount ?? null, json(forgotten), json(keptSnapshotIds), repositoryVerified ? 1 : 0, complete ? 1 : 0, prunePerformed ? 1 : 0, json(verification), createdBy, at);
+      for (const item of forgotten) {
+        const backup = database.prepare("SELECT snapshot_id FROM vm_backups WHERE id = ?").get(item.backupId);
+        if (!backup || backup.snapshot_id !== item.snapshotId) throw new Error("Retention evidence does not match a recorded VM backup");
+        database.prepare("INSERT INTO vm_retention_members (run_id, backup_id, snapshot_id, forgotten_at) VALUES (?, ?, ?, ?)")
+          .run(id, item.backupId, item.snapshotId, at);
+      }
+      recordAudit("vm.retention.applied", { actorId: createdBy, subjectId: id, details: { repositoryId, beforeCount, afterCount, forgottenCount: forgotten.length, repositoryVerified, complete, prunePerformed, verification } });
+      const run = getVmRetentionRun(id);
+      database.exec("COMMIT");
+      return run;
+    } catch (error) {
+      try {
+        database.exec("ROLLBACK");
+      } catch {
+        // Preserve the original evidence-write error if SQLite already ended the transaction.
+      }
+      throw error;
+    }
+  }
+
+  function getVmRetentionRun(id) {
+    return mapVmRetentionRun(database.prepare("SELECT * FROM vm_retention_runs WHERE id = ?").get(id));
+  }
+
+  function listVmRetentionRuns(limit = 50) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    return database.prepare("SELECT * FROM vm_retention_runs ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapVmRetentionRun);
+  }
+
   function importMigrationSource({ fingerprint, manifest, importedBy }) {
     const existing = database.prepare("SELECT id FROM migration_sources WHERE fingerprint = ?").get(fingerprint);
     if (existing) return getMigrationSource(existing.id);
@@ -638,6 +745,7 @@ export function createStateStore({
     transitionJob,
     getJob,
     listJobs,
+    listActiveJobs,
     recordBackup,
     listBackups,
     recordVmExport,
@@ -645,11 +753,16 @@ export function createStateStore({
     getVmExport,
     recordVmBackup,
     listVmBackups,
+    listAllVmBackups,
     getVmBackup,
     recordVmRestoreDrill,
     recordVmRecovery,
     getVmRecovery,
     listVmRecoveries,
+    listAllVmRecoveries,
+    recordVmRetention,
+    getVmRetentionRun,
+    listVmRetentionRuns,
     importMigrationSource,
     getMigrationSource,
     listMigrationSources,

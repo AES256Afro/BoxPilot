@@ -7,10 +7,11 @@ import { validateVmLifecycleInput } from "./vm-lifecycle.mjs";
 import { validateVmSnapshotInput } from "./vm-snapshot.mjs";
 import { createVmProtectionHelper, validateVmProtectionInput } from "./vm-protection-helper.mjs";
 import { createVmRecoveryHelper, validateVmRecoveryInput } from "./vm-recovery-helper.mjs";
+import { createVmRetentionHelper, validateVmRetentionInput } from "./vm-retention-helper.mjs";
 import { createVmRestoreDrillHelper, validateVmRestoreDrillInput } from "./vm-restore-drill-helper.mjs";
 
 export const helperProtocolVersion = 1;
-export const helperOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
+export const helperOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
 const vmCreationKeys = ["autostart", "diskGiB", "firmware", "isoFile", "memoryMiB", "name", "network", "osProfile", "vcpus"];
 const vmLifecycleKeys = ["action", "expectedAutostart", "expectedState", "name"];
 const vmSnapshotKeys = ["expectedDiskRevision", "expectedSnapshotRevision", "expectedState", "expectedUuid", "name", "snapshotName"];
@@ -18,6 +19,7 @@ const vmExportKeys = ["expectedDiskRevision", "expectedSnapshotRevision", "expec
 const vmProtectionKeys = ["backupId", "domainName", "domainUuid", "expectedDestinationRevision", "expectedManifestChecksumSha256", "expectedSizeBytes", "exportId"];
 const vmRestoreDrillKeys = ["backupId", "domainName", "domainUuid", "drillId", "expectedDestinationRevision", "expectedManifestChecksumSha256", "expectedSizeBytes", "exportId", "repositoryId", "snapshotId"];
 const vmRecoveryKeys = ["backupId", "expectedDestinationRevision", "expectedManifestChecksumSha256", "expectedSizeBytes", "exportId", "repositoryId", "restoreDrillId", "restoreId", "snapshotId", "sourceDomainName", "sourceDomainUuid", "targetDomainName"];
+const vmRetentionKeys = ["expectedDestinationRevision", "expectedSnapshotSetRevision", "forgetSnapshotIds", "repositoryId", "retentionId"];
 
 export function validateHelperRequest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "Request must be an object";
@@ -77,6 +79,13 @@ export function validateHelperRequest(value) {
     const errors = validateVmProtectionInput(value.parameters);
     if (errors.length) return `Invalid VM protection plan: ${errors.join(" | ")}`;
   }
+  if (value.operation === "virtualization.export.backup.retention.inspect" && Object.keys(value.parameters).length !== 0) return "VM retention inspection accepts no parameters";
+  if (value.operation === "virtualization.export.backup.retention.apply") {
+    const keys = Object.keys(value.parameters).sort();
+    if (keys.length !== vmRetentionKeys.length || keys.some((key, index) => key !== vmRetentionKeys[index])) return "VM retention accepts only the fixed typed evidence fields";
+    const errors = validateVmRetentionInput(value.parameters);
+    if (errors.length) return `Invalid VM retention plan: ${errors.join(" | ")}`;
+  }
   if (["virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill"].includes(value.operation)) {
     const keys = Object.keys(value.parameters).sort();
     if (keys.length !== vmRestoreDrillKeys.length || keys.some((key, index) => key !== vmRestoreDrillKeys[index])) return "VM restore drills accept only the fixed typed evidence fields";
@@ -104,7 +113,7 @@ export function validateHelperRequest(value) {
   return null;
 }
 
-export async function executeHelperOperation(request, { applications = createApplicationHelper(), virtualization = createVmHelper(), vmProtection = createVmProtectionHelper(), vmRestoreDrill = createVmRestoreDrillHelper(), vmRecovery = createVmRecoveryHelper() } = {}) {
+export async function executeHelperOperation(request, { applications = createApplicationHelper(), virtualization = createVmHelper(), vmProtection = createVmProtectionHelper(), vmRetention = createVmRetentionHelper(), vmRestoreDrill = createVmRestoreDrillHelper(), vmRecovery = createVmRecoveryHelper() } = {}) {
   const error = validateHelperRequest(request);
   if (error) return { version: helperProtocolVersion, id: request?.id ?? null, ok: false, error, code: "invalid_request" };
   if (request.operation === "canary.verify") {
@@ -112,7 +121,7 @@ export async function executeHelperOperation(request, { applications = createApp
       version: helperProtocolVersion,
       id: request.id,
       ok: true,
-      result: { verified: true, helperVersion: "0.11.0", mutationPerformed: false },
+      result: { verified: true, helperVersion: "0.12.0", mutationPerformed: false },
     };
   }
   if (request.operation === "container.docker.inspect") {
@@ -150,6 +159,12 @@ export async function executeHelperOperation(request, { applications = createApp
   }
   if (request.operation === "virtualization.export.backup.create") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await vmProtection.createBackup(request.parameters) };
+  }
+  if (request.operation === "virtualization.export.backup.retention.inspect") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await vmRetention.inspect() };
+  }
+  if (request.operation === "virtualization.export.backup.retention.apply") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await vmRetention.apply(request.parameters) };
   }
   if (request.operation === "virtualization.export.backup.restore-drill.inspect") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await vmRestoreDrill.inspect(request.parameters) };

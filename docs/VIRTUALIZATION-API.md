@@ -1,6 +1,6 @@
 # Virtualization API
 
-The BoxPilot `v1` virtualization API is loopback-only by default. Tailscale Serve may proxy it privately, but it is not an internet API. Version `0.15.0` requires an authenticated owner session for virtualization routes and a CSRF token for POST requests. Network privacy remains mandatory.
+The BoxPilot `v1` virtualization API is loopback-only by default. Tailscale Serve may proxy it privately, but it is not an internet API. Version `0.16.0` requires an authenticated owner session for virtualization routes and a CSRF token for POST requests. Network privacy remains mandatory.
 
 All API responses use JSON and send `Cache-Control: no-store`.
 
@@ -234,7 +234,7 @@ GET /api/v1/virtualization/protection
 
 The response contains one fixed `mounted-restic` destination inspection and durable completed-copy records. Destination evidence includes readiness, restic version, exact mount metadata, independent-filesystem status, repository id, destination revision, free bytes, structured blockers, and the fixed terminal setup command. It never returns the repository password or password-file contents.
 
-Completed records contain the server-generated backup id, source export id, domain identity, repository and snapshot ids, size, encryption, independence, full repository-read verification, restore-drill evidence, and protection state. A new copy reports `protected: false` and `restoreDrill.passed: false`. Version `0.14.0` changes only that exact record to `protected: true` after strict passing restore-drill evidence is committed.
+Completed records contain the server-generated backup id, source export id, domain identity, repository and snapshot ids, size, encryption, independence, full repository-read verification, restore-drill evidence, protection state, retained state, and optional retention-run reference. A new copy reports `protected: false`, `restoreDrill.passed: false`, and `retained: true`. Version `0.14.0` changes only that exact record to `protected: true` after strict passing restore-drill evidence is committed. Version `0.16.0` preserves a forgotten record but changes its derived retained state to false after exact retention evidence is committed.
 
 ## Create an encrypted independent-copy plan
 
@@ -264,7 +264,47 @@ Body:
 
 Staging and password approval recheck the local export evidence, exact repository identity, independent mount identity, and capacity. The approved operation runs in the background with a twelve-hour typed-operation timeout. Helper mutations remain serialized.
 
-The helper rehashes the local manifest and all files, creates one tagged restic snapshot, requires an exact JSON summary, performs a full-repository `check --read-data`, and reads back the exact snapshot path and tags. The full check is compatible with Ubuntu 26.04's restic 0.18.1 package and can become slower as the repository grows. It cannot invoke `forget`, `prune`, repository deletion, an operator-selected destination, or an operator-selected restore. Failure never changes the local export and never automatically deletes repository data.
+The helper rehashes the local manifest and all files, creates one tagged restic snapshot, requires an exact JSON summary, performs a full-repository `check --read-data`, and reads back the exact snapshot path and tags. The full check is compatible with Ubuntu 26.04's restic 0.18.1 package and can become slower as the repository grows. This operation cannot invoke `forget`, `prune`, repository deletion, an operator-selected destination, or an operator-selected restore. Failure never changes the local export and never automatically deletes repository data.
+
+## Inspect guarded VM retention
+
+```text
+GET /api/v1/virtualization/retention
+```
+
+The response contains the fixed policy, exact currently eligible candidates, keep reasons, repository snapshot count, blockers, warnings, verification requirements, and completed retention runs. The fixed policy keeps three active copies per domain UUID, every copy under 30 days old, every copy without passing restore-drill evidence, and every backup referenced by a recovery clone. Unattributed or missing repository evidence blocks execution.
+
+## Create a guarded VM retention plan
+
+```text
+POST /api/v1/virtualization/retention-plans
+Content-Type: application/json
+X-BoxPilot-CSRF: <session CSRF token>
+```
+
+The body is empty. The immutable input contains a server-generated retention id, exact repository id, destination revision, complete BoxPilot-tagged snapshot-set revision, and one to 100 sorted full snapshot ids. The output lists exact durable backup candidates, every keep reason, changes, warnings, verification, and no-prune recovery boundary.
+
+The browser cannot select a repository, path, password, tag, age, count, keep rule, snapshot selector such as `latest`, restic binary, arbitrary argument, or prune behavior.
+
+## Stage a guarded VM retention job
+
+```text
+POST /api/v1/virtualization/retention-plans/:id/stage
+Content-Type: application/json
+X-BoxPilot-CSRF: <session CSRF token>
+```
+
+Body:
+
+```json
+{ "revision": "immutable-plan-revision" }
+```
+
+Staging and high-risk password approval recompute the policy and require the exact same candidates, repository identity, destination revision, snapshot-set revision, protection evidence, ages, minimum-copy floors, and recovery references. The background helper forgets only the approved full ids and never runs prune. It then runs `restic check --read-data`, proves every selected id absent and every noncandidate id present, and atomically records the run plus forgotten-record relationships.
+
+The response does not claim reclaimed bytes. `prunePerformed` and `spaceReclaimed` are both false. Forgotten records cannot be used for a new restore drill or recovery clone.
+
+If a full or partial forget is confirmed but subsequent repository verification fails, Operations Core records the confirmed forgotten ids before marking the job failed. The retention run reports `repositoryVerified: false`, `complete` for the requested forget set, and bounded verification reason codes. Clients must treat every recorded member as unavailable regardless of the job's terminal state.
 
 ## Create an isolated restore-drill plan
 
@@ -353,4 +393,5 @@ An agent integrating with BoxPilot should:
 7. Explain when a guest address is unknown rather than inventing one.
 8. Treat a local VM export and a repository-verified encrypted copy as unprotected until the API reports a passed isolated restore drill.
 9. Treat a recovery clone as isolated and non-production until an operator separately inspects and starts it. Never infer that network attachment is available.
-10. Keep bridge, passthrough, storage, online snapshot, snapshot revert/delete, in-place restore, recovery network attachment, and force-off operations unavailable until their capability appears explicitly.
+10. Treat `retained: false` as historical evidence, not a usable snapshot, and never offer restore or recovery from it.
+11. Keep bridge, passthrough, storage, online snapshot, snapshot revert/delete, in-place restore, recovery network attachment, restic prune, and force-off operations unavailable until their capability appears explicitly.

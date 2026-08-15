@@ -12,5 +12,6 @@ These images are captured from the local `0.3.0` build. Each caption in the repo
 - `vm-protection-approval-mock.png`: explicitly disclosed `0.13.0` encrypted independent-copy mock rendered from `docs/mockups/vm-protection-approval.html`; no VM, export, repository, or disk was changed, and the mock states that isolated restore validation remains pending
 - `vm-restore-drill-approval-mock.png`: explicitly disclosed `0.14.0` isolated no-network VM restore-drill mock rendered from `docs/mockups/vm-restore-drill-approval.html`; no snapshot was restored and no VM was booted
 - `vm-recovery-approval-mock.png`: explicitly disclosed `0.15.0` guarded recovery-clone mock rendered from `docs/mockups/vm-recovery-approval.html`; no snapshot was restored and no recovery VM was defined
+- `vm-retention-approval-mock.png`: explicitly disclosed `0.16.0` exact no-prune retention mock rendered from `docs/mockups/vm-retention-approval.html`; no restic snapshot was forgotten or pruned
 
 Do not crop out the data-source notice when replacing these screenshots. It is part of the product's capability disclosure.
