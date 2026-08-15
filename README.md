@@ -4,11 +4,11 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.7.0` replaces the demonstration overview and limited log page with authenticated live inventory. It reports host resources, selected systemd units, LAN addresses, Tailscale self-state, sanitized Docker resources, and fixed redacted journal sources. Docker labels, commands, mount paths, environment values, Tailscale peers, arbitrary journal units, and arbitrary journal arguments are excluded. The application, backup, Operations Core, and QEMU/KVM modules remain live on native Linux.
+Version `0.8.0` adds read-only migration source manifests and destination compatibility plans. A source BoxPilot node exports only the bounded sanitized inventory contract. The destination reconstructs the allowed fields, verifies the SHA-256 fingerprint, stores an attributable source snapshot, and detects architecture, container-name, and published-port conflicts. No SSH credential, source write, data transfer, route cutover, or deletion operation exists yet.
 
 ### What works now
 
-| Area | Status in `0.7.0` | Capability |
+| Area | Status in `0.8.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
@@ -21,6 +21,7 @@ Version `0.7.0` replaces the demonstration overview and limited log page with au
 | Uptime Kuma adapter | Executable deployment | Uses the official `2.5.0` image pinned by multi-platform digest, a loopback-only port, local persistent storage, Docker health, approval, and data-preserving rollback. The catalog shows whether restore-verified backup evidence exists. |
 | Pi-hole adapter | Planning-only | Models Docker and dedicated-VM targets, TCP and UDP DNS ports, persistent configuration, Flint 2 AdGuard Home conflicts, router cutover, second-device verification, and recovery. It cannot execute. |
 | Backup engine | One live application adapter | Creates immutable local Uptime Kuma archives after a clean stop, verifies source restart, records SHA-256 and measured downtime, and runs a temporary restore container with no network or published ports. |
+| Migration Center | Read-only manifest discovery | Exports fingerprinted sanitized source manifests, validates and durably imports them, and creates immutable destination compatibility plans. Transfer and cutover are locked. |
 | QEMU/KVM preflight | Live on the native host | Checks Linux, `/dev/kvm`, QEMU, `virsh`, `virt-install`, `qemu:///system`, service-user groups, the default NAT network, the default storage pool, and Tailscale access. |
 | VM and libvirt inventory | Live on the native host | Lists domains, state, CPU, memory, autostart, lease-reported addresses, disks, interfaces, snapshot count, networks, and storage pools. |
 | VM creation planner | Validated read-only | Discovers regular ISO files in one managed directory, validates fields on the server, checks name collisions and reported pool space, and renders a non-executing `virt-install` argument preview. |
@@ -28,7 +29,7 @@ Version `0.7.0` replaces the demonstration overview and limited log page with au
 | VM event log | Limited live foundation | Writes and displays redacted JSONL events for VM plans and enabled lifecycle requests. It is not the final authenticated job ledger. |
 | Compose inspector | Browser-only preview | Performs a lightweight structural and risk scan. It is not a full YAML parser and cannot deploy. |
 | Support bundle | Browser-generated preview | Downloads release metadata and available redacted VM audit events. It is not yet a general host support bundle. |
-| Migrations and settings | UI demonstration | Shows the intended operator workflow using sample data. These pages do not collect or change host state. |
+| Settings | UI demonstration | Shows the intended operator workflow using sample data. This page does not collect or change host state. |
 | Docker deployment | Safe preview | Runs loopback-only without capabilities, host mounts, or the Docker socket. This container cannot inspect host libvirt. |
 
 The repository also includes a read-only Ubuntu deployment doctor and a USB-to-headless installation runbook.
@@ -37,7 +38,7 @@ The repository also includes a read-only Ubuntu deployment doctor and a USB-to-h
 
 - VM plan application, VM creation, delete, force-off, console, snapshot mutation, bridge creation, passthrough, backup, restore, export, or migration
 - General Docker mutation, custom Compose deployment, additional application installation, package updates, firewall changes, storage changes, or arbitrary command execution
-- Backup schedules, retention, NAS/restic/cloud destinations, Keel Notes export, source-server discovery, transfer, or migration cutover
+- Backup schedules, retention, NAS/restic/cloud destinations, Keel Notes export, SSH source discovery, resumable transfer, or migration cutover
 - Keel Notes, AdGuard Home, Jellyfin, Home Assistant, PostgreSQL, router, GitHub, or remote-agent adapters
 - WebAuthn, recovery codes, multiple owners, Tailscale identity headers, tamper-evident audit chaining, or general-purpose mutation handlers
 
@@ -72,7 +73,7 @@ Every future host change must follow:
 5. Apply with streamed logs
 6. Verify or roll back
 
-The current VM action route maps validated requests to fixed `virsh` argument arrays and never invokes a shell. Version `0.7.0` adds typed Docker inventory and fixed journal-source operations to the deployment and backup handlers. Higher-impact operations remain locked until each typed handler has path, authorization, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
+The current VM action route maps validated requests to fixed `virsh` argument arrays and never invokes a shell. Version `0.8.0` builds migration discovery from the sanitized inventory contract and adds no privileged helper operation. Higher-impact operations remain locked until each typed handler has path, authorization, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
 
 ## Run for development
 
@@ -158,6 +159,7 @@ docker build -t boxpilot:local .
 - [Curated application planning and deployment](docs/APPLICATIONS.md)
 - [Verified backup and isolated restore workflow](docs/BACKUPS.md)
 - [Sanitized host, Docker, service, and log inventory](docs/INVENTORY.md)
+- [Read-only migration manifests and compatibility planning](docs/MIGRATIONS.md)
 - [Dependency-ordered roadmap](docs/ROADMAP.md)
 - [QEMU/KVM setup and operation](docs/VIRTUALIZATION.md)
 - [QEMU/KVM milestones](docs/VIRTUALIZATION-MILESTONES.md)

@@ -8,12 +8,13 @@ import AuthScreen from "./AuthScreen";
 import ApplicationCatalog from "./ApplicationCatalog";
 import BackupCenter from "./BackupCenter";
 import HostOverview from "./HostOverview";
+import MigrationCenter from "./MigrationCenter";
 import RepairCenter from "./RepairCenter";
 import SystemLogs from "./SystemLogs";
 import { fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import VirtualMachines from "./VirtualMachines";
 
-type DialogName = "compose" | "migration" | null;
+type DialogName = "compose" | null;
 
 const viewCopy: Record<ViewName, { title: string; description: string; action?: string }> = {
   overview: {
@@ -40,7 +41,6 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   migrations: {
     title: "Migration Center",
     description: "Discover, copy, validate, and cut over without destroying the source.",
-    action: "Discover source",
   },
   logs: {
     title: "Logs and events",
@@ -80,9 +80,9 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     description: "Uptime Kuma backup planning, durable evidence, SHA-256 integrity, source restart verification, and isolated restore drills come from Bigbox. Scheduling and off-host destinations remain pending.",
   },
   migrations: {
-    label: "Workflow mockup",
-    tone: "sample",
-    description: "This page illustrates the planned migration sequence. Source discovery, transfer, validation, and cutover are not implemented.",
+    label: "Read-only manifest discovery",
+    tone: "live",
+    description: "Sanitized source manifests, durable imports, fingerprints, and destination compatibility plans are live. SSH discovery, data transfer, isolated destination testing, cutover, and source deletion remain unavailable.",
   },
   logs: {
     label: "Restricted journal inventory",
@@ -137,47 +137,6 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
         </header>
         {children}
       </section>
-    </div>
-  );
-}
-
-function Migrations() {
-  const steps = [
-    ["Inventory source", "Read-only scan of services, stacks, volumes, users, storage, and versions."],
-    ["Map and review", "Resolve ports, paths, secrets, architecture, capacity, and compatibility."],
-    ["Backup and dry-run", "Checkpoint source and destination, estimate downtime, and verify free space."],
-    ["Transfer and validate", "Checksum data, start in isolation, run health checks, and compare results."],
-    ["Cut over with rollback", "Switch routes after approval and keep the source intact until acceptance."],
-  ];
-
-  return (
-    <div className="migration-grid">
-      <Panel className="flow-panel">
-        <span className="eyebrow">Resumable plan</span>
-        <h3>Source server to BoxPilot host</h3>
-        <p>A migration workflow for containers, files, databases, and virtual machines.</p>
-        <div className="flow-list">
-          {steps.map(([name, description], index) => (
-            <div className="flow-row" key={name}>
-              <span>{index + 1}</span>
-              <div>
-                <strong>{name}</strong>
-                <p>{description}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Panel>
-      <Panel className="source-panel">
-        <h3>Source readiness</h3>
-        <dl>
-          <div><dt>Connection</dt><dd>Tailscale or LAN SSH</dd></div>
-          <div><dt>Source writes</dt><dd>Read-only until cutover</dd></div>
-          <div><dt>Volume transfer</dt><dd>Required</dd></div>
-          <div><dt>Downtime estimate</dt><dd>Calculated after scan</dd></div>
-          <div><dt>Deletion policy</dt><dd>Never automatic</dd></div>
-        </dl>
-      </Panel>
     </div>
   );
 }
@@ -259,7 +218,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     if (view === "repairs") return <RepairCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "virtualization") return <VirtualMachines csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "backups") return <BackupCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
-    if (view === "migrations") return <Migrations />;
+    if (view === "migrations") return <MigrationCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "logs") return <SystemLogs />;
     return <Settings apiMode={apiMode} />;
   }, [apiMode, authStatus.csrfToken, view]);
@@ -283,7 +242,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.7.0",
+      version: "0.8.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
@@ -302,7 +261,6 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
 
   const handlePrimaryAction = () => {
     if (view === "applications") setDialog("compose");
-    if (view === "migrations") setDialog("migration");
     if (view === "logs") void downloadSupportBundle();
   };
 
@@ -326,7 +284,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.7.0 live inventory<br />Live surfaces are labeled</div>
+        <div className="prototype-label">v0.8.0 migration manifests<br />Live surfaces are labeled</div>
       </aside>
 
       <main>
@@ -375,13 +333,6 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
         </Modal>
       )}
 
-      {dialog === "migration" && (
-        <Modal title="Discover a source server" onClose={() => setDialog(null)}>
-          <div className="notice"><strong>Read-only discovery</strong><span>The production workflow will use an SSH connection over LAN or Tailscale and will not modify the source before cutover approval.</span></div>
-          <div className="plan-grid"><span>Connection</span><strong>SSH over Tailscale</strong><span>First pass</span><strong>Containers, volumes, VMs, services, storage</strong><span>Deletion</span><strong>Never automatic</strong></div>
-          <footer className="modal-actions"><button className="primary-button" type="button" onClick={() => setDialog(null)}>Discovery is disabled in prototype</button></footer>
-        </Modal>
-      )}
     </div>
   );
 }

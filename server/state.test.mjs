@@ -118,6 +118,20 @@ describe("BoxPilot state store", () => {
     store.close();
   });
 
+  it("stores immutable sanitized migration source manifests by fingerprint", async () => {
+    const store = await testStore();
+    const bootstrap = store.createBootstrapToken();
+    const owner = store.consumeBootstrapToken(bootstrap.token, { username: "operator", passwordHash: "hash" });
+    const manifest = { schemaVersion: 1, source: { hostname: "oldbox", architecture: "x64" }, docker: { containers: [] } };
+    const first = store.importMigrationSource({ fingerprint: "sha256:fixture", manifest, importedBy: owner.id });
+    const duplicate = store.importMigrationSource({ fingerprint: "sha256:fixture", manifest, importedBy: owner.id });
+
+    expect(duplicate.id).toBe(first.id);
+    expect(store.listMigrationSources()).toEqual([expect.objectContaining({ fingerprint: "sha256:fixture", manifest })]);
+    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "migration.source.imported", subjectId: first.id })]));
+    store.close();
+  });
+
   it("fails interrupted jobs without automatically retrying them", async () => {
     const store = await testStore();
     const bootstrap = store.createBootstrapToken();
