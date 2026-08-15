@@ -1,6 +1,6 @@
 {
   "name": "boxpilot",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "private": true,
   "description": "A safety-first local control plane for Ubuntu home servers.",
   "type": "module",
@@ -15,7 +15,7 @@
     "owner:token": "node scripts/boxpilot-owner.mjs create-bootstrap-token",
     "start": "node server/index.mjs",
     "test": "vitest run",
-    "check:shell": "sh -n scripts/boxpilot-doctor.sh",
+    "check:shell": "sh -n scripts/boxpilot-doctor.sh scripts/boxpilot-restic-setup.sh",
     "check": "npm run build && npm run test && npm run check:shell"
   },
   "dependencies": {

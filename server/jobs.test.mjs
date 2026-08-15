@@ -189,4 +189,24 @@ describe("durable job executor", () => {
     expect(store.getJob(job.id)).toMatchObject({ state: "failed", steps: expect.arrayContaining([expect.objectContaining({ name: "rollback", state: "completed" })]) });
     store.close();
   });
+
+  it("starts encrypted independent VM protection in the background without claiming restore protection", async () => {
+    const input = { backupId: "11111111-1111-4111-8111-111111111111", exportId: "22222222-2222-4222-8222-222222222222", domainName: "ubuntu-lab", domainUuid: "33333333-3333-4333-8333-333333333333", expectedManifestChecksumSha256: "a".repeat(64), expectedSizeBytes: 8192, expectedDestinationRevision: "b".repeat(64) };
+    let finish;
+    const helper = { request: vi.fn(() => new Promise((resolve) => { finish = resolve; })) };
+    const { store, owner } = await setup(helper);
+    const validateVmProtectionJob = vi.fn(async () => ({ input }));
+    const recordVmProtectionResult = vi.fn();
+    const jobs = createJobService(store, helper, { validateVmProtectionJob, recordVmProtectionResult });
+    const job = store.createJob({ type: "virtualization.export.backup.create", title: "Protect ubuntu-lab", parameters: { input }, recovery: {}, createdBy: owner.id });
+
+    const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
+    expect(started.state).toBe("applying");
+    expect(helper.request).toHaveBeenCalledWith("virtualization.export.backup.create", input, { timeoutMs: 12 * 60 * 60 * 1000 });
+    const result = { created: true, backupId: input.backupId, exportId: input.exportId, encrypted: true, independent: true, repositoryVerified: true, protected: false, restoreDrill: { passed: false } };
+    finish(result);
+    await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
+    expect(recordVmProtectionResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
+    store.close();
+  });
 });

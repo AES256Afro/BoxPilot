@@ -5,7 +5,7 @@ import { executeHelperOperation } from "./helper-protocol.mjs";
 
 const socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock";
 const maxRequestBytes = 8192;
-const readOnlyOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect"]);
+const readOnlyOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect"]);
 let operationQueue = Promise.resolve();
 
 await mkdir(path.dirname(socketPath), { recursive: true, mode: 0o750 });
@@ -31,6 +31,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
     }
     try {
       if (request.operation === "virtualization.domain.export.create") connection.setTimeout(6 * 60 * 60 * 1000);
+      if (request.operation === "virtualization.export.backup.create") connection.setTimeout(12 * 60 * 60 * 1000);
       const execution = readOnlyOperations.has(request.operation)
         ? executeHelperOperation(request)
         : operationQueue.then(() => executeHelperOperation(request));
@@ -59,7 +60,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
 
 server.listen(socketPath, async () => {
   await chmod(socketPath, 0o660);
-  console.log(`BoxPilot helper 0.8.0 listening on ${socketPath}`);
+  console.log(`BoxPilot helper 0.9.0 listening on ${socketPath}`);
 });
 
 async function shutdown() {

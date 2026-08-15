@@ -145,6 +145,23 @@ export function createStateStore({
       created_by TEXT NOT NULL REFERENCES owners(id),
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS vm_backups (
+      id TEXT PRIMARY KEY,
+      export_id TEXT NOT NULL REFERENCES vm_exports(id),
+      domain_name TEXT NOT NULL,
+      domain_uuid TEXT NOT NULL,
+      destination_type TEXT NOT NULL,
+      repository_id TEXT NOT NULL,
+      snapshot_id TEXT NOT NULL UNIQUE,
+      size_bytes INTEGER NOT NULL,
+      encrypted INTEGER NOT NULL,
+      independent INTEGER NOT NULL,
+      repository_verified INTEGER NOT NULL,
+      protected INTEGER NOT NULL,
+      restore_drill_json TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS migration_sources (
       id TEXT PRIMARY KEY,
       fingerprint TEXT NOT NULL UNIQUE,
@@ -165,6 +182,7 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_job_steps_job_id ON job_steps(job_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_backups_created_at ON backups(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_vm_exports_created_at ON vm_exports(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_vm_backups_created_at ON vm_backups(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_migration_sources_imported_at ON migration_sources(imported_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_events(created_at DESC);
   `);
@@ -414,9 +432,8 @@ export function createStateStore({
     return listVmExports(1)[0];
   }
 
-  function listVmExports(limit = 50) {
-    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
-    return database.prepare("SELECT * FROM vm_exports ORDER BY created_at DESC LIMIT ?").all(safeLimit).map((row) => ({
+  function mapVmExport(row) {
+    return row ? {
       id: row.id,
       domainName: row.domain_name,
       domainUuid: row.domain_uuid,
@@ -426,6 +443,46 @@ export function createStateStore({
       sizeBytes: Number(row.size_bytes),
       protected: Boolean(row.protected),
       encrypted: Boolean(row.encrypted),
+      restoreDrill: parseJson(row.restore_drill_json),
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+    } : null;
+  }
+
+  function listVmExports(limit = 50) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    return database.prepare("SELECT * FROM vm_exports ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapVmExport);
+  }
+
+  function getVmExport(id) {
+    return mapVmExport(database.prepare("SELECT * FROM vm_exports WHERE id = ?").get(id));
+  }
+
+  function recordVmBackup({ id, exportId, domainName, domainUuid, destination, repositoryId, snapshotId, sizeBytes, encrypted, independent, repositoryVerified, protected: protectedState, restoreDrill, createdBy }) {
+    const at = timestamp();
+    database.prepare(`
+      INSERT INTO vm_backups (id, export_id, domain_name, domain_uuid, destination_type, repository_id, snapshot_id, size_bytes, encrypted, independent, repository_verified, protected, restore_drill_json, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, exportId, domainName, domainUuid, destination, repositoryId, snapshotId, sizeBytes, encrypted ? 1 : 0, independent ? 1 : 0, repositoryVerified ? 1 : 0, protectedState ? 1 : 0, json(restoreDrill), createdBy, at);
+    recordAudit("vm.backup.recorded", { actorId: createdBy, subjectId: id, details: { exportId, domainName, destination, repositoryId, snapshotId, sizeBytes, encrypted, independent, repositoryVerified, protected: protectedState } });
+    return listVmBackups(1)[0];
+  }
+
+  function listVmBackups(limit = 50) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    return database.prepare("SELECT * FROM vm_backups ORDER BY created_at DESC LIMIT ?").all(safeLimit).map((row) => ({
+      id: row.id,
+      exportId: row.export_id,
+      domainName: row.domain_name,
+      domainUuid: row.domain_uuid,
+      destination: row.destination_type,
+      repositoryId: row.repository_id,
+      snapshotId: row.snapshot_id,
+      sizeBytes: Number(row.size_bytes),
+      encrypted: Boolean(row.encrypted),
+      independent: Boolean(row.independent),
+      repositoryVerified: Boolean(row.repository_verified),
+      protected: Boolean(row.protected),
       restoreDrill: parseJson(row.restore_drill_json),
       createdBy: row.created_by,
       createdAt: row.created_at,
@@ -492,6 +549,9 @@ export function createStateStore({
     listBackups,
     recordVmExport,
     listVmExports,
+    getVmExport,
+    recordVmBackup,
+    listVmBackups,
     importMigrationSource,
     getMigrationSource,
     listMigrationSources,

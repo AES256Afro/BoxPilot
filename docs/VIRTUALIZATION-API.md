@@ -1,6 +1,6 @@
 # Virtualization API
 
-The BoxPilot `v1` virtualization API is loopback-only by default. Tailscale Serve may proxy it privately, but it is not an internet API. Version `0.12.0` requires an authenticated owner session for virtualization routes and a CSRF token for POST requests. Network privacy remains mandatory.
+The BoxPilot `v1` virtualization API is loopback-only by default. Tailscale Serve may proxy it privately, but it is not an internet API. Version `0.13.0` requires an authenticated owner session for virtualization routes and a CSRF token for POST requests. Network privacy remains mandatory.
 
 All API responses use JSON and send `Cache-Control: no-store`.
 
@@ -194,7 +194,7 @@ There is no operator-supplied path, description, program, argument array, online
 GET /api/v1/virtualization/exports
 ```
 
-This returns durable metadata for completed exports: server-generated id, domain identity, fixed destination type, root-owned artifact reference, manifest SHA-256, size, encryption flag, protection flag, restore-drill evidence, and creation time. In `0.12.0`, every record must report `destination: local-managed`, `encrypted: false`, `protected: false`, and `restoreDrill.passed: false`.
+This returns durable metadata for completed exports: server-generated id, domain identity, fixed destination type, root-owned artifact reference, manifest SHA-256, size, encryption flag, protection flag, restore-drill evidence, and creation time. Local export records report `destination: local-managed`, `encrypted: false`, `protected: false`, and `restoreDrill.passed: false` even when a later independent restic record refers to the export.
 
 ## Create a stopped-VM export plan
 
@@ -226,6 +226,46 @@ Staging and password approval recheck domain UUID, persistent stopped state, dis
 
 The helper creates one new directory under `/var/lib/boxpilot-managed/vm-exports/<server-generated-uuid>`, dumps inactive XML, converts each source disk to standalone qcow2, runs `qemu-img check`, compares source and output content, and records SHA-256 checksums in a manifest. Failure removes only that new export directory and never changes the source domain or source disks. Success is an integrity-verified local artifact, not a protected backup. A service restart marks an in-progress web job failed for operator review and never automatically repeats it.
 
+## Inspect VM protection destination and evidence
+
+```text
+GET /api/v1/virtualization/protection
+```
+
+The response contains one fixed `mounted-restic` destination inspection and durable completed-copy records. Destination evidence includes readiness, restic version, exact mount metadata, independent-filesystem status, repository id, destination revision, free bytes, structured blockers, and the fixed terminal setup command. It never returns the repository password or password-file contents.
+
+Completed records contain the server-generated backup id, source export id, domain identity, repository and snapshot ids, size, encryption, independence, full repository-read verification, restore-drill evidence, and protection state. In `0.13.0`, a successful record must still report `protected: false` and `restoreDrill.passed: false`.
+
+## Create an encrypted independent-copy plan
+
+```text
+POST /api/v1/virtualization/exports/:id/protection-plans
+Content-Type: application/json
+X-BoxPilot-CSRF: <session CSRF token>
+```
+
+The body is empty. Planning requires a durable local unencrypted export, the fixed restic binary, an exact writable mount at `/mnt/boxpilot-backup`, a filesystem device different from local exports and VM images, a root-owned mode-`0600` non-symlink password file, an initialized readable repository, and at least the export size plus 1 GiB free.
+
+The immutable input contains only server-generated ids, domain identity, expected manifest checksum, expected logical size, and a destination revision. It contains no path, mount, repository, password, tag, binary, command, or arbitrary restic argument. The output includes exact changes, verification, blockers, warnings, and recovery guidance.
+
+## Stage an encrypted independent-copy job
+
+```text
+POST /api/v1/virtualization/protection-plans/:id/stage
+Content-Type: application/json
+X-BoxPilot-CSRF: <session CSRF token>
+```
+
+Body:
+
+```json
+{ "revision": "immutable-plan-revision" }
+```
+
+Staging and password approval recheck the local export evidence, exact repository identity, independent mount identity, and capacity. The approved operation runs in the background with a twelve-hour typed-operation timeout. Helper mutations remain serialized.
+
+The helper rehashes the local manifest and all files, creates one tagged restic snapshot, requires an exact JSON summary, performs a full-repository `check --read-data`, and reads back the exact snapshot path and tags. The full check is compatible with Ubuntu 26.04's restic 0.18.1 package and can become slower as the repository grows. It cannot invoke `forget`, `prune`, restore, repository deletion, or an operator-selected destination. Failure never changes the local export and never automatically deletes repository data.
+
 ## Agent integration rules
 
 An agent integrating with BoxPilot should:
@@ -237,5 +277,5 @@ An agent integrating with BoxPilot should:
 5. Never request or invent VM credentials, guest secrets, or unlisted helper fields.
 6. Refresh host and domain state immediately before requesting a lifecycle action.
 7. Explain when a guest address is unknown rather than inventing one.
-8. Treat a local VM export as unprotected until the API reports independent encryption and a passed isolated restore drill.
+8. Treat a local VM export and a repository-verified encrypted copy as unprotected until the API reports a passed isolated restore drill.
 9. Keep bridge, passthrough, storage, online snapshot, snapshot revert/delete, restore, and force-off operations unavailable until their capability appears explicitly.

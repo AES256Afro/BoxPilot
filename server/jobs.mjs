@@ -5,10 +5,12 @@ export function createJobService(store, helper, {
   validateBackupJob = async () => {},
   validateVmCreationJob = async () => {},
   validateVmExportJob = async () => {},
+  validateVmProtectionJob = async () => {},
   validateVmLifecycleJob = async () => {},
   validateVmSnapshotJob = async () => {},
   recordBackupResult = () => {},
   recordVmExportResult = () => {},
+  recordVmProtectionResult = () => {},
 } = {}) {
   function createCanary(ownerId) {
     return store.createJob({
@@ -31,15 +33,17 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     if (job.type === "application.uptime-kuma.deploy") await validateApplicationJob(job);
     if (job.type === "application.uptime-kuma.backup") await validateBackupJob(job);
     const validatedVmPlan = job.type === "virtualization.domain.create" ? await validateVmCreationJob(job) : null;
     const validatedVmExportPlan = job.type === "virtualization.domain.export.create" ? await validateVmExportJob(job) : null;
+    const validatedVmProtectionPlan = job.type === "virtualization.export.backup.create" ? await validateVmProtectionJob(job) : null;
     const validatedVmLifecyclePlan = job.type === "virtualization.domain.action" ? await validateVmLifecycleJob(job) : null;
     const validatedVmSnapshotPlan = job.type === "virtualization.domain.snapshot.create" ? await validateVmSnapshotJob(job) : null;
     if (job.type === "virtualization.domain.create" && !validatedVmPlan?.input) throw new Error("The staged VM creation plan is unavailable or changed");
     if (job.type === "virtualization.domain.export.create" && !validatedVmExportPlan?.input) throw new Error("The staged VM export plan is unavailable or changed");
+    if (job.type === "virtualization.export.backup.create" && !validatedVmProtectionPlan?.input) throw new Error("The staged VM protection plan is unavailable or changed");
     if (job.type === "virtualization.domain.action" && !validatedVmLifecyclePlan?.input) throw new Error("The staged VM lifecycle plan is unavailable or changed");
     if (job.type === "virtualization.domain.snapshot.create" && !validatedVmSnapshotPlan?.input) throw new Error("The staged VM snapshot plan is unavailable or changed");
     const execution = job.type === "helper.canary.verify" ? {
@@ -83,6 +87,15 @@ export function createJobService(store, helper, {
       verified: "Exported disks passed qemu-img structural checks and source-to-export content comparison; this local unencrypted copy is not yet a protected backup",
       failed: "VM export or content verification did not complete successfully; the source VM remains unchanged",
       validate: (result) => result?.created && result?.contentVerified && result?.domain === validatedVmExportPlan.input.name && result?.exportId === validatedVmExportPlan.input.exportId && result?.protected === false && result?.encrypted === false && result?.restoreDrill?.passed === false,
+    } : job.type === "virtualization.export.backup.create" ? {
+      operation: "virtualization.export.backup.create",
+      parameters: validatedVmProtectionPlan.input,
+      timeoutMs: 12 * 60 * 60 * 1000,
+      applying: "Reverifying the local export and writing an encrypted snapshot to the reviewed independent restic destination",
+      applied: "Restic published an encrypted snapshot without changing the local VM export or deleting repository data",
+      verified: "Local SHA-256 evidence, a full repository data read, and exact snapshot identity passed; isolated restore boot remains required before protected status",
+      failed: "Encrypted independent VM backup or repository verification did not complete successfully; preserve both the local export and repository for inspection",
+      validate: (result) => result?.created && result?.backupId === validatedVmProtectionPlan.input.backupId && result?.exportId === validatedVmProtectionPlan.input.exportId && result?.encrypted === true && result?.independent === true && result?.repositoryVerified === true && result?.protected === false && result?.restoreDrill?.passed === false,
     } : job.type === "virtualization.domain.action" ? {
       operation: "virtualization.domain.action",
       parameters: validatedVmLifecyclePlan.input,
@@ -119,6 +132,7 @@ export function createJobService(store, helper, {
       if (!execution.validate(result)) throw new Error("Helper returned an invalid operation result");
       if (job.type === "application.uptime-kuma.backup") recordBackupResult(job, result);
       if (job.type === "virtualization.domain.export.create") recordVmExportResult(job, result);
+      if (job.type === "virtualization.export.backup.create") recordVmProtectionResult(job, result);
       store.addJobStep(jobId, "verify", "completed", execution.verified);
       const completed = store.transitionJob(jobId, "verifying", "completed", { result });
       store.recordAudit("job.completed", { actorId: owner.id, subjectId: jobId, details: { type: job.type } });

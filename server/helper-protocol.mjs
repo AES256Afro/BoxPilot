@@ -5,13 +5,15 @@ import { validateVmExportInput } from "./vm-export.mjs";
 import { validateVmPlanInput } from "./vm-plan.mjs";
 import { validateVmLifecycleInput } from "./vm-lifecycle.mjs";
 import { validateVmSnapshotInput } from "./vm-snapshot.mjs";
+import { createVmProtectionHelper, validateVmProtectionInput } from "./vm-protection-helper.mjs";
 
 export const helperProtocolVersion = 1;
-export const helperOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
+export const helperOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
 const vmCreationKeys = ["autostart", "diskGiB", "firmware", "isoFile", "memoryMiB", "name", "network", "osProfile", "vcpus"];
 const vmLifecycleKeys = ["action", "expectedAutostart", "expectedState", "name"];
 const vmSnapshotKeys = ["expectedDiskRevision", "expectedSnapshotRevision", "expectedState", "expectedUuid", "name", "snapshotName"];
 const vmExportKeys = ["expectedDiskRevision", "expectedSnapshotRevision", "expectedState", "expectedUuid", "exportId", "name"];
+const vmProtectionKeys = ["backupId", "domainName", "domainUuid", "expectedDestinationRevision", "expectedManifestChecksumSha256", "expectedSizeBytes", "exportId"];
 
 export function validateHelperRequest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "Request must be an object";
@@ -64,6 +66,13 @@ export function validateHelperRequest(value) {
     const errors = validateVmExportInput(value.parameters);
     if (errors.length) return `Invalid VM export plan: ${errors.join(" | ")}`;
   }
+  if (value.operation === "virtualization.export.backup.inspect" && Object.keys(value.parameters).length !== 0) return "VM protection inspection accepts no parameters";
+  if (value.operation === "virtualization.export.backup.create") {
+    const keys = Object.keys(value.parameters).sort();
+    if (keys.length !== vmProtectionKeys.length || keys.some((key, index) => key !== vmProtectionKeys[index])) return "VM protection accepts only the fixed typed plan fields";
+    const errors = validateVmProtectionInput(value.parameters);
+    if (errors.length) return `Invalid VM protection plan: ${errors.join(" | ")}`;
+  }
   if (value.operation === "virtualization.domain.action") {
     const keys = Object.keys(value.parameters).sort();
     if (keys.length !== vmLifecycleKeys.length || keys.some((key, index) => key !== vmLifecycleKeys[index])) return "VM lifecycle accepts only the fixed typed plan fields";
@@ -79,7 +88,7 @@ export function validateHelperRequest(value) {
   return null;
 }
 
-export async function executeHelperOperation(request, { applications = createApplicationHelper(), virtualization = createVmHelper() } = {}) {
+export async function executeHelperOperation(request, { applications = createApplicationHelper(), virtualization = createVmHelper(), vmProtection = createVmProtectionHelper() } = {}) {
   const error = validateHelperRequest(request);
   if (error) return { version: helperProtocolVersion, id: request?.id ?? null, ok: false, error, code: "invalid_request" };
   if (request.operation === "canary.verify") {
@@ -87,7 +96,7 @@ export async function executeHelperOperation(request, { applications = createApp
       version: helperProtocolVersion,
       id: request.id,
       ok: true,
-      result: { verified: true, helperVersion: "0.8.0", mutationPerformed: false },
+      result: { verified: true, helperVersion: "0.9.0", mutationPerformed: false },
     };
   }
   if (request.operation === "container.docker.inspect") {
@@ -119,6 +128,12 @@ export async function executeHelperOperation(request, { applications = createApp
   }
   if (request.operation === "virtualization.domain.export.create") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await virtualization.createExport(request.parameters) };
+  }
+  if (request.operation === "virtualization.export.backup.inspect") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await vmProtection.inspect() };
+  }
+  if (request.operation === "virtualization.export.backup.create") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await vmProtection.createBackup(request.parameters) };
   }
   if (request.operation === "virtualization.domain.create") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await virtualization.create(request.parameters) };

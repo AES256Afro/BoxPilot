@@ -17,16 +17,23 @@ Environment=BOXPILOT_JOURNALCTL_BINARY=/usr/bin/journalctl
 Environment=BOXPILOT_VIRT_INSTALL_BINARY=/usr/bin/virt-install
 Environment=BOXPILOT_VIRSH_BINARY=/usr/bin/virsh
 Environment=BOXPILOT_QEMU_IMG_BINARY=/usr/bin/qemu-img
+Environment=BOXPILOT_RESTIC_BINARY=/usr/bin/restic
+Environment=BOXPILOT_FINDMNT_BINARY=/usr/bin/findmnt
 Environment=BOXPILOT_TAILSCALE_BINARY=/usr/bin/tailscale
 Environment=BOXPILOT_SYSTEMCTL_BINARY=/usr/bin/systemctl
 Environment=BOXPILOT_VM_IMAGE_ROOT=/var/lib/libvirt/images
 Environment=BOXPILOT_VM_EXPORT_ROOT=/var/lib/boxpilot-managed/vm-exports
+Environment=BOXPILOT_VM_BACKUP_MOUNT=/mnt/boxpilot-backup
+Environment=BOXPILOT_RESTIC_PASSWORD_FILE=/etc/boxpilot/secrets/vm-backup-restic-password
+Environment=BOXPILOT_RESTIC_CACHE_DIRECTORY=/var/cache/boxpilot-restic
 Environment=BOXPILOT_ISO_DIRECTORY=/var/lib/libvirt/boot
 Environment=BOXPILOT_LIBVIRT_URI=qemu:///system
 RuntimeDirectory=boxpilot
 RuntimeDirectoryMode=0750
 StateDirectory=boxpilot-managed
 StateDirectoryMode=0700
+CacheDirectory=boxpilot-restic
+CacheDirectoryMode=0700
 ExecStart=/usr/local/bin/node /opt/boxpilot/server/helper-server.mjs
 Restart=on-failure
 RestartSec=5s
@@ -43,6 +50,7 @@ ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectSystem=strict
+ReadWritePaths=-/mnt/boxpilot-backup
 RestrictAddressFamilies=AF_UNIX
 RestrictNamespaces=true
 RestrictRealtime=true
