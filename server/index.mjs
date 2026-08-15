@@ -41,7 +41,7 @@ const prerequisites = createPrerequisiteService({
 const applications = createApplicationService({ store: state, prerequisites, helper });
 const backups = createBackupService({ store: state, prerequisites, helper });
 const inventory = createInventoryService({ helper });
-const migrations = createMigrationService({ store: state, inventory });
+const migrations = createMigrationService({ store: state, inventory, helper });
 const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, libvirt });
 const vmExports = createVmExportService({ store: state, libvirt, helper });
 const vmLifecycle = createVmLifecycleService({ store: state, libvirt });
@@ -54,6 +54,8 @@ const jobs = createJobService(state, helper, {
   validateApplicationJob: applications.validateJob,
   validateBackupJob: backups.validateJob,
   recordBackupResult: backups.recordResult,
+  validateMigrationTransferJob: migrations.validateTransferJob,
+  recordMigrationTransferResult: migrations.recordTransferResult,
   validateVmCreationJob: vmCreation.validateJob,
   validateVmExportJob: vmExports.validateJob,
   recordVmExportResult: vmExports.recordResult,
@@ -90,7 +92,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.16.0",
+    version: "0.17.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -121,10 +123,10 @@ app.get("/api/v1/capabilities", (_request, response) => {
     applications: "curated-plans-and-uptime-kuma-adapter",
     supportBundle: "browser-only",
     backups: "uptime-kuma-local-restore-drill-and-vm-independent-restic-copy-with-isolated-boot-validation-recovery-clones-and-guarded-retention",
-    migrations: "read-only-sanitized-manifests-and-compatibility-plans",
-    privilegedHelper: "typed-canary-applications-backups-inventory-logs-vm-creation-lifecycle-snapshots-exports-mounted-restic-isolated-restore-drills-recovery-clones-and-retention",
+    migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
+    privilegedHelper: "typed-canary-applications-backups-migration-staging-inventory-logs-vm-creation-lifecycle-snapshots-exports-mounted-restic-isolated-restore-drills-recovery-clones-and-retention",
     identity: "owner-password-foundation",
-    durableJobs: "sqlite-approved-application-backup-vm-creation-lifecycle-snapshot-export-protection-restore-drill-recovery-and-retention-workflows",
+    durableJobs: "sqlite-approved-application-backup-migration-transfer-vm-creation-lifecycle-snapshot-export-protection-restore-drill-recovery-and-retention-workflows",
     virtualization: "live-libvirt-via-restricted-helper",
     vmCreationPlanning: "validated-durable-approved",
     audit: "redacted-jsonl-foundation",
@@ -186,6 +188,37 @@ app.post("/api/v1/migrations/sources/:id/plans", async (request, response) => {
   }
 });
 
+app.get("/api/v1/migrations/bundles", async (_request, response) => {
+  try {
+    response.json(await migrations.inspectBundles());
+  } catch (error) {
+    response.status(503).json({ error: error.message, code: "migration_bundles_unavailable" });
+  }
+});
+
+app.get("/api/v1/migrations/transfers", (_request, response) => {
+  response.json(migrations.listTransfers());
+});
+
+app.post("/api/v1/migrations/bundles/:id/transfer-plans", async (request, response) => {
+  try {
+    const plan = await migrations.planTransfer(request.params.id, request.boxpilotSession.owner.id);
+    response.status(201).json({ plan });
+  } catch (error) {
+    const status = error.message.includes("not found") ? 404 : error.message.includes("unavailable") ? 503 : 409;
+    response.status(status).json({ error: error.message, code: "migration_transfer_plan_failed" });
+  }
+});
+
+app.post("/api/v1/migration-transfer-plans/:id/stage", async (request, response) => {
+  try {
+    const job = await migrations.stageTransfer(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
+    response.status(201).json({ job });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "migration_transfer_stage_failed" });
+  }
+});
+
 app.get("/api/v1/applications", async (_request, response) => {
   response.json(await applications.list());
 });
@@ -244,7 +277,7 @@ app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = ["virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
+    const background = ["migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, request.body?.password)
       : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
@@ -505,7 +538,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.16.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.17.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

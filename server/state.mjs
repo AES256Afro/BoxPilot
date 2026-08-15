@@ -207,6 +207,22 @@ export function createStateStore({
       imported_by TEXT NOT NULL REFERENCES owners(id),
       imported_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS migration_transfers (
+      id TEXT PRIMARY KEY,
+      bundle_id TEXT NOT NULL UNIQUE,
+      source_id TEXT NOT NULL REFERENCES migration_sources(id),
+      source_fingerprint TEXT NOT NULL,
+      content_revision TEXT NOT NULL,
+      workload_name TEXT NOT NULL,
+      destination_type TEXT NOT NULL,
+      file_count INTEGER NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      content_verified INTEGER NOT NULL,
+      source_preserved INTEGER NOT NULL,
+      activation_performed INTEGER NOT NULL,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS audit_events (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,
@@ -224,6 +240,7 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_vm_recoveries_created_at ON vm_recoveries(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_vm_retention_runs_created_at ON vm_retention_runs(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_migration_sources_imported_at ON migration_sources(imported_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_migration_transfers_created_at ON migration_transfers(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_events(created_at DESC);
   `);
 
@@ -709,6 +726,59 @@ export function createStateStore({
     return database.prepare("SELECT id FROM migration_sources ORDER BY imported_at DESC LIMIT ?").all(safeLimit).map((row) => getMigrationSource(row.id));
   }
 
+  function mapMigrationTransfer(row) {
+    return row ? {
+      id: row.id,
+      bundleId: row.bundle_id,
+      sourceId: row.source_id,
+      sourceFingerprint: row.source_fingerprint,
+      contentRevision: row.content_revision,
+      workloadName: row.workload_name,
+      destination: row.destination_type,
+      fileCount: Number(row.file_count),
+      sizeBytes: Number(row.size_bytes),
+      contentVerified: Boolean(row.content_verified),
+      sourcePreserved: Boolean(row.source_preserved),
+      activationPerformed: Boolean(row.activation_performed),
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+    } : null;
+  }
+
+  function recordMigrationTransfer({ id, bundleId, sourceId, sourceFingerprint, contentRevision, workloadName, destination, fileCount, sizeBytes, contentVerified, sourcePreserved, activationPerformed, createdBy }) {
+    const at = timestamp();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const source = getMigrationSource(sourceId);
+      if (!source || source.fingerprint !== sourceFingerprint) throw new Error("Migration transfer source evidence does not match an imported source");
+      if (contentVerified !== true || sourcePreserved !== true || activationPerformed !== false) throw new Error("Migration transfer evidence is incomplete");
+      database.prepare(`
+        INSERT INTO migration_transfers (id, bundle_id, source_id, source_fingerprint, content_revision, workload_name, destination_type, file_count, size_bytes, content_verified, source_preserved, activation_performed, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, bundleId, sourceId, sourceFingerprint, contentRevision, workloadName, destination, fileCount, sizeBytes, 1, 1, 0, createdBy, at);
+      recordAudit("migration.transfer.verified", { actorId: createdBy, subjectId: id, details: { bundleId, sourceId, sourceFingerprint, contentRevision, workloadName, destination, fileCount, sizeBytes, contentVerified: true, sourcePreserved: true, activationPerformed: false } });
+      const transfer = getMigrationTransfer(id);
+      database.exec("COMMIT");
+      return transfer;
+    } catch (error) {
+      try {
+        database.exec("ROLLBACK");
+      } catch {
+        // Preserve the original transfer-record error if SQLite already ended the transaction.
+      }
+      throw error;
+    }
+  }
+
+  function getMigrationTransfer(id) {
+    return mapMigrationTransfer(database.prepare("SELECT * FROM migration_transfers WHERE id = ?").get(id));
+  }
+
+  function listMigrationTransfers(limit = 50) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    return database.prepare("SELECT * FROM migration_transfers ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapMigrationTransfer);
+  }
+
   function recoverInterruptedJobs() {
     const interrupted = database.prepare("SELECT id FROM jobs WHERE state IN ('applying', 'verifying')").all();
     for (const { id } of interrupted) {
@@ -766,6 +836,9 @@ export function createStateStore({
     importMigrationSource,
     getMigrationSource,
     listMigrationSources,
+    recordMigrationTransfer,
+    getMigrationTransfer,
+    listMigrationTransfers,
     recoverInterruptedJobs,
     close,
   };

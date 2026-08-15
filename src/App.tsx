@@ -80,9 +80,9 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     description: "Uptime Kuma backup planning, durable evidence, SHA-256 integrity, source restart verification, and isolated restore drills come from Bigbox. Scheduling and off-host destinations remain pending.",
   },
   migrations: {
-    label: "Read-only manifest discovery",
+    label: "Guarded local transfer staging",
     tone: "live",
-    description: "Sanitized source manifests, durable imports, fingerprints, and destination compatibility plans are live. SSH discovery, data transfer, isolated destination testing, cutover, and source deletion remain unavailable.",
+    description: "Sanitized source manifests, compatibility plans, root-only checksummed Compose bundles, resumable managed staging, and durable transfer evidence are live. Remote SSH transport, activation, cutover, and source deletion remain unavailable.",
   },
   logs: {
     label: "Restricted journal inventory",
@@ -242,7 +242,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.16.0",
+      version: "0.17.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
@@ -284,7 +284,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.16.0 guarded VM backup retention<br />Exact preview, copy floor, no prune</div>
+        <div className="prototype-label">v0.17.0 guarded migration staging<br />Checksummed, resumable, no activation</div>
       </aside>
 
       <main>
