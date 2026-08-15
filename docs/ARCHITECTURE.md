@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.4.0` adds server-local owner bootstrap, scrypt password authentication, expiring sessions, CSRF protection, SQLite-backed jobs and approvals, live prerequisite inventory, and the first restricted-helper boundary. The helper accepts only a typed no-mutation canary. Live libvirt inspection, read-only VM creation planning, and the provisional VM lifecycle route remain available after authentication. BoxPilot still cannot install packages, deploy applications, apply VM creation plans, delete VMs, force power off, change networks or storage, open consoles, or execute arbitrary commands.
+Version `0.5.0` adds integrity-addressed application manifests, immutable expiring plan revisions, Uptime Kuma discovery and deployment, automatic data-preserving rollback, and planning-only Pi-hole Docker and VM targets. The helper accepts the no-mutation canary plus fixed Uptime Kuma inspect and deploy operations. Live libvirt inspection, read-only VM creation planning, and the provisional VM lifecycle route remain available after authentication. BoxPilot still cannot install packages, deploy arbitrary Compose, apply VM creation plans, delete VMs, change networks or storage, open consoles, or execute arbitrary commands.
 
 Because the native process belongs to `libvirt`, this is an intermediate boundary rather than the final security model. The restricted helper described below remains the target for all mutations.
 
@@ -17,6 +17,7 @@ Browser over Tailscale HTTPS
 BoxPilot web and API process (unprivileged)
           |
           +---- SQLite owner, session, job, approval, and audit state (0.4.0)
+          +---- Integrity-addressed application catalog and plans (0.5.0)
           |
           +---- Read-only collectors
           |       systemd, journald, SMART, Docker, libvirt, Tailscale
@@ -31,6 +32,7 @@ BoxPilot web and API process (unprivileged)
 Restricted helper over a local Unix socket (0.4.0 canary foundation)
           |
           +---- typed no-mutation canary (0.4.0)
+          +---- fixed Uptime Kuma inspect, deploy, health, and rollback (0.5.0)
           +---- typed apt operations (future)
           +---- typed systemd operations
           +---- typed firewall operations
@@ -110,7 +112,7 @@ Each managed application adapter owns:
 - Upgrade plan and rollback instructions
 - Log sources and support-bundle redaction rules
 
-The Keel Notes adapter is first because it exercises databases, managed secrets, file storage, Docker, backups, restore testing, and migration.
+Uptime Kuma is the first executable adapter because it proves fixed Docker arguments, local persistent storage, loopback exposure, health checks, and rollback without handling a critical network role. Keel Notes remains the first planned backup and migration adapter because it exercises databases, managed secrets, file storage, Docker, restore testing, and migration.
 
 ## Data model target
 
@@ -139,7 +141,7 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.4.0 limitations
+## Version 0.5.0 limitations
 
 - Dashboard values are demonstration data.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
@@ -150,5 +152,6 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - VM creation stops at a validated plan. The displayed `virt-install` argument array has no Apply route.
 - Managed media discovery lists regular `.iso` files only and does not upload or download installation media.
 - Operations Core jobs and attribution use SQLite. The older VM JSONL audit remains a separate bounded log until VM actions migrate into the durable executor. Tamper evidence remains pending.
-- No application, backup, migration, firewall, package, storage, Docker, VM creation, console, snapshot, delete, or force-off operation is executed.
+- Only the fixed Uptime Kuma adapter can execute an application mutation. Backup, migration, firewall, package, storage, general Docker, VM creation, console, snapshot, delete, and force-off operations remain unavailable.
+- An Uptime Kuma deployment is reported as evaluation-only until its data has backup integrity and isolated restore evidence.
 - The safe Docker deployment cannot see host libvirt. Live VM support currently requires the native systemd service.

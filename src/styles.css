@@ -2162,6 +2162,130 @@ textarea {
   background: #101b27;
 }
 
+.catalog-page,
+.application-plan-result,
+.application-plan-result > div,
+.plan-blockers,
+.plan-warnings {
+  display: grid;
+  gap: 12px;
+}
+
+.app-category,
+.app-live-detail {
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.app-category {
+  margin: 12px 0 -5px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.app-live-detail {
+  min-height: 28px;
+  margin-bottom: 10px;
+  line-height: 1.5;
+}
+
+.app-plan-dialog {
+  width: min(760px, 100%);
+}
+
+.manifest-proof {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 5px 12px;
+  padding: 11px;
+  border: 1px solid #294a43;
+  border-radius: 9px;
+  color: #9ac8bc;
+  background: #0f2621;
+  font-size: 8px;
+}
+
+.manifest-proof code {
+  overflow: hidden;
+  color: #b6d8cf;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manifest-proof span:last-child {
+  grid-column: 2;
+}
+
+.app-plan-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 15px 0;
+}
+
+.app-plan-fields label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted-strong);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.app-plan-fields input,
+.app-plan-fields select {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #34495c;
+  border-radius: 8px;
+  color: var(--text);
+  background: #09131d;
+  font: inherit;
+}
+
+.application-plan-result {
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.application-plan-result ol {
+  display: grid;
+  gap: 6px;
+  padding-left: 19px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.plan-blockers,
+.plan-warnings,
+.plan-recovery {
+  padding: 11px;
+  border-radius: 9px;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.plan-blockers {
+  border: 1px solid #704044;
+  color: #eab0b0;
+  background: #291719;
+}
+
+.plan-warnings {
+  border: 1px solid #66502e;
+  color: #d7be94;
+  background: #2a2114;
+}
+
+.plan-recovery {
+  margin: 0;
+  color: #9fc8bd;
+  background: #0f2621;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 76px minmax(0, 1fr);
@@ -2301,6 +2425,15 @@ textarea {
 
   .repair-check {
     grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  .app-plan-fields,
+  .manifest-proof {
+    grid-template-columns: 1fr;
+  }
+
+  .manifest-proof span:last-child {
+    grid-column: auto;
   }
 
   .auth-shell {

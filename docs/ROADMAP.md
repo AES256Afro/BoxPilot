@@ -81,7 +81,7 @@ Acceptance:
 
 ## Phase 4: restricted privileged helper
 
-Status: the root-owned service, Unix-socket boundary, versioned allowlist, hardened unit, negative protocol tests, and no-mutation canary are included in `0.4.0`. Package, service, firewall, storage, reboot, Docker, libvirt, and backup handlers remain locked.
+Status: the root-owned service, Unix-socket boundary, versioned allowlist, hardened unit, negative protocol tests, and no-mutation canary are included in `0.4.0`. Version `0.5.0` adds fixed Uptime Kuma inspect and deploy operations, serialized helper execution, health verification, and data-preserving rollback. Package, service, firewall, storage, reboot, general Docker, libvirt, and backup handlers remain locked.
 
 - Root-owned Unix socket
 - Versioned typed-operation protocol
@@ -98,6 +98,8 @@ Acceptance:
 - Manual recovery steps are printed before any reboot or networking change.
 
 ## Phase 5: applications and Compose imports
+
+Status: integrity-addressed manifests, live prerequisite and port planning, immutable revisions, the executable Uptime Kuma adapter, and planning-only Pi-hole Docker and VM targets are included in `0.5.0`. Full Compose parsing, secret storage, verified backups, additional adapters, proxy registration, and update previews remain pending.
 
 - Full Compose YAML parser and policy engine
 - Port, volume, architecture, secret, health, and backup planning

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  applications,
   backupRows,
   metrics,
   navItems,
@@ -10,6 +9,7 @@ import {
 } from "./data";
 import { inspectCompose, type ComposeInspection } from "./composeInspector";
 import AuthScreen from "./AuthScreen";
+import ApplicationCatalog from "./ApplicationCatalog";
 import RepairCenter from "./RepairCenter";
 import { fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import VirtualMachines from "./VirtualMachines";
@@ -60,12 +60,12 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   overview: {
     label: "UI demonstration",
     tone: "sample",
-    description: "The metrics, workloads, backup claims, and change timeline on this page are sample data in v0.4.0.",
+    description: "The metrics, workloads, backup claims, and change timeline on this page are sample data in v0.5.0.",
   },
   applications: {
-    label: "Preview adapters",
-    tone: "sample",
-    description: "Application cards describe planned integrations. Only the local Compose risk scan runs today, and it never deploys a stack.",
+    label: "Curated application engine",
+    tone: "live",
+    description: "Manifests, host-backed plans, and Uptime Kuma staging are live. Pi-hole remains planning-only until DNS recovery gates pass.",
   },
   repairs: {
     label: "Live Operations Core",
@@ -80,7 +80,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   backups: {
     label: "Workflow mockup",
     tone: "sample",
-    description: "Backup coverage and restore results are sample data. No backup engine or scheduler is included in v0.4.0.",
+    description: "Backup coverage and restore results are sample data. No backup engine or scheduler is included in v0.5.0.",
   },
   migrations: {
     label: "Workflow mockup",
@@ -225,32 +225,6 @@ function Overview({ healthStatus, onReview }: { healthStatus: string; onReview: 
 
       <p className="session-result" aria-live="polite">{healthStatus}</p>
     </>
-  );
-}
-
-function Applications({ onInspect, onPreview }: { onInspect: () => void; onPreview: (name: string) => void }) {
-  return (
-    <div className="app-grid">
-      {applications.map((application) => (
-        <article className="app-card" key={application.name}>
-          <div className="app-card-top">
-            <span className="app-initials">{application.name.slice(0, 2).toUpperCase()}</span>
-            <StatusPill tone={application.installed ? "good" : "neutral"}>
-              {application.installed ? "Installed" : "Available"}
-            </StatusPill>
-          </div>
-          <h3>{application.name}</h3>
-          <p>{application.description}</p>
-          <button
-            type="button"
-            className={application.installed ? "text-button" : "secondary-button"}
-            onClick={() => (application.name === "Custom stack" ? onInspect() : onPreview(application.name))}
-          >
-            {application.status}
-          </button>
-        </article>
-      ))}
-    </div>
   );
 }
 
@@ -449,12 +423,10 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     }
     if (view === "applications") {
       return (
-        <Applications
-          onInspect={() => setDialog("compose")}
-          onPreview={(name) => {
-            setSelectedApplication(name);
-            setDialog("change");
-          }}
+        <ApplicationCatalog
+          csrfToken={authStatus.csrfToken ?? ""}
+          onInspectCompose={() => setDialog("compose")}
+          onOpenRepair={() => setView("repairs")}
         />
       );
     }
@@ -487,11 +459,11 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.4.0",
+      version: "0.5.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
-      server: { hostname: null, lanAddress: null, note: "Host identity collection is not implemented in v0.4.0." },
+      server: { hostname: null, lanAddress: null, note: "Host identity collection is not implemented in v0.5.0." },
       events: virtualizationAudit,
       eventSource: virtualizationAudit.length ? "redacted-virtualization-audit" : "unavailable-or-empty",
     };
@@ -531,7 +503,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.4.0 operations core<br />Live surfaces are labeled</div>
+        <div className="prototype-label">v0.5.0 application engine<br />Live surfaces are labeled</div>
       </aside>
 
       <main>
@@ -582,7 +554,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
 
       {dialog === "change" && (
         <Modal title={`Review ${selectedApplication}`} onClose={() => setDialog(null)}>
-          <div className="notice warning-notice"><strong>Plan only</strong><span>Application installation is not enabled in v0.4.0, so Apply is intentionally unavailable.</span></div>
+          <div className="notice warning-notice"><strong>Plan only</strong><span>This sample change is not connected to an executable adapter, so Apply is intentionally unavailable.</span></div>
           <ol className="review-list">
             <li><strong>Preflight</strong><span>Check OS version, free space, network, conflicting ports, and current health.</span></li>
             <li><strong>Checkpoint</strong><span>Create a recovery point and verify its destination before changes.</span></li>

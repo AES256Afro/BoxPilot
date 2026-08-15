@@ -12,6 +12,8 @@ describe("BoxPilot console", () => {
     const url = input.toString();
     const body = url.includes("/auth/status")
       ? { bootstrapRequired: false, authenticated: true, owner: { id: "owner-one", username: "operator" }, csrfToken: "csrf-token", expiresAt: "2026-08-15T20:00:00Z" }
+      : url.endsWith("/api/v1/applications")
+        ? { applications: [{ id: "uptime-kuma", name: "Uptime Kuma", category: "Monitoring", description: "Private monitoring", execution: "enabled", risk: "low", targets: ["docker"], image: { version: "2.5.0", digestPinned: true }, integrity: `sha256:${"a".repeat(64)}`, live: { installed: false, state: "not-installed", detail: "Ready to plan" } }] }
       : { status: "ok", mode: "host-aware" };
     return Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } }));
   }
@@ -23,8 +25,8 @@ describe("BoxPilot console", () => {
     expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("sample data");
     fireEvent.click(screen.getByRole("button", { name: /Applications/ }));
     expect(screen.getByRole("heading", { name: "Applications" })).toBeTruthy();
-    expect(screen.getByText("Keel Notes")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("never deploys");
+    expect(await screen.findByText("Uptime Kuma")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("staging are live");
   });
 
   it("opens the browser-only Compose inspector", async () => {
