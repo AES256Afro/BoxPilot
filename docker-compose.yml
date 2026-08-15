@@ -1,12 +1,14 @@
 services:
   boxpilot:
     build: .
-    image: boxpilot:0.3.0
+    image: boxpilot:0.4.0
     container_name: boxpilot
     restart: unless-stopped
     environment:
       BOXPILOT_HOST: 0.0.0.0
       BOXPILOT_PORT: 8787
+      BOXPILOT_STATE_DIRECTORY: /tmp/boxpilot
+      BOXPILOT_COOKIE_SECURE: "false"
     ports:
       - "127.0.0.1:${BOXPILOT_PORT:-8787}:8787"
     read_only: true

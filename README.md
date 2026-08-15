@@ -4,13 +4,17 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.3.0` is a host-aware prototype, not a complete server manager. Its QEMU/KVM module has real read-only collectors and server-side VM plan validation when BoxPilot runs natively on Linux. Most other product areas are workflow mockups with visibly labeled sample data.
+Version `0.4.0` adds the first Operations Core release to the host-aware prototype. It includes server-local owner bootstrap, password sessions, CSRF protection, SQLite-backed jobs and approvals, a live prerequisite and Repair Center, and a separately hardened Unix-socket helper whose only current operation is a no-mutation canary. QEMU/KVM inspection and planning remain live on native Linux. Most other product areas are visibly labeled workflow mockups.
 
 ### What works now
 
-| Area | Status in `0.3.0` | Capability |
+| Area | Status in `0.4.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
+| Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
+| Operations Core | Live foundation | Persists plans, steps, approvals, results, recovery guidance, and audit attribution in SQLite. Interrupted applying or verifying jobs fail closed for review after restart. |
+| Repair Center | Live foundation | Checks Node.js, state storage, the helper, Docker, libvirt, Tailscale, and DNS port availability without returning peer details or raw command output. |
+| Restricted helper | No-mutation canary | Uses a versioned, allowlisted protocol over a local Unix socket. It cannot accept a command string, package name, path, or host mutation in this release. |
 | QEMU/KVM preflight | Live on the native host | Checks Linux, `/dev/kvm`, QEMU, `virsh`, `virt-install`, `qemu:///system`, service-user groups, the default NAT network, the default storage pool, and Tailscale access. |
 | VM and libvirt inventory | Live on the native host | Lists domains, state, CPU, memory, autostart, lease-reported addresses, disks, interfaces, snapshot count, networks, and storage pools. |
 | VM creation planner | Validated read-only | Discovers regular ISO files in one managed directory, validates fields on the server, checks name collisions and reported pool space, and renders a non-executing `virt-install` argument preview. |
@@ -29,7 +33,7 @@ The repository also includes a read-only Ubuntu deployment doctor and a USB-to-h
 - Docker inventory, Compose deployment, application installation, package updates, firewall changes, storage changes, or arbitrary command execution
 - Backup execution, restore drills, source-server discovery, transfer, or migration cutover
 - Keel Notes, AdGuard Home, Jellyfin, Home Assistant, PostgreSQL, router, GitHub, or remote-agent adapters
-- Owner bootstrap, user sessions, WebAuthn, CSRF protection, durable approval jobs, or the restricted privileged helper
+- WebAuthn, recovery codes, multiple owners, Tailscale identity headers, tamper-evident audit chaining, or mutation-capable helper operations
 
 ## Screenshots
 
@@ -37,7 +41,7 @@ The repository also includes a read-only Ubuntu deployment doctor and a USB-to-h
 
 ![BoxPilot overview with sample-data disclosure](docs/screenshots/overview-demo.jpg)
 
-This is an actual `0.3.0` UI capture. The workload, health, backup, and activity values are demonstration data, and the interface labels them accordingly.
+This is an actual `0.3.0` UI capture retained to show the workflow shell. The workload, health, backup, and activity values are demonstration data, and the interface labels them accordingly.
 
 ### Host-backed virtualization preflight
 
@@ -62,7 +66,7 @@ Every future host change must follow:
 5. Apply with streamed logs
 6. Verify or roll back
 
-The current VM action route maps validated requests to fixed `virsh` argument arrays and never invokes a shell. A separate privileged helper, owner authentication, durable approvals, and a tamper-evident job ledger are still required before higher-impact operations can ship. BoxPilot will not provide an arbitrary root shell.
+The current VM action route maps validated requests to fixed `virsh` argument arrays and never invokes a shell. Version `0.4.0` proves the separate helper, authenticated approval, durable job, and fail-closed restart boundaries with a harmless canary. Higher-impact operations remain locked until each typed handler has path, authorization, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
 
 ## Run for development
 
@@ -88,6 +92,12 @@ npm start
 
 Open `http://127.0.0.1:8787`. The server binds to loopback unless `BOXPILOT_HOST` is explicitly changed.
 
+On a fresh instance, generate the short-lived owner token from the server terminal, then finish setup in the browser:
+
+```bash
+npm run owner:token
+```
+
 Health endpoint:
 
 ```bash
@@ -112,8 +122,9 @@ The Compose stack:
 - Enables `no-new-privileges`
 - Uses a read-only root filesystem
 - Does not mount host directories or the Docker socket
+- Stores preview authentication state only in its temporary filesystem
 
-The default container is the safest preview deployment, but it cannot inspect host libvirt because it has no libvirt client or socket. Do not add `/run/libvirt` to this container. Use the documented native system service for the VM module until BoxPilot has a separate local agent.
+The default container is the safest preview deployment, but its owner and job database is intentionally ephemeral and it cannot inspect host libvirt because it has no libvirt client or socket. Do not add `/run/libvirt` or the Docker socket to this container. Use the documented native system services for persistent Operations Core and VM support.
 
 ## Private Tailscale access
 
@@ -124,7 +135,7 @@ sudo tailscale serve --bg http://127.0.0.1:8787
 tailscale serve status
 ```
 
-Open the HTTPS URL shown by `tailscale serve status` from another device on the same tailnet. Keep Tailscale Funnel disabled. The administrator token protects only allowlisted VM lifecycle requests, not the whole interface, so BoxPilot must remain loopback-only behind private Tailscale Serve.
+Open the HTTPS URL shown by `tailscale serve status` from another device on the same tailnet. Keep Tailscale Funnel disabled. BoxPilot authentication remains required because tailnet membership alone is not application authorization.
 
 ## Validation
 
@@ -137,6 +148,7 @@ docker build -t boxpilot:local .
 ## Documentation
 
 - [Architecture and security boundaries](docs/ARCHITECTURE.md)
+- [Operations Core setup and recovery](docs/OPERATIONS-CORE.md)
 - [Dependency-ordered roadmap](docs/ROADMAP.md)
 - [QEMU/KVM setup and operation](docs/VIRTUALIZATION.md)
 - [QEMU/KVM milestones](docs/VIRTUALIZATION-MILESTONES.md)
@@ -145,7 +157,7 @@ docker build -t boxpilot:local .
 
 ## Keel Notes roadmap adapter
 
-No Keel adapter ships in `0.3.0`. The first planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
+No Keel adapter ships in `0.4.0`. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
 
 - Detect a Keel Docker or service installation
 - Inventory the database dialect and protected data paths without exposing secrets

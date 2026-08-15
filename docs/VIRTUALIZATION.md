@@ -1,6 +1,6 @@
 # QEMU/KVM setup and operation
 
-BoxPilot `0.3.0` can inspect a local libvirt system connection, produce validated non-executing VM creation plans, and manage a deliberately small set of virtual-machine lifecycle operations. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
+BoxPilot `0.4.0` can inspect a local libvirt system connection, produce validated non-executing VM creation plans, and manage a deliberately small set of virtual-machine lifecycle operations after owner authentication. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
 
 ## What works now
 
@@ -58,31 +58,30 @@ sudo npm run build
 sudo npm prune --omit=dev
 sudo install -d -m 0755 /etc/boxpilot
 sudo install -m 0600 deploy/boxpilot.env.example /etc/boxpilot/boxpilot.env
+sudo install -m 0644 deploy/boxpilot-helper.service /etc/systemd/system/boxpilot-helper.service
 sudo install -m 0644 deploy/boxpilot.service /etc/systemd/system/boxpilot.service
 sudo systemctl daemon-reload
-sudo systemctl enable --now boxpilot
+sudo systemctl enable --now boxpilot-helper.service boxpilot.service
 ```
 
-The unit expects Node.js 24 or newer at `/usr/bin/node`. Check the installed path and version before enabling it:
+The units expect Node.js 24 or newer at `/usr/local/bin/node`. Check the installed path and version before enabling them:
 
 ```bash
 command -v node
 node --version
 ```
 
-If Node is installed elsewhere, change `ExecStart` in `/etc/systemd/system/boxpilot.service`, run `sudo systemctl daemon-reload`, and restart BoxPilot.
+If Node is installed elsewhere, change `ExecStart` in both service files, run `sudo systemctl daemon-reload`, and restart BoxPilot.
 
 Check the native service and API:
 
 ```bash
-sudo systemctl status boxpilot --no-pager
-sudo journalctl -u boxpilot -n 100 --no-pager
+sudo systemctl status boxpilot-helper boxpilot --no-pager
+sudo journalctl -u boxpilot-helper -u boxpilot -n 100 --no-pager
 curl http://127.0.0.1:8787/api/v1/health
-curl http://127.0.0.1:8787/api/v1/virtualization/status
-curl http://127.0.0.1:8787/api/v1/virtualization/domains
 ```
 
-Open **Virtual Machines** in BoxPilot. The preflight checklist names each missing requirement without changing the host.
+Create the first owner using [Operations Core setup and recovery](OPERATIONS-CORE.md), sign in, then open **Virtual Machines**. The preflight checklist names each missing requirement without changing the host.
 
 Run the read-only deployment doctor at any time:
 
@@ -202,6 +201,6 @@ Correct the specific failed requirement and refresh the page. Do not loosen the 
 
 ## Security boundary
 
-Membership in the `libvirt` group is powerful. In `0.3.0`, the native BoxPilot process has that membership so it can inspect libvirt and issue the small action allowlist. A compromised web process would still have the operating-system permissions of that service account. Keep the service loopback-only, keep Funnel off, protect the token, and do not treat this release as an internet-facing appliance.
+Membership in the `libvirt` group is powerful. In `0.4.0`, the native BoxPilot process still has that membership so it can inspect libvirt and issue the provisional small action allowlist. A compromised web process would still have the operating-system permissions of that service account. Keep the service loopback-only, keep Funnel off, protect the token, and do not treat this release as an internet-facing appliance.
 
-The next security milestone moves mutations to a local Unix-socket helper with typed requests, durable approvals, append-only audit events, and operation-specific authorization. VM creation, storage, bridges, snapshots, backup, migration, and console access should wait for that boundary.
+The Operations Core now proves typed Unix-socket requests and durable approvals with a no-mutation canary. VM creation, storage, bridges, snapshots, backup, migration, and console access remain locked until their operation-specific helper handlers, recovery checkpoints, path rules, and negative tests are complete.

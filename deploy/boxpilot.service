@@ -2,6 +2,8 @@
 Description=BoxPilot local server control plane
 Wants=network-online.target
 After=network-online.target
+Requires=boxpilot-helper.service
+After=boxpilot-helper.service
 
 [Service]
 Type=simple
@@ -12,7 +14,7 @@ WorkingDirectory=/opt/boxpilot
 EnvironmentFile=/etc/boxpilot/boxpilot.env
 StateDirectory=boxpilot
 StateDirectoryMode=0700
-ExecStart=/usr/bin/node /opt/boxpilot/server/index.mjs
+ExecStart=/usr/local/bin/node /opt/boxpilot/server/index.mjs
 Restart=on-failure
 RestartSec=5s
 UMask=0077

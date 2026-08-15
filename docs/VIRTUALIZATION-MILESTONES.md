@@ -42,7 +42,7 @@ Acceptance:
 
 Target: `0.4.0`
 
-Status: redacted JSONL event foundation included in `0.3.0`; owner identity, SQLite jobs, approvals, and complete audit guarantees remain pending.
+Status: redacted JSONL event foundation included in `0.3.0`; owner identity, SQLite jobs, approval reauthentication, and fail-closed interrupted-job handling are included in `0.4.0`. Migration of VM events into the durable executor and tamper evidence remain pending.
 
 - Server-local owner bootstrap
 - Password and WebAuthn-ready session model

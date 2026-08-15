@@ -9,6 +9,9 @@ import {
   type ViewName,
 } from "./data";
 import { inspectCompose, type ComposeInspection } from "./composeInspector";
+import AuthScreen from "./AuthScreen";
+import RepairCenter from "./RepairCenter";
+import { fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import VirtualMachines from "./VirtualMachines";
 
 type DialogName = "compose" | "change" | "backup" | "migration" | null;
@@ -23,6 +26,10 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
     title: "Applications",
     description: "Curated installs with port, storage, secret, health, and backup checks.",
     action: "Import Compose",
+  },
+  repairs: {
+    title: "Prerequisites and Repair Center",
+    description: "Inspect live host requirements, stage typed repairs, and verify every operation.",
   },
   virtualization: {
     title: "Virtual Machines",
@@ -53,12 +60,17 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   overview: {
     label: "UI demonstration",
     tone: "sample",
-    description: "The metrics, workloads, backup claims, and change timeline on this page are sample data in v0.3.0.",
+    description: "The metrics, workloads, backup claims, and change timeline on this page are sample data in v0.4.0.",
   },
   applications: {
     label: "Preview adapters",
     tone: "sample",
     description: "Application cards describe planned integrations. Only the local Compose risk scan runs today, and it never deploys a stack.",
+  },
+  repairs: {
+    label: "Live Operations Core",
+    tone: "live",
+    description: "Prerequisite checks and durable canary jobs come from Bigbox. Package and application mutations remain locked.",
   },
   virtualization: {
     label: "Host-backed module",
@@ -68,7 +80,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   backups: {
     label: "Workflow mockup",
     tone: "sample",
-    description: "Backup coverage and restore results are sample data. No backup engine or scheduler is included in v0.3.0.",
+    description: "Backup coverage and restore results are sample data. No backup engine or scheduler is included in v0.4.0.",
   },
   migrations: {
     label: "Workflow mockup",
@@ -406,7 +418,7 @@ function Settings({ apiMode }: { apiMode: string }) {
   );
 }
 
-function App() {
+function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSignedOut: () => void }) {
   const [view, setView] = useState<ViewName>("overview");
   const [dialog, setDialog] = useState<DialogName>(null);
   const [selectedApplication, setSelectedApplication] = useState("security updates");
@@ -446,12 +458,13 @@ function App() {
         />
       );
     }
-    if (view === "virtualization") return <VirtualMachines />;
+    if (view === "repairs") return <RepairCenter csrfToken={authStatus.csrfToken ?? ""} />;
+    if (view === "virtualization") return <VirtualMachines csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "backups") return <Backups />;
     if (view === "migrations") return <Migrations />;
     if (view === "logs") return <Logs />;
     return <Settings apiMode={apiMode} />;
-  }, [apiMode, healthStatus, view]);
+  }, [apiMode, authStatus.csrfToken, healthStatus, view]);
 
   const runHealthCheck = () => {
     setHealthRunning(true);
@@ -474,11 +487,11 @@ function App() {
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.3.0",
+      version: "0.4.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
-      server: { hostname: null, lanAddress: null, note: "Host identity collection is not implemented in v0.3.0." },
+      server: { hostname: null, lanAddress: null, note: "Host identity collection is not implemented in v0.4.0." },
       events: virtualizationAudit,
       eventSource: virtualizationAudit.length ? "redacted-virtualization-audit" : "unavailable-or-empty",
     };
@@ -518,7 +531,7 @@ function App() {
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.3.0 mixed data mode<br />Live surfaces are labeled</div>
+        <div className="prototype-label">v0.4.0 operations core<br />Live surfaces are labeled</div>
       </aside>
 
       <main>
@@ -527,7 +540,7 @@ function App() {
             <div><strong>BoxPilot preview</strong><span>Host identity is not collected on this screen</span></div>
             <StatusPill tone="neutral">Mixed data</StatusPill>
           </div>
-          <div className="topbar-right"><StatusPill tone="warning">Guarded mode</StatusPill><span className="avatar">OP</span></div>
+          <div className="topbar-right"><StatusPill tone="warning">Guarded mode</StatusPill><span className="signed-in-user">{authStatus.owner?.username}</span><button className="text-button" type="button" onClick={() => void logoutOwner(authStatus.csrfToken ?? "").then(onSignedOut)}>Sign out</button></div>
         </header>
 
         <div className="content">
@@ -569,7 +582,7 @@ function App() {
 
       {dialog === "change" && (
         <Modal title={`Review ${selectedApplication}`} onClose={() => setDialog(null)}>
-          <div className="notice warning-notice"><strong>Plan only</strong><span>Application installation is not enabled in v0.3.0, so Apply is intentionally unavailable.</span></div>
+          <div className="notice warning-notice"><strong>Plan only</strong><span>Application installation is not enabled in v0.4.0, so Apply is intentionally unavailable.</span></div>
           <ol className="review-list">
             <li><strong>Preflight</strong><span>Check OS version, free space, network, conflicting ports, and current health.</span></li>
             <li><strong>Checkpoint</strong><span>Create a recovery point and verify its destination before changes.</span></li>
@@ -597,6 +610,26 @@ function App() {
       )}
     </div>
   );
+}
+
+function App() {
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetchAuthStatus()
+      .then(setAuthStatus)
+      .catch((error) => setAuthError(error instanceof Error ? error.message : "Unable to reach BoxPilot authentication"));
+  }, []);
+
+  if (authError) {
+    return <main className="auth-shell"><section className="auth-card"><span className="eyebrow">Connection failed</span><h1>BoxPilot is unavailable</h1><p role="alert">{authError}</p><button className="secondary-button" type="button" onClick={() => window.location.reload()}>Try again</button></section></main>;
+  }
+  if (!authStatus) return <main className="auth-shell"><section className="auth-card"><span className="eyebrow">Private administration</span><h1>Loading BoxPilot...</h1></section></main>;
+  if (!authStatus.authenticated) {
+    return <AuthScreen bootstrapRequired={authStatus.bootstrapRequired} onAuthenticated={setAuthStatus} />;
+  }
+  return <Console authStatus={authStatus} onSignedOut={() => setAuthStatus({ ...authStatus, authenticated: false, owner: null, csrfToken: null, expiresAt: null })} />;
 }
 
 export default App;

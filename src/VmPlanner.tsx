@@ -20,7 +20,7 @@ const initialInput: VmPlanInput = {
   autostart: false,
 };
 
-export default function VmPlanner({ onClose }: { onClose: () => void }) {
+export default function VmPlanner({ onClose, csrfToken = "" }: { onClose: () => void; csrfToken?: string }) {
   const [options, setOptions] = useState<VmPlanningOptions | null>(null);
   const [input, setInput] = useState<VmPlanInput>(initialInput);
   const [plan, setPlan] = useState<VmCreationPlan | null>(null);
@@ -54,7 +54,7 @@ export default function VmPlanner({ onClose }: { onClose: () => void }) {
     setSubmitting(true);
     setError(null);
     try {
-      setPlan(await createVmPlan(input));
+      setPlan(await createVmPlan(input, csrfToken));
     } catch (requestError) {
       setPlan(null);
       setError(requestError instanceof Error ? requestError.message : "Unable to create VM plan");
