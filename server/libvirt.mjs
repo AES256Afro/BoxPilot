@@ -11,6 +11,7 @@ if (connectionUri !== "qemu:///system") {
 }
 const qemuSystemBinary = process.arch === "arm64" ? "qemu-system-aarch64" : "qemu-system-x86_64";
 const domainPattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$/;
+const snapshotPattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$/;
 
 async function defaultRunCommand(command, args, options = {}) {
   try {
@@ -55,6 +56,21 @@ function parseAddresses(output) {
     .map((parts) => ({ interface: parts[0], protocol: parts[2], address: parts[3] }));
 }
 
+function mergeAddresses(...groups) {
+  const addresses = new Map();
+  for (const address of groups.flat()) addresses.set(`${address.interface}\n${address.protocol}\n${address.address}`, address);
+  return [...addresses.values()];
+}
+
+function parseAgentReturn(output) {
+  try {
+    const parsed = JSON.parse(output);
+    return Object.hasOwn(parsed, "return") ? parsed.return : null;
+  } catch {
+    return null;
+  }
+}
+
 function tableBody(output) {
   const lines = output.split("\n");
   const separator = lines.findIndex((line) => /^\s*-{3,}/.test(line));
@@ -81,7 +97,7 @@ function parseInterfaces(output) {
 }
 
 function normalizeState(state = "unknown") {
-  if (state === "shut off") return "stopped";
+  if (state === "shut off" || state === "shutoff") return "stopped";
   if (state === "in shutdown") return "stopping";
   if (state === "pmsuspended") return "suspended";
   return state;
@@ -130,6 +146,10 @@ export function validateDomainName(name) {
   return typeof name === "string" && domainPattern.test(name);
 }
 
+export function validateSnapshotName(name) {
+  return typeof name === "string" && snapshotPattern.test(name);
+}
+
 export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmAccess } = {}) {
   const hasKvmAccess = checkKvmAccess ?? (async () => {
     try {
@@ -175,7 +195,7 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
 
   async function getStatus() {
     const linux = process.platform === "linux";
-    const [kvmAccess, virshVersion, qemuVersion, virtInstallVersion, uri, network, pool, groups, tailscale] =
+    const [kvmAccess, virshVersion, qemuVersion, virtInstallVersion, uri, network, pool, tailscale] =
       await Promise.all([
         linux ? hasKvmAccess() : false,
         runCommand("virsh", ["--version"]),
@@ -184,18 +204,16 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
         runCommand("virsh", ["--connect", connectionUri, "uri"]),
         inspectResource("net", "default"),
         inspectResource("pool", "default"),
-        runCommand("id", ["-nG"]),
         getTailscale(),
       ]);
 
-    const libvirtGroup = groups.ok && groups.stdout.split(/\s+/).includes("libvirt");
     const checks = [
       { id: "linux", label: "Ubuntu or Linux host", ok: linux, detail: linux ? `${os.type()} ${os.release()}` : `${os.type()} is preview-only` },
-      { id: "kvm", label: "KVM device access", ok: kvmAccess, detail: kvmAccess ? "/dev/kvm is readable and writable" : "Enable virtualization and grant KVM access" },
+      { id: "kvm", label: "KVM acceleration through libvirt", ok: kvmAccess, detail: kvmAccess ? "qemu:///system reports KVM domain support" : "Enable hardware virtualization and repair the libvirt KVM configuration" },
       { id: "qemu", label: "QEMU installed", ok: qemuVersion.ok, detail: qemuVersion.ok ? qemuVersion.stdout.split("\n")[0] : `${qemuSystemBinary} not found` },
       { id: "virsh", label: "libvirt client installed", ok: virshVersion.ok, detail: virshVersion.ok ? `virsh ${virshVersion.stdout}` : "virsh not found" },
       { id: "connection", label: "System libvirt connection", ok: uri.ok, detail: uri.ok ? uri.stdout : "Cannot connect to qemu:///system" },
-      { id: "group", label: "BoxPilot user permissions", ok: Boolean(libvirtGroup), detail: libvirtGroup ? "User belongs to libvirt" : "Add the service user to libvirt" },
+      { id: "helper", label: "Restricted helper libvirt access", ok: uri.ok, detail: uri.ok ? "The Unix-socket helper can inspect qemu:///system" : "The helper cannot inspect qemu:///system" },
       { id: "network", label: "Default NAT network", ok: network.exists && network.active, detail: network.exists ? (network.active ? "Active" : "Defined but inactive") : "Not defined" },
       { id: "pool", label: "Default storage pool", ok: pool.exists && pool.active, detail: pool.exists ? (pool.active ? "Active" : "Defined but inactive") : "Not defined" },
       { id: "virt-install", label: "VM creation tools", ok: virtInstallVersion.ok, detail: virtInstallVersion.ok ? `virt-install ${virtInstallVersion.stdout}` : "virt-install not found" },
@@ -218,12 +236,33 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
     const infoResult = await runCommand("virsh", ["--connect", connectionUri, "dominfo", name]);
     if (!infoResult.ok) return null;
     const info = parseKeyValueOutput(infoResult.stdout);
-    const [addressResult, blockResult, interfaceResult, snapshotResult] = await Promise.all([
+    const running = normalizeState(info.state) === "running";
+    const [leaseAddressResult, agentAddressResult, blockResult, interfaceResult, snapshotResult, agentPingResult, freezeResult] = await Promise.all([
       runCommand("virsh", ["--connect", connectionUri, "domifaddr", name, "--source", "lease"]),
+      running ? runCommand("virsh", ["--connect", connectionUri, "domifaddr", name, "--source", "agent"]) : Promise.resolve({ ok: false, stdout: "", stderr: "Guest is not running" }),
       runCommand("virsh", ["--connect", connectionUri, "domblklist", name, "--details"]),
       runCommand("virsh", ["--connect", connectionUri, "domiflist", name]),
       runCommand("virsh", ["--connect", connectionUri, "snapshot-list", name, "--name"]),
+      running ? runCommand("virsh", ["--connect", connectionUri, "qemu-agent-command", name, '{"execute":"guest-ping"}']) : Promise.resolve({ ok: false, stdout: "", stderr: "Guest is not running" }),
+      running ? runCommand("virsh", ["--connect", connectionUri, "qemu-agent-command", name, '{"execute":"guest-fsfreeze-status"}']) : Promise.resolve({ ok: false, stdout: "", stderr: "Guest is not running" }),
     ]);
+    const snapshotNames = snapshotResult.ok ? snapshotResult.stdout.split("\n").map((snapshot) => snapshot.trim()).filter(Boolean) : [];
+    const snapshots = await Promise.all(snapshotNames.map(async (snapshotName) => {
+      if (!validateSnapshotName(snapshotName)) return { name: snapshotName.slice(0, 128), manageable: false, current: null, state: null, location: null, parent: null, createdAt: null };
+      const result = await runCommand("virsh", ["--connect", connectionUri, "snapshot-info", name, snapshotName]);
+      const snapshotInfo = result.ok ? parseKeyValueOutput(result.stdout) : {};
+      return {
+        name: snapshotName,
+        manageable: true,
+        current: snapshotInfo.current === "yes",
+        state: normalizeState(snapshotInfo.state),
+        location: snapshotInfo.location ?? null,
+        parent: snapshotInfo.parent && snapshotInfo.parent !== "-" ? snapshotInfo.parent : null,
+        createdAt: snapshotInfo.creation_time ?? null,
+      };
+    }));
+    const agentReturn = agentPingResult.ok ? parseAgentReturn(agentPingResult.stdout) : null;
+    const freezeState = freezeResult.ok ? parseAgentReturn(freezeResult.stdout) : null;
     return {
       name: info.name ?? name,
       uuid: info.uuid ?? null,
@@ -233,10 +272,19 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
       persistent: info.persistent === "yes",
       autostart: info.autostart === "enable" || info.autostart === "yes",
       managed: validateDomainName(info.name ?? name),
-      addresses: addressResult.ok ? parseAddresses(addressResult.stdout) : [],
+      addresses: mergeAddresses(
+        leaseAddressResult.ok ? parseAddresses(leaseAddressResult.stdout) : [],
+        agentAddressResult.ok ? parseAddresses(agentAddressResult.stdout) : [],
+      ),
       disks: blockResult.ok ? parseBlockDevices(blockResult.stdout) : [],
       interfaces: interfaceResult.ok ? parseInterfaces(interfaceResult.stdout) : [],
-      snapshotCount: snapshotResult.ok ? snapshotResult.stdout.split("\n").map((snapshot) => snapshot.trim()).filter(Boolean).length : null,
+      snapshotCount: snapshotResult.ok ? snapshotNames.length : null,
+      snapshots,
+      guestAgent: {
+        available: agentPingResult.ok && agentReturn !== null,
+        filesystemState: typeof freezeState === "string" ? freezeState : null,
+        addressDiscovery: agentAddressResult.ok,
+      },
     };
   }
 

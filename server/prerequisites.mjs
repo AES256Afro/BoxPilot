@@ -76,14 +76,21 @@ export function createPrerequisiteService({ stateDirectory, helper, runCommand =
       docker.available ? null : { kind: "planned", description: "Install Docker Engine or repair helper access to the local Docker service" },
     ));
 
-    const libvirt = await runCommand("virsh", ["--connect", "qemu:///system", "uri"]);
+    let virtualization = null;
+    try {
+      virtualization = await helper.request("virtualization.inventory.inspect", { scope: "status" });
+    } catch {
+      virtualization = null;
+    }
+    const libvirtReady = virtualization?.checks?.some((item) => item.id === "connection" && item.ok)
+      && virtualization?.checks?.some((item) => item.id === "helper" && item.ok);
     checks.push(check(
       "virtualization.libvirt",
       "Virtualization",
       "libvirt system connection",
-      libvirt.ok && libvirt.stdout === "qemu:///system" ? "ready" : "missing",
-      libvirt.ok ? "Connected to qemu:///system" : "The system libvirt connection is unavailable",
-      libvirt.ok ? null : { kind: "guided", description: "Run the existing virtualization setup repair" },
+      libvirtReady ? "ready" : "missing",
+      libvirtReady ? "Restricted helper connected to qemu:///system" : "The helper-backed system libvirt connection is unavailable",
+      libvirtReady ? null : { kind: "guided", description: "Repair the helper or run the existing virtualization setup repair" },
     ));
 
     const tailscale = await runCommand("tailscale", ["status", "--json"]);

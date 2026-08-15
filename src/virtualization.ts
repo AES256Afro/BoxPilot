@@ -48,6 +48,8 @@ export interface VirtualDomain {
   disks: Array<{ type: string; device: string; target: string; source: string }>;
   interfaces: Array<{ interface: string; type: string; source: string; model: string | null; mac: string }>;
   snapshotCount: number | null;
+  snapshots: Array<{ name: string; manageable: boolean; current: boolean | null; state: string | null; location: string | null; parent: string | null; createdAt: string | null }>;
+  guestAgent: { available: boolean; filesystemState: string | null; addressDiscovery: boolean };
 }
 
 export interface DomainList {
@@ -72,6 +74,14 @@ export interface LibvirtResources {
     availableBytes: number | null;
   }>;
   errors: string[];
+}
+
+export interface ConsoleGuidance {
+  nativeProxyAvailable: false;
+  cockpit: { installed: boolean; active: boolean; enabled: boolean; port: 9090 };
+  tailscaleDnsName: string | null;
+  privateUrl: string | null;
+  accessNote: string;
 }
 
 export interface VmPlanningOptions {
@@ -148,6 +158,24 @@ export interface VmLifecyclePlan {
   };
 }
 
+export interface VmSnapshotPlan {
+  id: string;
+  revision: string;
+  status: "draft" | "staged";
+  expiresAt: string;
+  input: { name: string; snapshotName: string; expectedUuid: string; expectedState: "stopped"; expectedDiskRevision: string; expectedSnapshotRevision: string };
+  output: {
+    executable: boolean;
+    consistency: "offline-consistent";
+    independentBackup: false;
+    currentSnapshotCount: number;
+    diskTargets: string[];
+    changes: string[];
+    warnings: string[];
+    recovery: string;
+  };
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   const body = (await response.json()) as T & { error?: string; errors?: string[] };
   if (!response.ok && response.status !== 503) {
@@ -156,16 +184,18 @@ async function readJson<T>(response: Response): Promise<T> {
   return body;
 }
 
-export async function fetchVirtualization(): Promise<[VirtualizationStatus, DomainList, LibvirtResources]> {
-  const [statusResponse, domainsResponse, resourcesResponse] = await Promise.all([
+export async function fetchVirtualization(): Promise<[VirtualizationStatus, DomainList, LibvirtResources, ConsoleGuidance]> {
+  const [statusResponse, domainsResponse, resourcesResponse, consoleResponse] = await Promise.all([
     fetch("/api/v1/virtualization/status"),
     fetch("/api/v1/virtualization/domains"),
     fetch("/api/v1/virtualization/resources"),
+    fetch("/api/v1/virtualization/console-guidance"),
   ]);
   return Promise.all([
     readJson<VirtualizationStatus>(statusResponse),
     readJson<DomainList>(domainsResponse),
     readJson<LibvirtResources>(resourcesResponse),
+    readJson<ConsoleGuidance>(consoleResponse),
   ]);
 }
 
@@ -209,6 +239,26 @@ export async function createVmLifecyclePlan(domain: string, action: string, csrf
 
 export async function stageVmLifecyclePlan(planId: string, revision: string, csrfToken: string): Promise<VmCreationJob> {
   const response = await fetch(`/api/v1/virtualization/action-plans/${encodeURIComponent(planId)}/stage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: JSON.stringify({ revision }),
+  });
+  const body = await readJson<{ job: VmCreationJob }>(response);
+  return body.job;
+}
+
+export async function createVmSnapshotPlan(domain: string, snapshotName: string, csrfToken: string): Promise<VmSnapshotPlan> {
+  const response = await fetch(`/api/v1/virtualization/domains/${encodeURIComponent(domain)}/snapshot-plans`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: JSON.stringify({ snapshotName }),
+  });
+  const body = await readJson<{ plan: VmSnapshotPlan }>(response);
+  return body.plan;
+}
+
+export async function stageVmSnapshotPlan(planId: string, revision: string, csrfToken: string): Promise<VmCreationJob> {
+  const response = await fetch(`/api/v1/virtualization/snapshot-plans/${encodeURIComponent(planId)}/stage`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
     body: JSON.stringify({ revision }),

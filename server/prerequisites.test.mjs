@@ -5,9 +5,10 @@ describe("prerequisite inventory", () => {
   it("reports live readiness without returning raw peer or listener output", async () => {
     const helper = { request: vi.fn(async (operation) => operation === "container.docker.inspect"
       ? ({ available: true, version: "29.1.3" })
-      : ({ verified: true, helperVersion: "0.4.0", mutationPerformed: false })) };
+      : operation === "virtualization.inventory.inspect"
+        ? ({ checks: [{ id: "connection", ok: true }, { id: "helper", ok: true }] })
+        : ({ verified: true, helperVersion: "0.7.0", mutationPerformed: false })) };
     const runCommand = vi.fn(async (command) => {
-      if (command === "virsh") return { ok: true, stdout: "qemu:///system" };
       if (command === "tailscale") return { ok: true, stdout: "SECRET PEER DATA" };
       return { ok: true, stdout: "udp UNCONN 0 0 0.0.0.0:53 0.0.0.0:*" };
     });
@@ -22,6 +23,7 @@ describe("prerequisite inventory", () => {
     const result = await service.inspect();
     expect(result.checks.find((item) => item.id === "containers.docker")).toMatchObject({ status: "ready", summary: "Docker Engine 29.1.3" });
     expect(runCommand).not.toHaveBeenCalledWith("docker", expect.anything());
+    expect(runCommand).not.toHaveBeenCalledWith("virsh", expect.anything());
     expect(result.checks.find((item) => item.id === "virtualization.libvirt")).toMatchObject({ status: "ready" });
     expect(result.checks.find((item) => item.id === "dns.port53")).toMatchObject({ status: "conflict" });
     expect(JSON.stringify(result)).not.toContain("SECRET PEER DATA");
