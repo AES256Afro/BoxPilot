@@ -1,6 +1,6 @@
 # QEMU/KVM setup and operation
 
-BoxPilot `0.5.0` can inspect a local libvirt system connection, produce validated non-executing VM creation plans, and manage a deliberately small set of virtual-machine lifecycle operations after owner authentication. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
+BoxPilot `0.9.0` can inspect a local libvirt system connection, create supported Linux virtual machines through durable approved jobs, and manage a deliberately small set of virtual-machine lifecycle operations after owner authentication. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
 
 ## What works now
 
@@ -12,9 +12,13 @@ BoxPilot `0.5.0` can inspect a local libvirt system connection, produce validate
 - Enable or disable VM autostart
 - Detect the host's Tailscale name and an existing Tailscale Serve URL
 - Discover managed ISO images, libvirt networks, pools, guest disks, interfaces, and snapshot count
-- Validate a new VM plan and render its exact future `virt-install` argument array without executing it
+- Validate and durably store a new VM plan with an exact `virt-install` preview
+- Revalidate the domain name, managed ISO, active default network, active default pool, and reported pool capacity before staging and approval
+- Create supported Linux guests through a typed root helper only after owner password reauthentication
+- Verify the domain identity, disk, default network, and autostart state after creation
+- Remove only the newly created exact-name domain and allocated storage if creation verification fails
 
-The release does not apply a VM creation plan, create or delete VMs, force power off, edit VM definitions, open a web console, make snapshots, change storage pools, or build a network bridge. These operations need durable plans, stronger identity, audit records, recovery checkpoints, and a restricted local helper.
+The release does not delete VMs, force power off, edit definitions, open a web console, make snapshots, change storage pools, build a network bridge, generate cloud-init media, or create Windows 11 guests. Windows 11 remains locked until TPM 2.0 and Secure Boot checks exist. The existing lifecycle controls remain a provisional fixed-argument route rather than durable jobs.
 
 ## 1. Prepare Ubuntu for virtualization
 
@@ -94,7 +98,7 @@ It checks Linux, KVM access, required commands, groups, libvirt, the default net
 
 The systemd unit creates `/var/lib/boxpilot` with mode `0700` for redacted audit events. The service records successful creation plans plus requested, completed, and failed lifecycle operations. It never records the administrator token or a complete environment. Open **Logs** in BoxPilot to see the newest events. This JSONL foundation is not yet a tamper-evident, owner-attributed audit ledger.
 
-## 3. Add installation media and create a VM plan
+## 3. Add installation media and create a VM
 
 Copy an installer ISO into the configured managed-media directory:
 
@@ -104,7 +108,7 @@ sudo cp /path/to/installer.iso /var/lib/libvirt/boot/
 sudo chmod 0644 /var/lib/libvirt/boot/installer.iso
 ```
 
-If a different directory is required, set `BOXPILOT_ISO_DIRECTORY` in `/etc/boxpilot/boxpilot.env` and restart BoxPilot. Use a dedicated media directory. Do not point it at `/`, a home directory, or a directory containing secrets.
+The production helper unit deliberately fixes this directory to `/var/lib/libvirt/boot`. If a different dedicated directory is required, a root administrator must update `BOXPILOT_ISO_DIRECTORY` consistently in both `/etc/boxpilot/boxpilot.env` and `boxpilot-helper.service`, then reload systemd and restart both services. Do not point it at `/`, a home directory, a writable upload directory, or a directory containing secrets.
 
 In BoxPilot:
 
@@ -112,9 +116,12 @@ In BoxPilot:
 2. Select **Plan new VM**.
 3. Choose the guest name, operating-system profile, vCPU, memory, disk, managed ISO, default NAT network, firmware, and autostart preference.
 4. Select **Generate reviewed plan**.
-5. Review capacity warnings, the deterministic plan revision, the structured `virt-install` preview, and the gates required before Apply.
+5. Review capacity warnings, the immutable plan revision, the structured `virt-install` preview, and the execution guardrails.
+6. Select **Stage for password approval**. This rechecks live host state and creates an awaiting-approval job without creating a disk or domain.
+7. Open **Repair Center**, review the recovery instructions, and approve with the owner password.
+8. Return to **Virtual Machines** and refresh the live inventory.
 
-The planning API verifies numeric limits, rejects unsafe ISO names and path traversal, checks that the ISO is a regular discovered file, refuses an existing domain name, and rejects a disk larger than the reported free space in the default pool. It never invokes `virt-install` and cannot create a disk or domain.
+The planning API verifies numeric limits, rejects unsafe ISO names and path traversal, checks that the ISO is a regular discovered file, refuses an existing domain name, and rejects a disk larger than the reported free space in the default pool. Planning and staging never invoke `virt-install`. Approval invokes one typed helper operation. The helper independently derives the binary, libvirt URI, ISO path, storage-pool arguments, network arguments, and rollback target. It does not accept shell text, an executable, an argument array, or a path from the web service.
 
 ## 4. Publish BoxPilot privately through Tailscale
 
@@ -201,6 +208,6 @@ Correct the specific failed requirement and refresh the page. Do not loosen the 
 
 ## Security boundary
 
-Membership in the `libvirt` group is powerful. In `0.5.0`, the native BoxPilot process still has that membership so it can inspect libvirt and issue the provisional small action allowlist. A compromised web process would still have the operating-system permissions of that service account. Keep the service loopback-only, keep Funnel off, protect the token, and do not treat this release as an internet-facing appliance.
+Membership in the `libvirt` group is powerful. In `0.9.0`, the native BoxPilot process still has that membership so it can inspect libvirt and issue the provisional small action allowlist. VM creation itself has moved to the root helper, but lifecycle mutations have not. A compromised web process would still have the operating-system permissions of the `boxpilot` service account. Keep the service loopback-only, keep Funnel off, protect the token, and do not treat this release as an internet-facing appliance.
 
 The Operations Core now proves typed Unix-socket requests and durable approvals with a no-mutation canary. VM creation, storage, bridges, snapshots, backup, migration, and console access remain locked until their operation-specific helper handlers, recovery checkpoints, path rules, and negative tests are complete.

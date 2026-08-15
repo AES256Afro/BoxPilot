@@ -81,7 +81,7 @@ Acceptance:
 
 ## Phase 4: restricted privileged helper
 
-Status: the root-owned service, Unix-socket boundary, versioned allowlist, hardened unit, negative protocol tests, and no-mutation canary are included in `0.4.0`. Version `0.5.0` adds fixed Uptime Kuma inspect and deploy operations. Version `0.6.0` adds the fixed Uptime Kuma backup and isolated restore handler. Package, service, firewall, storage, reboot, general Docker, libvirt, and general backup handlers remain locked.
+Status: the root-owned service, Unix-socket boundary, versioned allowlist, hardened unit, negative protocol tests, and no-mutation canary are included in `0.4.0`. Version `0.5.0` adds fixed Uptime Kuma inspect and deploy operations. Version `0.6.0` adds the fixed Uptime Kuma backup and isolated restore handler. Version `0.9.0` adds fixed Linux VM creation with managed-media confinement, post-create verification, and exact-domain rollback. Package, service, firewall, storage-pool administration, reboot, general Docker, general libvirt, and general backup handlers remain locked.
 
 - Root-owned Unix socket
 - Versioned typed-operation protocol
@@ -137,7 +137,8 @@ Acceptance:
 
 - Live libvirt discovery and guarded start, graceful shutdown, reboot, and autostart controls included in `0.2.0`
 - Read-only creation planning, managed ISO discovery, resource guardrails, and detailed guest/network/pool inventory included in `0.3.0`
-- Guided VM creation, console, snapshot, export, and restore
+- Durable approved Linux VM creation through the restricted helper included in `0.9.0`
+- Console, snapshot, export, restore, Windows TPM/Secure Boot, and cloud-init remain pending
 - Storage pool management with destructive-operation confirmation
 - Cloud-init templates and bridged-network planning
 - UPS state, shutdown policy, and disk replacement runbooks

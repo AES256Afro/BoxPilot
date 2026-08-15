@@ -1,7 +1,10 @@
 import { createApplicationHelper } from "./application-helper.mjs";
+import { createVmHelper } from "./vm-helper.mjs";
+import { validateVmPlanInput } from "./vm-plan.mjs";
 
 export const helperProtocolVersion = 1;
-export const helperOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup"]);
+export const helperOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.domain.create"]);
+const vmCreationKeys = ["autostart", "diskGiB", "firmware", "isoFile", "memoryMiB", "name", "network", "osProfile", "vcpus"];
 
 export function validateHelperRequest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "Request must be an object";
@@ -29,10 +32,18 @@ export function validateHelperRequest(value) {
       return "Uptime Kuma backup accepts only a backupId UUID";
     }
   }
+  if (value.operation === "virtualization.domain.create") {
+    const keys = Object.keys(value.parameters).sort();
+    if (keys.length !== vmCreationKeys.length || keys.some((key, index) => key !== vmCreationKeys[index])) {
+      return "VM creation accepts only the fixed typed plan fields";
+    }
+    const errors = validateVmPlanInput(value.parameters);
+    if (errors.length) return `Invalid VM creation plan: ${errors.join(" | ")}`;
+  }
   return null;
 }
 
-export async function executeHelperOperation(request, { applications = createApplicationHelper() } = {}) {
+export async function executeHelperOperation(request, { applications = createApplicationHelper(), virtualization = createVmHelper() } = {}) {
   const error = validateHelperRequest(request);
   if (error) return { version: helperProtocolVersion, id: request?.id ?? null, ok: false, error, code: "invalid_request" };
   if (request.operation === "canary.verify") {
@@ -40,7 +51,7 @@ export async function executeHelperOperation(request, { applications = createApp
       version: helperProtocolVersion,
       id: request.id,
       ok: true,
-      result: { verified: true, helperVersion: "0.4.0", mutationPerformed: false },
+      result: { verified: true, helperVersion: "0.5.0", mutationPerformed: false },
     };
   }
   if (request.operation === "container.docker.inspect") {
@@ -60,6 +71,9 @@ export async function executeHelperOperation(request, { applications = createApp
   }
   if (request.operation === "application.uptime-kuma.backup") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await applications.backup(request.parameters) };
+  }
+  if (request.operation === "virtualization.domain.create") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await virtualization.create(request.parameters) };
   }
   return { version: helperProtocolVersion, id: request.id, ok: false, error: "Operation is not implemented", code: "not_implemented" };
 }

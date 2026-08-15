@@ -1,6 +1,6 @@
 # Virtualization API
 
-The BoxPilot `v1` virtualization API is loopback-only by default. Tailscale Serve may proxy it privately, but it is not an internet API. Version `0.5.0` requires an authenticated owner session for virtualization routes and a CSRF token for POST requests. Network privacy remains mandatory.
+The BoxPilot `v1` virtualization API is loopback-only by default. Tailscale Serve may proxy it privately, but it is not an internet API. Version `0.9.0` requires an authenticated owner session for virtualization routes and a CSRF token for POST requests. Network privacy remains mandatory.
 
 All API responses use JSON and send `Cache-Control: no-store`.
 
@@ -21,7 +21,7 @@ GET /api/v1/health
 GET /api/v1/capabilities
 ```
 
-Agents and interfaces should read capabilities before showing an operation. `vmCreationPlanning: validated-read-only` means plans can be generated but not applied.
+Agents and interfaces should read capabilities before showing an operation. `vmCreationPlanning: validated-durable-approved` means supported plans can be staged as immutable jobs, but execution still requires separate password reauthentication.
 
 ## Host and domain discovery
 
@@ -54,7 +54,7 @@ The response includes:
 
 Directory entries, symbolic links, zero-byte files, files with unsafe names, and non-ISO files are excluded.
 
-## Create a non-executing VM plan
+## Create a durable VM plan
 
 ```text
 POST /api/v1/virtualization/plans
@@ -79,16 +79,35 @@ Example request:
 
 A successful response contains:
 
-- A deterministic plan revision tied to normalized inputs, ISO name, ISO size, ISO modification time, media root, and libvirt URI
-- `executable: false`
+- A durable plan id, immutable revision, draft status, and expiration time
+- A separate adapter revision tied to normalized inputs, ISO name, ISO size, ISO modification time, media root, and libvirt URI
+- `executable` and `stageable` capability flags
 - `requiresRestrictedHelper: true`
 - Capacity and OS-profile warnings
 - A program plus argument array and a display-only `virt-install` preview
-- Required gates before a future Apply operation
+- Required execution guardrails
 
 The route rejects invalid types and ranges, path traversal, unlisted media, an existing domain name, a non-default network, incompatible Windows 11 firmware, and a disk larger than reported free space in the default pool.
 
-There is no VM plan-apply route in `0.5.0`. Clients must not execute the display string themselves.
+The planning route does not execute the display string. Clients must never execute it themselves.
+
+## Stage a VM creation job
+
+```text
+POST /api/v1/virtualization/plans/:id/stage
+Content-Type: application/json
+X-BoxPilot-CSRF: <session CSRF token>
+```
+
+Body:
+
+```json
+{ "revision": "immutable-plan-revision" }
+```
+
+Staging requires the plan owner, exact revision, unexpired draft status, executable profile, unchanged plan inputs and managed ISO metadata, no exact-name domain, an active default NAT network, and an active default storage pool with sufficient reported space. A successful response contains an `awaiting_approval` job. It performs no host mutation.
+
+Approve that job through the Operations Core approval route with the owner password. Approval revalidates the host again and sends only the nine fixed typed VM fields to `virtualization.domain.create` over the helper Unix socket. The protocol rejects extra `program`, `arguments`, `path`, URI, or unknown fields.
 
 ## Guarded lifecycle request
 

@@ -120,6 +120,7 @@ export default function RepairCenter({ csrfToken }: { csrfToken: string }) {
           <span className="eyebrow">{awaitingApproval ? "Approval desk" : "Operations Core canary"}</span>
           <h3>{awaitingApproval ? awaitingApproval.title : "Prove the restricted helper"}</h3>
           <p>{awaitingApproval ? "Review the recorded preflight and recovery steps below, then reauthenticate to execute this exact typed job." : "This job uses the real durable workflow and local Unix socket. Its allowlisted operation cannot mutate the host."}</p>
+          {awaitingApproval && <p className="job-recovery"><strong>{awaitingApproval.risk} risk:</strong> {awaitingApproval.recovery.reason ?? "Follow the recorded recovery instructions if verification fails."}</p>}
           {!awaitingApproval ? (
             <button className="primary-button" type="button" onClick={() => void createCanary()} disabled={pending}>Create verification job</button>
           ) : (
@@ -127,7 +128,7 @@ export default function RepairCenter({ csrfToken }: { csrfToken: string }) {
               <strong>Approval required</strong>
               <span>Re-enter your owner password. It is verified in memory and never stored in the job.</span>
               <input aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
-              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? "Running..." : "Approve and verify"}</button>
+              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? "Running..." : "Approve and run"}</button>
             </div>
           )}
         </aside>

@@ -2,7 +2,7 @@
 
 This plan turns the current QEMU/KVM module into a dependable home-server virtualization control plane. Milestones are dependency ordered. A later milestone cannot ship merely because its interface is complete.
 
-## Current baseline: 0.2.0
+## Current baseline: 0.9.0
 
 Shipped:
 
@@ -11,11 +11,14 @@ Shipped:
 - Token-protected start, graceful shutdown, reboot, and autostart operations
 - Fixed `virsh` argument arrays with no shell execution
 - Loopback-only native service and private Tailscale Serve guidance
+- Durable owner sessions, CSRF protection, immutable SQLite plans, password approvals, jobs, steps, and audit attribution
+- Guarded Linux VM creation through the typed root helper with live revalidation, post-create verification, and exact-domain rollback
 
 Known boundary:
 
 - The web service currently belongs to `libvirt`; mutations have not moved to the restricted helper.
-- There is no durable owner identity, job state, approval record, or append-only audit store.
+- The provisional lifecycle controls have not yet moved into the durable job executor or root helper.
+- Windows TPM/Secure Boot, cloud-init, console, snapshots, VM backup and restore, bridge management, passthrough, and fleet placement remain pending.
 - The safe Docker preview cannot inspect host libvirt.
 
 ## Milestone V1: guided creation planning
@@ -62,6 +65,8 @@ Acceptance:
 
 Target: `0.5.0`
 
+Status: VM creation uses the root-owned Unix socket, fixed binaries, fixed local libvirt URI, fixed managed-media root, an exact typed schema, durable steps, and rollback in `0.9.0`. Moving provisional lifecycle actions out of the web process, AppArmor policy, and removal of the web service from `libvirt` and `kvm` remain pending.
+
 - Root-owned Unix socket with a versioned typed protocol
 - Separate helper user and AppArmor/systemd confinement
 - Domain lifecycle operations moved out of the web process
@@ -78,6 +83,8 @@ Acceptance:
 ## Milestone V4: guarded VM creation
 
 Target: `0.6.0`
+
+Status: the approved-ISO, capacity, default-NAT, immutable-revision, helper execution, verification, and incomplete-domain cleanup slice ships in `0.9.0`. Curated cloud images, cloud-init, Windows TPM/Secure Boot profiles, and formal capacity reservation remain pending.
 
 - Create from an approved ISO or curated cloud image
 - Capacity reservation and storage-pool free-space gate

@@ -13,6 +13,7 @@ import { createLibvirtService, getSetupPlan, validateAction, validateDomainName 
 import { createMigrationService } from "./migrations.mjs";
 import { createPrerequisiteService } from "./prerequisites.mjs";
 import { createStateStore } from "./state.mjs";
+import { createVmCreationService } from "./vm-creation.mjs";
 import { createVmPlanner, validateVmPlanInput } from "./vm-plan.mjs";
 
 const app = express();
@@ -35,10 +36,12 @@ const applications = createApplicationService({ store: state, prerequisites, hel
 const backups = createBackupService({ store: state, prerequisites, helper });
 const inventory = createInventoryService({ helper });
 const migrations = createMigrationService({ store: state, inventory });
+const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, libvirt });
 const jobs = createJobService(state, helper, {
   validateApplicationJob: applications.validateJob,
   validateBackupJob: backups.validateJob,
   recordBackupResult: backups.recordResult,
+  validateVmCreationJob: vmCreation.validateJob,
 });
 state.deleteExpiredSessions();
 const interruptedJobs = state.recoverInterruptedJobs();
@@ -62,7 +65,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.8.0",
+    version: "0.9.0",
     mode: "host-aware",
     safeMode: !vmActions.enabled,
     hostMutationsEnabled: vmActions.enabled,
@@ -93,11 +96,11 @@ app.get("/api/v1/capabilities", (_request, response) => {
     supportBundle: "browser-only",
     backups: "uptime-kuma-local-with-restore-drill",
     migrations: "read-only-sanitized-manifests-and-compatibility-plans",
-    privilegedHelper: "typed-canary",
+    privilegedHelper: "typed-canary-applications-backups-inventory-logs-vm-creation",
     identity: "owner-password-foundation",
-    durableJobs: "sqlite-canary-workflow",
+    durableJobs: "sqlite-approved-application-backup-and-vm-workflows",
     virtualization: "live-libvirt",
-    vmCreationPlanning: "validated-read-only",
+    vmCreationPlanning: "validated-durable-approved",
     audit: "redacted-jsonl-foundation",
     vmActions: {
       enabled: vmActions.enabled,
@@ -256,13 +259,13 @@ app.post("/api/v1/virtualization/plans", async (request, response) => {
     response.status(400).json({ ok: false, errors: inputErrors });
     return;
   }
-  const domain = validateDomainName(request.body?.name) ? await libvirt.getDomain(request.body.name) : null;
-  const resources = await libvirt.listResources();
-  const defaultPool = resources.pools.find((pool) => pool.name === "default");
-  const result = await vmPlanner.createPlan(request.body, {
-    existingDomainNames: domain ? [domain.name] : [],
-    poolAvailableBytes: defaultPool?.availableBytes ?? null,
-  });
+  let result;
+  try {
+    result = await vmCreation.plan(request.body, request.boxpilotSession.owner.id);
+  } catch (error) {
+    response.status(503).json({ ok: false, errors: [error.message] });
+    return;
+  }
   if (result.ok) {
     try {
       await audit.record("vm.plan.created", {
@@ -280,6 +283,16 @@ app.post("/api/v1/virtualization/plans", async (request, response) => {
     }
   }
   response.status(result.ok ? 200 : 400).json(result);
+});
+
+app.post("/api/v1/virtualization/plans/:id/stage", async (request, response) => {
+  try {
+    const job = await vmCreation.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
+    response.status(201).json({ job });
+  } catch (error) {
+    const status = error.message.includes("not found") ? 404 : 409;
+    response.status(status).json({ error: error.message, code: "vm_plan_stage_failed" });
+  }
 });
 
 app.post(
@@ -334,7 +347,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.8.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.9.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log(vmActions.enabled ? "Authenticated VM lifecycle actions are enabled." : `Safe mode: ${vmActions.reason}.`);
 });
