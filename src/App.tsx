@@ -60,7 +60,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   overview: {
     label: "UI demonstration",
     tone: "sample",
-    description: "The metrics, workloads, backup claims, and change timeline on this page are sample data in v0.5.0.",
+    description: "The metrics, workloads, backup claims, and change timeline on this page are sample data in v0.5.1.",
   },
   applications: {
     label: "Curated application engine",
@@ -80,7 +80,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   backups: {
     label: "Workflow mockup",
     tone: "sample",
-    description: "Backup coverage and restore results are sample data. No backup engine or scheduler is included in v0.5.0.",
+    description: "Backup coverage and restore results are sample data. No backup engine or scheduler is included in v0.5.1.",
   },
   migrations: {
     label: "Workflow mockup",
@@ -459,11 +459,11 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.5.0",
+      version: "0.5.1",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
-      server: { hostname: null, lanAddress: null, note: "Host identity collection is not implemented in v0.5.0." },
+      server: { hostname: null, lanAddress: null, note: "Host identity collection is not implemented in v0.5.1." },
       events: virtualizationAudit,
       eventSource: virtualizationAudit.length ? "redacted-virtualization-audit" : "unavailable-or-empty",
     };
@@ -503,7 +503,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.5.0 application engine<br />Live surfaces are labeled</div>
+        <div className="prototype-label">v0.5.1 application engine<br />Live surfaces are labeled</div>
       </aside>
 
       <main>

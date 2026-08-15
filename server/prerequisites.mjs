@@ -61,14 +61,19 @@ export function createPrerequisiteService({ stateDirectory, helper, runCommand =
       checks.push(check("helper.boundary", "BoxPilot", "Restricted helper", "repairable", "The local helper socket is unavailable", { kind: "guided", description: "Start or repair boxpilot-helper.service" }));
     }
 
-    const docker = await runCommand("docker", ["version", "--format", "{{.Server.Version}}"]);
+    let docker = { available: false, version: null };
+    try {
+      docker = await helper.request("container.docker.inspect", {});
+    } catch {
+      docker = { available: false, version: null };
+    }
     checks.push(check(
       "containers.docker",
       "Applications",
       "Docker Engine",
-      docker.ok ? "ready" : "missing",
-      docker.ok ? `Docker Engine ${docker.stdout || "available"}` : "Docker Engine is not installed or the service is unavailable",
-      docker.ok ? null : { kind: "planned", description: "A future approved job can install and configure Docker Engine" },
+      docker.available ? "ready" : "missing",
+      docker.available ? `Docker Engine ${docker.version || "available"}` : "Docker Engine is not installed or the restricted helper cannot reach it",
+      docker.available ? null : { kind: "planned", description: "Install Docker Engine or repair helper access to the local Docker service" },
     ));
 
     const libvirt = await runCommand("virsh", ["--connect", "qemu:///system", "uri"]);

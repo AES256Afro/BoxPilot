@@ -69,6 +69,11 @@ export function createApplicationHelper({
     }
   }
 
+  async function inspectDocker() {
+    const result = await docker(["version", "--format", "{{.Server.Version}}"], { timeout: 5000 });
+    return { available: true, version: result.stdout || "available" };
+  }
+
   async function verifyHealth() {
     let lastError = "Container health status did not become healthy";
     for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -132,7 +137,7 @@ export function createApplicationHelper({
     }
   }
 
-  return { appDirectory, composePath, inspect, deploy };
+  return { appDirectory, composePath, inspectDocker, inspect, deploy };
 }
 
 export const applicationHelperInternals = { composeDefinition, containerName };

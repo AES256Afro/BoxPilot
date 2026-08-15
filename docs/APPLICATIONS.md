@@ -1,6 +1,6 @@
 # Curated applications
 
-BoxPilot `0.5.0` introduces application manifests and one executable evaluation adapter. The web process never receives the Docker socket. Application inspection and execution cross the restricted local helper as typed operations.
+BoxPilot `0.5.1` introduces application manifests and one executable evaluation adapter. The web process never receives the Docker socket. Docker readiness, application inspection, and execution cross the restricted local helper as typed operations.
 
 ## Install the Docker prerequisite on Ubuntu
 
@@ -89,4 +89,4 @@ BoxPilot will not stage Pi-hole until later milestones can prove:
 - Configuration backup integrity and an isolated restore drill
 - Route cutover and rollback ordering
 
-DHCP, NTP, `NET_ADMIN`, `SYS_TIME`, host networking, router mutation, and automatic DNS cutover are not enabled by the `0.5.0` adapter.
+DHCP, NTP, `NET_ADMIN`, `SYS_TIME`, host networking, router mutation, and automatic DNS cutover are not enabled by the `0.5.1` adapter.

@@ -11,6 +11,14 @@ afterEach(async () => {
 });
 
 describe("curated Uptime Kuma helper", () => {
+  it("reports Docker readiness through one fixed server-version query", async () => {
+    const runDocker = vi.fn(async () => ({ stdout: "29.1.3", stderr: "" }));
+    const helper = createApplicationHelper({ runDocker, dockerBinary: "/fixed/docker" });
+
+    await expect(helper.inspectDocker()).resolves.toEqual({ available: true, version: "29.1.3" });
+    expect(runDocker).toHaveBeenCalledWith("/fixed/docker", ["version", "--format", "{{.Server.Version}}"], { timeout: 5000 });
+  });
+
   it("generates a loopback-only digest-pinned Compose definition", () => {
     const compose = applicationHelperInternals.composeDefinition(3101);
     expect(compose).toContain("louislam/uptime-kuma@sha256:");

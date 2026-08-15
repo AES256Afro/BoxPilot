@@ -4,11 +4,11 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.5.0` adds the curated application engine. Uptime Kuma can be discovered, planned against live host prerequisites and ports, staged as an immutable revision, approved with password reauthentication, deployed through the restricted helper, health checked, and automatically rolled back without deleting its data. Pi-hole has a planning-only adapter with Docker and VM targets plus DNS, AdGuard Home, router, and outage-recovery gates. Operations Core and QEMU/KVM inspection remain live on native Linux.
+Version `0.5.1` adds the curated application engine. Uptime Kuma can be discovered, planned against live host prerequisites and ports, staged as an immutable revision, approved with password reauthentication, deployed through the restricted helper, health checked, and automatically rolled back without deleting its data. Docker readiness is also collected through that helper so the web process stays outside the Docker group. Pi-hole has a planning-only adapter with Docker and VM targets plus DNS, AdGuard Home, router, and outage-recovery gates. Operations Core and QEMU/KVM inspection remain live on native Linux.
 
 ### What works now
 
-| Area | Status in `0.5.0` | Capability |
+| Area | Status in `0.5.1` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
@@ -69,7 +69,7 @@ Every future host change must follow:
 5. Apply with streamed logs
 6. Verify or roll back
 
-The current VM action route maps validated requests to fixed `virsh` argument arrays and never invokes a shell. Version `0.5.0` adds one application-specific helper handler with a fixed image, confined path, loopback port validation, health acceptance, and rollback. Higher-impact operations remain locked until each typed handler has path, authorization, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
+The current VM action route maps validated requests to fixed `virsh` argument arrays and never invokes a shell. Version `0.5.1` adds one application-specific helper handler with a fixed image, confined path, loopback port validation, health acceptance, and rollback. Higher-impact operations remain locked until each typed handler has path, authorization, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
 
 ## Run for development
 
