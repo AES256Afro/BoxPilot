@@ -3,6 +3,7 @@ import {
   createVmLifecyclePlan,
   createVmExportPlan,
   createVmProtectionPlan,
+  createVmRestoreDrillPlan,
   createVmSnapshotPlan,
   fetchVmExports,
   fetchVmProtection,
@@ -14,6 +15,7 @@ import {
   stageVmLifecyclePlan,
   stageVmExportPlan,
   stageVmProtectionPlan,
+  stageVmRestoreDrillPlan,
   stageVmSnapshotPlan,
   type DomainList,
   type VirtualDomain,
@@ -23,6 +25,7 @@ import {
   type VmProtectedBackup,
   type VmProtectionDestination,
   type VmProtectionPlan,
+  type VmRestoreDrillPlan,
   type VmSnapshotPlan,
   type VirtualizationStatus,
 } from "./virtualization";
@@ -70,6 +73,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
   const [protectionDestination, setProtectionDestination] = useState<VmProtectionDestination | null>(null);
   const [protectedBackups, setProtectedBackups] = useState<VmProtectedBackup[]>([]);
   const [protectionPlan, setProtectionPlan] = useState<VmProtectionPlan | null>(null);
+  const [restoreDrillPlan, setRestoreDrillPlan] = useState<VmRestoreDrillPlan | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -226,6 +230,33 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
     }
   };
 
+  const planRestoreDrill = async (backup: VmProtectedBackup) => {
+    setPending(`restore-drill-plan:${backup.id}`);
+    setMessage(null);
+    try {
+      setRestoreDrillPlan(await createVmRestoreDrillPlan(backup.id, csrfToken));
+    } catch (restoreError) {
+      setMessage(restoreError instanceof Error ? restoreError.message : "Unable to plan isolated restore drill");
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const stageRestoreDrill = async () => {
+    if (!restoreDrillPlan) return;
+    setPending(`restore-drill-stage:${restoreDrillPlan.id}`);
+    setMessage(null);
+    try {
+      await stageVmRestoreDrillPlan(restoreDrillPlan.id, restoreDrillPlan.revision, csrfToken);
+      setRestoreDrillPlan(null);
+      onOpenRepair();
+    } catch (restoreError) {
+      setMessage(restoreError instanceof Error ? restoreError.message : "Unable to stage isolated restore drill");
+    } finally {
+      setPending(null);
+    }
+  };
+
   if (loading && !status) {
     return <section className="vm-loading" aria-live="polite">Inspecting QEMU, KVM, and libvirt...</section>;
   }
@@ -353,7 +384,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
             ))}
           </div>
         )}
-        {protectedBackups.length > 0 && <div className="vm-domain-list">{protectedBackups.map((backup) => <article className="vm-domain" key={backup.id}><div className="vm-domain-summary"><div className="vm-domain-name"><span className="vm-icon">BK</span><div><strong>{backup.domainName}</strong><span>{formatBytes(backup.sizeBytes)} | encrypted independent restic snapshot</span><span>{backup.repositoryVerified ? "Repository data verified" : "Repository verification missing"} | {backup.restoreDrill.passed ? "restore drill passed" : "isolated restore still required"}</span></div></div><span className={`status-pill status-${backup.protected ? "good" : "warning"}`}>{backup.protected ? "protected" : "not protected"}</span></div></article>)}</div>}
+        {protectedBackups.length > 0 && <div className="vm-domain-list">{protectedBackups.map((backup) => <article className="vm-domain" key={backup.id}><div className="vm-domain-summary"><div className="vm-domain-name"><span className="vm-icon">BK</span><div><strong>{backup.domainName}</strong><span>{formatBytes(backup.sizeBytes)} | encrypted independent restic snapshot</span><span>{backup.repositoryVerified ? "Repository data verified" : "Repository verification missing"} | {backup.restoreDrill.passed ? "isolated restore drill passed" : "isolated restore still required"}</span></div></div><span className={`status-pill status-${backup.protected ? "good" : "warning"}`}>{backup.protected ? "protected" : "not protected"}</span></div>{!backup.protected && <div className="vm-actions"><button type="button" className="text-button" onClick={() => void planRestoreDrill(backup)} disabled={pending !== null}>{pending === `restore-drill-plan:${backup.id}` ? "Inspecting..." : "Plan isolated restore drill"}</button></div>}</article>)}</div>}
       </section>
 
       <div className="vm-bottom-grid">
@@ -451,6 +482,23 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
               <div className="vm-plan-warnings"><strong>Recovery boundary</strong><span>{protectionPlan.output.recovery}</span></div>
               <p className="vm-action-revision">Plan revision <code>{protectionPlan.revision}</code>. Export checksums, repository identity, independent mount, and capacity are checked again before execution.</p>
               <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => setProtectionPlan(null)}>Cancel</button><button type="button" className="primary-button" onClick={() => void stageProtection()} disabled={pending !== null || !protectionPlan.output.executable}>{pending ? "Revalidating..." : "Stage for password approval"}</button></div>
+            </div>
+          </section>
+        </div>
+      )}
+      {restoreDrillPlan && (
+        <div className="vm-planner-backdrop" role="presentation">
+          <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-restore-drill-title">
+            <header className="vm-planner-header"><div><span className="eyebrow">Isolated VM restore drill</span><h2 id="vm-restore-drill-title">Validate {restoreDrillPlan.input.domainName}</h2><p>Restore the encrypted snapshot, boot it transiently with no network, and require guest-agent health before protected status.</p></div><button type="button" className="modal-close" aria-label="Close restore drill plan" onClick={() => setRestoreDrillPlan(null)}>X</button></header>
+            <div className="vm-action-review">
+              <dl className="vm-plan-summary"><div><dt>Restore size</dt><dd>{formatBytes(restoreDrillPlan.input.expectedSizeBytes)}</dd></div><div><dt>Temporary free</dt><dd>{restoreDrillPlan.output.restoreFreeBytes ? formatBytes(restoreDrillPlan.output.restoreFreeBytes) : "Unavailable"}</dd></div><div><dt>Guest resources</dt><dd>{restoreDrillPlan.output.vcpus} vCPU | {restoreDrillPlan.output.memoryMiB} MiB</dd></div><div><dt>Network</dt><dd>None</dd></div></dl>
+              {restoreDrillPlan.output.blockers.length > 0 && <div className="vm-plan-warnings"><strong>Blocked</strong>{restoreDrillPlan.output.blockers.map((blocker) => <span key={blocker}>{blocker}</span>)}</div>}
+              <div className="vm-plan-gates"><strong>Exact changes</strong><ol>{restoreDrillPlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol></div>
+              <div className="vm-plan-gates"><strong>Required verification</strong><ol>{restoreDrillPlan.output.verification.map((check) => <li key={check}>{check}</li>)}</ol></div>
+              <div className="vm-plan-warnings"><strong>Warnings</strong>{restoreDrillPlan.output.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div>
+              <div className="vm-plan-warnings"><strong>Recovery boundary</strong><span>{restoreDrillPlan.output.recovery}</span></div>
+              <p className="vm-action-revision">Plan revision <code>{restoreDrillPlan.revision}</code>. Backup evidence, repository identity, temporary capacity, generated domain name, and isolation policy are checked again before execution.</p>
+              <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => setRestoreDrillPlan(null)}>Cancel</button><button type="button" className="primary-button" onClick={() => void stageRestoreDrill()} disabled={pending !== null || !restoreDrillPlan.output.executable}>{pending ? "Revalidating..." : "Stage for password approval"}</button></div>
             </div>
           </section>
         </div>

@@ -1,6 +1,6 @@
 # QEMU/KVM setup and operation
 
-BoxPilot `0.13.0` can inspect a local libvirt system connection through its restricted helper, create supported Linux virtual machines through durable approved jobs, manage a deliberately small set of lifecycle operations, report QEMU guest-agent and snapshot state, create guarded offline internal snapshots, produce integrity-verified local exports for stopped managed VMs, and copy those exports into a fixed encrypted restic repository on an independent mounted filesystem. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
+BoxPilot `0.14.0` can inspect a local libvirt system connection through its restricted helper, create supported Linux virtual machines through durable approved jobs, manage a deliberately small set of lifecycle operations, report QEMU guest-agent and snapshot state, create guarded offline internal snapshots, produce integrity-verified local exports for stopped managed VMs, copy those exports into a fixed encrypted restic repository on an independent mounted filesystem, and prove one backup bootable through an isolated transient restore drill. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
 
 ## What works now
 
@@ -23,6 +23,7 @@ BoxPilot `0.13.0` can inspect a local libvirt system connection through its rest
 - Label the snapshot offline-consistent and explicitly not an independent backup
 - Detect an already active Cockpit socket and show a Tailscale-hostname console handoff without opening or configuring the service
 - Reverify a completed local export and copy it into an encrypted restic repository only when `/mnt/boxpilot-backup` is a writable independent mount
+- Restore one exact encrypted snapshot, boot it transiently with no network, require repeated QEMU guest-agent health, and mark only that passing record protected
 - Read every data pack in the repository and confirm exact snapshot identity before recording evidence
 
 The release does not delete VMs, force power off, edit definitions, open a web console proxy, create online snapshots, revert or delete snapshots, restore a VM, declare a VM protected, change storage pools, build a network bridge, generate cloud-init media, or create Windows 11 guests. Windows 11 remains locked until TPM 2.0 and Secure Boot checks exist.
@@ -212,9 +213,32 @@ Then:
 
 The helper rehashes every local file, uses server-generated restic tags, reads every repository data pack, and confirms the exact snapshot. The full repository check is deliberately compatible with Ubuntu 26.04's restic 0.18.1 package and can take longer as history grows. It never runs restic retention or deletion commands. A failed verification leaves both the local export and repository intact.
 
-The record remains not protected because `0.13.0` does not perform an isolated restore boot. Do not delete the local export or source VM based only on this evidence.
+The new record remains not protected until its isolated restore drill passes. Do not delete the local export or source VM based only on copy evidence.
 
-## 9. Choose VM networking deliberately
+## 9. Run an isolated restore drill
+
+The source guest must have `qemu-guest-agent` installed and enabled before it is exported. On Ubuntu guests:
+
+```bash
+sudo apt update
+sudo apt install -y qemu-guest-agent
+sudo systemctl enable --now qemu-guest-agent
+```
+
+Then:
+
+1. Open **Virtual Machines** and find the encrypted independent backup record.
+2. Select **Plan isolated restore drill**.
+3. Review the exact snapshot identity, required temporary capacity, generated transient-domain policy, no-network boundary, warnings, and cleanup contract.
+4. Stage the immutable plan, open **Repair Center**, and approve it with the owner password.
+5. Leave the independent mount attached while restic restores and verifies the snapshot. The job may take hours for a large disk.
+6. Confirm the job records repeated guest-agent health and complete cleanup and the backup record changes to **protected**.
+
+BoxPilot restores only into `/var/lib/libvirt/images/boxpilot-restore-drills/<server-generated-uuid>`. It rejects unexpected export files and unsafe disk targets, rehashes every file, runs `qemu-img check`, and grants the `libvirt-qemu` group temporary read access only to the verified restored qcow2 paths. The generated libvirt domain is transient and has zero network interfaces. BIOS and UEFI exports are supported; generated UEFI NVRAM is removed after the transient domain is destroyed.
+
+If guest-agent health never arrives, the job fails without changing protection state. BoxPilot attempts exact-domain and generated-NVRAM cleanup, revokes temporary QEMU disk permissions, and preserves the restored files as root-only evidence. The drill proves boot and guest-agent health only. It does not prove application-level network services.
+
+## 10. Choose VM networking deliberately
 
 Start with libvirt's default NAT network. Guests receive an address such as `192.168.122.x`, can reach the internet, and remain separated from the main `192.168.8.x` LAN.
 
@@ -226,7 +250,7 @@ To reach a guest application remotely, use one of these approaches:
 
 A bridge can interrupt the server's only network connection. BoxPilot will not automate bridging until it can create a connectivity checkpoint, display console recovery commands, and verify the new route. Do not bridge Wi-Fi interfaces as if they were ordinary Ethernet ports.
 
-## 10. Troubleshoot safely
+## 11. Troubleshoot safely
 
 ### The system connection fails
 
@@ -271,8 +295,8 @@ sudo systemctl restart boxpilot-helper boxpilot
 
 The first device number must differ from both Bigbox source locations. The password file must be `root:root`, mode `600`, and not a symlink. Restarting the helper after mounting ensures its hardened filesystem namespace sees the independent mount.
 
-## 11. Security boundary
+## 12. Security boundary
 
-Membership in the `libvirt` group is powerful. In `0.13.0`, the native web service has no `libvirt` or `kvm` supplementary groups. Read-only libvirt inventory and all shipped VM mutations cross the typed helper socket. The helper still runs as root, so its exact schema, fixed binaries, fixed URI, path roots, fixed repository/password paths, systemd confinement, and private exposure remain security-critical. Keep the service loopback-only, keep Funnel off, and do not treat this release as an internet-facing appliance.
+Membership in the `libvirt` group is powerful. In `0.14.0`, the native web service has no `libvirt` or `kvm` supplementary groups. Read-only libvirt inventory and all shipped VM mutations cross the typed helper socket. The helper still runs as root, so its exact schema, fixed binaries, fixed URI, path roots, fixed repository/password paths, temporary QEMU access, systemd confinement, and private exposure remain security-critical. Keep the service loopback-only, keep Funnel off, and do not treat this release as an internet-facing appliance.
 
-Operations Core records typed Unix-socket requests and durable approvals. VM creation, lifecycle actions, offline snapshots, stopped-VM exports, and encrypted mounted-restic copies have operation-specific helper handlers. Storage administration, bridges, online snapshots, snapshot revert/delete, isolated restore boot, restore execution, retention mutation, migration transfer, console proxy, and delete remain locked until their recovery checkpoints, path rules, and negative tests are complete.
+Operations Core records typed Unix-socket requests and durable approvals. VM creation, lifecycle actions, offline snapshots, stopped-VM exports, encrypted mounted-restic copies, and isolated restore drills have operation-specific helper handlers. Storage administration, bridges, online snapshots, snapshot revert/delete, operator-directed restore execution, application-level restore tests, retention mutation, migration transfer, console proxy, and delete remain locked until their recovery checkpoints, path rules, and negative tests are complete.

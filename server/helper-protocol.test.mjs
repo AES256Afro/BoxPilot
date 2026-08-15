@@ -26,6 +26,14 @@ function protectionParameters(overrides = {}) {
   return { backupId: "22222222-2222-4222-8222-222222222222", exportId: "33333333-3333-4333-8333-333333333333", domainName: "ubuntu-lab", domainUuid: "11111111-1111-4111-8111-111111111111", expectedManifestChecksumSha256: "c".repeat(64), expectedSizeBytes: 8192, expectedDestinationRevision: "d".repeat(64), ...overrides };
 }
 
+function restoreDrillParameters(overrides = {}) {
+  return {
+    drillId: "44444444-4444-4444-8444-444444444444", backupId: "22222222-2222-4222-8222-222222222222", exportId: "33333333-3333-4333-8333-333333333333",
+    domainName: "ubuntu-lab", domainUuid: "11111111-1111-4111-8111-111111111111", repositoryId: "a".repeat(64), snapshotId: "b".repeat(64),
+    expectedManifestChecksumSha256: "c".repeat(64), expectedSizeBytes: 8192, expectedDestinationRevision: "d".repeat(64), ...overrides,
+  };
+}
+
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
@@ -142,5 +150,18 @@ describe("restricted helper protocol", () => {
     };
     await expect(executeHelperOperation(request({ operation: "virtualization.export.backup.inspect", parameters: {} }), { vmProtection })).resolves.toMatchObject({ ok: true, result: { ready: true, encrypted: true } });
     await expect(executeHelperOperation(request({ operation: "virtualization.export.backup.create", parameters: protectionParameters() }), { vmProtection })).resolves.toMatchObject({ ok: true, result: { created: true, protected: false } });
+  });
+
+  it("accepts only exact restore evidence and delegates fixed no-network drill handling", async () => {
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.restore-drill.inspect", parameters: restoreDrillParameters() }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.restore-drill", parameters: restoreDrillParameters() }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.restore-drill", parameters: restoreDrillParameters({ network: "default" }) }))).toContain("only the fixed typed evidence fields");
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.restore-drill", parameters: restoreDrillParameters({ snapshotId: "latest" }) }))).toContain("Snapshot id is invalid");
+    const vmRestoreDrill = {
+      inspect: async (parameters) => ({ ready: true, drillId: parameters.drillId, network: "none", transient: true }),
+      runDrill: async (parameters) => ({ passed: true, drillId: parameters.drillId, backupId: parameters.backupId, network: "none", protected: true }),
+    };
+    await expect(executeHelperOperation(request({ operation: "virtualization.export.backup.restore-drill.inspect", parameters: restoreDrillParameters() }), { vmRestoreDrill })).resolves.toMatchObject({ ok: true, result: { ready: true, network: "none" } });
+    await expect(executeHelperOperation(request({ operation: "virtualization.export.backup.restore-drill", parameters: restoreDrillParameters() }), { vmRestoreDrill })).resolves.toMatchObject({ ok: true, result: { passed: true, protected: true } });
   });
 });
