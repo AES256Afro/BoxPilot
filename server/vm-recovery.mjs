@@ -14,6 +14,7 @@ export function createVmRecoveryService({ store, helper }) {
   function evidence(backupId) {
     const backup = store.getVmBackup(backupId);
     if (!backup) throw new Error("VM backup not found");
+    if (backup.retained === false) throw new Error("VM backup snapshot was forgotten by an approved retention run");
     const drill = backup.restoreDrill;
     if (!backup.protected || !backup.encrypted || !backup.independent || !backup.repositoryVerified || backup.destination !== "mounted-restic"
       || drill?.passed !== true || !uuidPattern.test(drill.drillId ?? "") || drill.network !== "none" || drill.transient !== true

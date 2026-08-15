@@ -242,8 +242,65 @@ export interface VmProtectedBackup {
   independent: boolean;
   repositoryVerified: boolean;
   protected: boolean;
+  retained: boolean;
+  retention: { runId: string; forgottenAt: string } | null;
   restoreDrill: { passed: boolean; reason?: string };
   createdAt: string;
+}
+
+export interface VmRetentionCandidate {
+  backupId: string;
+  snapshotId: string;
+  domainName: string;
+  domainUuid: string;
+  createdAt: string;
+  ageDays: number;
+  sizeBytes: number;
+}
+
+export interface VmRetentionRun {
+  id: string;
+  repositoryId: string;
+  beforeCount: number;
+  afterCount: number;
+  forgotten: Array<{ backupId: string; snapshotId: string; domainName: string }>;
+  repositoryVerified: boolean;
+  complete: boolean;
+  prunePerformed: false;
+  verification: string[];
+  createdAt: string;
+}
+
+export interface VmRetentionStatus {
+  executable: boolean;
+  policy: { minimumCopiesPerDomain: number; minimumAgeDays: number; requiresProtectedRestoreDrill: true; preserveRecoverySources: true };
+  repositoryId: string | null;
+  beforeCount: number;
+  candidates: VmRetentionCandidate[];
+  kept: Array<VmRetentionCandidate & { reasons: string[] }>;
+  blockers: string[];
+  changes: string[];
+  warnings: string[];
+  verification: string[];
+  prunePerformed: false;
+  spaceReclaimed: false;
+  recovery: string;
+  retentionRuns: VmRetentionRun[];
+}
+
+export interface VmRetentionPlan {
+  id: string;
+  revision: string;
+  status: "draft" | "staged";
+  expiresAt: string;
+  input: {
+    retentionId: string;
+    repositoryId: string;
+    expectedDestinationRevision: string;
+    expectedSnapshotSetRevision: string;
+    forgetSnapshotIds: string[];
+  };
+  output: Omit<VmRetentionStatus, "retentionRuns">;
 }
 
 export interface VmProtectionPlan {
@@ -491,6 +548,30 @@ export async function createVmProtectionPlan(exportId: string, csrfToken: string
 
 export async function stageVmProtectionPlan(planId: string, revision: string, csrfToken: string): Promise<VmCreationJob> {
   const response = await fetch(`/api/v1/virtualization/protection-plans/${encodeURIComponent(planId)}/stage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: JSON.stringify({ revision }),
+  });
+  const body = await readJson<{ job: VmCreationJob }>(response);
+  return body.job;
+}
+
+export async function fetchVmRetention(): Promise<VmRetentionStatus> {
+  return readJson<VmRetentionStatus>(await fetch("/api/v1/virtualization/retention"));
+}
+
+export async function createVmRetentionPlan(csrfToken: string): Promise<VmRetentionPlan> {
+  const response = await fetch("/api/v1/virtualization/retention-plans", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: "{}",
+  });
+  const body = await readJson<{ plan: VmRetentionPlan }>(response);
+  return body.plan;
+}
+
+export async function stageVmRetentionPlan(planId: string, revision: string, csrfToken: string): Promise<VmCreationJob> {
+  const response = await fetch(`/api/v1/virtualization/retention-plans/${encodeURIComponent(planId)}/stage`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
     body: JSON.stringify({ revision }),
