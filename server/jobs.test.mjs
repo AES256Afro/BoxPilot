@@ -78,4 +78,29 @@ describe("durable job executor", () => {
     expect(completed).toMatchObject({ state: "completed", result: { healthy: true, hostPort: 3101 } });
     store.close();
   });
+
+  it("records a backup only after the isolated restore evidence passes", async () => {
+    const backupId = "11111111-1111-4111-8111-111111111111";
+    const result = { backupId, applicationId: "uptime-kuma", sourceRestartVerified: true, restoreDrill: { passed: true } };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const validateBackupJob = vi.fn(async () => {});
+    const recordBackupResult = vi.fn();
+    const jobs = createJobService(store, helper, { validateBackupJob, recordBackupResult });
+    const job = store.createJob({
+      type: "application.uptime-kuma.backup",
+      title: "Back up Uptime Kuma",
+      parameters: { backupId },
+      recovery: { automaticRollback: true },
+      createdBy: owner.id,
+    });
+
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+
+    expect(validateBackupJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("application.uptime-kuma.backup", { backupId });
+    expect(recordBackupResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
+    expect(completed.state).toBe("completed");
+    store.close();
+  });
 });

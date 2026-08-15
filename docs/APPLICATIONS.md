@@ -1,6 +1,6 @@
 # Curated applications
 
-BoxPilot `0.5.1` introduces application manifests and one executable evaluation adapter. The web process never receives the Docker socket. Docker readiness, application inspection, and execution cross the restricted local helper as typed operations.
+BoxPilot `0.6.0` provides application manifests, one executable deployment adapter, and one application-aware backup adapter. The web process never receives the Docker socket. Docker readiness, application inspection, deployment, backup, and restore-drill execution cross the restricted local helper as typed operations.
 
 ## Install the Docker prerequisite on Ubuntu
 
@@ -70,7 +70,7 @@ Deployment workflow:
 
 If deployment or health verification fails, BoxPilot stops the managed stack and restores the previous Compose definition when one exists. It does not delete the data directory.
 
-The deployment remains evaluation-only until the backup milestone records artifact integrity and an isolated restore test for the Uptime Kuma data directory.
+After deployment, the Backups page can record artifact integrity and an isolated restore test for the Uptime Kuma data directory. A local-only verified artifact still needs an independent destination before it qualifies as resilient 3-2-1 protection.
 
 ## Pi-hole planning adapter
 
@@ -89,4 +89,4 @@ BoxPilot will not stage Pi-hole until later milestones can prove:
 - Configuration backup integrity and an isolated restore drill
 - Route cutover and rollback ordering
 
-DHCP, NTP, `NET_ADMIN`, `SYS_TIME`, host networking, router mutation, and automatic DNS cutover are not enabled by the `0.5.1` adapter.
+DHCP, NTP, `NET_ADMIN`, `SYS_TIME`, host networking, router mutation, and automatic DNS cutover are not enabled by the `0.6.0` adapter.

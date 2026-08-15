@@ -82,6 +82,7 @@ export function createApplicationService({ store, prerequisites, helper, inspect
   }
 
   async function list() {
+    const verifiedBackups = store.listBackups?.() ?? [];
     const items = await Promise.all(manifests.map(async (manifest) => {
       let live = { installed: false, state: "not-installed", detail: manifest.execution === "planning-only" ? "Planning adapter available" : "Ready to plan" };
       if (manifest.id === "uptime-kuma") {
@@ -90,6 +91,8 @@ export function createApplicationService({ store, prerequisites, helper, inspect
         } catch {
           live = { installed: false, state: "unavailable", detail: "Docker inventory is unavailable" };
         }
+        const latestBackup = verifiedBackups.find((backup) => backup.applicationId === manifest.id) ?? null;
+        live.backup = latestBackup ? { state: "verified", verifiedAt: latestBackup.verifiedAt } : { state: live.installed ? "required" : "not-applicable", verifiedAt: null };
       }
       return { ...publicManifest(manifest), live };
     }));
@@ -119,7 +122,7 @@ export function createApplicationService({ store, prerequisites, helper, inspect
       warnings.push("Pi-hole cannot be staged until the DNS role, Flint 2 AdGuard Home state, router rollback, and a second-device resolution test are recorded.");
       if (target === "docker") warnings.push("A Docker deployment ties DNS availability to Bigbox uptime; a dedicated VM or separate appliance provides a stronger failure boundary.");
     }
-    if (manifest.id === "uptime-kuma") warnings.push("Backup automation is not available yet. This deployment remains evaluation-only until its local data passes a backup and isolated restore test.");
+    if (manifest.id === "uptime-kuma") warnings.push("After deployment, open Backups and complete the integrity and isolated restore workflow before treating this application as protected.");
 
     const output = {
       application: manifest.id,

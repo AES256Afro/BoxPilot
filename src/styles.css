@@ -2286,6 +2286,66 @@ textarea {
   background: #0f2621;
 }
 
+.backup-source-card,
+.section-heading,
+.backup-source-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.backup-source-card h3,
+.section-heading h3 {
+  margin: 4px 0;
+}
+
+.backup-source-card p,
+.backup-source-card small,
+.backup-plan-card li,
+.backup-plan-card p,
+.empty-state {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.55;
+}
+
+.backup-source-actions {
+  flex: 0 0 auto;
+}
+
+.backup-plan-card {
+  display: grid;
+  gap: 16px;
+}
+
+.backup-plan-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.backup-plan-columns > div {
+  padding: 13px;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: var(--surface-muted);
+}
+
+.backup-plan-columns ol,
+.backup-plan-columns ul {
+  display: grid;
+  gap: 7px;
+  padding-left: 18px;
+  margin-bottom: 0;
+}
+
+.empty-state {
+  margin: 0;
+  padding: 22px;
+  text-align: center;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 76px minmax(0, 1fr);
@@ -2458,6 +2518,10 @@ textarea {
   .vm-detail-grid,
   .vm-resource-grid,
   .vm-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .backup-plan-columns {
     grid-template-columns: 1fr;
   }
 

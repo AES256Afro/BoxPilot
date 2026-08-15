@@ -10,7 +10,7 @@ interface ApplicationManifest {
   targets: string[];
   image: { version: string; digestPinned: boolean };
   integrity: string;
-  live: { installed: boolean; state: string; detail: string; port?: number | null };
+  live: { installed: boolean; state: string; detail: string; port?: number | null; backup?: { state: string; verifiedAt: string | null } };
 }
 
 interface ApplicationPlan {
@@ -121,6 +121,7 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
             <h3>{application.name}</h3>
             <p>{application.description}</p>
             <span className="app-live-detail">{application.live.detail}</span>
+            {application.live.backup && <span className={`app-live-detail ${application.live.backup.state === "verified" ? "good-text" : "warning-text"}`}>Backup: {application.live.backup.state === "verified" ? `restore verified ${new Date(application.live.backup.verifiedAt ?? "").toLocaleDateString()}` : application.live.backup.state}</span>}
             <button type="button" className="secondary-button" onClick={() => openPlanner(application)}>{application.live.installed ? "Review deployment" : "Plan deployment"}</button>
           </article>
         ))}

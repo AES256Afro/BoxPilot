@@ -97,6 +97,27 @@ describe("BoxPilot state store", () => {
     store.close();
   });
 
+  it("records backup integrity and isolated restore evidence", async () => {
+    const store = await testStore();
+    const bootstrap = store.createBootstrapToken();
+    const owner = store.consumeBootstrapToken(bootstrap.token, { username: "operator", passwordHash: "hash" });
+    const backup = store.recordBackup({
+      id: "11111111-1111-4111-8111-111111111111",
+      applicationId: "uptime-kuma",
+      destination: "local-managed",
+      artifactPath: "/var/lib/boxpilot-managed/backups/uptime-kuma/fixture.tar.gz",
+      checksumSha256: "a".repeat(64),
+      sizeBytes: 4096,
+      downtimeMs: 250,
+      restoreDrill: { passed: true, network: "none", publishedPorts: 0 },
+      createdBy: owner.id,
+    });
+
+    expect(backup).toMatchObject({ applicationId: "uptime-kuma", sizeBytes: 4096, restoreDrill: { passed: true, network: "none", publishedPorts: 0 } });
+    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "backup.verified", subjectId: backup.id })]));
+    store.close();
+  });
+
   it("fails interrupted jobs without automatically retrying them", async () => {
     const store = await testStore();
     const bootstrap = store.createBootstrapToken();

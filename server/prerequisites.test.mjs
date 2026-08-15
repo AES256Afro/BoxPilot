@@ -5,7 +5,7 @@ describe("prerequisite inventory", () => {
   it("reports live readiness without returning raw peer or listener output", async () => {
     const helper = { request: vi.fn(async (operation) => operation === "container.docker.inspect"
       ? ({ available: true, version: "29.1.3" })
-      : ({ verified: true, helperVersion: "0.2.1", mutationPerformed: false })) };
+      : ({ verified: true, helperVersion: "0.3.0", mutationPerformed: false })) };
     const runCommand = vi.fn(async (command) => {
       if (command === "virsh") return { ok: true, stdout: "qemu:///system" };
       if (command === "tailscale") return { ok: true, stdout: "SECRET PEER DATA" };
