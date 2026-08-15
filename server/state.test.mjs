@@ -141,6 +141,27 @@ describe("BoxPilot state store", () => {
     store.close();
   });
 
+  it("records an encrypted independent VM backup as unprotected until restore evidence exists", async () => {
+    const store = await testStore();
+    const bootstrap = store.createBootstrapToken();
+    const owner = store.consumeBootstrapToken(bootstrap.token, { username: "operator", passwordHash: "hash" });
+    const exportId = "11111111-1111-4111-8111-111111111111";
+    store.recordVmExport({
+      id: exportId, domainName: "ubuntu-lab", domainUuid: "22222222-2222-4222-8222-222222222222", destination: "local-managed",
+      artifactPath: `/var/lib/boxpilot-managed/vm-exports/${exportId}`, manifestChecksumSha256: "a".repeat(64), sizeBytes: 8192,
+      protected: false, encrypted: false, restoreDrill: { passed: false }, createdBy: owner.id,
+    });
+    const backup = store.recordVmBackup({
+      id: "33333333-3333-4333-8333-333333333333", exportId, domainName: "ubuntu-lab", domainUuid: "22222222-2222-4222-8222-222222222222",
+      destination: "mounted-restic", repositoryId: "b".repeat(64), snapshotId: "c".repeat(64), sizeBytes: 8192,
+      encrypted: true, independent: true, repositoryVerified: true, protected: false, restoreDrill: { passed: false, reason: "not run" }, createdBy: owner.id,
+    });
+
+    expect(backup).toMatchObject({ exportId, encrypted: true, independent: true, repositoryVerified: true, protected: false, restoreDrill: { passed: false } });
+    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "vm.backup.recorded", subjectId: backup.id })]));
+    store.close();
+  });
+
   it("stores immutable sanitized migration source manifests by fingerprint", async () => {
     const store = await testStore();
     const bootstrap = store.createBootstrapToken();

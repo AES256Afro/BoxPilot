@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import {
   createVmLifecyclePlan,
   createVmExportPlan,
+  createVmProtectionPlan,
   createVmSnapshotPlan,
   fetchVmExports,
+  fetchVmProtection,
   fetchVirtualization,
   formatBytes,
   formatMemory,
@@ -11,12 +13,16 @@ import {
   type ConsoleGuidance,
   stageVmLifecyclePlan,
   stageVmExportPlan,
+  stageVmProtectionPlan,
   stageVmSnapshotPlan,
   type DomainList,
   type VirtualDomain,
   type VmLifecyclePlan,
   type VmExportArtifact,
   type VmExportPlan,
+  type VmProtectedBackup,
+  type VmProtectionDestination,
+  type VmProtectionPlan,
   type VmSnapshotPlan,
   type VirtualizationStatus,
 } from "./virtualization";
@@ -61,20 +67,26 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
   const [snapshotPlan, setSnapshotPlan] = useState<VmSnapshotPlan | null>(null);
   const [exports, setExports] = useState<VmExportArtifact[]>([]);
   const [exportPlan, setExportPlan] = useState<VmExportPlan | null>(null);
+  const [protectionDestination, setProtectionDestination] = useState<VmProtectionDestination | null>(null);
+  const [protectedBackups, setProtectedBackups] = useState<VmProtectedBackup[]>([]);
+  const [protectionPlan, setProtectionPlan] = useState<VmProtectionPlan | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [[nextStatus, nextDomains, nextResources, nextConsoleGuidance], nextExports] = await Promise.all([
+      const [[nextStatus, nextDomains, nextResources, nextConsoleGuidance], nextExports, nextProtection] = await Promise.all([
         fetchVirtualization(),
         fetchVmExports(),
+        fetchVmProtection(),
       ]);
       setStatus(nextStatus);
       setDomainList(nextDomains);
       setResources(nextResources);
       setConsoleGuidance(nextConsoleGuidance);
       setExports(nextExports);
+      setProtectionDestination(nextProtection?.destination ?? null);
+      setProtectedBackups(Array.isArray(nextProtection?.backups) ? nextProtection.backups : []);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to load virtualization status");
     } finally {
@@ -187,6 +199,33 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
     }
   };
 
+  const planProtection = async (artifact: VmExportArtifact) => {
+    setPending(`protection-plan:${artifact.id}`);
+    setMessage(null);
+    try {
+      setProtectionPlan(await createVmProtectionPlan(artifact.id, csrfToken));
+    } catch (protectionError) {
+      setMessage(protectionError instanceof Error ? protectionError.message : "Unable to plan encrypted VM backup");
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const stageProtection = async () => {
+    if (!protectionPlan) return;
+    setPending(`protection-stage:${protectionPlan.id}`);
+    setMessage(null);
+    try {
+      await stageVmProtectionPlan(protectionPlan.id, protectionPlan.revision, csrfToken);
+      setProtectionPlan(null);
+      onOpenRepair();
+    } catch (protectionError) {
+      setMessage(protectionError instanceof Error ? protectionError.message : "Unable to stage encrypted VM backup");
+    } finally {
+      setPending(null);
+    }
+  };
+
   if (loading && !status) {
     return <section className="vm-loading" aria-live="polite">Inspecting QEMU, KVM, and libvirt...</section>;
   }
@@ -294,6 +333,11 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
 
       <section className="panel vm-resources-panel">
         <header className="panel-header"><div><strong>VM integrity exports</strong><span>Local artifacts, not protected backups</span></div><span className="status-pill status-warning">Protection pending</span></header>
+        <div className="vm-control-lock">
+          <div><strong>Encrypted independent destination</strong><span>{protectionDestination?.ready ? `Ready with restic ${protectionDestination.resticVersion ?? "detected"} on ${protectionDestination.mount?.sourceType ?? "mounted storage"}` : "Setup is required before local exports can move toward protection"}</span></div>
+          <span className={`status-pill status-${protectionDestination?.ready ? "good" : "warning"}`}>{protectionDestination?.ready ? "ready" : "setup required"}</span>
+        </div>
+        {!protectionDestination?.ready && protectionDestination && <div className="vm-plan-warnings"><strong>Destination blockers</strong>{protectionDestination.blockers.map((blocker) => <span key={blocker}>{blocker}</span>)}<span>Run from the Bigbox terminal: <code>{protectionDestination.setupCommand}</code></span><span>Keep a recovery copy of the repository password outside Bigbox.</span></div>}
         {exports.length === 0 ? (
           <div className="vm-empty"><strong>No VM exports recorded</strong><p>Stop a managed persistent VM, then generate a reviewed export plan. Encryption, an independent destination, and an isolated restore boot are still required before BoxPilot will call it protected.</p></div>
         ) : (
@@ -304,10 +348,12 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
                 <span>{formatBytes(artifact.sizeBytes)} | SHA-256 recorded | {new Date(artifact.createdAt).toLocaleString()}</span>
                 <code>{artifact.id}</code>
                 <span>{artifact.encrypted ? "Encrypted" : "Not encrypted"} | {artifact.protected ? "Protected" : "Not protected"} | {artifact.restoreDrill.passed ? "Restore drill passed" : "Restore drill not run"}</span>
+                <button type="button" className="text-button" onClick={() => void planProtection(artifact)} disabled={pending !== null}>{pending === `protection-plan:${artifact.id}` ? "Inspecting..." : "Plan encrypted backup"}</button>
               </div>
             ))}
           </div>
         )}
+        {protectedBackups.length > 0 && <div className="vm-domain-list">{protectedBackups.map((backup) => <article className="vm-domain" key={backup.id}><div className="vm-domain-summary"><div className="vm-domain-name"><span className="vm-icon">BK</span><div><strong>{backup.domainName}</strong><span>{formatBytes(backup.sizeBytes)} | encrypted independent restic snapshot</span><span>{backup.repositoryVerified ? "Repository data verified" : "Repository verification missing"} | {backup.restoreDrill.passed ? "restore drill passed" : "isolated restore still required"}</span></div></div><span className={`status-pill status-${backup.protected ? "good" : "warning"}`}>{backup.protected ? "protected" : "not protected"}</span></div></article>)}</div>}
       </section>
 
       <div className="vm-bottom-grid">
@@ -388,6 +434,23 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
               <div className="vm-plan-warnings"><strong>Automatic recovery</strong><span>{exportPlan.output.recovery}</span></div>
               <p className="vm-action-revision">Plan revision <code>{exportPlan.revision}</code>. Domain UUID, stopped state, disks, snapshots, and capacity are checked again before execution.</p>
               <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => setExportPlan(null)}>Cancel</button><button type="button" className="primary-button" onClick={() => void stageExport()} disabled={pending !== null || !exportPlan.output.executable}>{pending ? "Revalidating..." : "Stage for password approval"}</button></div>
+            </div>
+          </section>
+        </div>
+      )}
+      {protectionPlan && (
+        <div className="vm-planner-backdrop" role="presentation">
+          <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-protection-title">
+            <header className="vm-planner-header"><div><span className="eyebrow">Encrypted independent VM backup</span><h2 id="vm-protection-title">Back up {protectionPlan.input.domainName}</h2><p>Move a verified local export into an encrypted independent restic repository. Protected status still requires an isolated restore boot.</p></div><button type="button" className="modal-close" aria-label="Close protection plan" onClick={() => setProtectionPlan(null)}>X</button></header>
+            <div className="vm-action-review">
+              <dl className="vm-plan-summary"><div><dt>Export size</dt><dd>{formatBytes(protectionPlan.input.expectedSizeBytes)}</dd></div><div><dt>Destination free</dt><dd>{protectionPlan.output.destinationFreeBytes ? formatBytes(protectionPlan.output.destinationFreeBytes) : "Unavailable"}</dd></div><div><dt>Encrypted</dt><dd>{protectionPlan.output.encrypted ? "Yes" : "No"}</dd></div><div><dt>Protected</dt><dd>No, restore drill pending</dd></div></dl>
+              {protectionPlan.output.blockers.length > 0 && <div className="vm-plan-warnings"><strong>Blocked</strong>{protectionPlan.output.blockers.map((blocker) => <span key={blocker}>{blocker}</span>)}</div>}
+              <div className="vm-plan-gates"><strong>Exact changes</strong><ol>{protectionPlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol></div>
+              <div className="vm-plan-gates"><strong>Required verification</strong><ol>{protectionPlan.output.verification.map((check) => <li key={check}>{check}</li>)}</ol></div>
+              <div className="vm-plan-warnings"><strong>Warnings</strong>{protectionPlan.output.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div>
+              <div className="vm-plan-warnings"><strong>Recovery boundary</strong><span>{protectionPlan.output.recovery}</span></div>
+              <p className="vm-action-revision">Plan revision <code>{protectionPlan.revision}</code>. Export checksums, repository identity, independent mount, and capacity are checked again before execution.</p>
+              <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => setProtectionPlan(null)}>Cancel</button><button type="button" className="primary-button" onClick={() => void stageProtection()} disabled={pending !== null || !protectionPlan.output.executable}>{pending ? "Revalidating..." : "Stage for password approval"}</button></div>
             </div>
           </section>
         </div>

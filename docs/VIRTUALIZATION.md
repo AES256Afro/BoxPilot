@@ -1,6 +1,6 @@
 # QEMU/KVM setup and operation
 
-BoxPilot `0.12.0` can inspect a local libvirt system connection through its restricted helper, create supported Linux virtual machines through durable approved jobs, manage a deliberately small set of lifecycle operations, report QEMU guest-agent and snapshot state, create guarded offline internal snapshots, and produce integrity-verified local exports for stopped managed VMs. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
+BoxPilot `0.13.0` can inspect a local libvirt system connection through its restricted helper, create supported Linux virtual machines through durable approved jobs, manage a deliberately small set of lifecycle operations, report QEMU guest-agent and snapshot state, create guarded offline internal snapshots, produce integrity-verified local exports for stopped managed VMs, and copy those exports into a fixed encrypted restic repository on an independent mounted filesystem. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
 
 ## What works now
 
@@ -22,8 +22,10 @@ BoxPilot `0.12.0` can inspect a local libvirt system connection through its rest
 - Create an internal snapshot only while a persistent VM is stopped and every writable disk is an unchained qcow2 file inside the managed image directory
 - Label the snapshot offline-consistent and explicitly not an independent backup
 - Detect an already active Cockpit socket and show a Tailscale-hostname console handoff without opening or configuring the service
+- Reverify a completed local export and copy it into an encrypted restic repository only when `/mnt/boxpilot-backup` is a writable independent mount
+- Read every data pack in the repository and confirm exact snapshot identity before recording evidence
 
-The release does not delete VMs, force power off, edit definitions, open a web console proxy, create online snapshots, revert or delete snapshots, change storage pools, build a network bridge, generate cloud-init media, or create Windows 11 guests. Windows 11 remains locked until TPM 2.0 and Secure Boot checks exist.
+The release does not delete VMs, force power off, edit definitions, open a web console proxy, create online snapshots, revert or delete snapshots, restore a VM, declare a VM protected, change storage pools, build a network bridge, generate cloud-init media, or create Windows 11 guests. Windows 11 remains locked until TPM 2.0 and Secure Boot checks exist.
 
 ## 1. Prepare Ubuntu for virtualization
 
@@ -182,9 +184,37 @@ This is a storage checkpoint on the same VM disk, not a backup. BoxPilot does no
 
 The helper derives every source disk from libvirt and writes only beneath `/var/lib/boxpilot-managed/vm-exports`. It rejects running or transient domains, non-file storage, paths outside the managed image root, symlinks, empty disks, non-qcow2 formats, backing chains, stale domain UUIDs, changed disk or snapshot revisions, and insufficient destination capacity. Existing internal snapshot history is flattened into the exported current disk state.
 
-This is not yet disaster recovery. A second independent encrypted destination and an isolated restore boot are required before BoxPilot can report VM protection.
+This local export is not yet disaster recovery. Use the next workflow to create an independent encrypted copy. An isolated restore boot is still required before BoxPilot can report VM protection.
 
-## 8. Choose VM networking deliberately
+## 8. Configure an independent encrypted VM copy
+
+Do not create `/mnt/boxpilot-backup` as an ordinary directory on the Bigbox root disk. Attach and mount an external disk or a separately mounted NAS filesystem at that exact path. BoxPilot rejects the destination if its filesystem device matches either local exports or VM images.
+
+Install restic and run the interactive fixed-path setup utility:
+
+```bash
+sudo apt update
+sudo apt install -y restic
+sudo /opt/boxpilot/scripts/boxpilot-restic-setup.sh
+sudo systemctl restart boxpilot-helper boxpilot
+```
+
+The utility prompts without echo, writes a root-owned mode-`0600` password file, and initializes `/mnt/boxpilot-backup/restic-vm`. It does not accept a password or repository path as an argument. Keep a separate recovery copy of the password outside Bigbox.
+
+Then:
+
+1. Open **Virtual Machines** and confirm **Encrypted independent destination** says **ready**.
+2. Select **Plan encrypted backup** on a completed local export.
+3. Review the exact export size, destination free space, repository verification, recovery-key warning, and immutable revision.
+4. Stage the plan and approve it with the owner password in **Repair Center**.
+5. Leave the mount attached until the background job completes or fails.
+6. Confirm the new record says **encrypted independent restic snapshot**, **Repository data verified**, and **not protected**.
+
+The helper rehashes every local file, uses server-generated restic tags, reads every repository data pack, and confirms the exact snapshot. The full repository check is deliberately compatible with Ubuntu 26.04's restic 0.18.1 package and can take longer as history grows. It never runs restic retention or deletion commands. A failed verification leaves both the local export and repository intact.
+
+The record remains not protected because `0.13.0` does not perform an isolated restore boot. Do not delete the local export or source VM based only on this evidence.
+
+## 9. Choose VM networking deliberately
 
 Start with libvirt's default NAT network. Guests receive an address such as `192.168.122.x`, can reach the internet, and remain separated from the main `192.168.8.x` LAN.
 
@@ -196,7 +226,7 @@ To reach a guest application remotely, use one of these approaches:
 
 A bridge can interrupt the server's only network connection. BoxPilot will not automate bridging until it can create a connectivity checkpoint, display console recovery commands, and verify the new route. Do not bridge Wi-Fi interfaces as if they were ordinary Ethernet ports.
 
-## 9. Troubleshoot safely
+## 10. Troubleshoot safely
 
 ### The system connection fails
 
@@ -229,8 +259,20 @@ sudo journalctl -u boxpilot-helper -u boxpilot -n 100 --no-pager
 
 Correct the specific failed requirement and refresh the page. Do not loosen the libvirt socket to world-writable permissions.
 
-## 10. Security boundary
+### The encrypted destination stays blocked
 
-Membership in the `libvirt` group is powerful. In `0.12.0`, the native web service has no `libvirt` or `kvm` supplementary groups. Read-only libvirt inventory and all shipped VM mutations cross the typed helper socket. The helper still runs as root, so its exact schema, fixed binaries, fixed URI, path roots, systemd confinement, and private exposure remain security-critical. Keep the service loopback-only, keep Funnel off, and do not treat this release as an internet-facing appliance.
+```bash
+findmnt --mountpoint /mnt/boxpilot-backup
+stat -c '%d %n' /mnt/boxpilot-backup /var/lib/boxpilot-managed /var/lib/libvirt/images
+sudo stat -c '%U:%G %a %s %n' /etc/boxpilot/secrets/vm-backup-restic-password
+sudo restic --repo /mnt/boxpilot-backup/restic-vm --password-file /etc/boxpilot/secrets/vm-backup-restic-password snapshots
+sudo systemctl restart boxpilot-helper boxpilot
+```
 
-Operations Core records typed Unix-socket requests and durable approvals. VM creation, lifecycle actions, offline snapshots, and stopped-VM exports have operation-specific helper handlers. Storage administration, bridges, online snapshots, snapshot revert/delete, encrypted independent VM backup, restore execution, migration transfer, console proxy, and delete remain locked until their recovery checkpoints, path rules, and negative tests are complete.
+The first device number must differ from both Bigbox source locations. The password file must be `root:root`, mode `600`, and not a symlink. Restarting the helper after mounting ensures its hardened filesystem namespace sees the independent mount.
+
+## 11. Security boundary
+
+Membership in the `libvirt` group is powerful. In `0.13.0`, the native web service has no `libvirt` or `kvm` supplementary groups. Read-only libvirt inventory and all shipped VM mutations cross the typed helper socket. The helper still runs as root, so its exact schema, fixed binaries, fixed URI, path roots, fixed repository/password paths, systemd confinement, and private exposure remain security-critical. Keep the service loopback-only, keep Funnel off, and do not treat this release as an internet-facing appliance.
+
+Operations Core records typed Unix-socket requests and durable approvals. VM creation, lifecycle actions, offline snapshots, stopped-VM exports, and encrypted mounted-restic copies have operation-specific helper handlers. Storage administration, bridges, online snapshots, snapshot revert/delete, isolated restore boot, restore execution, retention mutation, migration transfer, console proxy, and delete remain locked until their recovery checkpoints, path rules, and negative tests are complete.

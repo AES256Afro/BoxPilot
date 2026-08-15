@@ -4,17 +4,17 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.12.0` adds a guarded stopped-VM export foundation. A managed persistent VM with unchained qcow2 disks can stage an immutable, password-approved background job that exports inactive domain XML and standalone qcow2 disks to a server-owned local directory. Every disk receives a structural check, source-content comparison, and SHA-256 checksum. BoxPilot explicitly reports this local unencrypted artifact as not protected and does not promote it to backup status without an independent encrypted destination and isolated restore boot.
+Version `0.13.0` adds the encrypted independent-copy stage of VM protection. A completed local VM export can be reverified and written as a tagged restic snapshot to a fixed, independently mounted filesystem. BoxPilot verifies every local checksum again, reads every data pack in the repository, and confirms the exact snapshot path and tags before recording durable evidence. The result is encrypted, independent, and repository-verified, but it remains explicitly not protected until an isolated restore boot and guest health check pass.
 
 ### What works now
 
-| Area | Status in `0.12.0` | Capability |
+| Area | Status in `0.13.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
 | Operations Core | Live foundation | Persists plans, steps, approvals, results, recovery guidance, and audit attribution in SQLite. Interrupted applying or verifying jobs fail closed for review after restart. |
 | Repair Center | Live foundation | Checks Node.js, state storage, the helper, Docker, libvirt, Tailscale, and DNS port availability without returning peer details or raw command output. |
-| Restricted helper | Live typed operations | Uses a versioned, allowlisted protocol over a local Unix socket for the canary, bounded inventory and logs, Uptime Kuma deployment and backup, guarded VM creation and lifecycle, read-only libvirt inventory, offline snapshots, and stopped-VM exports. It accepts no command strings, binary selection, libvirt URI, argument arrays, operator paths, Compose source, export destination, or arbitrary root paths from the browser. |
+| Restricted helper | Live typed operations | Uses a versioned, allowlisted protocol over a local Unix socket for the canary, bounded inventory and logs, Uptime Kuma deployment and backup, guarded VM creation and lifecycle, read-only libvirt inventory, offline snapshots, stopped-VM exports, and mounted-restic VM copies. It accepts no command strings, binary selection, libvirt URI, argument arrays, operator paths, Compose source, repository password, backup mount, repository path, export destination, or arbitrary root paths from the browser. |
 | Host and Docker inventory | Live | Reports authenticated host identity, CPU, memory, root storage, uptime, selected service state, LAN addresses, Tailscale self-state, and sanitized Docker containers, images, networks, volumes, and Compose projects. |
 | System logs | Live restricted sources | Returns capped, redacted entries for fixed BoxPilot, Docker, Tailscale, and virtualization unit sets. Credential-like values and URL query strings are redacted. |
 | Application catalog | Live | Publishes integrity-addressed manifests, live installation state, exact image policy, targets, ports, storage, prerequisites, recovery, and adapter risk. |
@@ -29,6 +29,7 @@ Version `0.12.0` adds a guarded stopped-VM export foundation. A managed persiste
 | VM lifecycle controls | Durable approved helper jobs | Plans start, graceful shutdown, reboot requests, and autostart changes against exact current state, shows recovery limits, revalidates before staging and approval, and verifies post-operation state. Force-off and delete do not exist. |
 | Offline VM snapshots | Guarded approved helper job | Creates one internal snapshot only for a stopped persistent VM whose file-backed disks are regular, unchained qcow2 files inside `/var/lib/libvirt/images`. Domain UUID, stopped state, disk confinement, and the snapshot inventory revision are rechecked. It is never reported as an independent backup. |
 | Stopped VM export | Guarded approved background job | Exports inactive XML and standalone qcow2 disks to a root-only server-generated directory, checks structure, compares source content, records SHA-256 evidence, and leaves the source unchanged. The local artifact is explicitly unencrypted, untested for restore, and not protected against Bigbox loss. |
+| Encrypted independent VM copy | Guarded approved background job | Requires a writable exact mount at `/mnt/boxpilot-backup` on a filesystem different from VM images and local exports, a root-only restic password file, and an initialized fixed repository. It reverifies the local export, writes an encrypted tagged snapshot, performs a full-repository `restic check --read-data`, confirms snapshot identity, and never runs `forget` or `prune`. It remains not protected until isolated restore validation ships. |
 | VM event log | Limited live foundation | Writes and displays redacted JSONL events for VM plans and enabled lifecycle requests. It is not the final authenticated job ledger. |
 | Compose inspector | Browser-only preview | Performs a lightweight structural and risk scan. It is not a full YAML parser and cannot deploy. |
 | Support bundle | Browser-generated preview | Downloads release metadata and available redacted VM audit events. It is not yet a general host support bundle. |
@@ -39,9 +40,9 @@ The repository also includes a read-only Ubuntu deployment doctor and a USB-to-h
 
 ### Not implemented yet
 
-- VM delete, force-off, console proxy, online snapshot, snapshot revert/delete, bridge creation, passthrough, protected VM backup, restore execution, isolated restore boot, cloud-init, Windows TPM/Secure Boot creation, or VM migration transfer
+- VM delete, force-off, console proxy, online snapshot, snapshot revert/delete, bridge creation, passthrough, protected VM status, restore execution, isolated restore boot, cloud-init, Windows TPM/Secure Boot creation, or VM migration transfer
 - General Docker mutation, custom Compose deployment, additional application installation, package updates, firewall changes, storage changes, or arbitrary command execution
-- Backup schedules, retention, NAS/restic/cloud destinations, Keel Notes export, SSH source discovery, resumable transfer, or migration cutover
+- Backup schedules, retention mutation, remote restic/cloud backends, Keel Notes export, SSH source discovery, resumable transfer, or migration cutover
 - Keel Notes, AdGuard Home, Jellyfin, Home Assistant, PostgreSQL, router, GitHub, or remote-agent adapters
 - WebAuthn, recovery codes, multiple owners, Tailscale identity headers, tamper-evident audit chaining, or general-purpose mutation handlers
 
@@ -89,6 +90,12 @@ This explicitly disclosed `0.11.0` mock shows the offline-consistency label, ind
 
 This explicitly disclosed `0.12.0` mock shows the capacity gate, fixed export changes, integrity checks, immutable revision, and protection boundary. It clearly labels the local artifact as unencrypted and not protected. No VM or disk was changed for the capture.
 
+### Encrypted independent VM copy approval mockup
+
+![BoxPilot encrypted independent restic plan before approval](docs/screenshots/vm-protection-approval-mock.png)
+
+This explicitly disclosed `0.13.0` mock shows the fixed independent mount, encryption and capacity evidence, full repository verification, immutable revision, recovery-key warning, and the remaining restore boundary. No VM, export, repository, or disk was changed for the capture.
+
 ## Safety contract
 
 Every future host change must follow:
@@ -100,7 +107,7 @@ Every future host change must follow:
 5. Apply with streamed logs
 6. Verify or roll back
 
-VM creation, lifecycle changes, offline snapshots, and stopped-VM exports use the durable job executor and separate typed helper operations. The helper derives its own binary paths, libvirt URI, managed-media, disk, and export roots, verbs, and argument arrays; the web process cannot supply them. Every supported VM mutation requires an immutable plan and owner password reauthentication. Higher-impact operations remain locked until each handler has authorization, path confinement, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
+VM creation, lifecycle changes, offline snapshots, stopped-VM exports, and encrypted independent VM copies use the durable job executor and separate typed helper operations. The helper derives its own binary paths, libvirt URI, managed-media, disk, export, mount, repository, cache, and password-file roots, verbs, and argument arrays; the web process cannot supply them. Every supported VM mutation requires an immutable plan and owner password reauthentication. Higher-impact operations remain locked until each handler has authorization, path confinement, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
 
 ## Run for development
 
@@ -195,7 +202,7 @@ docker build -t boxpilot:local .
 
 ## Keel Notes roadmap adapter
 
-No Keel adapter ships in `0.12.0`. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
+No Keel adapter ships in `0.13.0`. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
 
 - Detect a Keel Docker or service installation
 - Inventory the database dialect and protected data paths without exposing secrets

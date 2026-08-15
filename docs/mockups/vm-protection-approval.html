@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BoxPilot encrypted VM copy mockup</title>
+    <link rel="stylesheet" href="../../src/styles.css" />
+    <style>
+      .mock-disclosure { position: fixed; z-index: 200; right: 24px; bottom: 18px; padding: 8px 12px; border: 1px solid #67502b; border-radius: 9px; color: #e5d3b4; background: #241d13; font-size: 11px; }
+      .vm-planner-dialog { max-width: 860px; }
+    </style>
+  </head>
+  <body>
+    <div class="vm-planner-backdrop">
+      <section class="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-protection-title">
+        <header class="vm-planner-header">
+          <div><span class="eyebrow">Encrypted independent VM backup</span><h2 id="vm-protection-title">Back up ubuntu-services</h2><p>Move a verified local export into an encrypted independent restic repository. Protected status still requires an isolated restore boot.</p></div>
+          <button type="button" class="modal-close" aria-label="Close protection plan">X</button>
+        </header>
+        <div class="vm-action-review">
+          <dl class="vm-plan-summary">
+            <div><dt>Export size</dt><dd>18.7 GiB</dd></div>
+            <div><dt>Destination free</dt><dd>1.6 TiB</dd></div>
+            <div><dt>Encrypted</dt><dd>Yes</dd></div>
+            <div><dt>Protected</dt><dd>No, restore drill pending</dd></div>
+          </dl>
+          <div class="vm-plan-gates"><strong>Exact changes</strong><ol><li>Reverify every file and checksum in the selected root-only local VM export</li><li>Write an encrypted deduplicated restic snapshot to the configured independent mounted filesystem</li><li>Tag the snapshot with server-generated export and backup identifiers</li><li>Record durable encryption, independence, repository, snapshot, and size evidence</li></ol></div>
+          <div class="vm-plan-gates"><strong>Required verification</strong><ol><li>Local export manifest and file SHA-256</li><li>Restic successful snapshot summary</li><li>Full repository data check</li><li>Exact snapshot path and tag readback</li></ol></div>
+          <div class="vm-plan-warnings"><strong>Warnings</strong><span>Keep a recovery copy of the repository password outside Bigbox.</span><span>This job reads the complete local export and every repository data pack, so it can run for hours.</span><span>The copy remains unprotected until an isolated restore boot and guest health check pass.</span></div>
+          <div class="vm-plan-warnings"><strong>Recovery boundary</strong><span>The local export remains unchanged. BoxPilot never runs restic forget or prune automatically.</span></div>
+          <p class="vm-action-revision">Plan revision <code>4fd39cfabe401508</code>. Export checksums, repository identity, independent mount, and capacity are checked again before execution.</p>
+          <div class="vm-plan-form-actions"><button type="button" class="text-button">Cancel</button><button type="button" class="primary-button">Stage for password approval</button></div>
+        </div>
+      </section>
+    </div>
+    <div class="mock-disclosure">Mocked 0.13.0 plan. No VM, export, repository, or disk was changed.</div>
+  </body>
+</html>

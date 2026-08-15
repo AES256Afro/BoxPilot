@@ -9,5 +9,6 @@ These images are captured from the local `0.3.0` build. Each caption in the repo
 - `vm-lifecycle-approval-mock.png`: explicitly disclosed `0.10.0` lifecycle-plan mock rendered from `docs/mockups/vm-lifecycle-approval.html`; no VM was changed
 - `vm-snapshot-approval-mock.png`: explicitly disclosed `0.11.0` stopped-VM snapshot-plan mock rendered from `docs/mockups/vm-snapshot-approval.html`; no VM or disk was changed
 - `vm-export-approval-mock.png`: explicitly disclosed `0.12.0` stopped-VM local-export mock rendered from `docs/mockups/vm-export-approval.html`; no VM or disk was changed, and the mock states that the artifact is not yet a protected backup
+- `vm-protection-approval-mock.png`: explicitly disclosed `0.13.0` encrypted independent-copy mock rendered from `docs/mockups/vm-protection-approval.html`; no VM, export, repository, or disk was changed, and the mock states that isolated restore validation remains pending
 
 Do not crop out the data-source notice when replacing these screenshots. It is part of the product's capability disclosure.

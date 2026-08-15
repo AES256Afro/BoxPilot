@@ -17,6 +17,7 @@ import { createVmCreationService } from "./vm-creation.mjs";
 import { createVmExportService } from "./vm-export.mjs";
 import { createVmLifecycleService } from "./vm-lifecycle.mjs";
 import { createVmPlanner, validateVmPlanInput } from "./vm-plan.mjs";
+import { createVmProtectionService } from "./vm-protection.mjs";
 import { createVmSnapshotService } from "./vm-snapshot.mjs";
 
 const app = express();
@@ -42,6 +43,7 @@ const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, l
 const vmExports = createVmExportService({ store: state, libvirt, helper });
 const vmLifecycle = createVmLifecycleService({ store: state, libvirt });
 const vmSnapshots = createVmSnapshotService({ store: state, libvirt });
+const vmProtection = createVmProtectionService({ store: state, helper });
 const jobs = createJobService(state, helper, {
   validateApplicationJob: applications.validateJob,
   validateBackupJob: backups.validateJob,
@@ -49,6 +51,8 @@ const jobs = createJobService(state, helper, {
   validateVmCreationJob: vmCreation.validateJob,
   validateVmExportJob: vmExports.validateJob,
   recordVmExportResult: vmExports.recordResult,
+  validateVmProtectionJob: vmProtection.validateJob,
+  recordVmProtectionResult: vmProtection.recordResult,
   validateVmLifecycleJob: vmLifecycle.validateJob,
   validateVmSnapshotJob: vmSnapshots.validateJob,
 });
@@ -74,7 +78,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.12.0",
+    version: "0.13.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -104,17 +108,18 @@ app.get("/api/v1/capabilities", (_request, response) => {
     composeInspection: "browser-only",
     applications: "curated-plans-and-uptime-kuma-adapter",
     supportBundle: "browser-only",
-    backups: "uptime-kuma-local-with-restore-drill",
+    backups: "uptime-kuma-local-restore-drill-and-vm-independent-mounted-restic-copy",
     migrations: "read-only-sanitized-manifests-and-compatibility-plans",
-    privilegedHelper: "typed-canary-applications-backups-inventory-logs-vm-creation-lifecycle-snapshots-and-offline-exports",
+    privilegedHelper: "typed-canary-applications-backups-inventory-logs-vm-creation-lifecycle-snapshots-exports-and-mounted-restic-protection",
     identity: "owner-password-foundation",
-    durableJobs: "sqlite-approved-application-backup-vm-creation-lifecycle-snapshot-and-export-workflows",
+    durableJobs: "sqlite-approved-application-backup-vm-creation-lifecycle-snapshot-export-and-vm-protection-workflows",
     virtualization: "live-libvirt-via-restricted-helper",
     vmCreationPlanning: "validated-durable-approved",
     audit: "redacted-jsonl-foundation",
     vmActions: { enabled: true, mode: "durable-approved-helper-jobs" },
     vmSnapshots: { create: "offline-stopped-managed-qcow2-only", revert: false, delete: false, countsAsBackup: false },
     vmExports: { create: "offline-stopped-managed-qcow2-only", destination: "local-managed", integrityVerified: true, encrypted: false, protectedBackup: false, restoreDrill: false },
+    vmProtection: { destination: "fixed-independent-mounted-restic", encrypted: true, repositoryReadVerified: true, isolatedRestoreDrill: false, protectedBackup: false, retentionMutation: false },
     vmConsole: { nativeProxy: false, cockpitHandoff: "detect-existing-only" },
   });
 });
@@ -226,7 +231,7 @@ app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = candidate?.type === "virtualization.domain.export.create";
+    const background = ["virtualization.domain.export.create", "virtualization.export.backup.create"].includes(candidate?.type);
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, request.body?.password)
       : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
@@ -377,6 +382,30 @@ app.post("/api/v1/virtualization/export-plans/:id/stage", async (request, respon
   }
 });
 
+app.get("/api/v1/virtualization/protection", async (_request, response) => {
+  response.json(await vmProtection.list());
+});
+
+app.post("/api/v1/virtualization/exports/:id/protection-plans", async (request, response) => {
+  try {
+    const plan = await vmProtection.plan(request.params.id, request.boxpilotSession.owner.id);
+    response.status(201).json({ plan });
+  } catch (error) {
+    const status = error.message.includes("not found") ? 404 : error.message.includes("unavailable") ? 503 : 409;
+    response.status(status).json({ error: error.message, code: "vm_protection_plan_failed" });
+  }
+});
+
+app.post("/api/v1/virtualization/protection-plans/:id/stage", async (request, response) => {
+  try {
+    const job = await vmProtection.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
+    response.status(201).json({ job });
+  } catch (error) {
+    const status = error.message.includes("not found") ? 404 : error.message.includes("unavailable") ? 503 : 409;
+    response.status(status).json({ error: error.message, code: "vm_protection_stage_failed" });
+  }
+});
+
 app.use(express.static(dist, { index: false }));
 app.use((request, response, next) => {
   if (request.method !== "GET" || request.path.startsWith("/api/")) {
@@ -392,7 +421,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.12.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.13.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

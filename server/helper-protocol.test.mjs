@@ -22,6 +22,10 @@ function exportParameters(overrides = {}) {
   return { name: "ubuntu-lab", exportId: "22222222-2222-4222-8222-222222222222", expectedUuid: "11111111-1111-4111-8111-111111111111", expectedState: "stopped", expectedDiskRevision: "b".repeat(64), expectedSnapshotRevision: "a".repeat(64), ...overrides };
 }
 
+function protectionParameters(overrides = {}) {
+  return { backupId: "22222222-2222-4222-8222-222222222222", exportId: "33333333-3333-4333-8333-333333333333", domainName: "ubuntu-lab", domainUuid: "11111111-1111-4111-8111-111111111111", expectedManifestChecksumSha256: "c".repeat(64), expectedSizeBytes: 8192, expectedDestinationRevision: "d".repeat(64), ...overrides };
+}
+
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
@@ -125,5 +129,18 @@ describe("restricted helper protocol", () => {
     };
     await expect(executeHelperOperation(request({ operation: "virtualization.domain.export.inspect", parameters: { name: "ubuntu-lab" } }), { virtualization })).resolves.toMatchObject({ ok: true, result: { state: "stopped" } });
     await expect(executeHelperOperation(request({ operation: "virtualization.domain.export.create", parameters: exportParameters() }), { virtualization })).resolves.toMatchObject({ ok: true, result: { contentVerified: true, protected: false } });
+  });
+
+  it("accepts only secret-free VM protection fields and delegates fixed destination handling", async () => {
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.inspect", parameters: { repository: "/tmp" } }))).toContain("accepts no parameters");
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.create", parameters: protectionParameters() }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.create", parameters: protectionParameters({ password: "secret" }) }))).toContain("only the fixed typed plan fields");
+    const vmProtection = {
+      inspect: async () => ({ ready: true, encrypted: true, independent: true }),
+      createBackup: async (parameters) => ({ created: true, backupId: parameters.backupId, encrypted: true, independent: true, protected: false }),
+    };
+    await expect(executeHelperOperation(request({ operation: "virtualization.export.backup.inspect", parameters: {} }), { vmProtection })).resolves.toMatchObject({ ok: true, result: { ready: true, encrypted: true } });
+    await expect(executeHelperOperation(request({ operation: "virtualization.export.backup.create", parameters: protectionParameters() }), { vmProtection })).resolves.toMatchObject({ ok: true, result: { created: true, protected: false } });
   });
 });
