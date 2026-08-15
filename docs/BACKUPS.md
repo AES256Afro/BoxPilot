@@ -1,6 +1,6 @@
 # Verified application backups
 
-BoxPilot `0.6.0` provides one deliberately narrow backup adapter for its managed Uptime Kuma deployment. It does not report a workload as protected merely because a file was copied.
+BoxPilot provides two deliberately narrow evidence workflows: the `0.6.0` restore-verified local Uptime Kuma adapter and the `0.13.0` encrypted independent-copy stage for stopped-VM exports. It does not report a workload as protected merely because a file was copied.
 
 ## Safety boundary
 
@@ -41,6 +41,56 @@ If archive creation fails, the helper restarts Uptime Kuma and verifies source h
 
 Restore-drill failure preserves the completed archive for investigation but does not create a green backup record.
 
-## Current limitation
+## VM encrypted independent-copy workflow
 
-The only destination is on Bigbox. This proves consistency, integrity, and restorability but does not protect against loss of the Bigbox disk or host. NAS, restic, encrypted offsite, scheduling, retention, notification, Keel Notes export, PostgreSQL, and Litestream-aware adapters remain future milestones.
+Version `0.13.0` can move a completed integrity-verified local VM export into one fixed restic repository on a dedicated mounted filesystem. The browser never supplies a path, repository location, password, restic argument, tag, or binary.
+
+The fixed locations are:
+
+```text
+/mnt/boxpilot-backup
+/mnt/boxpilot-backup/restic-vm
+/etc/boxpilot/secrets/vm-backup-restic-password
+/var/cache/boxpilot-restic
+```
+
+The helper requires the mount to be an exact writable mountpoint and compares filesystem device identifiers against both `/var/lib/boxpilot-managed/vm-exports` and `/var/lib/libvirt/images`. A directory on the Bigbox root filesystem is rejected even if it has the expected name. The password file must be a regular non-symlink owned by root, mode `0600`, and 16 to 4096 bytes.
+
+Prepare a real external disk or separately mounted NAS filesystem first. Install restic, mount the destination, then run the interactive setup utility from the Bigbox terminal:
+
+```bash
+sudo apt update
+sudo apt install -y restic
+sudo /opt/boxpilot/scripts/boxpilot-restic-setup.sh
+sudo systemctl restart boxpilot-helper boxpilot
+```
+
+The script refuses a same-filesystem destination and never accepts the repository password as a command-line argument. Store a separate recovery copy of that password outside Bigbox. Losing it makes the repository unrecoverable.
+
+For an approved copy job, BoxPilot:
+
+1. Revalidates the immutable export id, domain identity, manifest SHA-256, size, repository identity, exact mount, and free space.
+2. Rehashes the manifest, inactive XML, and every standalone qcow2 disk before backup.
+3. Writes one restic snapshot tagged with server-generated export and backup ids.
+4. Requires the JSON backup summary to match the exact logical source size.
+5. Runs a full `restic check --read-data`, reading every repository data pack. This is compatible with Ubuntu 26.04's restic 0.18.1 package but becomes slower as the repository grows.
+6. Reads the snapshot back and confirms its id, source path, and both server-generated tags.
+7. Records encryption, independence, repository id, snapshot id, size, operator, and verification evidence in SQLite.
+
+BoxPilot does not run `forget`, `prune`, or automatic repository deletion. A failed post-copy verification leaves the repository intact for inspection. The local VM export is unchanged.
+
+### Honest protection state
+
+The `0.13.0` VM copy is reported as:
+
+- encrypted: yes
+- independent: yes
+- repository verified: yes
+- isolated restore drill: no
+- protected: no
+
+This distinction is intentional. Repository readability does not prove that the domain XML and qcow2 disks can boot as an isolated guest. The next milestone must restore into a root-only temporary area, verify the restored files, boot with no network, and require a guest health signal before protected status can become true.
+
+## Current limitations
+
+The Uptime Kuma artifact remains local to Bigbox. The VM workflow supports only the fixed mounted-restic destination and requires an operator-provided independent filesystem. Bigbox currently has no configured independent backup mount, so its live UI correctly reports setup blockers. Remote restic backends, offsite copies, schedules, retention mutation, notification, isolated VM restore boot, restore execution, Keel Notes export, PostgreSQL, and Litestream-aware adapters remain future milestones.

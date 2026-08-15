@@ -65,12 +65,44 @@ describe("Virtual Machines", () => {
       input: { name: "snapshot-lab", exportId: "22222222-2222-4222-8222-222222222222", expectedUuid: "11111111-1111-4111-8111-111111111111", expectedState: "stopped", expectedDiskRevision: "b".repeat(64), expectedSnapshotRevision: "a".repeat(64) },
       output: { executable: true, destination: "local-managed", diskTargets: ["vda"], sourceAllocatedBytes: 4096, requiredBytes: 1073746740, destinationFreeBytes: 10737418240, blockers: [], changes: ["Write a root-only export"], verification: ["Per-disk content comparison"], protected: false, encrypted: false, restoreDrill: { passed: false, reason: "not run" }, warnings: ["This local export is not a protected backup."], recovery: "Remove only the new export directory." },
     };
+    const exportArtifact = {
+      id: "22222222-2222-4222-8222-222222222222", domainName: "snapshot-lab", domainUuid: "11111111-1111-4111-8111-111111111111",
+      destination: "local-managed", artifactPath: "/var/lib/boxpilot-managed/vm-exports/22222222-2222-4222-8222-222222222222",
+      manifestChecksumSha256: "c".repeat(64), sizeBytes: 4096, protected: false, encrypted: false,
+      restoreDrill: { passed: false, reason: "not run" }, createdAt: "2026-08-15T20:00:00Z",
+    };
+    const protection = {
+      destination: {
+        adapter: "mounted-restic", ready: true, encrypted: true, independent: true, resticVersion: "0.19.1",
+        mount: { target: "/mnt/boxpilot-backup", sourceType: "ext4", independentFilesystem: true, writable: true },
+        repositoryId: "d".repeat(64), destinationRevision: "e".repeat(64), destinationFreeBytes: 20 * 1024 ** 3,
+        blockers: [], setupCommand: "sudo /opt/boxpilot/scripts/boxpilot-restic-setup.sh", recoveryKeyRequired: true,
+      },
+      backups: [],
+    };
+    const protectionPlan = {
+      id: "protection-plan-1", revision: "protection-revision-1", status: "draft", expiresAt: "2026-08-15T21:00:00Z",
+      input: {
+        backupId: "33333333-3333-4333-8333-333333333333", exportId: exportArtifact.id, domainName: "snapshot-lab",
+        domainUuid: exportArtifact.domainUuid, expectedManifestChecksumSha256: exportArtifact.manifestChecksumSha256,
+        expectedSizeBytes: exportArtifact.sizeBytes, expectedDestinationRevision: "e".repeat(64),
+      },
+      output: {
+        executable: true, destination: "mounted-restic", resticVersion: "0.19.1", repositoryId: "d".repeat(64),
+        destinationFreeBytes: 20 * 1024 ** 3, blockers: [], changes: ["Write an encrypted restic snapshot"],
+        verification: ["Full repository data check"], encrypted: true, independent: true, repositoryVerified: false,
+        protected: false, restoreDrill: { passed: false, reason: "not run" },
+        warnings: ["Keep a recovery copy outside Bigbox."], recovery: "The local export remains unchanged.",
+      },
+    };
     const onOpenRepair = vi.fn();
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       const body = init?.method === "POST"
-        ? url.endsWith("/stage") ? { job: { id: "job-1", state: "awaiting_approval", title: "Reviewed VM job" } } : { plan: url.endsWith("/snapshot-plans") ? snapshotPlan : url.endsWith("/export-plans") ? exportPlan : actionPlan }
-        : url.endsWith("/status") ? status : url.endsWith("/resources") ? resources : url.endsWith("/console-guidance") ? consoleGuidance : url.endsWith("/exports") ? { exports: [] } : domains;
+        ? url.endsWith("/stage")
+          ? { job: { id: "job-1", state: "awaiting_approval", title: "Reviewed VM job" } }
+          : { plan: url.endsWith("/snapshot-plans") ? snapshotPlan : url.endsWith("/export-plans") ? exportPlan : url.endsWith("/protection-plans") ? protectionPlan : actionPlan }
+        : url.endsWith("/status") ? status : url.endsWith("/resources") ? resources : url.endsWith("/console-guidance") ? consoleGuidance : url.endsWith("/protection") ? protection : url.endsWith("/exports") ? { exports: [exportArtifact] } : domains;
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -104,5 +136,11 @@ describe("Virtual Machines", () => {
     expect(screen.getByText("Per-disk content comparison")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stage for password approval" }));
     await vi.waitFor(() => expect(onOpenRepair).toHaveBeenCalledTimes(3));
+    fireEvent.click(screen.getByRole("button", { name: "Plan encrypted backup" }));
+    expect(await screen.findByText("Encrypted independent VM backup")).toBeTruthy();
+    expect(screen.getByText("Full repository data check")).toBeTruthy();
+    expect(screen.getByText("Keep a recovery copy outside Bigbox.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage for password approval" }));
+    await vi.waitFor(() => expect(onOpenRepair).toHaveBeenCalledTimes(4));
   });
 });

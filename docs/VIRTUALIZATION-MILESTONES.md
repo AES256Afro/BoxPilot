@@ -2,7 +2,7 @@
 
 This plan turns the current QEMU/KVM module into a dependable home-server virtualization control plane. Milestones are dependency ordered. A later milestone cannot ship merely because its interface is complete.
 
-## Current baseline: 0.12.0
+## Current baseline: 0.13.0
 
 Shipped:
 
@@ -18,10 +18,11 @@ Shipped:
 - No direct `libvirt` or `kvm` group access in the web service
 - Durable offline internal snapshot creation for stopped VMs with unchained managed qcow2 disks
 - Durable stopped-VM local export with standalone qcow2 conversion, structural checks, content comparison, SHA-256 evidence, confined cleanup, and honest unprotected status
+- Durable encrypted independent mounted-restic copy with fixed paths, source rehashing, server-generated tags, full repository reads, snapshot identity evidence, and honest restore-pending status
 
 Known boundary:
 
-- AppArmor, Windows TPM/Secure Boot, cloud-init, console proxy, online snapshots, snapshot revert/delete, encrypted independent VM backup, isolated restore, restore execution, bridge management, passthrough, and fleet placement remain pending.
+- AppArmor, Windows TPM/Secure Boot, cloud-init, console proxy, online snapshots, snapshot revert/delete, isolated restore, protected VM status, restore execution, retention mutation, bridge management, passthrough, and fleet placement remain pending.
 - The safe Docker preview cannot inspect host libvirt.
 
 ## Milestone V1: guided creation planning
@@ -126,7 +127,7 @@ Acceptance:
 
 Target: `0.8.0`
 
-Status: `0.12.0` ships the first stopped-VM export slice to a fixed root-only local destination with preflight capacity, immutable state revisions, standalone qcow2 conversion, structure and source-content verification, SHA-256 evidence, background execution, and confined cleanup. It is deliberately marked unencrypted, restore-untested, and unprotected. Independent encrypted destinations, isolated restore boots, restore execution, retention, and migration transfer remain pending.
+Status: `0.12.0` ships the first stopped-VM export slice to a fixed root-only local destination with preflight capacity, immutable state revisions, standalone qcow2 conversion, structure and source-content verification, SHA-256 evidence, background execution, and confined cleanup. Version `0.13.0` adds one fixed independent mounted-restic destination with exact mount and filesystem-device checks, root-only password policy, immutable repository identity, local source rehashing, encrypted snapshots, full repository reads, exact snapshot readback, and no automated deletion. It is deliberately marked restore-untested and unprotected. Isolated restore boots, restore execution, retention mutation, remote destinations, and migration transfer remain pending.
 
 - Quiesced backup coordination when a guest agent is available
 - Offline backup fallback with measured downtime

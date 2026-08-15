@@ -214,6 +214,63 @@ export interface VmExportArtifact {
   createdAt: string;
 }
 
+export interface VmProtectionDestination {
+  adapter: "mounted-restic";
+  ready: boolean;
+  encrypted: boolean;
+  independent: boolean;
+  resticVersion: string | null;
+  mount: { target: string; sourceType: string; independentFilesystem: boolean; writable: boolean } | null;
+  repositoryId: string | null;
+  destinationRevision: string | null;
+  destinationFreeBytes: number | null;
+  blockers: string[];
+  setupCommand: string;
+  recoveryKeyRequired: boolean;
+}
+
+export interface VmProtectedBackup {
+  id: string;
+  exportId: string;
+  domainName: string;
+  domainUuid: string;
+  destination: "mounted-restic";
+  repositoryId: string;
+  snapshotId: string;
+  sizeBytes: number;
+  encrypted: boolean;
+  independent: boolean;
+  repositoryVerified: boolean;
+  protected: boolean;
+  restoreDrill: { passed: boolean; reason?: string };
+  createdAt: string;
+}
+
+export interface VmProtectionPlan {
+  id: string;
+  revision: string;
+  status: "draft" | "staged";
+  expiresAt: string;
+  input: { backupId: string; exportId: string; domainName: string; domainUuid: string; expectedManifestChecksumSha256: string; expectedSizeBytes: number; expectedDestinationRevision: string | null };
+  output: {
+    executable: boolean;
+    destination: "mounted-restic";
+    resticVersion: string | null;
+    repositoryId: string | null;
+    destinationFreeBytes: number | null;
+    blockers: string[];
+    changes: string[];
+    verification: string[];
+    encrypted: boolean;
+    independent: boolean;
+    repositoryVerified: false;
+    protected: false;
+    restoreDrill: { passed: false; reason: string };
+    warnings: string[];
+    recovery: string;
+  };
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   const body = (await response.json()) as T & { error?: string; errors?: string[] };
   if (!response.ok && response.status !== 503) {
@@ -322,6 +379,30 @@ export async function createVmExportPlan(domain: string, csrfToken: string): Pro
 
 export async function stageVmExportPlan(planId: string, revision: string, csrfToken: string): Promise<VmCreationJob> {
   const response = await fetch(`/api/v1/virtualization/export-plans/${encodeURIComponent(planId)}/stage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: JSON.stringify({ revision }),
+  });
+  const body = await readJson<{ job: VmCreationJob }>(response);
+  return body.job;
+}
+
+export async function fetchVmProtection(): Promise<{ destination: VmProtectionDestination; backups: VmProtectedBackup[] }> {
+  return readJson<{ destination: VmProtectionDestination; backups: VmProtectedBackup[] }>(await fetch("/api/v1/virtualization/protection"));
+}
+
+export async function createVmProtectionPlan(exportId: string, csrfToken: string): Promise<VmProtectionPlan> {
+  const response = await fetch(`/api/v1/virtualization/exports/${encodeURIComponent(exportId)}/protection-plans`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: "{}",
+  });
+  const body = await readJson<{ plan: VmProtectionPlan }>(response);
+  return body.plan;
+}
+
+export async function stageVmProtectionPlan(planId: string, revision: string, csrfToken: string): Promise<VmCreationJob> {
+  const response = await fetch(`/api/v1/virtualization/protection-plans/${encodeURIComponent(planId)}/stage`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
     body: JSON.stringify({ revision }),

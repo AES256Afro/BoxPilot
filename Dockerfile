@@ -11,7 +11,9 @@ FROM node:24-alpine AS runtime
 
 ENV NODE_ENV=production \
     BOXPILOT_HOST=0.0.0.0 \
-    BOXPILOT_PORT=8787
+    BOXPILOT_PORT=8787 \
+    BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot \
+    BOXPILOT_COOKIE_SECURE=false
 
 WORKDIR /app
 COPY package.json package-lock.json ./
