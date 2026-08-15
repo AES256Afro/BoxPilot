@@ -1,6 +1,6 @@
 # Virtualization API
 
-The BoxPilot `v1` virtualization API is loopback-only by default. Tailscale Serve may proxy it privately, but it is not an internet API. Version `0.14.0` requires an authenticated owner session for virtualization routes and a CSRF token for POST requests. Network privacy remains mandatory.
+The BoxPilot `v1` virtualization API is loopback-only by default. Tailscale Serve may proxy it privately, but it is not an internet API. Version `0.15.0` requires an authenticated owner session for virtualization routes and a CSRF token for POST requests. Network privacy remains mandatory.
 
 All API responses use JSON and send `Cache-Control: no-store`.
 
@@ -296,6 +296,50 @@ Staging and password approval recheck durable backup and export identity, reposi
 
 The helper restores only the exact recorded snapshot into a fixed server-generated workspace, verifies every file and qcow2 structure, temporarily grants QEMU access to verified disk files, and imports a transient no-network domain. A passing result must include repeated guest-agent health plus verified domain, workspace, QEMU permission, and UEFI NVRAM cleanup. Only then does Operations Core atomically promote the exact backup record to protected. A failure cannot promote protection and preserves root-only restored files for inspection.
 
+## List guarded recovery clones
+
+```text
+GET /api/v1/virtualization/recoveries
+```
+
+The response contains durable records only for completed recovery-clone jobs. Each record ties one protected backup to a separate libvirt domain UUID and reports the fixed destination type, size, stopped state, no-network policy, disabled autostart, operator, and creation time. It never returns a repository password, filesystem path, or domain XML.
+
+## Create a guarded recovery-clone plan
+
+```text
+POST /api/v1/virtualization/backups/:id/recovery-plans
+Content-Type: application/json
+X-BoxPilot-CSRF: <session CSRF token>
+```
+
+Body:
+
+```json
+{ "targetDomainName": "ubuntu-lab-recovery" }
+```
+
+Planning requires a protected encrypted independent backup with complete passing restore-drill evidence, its unchanged local export record, the exact repository and snapshot identities, sufficient restore capacity, an available constrained target domain name, and an unused server-generated recovery directory. The target name is the only operator-selected recovery field. It cannot use the reserved `boxpilot-drill-` namespace.
+
+The immutable plan fixes 2 vCPUs, 2048 MiB, the source firmware mode, `network: "none"`, `persistent: true`, `initialState: "stopped"`, and `autostart: false`. The browser cannot supply a disk path, recovery root, XML, UUID, network, firmware path, repository, snapshot, command, binary, or libvirt argument.
+
+## Stage a guarded recovery-clone job
+
+```text
+POST /api/v1/virtualization/recovery-plans/:id/stage
+Content-Type: application/json
+X-BoxPilot-CSRF: <session CSRF token>
+```
+
+Body:
+
+```json
+{ "revision": "immutable-plan-revision" }
+```
+
+Staging and password approval recheck the exact protected evidence, repository revision, capacity, target-name absence, and fixed destination. The background helper restores and verifies the exact snapshot in staging, moves the verified export under `/var/lib/libvirt/images/boxpilot-recoveries/<server-generated-uuid>`, grants persistent QEMU access only to recovered qcow2 disks, generates fixed no-network XML, and defines a new persistent domain. It then verifies a new UUID, stopped state, disabled autostart, zero interfaces, exact disk paths, and the guest-agent channel.
+
+The operation never starts the recovered guest. The operator can later use the ordinary separately approved Start action and private Cockpit handoff for inspection. Network attachment is unavailable. Before definition, failures preserve root-only staging evidence. After definition begins, automatic cleanup can undefine only the exact newly named stopped no-network domain and remove only its server-generated directory after strict path validation. A crash after definition can leave a stopped isolated clone for manual inspection instead of guessing that deletion is safe.
+
 ## Agent integration rules
 
 An agent integrating with BoxPilot should:
@@ -308,4 +352,5 @@ An agent integrating with BoxPilot should:
 6. Refresh host and domain state immediately before requesting a lifecycle action.
 7. Explain when a guest address is unknown rather than inventing one.
 8. Treat a local VM export and a repository-verified encrypted copy as unprotected until the API reports a passed isolated restore drill.
-9. Keep bridge, passthrough, storage, online snapshot, snapshot revert/delete, operator-directed restore, and force-off operations unavailable until their capability appears explicitly.
+9. Treat a recovery clone as isolated and non-production until an operator separately inspects and starts it. Never infer that network attachment is available.
+10. Keep bridge, passthrough, storage, online snapshot, snapshot revert/delete, in-place restore, recovery network attachment, and force-off operations unavailable until their capability appears explicitly.

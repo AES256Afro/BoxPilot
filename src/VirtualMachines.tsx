@@ -3,10 +3,12 @@ import {
   createVmLifecyclePlan,
   createVmExportPlan,
   createVmProtectionPlan,
+  createVmRecoveryPlan,
   createVmRestoreDrillPlan,
   createVmSnapshotPlan,
   fetchVmExports,
   fetchVmProtection,
+  fetchVmRecoveries,
   fetchVirtualization,
   formatBytes,
   formatMemory,
@@ -15,6 +17,7 @@ import {
   stageVmLifecyclePlan,
   stageVmExportPlan,
   stageVmProtectionPlan,
+  stageVmRecoveryPlan,
   stageVmRestoreDrillPlan,
   stageVmSnapshotPlan,
   type DomainList,
@@ -25,6 +28,8 @@ import {
   type VmProtectedBackup,
   type VmProtectionDestination,
   type VmProtectionPlan,
+  type VmRecoveryPlan,
+  type VmRecoveryRecord,
   type VmRestoreDrillPlan,
   type VmSnapshotPlan,
   type VirtualizationStatus,
@@ -74,15 +79,20 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
   const [protectedBackups, setProtectedBackups] = useState<VmProtectedBackup[]>([]);
   const [protectionPlan, setProtectionPlan] = useState<VmProtectionPlan | null>(null);
   const [restoreDrillPlan, setRestoreDrillPlan] = useState<VmRestoreDrillPlan | null>(null);
+  const [recoveries, setRecoveries] = useState<VmRecoveryRecord[]>([]);
+  const [recoveryBackup, setRecoveryBackup] = useState<VmProtectedBackup | null>(null);
+  const [recoveryName, setRecoveryName] = useState("");
+  const [recoveryPlan, setRecoveryPlan] = useState<VmRecoveryPlan | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [[nextStatus, nextDomains, nextResources, nextConsoleGuidance], nextExports, nextProtection] = await Promise.all([
+      const [[nextStatus, nextDomains, nextResources, nextConsoleGuidance], nextExports, nextProtection, nextRecoveries] = await Promise.all([
         fetchVirtualization(),
         fetchVmExports(),
         fetchVmProtection(),
+        fetchVmRecoveries(),
       ]);
       setStatus(nextStatus);
       setDomainList(nextDomains);
@@ -91,6 +101,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       setExports(nextExports);
       setProtectionDestination(nextProtection?.destination ?? null);
       setProtectedBackups(Array.isArray(nextProtection?.backups) ? nextProtection.backups : []);
+      setRecoveries(nextRecoveries);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to load virtualization status");
     } finally {
@@ -257,6 +268,42 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
     }
   };
 
+  const openRecoveryPlanner = (backup: VmProtectedBackup) => {
+    setRecoveryBackup(backup);
+    setRecoveryName(`${backup.domainName}-recovery`);
+    setRecoveryPlan(null);
+    setMessage(null);
+  };
+
+  const planRecovery = async () => {
+    if (!recoveryBackup) return;
+    setPending(`recovery-plan:${recoveryBackup.id}`);
+    setMessage(null);
+    try {
+      setRecoveryPlan(await createVmRecoveryPlan(recoveryBackup.id, recoveryName, csrfToken));
+    } catch (recoveryError) {
+      setMessage(recoveryError instanceof Error ? recoveryError.message : "Unable to plan guarded recovery clone");
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const stageRecovery = async () => {
+    if (!recoveryPlan) return;
+    setPending(`recovery-stage:${recoveryPlan.id}`);
+    setMessage(null);
+    try {
+      await stageVmRecoveryPlan(recoveryPlan.id, recoveryPlan.revision, csrfToken);
+      setRecoveryBackup(null);
+      setRecoveryPlan(null);
+      onOpenRepair();
+    } catch (recoveryError) {
+      setMessage(recoveryError instanceof Error ? recoveryError.message : "Unable to stage guarded recovery clone");
+    } finally {
+      setPending(null);
+    }
+  };
+
   if (loading && !status) {
     return <section className="vm-loading" aria-live="polite">Inspecting QEMU, KVM, and libvirt...</section>;
   }
@@ -384,7 +431,34 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
             ))}
           </div>
         )}
-        {protectedBackups.length > 0 && <div className="vm-domain-list">{protectedBackups.map((backup) => <article className="vm-domain" key={backup.id}><div className="vm-domain-summary"><div className="vm-domain-name"><span className="vm-icon">BK</span><div><strong>{backup.domainName}</strong><span>{formatBytes(backup.sizeBytes)} | encrypted independent restic snapshot</span><span>{backup.repositoryVerified ? "Repository data verified" : "Repository verification missing"} | {backup.restoreDrill.passed ? "isolated restore drill passed" : "isolated restore still required"}</span></div></div><span className={`status-pill status-${backup.protected ? "good" : "warning"}`}>{backup.protected ? "protected" : "not protected"}</span></div>{!backup.protected && <div className="vm-actions"><button type="button" className="text-button" onClick={() => void planRestoreDrill(backup)} disabled={pending !== null}>{pending === `restore-drill-plan:${backup.id}` ? "Inspecting..." : "Plan isolated restore drill"}</button></div>}</article>)}</div>}
+        {protectedBackups.length > 0 && (
+          <div className="vm-domain-list">
+            {protectedBackups.map((backup) => (
+              <article className="vm-domain" key={backup.id}>
+                <div className="vm-domain-summary">
+                  <div className="vm-domain-name"><span className="vm-icon">BK</span><div><strong>{backup.domainName}</strong><span>{formatBytes(backup.sizeBytes)} | encrypted independent restic snapshot</span><span>{backup.repositoryVerified ? "Repository data verified" : "Repository verification missing"} | {backup.restoreDrill.passed ? "isolated restore drill passed" : "isolated restore still required"}</span></div></div>
+                  <span className={`status-pill status-${backup.protected ? "good" : "warning"}`}>{backup.protected ? "protected" : "not protected"}</span>
+                </div>
+                <div className="vm-actions">
+                  {!backup.protected && <button type="button" className="text-button" onClick={() => void planRestoreDrill(backup)} disabled={pending !== null}>{pending === `restore-drill-plan:${backup.id}` ? "Inspecting..." : "Plan isolated restore drill"}</button>}
+                  {backup.protected && <button type="button" className="text-button" onClick={() => openRecoveryPlanner(backup)} disabled={pending !== null}>Create recovery clone</button>}
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+        {recoveries.length > 0 && (
+          <div className="vm-domain-list">
+            {recoveries.map((recovery) => (
+              <article className="vm-domain" key={recovery.id}>
+                <div className="vm-domain-summary">
+                  <div className="vm-domain-name"><span className="vm-icon">RC</span><div><strong>{recovery.domainName}</strong><span>Recovered from {recovery.sourceDomainName} | {formatBytes(recovery.sizeBytes)}</span><span>Persistent | network none | autostart off | {new Date(recovery.createdAt).toLocaleString()}</span></div></div>
+                  <span className="status-pill status-neutral">stopped recovery</span>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
 
       <div className="vm-bottom-grid">
@@ -499,6 +573,33 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
               <div className="vm-plan-warnings"><strong>Recovery boundary</strong><span>{restoreDrillPlan.output.recovery}</span></div>
               <p className="vm-action-revision">Plan revision <code>{restoreDrillPlan.revision}</code>. Backup evidence, repository identity, temporary capacity, generated domain name, and isolation policy are checked again before execution.</p>
               <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => setRestoreDrillPlan(null)}>Cancel</button><button type="button" className="primary-button" onClick={() => void stageRestoreDrill()} disabled={pending !== null || !restoreDrillPlan.output.executable}>{pending ? "Revalidating..." : "Stage for password approval"}</button></div>
+            </div>
+          </section>
+        </div>
+      )}
+      {recoveryBackup && (
+        <div className="vm-planner-backdrop" role="presentation">
+          <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-recovery-title">
+            <header className="vm-planner-header"><div><span className="eyebrow">Guarded VM recovery clone</span><h2 id="vm-recovery-title">Recover {recoveryBackup.domainName}</h2><p>Create a separate persistent VM from the exact protected snapshot. The source and repository remain unchanged.</p></div><button type="button" className="modal-close" aria-label="Close recovery plan" onClick={() => { setRecoveryBackup(null); setRecoveryPlan(null); }}>X</button></header>
+            <div className="vm-action-review">
+              {!recoveryPlan ? (
+                <form onSubmit={(event) => { event.preventDefault(); void planRecovery(); }}>
+                  <label className="vm-snapshot-name">New VM name<input value={recoveryName} onChange={(event) => setRecoveryName(event.target.value)} pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,62}" maxLength={63} required autoComplete="off" /><span>The name must be available. The new VM will not replace the source.</span></label>
+                  <div className="vm-plan-warnings"><strong>Safe initial state</strong><span>The clone will be stopped, persistent, autostart disabled, and have no network interface. Starting it later requires a separate password-approved action.</span></div>
+                  <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => setRecoveryBackup(null)}>Cancel</button><button type="submit" className="primary-button" disabled={pending !== null}>{pending ? "Inspecting..." : "Generate reviewed plan"}</button></div>
+                </form>
+              ) : (
+                <>
+                  <dl className="vm-plan-summary"><div><dt>New domain</dt><dd>{recoveryPlan.input.targetDomainName}</dd></div><div><dt>Restore size</dt><dd>{formatBytes(recoveryPlan.input.expectedSizeBytes)}</dd></div><div><dt>Guest resources</dt><dd>{recoveryPlan.output.vcpus} vCPU | {recoveryPlan.output.memoryMiB} MiB</dd></div><div><dt>Initial isolation</dt><dd>Stopped | no network | no autostart</dd></div></dl>
+                  {recoveryPlan.output.blockers.length > 0 && <div className="vm-plan-warnings"><strong>Blocked</strong>{recoveryPlan.output.blockers.map((blocker) => <span key={blocker}>{blocker}</span>)}</div>}
+                  <div className="vm-plan-gates"><strong>Exact changes</strong><ol>{recoveryPlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol></div>
+                  <div className="vm-plan-gates"><strong>Required verification</strong><ol>{recoveryPlan.output.verification.map((check) => <li key={check}>{check}</li>)}</ol></div>
+                  <div className="vm-plan-warnings"><strong>Warnings</strong>{recoveryPlan.output.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div>
+                  <div className="vm-plan-warnings"><strong>Recovery boundary</strong><span>{recoveryPlan.output.recovery}</span></div>
+                  <p className="vm-action-revision">Plan revision <code>{recoveryPlan.revision}</code>. Protected evidence, exact snapshot identity, capacity, target-name absence, and the no-network policy are checked again before execution.</p>
+                  <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => setRecoveryPlan(null)}>Back</button><button type="button" className="primary-button" onClick={() => void stageRecovery()} disabled={pending !== null || !recoveryPlan.output.executable}>{pending ? "Revalidating..." : "Stage for password approval"}</button></div>
+                </>
+              )}
             </div>
           </section>
         </div>

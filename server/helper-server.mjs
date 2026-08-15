@@ -2,15 +2,17 @@ import { chmod, mkdir, unlink } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import { executeHelperOperation } from "./helper-protocol.mjs";
+import { createVmRecoveryHelper } from "./vm-recovery-helper.mjs";
 import { createVmRestoreDrillHelper } from "./vm-restore-drill-helper.mjs";
 
 const socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock";
 const maxRequestBytes = 8192;
-const readOnlyOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.restore-drill.inspect"]);
+const readOnlyOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
 let operationQueue = Promise.resolve();
 const vmRestoreDrill = createVmRestoreDrillHelper();
+const vmRecovery = createVmRecoveryHelper({ restoreEngine: vmRestoreDrill });
 const recovery = await vmRestoreDrill.recoverOrphans();
-const helperDependencies = { vmRestoreDrill };
+const helperDependencies = { vmRestoreDrill, vmRecovery };
 if (recovery.stoppedDomains > 0 || recovery.removedNvramFiles > 0 || recovery.normalizedWorkspaces > 0) {
   console.log(`BoxPilot restore drill recovery stopped=${recovery.stoppedDomains} nvram=${recovery.removedNvramFiles} workspaces=${recovery.normalizedWorkspaces}`);
 }
@@ -40,6 +42,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       if (request.operation === "virtualization.domain.export.create") connection.setTimeout(6 * 60 * 60 * 1000);
       if (request.operation === "virtualization.export.backup.create") connection.setTimeout(12 * 60 * 60 * 1000);
       if (request.operation === "virtualization.export.backup.restore-drill") connection.setTimeout(12 * 60 * 60 * 1000);
+      if (request.operation === "virtualization.backup.recovery.create") connection.setTimeout(12 * 60 * 60 * 1000);
       const execution = readOnlyOperations.has(request.operation)
         ? executeHelperOperation(request, helperDependencies)
         : operationQueue.then(() => executeHelperOperation(request, helperDependencies));
@@ -68,7 +71,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
 
 server.listen(socketPath, async () => {
   await chmod(socketPath, 0o660);
-  console.log(`BoxPilot helper 0.10.0 listening on ${socketPath}`);
+  console.log(`BoxPilot helper 0.11.0 listening on ${socketPath}`);
 });
 
 async function shutdown() {

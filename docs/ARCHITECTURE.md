@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.14.0` adds immutable isolated restore-drill plans and approved background jobs for completed encrypted independent VM backups. The helper alone derives the exact restic snapshot, fixed temporary workspace, libvirt QEMU group, generated domain and UEFI state, repository, cache, password-file, and binary paths. It reverifies restored SHA-256 and qcow2 evidence, boots a transient guest with zero network interfaces, requires repeated guest-agent health, and verifies complete transient cleanup before Operations Core can promote that exact backup record to protected. The native web unit retains no direct libvirt or KVM group access and never receives repository secrets.
+Version `0.15.0` adds immutable recovery-clone plans and approved background jobs for protected VM backups. The helper alone derives the exact restic snapshot, fixed staging and recovery roots, libvirt QEMU group, domain definition, repository, cache, password-file, and binary paths. It reverifies restored SHA-256 and qcow2 evidence, defines a separately named persistent domain with zero network interfaces, disables autostart, and leaves it stopped. The native web unit retains no direct libvirt or KVM group access and never receives repository secrets or filesystem paths.
 
 ## Target components
 
@@ -26,6 +26,7 @@ BoxPilot web and API process (unprivileged)
           +---- Durable stopped-VM local export plans and approved background jobs (0.12.0)
           +---- Durable encrypted independent VM copy plans and approved background jobs (0.13.0)
           +---- Durable isolated no-network VM restore drills and protection evidence (0.14.0)
+          +---- Durable stopped no-network VM recovery clones from protected evidence (0.15.0)
           |
           +---- Redacted VM audit JSONL in systemd StateDirectory (0.3.0 foundation)
           |
@@ -43,6 +44,7 @@ Restricted helper over a local Unix socket (0.4.0 canary foundation)
           +---- fixed mounted-restic copy with full repository read verification (0.13.0)
           +---- fixed exact-snapshot restore, transient no-network boot, and cleanup verification (0.14.0)
           +---- exact interrupted-drill startup reconciliation with fail-closed identity checks (0.14.0)
+          +---- fixed recovery directory, persistent stopped definition, and exact rollback checks (0.15.0)
           +---- typed apt operations (future)
           +---- typed systemd operations
           +---- typed firewall operations
@@ -151,7 +153,7 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.14.0 limitations
+## Version 0.15.0 limitations
 
 - Dashboard values are demonstration data.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
@@ -159,10 +161,10 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Password owner bootstrap, sessions, CSRF, and approval reauthentication are live. WebAuthn, recovery codes, multiple owners, and trusted proxy identity are not implemented.
 - The web process has no direct libvirt or KVM group access. Read-only libvirt inventory and all shipped VM mutations use the restricted helper.
 - VM actions are limited to durable approved start, graceful shutdown, reboot request, and autostart jobs. Reboot verification does not yet prove guest application health.
-- Supported Linux VM creation, stopped-VM internal snapshots, local stopped-VM exports, mounted-restic VM copies, and isolated VM restore drills are durable approved helper jobs. Windows TPM/Secure Boot creation, cloud-init, console proxy, online snapshot, snapshot revert/delete, force-off, operator-directed restore execution, and application-level restore tests are unavailable.
+- Supported Linux VM creation, stopped-VM internal snapshots, local stopped-VM exports, mounted-restic VM copies, isolated VM restore drills, and guarded stopped no-network recovery clones are durable approved helper jobs. Windows TPM/Secure Boot creation, cloud-init, console proxy, online snapshot, snapshot revert/delete, force-off, in-place restore, recovered-VM network attachment, and application-level restore tests are unavailable.
 - Managed media discovery lists regular `.iso` files only and does not upload or download installation media.
 - Operations Core jobs and attribution use SQLite. The older VM JSONL planning log remains a separate bounded log. Tamper evidence remains pending.
-- Only fixed Uptime Kuma deployment and backup plus fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, and exact-snapshot isolated restore drills can execute mutations. Migration transfer, firewall, package, storage administration, general Docker, general libvirt, console proxy, snapshot revert/delete, retention mutation, operator-directed restore, and force-off operations remain unavailable.
+- Only fixed Uptime Kuma deployment and backup plus fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, and guarded recovery clones can execute mutations. Migration transfer, firewall, package, storage administration, general Docker, general libvirt, console proxy, snapshot revert/delete, retention mutation, in-place restore, recovery network attachment, and force-off operations remain unavailable.
 - A VM snapshot is never counted as an independent backup. The snapshot workflow rejects running guests, non-file disks, disks outside the managed image root, non-qcow2 disks, backing chains, symlinks, and changed inventory.
 - Uptime Kuma backup remains local to Bigbox. VM copies require an operator-provided independent mounted filesystem; no such destination is currently configured on Bigbox.
 - VM exports are root-only local integrity artifacts. They are unencrypted and are not reported as protected until a later independent copy and isolated restore boot pass.
