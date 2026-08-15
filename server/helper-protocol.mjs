@@ -1,7 +1,7 @@
 import { createApplicationHelper } from "./application-helper.mjs";
 
 export const helperProtocolVersion = 1;
-export const helperOperations = new Set(["canary.verify", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy"]);
+export const helperOperations = new Set(["canary.verify", "container.docker.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy"]);
 
 export function validateHelperRequest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "Request must be an object";
@@ -10,6 +10,7 @@ export function validateHelperRequest(value) {
   if (!helperOperations.has(value.operation)) return "Operation is not allowlisted";
   if (!value.parameters || typeof value.parameters !== "object" || Array.isArray(value.parameters)) return "Parameters must be an object";
   if (value.operation === "canary.verify" && Object.keys(value.parameters).length !== 0) return "Canary operation accepts no parameters";
+  if (value.operation === "container.docker.inspect" && Object.keys(value.parameters).length !== 0) return "Docker inspection accepts no parameters";
   if (value.operation === "application.uptime-kuma.inspect" && Object.keys(value.parameters).length !== 0) return "Inspect operation accepts no parameters";
   if (value.operation === "application.uptime-kuma.deploy") {
     if (Object.keys(value.parameters).length !== 1 || !Number.isInteger(value.parameters.hostPort) || value.parameters.hostPort < 1024 || value.parameters.hostPort > 65535) {
@@ -27,8 +28,11 @@ export async function executeHelperOperation(request, { applications = createApp
       version: helperProtocolVersion,
       id: request.id,
       ok: true,
-      result: { verified: true, helperVersion: "0.2.0", mutationPerformed: false },
+      result: { verified: true, helperVersion: "0.2.1", mutationPerformed: false },
     };
+  }
+  if (request.operation === "container.docker.inspect") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await applications.inspectDocker() };
   }
   if (request.operation === "application.uptime-kuma.inspect") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await applications.inspect() };

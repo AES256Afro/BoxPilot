@@ -18,10 +18,19 @@ describe("restricted helper protocol", () => {
   });
 
   it("accepts only the typed Uptime Kuma port parameter", () => {
+    expect(validateHelperRequest(request({ operation: "container.docker.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "container.docker.inspect", parameters: { socket: "/var/run/docker.sock" } }))).toContain("no parameters");
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.deploy", parameters: { hostPort: 3001 } }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.deploy", parameters: { hostPort: 53 } }))).toContain("hostPort");
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.deploy", parameters: { hostPort: 3001, image: "evil" } }))).toContain("only a hostPort");
+  });
+
+  it("returns only the Docker server availability and version", async () => {
+    const result = await executeHelperOperation(request({ operation: "container.docker.inspect", parameters: {} }), {
+      applications: { inspectDocker: async () => ({ available: true, version: "29.1.3" }) },
+    });
+    expect(result).toMatchObject({ ok: true, result: { available: true, version: "29.1.3" } });
   });
 
   it("rejects incompatible versions and malformed ids", () => {
