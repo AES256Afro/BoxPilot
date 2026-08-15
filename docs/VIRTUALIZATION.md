@@ -1,6 +1,6 @@
 # QEMU/KVM setup and operation
 
-BoxPilot `0.9.0` can inspect a local libvirt system connection, create supported Linux virtual machines through durable approved jobs, and manage a deliberately small set of virtual-machine lifecycle operations after owner authentication. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
+BoxPilot `0.9.1` can inspect a local libvirt system connection, create supported Linux virtual machines through durable approved jobs, and manage a deliberately small set of virtual-machine lifecycle operations after owner authentication. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
 
 ## What works now
 
@@ -208,6 +208,6 @@ Correct the specific failed requirement and refresh the page. Do not loosen the 
 
 ## Security boundary
 
-Membership in the `libvirt` group is powerful. In `0.9.0`, the native BoxPilot process still has that membership so it can inspect libvirt and issue the provisional small action allowlist. VM creation itself has moved to the root helper, but lifecycle mutations have not. A compromised web process would still have the operating-system permissions of the `boxpilot` service account. Keep the service loopback-only, keep Funnel off, protect the token, and do not treat this release as an internet-facing appliance.
+Membership in the `libvirt` group is powerful. In `0.9.1`, the native BoxPilot process still has that membership so it can inspect libvirt and issue the provisional small action allowlist. VM creation itself has moved to the root helper, but lifecycle mutations have not. A compromised web process would still have the operating-system permissions of the `boxpilot` service account. Keep the service loopback-only, keep Funnel off, protect the token, and do not treat this release as an internet-facing appliance.
 
 The Operations Core now proves typed Unix-socket requests and durable approvals with a no-mutation canary. VM creation, storage, bridges, snapshots, backup, migration, and console access remain locked until their operation-specific helper handlers, recovery checkpoints, path rules, and negative tests are complete.

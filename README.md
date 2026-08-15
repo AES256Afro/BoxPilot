@@ -4,11 +4,11 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.9.0` adds guarded QEMU/KVM creation. A validated VM plan is stored as an immutable SQLite revision, revalidated before staging and approval, and executed only after owner password reauthentication. The root helper derives a fixed `virt-install` argument array from typed fields, confines media to the managed ISO directory, verifies the resulting domain, disk, default network, and autostart state, and removes only the newly created exact-name domain and storage if post-create verification fails. Windows 11 creation remains locked until TPM 2.0 and Secure Boot checks exist.
+Version `0.9.1` includes guarded QEMU/KVM creation and restores live network inventory under the hardened native systemd unit by allowing read-only `AF_NETLINK` interface discovery. A validated VM plan is stored as an immutable SQLite revision, revalidated before staging and approval, and executed only after owner password reauthentication. The root helper derives a fixed `virt-install` argument array from typed fields, confines media to the managed ISO directory, verifies the resulting domain, disk, default network, and autostart state, and removes only the newly created exact-name domain and storage if post-create verification fails. Windows 11 creation remains locked until TPM 2.0 and Secure Boot checks exist.
 
 ### What works now
 
-| Area | Status in `0.9.0` | Capability |
+| Area | Status in `0.9.1` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
@@ -174,7 +174,7 @@ docker build -t boxpilot:local .
 
 ## Keel Notes roadmap adapter
 
-No Keel adapter ships in `0.9.0`. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
+No Keel adapter ships in `0.9.1`. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
 
 - Detect a Keel Docker or service installation
 - Inventory the database dialect and protected data paths without exposing secrets
