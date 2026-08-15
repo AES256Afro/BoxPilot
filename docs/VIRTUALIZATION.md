@@ -1,6 +1,6 @@
 # QEMU/KVM setup and operation
 
-BoxPilot `0.11.0` can inspect a local libvirt system connection through its restricted helper, create supported Linux virtual machines through durable approved jobs, manage a deliberately small set of lifecycle operations, report QEMU guest-agent and snapshot state, and create guarded offline internal snapshots. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
+BoxPilot `0.12.0` can inspect a local libvirt system connection through its restricted helper, create supported Linux virtual machines through durable approved jobs, manage a deliberately small set of lifecycle operations, report QEMU guest-agent and snapshot state, create guarded offline internal snapshots, and produce integrity-verified local exports for stopped managed VMs. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
 
 ## What works now
 
@@ -170,7 +170,21 @@ The helper rechecks the exact domain UUID, stopped state, snapshot inventory, na
 
 This is a storage checkpoint on the same VM disk, not a backup. BoxPilot does not report the VM as protected and does not offer revert or delete. If snapshot verification fails, leave the VM stopped and inspect its metadata and disk chain before any manual change.
 
-## 7. Choose VM networking deliberately
+## 7. Export a stopped VM to a verified local artifact
+
+1. Keep the domain stopped.
+2. In **Virtual Machines**, select **Plan export**.
+3. Review allocated size, required capacity, free destination space, exact file changes, integrity checks, and the protection warnings.
+4. Stage the immutable plan and move to **Repair Center**.
+5. Re-enter the owner password. The approval request returns after the background job starts.
+6. Leave the VM stopped until the job completes or fails. Repair Center refreshes active jobs automatically.
+7. On completion, inspect **VM integrity exports**. The record must say **Not encrypted**, **Not protected**, and **Restore drill not run**.
+
+The helper derives every source disk from libvirt and writes only beneath `/var/lib/boxpilot-managed/vm-exports`. It rejects running or transient domains, non-file storage, paths outside the managed image root, symlinks, empty disks, non-qcow2 formats, backing chains, stale domain UUIDs, changed disk or snapshot revisions, and insufficient destination capacity. Existing internal snapshot history is flattened into the exported current disk state.
+
+This is not yet disaster recovery. A second independent encrypted destination and an isolated restore boot are required before BoxPilot can report VM protection.
+
+## 8. Choose VM networking deliberately
 
 Start with libvirt's default NAT network. Guests receive an address such as `192.168.122.x`, can reach the internet, and remain separated from the main `192.168.8.x` LAN.
 
@@ -182,7 +196,7 @@ To reach a guest application remotely, use one of these approaches:
 
 A bridge can interrupt the server's only network connection. BoxPilot will not automate bridging until it can create a connectivity checkpoint, display console recovery commands, and verify the new route. Do not bridge Wi-Fi interfaces as if they were ordinary Ethernet ports.
 
-## 8. Troubleshoot safely
+## 9. Troubleshoot safely
 
 ### The system connection fails
 
@@ -215,8 +229,8 @@ sudo journalctl -u boxpilot-helper -u boxpilot -n 100 --no-pager
 
 Correct the specific failed requirement and refresh the page. Do not loosen the libvirt socket to world-writable permissions.
 
-## Security boundary
+## 10. Security boundary
 
-Membership in the `libvirt` group is powerful. In `0.11.0`, the native web service has no `libvirt` or `kvm` supplementary groups. Read-only libvirt inventory and all shipped VM mutations cross the typed helper socket. The helper still runs as root, so its exact schema, fixed binaries, fixed URI, path roots, systemd confinement, and private exposure remain security-critical. Keep the service loopback-only, keep Funnel off, and do not treat this release as an internet-facing appliance.
+Membership in the `libvirt` group is powerful. In `0.12.0`, the native web service has no `libvirt` or `kvm` supplementary groups. Read-only libvirt inventory and all shipped VM mutations cross the typed helper socket. The helper still runs as root, so its exact schema, fixed binaries, fixed URI, path roots, systemd confinement, and private exposure remain security-critical. Keep the service loopback-only, keep Funnel off, and do not treat this release as an internet-facing appliance.
 
-Operations Core records typed Unix-socket requests and durable approvals. VM creation, lifecycle actions, and offline snapshot creation have operation-specific helper handlers. Storage administration, bridges, online snapshots, snapshot revert/delete, VM backup, migration transfer, console proxy, and delete remain locked until their recovery checkpoints, path rules, and negative tests are complete.
+Operations Core records typed Unix-socket requests and durable approvals. VM creation, lifecycle actions, offline snapshots, and stopped-VM exports have operation-specific helper handlers. Storage administration, bridges, online snapshots, snapshot revert/delete, encrypted independent VM backup, restore execution, migration transfer, console proxy, and delete remain locked until their recovery checkpoints, path rules, and negative tests are complete.

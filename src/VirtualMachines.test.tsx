@@ -60,12 +60,17 @@ describe("Virtual Machines", () => {
       input: { name: "snapshot-lab", snapshotName: "checkpoint-2026-08-15", expectedUuid: "11111111-1111-4111-8111-111111111111", expectedState: "stopped", expectedDiskRevision: "b".repeat(64), expectedSnapshotRevision: "a".repeat(64) },
       output: { executable: true, consistency: "offline-consistent", independentBackup: false, currentSnapshotCount: 0, diskTargets: ["vda"], changes: ["Create one internal snapshot"], warnings: ["A snapshot is not an independent backup."], recovery: "Leave the VM stopped and inspect it." },
     };
+    const exportPlan = {
+      id: "export-plan-1", revision: "export-revision-1", status: "draft", expiresAt: "2026-08-15T21:00:00Z",
+      input: { name: "snapshot-lab", exportId: "22222222-2222-4222-8222-222222222222", expectedUuid: "11111111-1111-4111-8111-111111111111", expectedState: "stopped", expectedDiskRevision: "b".repeat(64), expectedSnapshotRevision: "a".repeat(64) },
+      output: { executable: true, destination: "local-managed", diskTargets: ["vda"], sourceAllocatedBytes: 4096, requiredBytes: 1073746740, destinationFreeBytes: 10737418240, blockers: [], changes: ["Write a root-only export"], verification: ["Per-disk content comparison"], protected: false, encrypted: false, restoreDrill: { passed: false, reason: "not run" }, warnings: ["This local export is not a protected backup."], recovery: "Remove only the new export directory." },
+    };
     const onOpenRepair = vi.fn();
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       const body = init?.method === "POST"
-        ? url.endsWith("/stage") ? { job: { id: "job-1", state: "awaiting_approval", title: "Reviewed VM job" } } : { plan: url.endsWith("/snapshot-plans") ? snapshotPlan : actionPlan }
-        : url.endsWith("/status") ? status : url.endsWith("/resources") ? resources : url.endsWith("/console-guidance") ? consoleGuidance : domains;
+        ? url.endsWith("/stage") ? { job: { id: "job-1", state: "awaiting_approval", title: "Reviewed VM job" } } : { plan: url.endsWith("/snapshot-plans") ? snapshotPlan : url.endsWith("/export-plans") ? exportPlan : actionPlan }
+        : url.endsWith("/status") ? status : url.endsWith("/resources") ? resources : url.endsWith("/console-guidance") ? consoleGuidance : url.endsWith("/exports") ? { exports: [] } : domains;
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -93,5 +98,11 @@ describe("Virtual Machines", () => {
     expect(screen.getByText("A snapshot is not an independent backup.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stage for password approval" }));
     await vi.waitFor(() => expect(onOpenRepair).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole("button", { name: "Plan export" }));
+    expect(await screen.findByText("Verified local VM export")).toBeTruthy();
+    expect(screen.getByText("This local export is not a protected backup.")).toBeTruthy();
+    expect(screen.getByText("Per-disk content comparison")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage for password approval" }));
+    await vi.waitFor(() => expect(onOpenRepair).toHaveBeenCalledTimes(3));
   });
 });

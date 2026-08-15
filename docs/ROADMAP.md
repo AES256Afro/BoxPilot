@@ -81,7 +81,7 @@ Acceptance:
 
 ## Phase 4: restricted privileged helper
 
-Status: the root-owned service, Unix-socket boundary, versioned allowlist, hardened unit, negative protocol tests, and no-mutation canary are included in `0.4.0`. Version `0.5.0` adds fixed Uptime Kuma inspect and deploy operations. Version `0.6.0` adds the fixed Uptime Kuma backup and isolated restore handler. Version `0.9.0` adds fixed Linux VM creation with managed-media confinement, post-create verification, and exact-domain rollback. Version `0.10.0` adds durable approved start, graceful shutdown, reboot request, and autostart handlers. Version `0.11.0` moves read-only libvirt inventory across the helper, removes direct web-service virtualization groups, and adds stopped-VM internal snapshots with managed qcow2 confinement. Package, service, firewall, storage-pool administration, host reboot, general Docker, general libvirt, and general backup handlers remain locked.
+Status: the root-owned service, Unix-socket boundary, versioned allowlist, hardened unit, negative protocol tests, and no-mutation canary are included in `0.4.0`. Version `0.5.0` adds fixed Uptime Kuma inspect and deploy operations. Version `0.6.0` adds the fixed Uptime Kuma backup and isolated restore handler. Version `0.9.0` adds fixed Linux VM creation with managed-media confinement, post-create verification, and exact-domain rollback. Version `0.10.0` adds durable approved start, graceful shutdown, reboot request, and autostart handlers. Version `0.11.0` moves read-only libvirt inventory across the helper, removes direct web-service virtualization groups, and adds stopped-VM internal snapshots with managed qcow2 confinement. Version `0.12.0` adds stopped-VM local exports with fixed server-owned paths, standalone qcow2 conversion, integrity evidence, and confined cleanup. Package, service, firewall, storage-pool administration, host reboot, general Docker, general libvirt, and general backup handlers remain locked.
 
 - Root-owned Unix socket
 - Versioned typed-operation protocol
@@ -140,7 +140,8 @@ Acceptance:
 - Durable approved Linux VM creation through the restricted helper included in `0.9.0`
 - Helper-backed guest-agent and snapshot inventory plus guarded offline internal snapshot creation included in `0.11.0`
 - Read-only Cockpit socket detection and Tailscale-hostname console handoff included in `0.11.0`; BoxPilot does not install or expose Cockpit
-- Console proxy, online snapshot, snapshot revert/delete, export, restore, Windows TPM/Secure Boot, and cloud-init remain pending
+- Guarded stopped-VM local export with content verification and explicit unprotected status included in `0.12.0`
+- Console proxy, online snapshot, snapshot revert/delete, encrypted independent backup, isolated restore, restore execution, Windows TPM/Secure Boot, and cloud-init remain pending
 - Storage pool management with destructive-operation confirmation
 - Cloud-init templates and bridged-network planning
 - UPS state, shutdown policy, and disk replacement runbooks

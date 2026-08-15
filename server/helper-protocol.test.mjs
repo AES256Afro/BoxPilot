@@ -18,6 +18,10 @@ function snapshotParameters(overrides = {}) {
   return { name: "ubuntu-lab", snapshotName: "pre-upgrade", expectedUuid: "11111111-1111-4111-8111-111111111111", expectedState: "stopped", expectedDiskRevision: "b".repeat(64), expectedSnapshotRevision: "a".repeat(64), ...overrides };
 }
 
+function exportParameters(overrides = {}) {
+  return { name: "ubuntu-lab", exportId: "22222222-2222-4222-8222-222222222222", expectedUuid: "11111111-1111-4111-8111-111111111111", expectedState: "stopped", expectedDiskRevision: "b".repeat(64), expectedSnapshotRevision: "a".repeat(64), ...overrides };
+}
+
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
@@ -108,5 +112,18 @@ describe("restricted helper protocol", () => {
     const virtualization = { createSnapshot: async (parameters) => ({ created: true, verified: true, domain: parameters.name, snapshotName: parameters.snapshotName }) };
     const result = await executeHelperOperation(request({ operation: "virtualization.domain.snapshot.create", parameters: snapshotParameters() }), { virtualization });
     expect(result).toMatchObject({ ok: true, result: { created: true, verified: true, snapshotName: "pre-upgrade" } });
+  });
+
+  it("accepts only exact stopped-VM export fields and keeps destination paths server-owned", async () => {
+    expect(validateHelperRequest(request({ operation: "virtualization.domain.export.inspect", parameters: { name: "ubuntu-lab" } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.domain.export.inspect", parameters: { name: "../../etc" } }))).toContain("exact domain name");
+    expect(validateHelperRequest(request({ operation: "virtualization.domain.export.create", parameters: exportParameters() }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.domain.export.create", parameters: exportParameters({ path: "/tmp/evil" }) }))).toContain("only the fixed typed plan fields");
+    const virtualization = {
+      inspectExport: async ({ name }) => ({ domain: name, state: "stopped" }),
+      createExport: async (parameters) => ({ created: true, contentVerified: true, domain: parameters.name, exportId: parameters.exportId, protected: false }),
+    };
+    await expect(executeHelperOperation(request({ operation: "virtualization.domain.export.inspect", parameters: { name: "ubuntu-lab" } }), { virtualization })).resolves.toMatchObject({ ok: true, result: { state: "stopped" } });
+    await expect(executeHelperOperation(request({ operation: "virtualization.domain.export.create", parameters: exportParameters() }), { virtualization })).resolves.toMatchObject({ ok: true, result: { contentVerified: true, protected: false } });
   });
 });

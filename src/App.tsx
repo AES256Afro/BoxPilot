@@ -72,7 +72,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   virtualization: {
     label: "Host-backed module",
     tone: "live",
-    description: "Helper-backed libvirt inventory, guest-agent status, immutable VM plans, lifecycle approvals, and stopped-VM snapshot creation come from the server. Windows, console proxy, snapshot revert/delete, and VM backup remain locked.",
+    description: "Helper-backed libvirt inventory, guest-agent status, immutable VM plans, lifecycle approvals, stopped-VM snapshots, and integrity-verified local exports come from the server. Exports remain unprotected until encryption, an independent destination, and an isolated restore boot pass.",
   },
   backups: {
     label: "Application-aware backup engine",
@@ -242,7 +242,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.11.0",
+      version: "0.12.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
@@ -284,7 +284,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.11.0 guarded offline snapshots<br />Live surfaces are labeled</div>
+        <div className="prototype-label">v0.12.0 verified local VM exports<br />Unprotected copies are labeled</div>
       </aside>
 
       <main>
