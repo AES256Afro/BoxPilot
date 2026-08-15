@@ -79,6 +79,24 @@ describe("BoxPilot state store", () => {
     store.close();
   });
 
+  it("persists immutable expiring plan revisions and stages them once", async () => {
+    const store = await testStore();
+    const bootstrap = store.createBootstrapToken();
+    const owner = store.consumeBootstrapToken(bootstrap.token, { username: "operator", passwordHash: "hash" });
+    const plan = store.createPlan({
+      type: "application.deploy",
+      subjectId: "uptime-kuma",
+      input: { hostPort: 3001 },
+      output: { blockers: [] },
+      createdBy: owner.id,
+    });
+
+    expect(store.getPlan(plan.id)).toMatchObject({ revision: plan.revision, status: "draft", expired: false });
+    expect(store.stagePlan(plan.id, owner.id).status).toBe("staged");
+    expect(() => store.stagePlan(plan.id, owner.id)).toThrow("already been staged");
+    store.close();
+  });
+
   it("fails interrupted jobs without automatically retrying them", async () => {
     const store = await testStore();
     const bootstrap = store.createBootstrapToken();

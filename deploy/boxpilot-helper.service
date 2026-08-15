@@ -10,8 +10,12 @@ Group=boxpilot
 WorkingDirectory=/opt/boxpilot
 Environment=NODE_ENV=production
 Environment=BOXPILOT_HELPER_SOCKET=/run/boxpilot/helper.sock
+Environment=BOXPILOT_APP_ROOT=/var/lib/boxpilot-managed/apps
+Environment=BOXPILOT_DOCKER_BINARY=/usr/bin/docker
 RuntimeDirectory=boxpilot
 RuntimeDirectoryMode=0750
+StateDirectory=boxpilot-managed
+StateDirectoryMode=0750
 ExecStart=/usr/local/bin/node /opt/boxpilot/server/helper-server.mjs
 Restart=on-failure
 RestartSec=5s
