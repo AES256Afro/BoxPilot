@@ -60,6 +60,12 @@ export default function RepairCenter({ csrfToken }: { csrfToken: string }) {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
+  useEffect(() => {
+    if (!jobs.some((job) => ["applying", "verifying"].includes(job.state))) return undefined;
+    const interval = window.setInterval(() => { void refresh(); }, 3000);
+    return () => window.clearInterval(interval);
+  }, [jobs, refresh]);
+
   const awaitingApproval = useMemo(() => jobs.find((job) => job.state === "awaiting_approval"), [jobs]);
 
   const createCanary = async () => {
@@ -128,7 +134,7 @@ export default function RepairCenter({ csrfToken }: { csrfToken: string }) {
               <strong>Approval required</strong>
               <span>Re-enter your owner password. It is verified in memory and never stored in the job.</span>
               <input aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
-              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? "Running..." : "Approve and run"}</button>
+              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? (awaitingApproval.type === "virtualization.domain.export.create" ? "Starting..." : "Running...") : "Approve and run"}</button>
             </div>
           )}
         </aside>

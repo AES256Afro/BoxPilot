@@ -20,6 +20,7 @@ Environment=BOXPILOT_QEMU_IMG_BINARY=/usr/bin/qemu-img
 Environment=BOXPILOT_TAILSCALE_BINARY=/usr/bin/tailscale
 Environment=BOXPILOT_SYSTEMCTL_BINARY=/usr/bin/systemctl
 Environment=BOXPILOT_VM_IMAGE_ROOT=/var/lib/libvirt/images
+Environment=BOXPILOT_VM_EXPORT_ROOT=/var/lib/boxpilot-managed/vm-exports
 Environment=BOXPILOT_ISO_DIRECTORY=/var/lib/libvirt/boot
 Environment=BOXPILOT_LIBVIRT_URI=qemu:///system
 RuntimeDirectory=boxpilot
@@ -29,7 +30,7 @@ StateDirectoryMode=0700
 ExecStart=/usr/local/bin/node /opt/boxpilot/server/helper-server.mjs
 Restart=on-failure
 RestartSec=5s
-UMask=0007
+UMask=0077
 
 NoNewPrivileges=true
 PrivateDevices=true

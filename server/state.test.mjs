@@ -118,6 +118,29 @@ describe("BoxPilot state store", () => {
     store.close();
   });
 
+  it("records a verified local VM export without promoting it to a protected backup", async () => {
+    const store = await testStore();
+    const bootstrap = store.createBootstrapToken();
+    const owner = store.consumeBootstrapToken(bootstrap.token, { username: "operator", passwordHash: "hash" });
+    const artifact = store.recordVmExport({
+      id: "11111111-1111-4111-8111-111111111111",
+      domainName: "ubuntu-lab",
+      domainUuid: "22222222-2222-4222-8222-222222222222",
+      destination: "local-managed",
+      artifactPath: "/var/lib/boxpilot-managed/vm-exports/11111111-1111-4111-8111-111111111111",
+      manifestChecksumSha256: "a".repeat(64),
+      sizeBytes: 8192,
+      protected: false,
+      encrypted: false,
+      restoreDrill: { passed: false, reason: "not run" },
+      createdBy: owner.id,
+    });
+
+    expect(artifact).toMatchObject({ domainName: "ubuntu-lab", protected: false, encrypted: false, restoreDrill: { passed: false } });
+    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "vm.export.recorded", subjectId: artifact.id })]));
+    store.close();
+  });
+
   it("stores immutable sanitized migration source manifests by fingerprint", async () => {
     const store = await testStore();
     const bootstrap = store.createBootstrapToken();

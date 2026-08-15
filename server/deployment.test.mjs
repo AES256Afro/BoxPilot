@@ -12,6 +12,8 @@ describe("native systemd network boundaries", () => {
     expect(webUnit).not.toContain("SupplementaryGroups=kvm");
     expect(helperUnit).toContain("RestrictAddressFamilies=AF_UNIX\n");
     expect(helperUnit).not.toContain("AF_NETLINK");
+    expect(helperUnit).toContain("Environment=BOXPILOT_VM_EXPORT_ROOT=/var/lib/boxpilot-managed/vm-exports");
+    expect(helperUnit).toContain("UMask=0077");
     expect(serverEntry).toContain("createHelperLibvirtService");
     expect(serverEntry).not.toContain("createLibvirtService");
     expect(prerequisites).not.toContain('runCommand("virsh"');

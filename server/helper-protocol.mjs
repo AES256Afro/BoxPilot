@@ -1,14 +1,17 @@
 import { createApplicationHelper } from "./application-helper.mjs";
 import { createVmHelper } from "./vm-helper.mjs";
+import { validateDomainName } from "./libvirt.mjs";
+import { validateVmExportInput } from "./vm-export.mjs";
 import { validateVmPlanInput } from "./vm-plan.mjs";
 import { validateVmLifecycleInput } from "./vm-lifecycle.mjs";
 import { validateVmSnapshotInput } from "./vm-snapshot.mjs";
 
 export const helperProtocolVersion = 1;
-export const helperOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
+export const helperOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
 const vmCreationKeys = ["autostart", "diskGiB", "firmware", "isoFile", "memoryMiB", "name", "network", "osProfile", "vcpus"];
 const vmLifecycleKeys = ["action", "expectedAutostart", "expectedState", "name"];
 const vmSnapshotKeys = ["expectedDiskRevision", "expectedSnapshotRevision", "expectedState", "expectedUuid", "name", "snapshotName"];
+const vmExportKeys = ["expectedDiskRevision", "expectedSnapshotRevision", "expectedState", "expectedUuid", "exportId", "name"];
 
 export function validateHelperRequest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "Request must be an object";
@@ -51,6 +54,16 @@ export function validateHelperRequest(value) {
     }
   }
   if (value.operation === "virtualization.console.inspect" && Object.keys(value.parameters).length !== 0) return "Virtualization console inspection accepts no parameters";
+  if (value.operation === "virtualization.domain.export.inspect") {
+    const keys = Object.keys(value.parameters);
+    if (keys.length !== 1 || keys[0] !== "name" || !validateDomainName(value.parameters.name)) return "VM export inspection accepts only an exact domain name";
+  }
+  if (value.operation === "virtualization.domain.export.create") {
+    const keys = Object.keys(value.parameters).sort();
+    if (keys.length !== vmExportKeys.length || keys.some((key, index) => key !== vmExportKeys[index])) return "VM export creation accepts only the fixed typed plan fields";
+    const errors = validateVmExportInput(value.parameters);
+    if (errors.length) return `Invalid VM export plan: ${errors.join(" | ")}`;
+  }
   if (value.operation === "virtualization.domain.action") {
     const keys = Object.keys(value.parameters).sort();
     if (keys.length !== vmLifecycleKeys.length || keys.some((key, index) => key !== vmLifecycleKeys[index])) return "VM lifecycle accepts only the fixed typed plan fields";
@@ -74,7 +87,7 @@ export async function executeHelperOperation(request, { applications = createApp
       version: helperProtocolVersion,
       id: request.id,
       ok: true,
-      result: { verified: true, helperVersion: "0.7.0", mutationPerformed: false },
+      result: { verified: true, helperVersion: "0.8.0", mutationPerformed: false },
     };
   }
   if (request.operation === "container.docker.inspect") {
@@ -100,6 +113,12 @@ export async function executeHelperOperation(request, { applications = createApp
   }
   if (request.operation === "virtualization.console.inspect") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await virtualization.consoleGuidance() };
+  }
+  if (request.operation === "virtualization.domain.export.inspect") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await virtualization.inspectExport(request.parameters) };
+  }
+  if (request.operation === "virtualization.domain.export.create") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await virtualization.createExport(request.parameters) };
   }
   if (request.operation === "virtualization.domain.create") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await virtualization.create(request.parameters) };

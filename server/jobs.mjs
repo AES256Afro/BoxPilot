@@ -4,9 +4,11 @@ export function createJobService(store, helper, {
   validateApplicationJob = async () => {},
   validateBackupJob = async () => {},
   validateVmCreationJob = async () => {},
+  validateVmExportJob = async () => {},
   validateVmLifecycleJob = async () => {},
   validateVmSnapshotJob = async () => {},
   recordBackupResult = () => {},
+  recordVmExportResult = () => {},
 } = {}) {
   function createCanary(ownerId) {
     return store.createJob({
@@ -23,18 +25,21 @@ export function createJobService(store, helper, {
     });
   }
 
-  async function approveAndRun(jobId, ownerId, password) {
+  async function prepareApproval(jobId, ownerId, password) {
     const owner = store.findOwnerById(ownerId);
     if (!owner || !(await verifyPassword(password, owner.passwordHash))) throw new Error("Approval reauthentication failed");
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
-    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (job.createdBy !== ownerId) throw new Error("Job not found");
+    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     if (job.type === "application.uptime-kuma.deploy") await validateApplicationJob(job);
     if (job.type === "application.uptime-kuma.backup") await validateBackupJob(job);
     const validatedVmPlan = job.type === "virtualization.domain.create" ? await validateVmCreationJob(job) : null;
+    const validatedVmExportPlan = job.type === "virtualization.domain.export.create" ? await validateVmExportJob(job) : null;
     const validatedVmLifecyclePlan = job.type === "virtualization.domain.action" ? await validateVmLifecycleJob(job) : null;
     const validatedVmSnapshotPlan = job.type === "virtualization.domain.snapshot.create" ? await validateVmSnapshotJob(job) : null;
     if (job.type === "virtualization.domain.create" && !validatedVmPlan?.input) throw new Error("The staged VM creation plan is unavailable or changed");
+    if (job.type === "virtualization.domain.export.create" && !validatedVmExportPlan?.input) throw new Error("The staged VM export plan is unavailable or changed");
     if (job.type === "virtualization.domain.action" && !validatedVmLifecyclePlan?.input) throw new Error("The staged VM lifecycle plan is unavailable or changed");
     if (job.type === "virtualization.domain.snapshot.create" && !validatedVmSnapshotPlan?.input) throw new Error("The staged VM snapshot plan is unavailable or changed");
     const execution = job.type === "helper.canary.verify" ? {
@@ -69,6 +74,15 @@ export function createJobService(store, helper, {
       verified: "Domain identity, allocated disk, default network, and requested autostart state were verified",
       failed: "VM creation or its post-create verification did not complete successfully",
       validate: (result) => result?.created && result?.verified && result?.domain === validatedVmPlan.input.name && result?.media === validatedVmPlan.input.isoFile,
+    } : job.type === "virtualization.domain.export.create" ? {
+      operation: "virtualization.domain.export.create",
+      parameters: validatedVmExportPlan.input,
+      timeoutMs: 6 * 60 * 60 * 1000,
+      applying: "Exporting the reviewed stopped VM into a new local, root-only artifact through the restricted helper",
+      applied: "Restricted helper flattened the current VM state into standalone qcow2 disks and collected SHA-256 integrity metadata",
+      verified: "Exported disks passed qemu-img structural checks and source-to-export content comparison; this local unencrypted copy is not yet a protected backup",
+      failed: "VM export or content verification did not complete successfully; the source VM remains unchanged",
+      validate: (result) => result?.created && result?.contentVerified && result?.domain === validatedVmExportPlan.input.name && result?.exportId === validatedVmExportPlan.input.exportId && result?.protected === false && result?.encrypted === false && result?.restoreDrill?.passed === false,
     } : job.type === "virtualization.domain.action" ? {
       operation: "virtualization.domain.action",
       parameters: validatedVmLifecyclePlan.input,
@@ -91,15 +105,23 @@ export function createJobService(store, helper, {
     store.transitionJob(jobId, "awaiting_approval", "applying");
     store.addJobStep(jobId, "approval", "completed", `Approved by ${owner.username}`);
     store.addJobStep(jobId, "apply", "running", execution.applying);
+    return { job, owner, execution };
+  }
+
+  async function executePrepared({ job, owner, execution }) {
+    const jobId = job.id;
     try {
-      const result = await helper.request(execution.operation, execution.parameters);
+      const result = execution.timeoutMs
+        ? await helper.request(execution.operation, execution.parameters, { timeoutMs: execution.timeoutMs })
+        : await helper.request(execution.operation, execution.parameters);
       store.transitionJob(jobId, "applying", "verifying", { result });
       store.addJobStep(jobId, "apply", "completed", execution.applied);
       if (!execution.validate(result)) throw new Error("Helper returned an invalid operation result");
       if (job.type === "application.uptime-kuma.backup") recordBackupResult(job, result);
+      if (job.type === "virtualization.domain.export.create") recordVmExportResult(job, result);
       store.addJobStep(jobId, "verify", "completed", execution.verified);
       const completed = store.transitionJob(jobId, "verifying", "completed", { result });
-      store.recordAudit("job.completed", { actorId: ownerId, subjectId: jobId, details: { type: job.type } });
+      store.recordAudit("job.completed", { actorId: owner.id, subjectId: jobId, details: { type: job.type } });
       return completed;
     } catch (error) {
       const current = store.getJob(jobId);
@@ -111,12 +133,25 @@ export function createJobService(store, helper, {
         if (job.type === "virtualization.domain.create" && error.message.includes("Automated rollback completed")) {
           store.addJobStep(jobId, "rollback", "completed", "The newly created exact-name domain and its allocated storage were removed");
         }
+        if (job.type === "virtualization.domain.export.create" && error.message.includes("Automated export cleanup completed")) {
+          store.addJobStep(jobId, "rollback", "completed", "The incomplete new export directory was removed; the source domain and disks were not changed");
+        }
         store.transitionJob(jobId, current.state, "failed", { error: error.message });
       }
-      store.recordAudit("job.failed", { actorId: ownerId, subjectId: jobId, details: { type: job.type } });
+      store.recordAudit("job.failed", { actorId: owner.id, subjectId: jobId, details: { type: job.type } });
       throw error;
     }
   }
 
-  return { createCanary, approveAndRun };
+  async function approveAndRun(jobId, ownerId, password) {
+    return executePrepared(await prepareApproval(jobId, ownerId, password));
+  }
+
+  async function approveAndStart(jobId, ownerId, password) {
+    const prepared = await prepareApproval(jobId, ownerId, password);
+    void executePrepared(prepared).catch(() => {});
+    return store.getJob(jobId);
+  }
+
+  return { createCanary, approveAndRun, approveAndStart };
 }

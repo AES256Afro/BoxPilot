@@ -1,10 +1,13 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { lstat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { chmod, lstat, mkdir, rename, rm, statfs, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { createLibvirtService } from "./libvirt.mjs";
 import { buildVirtInstallArguments, normalizeVmPlanInput, validateVmPlanInput } from "./vm-plan.mjs";
 import { vmLifecycleActions } from "./vm-lifecycle.mjs";
+import { validateVmExportInput } from "./vm-export.mjs";
 import { snapshotDiskRevision, snapshotInventoryRevision, validateVmSnapshotInput } from "./vm-snapshot.mjs";
 
 const execFile = promisify(execFileCallback);
@@ -33,12 +36,20 @@ export function createVmHelper({
   tailscaleBinary = process.env.BOXPILOT_TAILSCALE_BINARY ?? "/usr/bin/tailscale",
   systemctlBinary = process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl",
   imageRoot = process.env.BOXPILOT_VM_IMAGE_ROOT ?? "/var/lib/libvirt/images",
+  exportRoot = process.env.BOXPILOT_VM_EXPORT_ROOT ?? "/var/lib/boxpilot-managed/vm-exports",
   statFile = lstat,
   run = defaultRunner,
   wait = delay,
 } = {}) {
   const resolvedMediaRoot = path.resolve(mediaRoot);
   const resolvedImageRoot = path.resolve(imageRoot);
+  const resolvedExportRoot = path.resolve(exportRoot);
+
+  async function sha256(filePath) {
+    const digest = createHash("sha256");
+    for await (const chunk of createReadStream(filePath)) digest.update(chunk);
+    return digest.digest("hex");
+  }
 
   async function readOnlyCommand(command, args, options = {}) {
     const binary = command === "virsh" ? virshBinary
@@ -92,7 +103,13 @@ export function createVmHelper({
     const autostartMatch = infoResult.stdout.match(/^Autostart:\s+(enable|disable|yes|no)/mi);
     if (!["running", "stopped"].includes(state) || !autostartMatch) throw new Error("Unable to verify the current VM lifecycle state");
     const uuidMatch = infoResult.stdout.match(/^UUID:\s+([a-f0-9-]+)$/mi);
-    return { state, autostart: ["enable", "yes"].includes(autostartMatch[1].toLowerCase()), uuid: uuidMatch?.[1]?.toLowerCase() ?? null };
+    const persistentMatch = infoResult.stdout.match(/^Persistent:\s+(yes|no)$/mi);
+    return {
+      state,
+      autostart: ["enable", "yes"].includes(autostartMatch[1].toLowerCase()),
+      uuid: uuidMatch?.[1]?.toLowerCase() ?? null,
+      persistent: persistentMatch ? persistentMatch[1].toLowerCase() === "yes" : null,
+    };
   }
 
   async function snapshotNames(name) {
@@ -113,6 +130,9 @@ export function createVmHelper({
     const blockResult = await virsh(["domblklist", name, "--details"], { timeout: 15000 });
     const disks = parseDiskSources(blockResult.stdout);
     if (!disks.length || disks.some((disk) => disk.type !== "file")) throw new Error("Every writable VM disk must be file-backed");
+    if (disks.some((disk) => !/^[A-Za-z0-9._-]{1,64}$/.test(disk.target)) || new Set(disks.map((disk) => disk.target)).size !== disks.length) {
+      throw new Error("VM disk targets must be unique constrained device names");
+    }
     for (const disk of disks) {
       const diskPath = path.resolve(disk.source);
       if (diskPath === resolvedImageRoot || !diskPath.startsWith(`${resolvedImageRoot}${path.sep}`)) throw new Error("VM disk escaped the managed default image directory");
@@ -122,8 +142,14 @@ export function createVmHelper({
       const info = JSON.parse(infoResult.stdout);
       if (info.format !== "qcow2") throw new Error("Offline internal snapshots require qcow2 disks");
       if (info["backing-filename"] || info["full-backing-filename"]) throw new Error("VM disks with a backing chain are not supported by this snapshot workflow");
+      const actualSizeBytes = Number(info["actual-size"] ?? metadata.size);
+      const virtualSizeBytes = Number(info["virtual-size"] ?? metadata.size);
+      if (!Number.isSafeInteger(actualSizeBytes) || actualSizeBytes < 0 || !Number.isSafeInteger(virtualSizeBytes) || virtualSizeBytes <= 0) throw new Error("VM disk size metadata is invalid");
+      disk.sizeBytes = metadata.size;
+      disk.actualSizeBytes = actualSizeBytes;
+      disk.virtualSizeBytes = virtualSizeBytes;
     }
-    return { targets: disks.map((disk) => disk.target), revision: snapshotDiskRevision(disks) };
+    return { disks, targets: disks.map((disk) => disk.target), revision: snapshotDiskRevision(disks) };
   }
 
   async function waitForState(name, desiredState, attempts) {
@@ -230,6 +256,99 @@ export function createVmHelper({
     };
   }
 
+  async function inspectExport({ name }) {
+    const domain = await domainSnapshot(name);
+    if (!domain.uuid || domain.state !== "stopped" || domain.persistent !== true) throw new Error("Offline export requires an exact stopped persistent domain");
+    const snapshots = await snapshotNames(name);
+    const disks = await verifySnapshotDisks(name);
+    const filesystem = await statfs(path.dirname(resolvedExportRoot));
+    const destinationFreeBytes = Number(filesystem.bavail) * Number(filesystem.bsize);
+    const sourceAllocatedBytes = disks.disks.reduce((total, disk) => total + disk.actualSizeBytes, 0);
+    const requiredBytes = Math.ceil(sourceAllocatedBytes * 1.2 + 1024 ** 3);
+    if (![destinationFreeBytes, sourceAllocatedBytes, requiredBytes].every((value) => Number.isSafeInteger(value) && value >= 0) || requiredBytes <= 0) {
+      throw new Error("VM export capacity metadata is invalid");
+    }
+    return {
+      domain: name,
+      uuid: domain.uuid,
+      state: domain.state,
+      diskRevision: disks.revision,
+      snapshotRevision: snapshotInventoryRevision(snapshots),
+      disks: disks.disks.map((disk) => ({ target: disk.target, actualSizeBytes: disk.actualSizeBytes, virtualSizeBytes: disk.virtualSizeBytes })),
+      sourceAllocatedBytes,
+      requiredBytes,
+      destinationFreeBytes,
+    };
+  }
+
+  async function createExport(parameters) {
+    const errors = validateVmExportInput(parameters);
+    if (errors.length) throw new Error(errors.join(" | "));
+    const inspection = await inspectExport({ name: parameters.name });
+    if (inspection.uuid !== parameters.expectedUuid.toLowerCase() || inspection.state !== parameters.expectedState
+      || inspection.diskRevision !== parameters.expectedDiskRevision || inspection.snapshotRevision !== parameters.expectedSnapshotRevision) {
+      throw new Error("VM identity, state, disk topology, or snapshot inventory changed after approval");
+    }
+    if (inspection.destinationFreeBytes < inspection.requiredBytes) throw new Error("The managed VM export destination does not have enough free space");
+    const exportDirectory = path.join(resolvedExportRoot, parameters.exportId);
+    if (path.dirname(exportDirectory) !== resolvedExportRoot) throw new Error("VM export destination escaped the managed root");
+    await mkdir(resolvedExportRoot, { recursive: true, mode: 0o700 });
+    await mkdir(exportDirectory, { mode: 0o700 });
+    try {
+      const xmlResult = await virsh(["dumpxml", parameters.name, "--inactive"], { timeout: 30000 });
+      const xmlPath = path.join(exportDirectory, "domain.xml");
+      await writeFile(xmlPath, `${xmlResult.stdout}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+      const liveDisks = await verifySnapshotDisks(parameters.name);
+      if (liveDisks.revision !== parameters.expectedDiskRevision) throw new Error("VM disk topology changed before export conversion");
+      const exportedDisks = [];
+      for (const disk of liveDisks.disks) {
+        const finalPath = path.join(exportDirectory, `${disk.target}.qcow2`);
+        const temporaryPath = `${finalPath}.partial`;
+        await run(qemuImgBinary, ["convert", "-f", "qcow2", "-O", "qcow2", disk.source, temporaryPath], { timeout: 6 * 60 * 60 * 1000 });
+        await run(qemuImgBinary, ["check", "--output=json", temporaryPath], { timeout: 30 * 60 * 1000 });
+        await run(qemuImgBinary, ["compare", "-f", "qcow2", "-F", "qcow2", disk.source, temporaryPath], { timeout: 6 * 60 * 60 * 1000 });
+        await rename(temporaryPath, finalPath);
+        await chmod(finalPath, 0o600);
+        const metadata = await lstat(finalPath);
+        exportedDisks.push({ target: disk.target, file: path.basename(finalPath), sizeBytes: metadata.size, checksumSha256: await sha256(finalPath), contentVerified: true });
+      }
+      const xmlMetadata = await lstat(xmlPath);
+      const manifest = {
+        schemaVersion: 1,
+        exportId: parameters.exportId,
+        domain: { name: parameters.name, uuid: parameters.expectedUuid },
+        createdAt: new Date().toISOString(),
+        destination: "local-managed",
+        encrypted: false,
+        protected: false,
+        domainXml: { file: "domain.xml", sizeBytes: xmlMetadata.size, checksumSha256: await sha256(xmlPath) },
+        disks: exportedDisks,
+        snapshotHandling: "Current disk state exported; internal snapshot history is not preserved as restorable metadata",
+        restoreDrill: { passed: false, reason: "An isolated restore boot has not run" },
+      };
+      const manifestPath = path.join(exportDirectory, "manifest.json");
+      await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+      const manifestMetadata = await lstat(manifestPath);
+      return {
+        created: true,
+        exportId: parameters.exportId,
+        domain: parameters.name,
+        uuid: parameters.expectedUuid,
+        destination: "local-managed",
+        artifactPath: exportDirectory,
+        manifestChecksumSha256: await sha256(manifestPath),
+        sizeBytes: exportedDisks.reduce((total, disk) => total + disk.sizeBytes, xmlMetadata.size + manifestMetadata.size),
+        contentVerified: exportedDisks.every((disk) => disk.contentVerified),
+        encrypted: false,
+        protected: false,
+        restoreDrill: manifest.restoreDrill,
+      };
+    } catch (error) {
+      await rm(exportDirectory, { recursive: true, force: true });
+      throw new Error(`${error.message} Automated export cleanup completed.`);
+    }
+  }
+
   async function create(parameters) {
     const errors = validateVmPlanInput(parameters);
     if (errors.length) throw new Error(errors.join(" | "));
@@ -293,7 +412,7 @@ export function createVmHelper({
     }
   }
 
-  return { create, action, inventory, consoleGuidance, createSnapshot };
+  return { create, action, inventory, consoleGuidance, createSnapshot, inspectExport, createExport };
 }
 
 export const vmHelperInternals = { defaultRunner };

@@ -176,6 +176,44 @@ export interface VmSnapshotPlan {
   };
 }
 
+export interface VmExportPlan {
+  id: string;
+  revision: string;
+  status: "draft" | "staged";
+  expiresAt: string;
+  input: { exportId: string; name: string; expectedUuid: string; expectedState: "stopped"; expectedDiskRevision: string; expectedSnapshotRevision: string };
+  output: {
+    executable: boolean;
+    destination: "local-managed";
+    diskTargets: string[];
+    sourceAllocatedBytes: number;
+    requiredBytes: number;
+    destinationFreeBytes: number;
+    blockers: string[];
+    changes: string[];
+    verification: string[];
+    protected: false;
+    encrypted: false;
+    restoreDrill: { passed: false; reason: string };
+    warnings: string[];
+    recovery: string;
+  };
+}
+
+export interface VmExportArtifact {
+  id: string;
+  domainName: string;
+  domainUuid: string;
+  destination: string;
+  artifactPath: string;
+  manifestChecksumSha256: string;
+  sizeBytes: number;
+  protected: boolean;
+  encrypted: boolean;
+  restoreDrill: { passed: boolean; reason?: string };
+  createdAt: string;
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   const body = (await response.json()) as T & { error?: string; errors?: string[] };
   if (!response.ok && response.status !== 503) {
@@ -259,6 +297,31 @@ export async function createVmSnapshotPlan(domain: string, snapshotName: string,
 
 export async function stageVmSnapshotPlan(planId: string, revision: string, csrfToken: string): Promise<VmCreationJob> {
   const response = await fetch(`/api/v1/virtualization/snapshot-plans/${encodeURIComponent(planId)}/stage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: JSON.stringify({ revision }),
+  });
+  const body = await readJson<{ job: VmCreationJob }>(response);
+  return body.job;
+}
+
+export async function fetchVmExports(): Promise<VmExportArtifact[]> {
+  const body = await readJson<{ exports: VmExportArtifact[] }>(await fetch("/api/v1/virtualization/exports"));
+  return Array.isArray(body.exports) ? body.exports : [];
+}
+
+export async function createVmExportPlan(domain: string, csrfToken: string): Promise<VmExportPlan> {
+  const response = await fetch(`/api/v1/virtualization/domains/${encodeURIComponent(domain)}/export-plans`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: "{}",
+  });
+  const body = await readJson<{ plan: VmExportPlan }>(response);
+  return body.plan;
+}
+
+export async function stageVmExportPlan(planId: string, revision: string, csrfToken: string): Promise<VmCreationJob> {
+  const response = await fetch(`/api/v1/virtualization/export-plans/${encodeURIComponent(planId)}/stage`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
     body: JSON.stringify({ revision }),
