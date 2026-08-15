@@ -181,9 +181,26 @@ describe("BoxPilot state store", () => {
     });
     expect(recovery).toMatchObject({ backupId: backup.id, domainName: "ubuntu-recovered", destination: "managed-libvirt-recovery", state: "stopped", network: "none", autostart: false });
     expect(store.listVmRecoveries()).toHaveLength(1);
+    const retention = store.recordVmRetention({
+      id: "77777777-7777-4777-8777-777777777777",
+      repositoryId: backup.repositoryId,
+      beforeSnapshotSetRevision: "d".repeat(64),
+      afterSnapshotSetRevision: "e".repeat(64),
+      beforeCount: 4,
+      afterCount: 3,
+      forgotten: [{ backupId: backup.id, snapshotId: backup.snapshotId, domainName: backup.domainName }],
+      keptSnapshotIds: ["f".repeat(64)],
+      repositoryVerified: true,
+      prunePerformed: false,
+      createdBy: owner.id,
+    });
+    expect(retention).toMatchObject({ beforeCount: 4, afterCount: 3, repositoryVerified: true, prunePerformed: false });
+    expect(store.getVmBackup(backup.id)).toMatchObject({ retained: false, retention: { runId: retention.id } });
+    expect(store.listVmRetentionRuns()).toHaveLength(1);
     expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "vm.backup.recorded", subjectId: backup.id })]));
     expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "vm.restore_drill.passed", subjectId: backup.id })]));
     expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "vm.recovery.created", subjectId: recovery.id })]));
+    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "vm.retention.applied", subjectId: retention.id })]));
     store.close();
   });
 

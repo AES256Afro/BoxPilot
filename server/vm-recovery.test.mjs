@@ -80,6 +80,16 @@ describe("guarded VM recovery planning", () => {
     store.close();
   });
 
+  it("never plans a recovery clone from a snapshot already forgotten by retention", async () => {
+    const { store, owner, service } = await setup();
+    store.recordVmRetention({
+      id: "99999999-9999-4999-8999-999999999999", repositoryId, beforeSnapshotSetRevision: "e".repeat(64), afterSnapshotSetRevision: "f".repeat(64),
+      beforeCount: 2, afterCount: 1, forgotten: [{ backupId, snapshotId, domainName: "ubuntu-services" }], keptSnapshotIds: [], repositoryVerified: true, prunePerformed: false, createdBy: owner.id,
+    });
+    await expect(service.plan(backupId, "ubuntu-recovered", owner.id)).rejects.toThrow("forgotten by an approved retention run");
+    store.close();
+  });
+
   it("records only strict stopped persistent recovery evidence", async () => {
     const { store, owner, service } = await setup();
     const plan = await service.plan(backupId, "ubuntu-recovered", owner.id);

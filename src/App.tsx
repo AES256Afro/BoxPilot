@@ -242,7 +242,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.15.0",
+      version: "0.16.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
@@ -284,7 +284,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.15.0 guarded VM recovery clones<br />Stopped, isolated, source preserved</div>
+        <div className="prototype-label">v0.16.0 guarded VM backup retention<br />Exact preview, copy floor, no prune</div>
       </aside>
 
       <main>

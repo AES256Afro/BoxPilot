@@ -6,6 +6,7 @@ export function createJobService(store, helper, {
   validateVmCreationJob = async () => {},
   validateVmExportJob = async () => {},
   validateVmProtectionJob = async () => {},
+  validateVmRetentionJob = async () => {},
   validateVmRestoreDrillJob = async () => {},
   validateVmRecoveryJob = async () => {},
   validateVmLifecycleJob = async () => {},
@@ -13,6 +14,7 @@ export function createJobService(store, helper, {
   recordBackupResult = () => {},
   recordVmExportResult = () => {},
   recordVmProtectionResult = () => {},
+  recordVmRetentionResult = () => {},
   recordVmRestoreDrillResult = () => {},
   recordVmRecoveryResult = () => {},
 } = {}) {
@@ -37,12 +39,13 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     if (job.type === "application.uptime-kuma.deploy") await validateApplicationJob(job);
     if (job.type === "application.uptime-kuma.backup") await validateBackupJob(job);
     const validatedVmPlan = job.type === "virtualization.domain.create" ? await validateVmCreationJob(job) : null;
     const validatedVmExportPlan = job.type === "virtualization.domain.export.create" ? await validateVmExportJob(job) : null;
     const validatedVmProtectionPlan = job.type === "virtualization.export.backup.create" ? await validateVmProtectionJob(job) : null;
+    const validatedVmRetentionPlan = job.type === "virtualization.export.backup.retention.apply" ? await validateVmRetentionJob(job) : null;
     const validatedVmRestoreDrillPlan = job.type === "virtualization.export.backup.restore-drill" ? await validateVmRestoreDrillJob(job) : null;
     const validatedVmRecoveryPlan = job.type === "virtualization.backup.recovery.create" ? await validateVmRecoveryJob(job) : null;
     const validatedVmLifecyclePlan = job.type === "virtualization.domain.action" ? await validateVmLifecycleJob(job) : null;
@@ -50,6 +53,7 @@ export function createJobService(store, helper, {
     if (job.type === "virtualization.domain.create" && !validatedVmPlan?.input) throw new Error("The staged VM creation plan is unavailable or changed");
     if (job.type === "virtualization.domain.export.create" && !validatedVmExportPlan?.input) throw new Error("The staged VM export plan is unavailable or changed");
     if (job.type === "virtualization.export.backup.create" && !validatedVmProtectionPlan?.input) throw new Error("The staged VM protection plan is unavailable or changed");
+    if (job.type === "virtualization.export.backup.retention.apply" && !validatedVmRetentionPlan?.input) throw new Error("The staged VM retention plan is unavailable or changed");
     if (job.type === "virtualization.export.backup.restore-drill" && !validatedVmRestoreDrillPlan?.input) throw new Error("The staged VM restore drill plan is unavailable or changed");
     if (job.type === "virtualization.backup.recovery.create" && !validatedVmRecoveryPlan?.input) throw new Error("The staged VM recovery plan is unavailable or changed");
     if (job.type === "virtualization.domain.action" && !validatedVmLifecyclePlan?.input) throw new Error("The staged VM lifecycle plan is unavailable or changed");
@@ -104,6 +108,15 @@ export function createJobService(store, helper, {
       verified: "Local SHA-256 evidence, a full repository data read, and exact snapshot identity passed; isolated restore boot remains required before protected status",
       failed: "Encrypted independent VM backup or repository verification did not complete successfully; preserve both the local export and repository for inspection",
       validate: (result) => result?.created && result?.backupId === validatedVmProtectionPlan.input.backupId && result?.exportId === validatedVmProtectionPlan.input.exportId && result?.encrypted === true && result?.independent === true && result?.repositoryVerified === true && result?.protected === false && result?.restoreDrill?.passed === false,
+    } : job.type === "virtualization.export.backup.retention.apply" ? {
+      operation: "virtualization.export.backup.retention.apply",
+      parameters: validatedVmRetentionPlan.input,
+      timeoutMs: 12 * 60 * 60 * 1000,
+      applying: "Forgetting only the exact reviewed old protected snapshot references through the restricted helper",
+      applied: "Restic removed the approved snapshot metadata without running prune or changing source VMs and local exports",
+      verified: "A full repository data read passed, every approved snapshot is absent, and every noncandidate snapshot remains",
+      failed: "VM retention did not complete or verify; do not retry until repository and durable backup evidence are inspected",
+      validate: (result) => result?.applied && result?.complete === true && result?.retentionId === validatedVmRetentionPlan.input.retentionId && result?.repositoryId === validatedVmRetentionPlan.input.repositoryId && result?.repositoryVerified === true && result?.prunePerformed === false && result?.spaceReclaimed === false,
     } : job.type === "virtualization.export.backup.restore-drill" ? {
       operation: "virtualization.export.backup.restore-drill",
       parameters: validatedVmRestoreDrillPlan.input,
@@ -155,6 +168,7 @@ export function createJobService(store, helper, {
         : await helper.request(execution.operation, execution.parameters);
       store.transitionJob(jobId, "applying", "verifying", { result });
       store.addJobStep(jobId, "apply", "completed", execution.applied);
+      if (job.type === "virtualization.export.backup.retention.apply" && result?.applied === true) recordVmRetentionResult(job, result);
       if (!execution.validate(result)) throw new Error("Helper returned an invalid operation result");
       if (job.type === "application.uptime-kuma.backup") recordBackupResult(job, result);
       if (job.type === "virtualization.domain.export.create") recordVmExportResult(job, result);

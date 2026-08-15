@@ -210,6 +210,50 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("runs exact VM retention in the background and records verified no-prune evidence", async () => {
+    const input = {
+      retentionId: "11111111-1111-4111-8111-111111111111",
+      repositoryId: "a".repeat(64),
+      expectedDestinationRevision: "b".repeat(64),
+      expectedSnapshotSetRevision: "c".repeat(64),
+      forgetSnapshotIds: ["d".repeat(64)],
+    };
+    let finish;
+    const helper = { request: vi.fn(() => new Promise((resolve) => { finish = resolve; })) };
+    const { store, owner } = await setup(helper);
+    const validateVmRetentionJob = vi.fn(async () => ({ input }));
+    const recordVmRetentionResult = vi.fn();
+    const jobs = createJobService(store, helper, { validateVmRetentionJob, recordVmRetentionResult });
+    const job = store.createJob({ type: "virtualization.export.backup.retention.apply", title: "Apply retention", parameters: { input }, recovery: {}, createdBy: owner.id });
+
+    const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
+    expect(started.state).toBe("applying");
+    expect(helper.request).toHaveBeenCalledWith("virtualization.export.backup.retention.apply", input, { timeoutMs: 12 * 60 * 60 * 1000 });
+    const result = { applied: true, complete: true, retentionId: input.retentionId, repositoryId: input.repositoryId, repositoryVerified: true, prunePerformed: false, spaceReclaimed: false };
+    finish(result);
+    await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
+    expect(recordVmRetentionResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
+    store.close();
+  });
+
+  it("records confirmed retention mutation before failing a later repository verification", async () => {
+    const input = {
+      retentionId: "11111111-1111-4111-8111-111111111111", repositoryId: "a".repeat(64), expectedDestinationRevision: "b".repeat(64),
+      expectedSnapshotSetRevision: "c".repeat(64), forgetSnapshotIds: ["d".repeat(64)],
+    };
+    const result = { applied: true, complete: true, retentionId: input.retentionId, repositoryId: input.repositoryId, forgottenSnapshotIds: input.forgetSnapshotIds, repositoryVerified: false, prunePerformed: false, spaceReclaimed: false };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const recordVmRetentionResult = vi.fn();
+    const jobs = createJobService(store, helper, { validateVmRetentionJob: async () => ({ input }), recordVmRetentionResult });
+    const job = store.createJob({ type: "virtualization.export.backup.retention.apply", title: "Apply retention", parameters: { input }, recovery: {}, createdBy: owner.id });
+
+    await expect(jobs.approveAndRun(job.id, owner.id, "correct horse battery")).rejects.toThrow("invalid operation result");
+    expect(recordVmRetentionResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
+    expect(store.getJob(job.id).state).toBe("failed");
+    store.close();
+  });
+
   it("starts an isolated restore drill in the background and records only passing cleanup evidence", async () => {
     const input = {
       drillId: "11111111-1111-4111-8111-111111111111", backupId: "22222222-2222-4222-8222-222222222222", exportId: "33333333-3333-4333-8333-333333333333",

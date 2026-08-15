@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BoxPilot guarded VM retention mockup</title>
+    <link rel="stylesheet" href="../../src/styles.css" />
+    <style>
+      .mock-disclosure { position: fixed; z-index: 200; right: 24px; bottom: 18px; padding: 8px 12px; border: 1px solid #67502b; border-radius: 9px; color: #e5d3b4; background: #241d13; font-size: 11px; }
+      .vm-planner-dialog { max-width: 930px; }
+    </style>
+  </head>
+  <body>
+    <div class="vm-planner-backdrop">
+      <section class="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-retention-title">
+        <header class="vm-planner-header">
+          <div><span class="eyebrow">Guarded restic retention</span><h2 id="vm-retention-title">Forget 2 old VM backups</h2><p>Apply the fixed age, minimum-copy, restore-test, and recovery-reference policy to exact reviewed snapshot ids.</p></div>
+          <button type="button" class="modal-close" aria-label="Close retention plan">X</button>
+        </header>
+        <div class="vm-action-review">
+          <dl class="vm-plan-summary">
+            <div><dt>Before</dt><dd>11 snapshots</dd></div>
+            <div><dt>Forget</dt><dd>2 exact snapshots</dd></div>
+            <div><dt>Minimum copies</dt><dd>3 per VM</dd></div>
+            <div><dt>Minimum age</dt><dd>30 days</dd></div>
+          </dl>
+          <div class="vm-plan-gates"><strong>Exact candidates</strong><ol><li>ubuntu-services | 91 days old | 18.7 GiB | <code>1a74b221c972</code></li><li>ubuntu-services | 76 days old | 18.9 GiB | <code>52c52e94de20</code></li></ol></div>
+          <div class="vm-plan-gates"><strong>Exact changes</strong><ol><li>Forget exactly 2 reviewed restic snapshot metadata records</li><li>Read and verify every remaining repository data pack after the mutation</li><li>Record exact forgotten backup and snapshot ids in durable state</li><li>Keep local exports, source VMs, recovery clones, and all noncandidate snapshots unchanged</li></ol></div>
+          <div class="vm-plan-gates"><strong>Required verification</strong><ol><li>Exact pre-mutation snapshot-set revision</li><li>Full post-forget repository data read</li><li>Every approved id absent</li><li>Every noncandidate id still present</li></ol></div>
+          <div class="vm-plan-warnings"><strong>High-risk warnings</strong><span>Forgetting removes the selected snapshot references and cannot be automatically undone.</span><span>Restic prune is deliberately disabled, so this run does not claim reclaimed disk space.</span><span>A changed repository, snapshot set, protection result, or recovery reference invalidates approval.</span></div>
+          <div class="vm-plan-warnings"><strong>Recovery boundary</strong><span>Source VMs and local exports remain unchanged. Restore from another retained protected snapshot. BoxPilot does not claim a forgotten snapshot can be recovered.</span></div>
+          <p class="vm-action-revision">Plan revision <code>061ad09d97e034cb</code>. Repository identity, exact snapshot set, protection evidence, age, copy floor, and recovery references are checked again before execution.</p>
+          <div class="vm-plan-form-actions"><button type="button" class="text-button">Cancel</button><button type="button" class="primary-button">Stage high-risk approval</button></div>
+        </div>
+      </section>
+    </div>
+    <div class="mock-disclosure">Mocked 0.16.0 plan. No restic snapshot was forgotten or pruned.</div>
+  </body>
+</html>

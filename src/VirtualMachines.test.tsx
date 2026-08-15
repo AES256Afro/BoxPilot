@@ -81,11 +81,11 @@ describe("Virtual Machines", () => {
       backups: [{
         id: "55555555-5555-4555-8555-555555555555", exportId: exportArtifact.id, domainName: "snapshot-lab", domainUuid: exportArtifact.domainUuid,
         destination: "mounted-restic", repositoryId: "d".repeat(64), snapshotId: "f".repeat(64), sizeBytes: 4096,
-        encrypted: true, independent: true, repositoryVerified: true, protected: false, restoreDrill: { passed: false, reason: "not run" }, createdAt: "2026-08-15T20:30:00Z",
+        encrypted: true, independent: true, repositoryVerified: true, protected: false, retained: true, retention: null, restoreDrill: { passed: false, reason: "not run" }, createdAt: "2026-08-15T20:30:00Z",
       }, {
         id: "77777777-7777-4777-8777-777777777777", exportId: exportArtifact.id, domainName: "protected-lab", domainUuid: "88888888-8888-4888-8888-888888888888",
         destination: "mounted-restic", repositoryId: "d".repeat(64), snapshotId: "a".repeat(64), sizeBytes: 8192,
-        encrypted: true, independent: true, repositoryVerified: true, protected: true,
+        encrypted: true, independent: true, repositoryVerified: true, protected: true, retained: true, retention: null,
         restoreDrill: { passed: true, drillId: "99999999-9999-4999-8999-999999999999" }, createdAt: "2026-08-15T20:45:00Z",
       }],
     };
@@ -103,6 +103,20 @@ describe("Virtual Machines", () => {
         protected: false, restoreDrill: { passed: false, reason: "not run" },
         warnings: ["Keep a recovery copy outside Bigbox."], recovery: "The local export remains unchanged.",
       },
+    };
+    const retentionStatus = {
+      executable: true,
+      policy: { minimumCopiesPerDomain: 3, minimumAgeDays: 30, requiresProtectedRestoreDrill: true, preserveRecoverySources: true },
+      repositoryId: "d".repeat(64), beforeCount: 6,
+      candidates: [{ backupId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", snapshotId: "b".repeat(64), domainName: "archive-lab", domainUuid: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee", createdAt: "2026-06-01T00:00:00Z", ageDays: 75, sizeBytes: 4096 }],
+      kept: [], blockers: [], changes: ["Forget exactly 1 reviewed restic snapshot metadata record(s)"],
+      warnings: ["This release deliberately does not run restic prune."], verification: ["Every noncandidate id still present"],
+      prunePerformed: false, spaceReclaimed: false, recovery: "Restore from another retained protected snapshot.", retentionRuns: [],
+    };
+    const retentionPlan = {
+      id: "retention-plan-1", revision: "retention-revision-1", status: "draft", expiresAt: "2026-08-15T22:00:00Z",
+      input: { retentionId: "ffffffff-ffff-4fff-8fff-ffffffffffff", repositoryId: "d".repeat(64), expectedDestinationRevision: "e".repeat(64), expectedSnapshotSetRevision: "c".repeat(64), forgetSnapshotIds: ["b".repeat(64)] },
+      output: { ...retentionStatus },
     };
     const restoreDrillPlan = {
       id: "restore-drill-plan-1", revision: "restore-drill-revision-1", status: "draft", expiresAt: "2026-08-15T22:00:00Z",
@@ -146,8 +160,8 @@ describe("Virtual Machines", () => {
       const body = init?.method === "POST"
         ? url.endsWith("/stage")
           ? { job: { id: "job-1", state: "awaiting_approval", title: "Reviewed VM job" } }
-          : { plan: url.endsWith("/snapshot-plans") ? snapshotPlan : url.endsWith("/export-plans") ? exportPlan : url.endsWith("/protection-plans") ? protectionPlan : url.endsWith("/restore-drill-plans") ? restoreDrillPlan : url.endsWith("/recovery-plans") ? recoveryPlan : actionPlan }
-        : url.endsWith("/status") ? status : url.endsWith("/resources") ? resources : url.endsWith("/console-guidance") ? consoleGuidance : url.endsWith("/protection") ? protection : url.endsWith("/exports") ? { exports: [exportArtifact] } : url.endsWith("/recoveries") ? { recoveries } : domains;
+          : { plan: url.endsWith("/snapshot-plans") ? snapshotPlan : url.endsWith("/export-plans") ? exportPlan : url.endsWith("/protection-plans") ? protectionPlan : url.endsWith("/retention-plans") ? retentionPlan : url.endsWith("/restore-drill-plans") ? restoreDrillPlan : url.endsWith("/recovery-plans") ? recoveryPlan : actionPlan }
+        : url.endsWith("/status") ? status : url.endsWith("/resources") ? resources : url.endsWith("/console-guidance") ? consoleGuidance : url.endsWith("/protection") ? protection : url.endsWith("/retention") ? retentionStatus : url.endsWith("/exports") ? { exports: [exportArtifact] } : url.endsWith("/recoveries") ? { recoveries } : domains;
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -187,12 +201,18 @@ describe("Virtual Machines", () => {
     expect(screen.getByText("Keep a recovery copy outside Bigbox.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stage for password approval" }));
     await vi.waitFor(() => expect(onOpenRepair).toHaveBeenCalledTimes(4));
+    fireEvent.click(screen.getByRole("button", { name: "Review retention" }));
+    expect(await screen.findByText("Guarded restic retention")).toBeTruthy();
+    expect(screen.getByText(/archive-lab \| 75 days old/)).toBeTruthy();
+    expect(screen.getByText("This release deliberately does not run restic prune.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage high-risk approval" }));
+    await vi.waitFor(() => expect(onOpenRepair).toHaveBeenCalledTimes(5));
     fireEvent.click(screen.getByRole("button", { name: "Plan isolated restore drill" }));
     expect(await screen.findByText("Isolated VM restore drill")).toBeTruthy();
     expect(screen.getByText("Repeated QEMU guest-agent health signal")).toBeTruthy();
     expect(screen.getByText("The source guest must contain and enable qemu-guest-agent or this drill will fail safely.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stage for password approval" }));
-    await vi.waitFor(() => expect(onOpenRepair).toHaveBeenCalledTimes(5));
+    await vi.waitFor(() => expect(onOpenRepair).toHaveBeenCalledTimes(6));
     expect(screen.getByText("protected-lab-recovery-old")).toBeTruthy();
     expect(screen.getByText(/Persistent \| network none \| autostart off/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Create recovery clone" }));
@@ -202,6 +222,6 @@ describe("Virtual Machines", () => {
     expect(await screen.findByText("Exact protected snapshot identity and recovered disk checksums")).toBeTruthy();
     expect(screen.getByText("The source VM remains unchanged.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stage for password approval" }));
-    await vi.waitFor(() => expect(onOpenRepair).toHaveBeenCalledTimes(6));
+    await vi.waitFor(() => expect(onOpenRepair).toHaveBeenCalledTimes(7));
   });
 });
