@@ -82,6 +82,11 @@ describe("Virtual Machines", () => {
         id: "55555555-5555-4555-8555-555555555555", exportId: exportArtifact.id, domainName: "snapshot-lab", domainUuid: exportArtifact.domainUuid,
         destination: "mounted-restic", repositoryId: "d".repeat(64), snapshotId: "f".repeat(64), sizeBytes: 4096,
         encrypted: true, independent: true, repositoryVerified: true, protected: false, restoreDrill: { passed: false, reason: "not run" }, createdAt: "2026-08-15T20:30:00Z",
+      }, {
+        id: "77777777-7777-4777-8777-777777777777", exportId: exportArtifact.id, domainName: "protected-lab", domainUuid: "88888888-8888-4888-8888-888888888888",
+        destination: "mounted-restic", repositoryId: "d".repeat(64), snapshotId: "a".repeat(64), sizeBytes: 8192,
+        encrypted: true, independent: true, repositoryVerified: true, protected: true,
+        restoreDrill: { passed: true, drillId: "99999999-9999-4999-8999-999999999999" }, createdAt: "2026-08-15T20:45:00Z",
       }],
     };
     const protectionPlan = {
@@ -115,14 +120,34 @@ describe("Virtual Machines", () => {
         recovery: "Remove only the server-generated transient drill domain.",
       },
     };
+    const recoveryPlan = {
+      id: "recovery-plan-1", revision: "recovery-revision-1", status: "draft", expiresAt: "2026-08-15T23:00:00Z",
+      input: {
+        restoreId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", backupId: protection.backups[1].id, exportId: exportArtifact.id,
+        sourceDomainName: "protected-lab", sourceDomainUuid: protection.backups[1].domainUuid, targetDomainName: "protected-lab-recovery",
+        restoreDrillId: "99999999-9999-4999-8999-999999999999", repositoryId: "d".repeat(64), snapshotId: "a".repeat(64),
+        expectedManifestChecksumSha256: exportArtifact.manifestChecksumSha256, expectedSizeBytes: 8192, expectedDestinationRevision: "e".repeat(64),
+      },
+      output: {
+        executable: true, targetDomainName: "protected-lab-recovery", destination: "managed-libvirt-recovery", network: "none", persistent: true,
+        initialState: "stopped", autostart: false, memoryMiB: 2048, vcpus: 2, blockers: [],
+        changes: ["Define a new persistent domain with no network interface"], verification: ["Exact protected snapshot identity and recovered disk checksums"],
+        warnings: ["The source VM remains unchanged."], recovery: "Remove only the new domain and its generated recovery directory after exact validation.",
+      },
+    };
+    const recoveries = [{
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", backupId: protection.backups[1].id, sourceDomainName: "protected-lab", sourceDomainUuid: protection.backups[1].domainUuid,
+      domainName: "protected-lab-recovery-old", domainUuid: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", destination: "managed-libvirt-recovery", sizeBytes: 8192,
+      state: "stopped", network: "none", autostart: false, createdAt: "2026-08-15T21:00:00Z",
+    }];
     const onOpenRepair = vi.fn();
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       const body = init?.method === "POST"
         ? url.endsWith("/stage")
           ? { job: { id: "job-1", state: "awaiting_approval", title: "Reviewed VM job" } }
-          : { plan: url.endsWith("/snapshot-plans") ? snapshotPlan : url.endsWith("/export-plans") ? exportPlan : url.endsWith("/protection-plans") ? protectionPlan : url.endsWith("/restore-drill-plans") ? restoreDrillPlan : actionPlan }
-        : url.endsWith("/status") ? status : url.endsWith("/resources") ? resources : url.endsWith("/console-guidance") ? consoleGuidance : url.endsWith("/protection") ? protection : url.endsWith("/exports") ? { exports: [exportArtifact] } : domains;
+          : { plan: url.endsWith("/snapshot-plans") ? snapshotPlan : url.endsWith("/export-plans") ? exportPlan : url.endsWith("/protection-plans") ? protectionPlan : url.endsWith("/restore-drill-plans") ? restoreDrillPlan : url.endsWith("/recovery-plans") ? recoveryPlan : actionPlan }
+        : url.endsWith("/status") ? status : url.endsWith("/resources") ? resources : url.endsWith("/console-guidance") ? consoleGuidance : url.endsWith("/protection") ? protection : url.endsWith("/exports") ? { exports: [exportArtifact] } : url.endsWith("/recoveries") ? { recoveries } : domains;
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -168,5 +193,15 @@ describe("Virtual Machines", () => {
     expect(screen.getByText("The source guest must contain and enable qemu-guest-agent or this drill will fail safely.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stage for password approval" }));
     await vi.waitFor(() => expect(onOpenRepair).toHaveBeenCalledTimes(5));
+    expect(screen.getByText("protected-lab-recovery-old")).toBeTruthy();
+    expect(screen.getByText(/Persistent \| network none \| autostart off/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Create recovery clone" }));
+    expect(await screen.findByText("Guarded VM recovery clone")).toBeTruthy();
+    expect((screen.getByRole("textbox", { name: /New VM name/ }) as HTMLInputElement).value).toBe("protected-lab-recovery");
+    fireEvent.click(screen.getByRole("button", { name: "Generate reviewed plan" }));
+    expect(await screen.findByText("Exact protected snapshot identity and recovered disk checksums")).toBeTruthy();
+    expect(screen.getByText("The source VM remains unchanged.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage for password approval" }));
+    await vi.waitFor(() => expect(onOpenRepair).toHaveBeenCalledTimes(6));
   });
 });

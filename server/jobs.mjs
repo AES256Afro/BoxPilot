@@ -7,12 +7,14 @@ export function createJobService(store, helper, {
   validateVmExportJob = async () => {},
   validateVmProtectionJob = async () => {},
   validateVmRestoreDrillJob = async () => {},
+  validateVmRecoveryJob = async () => {},
   validateVmLifecycleJob = async () => {},
   validateVmSnapshotJob = async () => {},
   recordBackupResult = () => {},
   recordVmExportResult = () => {},
   recordVmProtectionResult = () => {},
   recordVmRestoreDrillResult = () => {},
+  recordVmRecoveryResult = () => {},
 } = {}) {
   function createCanary(ownerId) {
     return store.createJob({
@@ -35,19 +37,21 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     if (job.type === "application.uptime-kuma.deploy") await validateApplicationJob(job);
     if (job.type === "application.uptime-kuma.backup") await validateBackupJob(job);
     const validatedVmPlan = job.type === "virtualization.domain.create" ? await validateVmCreationJob(job) : null;
     const validatedVmExportPlan = job.type === "virtualization.domain.export.create" ? await validateVmExportJob(job) : null;
     const validatedVmProtectionPlan = job.type === "virtualization.export.backup.create" ? await validateVmProtectionJob(job) : null;
     const validatedVmRestoreDrillPlan = job.type === "virtualization.export.backup.restore-drill" ? await validateVmRestoreDrillJob(job) : null;
+    const validatedVmRecoveryPlan = job.type === "virtualization.backup.recovery.create" ? await validateVmRecoveryJob(job) : null;
     const validatedVmLifecyclePlan = job.type === "virtualization.domain.action" ? await validateVmLifecycleJob(job) : null;
     const validatedVmSnapshotPlan = job.type === "virtualization.domain.snapshot.create" ? await validateVmSnapshotJob(job) : null;
     if (job.type === "virtualization.domain.create" && !validatedVmPlan?.input) throw new Error("The staged VM creation plan is unavailable or changed");
     if (job.type === "virtualization.domain.export.create" && !validatedVmExportPlan?.input) throw new Error("The staged VM export plan is unavailable or changed");
     if (job.type === "virtualization.export.backup.create" && !validatedVmProtectionPlan?.input) throw new Error("The staged VM protection plan is unavailable or changed");
     if (job.type === "virtualization.export.backup.restore-drill" && !validatedVmRestoreDrillPlan?.input) throw new Error("The staged VM restore drill plan is unavailable or changed");
+    if (job.type === "virtualization.backup.recovery.create" && !validatedVmRecoveryPlan?.input) throw new Error("The staged VM recovery plan is unavailable or changed");
     if (job.type === "virtualization.domain.action" && !validatedVmLifecyclePlan?.input) throw new Error("The staged VM lifecycle plan is unavailable or changed");
     if (job.type === "virtualization.domain.snapshot.create" && !validatedVmSnapshotPlan?.input) throw new Error("The staged VM snapshot plan is unavailable or changed");
     const execution = job.type === "helper.canary.verify" ? {
@@ -109,6 +113,15 @@ export function createJobService(store, helper, {
       verified: "Restored checksums and qcow2 structures, repeated guest-agent health, transient isolation, and complete successful cleanup passed",
       failed: "The isolated restore drill did not complete; protected status remains false and the restored workspace is preserved for inspection",
       validate: (result) => result?.passed && result?.drillId === validatedVmRestoreDrillPlan.input.drillId && result?.backupId === validatedVmRestoreDrillPlan.input.backupId && result?.network === "none" && result?.transient === true && result?.persistentDomainCreated === false && result?.guestAgentPing === true && result?.temporaryQemuDiskAccessGranted === true && result?.temporaryQemuDiskAccessRemoved === true && result?.transientFirmwareStateRemoved === true && result?.cleanupVerified === true && result?.protected === true,
+    } : job.type === "virtualization.backup.recovery.create" ? {
+      operation: "virtualization.backup.recovery.create",
+      parameters: validatedVmRecoveryPlan.input,
+      timeoutMs: 12 * 60 * 60 * 1000,
+      applying: "Restoring the exact protected snapshot and materializing verified disks in a new managed recovery directory",
+      applied: "Verified recovery disks were materialized and a new persistent no-network libvirt domain was defined",
+      verified: "The recovery clone is stopped, persistent, non-autostarting, network-isolated, and tied to exact protected source evidence",
+      failed: "The recovery clone did not complete; BoxPilot confined rollback to the new target name and server-generated recovery directory",
+      validate: (result) => result?.created && result?.restoreId === validatedVmRecoveryPlan.input.restoreId && result?.backupId === validatedVmRecoveryPlan.input.backupId && result?.domain === validatedVmRecoveryPlan.input.targetDomainName && result?.persistent === true && result?.state === "stopped" && result?.network === "none" && result?.autostart === false && result?.sourceUnchanged === true && result?.snapshotUnchanged === true,
     } : job.type === "virtualization.domain.action" ? {
       operation: "virtualization.domain.action",
       parameters: validatedVmLifecyclePlan.input,
@@ -147,6 +160,7 @@ export function createJobService(store, helper, {
       if (job.type === "virtualization.domain.export.create") recordVmExportResult(job, result);
       if (job.type === "virtualization.export.backup.create") recordVmProtectionResult(job, result);
       if (job.type === "virtualization.export.backup.restore-drill") recordVmRestoreDrillResult(job, result);
+      if (job.type === "virtualization.backup.recovery.create") recordVmRecoveryResult(job, result);
       store.addJobStep(jobId, "verify", "completed", execution.verified);
       const completed = store.transitionJob(jobId, "verifying", "completed", { result });
       store.recordAudit("job.completed", { actorId: owner.id, subjectId: jobId, details: { type: job.type } });
@@ -166,6 +180,9 @@ export function createJobService(store, helper, {
         }
         if (job.type === "virtualization.export.backup.restore-drill" && error.message.includes("Transient drill domain cleanup completed")) {
           store.addJobStep(jobId, "rollback", "completed", "The server-generated transient drill domain was removed; restored files were preserved for inspection");
+        }
+        if (job.type === "virtualization.backup.recovery.create" && error.message.includes("Automatic recovery-clone rollback removed")) {
+          store.addJobStep(jobId, "rollback", "completed", "The incomplete new recovery domain definition and its server-generated disk directory were removed; protected source evidence was unchanged");
         }
         store.transitionJob(jobId, current.state, "failed", { error: error.message });
       }

@@ -1,6 +1,6 @@
 # Verified application backups
 
-BoxPilot provides two deliberately narrow evidence workflows: the `0.6.0` restore-verified local Uptime Kuma adapter and the VM export, encrypted independent-copy, and isolated restore-drill chain completed through `0.14.0`. It does not report a workload as protected merely because a file was copied.
+BoxPilot provides two deliberately narrow evidence workflows: the `0.6.0` restore-verified local Uptime Kuma adapter and the VM export, encrypted independent-copy, isolated restore-drill, and guarded recovery-clone chain completed through `0.15.0`. It does not report a workload as protected merely because a file was copied.
 
 ## Safety boundary
 
@@ -121,6 +121,25 @@ The successful state is:
 - isolated restore drill: yes
 - protected backup record: yes
 
+## VM guarded recovery clone
+
+Version `0.15.0` can materialize a protected backup as a new persistent recovery domain. It never performs an in-place restore. Planning accepts only one operator value: a constrained new domain name. Backup, export, repository, snapshot, restore-drill, manifest, size, and destination evidence come from durable server records and are revalidated through the helper.
+
+For an approved recovery job, BoxPilot:
+
+1. Requires the exact backup record to be encrypted, independent, repository-verified, protected, and backed by complete passing isolated restore-drill evidence.
+2. Revalidates the fixed repository, snapshot, capacity, target-name absence, and unused server-generated destination.
+3. Restores and reverifies the exact snapshot through the same fixed staging and checksum engine used by the passing drill.
+4. Moves only the verified export beneath `/var/lib/libvirt/images/boxpilot-recoveries/<server-generated-uuid>`.
+5. Grants the libvirt QEMU group persistent read access only to recovered qcow2 disks. The manifest, source XML, and generated recovery definition remain root-only.
+6. Generates and validates a fixed persistent libvirt definition with the new name, exact recovered disks, source firmware mode, guest-agent channel, loopback-only SPICE, and no network interface.
+7. Defines the domain without starting it, disables autostart, and verifies a new UUID, stopped state, persistence, zero interfaces, and exact disk paths.
+8. Atomically records the completed recovery relationship in SQLite.
+
+The source VM, local export, restic snapshot, repository retention, and existing domains remain unchanged. Before definition, failed work remains root-only in staging for inspection. After definition begins, rollback is confined to the exact new stopped no-network domain and generated directory after strict validation. A process or host crash can leave a stopped isolated clone for manual inspection instead of triggering uncertain deletion.
+
+The recovered domain is not automatically started and cannot receive a network interface through this release. Starting it uses a separate password-approved lifecycle plan. In-place overwrite, source deletion, automatic cutover, and application-level acceptance remain unavailable.
+
 ## Current limitations
 
-The Uptime Kuma artifact remains local to Bigbox. The VM workflow supports only the fixed mounted-restic destination and requires an operator-provided independent filesystem. Bigbox currently has no configured independent backup mount, so its live UI correctly reports setup blockers and no real VM restore drill has run there. Remote restic backends, offsite copies, schedules, retention mutation, notification, operator-directed restore execution, application-level VM restore tests, Keel Notes export, PostgreSQL, and Litestream-aware adapters remain future milestones.
+The Uptime Kuma artifact remains local to Bigbox. The VM workflow supports only the fixed mounted-restic destination and requires an operator-provided independent filesystem. Bigbox currently has no configured independent backup mount, so its live UI correctly reports setup blockers and no real VM restore drill or recovery clone has run there. Remote restic backends, offsite copies, schedules, retention mutation, notification, in-place restore, recovered-VM network attachment, application-level VM restore tests, Keel Notes export, PostgreSQL, and Litestream-aware adapters remain future milestones.

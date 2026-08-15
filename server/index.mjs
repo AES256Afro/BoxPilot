@@ -18,6 +18,7 @@ import { createVmExportService } from "./vm-export.mjs";
 import { createVmLifecycleService } from "./vm-lifecycle.mjs";
 import { createVmPlanner, validateVmPlanInput } from "./vm-plan.mjs";
 import { createVmProtectionService } from "./vm-protection.mjs";
+import { createVmRecoveryService } from "./vm-recovery.mjs";
 import { createVmRestoreDrillService } from "./vm-restore-drill.mjs";
 import { createVmSnapshotService } from "./vm-snapshot.mjs";
 
@@ -45,6 +46,7 @@ const vmExports = createVmExportService({ store: state, libvirt, helper });
 const vmLifecycle = createVmLifecycleService({ store: state, libvirt });
 const vmSnapshots = createVmSnapshotService({ store: state, libvirt });
 const vmProtection = createVmProtectionService({ store: state, helper });
+const vmRecoveries = createVmRecoveryService({ store: state, helper });
 const vmRestoreDrills = createVmRestoreDrillService({ store: state, helper });
 const jobs = createJobService(state, helper, {
   validateApplicationJob: applications.validateJob,
@@ -57,6 +59,8 @@ const jobs = createJobService(state, helper, {
   recordVmProtectionResult: vmProtection.recordResult,
   validateVmRestoreDrillJob: vmRestoreDrills.validateJob,
   recordVmRestoreDrillResult: vmRestoreDrills.recordResult,
+  validateVmRecoveryJob: vmRecoveries.validateJob,
+  recordVmRecoveryResult: vmRecoveries.recordResult,
   validateVmLifecycleJob: vmLifecycle.validateJob,
   validateVmSnapshotJob: vmSnapshots.validateJob,
 });
@@ -82,7 +86,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.14.0",
+    version: "0.15.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -112,11 +116,11 @@ app.get("/api/v1/capabilities", (_request, response) => {
     composeInspection: "browser-only",
     applications: "curated-plans-and-uptime-kuma-adapter",
     supportBundle: "browser-only",
-    backups: "uptime-kuma-local-restore-drill-and-vm-independent-restic-copy-with-isolated-boot-validation",
+    backups: "uptime-kuma-local-restore-drill-and-vm-independent-restic-copy-with-isolated-boot-validation-and-recovery-clones",
     migrations: "read-only-sanitized-manifests-and-compatibility-plans",
-    privilegedHelper: "typed-canary-applications-backups-inventory-logs-vm-creation-lifecycle-snapshots-exports-mounted-restic-and-isolated-restore-drills",
+    privilegedHelper: "typed-canary-applications-backups-inventory-logs-vm-creation-lifecycle-snapshots-exports-mounted-restic-isolated-restore-drills-and-recovery-clones",
     identity: "owner-password-foundation",
-    durableJobs: "sqlite-approved-application-backup-vm-creation-lifecycle-snapshot-export-protection-and-restore-drill-workflows",
+    durableJobs: "sqlite-approved-application-backup-vm-creation-lifecycle-snapshot-export-protection-restore-drill-and-recovery-workflows",
     virtualization: "live-libvirt-via-restricted-helper",
     vmCreationPlanning: "validated-durable-approved",
     audit: "redacted-jsonl-foundation",
@@ -124,6 +128,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     vmSnapshots: { create: "offline-stopped-managed-qcow2-only", revert: false, delete: false, countsAsBackup: false },
     vmExports: { create: "offline-stopped-managed-qcow2-only", destination: "local-managed", integrityVerified: true, encrypted: false, protectedBackup: false, restoreDrill: false },
     vmProtection: { destination: "fixed-independent-mounted-restic", encrypted: true, repositoryReadVerified: true, isolatedRestoreDrill: "transient-no-network-guest-agent", protectedBackup: "after-passing-restore-drill", retentionMutation: false },
+    vmRecovery: { create: "protected-snapshot-to-new-stopped-persistent-domain", network: "none", autostart: false, inPlaceRestore: false, sourceDeletion: false },
     vmConsole: { nativeProxy: false, cockpitHandoff: "detect-existing-only" },
   });
 });
@@ -235,7 +240,7 @@ app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = ["virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill"].includes(candidate?.type);
+    const background = ["virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, request.body?.password)
       : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
@@ -430,6 +435,30 @@ app.post("/api/v1/virtualization/restore-drill-plans/:id/stage", async (request,
   }
 });
 
+app.get("/api/v1/virtualization/recoveries", (_request, response) => {
+  response.json({ recoveries: vmRecoveries.list() });
+});
+
+app.post("/api/v1/virtualization/backups/:id/recovery-plans", async (request, response) => {
+  try {
+    const plan = await vmRecoveries.plan(request.params.id, request.body?.targetDomainName, request.boxpilotSession.owner.id);
+    response.status(201).json({ plan });
+  } catch (error) {
+    const status = error.message.includes("not found") ? 404 : error.message.includes("unavailable") ? 503 : 409;
+    response.status(status).json({ error: error.message, code: "vm_recovery_plan_failed" });
+  }
+});
+
+app.post("/api/v1/virtualization/recovery-plans/:id/stage", async (request, response) => {
+  try {
+    const job = await vmRecoveries.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
+    response.status(201).json({ job });
+  } catch (error) {
+    const status = error.message.includes("not found") ? 404 : error.message.includes("unavailable") ? 503 : 409;
+    response.status(status).json({ error: error.message, code: "vm_recovery_stage_failed" });
+  }
+});
+
 app.use(express.static(dist, { index: false }));
 app.use((request, response, next) => {
   if (request.method !== "GET" || request.path.startsWith("/api/")) {
@@ -445,7 +474,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.14.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.15.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });
