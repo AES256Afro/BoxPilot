@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import net from "node:net";
 
 export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock", timeoutMs = 5000 } = {}) {
-  function request(operation, parameters = {}) {
+  function request(operation, parameters = {}, { timeoutMs: requestTimeoutMs = timeoutMs } = {}) {
     return new Promise((resolve, reject) => {
       const connection = net.createConnection(socketPath);
       const id = randomUUID();
@@ -17,7 +17,7 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
       }
 
       connection.setEncoding("utf8");
-      connection.setTimeout(timeoutMs);
+      connection.setTimeout(requestTimeoutMs);
       connection.on("connect", () => connection.write(`${JSON.stringify({ version: 1, id, operation, parameters })}\n`));
       connection.on("data", (chunk) => { payload += chunk; });
       connection.on("end", () => {

@@ -1,16 +1,22 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   createVmLifecyclePlan,
+  createVmExportPlan,
   createVmSnapshotPlan,
+  fetchVmExports,
   fetchVirtualization,
+  formatBytes,
   formatMemory,
   type LibvirtResources,
   type ConsoleGuidance,
   stageVmLifecyclePlan,
+  stageVmExportPlan,
   stageVmSnapshotPlan,
   type DomainList,
   type VirtualDomain,
   type VmLifecyclePlan,
+  type VmExportArtifact,
+  type VmExportPlan,
   type VmSnapshotPlan,
   type VirtualizationStatus,
 } from "./virtualization";
@@ -53,16 +59,22 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
   const [snapshotDomain, setSnapshotDomain] = useState<VirtualDomain | null>(null);
   const [snapshotName, setSnapshotName] = useState("");
   const [snapshotPlan, setSnapshotPlan] = useState<VmSnapshotPlan | null>(null);
+  const [exports, setExports] = useState<VmExportArtifact[]>([]);
+  const [exportPlan, setExportPlan] = useState<VmExportPlan | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [nextStatus, nextDomains, nextResources, nextConsoleGuidance] = await fetchVirtualization();
+      const [[nextStatus, nextDomains, nextResources, nextConsoleGuidance], nextExports] = await Promise.all([
+        fetchVirtualization(),
+        fetchVmExports(),
+      ]);
       setStatus(nextStatus);
       setDomainList(nextDomains);
       setResources(nextResources);
       setConsoleGuidance(nextConsoleGuidance);
+      setExports(nextExports);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to load virtualization status");
     } finally {
@@ -148,6 +160,33 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
     }
   };
 
+  const planExport = async (domain: VirtualDomain) => {
+    setPending(`export-plan:${domain.name}`);
+    setMessage(null);
+    try {
+      setExportPlan(await createVmExportPlan(domain.name, csrfToken));
+    } catch (exportError) {
+      setMessage(exportError instanceof Error ? exportError.message : "Unable to plan stopped VM export");
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const stageExport = async () => {
+    if (!exportPlan) return;
+    setPending(`export-stage:${exportPlan.id}`);
+    setMessage(null);
+    try {
+      await stageVmExportPlan(exportPlan.id, exportPlan.revision, csrfToken);
+      setExportPlan(null);
+      onOpenRepair();
+    } catch (exportError) {
+      setMessage(exportError instanceof Error ? exportError.message : "Unable to stage stopped VM export");
+    } finally {
+      setPending(null);
+    }
+  };
+
   if (loading && !status) {
     return <section className="vm-loading" aria-live="polite">Inspecting QEMU, KVM, and libvirt...</section>;
   }
@@ -215,6 +254,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
                       </button>
                     ))}
                     {domain.state === "stopped" && <button type="button" className="text-button" disabled={pending !== null || !domain.managed || !domain.persistent} onClick={() => openSnapshotPlanner(domain)}>Plan snapshot</button>}
+                    {domain.state === "stopped" && <button type="button" className="text-button" disabled={pending !== null || !domain.managed || !domain.persistent} onClick={() => void planExport(domain)}>{pending === `export-plan:${domain.name}` ? "Inspecting..." : "Plan export"}</button>}
                   </div>
                   <details className="vm-domain-details">
                     <summary>Disks, network, and snapshots</summary>
@@ -250,6 +290,24 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
           <div><span className="eyebrow">Networks</span>{resources?.networks.length ? resources.networks.map((network) => <div className="vm-resource-row" key={network.name}><strong>{network.name}</strong><span>{network.active ? "Active" : "Inactive"} | {network.bridge ?? "no bridge"} | {network.autostart ? "autostart" : "manual"}</span></div>) : <p>No libvirt networks reported.</p>}</div>
           <div><span className="eyebrow">Storage pools</span>{resources?.pools.length ? resources.pools.map((pool) => <div className="vm-resource-row" key={pool.name}><strong>{pool.name}</strong><span>{pool.active ? "Active" : "Inactive"} | {pool.available ?? "free space unavailable"}</span><code>{pool.targetPath ?? "target path unavailable"}</code></div>) : <p>No storage pools reported.</p>}</div>
         </div>
+      </section>
+
+      <section className="panel vm-resources-panel">
+        <header className="panel-header"><div><strong>VM integrity exports</strong><span>Local artifacts, not protected backups</span></div><span className="status-pill status-warning">Protection pending</span></header>
+        {exports.length === 0 ? (
+          <div className="vm-empty"><strong>No VM exports recorded</strong><p>Stop a managed persistent VM, then generate a reviewed export plan. Encryption, an independent destination, and an isolated restore boot are still required before BoxPilot will call it protected.</p></div>
+        ) : (
+          <div className="vm-resource-grid">
+            {exports.map((artifact) => (
+              <div className="vm-resource-row" key={artifact.id}>
+                <strong>{artifact.domainName}</strong>
+                <span>{formatBytes(artifact.sizeBytes)} | SHA-256 recorded | {new Date(artifact.createdAt).toLocaleString()}</span>
+                <code>{artifact.id}</code>
+                <span>{artifact.encrypted ? "Encrypted" : "Not encrypted"} | {artifact.protected ? "Protected" : "Not protected"} | {artifact.restoreDrill.passed ? "Restore drill passed" : "Restore drill not run"}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <div className="vm-bottom-grid">
@@ -313,6 +371,23 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
                   <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => setSnapshotPlan(null)}>Back</button><button type="button" className="primary-button" onClick={() => void stageSnapshot()} disabled={pending !== null}>{pending ? "Revalidating..." : "Stage for password approval"}</button></div>
                 </>
               )}
+            </div>
+          </section>
+        </div>
+      )}
+      {exportPlan && (
+        <div className="vm-planner-backdrop" role="presentation">
+          <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-export-title">
+            <header className="vm-planner-header"><div><span className="eyebrow">Verified local VM export</span><h2 id="vm-export-title">Export {exportPlan.input.name}</h2><p>The VM must remain stopped. This produces an integrity-checked local artifact, not a protected backup.</p></div><button type="button" className="modal-close" aria-label="Close export plan" onClick={() => setExportPlan(null)}>X</button></header>
+            <div className="vm-action-review">
+              <dl className="vm-plan-summary"><div><dt>Source allocated</dt><dd>{formatBytes(exportPlan.output.sourceAllocatedBytes)}</dd></div><div><dt>Space required</dt><dd>{formatBytes(exportPlan.output.requiredBytes)}</dd></div><div><dt>Destination free</dt><dd>{formatBytes(exportPlan.output.destinationFreeBytes)}</dd></div><div><dt>Protected backup</dt><dd>No</dd></div></dl>
+              {exportPlan.output.blockers.length > 0 && <div className="vm-plan-warnings"><strong>Blocked</strong>{exportPlan.output.blockers.map((blocker) => <span key={blocker}>{blocker}</span>)}</div>}
+              <div className="vm-plan-gates"><strong>Exact changes</strong><ol>{exportPlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol></div>
+              <div className="vm-plan-gates"><strong>Required verification</strong><ol>{exportPlan.output.verification.map((check) => <li key={check}>{check}</li>)}</ol></div>
+              <div className="vm-plan-warnings"><strong>Protection boundary</strong>{exportPlan.output.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div>
+              <div className="vm-plan-warnings"><strong>Automatic recovery</strong><span>{exportPlan.output.recovery}</span></div>
+              <p className="vm-action-revision">Plan revision <code>{exportPlan.revision}</code>. Domain UUID, stopped state, disks, snapshots, and capacity are checked again before execution.</p>
+              <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => setExportPlan(null)}>Cancel</button><button type="button" className="primary-button" onClick={() => void stageExport()} disabled={pending !== null || !exportPlan.output.executable}>{pending ? "Revalidating..." : "Stage for password approval"}</button></div>
             </div>
           </section>
         </div>

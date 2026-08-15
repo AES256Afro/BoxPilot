@@ -1,3 +1,6 @@
+import { copyFile, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createVmHelper } from "./vm-helper.mjs";
 import { snapshotDiskRevision, snapshotInventoryRevision } from "./vm-snapshot.mjs";
@@ -152,5 +155,96 @@ describe("restricted VM helper", () => {
       expectedState: "stopped", expectedDiskRevision: snapshotDiskRevision([{ type: "file", device: "disk", target: "vda", source: "/tmp/escape.qcow2" }]), expectedSnapshotRevision: snapshotInventoryRevision([]),
     })).rejects.toThrow("escaped the managed default image directory");
     expect(run.mock.calls.some(([, args]) => args[2] === "snapshot-create-as")).toBe(false);
+  });
+
+  it("rejects an unsafe libvirt disk target before it can become an export filename", async () => {
+    const run = vi.fn(async (binary, args) => {
+      if (binary === "/usr/bin/qemu-img") return { stdout: JSON.stringify({ format: "qcow2", "actual-size": 4096, "virtual-size": 1024 ** 3 }), stderr: "" };
+      if (args[2] === "domstate") return { stdout: "shut off", stderr: "" };
+      if (args[2] === "dominfo") return { stdout: "UUID: 11111111-1111-4111-8111-111111111111\nPersistent: yes\nAutostart: disable", stderr: "" };
+      if (args[2] === "snapshot-list") return { stdout: "", stderr: "" };
+      if (args[2] === "domblklist") return { stdout: "Type Device Target Source\n-----\nfile disk ../../escape /var/lib/libvirt/images/ubuntu-lab.qcow2", stderr: "" };
+      throw new Error("unexpected command");
+    });
+    const helper = createVmHelper({ run, statFile: async () => regularIso() });
+    await expect(helper.inspectExport({ name: "ubuntu-lab" })).rejects.toThrow("unique constrained device names");
+    expect(run.mock.calls.some(([, args]) => args[2] === "dumpxml")).toBe(false);
+  });
+
+  it("exports a stopped persistent VM to a server-owned root-only verified artifact", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-helper-export-"));
+    try {
+      const imageRoot = path.join(directory, "images");
+      const exportRoot = path.join(directory, "exports");
+      const diskPath = path.join(imageRoot, "ubuntu-lab.qcow2");
+      await mkdir(imageRoot);
+      await writeFile(diskPath, Buffer.from("fixture qcow2 content"));
+      const run = vi.fn(async (binary, args) => {
+        if (binary === "/usr/bin/qemu-img") {
+          if (args[0] === "info") return { stdout: JSON.stringify({ format: "qcow2", "actual-size": 4096, "virtual-size": 1024 ** 3 }), stderr: "" };
+          if (args[0] === "convert") { await copyFile(args[5], args[6]); return { stdout: "", stderr: "" }; }
+          if (["check", "compare"].includes(args[0])) return { stdout: "{}", stderr: "" };
+        }
+        if (args[2] === "domstate") return { stdout: "shut off", stderr: "" };
+        if (args[2] === "dominfo") return { stdout: "Name: ubuntu-lab\nUUID: 11111111-1111-4111-8111-111111111111\nPersistent: yes\nAutostart: disable", stderr: "" };
+        if (args[2] === "snapshot-list") return { stdout: "clean-install", stderr: "" };
+        if (args[2] === "domblklist") return { stdout: `Type Device Target Source\n---------------------------------------------\nfile disk vda ${diskPath}`, stderr: "" };
+        if (args[2] === "dumpxml") return { stdout: "<domain><name>ubuntu-lab</name></domain>", stderr: "" };
+        throw new Error(`unexpected command ${binary} ${args.join(" ")}`);
+      });
+      const helper = createVmHelper({ run, imageRoot, exportRoot });
+      const parameters = {
+        name: "ubuntu-lab",
+        exportId: "22222222-2222-4222-8222-222222222222",
+        expectedUuid: "11111111-1111-4111-8111-111111111111",
+        expectedState: "stopped",
+        expectedDiskRevision: snapshotDiskRevision([{ type: "file", device: "disk", target: "vda", source: diskPath }]),
+        expectedSnapshotRevision: snapshotInventoryRevision(["clean-install"]),
+      };
+
+      const inspection = await helper.inspectExport({ name: parameters.name });
+      expect(inspection).toMatchObject({ state: "stopped", sourceAllocatedBytes: 4096, disks: [{ target: "vda" }] });
+      const result = await helper.createExport(parameters);
+      expect(result).toMatchObject({ created: true, contentVerified: true, protected: false, encrypted: false, restoreDrill: { passed: false } });
+      expect(result.exportId).toBe(parameters.exportId);
+      const manifest = JSON.parse(await readFile(path.join(result.artifactPath, "manifest.json"), "utf8"));
+      expect(manifest).toMatchObject({ protected: false, encrypted: false, disks: [{ target: "vda", contentVerified: true }] });
+      expect((await lstat(path.join(result.artifactPath, "vda.qcow2"))).mode & 0o777).toBe(0o600);
+      expect(run).toHaveBeenCalledWith("/usr/bin/qemu-img", ["compare", "-f", "qcow2", "-F", "qcow2", diskPath, expect.stringContaining("vda.qcow2.partial")], { timeout: 6 * 60 * 60 * 1000 });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("removes only the new export directory after conversion verification failure", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-helper-export-fail-"));
+    try {
+      const imageRoot = path.join(directory, "images");
+      const exportRoot = path.join(directory, "exports");
+      const diskPath = path.join(imageRoot, "ubuntu-lab.qcow2");
+      await mkdir(imageRoot);
+      await writeFile(diskPath, Buffer.from("source remains"));
+      const run = vi.fn(async (binary, args) => {
+        if (binary === "/usr/bin/qemu-img" && args[0] === "info") return { stdout: JSON.stringify({ format: "qcow2", "actual-size": 4096, "virtual-size": 1024 ** 3 }), stderr: "" };
+        if (binary === "/usr/bin/qemu-img" && args[0] === "convert") { await copyFile(args[5], args[6]); return { stdout: "", stderr: "" }; }
+        if (binary === "/usr/bin/qemu-img" && args[0] === "check") throw new Error("structural check failed");
+        if (args[2] === "domstate") return { stdout: "shut off", stderr: "" };
+        if (args[2] === "dominfo") return { stdout: "UUID: 11111111-1111-4111-8111-111111111111\nPersistent: yes\nAutostart: disable", stderr: "" };
+        if (args[2] === "snapshot-list") return { stdout: "", stderr: "" };
+        if (args[2] === "domblklist") return { stdout: `Type Device Target Source\n-----\nfile disk vda ${diskPath}`, stderr: "" };
+        if (args[2] === "dumpxml") return { stdout: "<domain/>", stderr: "" };
+        throw new Error("unexpected command");
+      });
+      const helper = createVmHelper({ run, imageRoot, exportRoot });
+      const parameters = {
+        name: "ubuntu-lab", exportId: "22222222-2222-4222-8222-222222222222", expectedUuid: "11111111-1111-4111-8111-111111111111", expectedState: "stopped",
+        expectedDiskRevision: snapshotDiskRevision([{ type: "file", device: "disk", target: "vda", source: diskPath }]), expectedSnapshotRevision: snapshotInventoryRevision([]),
+      };
+      await expect(helper.createExport(parameters)).rejects.toThrow("Automated export cleanup completed");
+      await expect(lstat(path.join(exportRoot, parameters.exportId))).rejects.toMatchObject({ code: "ENOENT" });
+      expect(await readFile(diskPath, "utf8")).toBe("source remains");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });

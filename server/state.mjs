@@ -131,6 +131,20 @@ export function createStateStore({
       created_at TEXT NOT NULL,
       verified_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS vm_exports (
+      id TEXT PRIMARY KEY,
+      domain_name TEXT NOT NULL,
+      domain_uuid TEXT NOT NULL,
+      destination_type TEXT NOT NULL,
+      artifact_path TEXT NOT NULL,
+      manifest_checksum_sha256 TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      protected INTEGER NOT NULL,
+      encrypted INTEGER NOT NULL,
+      restore_drill_json TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS migration_sources (
       id TEXT PRIMARY KEY,
       fingerprint TEXT NOT NULL UNIQUE,
@@ -150,6 +164,7 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_plans_created_at ON plans(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_job_steps_job_id ON job_steps(job_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_backups_created_at ON backups(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_vm_exports_created_at ON vm_exports(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_migration_sources_imported_at ON migration_sources(imported_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_events(created_at DESC);
   `);
@@ -389,6 +404,34 @@ export function createStateStore({
     }));
   }
 
+  function recordVmExport({ id, domainName, domainUuid, destination, artifactPath, manifestChecksumSha256, sizeBytes, protected: protectedState, encrypted, restoreDrill, createdBy }) {
+    const at = timestamp();
+    database.prepare(`
+      INSERT INTO vm_exports (id, domain_name, domain_uuid, destination_type, artifact_path, manifest_checksum_sha256, size_bytes, protected, encrypted, restore_drill_json, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, domainName, domainUuid, destination, artifactPath, manifestChecksumSha256, sizeBytes, protectedState ? 1 : 0, encrypted ? 1 : 0, json(restoreDrill), createdBy, at);
+    recordAudit("vm.export.recorded", { actorId: createdBy, subjectId: id, details: { domainName, domainUuid, destination, manifestChecksumSha256, sizeBytes, protected: protectedState, encrypted } });
+    return listVmExports(1)[0];
+  }
+
+  function listVmExports(limit = 50) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    return database.prepare("SELECT * FROM vm_exports ORDER BY created_at DESC LIMIT ?").all(safeLimit).map((row) => ({
+      id: row.id,
+      domainName: row.domain_name,
+      domainUuid: row.domain_uuid,
+      destination: row.destination_type,
+      artifactPath: row.artifact_path,
+      manifestChecksumSha256: row.manifest_checksum_sha256,
+      sizeBytes: Number(row.size_bytes),
+      protected: Boolean(row.protected),
+      encrypted: Boolean(row.encrypted),
+      restoreDrill: parseJson(row.restore_drill_json),
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+    }));
+  }
+
   function importMigrationSource({ fingerprint, manifest, importedBy }) {
     const existing = database.prepare("SELECT id FROM migration_sources WHERE fingerprint = ?").get(fingerprint);
     if (existing) return getMigrationSource(existing.id);
@@ -447,6 +490,8 @@ export function createStateStore({
     listJobs,
     recordBackup,
     listBackups,
+    recordVmExport,
+    listVmExports,
     importMigrationSource,
     getMigrationSource,
     listMigrationSources,
