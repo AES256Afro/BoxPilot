@@ -19,6 +19,36 @@ describe("curated Uptime Kuma helper", () => {
     expect(runDocker).toHaveBeenCalledWith("/fixed/docker", ["version", "--format", "{{.Server.Version}}"], { timeout: 5000 });
   });
 
+  it("returns sanitized Docker inventory without labels, commands, or mount paths", async () => {
+    const runDocker = vi.fn(async (_binary, args) => {
+      if (args[0] === "ps") return { stdout: JSON.stringify({ ID: "1234567890abcdef", Names: "example", Image: "example:1", State: "running", Status: "Up", Ports: "127.0.0.1:3000->3000/tcp", Networks: "example_default", Labels: "secret=value", Mounts: "/host/secret", Command: "token=secret" }), stderr: "" };
+      if (args[0] === "image") return { stdout: JSON.stringify({ Repository: "example", Tag: "1", Digest: "sha256:abc", ID: "sha256:1234567890abcdef", Size: "10MB" }), stderr: "" };
+      if (args[0] === "network") return { stdout: JSON.stringify({ Name: "example_default", Driver: "bridge", Scope: "local", Internal: "false", IPv6: "false", Labels: "secret=value" }), stderr: "" };
+      if (args[0] === "volume") return { stdout: JSON.stringify({ Name: "example_data", Driver: "local", Scope: "local", Mountpoint: "/var/lib/docker/secret" }), stderr: "" };
+      return { stdout: JSON.stringify([{ Name: "example", Status: "running(1)", ConfigFiles: "/private/compose.yaml" }]), stderr: "" };
+    });
+    const helper = createApplicationHelper({ runDocker });
+
+    const result = await helper.inventoryDocker();
+
+    expect(result).toMatchObject({ available: true, containers: [{ id: "1234567890ab", name: "example", state: "running" }], projects: [{ name: "example", status: "running(1)" }] });
+    expect(JSON.stringify(result)).not.toMatch(/secret|Mountpoint|ConfigFiles|Command|Labels/);
+  });
+
+  it("redacts typed log sources and never returns credential-like values", async () => {
+    const runJournal = vi.fn(async () => ({ stdout: JSON.stringify({ __REALTIME_TIMESTAMP: "1786817282000000", _SYSTEMD_UNIT: "boxpilot.service", PRIORITY: "6", MESSAGE: "login token=abcd password: hunter2 https://example.test/path?key=value" }), stderr: "" }));
+    const helper = createApplicationHelper({ runJournal, journalctlBinary: "/fixed/journalctl" });
+
+    const result = await helper.inspectLogs({ source: "boxpilot", limit: 25 });
+
+    expect(result.entries[0]).toMatchObject({ unit: "boxpilot.service", priority: 6 });
+    expect(result.entries[0].message).toContain("token=[REDACTED]");
+    expect(result.entries[0].message).toContain("password=[REDACTED]");
+    expect(result.entries[0].message).not.toContain("abcd");
+    expect(result.entries[0].message).not.toContain("hunter2");
+    expect(runJournal.mock.calls[0][1]).toEqual(["--unit", "boxpilot.service", "--unit", "boxpilot-helper.service", "--lines", "25", "--no-pager", "--output", "json", "--utc"]);
+  });
+
   it("generates a loopback-only digest-pinned Compose definition", () => {
     const compose = applicationHelperInternals.composeDefinition(3101);
     expect(compose).toContain("louislam/uptime-kuma@sha256:");
