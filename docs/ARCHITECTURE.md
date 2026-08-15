@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.9.0` adds durable approved Linux VM creation while preserving the `0.8.0` read-only migration boundary. A VM plan is tied to normalized inputs and managed-media metadata, revalidated before staging and approval, and sent as fixed typed fields to the helper. The helper derives its own binary paths, libvirt URI, managed ISO path, disk and network arguments, and exact rollback target. Migration still cannot contact, write, stop, transfer from, cut over, or delete a source.
+Version `0.9.1` includes durable approved Linux VM creation while preserving the `0.8.0` read-only migration boundary. The native web unit permits `AF_NETLINK` only so Node can enumerate local interfaces for sanitized inventory; it does not add an inbound listener. A VM plan is tied to normalized inputs and managed-media metadata, revalidated before staging and approval, and sent as fixed typed fields to the helper. The helper derives its own binary paths, libvirt URI, managed ISO path, disk and network arguments, and exact rollback target. Migration still cannot contact, write, stop, transfer from, cut over, or delete a source.
 
 Because the native process belongs to `libvirt`, this is an intermediate boundary rather than the final security model. The restricted helper described below remains the target for all mutations.
 
@@ -142,7 +142,7 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.9.0 limitations
+## Version 0.9.1 limitations
 
 - Dashboard values are demonstration data.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.

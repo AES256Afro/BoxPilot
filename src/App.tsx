@@ -242,7 +242,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.9.0",
+      version: "0.9.1",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
@@ -284,7 +284,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.9.0 guarded VM creation<br />Live surfaces are labeled</div>
+        <div className="prototype-label">v0.9.1 guarded VM creation<br />Live surfaces are labeled</div>
       </aside>
 
       <main>

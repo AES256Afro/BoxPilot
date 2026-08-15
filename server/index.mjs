@@ -65,7 +65,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.9.0",
+    version: "0.9.1",
     mode: "host-aware",
     safeMode: !vmActions.enabled,
     hostMutationsEnabled: vmActions.enabled,
@@ -347,7 +347,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.9.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.9.1 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log(vmActions.enabled ? "Authenticated VM lifecycle actions are enabled." : `Safe mode: ${vmActions.reason}.`);
 });
