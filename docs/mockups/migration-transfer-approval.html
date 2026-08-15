@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BoxPilot migration transfer approval mock</title>
+  <style>
+    :root { color-scheme: dark; --bg:#071019; --panel:#0d1924; --panel2:#111f2c; --line:#24384a; --muted:#8ea4b8; --text:#e8f0f6; --cyan:#52d3d8; --amber:#f5bd63; --green:#68d39b; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:radial-gradient(circle at 90% 0,#143044 0,transparent 31%),var(--bg); color:var(--text); font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif; }
+    .shell { min-height:100vh; display:grid; grid-template-columns:232px 1fr; }
+    aside { border-right:1px solid var(--line); background:#09131d; padding:26px 20px; display:flex; flex-direction:column; }
+    .brand { font-size:21px; font-weight:800; margin-bottom:34px; } .brand span { display:inline-grid; place-items:center; width:34px; height:34px; margin-right:9px; border-radius:9px; background:var(--cyan); color:#051014; }
+    nav { display:grid; gap:8px; } nav div { padding:11px 12px; color:var(--muted); border-radius:8px; font-size:13px; } nav .active { color:var(--text); background:#142534; border:1px solid #28465d; }
+    .private { margin-top:auto; border:1px solid #244657; border-radius:10px; padding:12px; color:var(--muted); font-size:11px; } .private strong { color:var(--green); display:block; margin-bottom:4px; }
+    main { padding:27px 34px 40px; }
+    .top { display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; } .top small { color:var(--muted); } .pill { border:1px solid #685434; background:#332713; color:var(--amber); border-radius:999px; padding:7px 10px; font-size:11px; }
+    .eyebrow { color:var(--cyan); text-transform:uppercase; letter-spacing:.13em; font-size:10px; font-weight:800; }
+    h1 { margin:7px 0 6px; font-size:30px; } h2 { margin:5px 0 0; font-size:18px; } p { color:var(--muted); font-size:12px; line-height:1.55; }
+    .disclosure { margin:18px 0; border:1px solid #7e542c; background:#2b1d10; color:#ffd293; border-radius:10px; padding:12px 14px; font-weight:700; font-size:12px; }
+    .panel { border:1px solid var(--line); background:linear-gradient(180deg,var(--panel2),var(--panel)); border-radius:13px; padding:19px; box-shadow:0 14px 34px #0005; }
+    .heading { display:flex; justify-content:space-between; gap:20px; align-items:flex-start; padding-bottom:15px; border-bottom:1px solid var(--line); }
+    .summary { display:grid; grid-template-columns:repeat(5,1fr); gap:10px; margin:15px 0; } .metric { background:#09141e; border:1px solid var(--line); border-radius:9px; padding:11px; } .metric span { color:var(--muted); font-size:9px; display:block; margin-bottom:5px; } .metric strong { font-size:12px; }
+    .cols { display:grid; grid-template-columns:1fr 1fr; gap:14px; } .card { border:1px solid var(--line); border-radius:10px; background:#0a151f; padding:14px; } .card > strong { font-size:11px; } ol,ul { margin:10px 0 0; padding-left:18px; } li { color:var(--muted); font-size:10px; line-height:1.55; margin:5px 0; }
+    .warning { margin-top:14px; border:1px solid #6a5533; background:#2a2114; border-radius:9px; padding:11px 13px; display:grid; gap:3px; } .warning strong { color:var(--amber); font-size:11px; } .warning span { color:#d7c29b; font-size:10px; }
+    .recovery { border-left:3px solid var(--cyan); background:#0a1923; padding:10px 12px; margin:14px 0; font-size:10px; color:#b5c7d5; }
+    .actions { display:flex; justify-content:space-between; align-items:center; gap:16px; } .revision { font:10px ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--muted); } button { border:0; border-radius:9px; padding:11px 15px; background:var(--cyan); color:#061316; font-weight:800; }
+    .job { margin-top:14px; display:flex; align-items:center; justify-content:space-between; border:1px solid #2b5662; border-radius:9px; padding:11px 13px; background:#0b2029; font-size:10px; } .job strong { color:var(--cyan); }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand"><span>B</span>BoxPilot</div>
+      <nav><div>Overview</div><div>Applications</div><div>Repairs</div><div>Virtual Machines</div><div>Backups</div><div class="active">Migrations</div><div>Logs</div><div>Settings</div></nav>
+      <div class="private"><strong>Private administration</strong>Tailscale HTTPS | Funnel off</div>
+    </aside>
+    <main>
+      <div class="top"><div><small>BoxPilot control plane</small><h1>Migration Center</h1><p>Copy, validate, and stage without destroying the source.</p></div><span class="pill">Guarded mode</span></div>
+      <div class="disclosure">MOCKED 0.17.0 PRODUCT STATE. No source workload or file was changed, no real bundle was copied, and no Compose project was activated.</div>
+      <section class="panel">
+        <div class="heading"><div><span class="eyebrow">Immutable transfer plan 93f8a01d</span><h2>Stage keel-notes without activation</h2></div><span class="pill">Password approval required</span></div>
+        <div class="summary">
+          <div class="metric"><span>Imported source</span><strong>oldbox</strong></div>
+          <div class="metric"><span>Compose file</span><strong>compose.yaml</strong></div>
+          <div class="metric"><span>Bundle inventory</span><strong>47 files | 2.8 GiB</strong></div>
+          <div class="metric"><span>Sensitive-name matches</span><strong>3 helper-only</strong></div>
+          <div class="metric"><span>Destination state</span><strong>Resumable | 1.1 GiB left</strong></div>
+        </div>
+        <div class="cols">
+          <div class="card"><strong>Exact changes</strong><ol><li>Resume only files already matching the immutable manifest.</li><li>Copy missing files into a server-generated root-only staging directory.</li><li>Verify every source and destination file with SHA-256.</li><li>Record durable evidence without exposing paths or secret contents.</li><li>Keep the source, containers, ports, DNS, and routes unchanged.</li></ol></div>
+          <div class="card"><strong>Verification gates</strong><ul><li>Imported source fingerprint matches the bundle.</li><li>Content revision b7412ca0... is unchanged.</li><li>Capacity and destination collision checks pass.</li><li>Complete destination inventory matches 47 reviewed files.</li><li>Source bundle revalidation passes after copy.</li></ul></div>
+        </div>
+        <div class="warning"><strong>Activation is locked</strong><span>This job does not parse or start Compose, expose ports, change routes or DNS, stop the source, or delete anything.</span></div>
+        <div class="recovery"><strong>Recovery:</strong> An interruption leaves isolated partial staging. Create a new plan to resume only checksum-matching files. If copying finished before SQLite recording, a no-copy reconciliation plan recovers the durable result.</div>
+        <div class="actions"><span class="revision">bundle 7cd6e1f1... | source sha256:5a3d... | destination helper-owned</span><button>Stage transfer for approval</button></div>
+        <div class="job"><strong>Next: approve in Operations</strong><span>Review immutable steps and re-enter the owner password. The background transfer still cannot activate the workload.</span></div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

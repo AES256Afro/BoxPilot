@@ -104,6 +104,50 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("runs a migration bundle transfer in the background without sending source records or paths to the helper", async () => {
+    const input = {
+      transferId: "11111111-1111-4111-8111-111111111111",
+      bundleId: "22222222-2222-4222-8222-222222222222",
+      sourceId: "source-one",
+      sourceFingerprint: `sha256:${"a".repeat(64)}`,
+      contentRevision: "b".repeat(64),
+      expectedDestinationState: "empty",
+      expectedRemainingBytes: 8192,
+    };
+    let finish;
+    const helper = { request: vi.fn(() => new Promise((resolve) => { finish = resolve; })) };
+    const { store, owner } = await setup(helper);
+    const validateMigrationTransferJob = vi.fn(async () => ({ input }));
+    const recordMigrationTransferResult = vi.fn();
+    const jobs = createJobService(store, helper, { validateMigrationTransferJob, recordMigrationTransferResult });
+    const job = store.createJob({ type: "migration.bundle.transfer", title: "Stage migration bundle", parameters: { input }, recovery: {}, createdBy: owner.id });
+
+    const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
+    expect(started.state).toBe("applying");
+    expect(helper.request).toHaveBeenCalledWith("migration.bundle.transfer", {
+      transferId: input.transferId,
+      bundleId: input.bundleId,
+      sourceFingerprint: input.sourceFingerprint,
+      contentRevision: input.contentRevision,
+      expectedDestinationState: "empty",
+      expectedRemainingBytes: 8192,
+    }, { timeoutMs: 12 * 60 * 60 * 1000 });
+    const result = {
+      created: true,
+      transferId: input.transferId,
+      bundleId: input.bundleId,
+      contentVerified: true,
+      sourcePreserved: true,
+      activationPerformed: false,
+      networkCutoverPerformed: false,
+      sourceDeletionPerformed: false,
+    };
+    finish(result);
+    await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
+    expect(recordMigrationTransferResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
+    store.close();
+  });
+
   it("revalidates and executes only the staged typed VM input", async () => {
     const input = { name: "ubuntu-lab", osProfile: "ubuntu-24.04", vcpus: 2, memoryMiB: 4096, diskGiB: 40, isoFile: "ubuntu.iso", network: "default", firmware: "uefi", autostart: false };
     const helper = { request: vi.fn(async () => ({ created: true, verified: true, domain: input.name, media: input.isoFile })) };

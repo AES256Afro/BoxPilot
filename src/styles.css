@@ -2419,10 +2419,15 @@ textarea {
 }
 
 .migration-manifest-panel p,
+.migration-sources-panel > p,
 .migration-compatibility li {
   color: var(--muted);
   font-size: 9px;
   line-height: 1.55;
+}
+
+.migration-sources-panel > p {
+  padding: 0 15px;
 }
 
 .migration-manifest-panel textarea {
@@ -2485,6 +2490,11 @@ textarea {
   padding: 6px 8px;
   border: 1px solid var(--line-soft);
   border-radius: 6px;
+}
+
+.migration-source-list article > .form-error {
+  grid-column: 1 / -1;
+  margin: 0;
 }
 
 .backup-source-actions {

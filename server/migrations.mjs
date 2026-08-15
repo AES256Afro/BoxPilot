@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
@@ -77,7 +77,7 @@ function publishedPorts(containers) {
   return ports;
 }
 
-export function createMigrationService({ store, inventory }) {
+export function createMigrationService({ store, inventory, helper }) {
   async function exportManifest() {
     const content = contentFromInventory(await inventory.inspect());
     return { ...content, generatedAt: new Date().toISOString(), fingerprint: fingerprint(content) };
@@ -117,7 +117,7 @@ export function createMigrationService({ store, inventory }) {
     if (portConflicts.length) blockers.push({ id: "published-ports", summary: `Published host port conflicts: ${portConflicts.join(", ")}` });
     if (source.manifest.capacity.rootTotalBytes > destination.storage.root?.freeBytes) warnings.push("The source root capacity exceeds currently reported destination free space. Transfer sizing requires per-workload data totals.");
     warnings.push("This imported manifest is a read-only snapshot. Refresh it immediately before transfer planning.");
-    warnings.push("No source deletion or destination transfer operation exists in this release.");
+    warnings.push("This compatibility plan performs no transfer or source deletion. A separate exact local bundle is required for guarded staging.");
     const output = {
       sourceId, sourceFingerprint: source.fingerprint, destinationGeneratedAt: destination.generatedAt,
       blockers, warnings, readyForTransferPlanning: blockers.length === 0, executable: false,
@@ -126,7 +126,174 @@ export function createMigrationService({ store, inventory }) {
     return store.createPlan({ type: "migration.compatibility", subjectId: sourceId, input: { sourceFingerprint: source.fingerprint }, output, createdBy: ownerId });
   }
 
-  return { exportManifest, importManifest, listSources, plan };
+  async function inspectBundles() {
+    if (!helper) throw new Error("Restricted migration helper is unavailable");
+    const inspection = await helper.request("migration.bundle.inspect", {}, { timeoutMs: 12 * 60 * 60 * 1000 });
+    const sourcesByFingerprint = new Map(store.listMigrationSources(200).map((source) => [source.fingerprint, source]));
+    const transfersByBundle = new Map(store.listMigrationTransfers(200).map((transfer) => [transfer.bundleId, transfer]));
+    return {
+      ...inspection,
+      bundles: (inspection.bundles ?? []).map((bundle) => {
+        const source = sourcesByFingerprint.get(bundle.sourceFingerprint);
+        const recorded = transfersByBundle.get(bundle.bundleId);
+        const reconciliationRequired = bundle.destinationState === "completed" && !recorded;
+        return {
+          ...bundle,
+          sourceId: source?.id ?? null,
+          sourceHostname: source?.manifest?.source?.hostname ?? null,
+          recordedTransferId: recorded?.id ?? null,
+          reconciliationRequired,
+          executable: Boolean(source) && (bundle.executable === true || reconciliationRequired),
+          blockers: [
+            ...(bundle.blockers ?? []),
+            ...(!source ? ["Import the exact sanitized source manifest before planning this transfer"] : []),
+            ...(recorded ? ["This exact staged bundle already has a durable verified transfer record"] : []),
+          ],
+        };
+      }),
+      transfers: store.listMigrationTransfers(),
+    };
+  }
+
+  async function buildTransferPreview(bundleId, transferId = randomUUID()) {
+    const inspection = await inspectBundles();
+    const bundle = inspection.bundles.find((item) => item.bundleId === bundleId);
+    if (!bundle) throw new Error("Migration bundle not found or invalid");
+    const selectedTransferId = bundle.reconciliationRequired ? bundle.completedTransferId : transferId;
+    if (!selectedTransferId) throw new Error("Completed migration staging evidence is missing its transfer id");
+    const input = {
+      transferId: selectedTransferId,
+      bundleId: bundle.bundleId,
+      sourceId: bundle.sourceId,
+      sourceFingerprint: bundle.sourceFingerprint,
+      contentRevision: bundle.contentRevision,
+      expectedDestinationState: bundle.destinationState,
+      expectedRemainingBytes: bundle.remainingBytes,
+    };
+    const output = {
+      executable: bundle.executable === true,
+      workloadName: bundle.workloadName,
+      sourceHostname: bundle.sourceHostname,
+      composeFile: bundle.composeFile,
+      fileCount: bundle.fileCount,
+      sensitiveFileCount: bundle.sensitiveFileCount,
+      totalBytes: bundle.totalBytes,
+      remainingBytes: bundle.remainingBytes,
+      destinationState: bundle.destinationState,
+      blockers: bundle.blockers,
+      changes: bundle.reconciliationRequired ? [
+        "Re-read the already complete root-only staging tree without copying or activating files",
+        "Verify every source and staged file against the immutable bundle manifest",
+        "Recover the missing durable Operations Core transfer record from exact helper evidence",
+        "Keep the source bundle, source workload, containers, ports, routes, and DNS unchanged",
+      ] : [
+        `Copy or resume exactly ${bundle.fileCount} checksummed file(s) into a root-only server-generated staging directory`,
+        "Verify every source and staged file against the immutable bundle manifest",
+        "Record the verified transfer in Operations Core without exposing file contents or secrets to the browser",
+        "Keep the source bundle, source workload, containers, ports, routes, and DNS unchanged",
+      ],
+      verification: ["Exact imported source fingerprint", "Immutable bundle content revision", "Per-file SHA-256 before and after copy", "Complete destination inventory", "Source bundle revalidation after copy"],
+      warnings: [
+        bundle.sensitiveFileCount ? `${bundle.sensitiveFileCount} file(s) match secret-sensitive naming rules. Their paths and contents remain helper-only.` : "No file matched the built-in secret-sensitive naming rules. Review application secrets before activation.",
+        "This transfer stages files only. It does not parse or start Compose, expose ports, change routes or DNS, stop the source, or delete anything.",
+        "An interrupted transfer leaves an isolated partial staging tree. A new plan resumes only files that still match their exact checksums.",
+      ],
+      recovery: "The immutable source bundle and source workload remain unchanged. If interrupted, create a new plan to resume exact verified files. Staged files are never activated automatically.",
+      sourcePreserved: true,
+      activationPerformed: false,
+      reconciliationOnly: bundle.reconciliationRequired,
+    };
+    return { input, output };
+  }
+
+  async function planTransfer(bundleId, ownerId) {
+    const preview = await buildTransferPreview(bundleId);
+    return store.createPlan({ type: "migration.bundle.transfer", subjectId: bundleId, input: preview.input, output: preview.output, createdBy: ownerId });
+  }
+
+  async function revalidateTransfer(draft) {
+    const current = await buildTransferPreview(draft.input.bundleId, draft.input.transferId);
+    if (JSON.stringify(current.input) !== JSON.stringify(draft.input) || JSON.stringify(current.output) !== JSON.stringify(draft.output) || !current.output.executable) {
+      throw new Error("The migration bundle, source manifest, capacity, or staging evidence changed after planning");
+    }
+    return current;
+  }
+
+  async function stageTransfer(planId, revision, ownerId) {
+    const draft = store.getPlan(planId);
+    if (!draft || draft.createdBy !== ownerId || draft.type !== "migration.bundle.transfer") throw new Error("Migration transfer plan not found");
+    if (draft.revision !== revision) throw new Error("Migration transfer plan revision does not match");
+    if (!draft.output.executable) throw new Error(draft.output.blockers.join(" | ") || "Migration transfer plan is not executable");
+    await revalidateTransfer(draft);
+    store.stagePlan(draft.id, ownerId);
+    return store.createJob({
+      type: "migration.bundle.transfer",
+      title: `Stage migration bundle for ${draft.output.workloadName}`,
+      risk: "medium",
+      parameters: { planId: draft.id, revision: draft.revision, input: draft.input },
+      recovery: { automaticRollback: false, reason: draft.output.recovery, manual: draft.output.recovery },
+      createdBy: ownerId,
+      initialSteps: [
+        { name: "preflight", state: "completed", detail: "Imported source fingerprint, immutable bundle revision, destination collision checks, and remaining capacity validated" },
+        { name: "checkpoint", state: "completed", detail: "Source preservation confirmed; destination is isolated and supports checksum-based resume; activation and source deletion are disabled" },
+      ],
+    });
+  }
+
+  async function validateTransferJob(job) {
+    if (job.type !== "migration.bundle.transfer") throw new Error("Unsupported migration transfer job");
+    const staged = store.getPlan(job.parameters.planId);
+    if (!staged || staged.status !== "staged" || staged.revision !== job.parameters.revision) throw new Error("The staged migration transfer plan is unavailable or changed");
+    if (staged.createdBy !== job.createdBy || JSON.stringify(job.parameters.input) !== JSON.stringify(staged.input)) throw new Error("The migration transfer job inputs do not match the approved plan");
+    await revalidateTransfer(staged);
+    return staged;
+  }
+
+  function helperTransferInput(input) {
+    return {
+      transferId: input.transferId,
+      bundleId: input.bundleId,
+      sourceFingerprint: input.sourceFingerprint,
+      contentRevision: input.contentRevision,
+      expectedDestinationState: input.expectedDestinationState,
+      expectedRemainingBytes: input.expectedRemainingBytes,
+    };
+  }
+
+  function recordTransferResult(job, result) {
+    const input = job.parameters.input;
+    const staged = store.getPlan(job.parameters.planId);
+    if (result?.created !== true || result?.transferId !== input.transferId || result?.bundleId !== input.bundleId
+      || result?.sourceFingerprint !== input.sourceFingerprint || result?.contentRevision !== input.contentRevision
+      || result?.contentVerified !== true || result?.sourcePreserved !== true || result?.activationPerformed !== false
+      || result?.networkCutoverPerformed !== false || result?.sourceDeletionPerformed !== false
+      || !staged || staged.type !== "migration.bundle.transfer" || staged.output.workloadName !== result?.workloadName
+      || staged.output.fileCount !== result?.fileCount || staged.output.totalBytes !== result?.sizeBytes
+      || result?.destination !== `managed-migration-staging/${input.bundleId}`) {
+      throw new Error("Migration transfer evidence validation failed");
+    }
+    return store.recordMigrationTransfer({
+      id: result.transferId,
+      bundleId: result.bundleId,
+      sourceId: input.sourceId,
+      sourceFingerprint: result.sourceFingerprint,
+      contentRevision: result.contentRevision,
+      workloadName: result.workloadName,
+      destination: result.destination,
+      fileCount: result.fileCount,
+      sizeBytes: result.sizeBytes,
+      contentVerified: true,
+      sourcePreserved: true,
+      activationPerformed: false,
+      createdBy: job.createdBy,
+    });
+  }
+
+  function listTransfers() {
+    return { transfers: store.listMigrationTransfers() };
+  }
+
+  return { exportManifest, importManifest, listSources, plan, inspectBundles, planTransfer, stageTransfer, validateTransferJob, helperTransferInput, recordTransferResult, listTransfers };
 }
 
 export const migrationInternals = { canonical, contentFromInventory, fingerprint, normalizeImportedManifest, publishedPorts };
