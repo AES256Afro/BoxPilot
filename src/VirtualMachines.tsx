@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   createVmLifecyclePlan,
+  createVmSnapshotPlan,
   fetchVirtualization,
   formatMemory,
   type LibvirtResources,
+  type ConsoleGuidance,
   stageVmLifecyclePlan,
+  stageVmSnapshotPlan,
   type DomainList,
   type VirtualDomain,
   type VmLifecyclePlan,
+  type VmSnapshotPlan,
   type VirtualizationStatus,
 } from "./virtualization";
 import VmPlanner from "./VmPlanner";
@@ -39,21 +43,26 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
   const [status, setStatus] = useState<VirtualizationStatus | null>(null);
   const [domainList, setDomainList] = useState<DomainList | null>(null);
   const [resources, setResources] = useState<LibvirtResources | null>(null);
+  const [consoleGuidance, setConsoleGuidance] = useState<ConsoleGuidance | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [plannerOpen, setPlannerOpen] = useState(false);
   const [actionPlan, setActionPlan] = useState<VmLifecyclePlan | null>(null);
+  const [snapshotDomain, setSnapshotDomain] = useState<VirtualDomain | null>(null);
+  const [snapshotName, setSnapshotName] = useState("");
+  const [snapshotPlan, setSnapshotPlan] = useState<VmSnapshotPlan | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [nextStatus, nextDomains, nextResources] = await fetchVirtualization();
+      const [nextStatus, nextDomains, nextResources, nextConsoleGuidance] = await fetchVirtualization();
       setStatus(nextStatus);
       setDomainList(nextDomains);
       setResources(nextResources);
+      setConsoleGuidance(nextConsoleGuidance);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to load virtualization status");
     } finally {
@@ -98,6 +107,42 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       onOpenRepair();
     } catch (actionError) {
       setMessage(actionError instanceof Error ? actionError.message : "Unable to stage VM lifecycle action");
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const openSnapshotPlanner = (domain: VirtualDomain) => {
+    setSnapshotDomain(domain);
+    setSnapshotPlan(null);
+    setSnapshotName(`checkpoint-${new Date().toISOString().slice(0, 10)}`);
+    setMessage(null);
+  };
+
+  const planSnapshot = async () => {
+    if (!snapshotDomain) return;
+    setPending(`snapshot-plan:${snapshotDomain.name}`);
+    setMessage(null);
+    try {
+      setSnapshotPlan(await createVmSnapshotPlan(snapshotDomain.name, snapshotName, csrfToken));
+    } catch (snapshotError) {
+      setMessage(snapshotError instanceof Error ? snapshotError.message : "Unable to plan offline snapshot");
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const stageSnapshot = async () => {
+    if (!snapshotPlan) return;
+    setPending(`snapshot-stage:${snapshotPlan.id}`);
+    setMessage(null);
+    try {
+      await stageVmSnapshotPlan(snapshotPlan.id, snapshotPlan.revision, csrfToken);
+      setSnapshotDomain(null);
+      setSnapshotPlan(null);
+      onOpenRepair();
+    } catch (snapshotError) {
+      setMessage(snapshotError instanceof Error ? snapshotError.message : "Unable to stage offline snapshot");
     } finally {
       setPending(null);
     }
@@ -149,7 +194,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
               {domains.map((domain) => (
                 <article className="vm-domain" key={domain.uuid ?? domain.name}>
                   <div className="vm-domain-summary">
-                    <div className="vm-domain-name"><span className="vm-icon">VM</span><div><strong>{domain.name}</strong><span>{domain.vcpus} vCPU | {formatMemory(domain.memoryKiB)} | {domain.autostart ? "Autostart on" : "Autostart off"}</span></div></div>
+                    <div className="vm-domain-name"><span className="vm-icon">VM</span><div><strong>{domain.name}</strong><span>{domain.vcpus} vCPU | {formatMemory(domain.memoryKiB)} | {domain.autostart ? "Autostart on" : "Autostart off"}</span><span>{domain.guestAgent.available ? `Guest agent ready${domain.guestAgent.filesystemState ? ` | filesystems ${domain.guestAgent.filesystemState}` : ""}` : "Guest agent not reachable"}</span></div></div>
                     <span className={`status-pill status-${stateTone(domain.state)}`}>{domain.state}</span>
                   </div>
                   <div className="vm-addresses">
@@ -169,13 +214,14 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
                         {pending === `${domain.name}:${action}` ? "Working..." : label}
                       </button>
                     ))}
+                    {domain.state === "stopped" && <button type="button" className="text-button" disabled={pending !== null || !domain.managed || !domain.persistent} onClick={() => openSnapshotPlanner(domain)}>Plan snapshot</button>}
                   </div>
                   <details className="vm-domain-details">
                     <summary>Disks, network, and snapshots</summary>
                     <div className="vm-detail-grid">
                       <div><strong>Disks</strong>{domain.disks.length ? domain.disks.map((disk) => <span key={`${disk.target}-${disk.source}`}><code>{disk.target}</code>{disk.source}</span>) : <span>No block devices reported</span>}</div>
                       <div><strong>Interfaces</strong>{domain.interfaces.length ? domain.interfaces.map((networkInterface) => <span key={networkInterface.mac}><code>{networkInterface.interface}</code>{networkInterface.source} | {networkInterface.model ?? "default model"}</span>) : <span>No interfaces reported</span>}</div>
-                      <div><strong>Snapshots</strong><span>{domain.snapshotCount === null ? "Unavailable" : `${domain.snapshotCount} reported`}</span></div>
+                      <div><strong>Snapshots</strong><span>{domain.snapshotCount === null ? "Unavailable" : `${domain.snapshotCount} reported | not independent backups`}</span>{domain.snapshots.map((snapshot) => <span key={snapshot.name}><code>{snapshot.name}</code>{snapshot.current ? "current" : snapshot.state ?? "state unavailable"} | {snapshot.location ?? "location unavailable"}</span>)}</div>
                     </div>
                   </details>
                 </article>
@@ -219,7 +265,9 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
           {firstServeUrl
             ? <a href={firstServeUrl}>{firstServeUrl}</a>
             : <p>{status.tailscale.connected ? `Tailscale is connected${status.tailscale.dnsName ? ` as ${status.tailscale.dnsName}` : ""}, but no Serve HTTPS URL was reported.` : "Tailscale is not connected on this host."}</p>}
-          <p>For a service inside a VM, install Tailscale in the guest or use a bridged LAN address. A web console proxy is not enabled in this release.</p>
+          {consoleGuidance?.privateUrl && <a href={consoleGuidance.privateUrl} target="_blank" rel="noreferrer">Open Cockpit console handoff</a>}
+          <p>{consoleGuidance?.accessNote ?? "BoxPilot console guidance is unavailable."}</p>
+          <p>For a service inside a VM, install Tailscale in the guest or use a deliberately planned LAN address. BoxPilot does not proxy guest console traffic in this release.</p>
         </aside>
       </div>
 
@@ -240,6 +288,31 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
               <div className="vm-plan-warnings"><strong>Recovery boundary</strong><span>{actionPlan.output.recovery}</span></div>
               <p className="vm-action-revision">Plan revision <code>{actionPlan.revision}</code>. Host state will be checked again before staging and again after password approval.</p>
               <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => setActionPlan(null)}>Cancel</button><button type="button" className="primary-button" onClick={() => void stageAction()} disabled={pending !== null}>{pending ? "Revalidating..." : "Stage for password approval"}</button></div>
+            </div>
+          </section>
+        </div>
+      )}
+      {snapshotDomain && (
+        <div className="vm-planner-backdrop" role="presentation">
+          <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-snapshot-title">
+            <header className="vm-planner-header"><div><span className="eyebrow">Guarded offline snapshot</span><h2 id="vm-snapshot-title">Snapshot {snapshotDomain.name}</h2><p>Only stopped, persistent VMs with managed qcow2 disks can use this workflow.</p></div><button type="button" className="modal-close" aria-label="Close snapshot plan" onClick={() => { setSnapshotDomain(null); setSnapshotPlan(null); }}>X</button></header>
+            <div className="vm-action-review">
+              {!snapshotPlan ? (
+                <form onSubmit={(event) => { event.preventDefault(); void planSnapshot(); }}>
+                  <label className="vm-snapshot-name">Snapshot name<input value={snapshotName} onChange={(event) => setSnapshotName(event.target.value)} pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,62}" maxLength={63} required autoComplete="off" /><span>Use 1-63 letters, numbers, dots, underscores, or hyphens.</span></label>
+                  <div className="vm-plan-warnings"><strong>Important boundary</strong><span>This creates an internal snapshot while the VM is stopped. It is not an independent backup. Revert and delete remain locked.</span></div>
+                  <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => setSnapshotDomain(null)}>Cancel</button><button type="submit" className="primary-button" disabled={pending !== null}>{pending ? "Inspecting..." : "Generate reviewed plan"}</button></div>
+                </form>
+              ) : (
+                <>
+                  <dl className="vm-plan-summary"><div><dt>Consistency</dt><dd>offline-consistent</dd></div><div><dt>Independent backup</dt><dd>No</dd></div><div><dt>Existing snapshots</dt><dd>{snapshotPlan.output.currentSnapshotCount}</dd></div><div><dt>Managed disks</dt><dd>{snapshotPlan.output.diskTargets.join(", ")}</dd></div></dl>
+                  <div className="vm-plan-gates"><strong>Exact changes</strong><ol>{snapshotPlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol></div>
+                  <div className="vm-plan-warnings"><strong>Warnings</strong>{snapshotPlan.output.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div>
+                  <div className="vm-plan-warnings"><strong>Recovery boundary</strong><span>{snapshotPlan.output.recovery}</span></div>
+                  <p className="vm-action-revision">Plan revision <code>{snapshotPlan.revision}</code>. Domain UUID, stopped state, disk confinement, and snapshot inventory will be checked again before execution.</p>
+                  <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => setSnapshotPlan(null)}>Back</button><button type="button" className="primary-button" onClick={() => void stageSnapshot()} disabled={pending !== null}>{pending ? "Revalidating..." : "Stage for password approval"}</button></div>
+                </>
+              )}
             </div>
           </section>
         </div>

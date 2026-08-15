@@ -6,27 +6,29 @@ import { createApplicationService } from "./applications.mjs";
 import { createBackupService } from "./backups.mjs";
 import { createAuthService } from "./security.mjs";
 import { createHelperClient } from "./helper-client.mjs";
+import { buildConsoleGuidanceResponse, createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
 import { createJobService } from "./jobs.mjs";
-import { createLibvirtService, getSetupPlan } from "./libvirt.mjs";
+import { getSetupPlan } from "./libvirt.mjs";
 import { createMigrationService } from "./migrations.mjs";
 import { createPrerequisiteService } from "./prerequisites.mjs";
 import { createStateStore } from "./state.mjs";
 import { createVmCreationService } from "./vm-creation.mjs";
 import { createVmLifecycleService } from "./vm-lifecycle.mjs";
 import { createVmPlanner, validateVmPlanInput } from "./vm-plan.mjs";
+import { createVmSnapshotService } from "./vm-snapshot.mjs";
 
 const app = express();
 const host = process.env.BOXPILOT_HOST ?? "127.0.0.1";
 const port = Number.parseInt(process.env.BOXPILOT_PORT ?? "8787", 10);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
-const libvirt = createLibvirtService();
 const vmPlanner = createVmPlanner();
 const audit = createAuditLog();
 const state = createStateStore();
 const auth = createAuthService(state);
 const helper = createHelperClient({ timeoutMs: 180000 });
+const libvirt = createHelperLibvirtService({ helper });
 const prerequisites = createPrerequisiteService({
   stateDirectory: process.env.BOXPILOT_STATE_DIRECTORY ?? path.dirname(state.databasePath),
   helper,
@@ -37,12 +39,14 @@ const inventory = createInventoryService({ helper });
 const migrations = createMigrationService({ store: state, inventory });
 const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, libvirt });
 const vmLifecycle = createVmLifecycleService({ store: state, libvirt });
+const vmSnapshots = createVmSnapshotService({ store: state, libvirt });
 const jobs = createJobService(state, helper, {
   validateApplicationJob: applications.validateJob,
   validateBackupJob: backups.validateJob,
   recordBackupResult: backups.recordResult,
   validateVmCreationJob: vmCreation.validateJob,
   validateVmLifecycleJob: vmLifecycle.validateJob,
+  validateVmSnapshotJob: vmSnapshots.validateJob,
 });
 state.deleteExpiredSessions();
 const interruptedJobs = state.recoverInterruptedJobs();
@@ -66,7 +70,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.10.0",
+    version: "0.11.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -98,13 +102,15 @@ app.get("/api/v1/capabilities", (_request, response) => {
     supportBundle: "browser-only",
     backups: "uptime-kuma-local-with-restore-drill",
     migrations: "read-only-sanitized-manifests-and-compatibility-plans",
-    privilegedHelper: "typed-canary-applications-backups-inventory-logs-vm-creation-and-lifecycle",
+    privilegedHelper: "typed-canary-applications-backups-inventory-logs-vm-creation-lifecycle-and-offline-snapshots",
     identity: "owner-password-foundation",
-    durableJobs: "sqlite-approved-application-backup-vm-creation-and-lifecycle-workflows",
-    virtualization: "live-libvirt",
+    durableJobs: "sqlite-approved-application-backup-vm-creation-lifecycle-and-snapshot-workflows",
+    virtualization: "live-libvirt-via-restricted-helper",
     vmCreationPlanning: "validated-durable-approved",
     audit: "redacted-jsonl-foundation",
     vmActions: { enabled: true, mode: "durable-approved-helper-jobs" },
+    vmSnapshots: { create: "offline-stopped-managed-qcow2-only", revert: false, delete: false, countsAsBackup: false },
+    vmConsole: { nativeProxy: false, cockpitHandoff: "detect-existing-only" },
   });
 });
 
@@ -243,6 +249,10 @@ app.get("/api/v1/virtualization/resources", async (_request, response) => {
   response.status(resources.connected ? 200 : 503).json(resources);
 });
 
+app.get("/api/v1/virtualization/console-guidance", async (_request, response) => {
+  response.json(buildConsoleGuidanceResponse(await libvirt.getConsoleGuidance()));
+});
+
 app.get("/api/v1/virtualization/planning-options", async (_request, response) => {
   response.json(await vmPlanner.getOptions());
 });
@@ -289,7 +299,7 @@ app.post("/api/v1/virtualization/plans/:id/stage", async (request, response) => 
     const job = await vmCreation.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
     response.status(201).json({ job });
   } catch (error) {
-    const status = error.message.includes("not found") ? 404 : 409;
+    const status = error.message.includes("unavailable") ? 503 : error.message.includes("not found") ? 404 : 409;
     response.status(status).json({ error: error.message, code: "vm_plan_stage_failed" });
   }
 });
@@ -299,7 +309,7 @@ app.post("/api/v1/virtualization/domains/:name/action-plans", async (request, re
     const plan = await vmLifecycle.plan(request.params.name, request.body?.action, request.boxpilotSession.owner.id);
     response.status(201).json({ plan });
   } catch (error) {
-    const status = error.message.includes("not found") ? 404 : 409;
+    const status = error.message.includes("unavailable") ? 503 : error.message.includes("not found") ? 404 : 409;
     response.status(status).json({ error: error.message, code: "vm_lifecycle_plan_failed" });
   }
 });
@@ -309,8 +319,28 @@ app.post("/api/v1/virtualization/action-plans/:id/stage", async (request, respon
     const job = await vmLifecycle.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
     response.status(201).json({ job });
   } catch (error) {
-    const status = error.message.includes("not found") ? 404 : 409;
+    const status = error.message.includes("unavailable") ? 503 : error.message.includes("not found") ? 404 : 409;
     response.status(status).json({ error: error.message, code: "vm_lifecycle_stage_failed" });
+  }
+});
+
+app.post("/api/v1/virtualization/domains/:name/snapshot-plans", async (request, response) => {
+  try {
+    const plan = await vmSnapshots.plan(request.params.name, request.body?.snapshotName, request.boxpilotSession.owner.id);
+    response.status(201).json({ plan });
+  } catch (error) {
+    const status = error.message.includes("unavailable") ? 503 : error.message.includes("not found") ? 404 : 409;
+    response.status(status).json({ error: error.message, code: "vm_snapshot_plan_failed" });
+  }
+});
+
+app.post("/api/v1/virtualization/snapshot-plans/:id/stage", async (request, response) => {
+  try {
+    const job = await vmSnapshots.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
+    response.status(201).json({ job });
+  } catch (error) {
+    const status = error.message.includes("unavailable") ? 503 : error.message.includes("not found") ? 404 : 409;
+    response.status(status).json({ error: error.message, code: "vm_snapshot_stage_failed" });
   }
 });
 
@@ -329,7 +359,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.10.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.11.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

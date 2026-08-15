@@ -2,7 +2,7 @@
 
 This plan turns the current QEMU/KVM module into a dependable home-server virtualization control plane. Milestones are dependency ordered. A later milestone cannot ship merely because its interface is complete.
 
-## Current baseline: 0.10.0
+## Current baseline: 0.11.0
 
 Shipped:
 
@@ -14,11 +14,13 @@ Shipped:
 - Durable owner sessions, CSRF protection, immutable SQLite plans, password approvals, jobs, steps, and audit attribution
 - Guarded Linux VM creation through the typed root helper with live revalidation, post-create verification, and exact-domain rollback
 - Fixed helper lifecycle arguments with expected-state checks before and after execution
+- Read-only libvirt, guest-agent, and snapshot inventory through the restricted helper
+- No direct `libvirt` or `kvm` group access in the web service
+- Durable offline internal snapshot creation for stopped VMs with unchained managed qcow2 disks
 
 Known boundary:
 
-- The web service still belongs to `libvirt` and `kvm` for read-only discovery even though all shipped VM mutations use the helper.
-- Windows TPM/Secure Boot, cloud-init, console, snapshots, VM backup and restore, bridge management, passthrough, and fleet placement remain pending.
+- AppArmor, Windows TPM/Secure Boot, cloud-init, console proxy, online snapshots, snapshot revert/delete, VM backup and restore, bridge management, passthrough, and fleet placement remain pending.
 - The safe Docker preview cannot inspect host libvirt.
 
 ## Milestone V1: guided creation planning
@@ -65,7 +67,7 @@ Acceptance:
 
 Target: `0.5.0`
 
-Status: VM creation uses the root-owned Unix socket, fixed binaries, fixed local libvirt URI, fixed managed-media root, an exact typed schema, durable steps, and rollback in `0.9.0`. Start, graceful shutdown, reboot requests, and autostart move into typed helper jobs in `0.10.0`. AppArmor policy and removal of the web service from `libvirt` and `kvm` remain pending.
+Status: VM creation uses the root-owned Unix socket, fixed binaries, fixed local libvirt URI, fixed managed-media root, an exact typed schema, durable steps, and rollback in `0.9.0`. Start, graceful shutdown, reboot requests, and autostart move into typed helper jobs in `0.10.0`. Read-only inventory moves to fixed helper scopes and the web service loses direct `libvirt` and `kvm` groups in `0.11.0`. AppArmor remains pending.
 
 - Root-owned Unix socket with a versioned typed protocol
 - Separate helper user and AppArmor/systemd confinement
@@ -103,6 +105,8 @@ Acceptance:
 ## Milestone V5: console, snapshots, and guest integration
 
 Target: `0.7.0`
+
+Status: `0.11.0` ships helper-backed guest-agent availability, agent IP discovery, filesystem-freeze status, bounded snapshot inventory, durable stopped-VM internal snapshot creation, and read-only detection plus private-hostname handoff for an already active Cockpit socket. It labels snapshots offline-consistent and not independent backups. Native private console grants, Cockpit installation/configuration, online quiesced snapshots, chain-growth estimation, revert, and delete remain pending.
 
 - Private web console proxy with short-lived access grants
 - QEMU guest-agent status, IP discovery, clean shutdown, and filesystem-freeze awareness
