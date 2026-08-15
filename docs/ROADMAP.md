@@ -62,7 +62,7 @@ Acceptance:
 
 ## Phase 3: backup engine and Keel Notes adapter
 
-Status: blocked from host mutation until the Phase 4 helper grows beyond its `0.4.0` no-mutation canary. Read-only adapter and destination discovery may proceed first.
+Status: `0.6.0` includes a local managed destination for Uptime Kuma, clean source coordination, SHA-256 integrity evidence, source restart health verification, and an isolated no-network restore drill. Scheduling, retention, independent destinations, encryption, Keel Notes, PostgreSQL, and Litestream awareness remain pending.
 
 - Destination adapters for local disk, mounted NAS, restic repositories, and optional cloud object storage
 - Keel discovery for Docker and service installs
@@ -81,7 +81,7 @@ Acceptance:
 
 ## Phase 4: restricted privileged helper
 
-Status: the root-owned service, Unix-socket boundary, versioned allowlist, hardened unit, negative protocol tests, and no-mutation canary are included in `0.4.0`. Version `0.5.0` adds fixed Uptime Kuma inspect and deploy operations, serialized helper execution, health verification, and data-preserving rollback. Package, service, firewall, storage, reboot, general Docker, libvirt, and backup handlers remain locked.
+Status: the root-owned service, Unix-socket boundary, versioned allowlist, hardened unit, negative protocol tests, and no-mutation canary are included in `0.4.0`. Version `0.5.0` adds fixed Uptime Kuma inspect and deploy operations. Version `0.6.0` adds the fixed Uptime Kuma backup and isolated restore handler. Package, service, firewall, storage, reboot, general Docker, libvirt, and general backup handlers remain locked.
 
 - Root-owned Unix socket
 - Versioned typed-operation protocol

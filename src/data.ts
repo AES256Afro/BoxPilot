@@ -80,13 +80,6 @@ export const timeline = [
   ["00:15", "Keel snapshot and restore test verified"],
 ] as const;
 
-export const backupRows = [
-  ["Keel Notes", "Export + secrets key", "NAS + offsite", "2h ago", "Passed"],
-  ["Docker configuration", "Compose + secrets manifest", "NAS", "2h ago", "Passed"],
-  ["Ubuntu Lab", "Quiesced qcow2", "NAS", "1d ago", "Passed"],
-  ["Host configuration", "Config inventory", "NAS + recovery kit", "1d ago", "Due in 12d"],
-] as const;
-
 export const logRows = [
   ["08:14:31", "smartd", "Device /dev/nvme0 health self-assessment passed"],
   ["08:11:04", "tailscaled", "Peer connection active over direct path"],

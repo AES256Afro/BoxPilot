@@ -1,7 +1,7 @@
 import { createApplicationHelper } from "./application-helper.mjs";
 
 export const helperProtocolVersion = 1;
-export const helperOperations = new Set(["canary.verify", "container.docker.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy"]);
+export const helperOperations = new Set(["canary.verify", "container.docker.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup"]);
 
 export function validateHelperRequest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "Request must be an object";
@@ -17,6 +17,11 @@ export function validateHelperRequest(value) {
       return "Uptime Kuma deployment accepts only a hostPort between 1024 and 65535";
     }
   }
+  if (value.operation === "application.uptime-kuma.backup") {
+    if (Object.keys(value.parameters).length !== 1 || typeof value.parameters.backupId !== "string" || !/^[a-f0-9-]{36}$/.test(value.parameters.backupId)) {
+      return "Uptime Kuma backup accepts only a backupId UUID";
+    }
+  }
   return null;
 }
 
@@ -28,7 +33,7 @@ export async function executeHelperOperation(request, { applications = createApp
       version: helperProtocolVersion,
       id: request.id,
       ok: true,
-      result: { verified: true, helperVersion: "0.2.1", mutationPerformed: false },
+      result: { verified: true, helperVersion: "0.3.0", mutationPerformed: false },
     };
   }
   if (request.operation === "container.docker.inspect") {
@@ -39,6 +44,9 @@ export async function executeHelperOperation(request, { applications = createApp
   }
   if (request.operation === "application.uptime-kuma.deploy") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await applications.deploy(request.parameters) };
+  }
+  if (request.operation === "application.uptime-kuma.backup") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await applications.backup(request.parameters) };
   }
   return { version: helperProtocolVersion, id: request.id, ok: false, error: "Operation is not implemented", code: "not_implemented" };
 }

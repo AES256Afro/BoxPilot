@@ -4,11 +4,11 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.5.1` adds the curated application engine. Uptime Kuma can be discovered, planned against live host prerequisites and ports, staged as an immutable revision, approved with password reauthentication, deployed through the restricted helper, health checked, and automatically rolled back without deleting its data. Docker readiness is also collected through that helper so the web process stays outside the Docker group. Pi-hole has a planning-only adapter with Docker and VM targets plus DNS, AdGuard Home, router, and outage-recovery gates. Operations Core and QEMU/KVM inspection remain live on native Linux.
+Version `0.6.0` adds the first application-aware backup engine. Uptime Kuma can be stopped cleanly for a consistent archive, restarted and health checked, integrity-addressed with SHA-256, restored into a temporary no-network container, and recorded as verified only after that restore passes. The curated application engine, Pi-hole planning gates, Operations Core, and QEMU/KVM inspection remain live on native Linux.
 
 ### What works now
 
-| Area | Status in `0.5.1` | Capability |
+| Area | Status in `0.6.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
@@ -16,8 +16,9 @@ Version `0.5.1` adds the curated application engine. Uptime Kuma can be discover
 | Repair Center | Live foundation | Checks Node.js, state storage, the helper, Docker, libvirt, Tailscale, and DNS port availability without returning peer details or raw command output. |
 | Restricted helper | Canary plus one curated adapter | Uses a versioned, allowlisted protocol over a local Unix socket. It accepts no command strings, image names, paths, Compose source, or executable selection from the browser. |
 | Application catalog | Live | Publishes integrity-addressed manifests, live installation state, exact image policy, targets, ports, storage, prerequisites, recovery, and adapter risk. |
-| Uptime Kuma adapter | Executable evaluation deployment | Uses the official `2.5.0` image pinned by multi-platform digest, a loopback-only port, local persistent storage, Docker health, approval, and data-preserving rollback. It remains evaluation-only until backup and isolated restore evidence exists. |
+| Uptime Kuma adapter | Executable deployment | Uses the official `2.5.0` image pinned by multi-platform digest, a loopback-only port, local persistent storage, Docker health, approval, and data-preserving rollback. The catalog shows whether restore-verified backup evidence exists. |
 | Pi-hole adapter | Planning-only | Models Docker and dedicated-VM targets, TCP and UDP DNS ports, persistent configuration, Flint 2 AdGuard Home conflicts, router cutover, second-device verification, and recovery. It cannot execute. |
+| Backup engine | One live application adapter | Creates immutable local Uptime Kuma archives after a clean stop, verifies source restart, records SHA-256 and measured downtime, and runs a temporary restore container with no network or published ports. |
 | QEMU/KVM preflight | Live on the native host | Checks Linux, `/dev/kvm`, QEMU, `virsh`, `virt-install`, `qemu:///system`, service-user groups, the default NAT network, the default storage pool, and Tailscale access. |
 | VM and libvirt inventory | Live on the native host | Lists domains, state, CPU, memory, autostart, lease-reported addresses, disks, interfaces, snapshot count, networks, and storage pools. |
 | VM creation planner | Validated read-only | Discovers regular ISO files in one managed directory, validates fields on the server, checks name collisions and reported pool space, and renders a non-executing `virt-install` argument preview. |
@@ -25,7 +26,7 @@ Version `0.5.1` adds the curated application engine. Uptime Kuma can be discover
 | VM event log | Limited live foundation | Writes and displays redacted JSONL events for VM plans and enabled lifecycle requests. It is not the final authenticated job ledger. |
 | Compose inspector | Browser-only preview | Performs a lightweight structural and risk scan. It is not a full YAML parser and cannot deploy. |
 | Support bundle | Browser-generated preview | Downloads release metadata and available redacted VM audit events. It is not yet a general host support bundle. |
-| Overview, backups, migrations, and settings | UI demonstration | Shows the intended operator workflow using sample data. These pages do not collect or change host state. |
+| Overview, migrations, and settings | UI demonstration | Shows the intended operator workflow using sample data. These pages do not collect or change host state. |
 | Docker deployment | Safe preview | Runs loopback-only without capabilities, host mounts, or the Docker socket. This container cannot inspect host libvirt. |
 
 The repository also includes a read-only Ubuntu deployment doctor and a USB-to-headless installation runbook.
@@ -34,7 +35,7 @@ The repository also includes a read-only Ubuntu deployment doctor and a USB-to-h
 
 - VM plan application, VM creation, delete, force-off, console, snapshot mutation, bridge creation, passthrough, backup, restore, export, or migration
 - General Docker inventory, custom Compose deployment, additional application installation, package updates, firewall changes, storage changes, or arbitrary command execution
-- Backup execution, restore drills, source-server discovery, transfer, or migration cutover
+- Backup schedules, retention, NAS/restic/cloud destinations, Keel Notes export, source-server discovery, transfer, or migration cutover
 - Keel Notes, AdGuard Home, Jellyfin, Home Assistant, PostgreSQL, router, GitHub, or remote-agent adapters
 - WebAuthn, recovery codes, multiple owners, Tailscale identity headers, tamper-evident audit chaining, or general-purpose mutation handlers
 
@@ -69,7 +70,7 @@ Every future host change must follow:
 5. Apply with streamed logs
 6. Verify or roll back
 
-The current VM action route maps validated requests to fixed `virsh` argument arrays and never invokes a shell. Version `0.5.1` adds one application-specific helper handler with a fixed image, confined path, loopback port validation, health acceptance, and rollback. Higher-impact operations remain locked until each typed handler has path, authorization, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
+The current VM action route maps validated requests to fixed `virsh` argument arrays and never invokes a shell. Version `0.6.0` adds application-specific deployment and backup handlers with fixed images, confined paths, typed identifiers, health acceptance, and recovery behavior. Higher-impact operations remain locked until each typed handler has path, authorization, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
 
 ## Run for development
 
@@ -153,6 +154,7 @@ docker build -t boxpilot:local .
 - [Architecture and security boundaries](docs/ARCHITECTURE.md)
 - [Operations Core setup and recovery](docs/OPERATIONS-CORE.md)
 - [Curated application planning and deployment](docs/APPLICATIONS.md)
+- [Verified backup and isolated restore workflow](docs/BACKUPS.md)
 - [Dependency-ordered roadmap](docs/ROADMAP.md)
 - [QEMU/KVM setup and operation](docs/VIRTUALIZATION.md)
 - [QEMU/KVM milestones](docs/VIRTUALIZATION-MILESTONES.md)

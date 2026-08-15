@@ -1,6 +1,10 @@
 import { verifyPassword } from "./security.mjs";
 
-export function createJobService(store, helper, { validateApplicationJob = async () => {} } = {}) {
+export function createJobService(store, helper, {
+  validateApplicationJob = async () => {},
+  validateBackupJob = async () => {},
+  recordBackupResult = () => {},
+} = {}) {
   function createCanary(ownerId) {
     return store.createJob({
       type: "helper.canary.verify",
@@ -21,8 +25,9 @@ export function createJobService(store, helper, { validateApplicationJob = async
     if (!owner || !(await verifyPassword(password, owner.passwordHash))) throw new Error("Approval reauthentication failed");
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
-    if (!["helper.canary.verify", "application.uptime-kuma.deploy"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.uptime-kuma.backup"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     if (job.type === "application.uptime-kuma.deploy") await validateApplicationJob(job);
+    if (job.type === "application.uptime-kuma.backup") await validateBackupJob(job);
     const execution = job.type === "helper.canary.verify" ? {
       operation: "canary.verify",
       parameters: {},
@@ -31,7 +36,7 @@ export function createJobService(store, helper, { validateApplicationJob = async
       verified: "Helper identity and no-mutation guarantee verified",
       failed: "The helper canary did not complete successfully",
       validate: (result) => result?.verified && result?.mutationPerformed === false,
-    } : {
+    } : job.type === "application.uptime-kuma.deploy" ? {
       operation: "application.uptime-kuma.deploy",
       parameters: { hostPort: job.parameters.hostPort },
       applying: "Applying the curated digest-pinned Uptime Kuma stack through the restricted helper",
@@ -39,6 +44,14 @@ export function createJobService(store, helper, { validateApplicationJob = async
       verified: "Uptime Kuma container and internal HTTP health check passed",
       failed: "Uptime Kuma did not pass deployment and health verification",
       validate: (result) => result?.installed && result?.healthy && result?.dataPreserved,
+    } : {
+      operation: "application.uptime-kuma.backup",
+      parameters: { backupId: job.parameters.backupId },
+      applying: "Stopping the source cleanly, archiving managed data, and restarting it through the restricted helper",
+      applied: "Source health returned and the immutable backup artifact passed SHA-256 integrity collection",
+      verified: "An isolated no-network restore container passed health verification and was removed",
+      failed: "The backup or isolated restore drill did not pass verification",
+      validate: (result) => result?.backupId === job.parameters.backupId && result?.sourceRestartVerified && result?.restoreDrill?.passed,
     };
     store.addApproval(jobId, ownerId);
     store.recordAudit("job.approved", { actorId: ownerId, subjectId: jobId, details: { type: job.type } });
@@ -50,6 +63,7 @@ export function createJobService(store, helper, { validateApplicationJob = async
       store.transitionJob(jobId, "applying", "verifying", { result });
       store.addJobStep(jobId, "apply", "completed", execution.applied);
       if (!execution.validate(result)) throw new Error("Helper returned an invalid operation result");
+      if (job.type === "application.uptime-kuma.backup") recordBackupResult(job, result);
       store.addJobStep(jobId, "verify", "completed", execution.verified);
       const completed = store.transitionJob(jobId, "verifying", "completed", { result });
       store.recordAudit("job.completed", { actorId: ownerId, subjectId: jobId, details: { type: job.type } });

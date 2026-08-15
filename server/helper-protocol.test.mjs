@@ -24,6 +24,9 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.deploy", parameters: { hostPort: 3001 } }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.deploy", parameters: { hostPort: 53 } }))).toContain("hostPort");
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.deploy", parameters: { hostPort: 3001, image: "evil" } }))).toContain("only a hostPort");
+    expect(validateHelperRequest(request({ operation: "application.uptime-kuma.backup", parameters: { backupId: randomUUID() } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.uptime-kuma.backup", parameters: { backupId: "../../etc" } }))).toContain("backupId UUID");
+    expect(validateHelperRequest(request({ operation: "application.uptime-kuma.backup", parameters: { backupId: randomUUID(), destination: "/tmp" } }))).toContain("only a backupId");
   });
 
   it("returns only the Docker server availability and version", async () => {
@@ -31,6 +34,13 @@ describe("restricted helper protocol", () => {
       applications: { inspectDocker: async () => ({ available: true, version: "29.1.3" }) },
     });
     expect(result).toMatchObject({ ok: true, result: { available: true, version: "29.1.3" } });
+  });
+
+  it("delegates a typed backup id without accepting a path", async () => {
+    const backupId = randomUUID();
+    const applications = { backup: async (parameters) => ({ ...parameters, restoreDrill: { passed: true } }) };
+    const result = await executeHelperOperation(request({ operation: "application.uptime-kuma.backup", parameters: { backupId } }), { applications });
+    expect(result).toMatchObject({ ok: true, result: { backupId, restoreDrill: { passed: true } } });
   });
 
   it("rejects incompatible versions and malformed ids", () => {

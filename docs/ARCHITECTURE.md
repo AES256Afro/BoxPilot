@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.5.0` adds integrity-addressed application manifests, immutable expiring plan revisions, Uptime Kuma discovery and deployment, automatic data-preserving rollback, and planning-only Pi-hole Docker and VM targets. The helper accepts the no-mutation canary plus fixed Uptime Kuma inspect and deploy operations. Live libvirt inspection, read-only VM creation planning, and the provisional VM lifecycle route remain available after authentication. BoxPilot still cannot install packages, deploy arbitrary Compose, apply VM creation plans, delete VMs, change networks or storage, open consoles, or execute arbitrary commands.
+Version `0.6.0` adds a fixed application-aware backup operation to the integrity-addressed application and durable-job foundations. Uptime Kuma archives are produced only after a clean stop, the source is restarted and verified, and the artifact is restore-tested inside a temporary container with no network or published ports. Live libvirt inspection, read-only VM creation planning, and the provisional VM lifecycle route remain available after authentication. BoxPilot still cannot install packages, deploy arbitrary Compose, apply VM creation plans, delete VMs, change networks or storage, open consoles, or execute arbitrary commands.
 
 Because the native process belongs to `libvirt`, this is an intermediate boundary rather than the final security model. The restricted helper described below remains the target for all mutations.
 
@@ -141,7 +141,7 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.5.0 limitations
+## Version 0.6.0 limitations
 
 - Dashboard values are demonstration data.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
@@ -152,6 +152,6 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - VM creation stops at a validated plan. The displayed `virt-install` argument array has no Apply route.
 - Managed media discovery lists regular `.iso` files only and does not upload or download installation media.
 - Operations Core jobs and attribution use SQLite. The older VM JSONL audit remains a separate bounded log until VM actions migrate into the durable executor. Tamper evidence remains pending.
-- Only the fixed Uptime Kuma adapter can execute an application mutation. Backup, migration, firewall, package, storage, general Docker, VM creation, console, snapshot, delete, and force-off operations remain unavailable.
-- An Uptime Kuma deployment is reported as evaluation-only until its data has backup integrity and isolated restore evidence.
+- Only fixed Uptime Kuma deployment and backup adapters can execute application mutations. Migration, firewall, package, storage, general Docker, VM creation, console, snapshot, delete, and force-off operations remain unavailable.
+- The backup destination is local to Bigbox. It does not protect against host or disk loss until an independent destination adapter is added.
 - The safe Docker deployment cannot see host libvirt. Live VM support currently requires the native systemd service.

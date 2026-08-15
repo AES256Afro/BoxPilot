@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  backupRows,
   metrics,
   navItems,
   timeline,
@@ -10,11 +9,12 @@ import {
 import { inspectCompose, type ComposeInspection } from "./composeInspector";
 import AuthScreen from "./AuthScreen";
 import ApplicationCatalog from "./ApplicationCatalog";
+import BackupCenter from "./BackupCenter";
 import RepairCenter from "./RepairCenter";
 import { fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import VirtualMachines from "./VirtualMachines";
 
-type DialogName = "compose" | "change" | "backup" | "migration" | null;
+type DialogName = "compose" | "change" | "migration" | null;
 
 const viewCopy: Record<ViewName, { title: string; description: string; action?: string }> = {
   overview: {
@@ -38,7 +38,6 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   backups: {
     title: "Backups",
     description: "Coverage is not complete until a restore has been tested.",
-    action: "New backup plan",
   },
   migrations: {
     title: "Migration Center",
@@ -60,7 +59,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   overview: {
     label: "UI demonstration",
     tone: "sample",
-    description: "The metrics, workloads, backup claims, and change timeline on this page are sample data in v0.5.1.",
+    description: "The metrics, workloads, backup claims, and change timeline on this page are sample data in v0.6.0.",
   },
   applications: {
     label: "Curated application engine",
@@ -70,7 +69,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   repairs: {
     label: "Live Operations Core",
     tone: "live",
-    description: "Prerequisite checks and durable canary jobs come from Bigbox. Package and application mutations remain locked.",
+    description: "Prerequisite checks, durable approvals, the helper canary, Uptime Kuma deployment, and verified backup jobs come from Bigbox. General package and application mutations remain locked.",
   },
   virtualization: {
     label: "Host-backed module",
@@ -78,9 +77,9 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     description: "Readiness, libvirt inventory, resources, managed ISO discovery, and plan validation come from the server. Creation remains locked.",
   },
   backups: {
-    label: "Workflow mockup",
-    tone: "sample",
-    description: "Backup coverage and restore results are sample data. No backup engine or scheduler is included in v0.5.1.",
+    label: "Application-aware backup engine",
+    tone: "live",
+    description: "Uptime Kuma backup planning, durable evidence, SHA-256 integrity, source restart verification, and isolated restore drills come from Bigbox. Scheduling and off-host destinations remain pending.",
   },
   migrations: {
     label: "Workflow mockup",
@@ -224,46 +223,6 @@ function Overview({ healthStatus, onReview }: { healthStatus: string; onReview: 
       </section>
 
       <p className="session-result" aria-live="polite">{healthStatus}</p>
-    </>
-  );
-}
-
-function Backups() {
-  return (
-    <>
-      <div className="readiness">
-        <div>
-          <strong>All protected workloads meet policy</strong>
-          <span>3-2-1 destinations configured | recovery key exported | next restore drill in 12 days</span>
-        </div>
-        <StatusPill>4 of 4 covered</StatusPill>
-      </div>
-      <Panel className="table-panel">
-        <div className="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>Workload</th>
-                <th>Method</th>
-                <th>Destination</th>
-                <th>Last backup</th>
-                <th>Restore test</th>
-              </tr>
-            </thead>
-            <tbody>
-              {backupRows.map((row) => (
-                <tr key={row[0]}>
-                  {row.map((value, index) => (
-                    <td key={value} className={index >= 3 ? (value.startsWith("Due") ? "warning-text" : "good-text") : ""}>
-                      {value}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Panel>
     </>
   );
 }
@@ -432,7 +391,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     }
     if (view === "repairs") return <RepairCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "virtualization") return <VirtualMachines csrfToken={authStatus.csrfToken ?? ""} />;
-    if (view === "backups") return <Backups />;
+    if (view === "backups") return <BackupCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "migrations") return <Migrations />;
     if (view === "logs") return <Logs />;
     return <Settings apiMode={apiMode} />;
@@ -459,11 +418,11 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.5.1",
+      version: "0.6.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
-      server: { hostname: null, lanAddress: null, note: "Host identity collection is not implemented in v0.5.1." },
+      server: { hostname: null, lanAddress: null, note: "Host identity collection is not implemented in v0.6.0." },
       events: virtualizationAudit,
       eventSource: virtualizationAudit.length ? "redacted-virtualization-audit" : "unavailable-or-empty",
     };
@@ -478,7 +437,6 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
   const handlePrimaryAction = () => {
     if (view === "overview") runHealthCheck();
     if (view === "applications") setDialog("compose");
-    if (view === "backups") setDialog("backup");
     if (view === "migrations") setDialog("migration");
     if (view === "logs") void downloadSupportBundle();
   };
@@ -503,7 +461,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.5.1 application engine<br />Live surfaces are labeled</div>
+        <div className="prototype-label">v0.6.0 backup engine<br />Live surfaces are labeled</div>
       </aside>
 
       <main>
@@ -562,14 +520,6 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
             <li><strong>Verify</strong><span>Run health tests and offer immediate rollback when acceptance fails.</span></li>
           </ol>
           <footer className="modal-actions"><button className="primary-button" type="button" onClick={() => setDialog(null)}>Close preview</button></footer>
-        </Modal>
-      )}
-
-      {dialog === "backup" && (
-        <Modal title="Create a backup plan" onClose={() => setDialog(null)}>
-          <div className="notice"><strong>Keel-aware protection</strong><span>Use Keel export, preserve its managed-secret key, copy configuration, encrypt offsite data, then test a restore in isolation.</span></div>
-          <div className="plan-grid"><span>Source</span><strong>Keel Notes</strong><span>Destinations</span><strong>Local NAS + encrypted offsite</strong><span>Schedule</span><strong>Daily at 02:00</strong><span>Restore drill</span><strong>Monthly</strong></div>
-          <footer className="modal-actions"><button className="primary-button" type="button" onClick={() => setDialog(null)}>Save is disabled in prototype</button></footer>
         </Modal>
       )}
 

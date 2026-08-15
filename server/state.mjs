@@ -118,6 +118,19 @@ export function createStateStore({
       owner_id TEXT NOT NULL REFERENCES owners(id),
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS backups (
+      id TEXT PRIMARY KEY,
+      application_id TEXT NOT NULL,
+      destination_type TEXT NOT NULL,
+      artifact_path TEXT NOT NULL,
+      checksum_sha256 TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      downtime_ms INTEGER NOT NULL,
+      restore_drill_json TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL,
+      verified_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS audit_events (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,
@@ -129,6 +142,7 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_plans_created_at ON plans(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_job_steps_job_id ON job_steps(job_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_backups_created_at ON backups(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_events(created_at DESC);
   `);
 
@@ -340,6 +354,33 @@ export function createStateStore({
     return database.prepare("SELECT id FROM jobs ORDER BY created_at DESC LIMIT ?").all(safeLimit).map((row) => getJob(row.id));
   }
 
+  function recordBackup({ id, applicationId, destination, artifactPath, checksumSha256, sizeBytes, downtimeMs, restoreDrill, createdBy }) {
+    const at = timestamp();
+    database.prepare(`
+      INSERT INTO backups (id, application_id, destination_type, artifact_path, checksum_sha256, size_bytes, downtime_ms, restore_drill_json, created_by, created_at, verified_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, applicationId, destination, artifactPath, checksumSha256, sizeBytes, downtimeMs, json(restoreDrill), createdBy, at, at);
+    recordAudit("backup.verified", { actorId: createdBy, subjectId: id, details: { applicationId, destination, checksumSha256, sizeBytes } });
+    return listBackups(1)[0];
+  }
+
+  function listBackups(limit = 50) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    return database.prepare("SELECT * FROM backups ORDER BY created_at DESC LIMIT ?").all(safeLimit).map((row) => ({
+      id: row.id,
+      applicationId: row.application_id,
+      destination: row.destination_type,
+      artifactPath: row.artifact_path,
+      checksumSha256: row.checksum_sha256,
+      sizeBytes: Number(row.size_bytes),
+      downtimeMs: Number(row.downtime_ms),
+      restoreDrill: parseJson(row.restore_drill_json),
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+      verifiedAt: row.verified_at,
+    }));
+  }
+
   function recoverInterruptedJobs() {
     const interrupted = database.prepare("SELECT id FROM jobs WHERE state IN ('applying', 'verifying')").all();
     for (const { id } of interrupted) {
@@ -376,6 +417,8 @@ export function createStateStore({
     transitionJob,
     getJob,
     listJobs,
+    recordBackup,
+    listBackups,
     recoverInterruptedJobs,
     close,
   };
