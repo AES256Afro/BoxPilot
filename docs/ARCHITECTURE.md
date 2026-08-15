@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.3.0` adds live libvirt inspection, read-only VM creation planning, and a provisional VM lifecycle boundary. The planner discovers regular ISO files from one configured media root, validates resources, checks domain-name collisions and reported pool space, and renders a structured `virt-install` preview without invoking it. The native service can invoke fixed `virsh` argument arrays for start, graceful shutdown, reboot, and autostart after an operator enables the feature and supplies a bearer token. It still cannot install packages, apply creation plans, delete VMs, force power off, change networks or storage, open consoles, or execute arbitrary commands.
+Version `0.4.0` adds server-local owner bootstrap, scrypt password authentication, expiring sessions, CSRF protection, SQLite-backed jobs and approvals, live prerequisite inventory, and the first restricted-helper boundary. The helper accepts only a typed no-mutation canary. Live libvirt inspection, read-only VM creation planning, and the provisional VM lifecycle route remain available after authentication. BoxPilot still cannot install packages, deploy applications, apply VM creation plans, delete VMs, force power off, change networks or storage, open consoles, or execute arbitrary commands.
 
 Because the native process belongs to `libvirt`, this is an intermediate boundary rather than the final security model. The restricted helper described below remains the target for all mutations.
 
@@ -16,7 +16,7 @@ Browser over Tailscale HTTPS
           v
 BoxPilot web and API process (unprivileged)
           |
-          +---- SQLite state, job history, approvals, audit log
+          +---- SQLite owner, session, job, approval, and audit state (0.4.0)
           |
           +---- Read-only collectors
           |       systemd, journald, SMART, Docker, libvirt, Tailscale
@@ -28,9 +28,10 @@ BoxPilot web and API process (unprivileged)
           +---- Redacted VM audit JSONL in systemd StateDirectory (0.3.0 foundation)
           |
           v
-Restricted helper over a local Unix socket (future)
+Restricted helper over a local Unix socket (0.4.0 canary foundation)
           |
-          +---- typed apt operations
+          +---- typed no-mutation canary (0.4.0)
+          +---- typed apt operations (future)
           +---- typed systemd operations
           +---- typed firewall operations
           +---- typed storage and backup operations
@@ -113,7 +114,7 @@ The Keel Notes adapter is first because it exercises databases, managed secrets,
 
 ## Data model target
 
-The initial persistent store will be SQLite with these logical records:
+The persistent store is SQLite. Version `0.4.0` includes owners, sessions, jobs, job steps, approvals, and audit events. Planned records include:
 
 - hosts
 - workloads
@@ -138,16 +139,16 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.3.0 limitations
+## Version 0.4.0 limitations
 
 - Dashboard values are demonstration data.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
 - Only the libvirt and Tailscale portions of host inspection are live.
-- The administrator token is route-level authorization, not owner bootstrap, sessions, CSRF protection, or approval reauthentication.
+- Password owner bootstrap, sessions, CSRF, and approval reauthentication are live. WebAuthn, recovery codes, multiple owners, and trusted proxy identity are not implemented.
 - The web process has `libvirt` group permissions in the host-native deployment. Mutations have not yet moved to the restricted helper.
 - VM actions are limited to start, graceful shutdown, reboot, and autostart. They are disabled unless explicitly configured.
 - VM creation stops at a validated plan. The displayed `virt-install` argument array has no Apply route.
 - Managed media discovery lists regular `.iso` files only and does not upload or download installation media.
-- The JSONL audit is a bounded foundation for the live log view, not the final SQLite job and approval ledger. Rotation, authenticated attribution, and tamper evidence remain pending.
+- Operations Core jobs and attribution use SQLite. The older VM JSONL audit remains a separate bounded log until VM actions migrate into the durable executor. Tamper evidence remains pending.
 - No application, backup, migration, firewall, package, storage, Docker, VM creation, console, snapshot, delete, or force-off operation is executed.
 - The safe Docker deployment cannot see host libvirt. Live VM support currently requires the native systemd service.

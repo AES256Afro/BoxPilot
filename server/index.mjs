@@ -3,7 +3,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { requireVmActionAuthorization, vmActionsConfiguration } from "./auth.mjs";
 import { createAuditLog } from "./audit.mjs";
+import { createAuthService } from "./security.mjs";
+import { createHelperClient } from "./helper-client.mjs";
+import { createJobService } from "./jobs.mjs";
 import { createLibvirtService, getSetupPlan, validateAction, validateDomainName } from "./libvirt.mjs";
+import { createPrerequisiteService } from "./prerequisites.mjs";
+import { createStateStore } from "./state.mjs";
 import { createVmPlanner, validateVmPlanInput } from "./vm-plan.mjs";
 
 const app = express();
@@ -15,6 +20,16 @@ const libvirt = createLibvirtService();
 const vmPlanner = createVmPlanner();
 const audit = createAuditLog();
 const vmActions = vmActionsConfiguration();
+const state = createStateStore();
+const auth = createAuthService(state);
+const helper = createHelperClient();
+const jobs = createJobService(state, helper);
+const prerequisites = createPrerequisiteService({
+  stateDirectory: process.env.BOXPILOT_STATE_DIRECTORY ?? path.dirname(state.databasePath),
+  helper,
+});
+state.deleteExpiredSessions();
+const interruptedJobs = state.recoverInterruptedJobs();
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "16kb", strict: true }));
@@ -35,12 +50,27 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.3.0",
+    version: "0.4.0",
     mode: "host-aware",
     safeMode: !vmActions.enabled,
     hostMutationsEnabled: vmActions.enabled,
+    ownerBootstrapRequired: state.ownerCount() === 0,
     timestamp: new Date().toISOString(),
   });
+});
+
+app.get("/api/v1/auth/status", auth.status);
+app.post("/api/v1/auth/bootstrap", auth.bootstrap);
+app.post("/api/v1/auth/login", auth.login);
+app.post("/api/v1/auth/logout", auth.requireSession, auth.requireCsrf, auth.logout);
+
+app.use("/api/v1", auth.requireSession);
+app.use("/api/v1", (request, response, next) => {
+  if (["GET", "HEAD", "OPTIONS"].includes(request.method)) {
+    next();
+    return;
+  }
+  auth.requireCsrf(request, response, next);
 });
 
 app.get("/api/v1/capabilities", (_request, response) => {
@@ -50,7 +80,9 @@ app.get("/api/v1/capabilities", (_request, response) => {
     supportBundle: "browser-only",
     backups: "planned",
     migrations: "planned",
-    privilegedHelper: "not-installed",
+    privilegedHelper: "typed-canary",
+    identity: "owner-password-foundation",
+    durableJobs: "sqlite-canary-workflow",
     virtualization: "live-libvirt",
     vmCreationPlanning: "validated-read-only",
     audit: "redacted-jsonl-foundation",
@@ -59,6 +91,29 @@ app.get("/api/v1/capabilities", (_request, response) => {
       reason: vmActions.reason,
     },
   });
+});
+
+app.get("/api/v1/operations/prerequisites", async (_request, response) => {
+  response.json(await prerequisites.inspect());
+});
+
+app.get("/api/v1/jobs", (request, response) => {
+  response.json({ jobs: state.listJobs(request.query.limit) });
+});
+
+app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
+  const job = jobs.createCanary(request.boxpilotSession.owner.id);
+  response.status(201).json({ job });
+});
+
+app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
+  try {
+    const job = await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
+    response.json({ job });
+  } catch (error) {
+    const status = error.message === "Job not found" ? 404 : error.message.includes("reauthentication") ? 401 : 409;
+    response.status(status).json({ error: error.message, code: "job_approval_failed" });
+  }
 });
 
 app.get("/api/v1/virtualization/status", async (_request, response) => {
@@ -175,6 +230,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.3.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.4.0 listening on http://${host}:${port}`);
+  if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log(vmActions.enabled ? "Authenticated VM lifecycle actions are enabled." : `Safe mode: ${vmActions.reason}.`);
 });
