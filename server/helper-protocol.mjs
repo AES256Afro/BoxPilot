@@ -1,10 +1,12 @@
 import { createApplicationHelper } from "./application-helper.mjs";
 import { createVmHelper } from "./vm-helper.mjs";
 import { validateVmPlanInput } from "./vm-plan.mjs";
+import { validateVmLifecycleInput } from "./vm-lifecycle.mjs";
 
 export const helperProtocolVersion = 1;
-export const helperOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.domain.create"]);
+export const helperOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.domain.create", "virtualization.domain.action"]);
 const vmCreationKeys = ["autostart", "diskGiB", "firmware", "isoFile", "memoryMiB", "name", "network", "osProfile", "vcpus"];
+const vmLifecycleKeys = ["action", "expectedAutostart", "expectedState", "name"];
 
 export function validateHelperRequest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "Request must be an object";
@@ -40,6 +42,12 @@ export function validateHelperRequest(value) {
     const errors = validateVmPlanInput(value.parameters);
     if (errors.length) return `Invalid VM creation plan: ${errors.join(" | ")}`;
   }
+  if (value.operation === "virtualization.domain.action") {
+    const keys = Object.keys(value.parameters).sort();
+    if (keys.length !== vmLifecycleKeys.length || keys.some((key, index) => key !== vmLifecycleKeys[index])) return "VM lifecycle accepts only the fixed typed plan fields";
+    const errors = validateVmLifecycleInput(value.parameters);
+    if (errors.length) return `Invalid VM lifecycle plan: ${errors.join(" | ")}`;
+  }
   return null;
 }
 
@@ -51,7 +59,7 @@ export async function executeHelperOperation(request, { applications = createApp
       version: helperProtocolVersion,
       id: request.id,
       ok: true,
-      result: { verified: true, helperVersion: "0.5.0", mutationPerformed: false },
+      result: { verified: true, helperVersion: "0.6.0", mutationPerformed: false },
     };
   }
   if (request.operation === "container.docker.inspect") {
@@ -74,6 +82,9 @@ export async function executeHelperOperation(request, { applications = createApp
   }
   if (request.operation === "virtualization.domain.create") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await virtualization.create(request.parameters) };
+  }
+  if (request.operation === "virtualization.domain.action") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await virtualization.action(request.parameters) };
   }
   return { version: helperProtocolVersion, id: request.id, ok: false, error: "Operation is not implemented", code: "not_implemented" };
 }

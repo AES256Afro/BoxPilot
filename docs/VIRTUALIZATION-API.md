@@ -1,6 +1,6 @@
 # Virtualization API
 
-The BoxPilot `v1` virtualization API is loopback-only by default. Tailscale Serve may proxy it privately, but it is not an internet API. Version `0.9.1` requires an authenticated owner session for virtualization routes and a CSRF token for POST requests. Network privacy remains mandatory.
+The BoxPilot `v1` virtualization API is loopback-only by default. Tailscale Serve may proxy it privately, but it is not an internet API. Version `0.10.0` requires an authenticated owner session for virtualization routes and a CSRF token for POST requests. Network privacy remains mandatory.
 
 All API responses use JSON and send `Cache-Control: no-store`.
 
@@ -109,12 +109,12 @@ Staging requires the plan owner, exact revision, unexpired draft status, executa
 
 Approve that job through the Operations Core approval route with the owner password. Approval revalidates the host again and sends only the nine fixed typed VM fields to `virtualization.domain.create` over the helper Unix socket. The protocol rejects extra `program`, `arguments`, `path`, URI, or unknown fields.
 
-## Guarded lifecycle request
+## Create a durable lifecycle plan
 
 ```text
-POST /api/v1/virtualization/domains/:name/actions
-Authorization: Bearer <administrator token>
+POST /api/v1/virtualization/domains/:name/action-plans
 Content-Type: application/json
+X-BoxPilot-CSRF: <session CSRF token>
 ```
 
 Body:
@@ -131,7 +131,25 @@ Accepted action values are:
 - `autostart-on`
 - `autostart-off`
 
-The route exists only when `BOXPILOT_VM_ACTIONS_ENABLED=true` and `BOXPILOT_ADMIN_TOKEN` contains at least 32 characters. It maps the validated action and domain name to a fixed `virsh` argument array. There is no `destroy`, delete, XML edit, snapshot mutation, storage mutation, bridge mutation, command string, or executable-selection input.
+The response is an immutable draft with exact expected power and autostart state, desired state, changes, recovery, expiration, and revision. The planner rejects an action that is invalid for current state and rejects no-op autostart changes.
+
+## Stage a lifecycle job
+
+```text
+POST /api/v1/virtualization/action-plans/:id/stage
+Content-Type: application/json
+X-BoxPilot-CSRF: <session CSRF token>
+```
+
+Body:
+
+```json
+{ "revision": "immutable-plan-revision" }
+```
+
+Staging requires the plan owner, exact revision, unexpired draft, matching domain state, and matching autostart state. It returns an `awaiting_approval` job without mutating the VM. Approval uses the ordinary password reauthentication route. The helper accepts only `name`, `action`, `expectedState`, and `expectedAutostart`, rechecks them independently, maps the action to a fixed local `virsh` argument array, and reads back post-operation state.
+
+There is no `destroy`, force-off, delete, XML edit, snapshot mutation, storage mutation, bridge mutation, command string, arbitrary action, libvirt URI, argument array, or executable-selection input. Reboot verification proves request acceptance and a running libvirt state, not guest application health.
 
 ## Agent integration rules
 
@@ -141,7 +159,7 @@ An agent integrating with BoxPilot should:
 2. Treat `executable: false` as a hard stop, not a suggestion.
 3. Present server validation errors verbatim and ask the operator to correct the plan.
 4. Never copy a display command into a shell automatically.
-5. Never persist the lifecycle bearer token in prompts, logs, browser storage, or plan data.
+5. Never request or invent VM credentials, guest secrets, or unlisted helper fields.
 6. Refresh host and domain state immediately before requesting a lifecycle action.
 7. Explain when a guest address is unknown rather than inventing one.
 8. Keep bridge, passthrough, storage, snapshot, and force-off operations unavailable until their capability appears explicitly.

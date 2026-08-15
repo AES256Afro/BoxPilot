@@ -1884,6 +1884,27 @@ textarea {
   line-height: 1.4;
 }
 
+.vm-action-dialog {
+  width: min(680px, 100%);
+}
+
+.vm-action-review {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+}
+
+.vm-action-revision {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+
+.vm-action-revision code {
+  color: var(--muted-strong);
+}
+
 .auth-shell {
   display: grid;
   min-height: 100vh;

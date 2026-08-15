@@ -4,11 +4,11 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.9.1` includes guarded QEMU/KVM creation and restores live network inventory under the hardened native systemd unit by allowing read-only `AF_NETLINK` interface discovery. A validated VM plan is stored as an immutable SQLite revision, revalidated before staging and approval, and executed only after owner password reauthentication. The root helper derives a fixed `virt-install` argument array from typed fields, confines media to the managed ISO directory, verifies the resulting domain, disk, default network, and autostart state, and removes only the newly created exact-name domain and storage if post-create verification fails. Windows 11 creation remains locked until TPM 2.0 and Secure Boot checks exist.
+Version `0.10.0` moves VM start, graceful shutdown, reboot requests, and autostart changes out of the web process and into immutable, revalidated, password-approved helper jobs. Guarded Linux VM creation remains available, and live network inventory works under the hardened native systemd unit through read-only `AF_NETLINK` interface discovery. The helper accepts only fixed typed VM fields, derives every `virsh` and `virt-install` argument itself, and never exposes force-off, delete, arbitrary XML, binary, URI, path, or argument inputs.
 
 ### What works now
 
-| Area | Status in `0.9.1` | Capability |
+| Area | Status in `0.10.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
@@ -25,7 +25,7 @@ Version `0.9.1` includes guarded QEMU/KVM creation and restores live network inv
 | QEMU/KVM preflight | Live on the native host | Checks Linux, `/dev/kvm`, QEMU, `virsh`, `virt-install`, `qemu:///system`, service-user groups, the default NAT network, the default storage pool, and Tailscale access. |
 | VM and libvirt inventory | Live on the native host | Lists domains, state, CPU, memory, autostart, lease-reported addresses, disks, interfaces, snapshot count, networks, and storage pools. |
 | VM creation | Guarded and executable for Linux profiles | Discovers regular ISO files in one managed directory, validates fields, checks live name, network, pool, and capacity state, stores an immutable plan, stages an awaiting-approval job, and executes a fixed helper adapter with post-create verification and exact-domain rollback. |
-| VM lifecycle controls | Provisional and off by default | Can request start, graceful shutdown, reboot, and autostart through fixed `virsh` argument arrays after an operator enables the route and supplies a token. |
+| VM lifecycle controls | Durable approved helper jobs | Plans start, graceful shutdown, reboot requests, and autostart changes against exact current state, shows recovery limits, revalidates before staging and approval, and verifies post-operation state. Force-off and delete do not exist. |
 | VM event log | Limited live foundation | Writes and displays redacted JSONL events for VM plans and enabled lifecycle requests. It is not the final authenticated job ledger. |
 | Compose inspector | Browser-only preview | Performs a lightweight structural and risk scan. It is not a full YAML parser and cannot deploy. |
 | Support bundle | Browser-generated preview | Downloads release metadata and available redacted VM audit events. It is not yet a general host support bundle. |
@@ -68,6 +68,12 @@ This older `0.3.0` capture uses a local development ISO fixture and shows the pl
 
 This `0.9.0` mock screenshot is rendered from the current BoxPilot styles and is explicitly labeled as mocked product state. It demonstrates the staged job, fixed helper preview, and handoff to Repair Center. No VM was created for the capture.
 
+### Durable VM lifecycle approval mockup
+
+![BoxPilot immutable graceful-shutdown plan before staging](docs/screenshots/vm-lifecycle-approval-mock.png)
+
+This explicitly disclosed `0.10.0` mock shows the exact current and desired state, recovery boundary, immutable revision, and separate approval handoff. The state is representative only. No VM was changed for the capture.
+
 ## Safety contract
 
 Every future host change must follow:
@@ -79,7 +85,7 @@ Every future host change must follow:
 5. Apply with streamed logs
 6. Verify or roll back
 
-The provisional VM lifecycle route maps validated requests to fixed `virsh` argument arrays and never invokes a shell. VM creation uses the durable job executor and a separate typed helper operation. The helper derives its own binary paths, libvirt URI, managed-media path, and argument array; the web process cannot supply them. Higher-impact operations remain locked until each handler has authorization, path confinement, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
+VM creation and lifecycle changes use the durable job executor and separate typed helper operations. The helper derives its own binary paths, libvirt URI, managed-media path, action verbs, and argument arrays; the web process cannot supply them. Every supported VM mutation requires an immutable plan and owner password reauthentication. Higher-impact operations remain locked until each handler has authorization, path confinement, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
 
 ## Run for development
 
@@ -174,7 +180,7 @@ docker build -t boxpilot:local .
 
 ## Keel Notes roadmap adapter
 
-No Keel adapter ships in `0.9.1`. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
+No Keel adapter ships in `0.10.0`. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
 
 - Detect a Keel Docker or service installation
 - Inventory the database dialect and protected data paths without exposing secrets

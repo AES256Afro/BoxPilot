@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.9.1` includes durable approved Linux VM creation while preserving the `0.8.0` read-only migration boundary. The native web unit permits `AF_NETLINK` only so Node can enumerate local interfaces for sanitized inventory; it does not add an inbound listener. A VM plan is tied to normalized inputs and managed-media metadata, revalidated before staging and approval, and sent as fixed typed fields to the helper. The helper derives its own binary paths, libvirt URI, managed ISO path, disk and network arguments, and exact rollback target. Migration still cannot contact, write, stop, transfer from, cut over, or delete a source.
+Version `0.10.0` puts Linux VM creation and the shipped VM lifecycle actions behind durable approved helper jobs while preserving the `0.8.0` read-only migration boundary. The native web unit permits `AF_NETLINK` only so Node can enumerate local interfaces for sanitized inventory; it does not add an inbound listener. VM plans are tied to normalized inputs and live state, revalidated before staging and approval, and sent as fixed typed fields to the helper. The helper derives its own binary paths, local libvirt URI, managed ISO path, action verbs, argument arrays, and creation rollback target. Migration still cannot contact, write, stop, transfer from, cut over, or delete a source.
 
 Because the native process belongs to `libvirt`, this is an intermediate boundary rather than the final security model. The restricted helper described below remains the target for all mutations.
 
@@ -22,9 +22,8 @@ BoxPilot web and API process (unprivileged)
           +---- Read-only collectors
           |       systemd, journald, SMART, Docker, libvirt, Tailscale
           |
-          +---- Provisional fixed libvirt lifecycle allowlist (0.2.0)
-          |
           +---- Durable VM creation plans and approved jobs (0.9.0)
+          +---- Durable VM lifecycle plans and approved jobs (0.10.0)
           |
           +---- Redacted VM audit JSONL in systemd StateDirectory (0.3.0 foundation)
           |
@@ -34,6 +33,7 @@ Restricted helper over a local Unix socket (0.4.0 canary foundation)
           +---- typed no-mutation canary (0.4.0)
           +---- fixed Uptime Kuma inspect, deploy, health, and rollback (0.5.0)
           +---- fixed Linux VM creation, verification, and exact-domain rollback (0.9.0)
+          +---- fixed VM start, graceful shutdown, reboot request, and autostart operations (0.10.0)
           +---- typed apt operations (future)
           +---- typed systemd operations
           +---- typed firewall operations
@@ -76,7 +76,7 @@ An operation cannot enter `applying` without:
 - Binds to loopback by default
 - Does not mount `/var/run/docker.sock`
 - Cannot invoke `sudo`
-- Uses `execFile` with fixed libvirt verbs and validated domain names for the provisional VM lifecycle route
+- Uses libvirt only for bounded read-only discovery; shipped VM mutations go through the helper
 - Stores encrypted integration secrets separately from ordinary job data
 - Redacts secret-like values before persistence and display
 
@@ -87,7 +87,7 @@ An operation cannot enter `applying` without:
 - Accepts no shell fragments or arbitrary paths
 - Enforces operation-specific path roots and argument schemas
 - Has no inbound network listener
-- Emits an append-only audit record for every request
+- Returns bounded structured results to the durable authenticated job executor
 
 ## Access model
 
@@ -99,7 +99,7 @@ The recommended path is:
 4. Full BoxPilot authentication remains required even when Tailscale is present.
 5. LAN listening is opt-in and requires TLS or a trusted reverse proxy.
 
-Tailscale provides the private network path. It does not replace application authorization, audit trails, or reauthentication for destructive changes. In `0.2.0`, the administrator token authorizes only the VM lifecycle route. It is not a full login layer, so the service must remain loopback-only behind Tailscale Serve.
+Tailscale provides the private network path. It does not replace application authorization, audit trails, or reauthentication for destructive changes. VM lifecycle and creation jobs use BoxPilot owner sessions, CSRF protection, immutable revisions, and password approval. The service must remain loopback-only behind Tailscale Serve.
 
 ## Adapter contract
 
@@ -142,17 +142,17 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.9.1 limitations
+## Version 0.10.0 limitations
 
 - Dashboard values are demonstration data.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
 - Host, selected systemd services, Docker, libvirt, Tailscale self-state, and fixed journal sources are live. SMART and general hardware inspection remain pending.
 - Password owner bootstrap, sessions, CSRF, and approval reauthentication are live. WebAuthn, recovery codes, multiple owners, and trusted proxy identity are not implemented.
-- The web process has `libvirt` group permissions in the host-native deployment. VM creation has moved to the restricted helper, but the provisional VM lifecycle route has not.
-- VM actions are limited to start, graceful shutdown, reboot, and autostart. They are disabled unless explicitly configured.
+- The web process has `libvirt` and `kvm` group permissions for host-native discovery. All shipped VM mutations use the helper, but read-only libvirt inventory has not moved across that boundary.
+- VM actions are limited to durable approved start, graceful shutdown, reboot request, and autostart jobs. Reboot verification does not yet prove guest application health.
 - Supported Linux VM creation is a durable approved helper job. Windows TPM/Secure Boot, cloud-init, console, snapshot, delete, force-off, export, backup, and restore are unavailable.
 - Managed media discovery lists regular `.iso` files only and does not upload or download installation media.
-- Operations Core jobs and attribution use SQLite. The older VM JSONL audit remains a separate bounded log until VM actions migrate into the durable executor. Tamper evidence remains pending.
-- Only fixed Uptime Kuma deployment and backup plus fixed Linux VM creation can execute mutations. Migration, firewall, package, storage administration, general Docker, general libvirt, console, snapshot, delete, and force-off operations remain unavailable.
+- Operations Core jobs and attribution use SQLite. The older VM JSONL planning log remains a separate bounded log. Tamper evidence remains pending.
+- Only fixed Uptime Kuma deployment and backup plus fixed Linux VM creation and lifecycle actions can execute mutations. Migration, firewall, package, storage administration, general Docker, general libvirt, console, snapshot, delete, and force-off operations remain unavailable.
 - The backup destination is local to Bigbox. It does not protect against host or disk loss until an independent destination adapter is added.
 - The safe Docker deployment cannot see host libvirt. Live VM support currently requires the native systemd service.

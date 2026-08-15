@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  createVmLifecyclePlan,
   fetchVirtualization,
   formatMemory,
   type LibvirtResources,
-  runVirtualMachineAction,
+  stageVmLifecyclePlan,
   type DomainList,
   type VirtualDomain,
+  type VmLifecyclePlan,
   type VirtualizationStatus,
 } from "./virtualization";
 import VmPlanner from "./VmPlanner";
@@ -40,9 +42,9 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [token, setToken] = useState("");
   const [pending, setPending] = useState<string | null>(null);
   const [plannerOpen, setPlannerOpen] = useState(false);
+  const [actionPlan, setActionPlan] = useState<VmLifecyclePlan | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -74,20 +76,28 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
   };
 
   const performAction = async (domain: VirtualDomain, action: string, label: string) => {
-    if (!status?.actions.enabled || token.length < 32) {
-      setMessage("Enter the administrator token before requesting a VM action.");
-      return;
-    }
-    if (!window.confirm(`${label} ${domain.name}? BoxPilot will send one allowlisted libvirt operation.`)) return;
     const operation = `${domain.name}:${action}`;
     setPending(operation);
     setMessage(null);
     try {
-      await runVirtualMachineAction(domain.name, action, token, csrfToken);
-      setMessage(`${label} requested for ${domain.name}. Live state refreshed.`);
-      await refresh();
+      setActionPlan(await createVmLifecyclePlan(domain.name, action, csrfToken));
     } catch (actionError) {
-      setMessage(actionError instanceof Error ? actionError.message : "VM action failed");
+      setMessage(actionError instanceof Error ? actionError.message : `Unable to plan ${label.toLowerCase()}`);
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const stageAction = async () => {
+    if (!actionPlan) return;
+    setPending(`stage:${actionPlan.id}`);
+    setMessage(null);
+    try {
+      await stageVmLifecyclePlan(actionPlan.id, actionPlan.revision, csrfToken);
+      setActionPlan(null);
+      onOpenRepair();
+    } catch (actionError) {
+      setMessage(actionError instanceof Error ? actionError.message : "Unable to stage VM lifecycle action");
     } finally {
       setPending(null);
     }
@@ -153,7 +163,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
                         type="button"
                         className="text-button"
                         key={action}
-                        disabled={!status.actions.enabled || pending !== null || !domain.managed}
+                        disabled={pending !== null || !domain.managed}
                         onClick={() => void performAction(domain, action, label)}
                       >
                         {pending === `${domain.name}:${action}` ? "Working..." : label}
@@ -174,13 +184,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
           )}
 
           <div className="vm-control-lock">
-            <div><strong>{status.actions.enabled ? "Lifecycle controls available" : "Lifecycle controls locked"}</strong><span>{status.actions.reason}</span></div>
-            {status.actions.enabled && (
-              <label>
-                Administrator token
-                <input type="password" value={token} onChange={(event) => setToken(event.target.value)} autoComplete="off" placeholder="32 or more characters" />
-              </label>
-            )}
+            <div><strong>Durable lifecycle approvals</strong><span>{status.actions.reason}</span></div>
           </div>
         </section>
 
@@ -221,6 +225,25 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
 
       {message && <p className="vm-message" aria-live="polite">{message}</p>}
       {plannerOpen && <VmPlanner csrfToken={csrfToken} onClose={() => setPlannerOpen(false)} onOpenRepair={onOpenRepair} />}
+      {actionPlan && (
+        <div className="vm-planner-backdrop" role="presentation">
+          <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-action-title">
+            <header className="vm-planner-header"><div><span className="eyebrow">Immutable lifecycle plan</span><h2 id="vm-action-title">{actionPlan.output.label} {actionPlan.input.name}</h2><p>Review current state, desired state, and recovery before creating an approval job.</p></div><button type="button" className="modal-close" aria-label="Close lifecycle plan" onClick={() => setActionPlan(null)}>X</button></header>
+            <div className="vm-action-review">
+              <dl className="vm-plan-summary">
+                <div><dt>Current power</dt><dd>{actionPlan.output.current.state}</dd></div>
+                <div><dt>Desired power</dt><dd>{actionPlan.output.desired.state}</dd></div>
+                <div><dt>Current autostart</dt><dd>{actionPlan.output.current.autostart ? "enabled" : "disabled"}</dd></div>
+                <div><dt>Desired autostart</dt><dd>{actionPlan.output.desired.autostart ? "enabled" : "disabled"}</dd></div>
+              </dl>
+              <div className="vm-plan-gates"><strong>Exact changes</strong><ol>{actionPlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol></div>
+              <div className="vm-plan-warnings"><strong>Recovery boundary</strong><span>{actionPlan.output.recovery}</span></div>
+              <p className="vm-action-revision">Plan revision <code>{actionPlan.revision}</code>. Host state will be checked again before staging and again after password approval.</p>
+              <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => setActionPlan(null)}>Cancel</button><button type="button" className="primary-button" onClick={() => void stageAction()} disabled={pending !== null}>{pending ? "Revalidating..." : "Stage for password approval"}</button></div>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

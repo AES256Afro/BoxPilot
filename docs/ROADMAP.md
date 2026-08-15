@@ -81,7 +81,7 @@ Acceptance:
 
 ## Phase 4: restricted privileged helper
 
-Status: the root-owned service, Unix-socket boundary, versioned allowlist, hardened unit, negative protocol tests, and no-mutation canary are included in `0.4.0`. Version `0.5.0` adds fixed Uptime Kuma inspect and deploy operations. Version `0.6.0` adds the fixed Uptime Kuma backup and isolated restore handler. Version `0.9.0` adds fixed Linux VM creation with managed-media confinement, post-create verification, and exact-domain rollback. Package, service, firewall, storage-pool administration, reboot, general Docker, general libvirt, and general backup handlers remain locked.
+Status: the root-owned service, Unix-socket boundary, versioned allowlist, hardened unit, negative protocol tests, and no-mutation canary are included in `0.4.0`. Version `0.5.0` adds fixed Uptime Kuma inspect and deploy operations. Version `0.6.0` adds the fixed Uptime Kuma backup and isolated restore handler. Version `0.9.0` adds fixed Linux VM creation with managed-media confinement, post-create verification, and exact-domain rollback. Version `0.10.0` adds durable approved start, graceful shutdown, reboot request, and autostart handlers. Package, service, firewall, storage-pool administration, host reboot, general Docker, general libvirt, and general backup handlers remain locked.
 
 - Root-owned Unix socket
 - Versioned typed-operation protocol
@@ -135,7 +135,7 @@ Acceptance:
 
 ## Phase 7: virtual machines and storage
 
-- Live libvirt discovery and guarded start, graceful shutdown, reboot, and autostart controls included in `0.2.0`
+- Live libvirt discovery included in `0.2.0`; start, graceful shutdown, reboot, and autostart move to durable helper jobs in `0.10.0`
 - Read-only creation planning, managed ISO discovery, resource guardrails, and detailed guest/network/pool inventory included in `0.3.0`
 - Durable approved Linux VM creation through the restricted helper included in `0.9.0`
 - Console, snapshot, export, restore, Windows TPM/Secure Boot, and cloud-init remain pending
