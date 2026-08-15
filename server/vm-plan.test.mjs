@@ -30,6 +30,7 @@ describe("VM creation planning", () => {
       "Select an ISO filename from the managed media library",
       "Only the default NAT network is supported in this planning milestone",
     ]);
+    expect(validateVmPlanInput(validInput({ name: "boxpilot-drill-manual" }))).toContain("Names beginning with boxpilot-drill- are reserved for isolated restore recovery");
   });
 
   it("lists regular ISO files without following directories or symlinks", async () => {
