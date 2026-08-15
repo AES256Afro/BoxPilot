@@ -92,6 +92,18 @@ export function createStateStore({
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS plans (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      subject_id TEXT NOT NULL,
+      revision TEXT NOT NULL,
+      status TEXT NOT NULL,
+      input_json TEXT NOT NULL,
+      output_json TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS job_steps (
       id TEXT PRIMARY KEY,
       job_id TEXT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
@@ -115,6 +127,7 @@ export function createStateStore({
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_plans_created_at ON plans(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_job_steps_job_id ON job_steps(job_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_events(created_at DESC);
   `);
@@ -225,17 +238,71 @@ export function createStateStore({
     }));
   }
 
-  function createJob({ type, title, risk = "low", parameters = {}, recovery = {}, createdBy }) {
+  function createJob({
+    type,
+    title,
+    risk = "low",
+    parameters = {},
+    recovery = {},
+    createdBy,
+    initialSteps = [
+      { name: "preflight", state: "completed", detail: "Typed operation and helper compatibility validated" },
+      { name: "checkpoint", state: "completed", detail: "No host state is changed by this canary operation" },
+    ],
+  }) {
     const at = timestamp();
     const job = { id: randomUUID(), type, title, state: "awaiting_approval", risk, parameters, recovery, createdBy, createdAt: at, updatedAt: at };
     database.prepare(`
       INSERT INTO jobs (id, type, title, state, risk, parameters_json, recovery_json, created_by, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(job.id, job.type, job.title, job.state, job.risk, json(job.parameters), json(job.recovery), job.createdBy, at, at);
-    addJobStep(job.id, "preflight", "completed", "Typed operation and helper compatibility validated");
-    addJobStep(job.id, "checkpoint", "completed", "No host state is changed by this canary operation");
+    for (const step of initialSteps) addJobStep(job.id, step.name, step.state, step.detail);
     recordAudit("job.created", { actorId: createdBy, subjectId: job.id, details: { type, risk } });
     return getJob(job.id);
+  }
+
+  function createPlan({ type, subjectId, input = {}, output = {}, createdBy, ttlMs = 30 * 60 * 1000 }) {
+    const createdAt = now();
+    const expiresAt = new Date(createdAt.getTime() + ttlMs);
+    const revision = digest(`${type}\n${subjectId}\n${json(input)}\n${json(output)}`).slice(0, 16);
+    const plan = {
+      id: randomUUID(), type, subjectId, revision, status: "draft", input, output,
+      createdBy, createdAt: iso(createdAt), expiresAt: iso(expiresAt),
+    };
+    database.prepare(`
+      INSERT INTO plans (id, type, subject_id, revision, status, input_json, output_json, created_by, created_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(plan.id, plan.type, plan.subjectId, plan.revision, plan.status, json(plan.input), json(plan.output), plan.createdBy, plan.createdAt, plan.expiresAt);
+    recordAudit("plan.created", { actorId: createdBy, subjectId: plan.id, details: { type, subjectId, revision } });
+    return plan;
+  }
+
+  function getPlan(id) {
+    const row = database.prepare("SELECT * FROM plans WHERE id = ?").get(id);
+    if (!row) return null;
+    return {
+      id: row.id,
+      type: row.type,
+      subjectId: row.subject_id,
+      revision: row.revision,
+      status: row.status,
+      input: parseJson(row.input_json),
+      output: parseJson(row.output_json),
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+      expired: row.expires_at <= timestamp(),
+    };
+  }
+
+  function stagePlan(id, ownerId) {
+    const plan = getPlan(id);
+    if (!plan || plan.createdBy !== ownerId) throw new Error("Plan not found");
+    if (plan.expired) throw new Error("Plan has expired; inspect the host and create a new plan");
+    if (plan.status !== "draft") throw new Error("Plan has already been staged");
+    database.prepare("UPDATE plans SET status = 'staged' WHERE id = ? AND status = 'draft'").run(id);
+    recordAudit("plan.staged", { actorId: ownerId, subjectId: id, details: { revision: plan.revision } });
+    return { ...plan, status: "staged" };
   }
 
   function addJobStep(jobId, name, state, detail) {
@@ -301,6 +368,9 @@ export function createStateStore({
     recordAudit,
     listAudit,
     createJob,
+    createPlan,
+    getPlan,
+    stagePlan,
     addJobStep,
     addApproval,
     transitionJob,

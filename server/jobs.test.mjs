@@ -58,4 +58,24 @@ describe("durable job executor", () => {
     expect(store.getJob(job.id)).toMatchObject({ state: "failed", error: "Helper unavailable" });
     store.close();
   });
+
+  it("revalidates and executes a typed Uptime Kuma deployment job", async () => {
+    const helper = { request: vi.fn(async () => ({ installed: true, healthy: true, dataPreserved: true, hostPort: 3101 })) };
+    const { store, owner } = await setup(helper);
+    const validateApplicationJob = vi.fn(async () => {});
+    const jobs = createJobService(store, helper, { validateApplicationJob });
+    const job = store.createJob({
+      type: "application.uptime-kuma.deploy",
+      title: "Deploy Uptime Kuma",
+      parameters: { hostPort: 3101 },
+      recovery: { automaticRollback: true },
+      createdBy: owner.id,
+    });
+
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+    expect(validateApplicationJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("application.uptime-kuma.deploy", { hostPort: 3101 });
+    expect(completed).toMatchObject({ state: "completed", result: { healthy: true, hostPort: 3101 } });
+    store.close();
+  });
 });

@@ -24,13 +24,6 @@ export interface Workload {
   tone: StatusTone;
 }
 
-export interface Application {
-  name: string;
-  description: string;
-  status: string;
-  installed: boolean;
-}
-
 export const navItems: Array<{ id: ViewName; label: string; short: string }> = [
   { id: "overview", label: "Overview", short: "OV" },
   { id: "applications", label: "Applications", short: "AP" },
@@ -77,51 +70,6 @@ export const workloads: Workload[] = [
     kind: "Automation",
     state: "Verified",
     tone: "good",
-  },
-];
-
-export const applications: Application[] = [
-  {
-    name: "Keel Notes",
-    description:
-      "Planned app-aware discovery, export, managed-secret preservation, backup, restore, and migration support.",
-    status: "Preview integration",
-    installed: false,
-  },
-  {
-    name: "AdGuard Home",
-    description:
-      "DNS filtering with upstream validation, LAN checks, and outage rollback.",
-    status: "Planned adapter",
-    installed: false,
-  },
-  {
-    name: "Jellyfin",
-    description:
-      "Media server with hardware detection, library mapping, and migration assistance.",
-    status: "Planned adapter",
-    installed: false,
-  },
-  {
-    name: "Home Assistant",
-    description:
-      "Container or VM deployment with USB-device checks and backup registration.",
-    status: "Planned adapter",
-    installed: false,
-  },
-  {
-    name: "PostgreSQL",
-    description:
-      "Local database with encrypted secrets and application-aware dumps.",
-    status: "Planned adapter",
-    installed: false,
-  },
-  {
-    name: "Custom stack",
-    description:
-      "Paste Compose, inspect risks, map volumes, and create a dry-run plan.",
-    status: "Open dry-run inspector",
-    installed: false,
   },
 ];
 

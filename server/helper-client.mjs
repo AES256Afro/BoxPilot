@@ -18,7 +18,7 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
 
       connection.setEncoding("utf8");
       connection.setTimeout(timeoutMs);
-      connection.on("connect", () => connection.end(`${JSON.stringify({ version: 1, id, operation, parameters })}\n`));
+      connection.on("connect", () => connection.write(`${JSON.stringify({ version: 1, id, operation, parameters })}\n`));
       connection.on("data", (chunk) => { payload += chunk; });
       connection.on("end", () => {
         if (settled) return;

@@ -17,6 +17,13 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ parameters: { command: "id" } }))).toBe("Canary operation accepts no parameters");
   });
 
+  it("accepts only the typed Uptime Kuma port parameter", () => {
+    expect(validateHelperRequest(request({ operation: "application.uptime-kuma.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.uptime-kuma.deploy", parameters: { hostPort: 3001 } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.uptime-kuma.deploy", parameters: { hostPort: 53 } }))).toContain("hostPort");
+    expect(validateHelperRequest(request({ operation: "application.uptime-kuma.deploy", parameters: { hostPort: 3001, image: "evil" } }))).toContain("only a hostPort");
+  });
+
   it("rejects incompatible versions and malformed ids", () => {
     expect(validateHelperRequest(request({ version: 99 }))).toBe("Unsupported helper protocol version");
     expect(validateHelperRequest(request({ id: "not-a-uuid" }))).toBe("Request id must be a UUID");

@@ -60,7 +60,7 @@ export default function RepairCenter({ csrfToken }: { csrfToken: string }) {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  const awaitingApproval = useMemo(() => jobs.find((job) => job.type === "helper.canary.verify" && job.state === "awaiting_approval"), [jobs]);
+  const awaitingApproval = useMemo(() => jobs.find((job) => job.state === "awaiting_approval"), [jobs]);
 
   const createCanary = async () => {
     setPending(true);
@@ -117,9 +117,9 @@ export default function RepairCenter({ csrfToken }: { csrfToken: string }) {
         </section>
 
         <aside className="panel helper-canary">
-          <span className="eyebrow">Operations Core canary</span>
-          <h3>Prove the restricted helper</h3>
-          <p>This job uses the real durable workflow and local Unix socket. Its allowlisted operation cannot mutate the host.</p>
+          <span className="eyebrow">{awaitingApproval ? "Approval desk" : "Operations Core canary"}</span>
+          <h3>{awaitingApproval ? awaitingApproval.title : "Prove the restricted helper"}</h3>
+          <p>{awaitingApproval ? "Review the recorded preflight and recovery steps below, then reauthenticate to execute this exact typed job." : "This job uses the real durable workflow and local Unix socket. Its allowlisted operation cannot mutate the host."}</p>
           {!awaitingApproval ? (
             <button className="primary-button" type="button" onClick={() => void createCanary()} disabled={pending}>Create verification job</button>
           ) : (

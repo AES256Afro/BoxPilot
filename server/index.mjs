@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { requireVmActionAuthorization, vmActionsConfiguration } from "./auth.mjs";
 import { createAuditLog } from "./audit.mjs";
+import { createApplicationService } from "./applications.mjs";
 import { createAuthService } from "./security.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { createJobService } from "./jobs.mjs";
@@ -22,12 +23,13 @@ const audit = createAuditLog();
 const vmActions = vmActionsConfiguration();
 const state = createStateStore();
 const auth = createAuthService(state);
-const helper = createHelperClient();
-const jobs = createJobService(state, helper);
+const helper = createHelperClient({ timeoutMs: 180000 });
 const prerequisites = createPrerequisiteService({
   stateDirectory: process.env.BOXPILOT_STATE_DIRECTORY ?? path.dirname(state.databasePath),
   helper,
 });
+const applications = createApplicationService({ store: state, prerequisites, helper });
+const jobs = createJobService(state, helper, { validateApplicationJob: applications.validateJob });
 state.deleteExpiredSessions();
 const interruptedJobs = state.recoverInterruptedJobs();
 
@@ -50,7 +52,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.4.0",
+    version: "0.5.0",
     mode: "host-aware",
     safeMode: !vmActions.enabled,
     hostMutationsEnabled: vmActions.enabled,
@@ -77,6 +79,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
   response.json({
     inventory: "mixed-live-and-demo",
     composeInspection: "browser-only",
+    applications: "curated-plans-and-uptime-kuma-adapter",
     supportBundle: "browser-only",
     backups: "planned",
     migrations: "planned",
@@ -95,6 +98,29 @@ app.get("/api/v1/capabilities", (_request, response) => {
 
 app.get("/api/v1/operations/prerequisites", async (_request, response) => {
   response.json(await prerequisites.inspect());
+});
+
+app.get("/api/v1/applications", async (_request, response) => {
+  response.json(await applications.list());
+});
+
+app.post("/api/v1/applications/:id/plans", async (request, response) => {
+  try {
+    const plan = await applications.plan(request.params.id, request.body, request.boxpilotSession.owner.id);
+    response.status(201).json({ plan });
+  } catch (error) {
+    const status = error.message === "Application adapter not found" ? 404 : 400;
+    response.status(status).json({ error: error.message, code: "application_plan_failed" });
+  }
+});
+
+app.post("/api/v1/application-plans/:id/stage", async (request, response) => {
+  try {
+    const job = await applications.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
+    response.status(201).json({ job });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "application_stage_failed" });
+  }
 });
 
 app.get("/api/v1/jobs", (request, response) => {
@@ -230,7 +256,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.4.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.5.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log(vmActions.enabled ? "Authenticated VM lifecycle actions are enabled." : `Safe mode: ${vmActions.reason}.`);
 });
