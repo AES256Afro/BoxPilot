@@ -117,6 +117,8 @@ Acceptance:
 
 ## Phase 6: migration center
 
+Status: `0.8.0` includes fingerprinted sanitized BoxPilot source manifests, attributable durable imports, and destination architecture, container-name, and published-port compatibility plans. SSH discovery, source-specific size calculation, resumable transfer, isolated destination tests, and cutover remain pending.
+
 - Read-only SSH source discovery over LAN or Tailscale
 - Resumable checksummed transfer
 - Container, volume, application database, file, and VM migration adapters

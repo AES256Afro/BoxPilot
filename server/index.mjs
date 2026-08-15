@@ -10,6 +10,7 @@ import { createHelperClient } from "./helper-client.mjs";
 import { createInventoryService } from "./inventory.mjs";
 import { createJobService } from "./jobs.mjs";
 import { createLibvirtService, getSetupPlan, validateAction, validateDomainName } from "./libvirt.mjs";
+import { createMigrationService } from "./migrations.mjs";
 import { createPrerequisiteService } from "./prerequisites.mjs";
 import { createStateStore } from "./state.mjs";
 import { createVmPlanner, validateVmPlanInput } from "./vm-plan.mjs";
@@ -33,6 +34,7 @@ const prerequisites = createPrerequisiteService({
 const applications = createApplicationService({ store: state, prerequisites, helper });
 const backups = createBackupService({ store: state, prerequisites, helper });
 const inventory = createInventoryService({ helper });
+const migrations = createMigrationService({ store: state, inventory });
 const jobs = createJobService(state, helper, {
   validateApplicationJob: applications.validateJob,
   validateBackupJob: backups.validateJob,
@@ -42,7 +44,7 @@ state.deleteExpiredSessions();
 const interruptedJobs = state.recoverInterruptedJobs();
 
 app.disable("x-powered-by");
-app.use(express.json({ limit: "16kb", strict: true }));
+app.use(express.json({ limit: "256kb", strict: true }));
 app.use((request, response, next) => {
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("X-Frame-Options", "DENY");
@@ -60,7 +62,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.7.0",
+    version: "0.8.0",
     mode: "host-aware",
     safeMode: !vmActions.enabled,
     hostMutationsEnabled: vmActions.enabled,
@@ -90,7 +92,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     applications: "curated-plans-and-uptime-kuma-adapter",
     supportBundle: "browser-only",
     backups: "uptime-kuma-local-with-restore-drill",
-    migrations: "planned",
+    migrations: "read-only-sanitized-manifests-and-compatibility-plans",
     privilegedHelper: "typed-canary",
     identity: "owner-password-foundation",
     durableJobs: "sqlite-canary-workflow",
@@ -123,6 +125,33 @@ app.get("/api/v1/logs", async (request, response) => {
     response.json(await helper.request("system.logs.inspect", { source, limit }));
   } catch {
     response.status(503).json({ error: "The selected redacted log source is unavailable", code: "logs_unavailable" });
+  }
+});
+
+app.get("/api/v1/migrations/export-manifest", async (_request, response) => {
+  response.json(await migrations.exportManifest());
+});
+
+app.get("/api/v1/migrations/sources", (_request, response) => {
+  response.json(migrations.listSources());
+});
+
+app.post("/api/v1/migrations/sources/import", (request, response) => {
+  try {
+    const source = migrations.importManifest(request.body, request.boxpilotSession.owner.id);
+    response.status(201).json({ source });
+  } catch (error) {
+    response.status(400).json({ error: error.message, code: "migration_manifest_invalid" });
+  }
+});
+
+app.post("/api/v1/migrations/sources/:id/plans", async (request, response) => {
+  try {
+    const plan = await migrations.plan(request.params.id, request.boxpilotSession.owner.id);
+    response.status(201).json({ plan });
+  } catch (error) {
+    const status = error.message === "Migration source not found" ? 404 : 400;
+    response.status(status).json({ error: error.message, code: "migration_plan_failed" });
   }
 });
 
@@ -305,7 +334,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.7.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.8.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log(vmActions.enabled ? "Authenticated VM lifecycle actions are enabled." : `Safe mode: ${vmActions.reason}.`);
 });
