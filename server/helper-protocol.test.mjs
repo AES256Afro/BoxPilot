@@ -14,6 +14,10 @@ function lifecycleParameters(overrides = {}) {
   return { name: "ubuntu-lab", action: "shutdown", expectedState: "running", expectedAutostart: false, ...overrides };
 }
 
+function snapshotParameters(overrides = {}) {
+  return { name: "ubuntu-lab", snapshotName: "pre-upgrade", expectedUuid: "11111111-1111-4111-8111-111111111111", expectedState: "stopped", expectedDiskRevision: "b".repeat(64), expectedSnapshotRevision: "a".repeat(64), ...overrides };
+}
+
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
@@ -78,5 +82,31 @@ describe("restricted helper protocol", () => {
     const virtualization = { action: async (parameters) => ({ verified: true, domain: parameters.name, action: parameters.action }) };
     const result = await executeHelperOperation(request({ operation: "virtualization.domain.action", parameters: lifecycleParameters() }), { virtualization });
     expect(result).toMatchObject({ ok: true, result: { verified: true, domain: "ubuntu-lab", action: "shutdown" } });
+  });
+
+  it("accepts only fixed read-only virtualization inventory scopes", async () => {
+    expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "domains" } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "domain", name: "ubuntu-lab" } }))).toContain("fixed status, domains, or resources scope");
+    expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "../../etc" } }))).toContain("fixed status, domains, or resources scope");
+    const virtualization = { inventory: async ({ scope }) => ({ scope, connected: true }) };
+    const result = await executeHelperOperation(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "resources" } }), { virtualization });
+    expect(result).toMatchObject({ ok: true, result: { scope: "resources", connected: true } });
+  });
+
+  it("accepts only a parameter-free console handoff inspection", async () => {
+    expect(validateHelperRequest(request({ operation: "virtualization.console.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.console.inspect", parameters: { port: 22 } }))).toContain("accepts no parameters");
+    const virtualization = { consoleGuidance: async () => ({ nativeProxyAvailable: false, cockpit: { active: true, port: 9090 } }) };
+    const result = await executeHelperOperation(request({ operation: "virtualization.console.inspect", parameters: {} }), { virtualization });
+    expect(result).toMatchObject({ ok: true, result: { nativeProxyAvailable: false, cockpit: { active: true, port: 9090 } } });
+  });
+
+  it("accepts only exact offline snapshot plan fields", async () => {
+    expect(validateHelperRequest(request({ operation: "virtualization.domain.snapshot.create", parameters: snapshotParameters() }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.domain.snapshot.create", parameters: snapshotParameters({ expectedState: "running" }) }))).toContain("requires a stopped VM");
+    expect(validateHelperRequest(request({ operation: "virtualization.domain.snapshot.create", parameters: snapshotParameters({ path: "/tmp/evil" }) }))).toContain("only the fixed typed plan fields");
+    const virtualization = { createSnapshot: async (parameters) => ({ created: true, verified: true, domain: parameters.name, snapshotName: parameters.snapshotName }) };
+    const result = await executeHelperOperation(request({ operation: "virtualization.domain.snapshot.create", parameters: snapshotParameters() }), { virtualization });
+    expect(result).toMatchObject({ ok: true, result: { created: true, verified: true, snapshotName: "pre-upgrade" } });
   });
 });

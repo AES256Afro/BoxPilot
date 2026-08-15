@@ -16,6 +16,10 @@ Environment=BOXPILOT_TAR_BINARY=/usr/bin/tar
 Environment=BOXPILOT_JOURNALCTL_BINARY=/usr/bin/journalctl
 Environment=BOXPILOT_VIRT_INSTALL_BINARY=/usr/bin/virt-install
 Environment=BOXPILOT_VIRSH_BINARY=/usr/bin/virsh
+Environment=BOXPILOT_QEMU_IMG_BINARY=/usr/bin/qemu-img
+Environment=BOXPILOT_TAILSCALE_BINARY=/usr/bin/tailscale
+Environment=BOXPILOT_SYSTEMCTL_BINARY=/usr/bin/systemctl
+Environment=BOXPILOT_VM_IMAGE_ROOT=/var/lib/libvirt/images
 Environment=BOXPILOT_ISO_DIRECTORY=/var/lib/libvirt/boot
 Environment=BOXPILOT_LIBVIRT_URI=qemu:///system
 RuntimeDirectory=boxpilot

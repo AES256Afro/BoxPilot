@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BoxPilot guarded offline snapshot mockup</title>
+    <link rel="stylesheet" href="../../src/styles.css" />
+    <style>
+      .mock-disclosure { position: fixed; z-index: 200; right: 24px; bottom: 18px; padding: 8px 12px; border: 1px solid #67502b; border-radius: 9px; color: #e5d3b4; background: #241d13; font-size: 11px; }
+      .vm-planner-dialog { max-width: 760px; }
+    </style>
+  </head>
+  <body>
+    <div class="vm-planner-backdrop">
+      <section class="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-snapshot-title">
+        <header class="vm-planner-header">
+          <div><span class="eyebrow">Guarded offline snapshot</span><h2 id="vm-snapshot-title">Snapshot ubuntu-services</h2><p>Only stopped, persistent VMs with managed qcow2 disks can use this workflow.</p></div>
+          <button type="button" class="modal-close" aria-label="Close snapshot plan">X</button>
+        </header>
+        <div class="vm-action-review">
+          <dl class="vm-plan-summary">
+            <div><dt>Consistency</dt><dd>offline-consistent</dd></div>
+            <div><dt>Independent backup</dt><dd>No</dd></div>
+            <div><dt>Existing snapshots</dt><dd>1</dd></div>
+            <div><dt>Managed disks</dt><dd>vda</dd></div>
+          </dl>
+          <div class="vm-plan-gates"><strong>Exact changes</strong><ol><li>Create one internal snapshot named pre-upgrade for the stopped domain</li><li>Verify the snapshot is present, current, internal, and records a stopped guest state</li></ol></div>
+          <div class="vm-plan-warnings"><strong>Warnings</strong><span>A snapshot shares the VM disk and is not an independent backup.</span><span>Snapshot growth depends on later writes. Monitor the default storage pool before starting the VM.</span><span>Revert and delete are locked until independent-backup evidence exists.</span></div>
+          <div class="vm-plan-warnings"><strong>Recovery boundary</strong><span>If verification fails, leave the VM stopped and inspect snapshot metadata and disk state before any manual change.</span></div>
+          <p class="vm-action-revision">Plan revision <code>c14fd8199ab4620e</code>. Domain UUID, stopped state, disk confinement, and snapshot inventory will be checked again before execution.</p>
+          <div class="vm-plan-form-actions"><button type="button" class="text-button">Back</button><button type="button" class="primary-button">Stage for password approval</button></div>
+        </div>
+      </section>
+    </div>
+    <div class="mock-disclosure">Mocked 0.11.0 offline snapshot plan. No VM or disk was changed.</div>
+  </body>
+</html>

@@ -9,7 +9,6 @@ After=boxpilot-helper.service
 Type=simple
 User=boxpilot
 Group=boxpilot
-SupplementaryGroups=libvirt kvm
 WorkingDirectory=/opt/boxpilot
 EnvironmentFile=/etc/boxpilot/boxpilot.env
 StateDirectory=boxpilot

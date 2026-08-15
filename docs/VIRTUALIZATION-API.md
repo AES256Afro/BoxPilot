@@ -1,6 +1,6 @@
 # Virtualization API
 
-The BoxPilot `v1` virtualization API is loopback-only by default. Tailscale Serve may proxy it privately, but it is not an internet API. Version `0.10.0` requires an authenticated owner session for virtualization routes and a CSRF token for POST requests. Network privacy remains mandatory.
+The BoxPilot `v1` virtualization API is loopback-only by default. Tailscale Serve may proxy it privately, but it is not an internet API. Version `0.11.0` requires an authenticated owner session for virtualization routes and a CSRF token for POST requests. Network privacy remains mandatory.
 
 All API responses use JSON and send `Cache-Control: no-store`.
 
@@ -10,7 +10,7 @@ All API responses use JSON and send `Cache-Control: no-store`.
 GET /api/v1/audit?limit=100
 ```
 
-The limit is constrained to `1-200`. Events are returned newest first. Current event types are `vm.plan.created`, `vm.action.requested`, `vm.action.completed`, and `vm.action.failed`. Plan events include normalized resource counts, ISO basename, revision, and warning count. Lifecycle events include only domain, allowlisted action, result type, and reported state. Tokens, command output, raw environment values, and guest secrets are excluded.
+The limit is constrained to `1-200`. Events are returned newest first. The older JSONL foundation records bounded `vm.plan.created` events and may contain historical lifecycle events from releases before `0.10.0`. Current lifecycle and snapshot attribution, approvals, steps, results, and failures live in the Operations Core SQLite job ledger. Tokens, command output, raw environment values, and guest secrets are excluded.
 
 On the native systemd deployment, the JSONL file lives under `StateDirectory=boxpilot`. This is a live operational foundation, not the final owner-attributed and tamper-evident audit ledger.
 
@@ -29,10 +29,13 @@ Agents and interfaces should read capabilities before showing an operation. `vmC
 GET /api/v1/virtualization/status
 GET /api/v1/virtualization/domains
 GET /api/v1/virtualization/resources
+GET /api/v1/virtualization/console-guidance
 GET /api/v1/virtualization/setup-plan
 ```
 
-`status` reports host preflight, the fixed `qemu:///system` connection, lifecycle-action availability, and Tailscale information. `domains` reports guest state, resources, lease-known addresses, disks, interfaces, and snapshot count. `resources` reports libvirt networks and pools without changing either.
+`status`, `domains`, and `resources` are collected through fixed read-only helper scopes. The web service has no `libvirt` or `kvm` supplementary group. `status` reports host preflight, the fixed `qemu:///system` connection, lifecycle-action availability, and Tailscale information. `domains` reports guest state, resources, lease- and guest-agent-known addresses, disks, interfaces, bounded snapshot metadata, guest-agent availability, and filesystem-freeze state. `resources` reports libvirt networks and pools without changing either.
+
+`console-guidance` uses a parameter-free helper operation to inspect only `cockpit.socket`. If Cockpit is already active and Tailscale reports a DNS name, the response includes an HTTPS port `9090` handoff on that private hostname. BoxPilot does not install, enable, reconfigure, authenticate to, or proxy Cockpit. Cockpit remains a separate security boundary.
 
 A `503` from `domains` or `resources` is a structured discovery result when libvirt is unavailable. The web interface renders the partial result rather than treating the entire console as failed.
 
@@ -149,7 +152,41 @@ Body:
 
 Staging requires the plan owner, exact revision, unexpired draft, matching domain state, and matching autostart state. It returns an `awaiting_approval` job without mutating the VM. Approval uses the ordinary password reauthentication route. The helper accepts only `name`, `action`, `expectedState`, and `expectedAutostart`, rechecks them independently, maps the action to a fixed local `virsh` argument array, and reads back post-operation state.
 
-There is no `destroy`, force-off, delete, XML edit, snapshot mutation, storage mutation, bridge mutation, command string, arbitrary action, libvirt URI, argument array, or executable-selection input. Reboot verification proves request acceptance and a running libvirt state, not guest application health.
+There is no `destroy`, force-off, delete, XML edit, snapshot mutation through the lifecycle route, storage mutation, bridge mutation, command string, arbitrary action, libvirt URI, argument array, or executable-selection input. Reboot verification proves request acceptance and a running libvirt state, not guest application health.
+
+## Create a guarded offline snapshot plan
+
+```text
+POST /api/v1/virtualization/domains/:name/snapshot-plans
+Content-Type: application/json
+X-BoxPilot-CSRF: <session CSRF token>
+```
+
+Body:
+
+```json
+{ "snapshotName": "pre-upgrade" }
+```
+
+Planning requires an exact managed persistent domain that is stopped, a UUID, available snapshot inventory, no duplicate snapshot name, and at least one file-backed disk under `/var/lib/libvirt/images`. The immutable response records the domain UUID, stopped state, a SHA-256 revision of existing snapshot names, disk targets, exact changes, warnings, and manual recovery guidance. It labels consistency as `offline-consistent` and `independentBackup` as `false`.
+
+## Stage an offline snapshot job
+
+```text
+POST /api/v1/virtualization/snapshot-plans/:id/stage
+Content-Type: application/json
+X-BoxPilot-CSRF: <session CSRF token>
+```
+
+Body:
+
+```json
+{ "revision": "immutable-plan-revision" }
+```
+
+Staging and password approval recheck the exact domain UUID, stopped state, snapshot-name absence, and existing snapshot revision. The helper additionally derives disk paths from libvirt, confines every disk to the managed image root, uses `lstat` to reject symlinks and non-files, uses fixed `qemu-img info --output=json` arguments to require unchained qcow2 disks, and constructs one fixed atomic `virsh snapshot-create-as` request. Verification requires the new snapshot to be current, internal, and associated with a stopped guest state.
+
+There is no operator-supplied path, description, program, argument array, online or memory snapshot, quiesce request, revert, delete, or metadata-only cleanup. If post-create verification fails, BoxPilot leaves the VM stopped and requires inspection instead of guessing at a destructive rollback. Snapshots are never counted as independent backups.
 
 ## Agent integration rules
 
@@ -162,4 +199,4 @@ An agent integrating with BoxPilot should:
 5. Never request or invent VM credentials, guest secrets, or unlisted helper fields.
 6. Refresh host and domain state immediately before requesting a lifecycle action.
 7. Explain when a guest address is unknown rather than inventing one.
-8. Keep bridge, passthrough, storage, snapshot, and force-off operations unavailable until their capability appears explicitly.
+8. Keep bridge, passthrough, storage, online snapshot, snapshot revert/delete, and force-off operations unavailable until their capability appears explicitly.

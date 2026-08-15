@@ -30,6 +30,7 @@ describe("libvirt service", () => {
         return successful("Name: windows-test\nUUID: two\nState: shut off\nCPU(s): 4\nMax memory: 8388608 KiB\nPersistent: yes\nAutostart: disable");
       }
       if (operation === "domifaddr" && args[3] === "ubuntu-lab") {
+        if (args[5] === "agent") return successful("Name MAC address Protocol Address\n------------------------------------------------\nens3 52:54:00:aa:bb:cc ipv4 100.64.0.8/32");
         return successful("Name MAC address Protocol Address\n------------------------------------------------\nvnet0 52:54:00:aa:bb:cc ipv4 192.168.122.25/24");
       }
       if (operation === "domblklist" && args[3] === "ubuntu-lab") {
@@ -39,6 +40,9 @@ describe("libvirt service", () => {
         return successful("Interface Type Source Model MAC\n-------------------------------------------------------\nvnet0 network default virtio 52:54:00:aa:bb:cc");
       }
       if (operation === "snapshot-list" && args[3] === "ubuntu-lab") return successful("clean-install\npre-upgrade");
+      if (operation === "snapshot-info") return successful(`Name: ${args[4]}\nDomain: ubuntu-lab\nCurrent: ${args[4] === "pre-upgrade" ? "yes" : "no"}\nState: shutoff\nLocation: internal\nParent: -\nCreation Time: 2026-08-15 10:00:00 -0500`);
+      if (operation === "qemu-agent-command" && args[4].includes("guest-ping")) return successful('{"return":{}}');
+      if (operation === "qemu-agent-command") return successful('{"return":"thawed"}');
       return successful();
     });
     const service = createLibvirtService({ runCommand });
@@ -55,9 +59,12 @@ describe("libvirt service", () => {
       autostart: true,
     });
     expect(result.domains[0].addresses[0].address).toBe("192.168.122.25/24");
+    expect(result.domains[0].addresses[1].address).toBe("100.64.0.8/32");
     expect(result.domains[0].disks).toHaveLength(2);
     expect(result.domains[0].interfaces[0]).toMatchObject({ source: "default", model: "virtio" });
     expect(result.domains[0].snapshotCount).toBe(2);
+    expect(result.domains[0].snapshots[1]).toMatchObject({ name: "pre-upgrade", current: true, state: "stopped", location: "internal" });
+    expect(result.domains[0].guestAgent).toEqual({ available: true, filesystemState: "thawed", addressDiscovery: true });
     expect(result.domains[1].state).toBe("stopped");
   });
 

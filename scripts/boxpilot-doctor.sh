@@ -7,6 +7,7 @@ boxpilot_uri="${BOXPILOT_LIBVIRT_URI:-qemu:///system}"
 boxpilot_iso_directory="${BOXPILOT_ISO_DIRECTORY:-/var/lib/libvirt/boot}"
 boxpilot_state_directory="${BOXPILOT_STATE_DIRECTORY:-/var/lib/boxpilot}"
 boxpilot_port="${BOXPILOT_PORT:-8787}"
+boxpilot_helper_socket="${BOXPILOT_HELPER_SOCKET:-/run/boxpilot/helper.sock}"
 
 boxpilot_pass() {
   printf '[PASS] %s\n' "$1"
@@ -37,9 +38,11 @@ else
 fi
 
 if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
-  boxpilot_pass "/dev/kvm is readable and writable by $(id -un)"
+  boxpilot_pass "/dev/kvm is readable and writable for this host-side doctor session"
+elif [ -S "$boxpilot_helper_socket" ] && [ -w "$boxpilot_helper_socket" ]; then
+  boxpilot_pass "KVM and libvirt inspection is delegated to the restricted helper socket"
 else
-  boxpilot_fail "/dev/kvm access is unavailable for $(id -un)"
+  boxpilot_fail "neither direct KVM access nor the restricted helper socket is available"
 fi
 
 for boxpilot_command in node virsh virt-install tailscale; do
@@ -60,30 +63,31 @@ if boxpilot_has_command node; then
 fi
 
 case " $(id -nG) " in
-  *" libvirt "*) boxpilot_pass "$(id -un) belongs to libvirt" ;;
-  *) boxpilot_fail "$(id -un) does not belong to libvirt" ;;
-esac
-
-case " $(id -nG) " in
-  *" kvm "*) boxpilot_pass "$(id -un) belongs to kvm" ;;
-  *) boxpilot_fail "$(id -un) does not belong to kvm" ;;
+  *" libvirt "*|*" kvm "*) boxpilot_warn "$(id -un) still has direct virtualization group access; the boxpilot service account should use only the helper socket" ;;
+  *) boxpilot_pass "$(id -un) has no direct libvirt or kvm group membership" ;;
 esac
 
 if boxpilot_has_command virsh; then
   if virsh --connect "$boxpilot_uri" uri >/dev/null 2>&1; then
     boxpilot_pass "libvirt system connection is reachable"
+  elif [ -S "$boxpilot_helper_socket" ] && [ -w "$boxpilot_helper_socket" ]; then
+    boxpilot_pass "direct libvirt access is absent and the restricted helper socket is reachable"
   else
-    boxpilot_fail "cannot connect to libvirt at $boxpilot_uri"
+    boxpilot_fail "cannot reach libvirt directly or through the helper boundary"
   fi
 
   if virsh --connect "$boxpilot_uri" net-info default >/dev/null 2>&1; then
     boxpilot_pass "default libvirt network is defined"
+  elif [ -S "$boxpilot_helper_socket" ] && [ -w "$boxpilot_helper_socket" ]; then
+    boxpilot_warn "default network inspection is available through the authenticated BoxPilot interface"
   else
     boxpilot_fail "default libvirt network is not defined"
   fi
 
   if virsh --connect "$boxpilot_uri" pool-info default >/dev/null 2>&1; then
     boxpilot_pass "default libvirt storage pool is defined"
+  elif [ -S "$boxpilot_helper_socket" ] && [ -w "$boxpilot_helper_socket" ]; then
+    boxpilot_warn "default pool inspection is available through the authenticated BoxPilot interface"
   else
     boxpilot_fail "default libvirt storage pool is not defined"
   fi

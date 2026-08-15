@@ -5,6 +5,7 @@ export function createJobService(store, helper, {
   validateBackupJob = async () => {},
   validateVmCreationJob = async () => {},
   validateVmLifecycleJob = async () => {},
+  validateVmSnapshotJob = async () => {},
   recordBackupResult = () => {},
 } = {}) {
   function createCanary(ownerId) {
@@ -27,13 +28,15 @@ export function createJobService(store, helper, {
     if (!owner || !(await verifyPassword(password, owner.passwordHash))) throw new Error("Approval reauthentication failed");
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
-    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.domain.create", "virtualization.domain.action"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     if (job.type === "application.uptime-kuma.deploy") await validateApplicationJob(job);
     if (job.type === "application.uptime-kuma.backup") await validateBackupJob(job);
     const validatedVmPlan = job.type === "virtualization.domain.create" ? await validateVmCreationJob(job) : null;
     const validatedVmLifecyclePlan = job.type === "virtualization.domain.action" ? await validateVmLifecycleJob(job) : null;
+    const validatedVmSnapshotPlan = job.type === "virtualization.domain.snapshot.create" ? await validateVmSnapshotJob(job) : null;
     if (job.type === "virtualization.domain.create" && !validatedVmPlan?.input) throw new Error("The staged VM creation plan is unavailable or changed");
     if (job.type === "virtualization.domain.action" && !validatedVmLifecyclePlan?.input) throw new Error("The staged VM lifecycle plan is unavailable or changed");
+    if (job.type === "virtualization.domain.snapshot.create" && !validatedVmSnapshotPlan?.input) throw new Error("The staged VM snapshot plan is unavailable or changed");
     const execution = job.type === "helper.canary.verify" ? {
       operation: "canary.verify",
       parameters: {},
@@ -66,7 +69,7 @@ export function createJobService(store, helper, {
       verified: "Domain identity, allocated disk, default network, and requested autostart state were verified",
       failed: "VM creation or its post-create verification did not complete successfully",
       validate: (result) => result?.created && result?.verified && result?.domain === validatedVmPlan.input.name && result?.media === validatedVmPlan.input.isoFile,
-    } : {
+    } : job.type === "virtualization.domain.action" ? {
       operation: "virtualization.domain.action",
       parameters: validatedVmLifecyclePlan.input,
       applying: `Requesting the reviewed ${validatedVmLifecyclePlan.output.label.toLowerCase()} operation through the restricted libvirt helper`,
@@ -74,6 +77,14 @@ export function createJobService(store, helper, {
       verified: "Post-operation power and autostart state matched the reviewed lifecycle plan",
       failed: "VM lifecycle execution or state verification did not complete successfully",
       validate: (result) => result?.verified && result?.domain === validatedVmLifecyclePlan.input.name && result?.action === validatedVmLifecyclePlan.input.action,
+    } : {
+      operation: "virtualization.domain.snapshot.create",
+      parameters: validatedVmSnapshotPlan.input,
+      applying: "Creating the reviewed internal snapshot for the stopped domain through the restricted libvirt helper",
+      applied: "Restricted helper created the snapshot after independently matching domain UUID, stopped state, managed qcow2 disks, and snapshot inventory",
+      verified: "Snapshot is current, internal, and records an offline-consistent stopped guest state",
+      failed: "Snapshot creation or offline consistency verification did not complete successfully; leave the VM stopped for inspection",
+      validate: (result) => result?.created && result?.verified && result?.domain === validatedVmSnapshotPlan.input.name && result?.snapshotName === validatedVmSnapshotPlan.input.snapshotName && result?.consistency === "offline-consistent" && result?.independentBackup === false,
     };
     store.addApproval(jobId, ownerId);
     store.recordAudit("job.approved", { actorId: ownerId, subjectId: jobId, details: { type: job.type } });

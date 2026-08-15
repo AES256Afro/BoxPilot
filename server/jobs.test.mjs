@@ -141,4 +141,20 @@ describe("durable job executor", () => {
     expect(completed).toMatchObject({ state: "completed", result: { verified: true, action: "shutdown" } });
     store.close();
   });
+
+  it("revalidates and executes only a stopped-domain snapshot plan", async () => {
+    const input = { name: "ubuntu-lab", snapshotName: "pre-upgrade", expectedUuid: "11111111-1111-4111-8111-111111111111", expectedState: "stopped", expectedDiskRevision: "b".repeat(64), expectedSnapshotRevision: "a".repeat(64) };
+    const helper = { request: vi.fn(async () => ({ created: true, verified: true, domain: input.name, snapshotName: input.snapshotName, consistency: "offline-consistent", independentBackup: false })) };
+    const { store, owner } = await setup(helper);
+    const validateVmSnapshotJob = vi.fn(async () => ({ input }));
+    const jobs = createJobService(store, helper, { validateVmSnapshotJob });
+    const job = store.createJob({ type: "virtualization.domain.snapshot.create", title: "Snapshot ubuntu-lab", parameters: { input }, recovery: {}, createdBy: owner.id });
+
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+
+    expect(validateVmSnapshotJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("virtualization.domain.snapshot.create", input);
+    expect(completed).toMatchObject({ state: "completed", result: { consistency: "offline-consistent", independentBackup: false } });
+    store.close();
+  });
 });
