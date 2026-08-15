@@ -351,6 +351,35 @@ export function createVmRestoreDrillHelper({
     return { restoredExport, disks, firmware: /<loader\b/i.test(xml) ? "uefi" : "bios", sizeBytes, fileCount: names.length };
   }
 
+  async function prepareSnapshot(parameters) {
+    const errors = validateVmRestoreDrillInput(parameters);
+    if (errors.length) throw new Error(errors.join(" | "));
+    const readiness = await inspect(parameters);
+    if (!readiness.ready) throw new Error(readiness.blockers.join(" | ") || "The encrypted VM snapshot restore is not ready");
+    const drillDirectory = path.join(resolvedRestoreRoot, parameters.drillId);
+    if (path.dirname(drillDirectory) !== resolvedRestoreRoot) throw new Error("Restore workspace escaped the fixed root");
+    await mkdir(resolvedRestoreRoot, { recursive: true, mode: 0o700 });
+    await changeMode(resolvedRestoreRoot, 0o700);
+    await mkdir(drillDirectory, { mode: 0o700 });
+    try {
+      const backupTag = `boxpilot-backup-${parameters.backupId}`;
+      const exportTag = `boxpilot-export-${parameters.exportId}`;
+      const expectedSourcePath = path.join(resolvedExportRoot, parameters.exportId);
+      const snapshotsResult = await run(resticBinary, [...resticArguments(), "snapshots", "--json", "--tag", backupTag], { timeout: 30000 });
+      const snapshots = JSON.parse(snapshotsResult.stdout);
+      const snapshot = snapshots.find((candidate) => candidate.id === parameters.snapshotId);
+      if (!snapshot || snapshot.paths?.length !== 1 || snapshot.paths[0] !== expectedSourcePath
+        || !snapshot.tags?.includes(backupTag) || !snapshot.tags?.includes(exportTag)) {
+        throw new Error("The recorded restic snapshot identity, path, or tags changed");
+      }
+      await run(resticBinary, [...resticArguments(), "restore", parameters.snapshotId, "--target", drillDirectory, "--verify"], { timeout: 12 * 60 * 60 * 1000 });
+      const restored = await verifyRestoredExport(parameters, drillDirectory);
+      return { drillDirectory, restored, readiness };
+    } catch (error) {
+      throw new Error(`${error.message} The root-only restored workspace was preserved for inspection.`);
+    }
+  }
+
   async function waitForGuestAgent(drillDomain) {
     const command = '{"execute":"guest-ping"}';
     for (let attempt = 0; attempt < 120; attempt += 1) {
@@ -558,7 +587,7 @@ export function createVmRestoreDrillHelper({
     }
   }
 
-  return { inspect, runDrill, recoverOrphans };
+  return { inspect, prepareSnapshot, runDrill, recoverOrphans };
 }
 
 export const vmRestoreDrillHelperInternals = { attributes, diskBusesFromXml, drillIdFromDomainName, defaultRunner };

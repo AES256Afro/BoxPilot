@@ -162,6 +162,21 @@ export function createStateStore({
       created_by TEXT NOT NULL REFERENCES owners(id),
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS vm_recoveries (
+      id TEXT PRIMARY KEY,
+      backup_id TEXT NOT NULL REFERENCES vm_backups(id),
+      source_domain_name TEXT NOT NULL,
+      source_domain_uuid TEXT NOT NULL,
+      domain_name TEXT NOT NULL UNIQUE,
+      domain_uuid TEXT NOT NULL UNIQUE,
+      destination_type TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      state TEXT NOT NULL,
+      network TEXT NOT NULL,
+      autostart INTEGER NOT NULL,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS migration_sources (
       id TEXT PRIMARY KEY,
       fingerprint TEXT NOT NULL UNIQUE,
@@ -183,6 +198,7 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_backups_created_at ON backups(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_vm_exports_created_at ON vm_exports(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_vm_backups_created_at ON vm_backups(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_vm_recoveries_created_at ON vm_recoveries(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_migration_sources_imported_at ON migration_sources(imported_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_events(created_at DESC);
   `);
@@ -517,6 +533,55 @@ export function createStateStore({
     }
   }
 
+  function mapVmRecovery(row) {
+    return row ? {
+      id: row.id,
+      backupId: row.backup_id,
+      sourceDomainName: row.source_domain_name,
+      sourceDomainUuid: row.source_domain_uuid,
+      domainName: row.domain_name,
+      domainUuid: row.domain_uuid,
+      destination: row.destination_type,
+      sizeBytes: Number(row.size_bytes),
+      state: row.state,
+      network: row.network,
+      autostart: Boolean(row.autostart),
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+    } : null;
+  }
+
+  function recordVmRecovery({ id, backupId, sourceDomainName, sourceDomainUuid, domainName, domainUuid, destination, sizeBytes, state, network, autostart, createdBy }) {
+    const at = timestamp();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.prepare(`
+        INSERT INTO vm_recoveries (id, backup_id, source_domain_name, source_domain_uuid, domain_name, domain_uuid, destination_type, size_bytes, state, network, autostart, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, backupId, sourceDomainName, sourceDomainUuid, domainName, domainUuid, destination, sizeBytes, state, network, autostart ? 1 : 0, createdBy, at);
+      recordAudit("vm.recovery.created", { actorId: createdBy, subjectId: id, details: { backupId, sourceDomainName, domainName, domainUuid, destination, sizeBytes, state, network, autostart } });
+      const recovery = getVmRecovery(id);
+      database.exec("COMMIT");
+      return recovery;
+    } catch (error) {
+      try {
+        database.exec("ROLLBACK");
+      } catch {
+        // Preserve the original recovery-record error if SQLite already ended the transaction.
+      }
+      throw error;
+    }
+  }
+
+  function getVmRecovery(id) {
+    return mapVmRecovery(database.prepare("SELECT * FROM vm_recoveries WHERE id = ?").get(id));
+  }
+
+  function listVmRecoveries(limit = 50) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    return database.prepare("SELECT * FROM vm_recoveries ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapVmRecovery);
+  }
+
   function importMigrationSource({ fingerprint, manifest, importedBy }) {
     const existing = database.prepare("SELECT id FROM migration_sources WHERE fingerprint = ?").get(fingerprint);
     if (existing) return getMigrationSource(existing.id);
@@ -582,6 +647,9 @@ export function createStateStore({
     listVmBackups,
     getVmBackup,
     recordVmRestoreDrill,
+    recordVmRecovery,
+    getVmRecovery,
+    listVmRecoveries,
     importMigrationSource,
     getMigrationSource,
     listMigrationSources,

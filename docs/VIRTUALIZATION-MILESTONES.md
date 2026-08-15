@@ -2,7 +2,7 @@
 
 This plan turns the current QEMU/KVM module into a dependable home-server virtualization control plane. Milestones are dependency ordered. A later milestone cannot ship merely because its interface is complete.
 
-## Current baseline: 0.14.0
+## Current baseline: 0.15.0
 
 Shipped:
 
@@ -19,10 +19,12 @@ Shipped:
 - Durable offline internal snapshot creation for stopped VMs with unchained managed qcow2 disks
 - Durable stopped-VM local export with standalone qcow2 conversion, structural checks, content comparison, SHA-256 evidence, confined cleanup, and honest unprotected status
 - Durable encrypted independent mounted-restic copy with fixed paths, source rehashing, server-generated tags, full repository reads, snapshot identity evidence, and honest restore-pending status
+- Exact-snapshot isolated no-network restore drill with repeated guest-agent health, strict cleanup, and evidence-gated protected status
+- Guarded recovery clone from protected evidence into a separately named stopped persistent VM with no network interface or autostart
 
 Known boundary:
 
-- AppArmor, Windows TPM/Secure Boot creation, cloud-init, console proxy, online snapshots, snapshot revert/delete, operator-directed restore, application-level restore tests, retention mutation, bridge management, passthrough, and fleet placement remain pending.
+- AppArmor, Windows TPM/Secure Boot creation, cloud-init, console proxy, online snapshots, snapshot revert/delete, in-place restore, recovered-VM network attachment, application-level restore tests, retention mutation, bridge management, passthrough, and fleet placement remain pending.
 - The safe Docker preview cannot inspect host libvirt.
 
 ## Milestone V1: guided creation planning
@@ -127,7 +129,7 @@ Acceptance:
 
 Target: `0.8.0`
 
-Status: `0.12.0` ships the first stopped-VM export slice to a fixed root-only local destination with preflight capacity, immutable state revisions, standalone qcow2 conversion, structure and source-content verification, SHA-256 evidence, background execution, and confined cleanup. Version `0.13.0` adds one fixed independent mounted-restic destination with exact mount and filesystem-device checks, root-only password policy, immutable repository identity, local source rehashing, encrypted snapshots, full repository reads, exact snapshot readback, and no automated deletion. Version `0.14.0` adds exact-snapshot restore, restored-file and qcow2 verification, a transient zero-network guest, repeated QEMU guest-agent health, exact UEFI and permission cleanup, and evidence-gated protected status. Operator-directed restore, application-level health tests, retention mutation, remote destinations, and migration transfer remain pending.
+Status: `0.12.0` ships the first stopped-VM export slice to a fixed root-only local destination with preflight capacity, immutable state revisions, standalone qcow2 conversion, structure and source-content verification, SHA-256 evidence, background execution, and confined cleanup. Version `0.13.0` adds one fixed independent mounted-restic destination with exact mount and filesystem-device checks, root-only password policy, immutable repository identity, local source rehashing, encrypted snapshots, full repository reads, exact snapshot readback, and no automated deletion. Version `0.14.0` adds exact-snapshot restore, restored-file and qcow2 verification, a transient zero-network guest, repeated QEMU guest-agent health, exact UEFI and permission cleanup, and evidence-gated protected status. Version `0.15.0` adds guarded restore execution as a separately named stopped persistent no-network recovery clone, with exact source preservation and confined rollback. In-place restore, application-level health tests, retention mutation, remote destinations, and migration transfer remain pending.
 
 - Quiesced backup coordination when a guest agent is available
 - Offline backup fallback with measured downtime

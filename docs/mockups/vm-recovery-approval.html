@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BoxPilot guarded VM recovery clone mockup</title>
+    <link rel="stylesheet" href="../../src/styles.css" />
+    <style>
+      .mock-disclosure { position: fixed; z-index: 200; right: 24px; bottom: 18px; padding: 8px 12px; border: 1px solid #67502b; border-radius: 9px; color: #e5d3b4; background: #241d13; font-size: 11px; }
+      .vm-planner-dialog { max-width: 930px; }
+    </style>
+  </head>
+  <body>
+    <div class="vm-planner-backdrop">
+      <section class="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-recovery-title">
+        <header class="vm-planner-header">
+          <div><span class="eyebrow">Guarded VM recovery clone</span><h2 id="vm-recovery-title">Recover ubuntu-services</h2><p>Create a separate persistent VM from the exact protected snapshot. The source and repository remain unchanged.</p></div>
+          <button type="button" class="modal-close" aria-label="Close recovery plan">X</button>
+        </header>
+        <div class="vm-action-review">
+          <dl class="vm-plan-summary">
+            <div><dt>New domain</dt><dd>ubuntu-services-recovery</dd></div>
+            <div><dt>Restore size</dt><dd>18.7 GiB</dd></div>
+            <div><dt>Guest resources</dt><dd>2 vCPU | 2048 MiB</dd></div>
+            <div><dt>Initial isolation</dt><dd>Stopped | no network | no autostart</dd></div>
+          </dl>
+          <div class="vm-plan-gates"><strong>Exact changes</strong><ol><li>Restore and reverify the exact protected restic snapshot in a server-generated staging workspace</li><li>Move only verified standalone qcow2 disks and evidence into a new managed recovery directory</li><li>Define a new persistent domain named ubuntu-services-recovery with 2 vCPUs and 2048 MiB</li><li>Keep the recovered domain stopped, disable autostart, and attach no network interface</li><li>Preserve the source VM, local export, protected snapshot, repository history, and existing domains unchanged</li></ol></div>
+          <div class="vm-plan-gates"><strong>Required verification</strong><ol><li>Protected backup and passing isolated restore-drill evidence</li><li>Exact repository, snapshot path, tags, manifest checksum, logical size, and qcow2 structure</li><li>Generated domain XML with only fixed recovered disks, no network interface, and a guest-agent channel</li><li>Persistent stopped domain, disabled autostart, zero interfaces, exact disk paths, and a new libvirt UUID</li></ol></div>
+          <div class="vm-plan-warnings"><strong>Warnings</strong><span>This creates a new persistent VM and allocates storage. It never overwrites or deletes the source VM.</span><span>The recovery clone starts without a network interface to prevent hostname, IP, DNS, or service conflicts.</span><span>Use a separately approved Start action and the private Cockpit console to inspect it. Network attachment remains locked.</span></div>
+          <div class="vm-plan-warnings"><strong>Recovery boundary</strong><span>Before definition, failures preserve root-only staging evidence. After definition begins, BoxPilot removes only the newly named stopped no-network domain and its server-generated recovery directory when exact rollback validation passes.</span></div>
+          <p class="vm-action-revision">Plan revision <code>9495ccced6f0ec21</code>. Protected evidence, exact snapshot identity, capacity, target-name absence, and the no-network policy are checked again before execution.</p>
+          <div class="vm-plan-form-actions"><button type="button" class="text-button">Back</button><button type="button" class="primary-button">Stage for password approval</button></div>
+        </div>
+      </section>
+    </div>
+    <div class="mock-disclosure">Mocked 0.15.0 plan. No snapshot was restored and no recovery VM was defined.</div>
+  </body>
+</html>

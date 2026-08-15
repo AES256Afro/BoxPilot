@@ -165,8 +165,25 @@ describe("BoxPilot state store", () => {
     });
     expect(protectedBackup).toMatchObject({ protected: true, restoreDrill: { passed: true, network: "none", transient: true, guestAgentPing: true, cleanupVerified: true } });
     expect(() => store.recordVmRestoreDrill({ backupId: backup.id, restoreDrill: { passed: true }, createdBy: owner.id })).toThrow("already protected");
+    const recovery = store.recordVmRecovery({
+      id: "55555555-5555-4555-8555-555555555555",
+      backupId: backup.id,
+      sourceDomainName: "ubuntu-lab",
+      sourceDomainUuid: "11111111-1111-4111-8111-111111111111",
+      domainName: "ubuntu-recovered",
+      domainUuid: "66666666-6666-4666-8666-666666666666",
+      destination: "managed-libvirt-recovery",
+      sizeBytes: 4096,
+      state: "stopped",
+      network: "none",
+      autostart: false,
+      createdBy: owner.id,
+    });
+    expect(recovery).toMatchObject({ backupId: backup.id, domainName: "ubuntu-recovered", destination: "managed-libvirt-recovery", state: "stopped", network: "none", autostart: false });
+    expect(store.listVmRecoveries()).toHaveLength(1);
     expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "vm.backup.recorded", subjectId: backup.id })]));
     expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "vm.restore_drill.passed", subjectId: backup.id })]));
+    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "vm.recovery.created", subjectId: recovery.id })]));
     store.close();
   });
 
