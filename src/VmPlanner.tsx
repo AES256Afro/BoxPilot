@@ -3,6 +3,7 @@ import {
   createVmPlan,
   fetchVmPlanningOptions,
   formatBytes,
+  stageVmPlan,
   type VmCreationPlan,
   type VmPlanInput,
   type VmPlanningOptions,
@@ -20,13 +21,15 @@ const initialInput: VmPlanInput = {
   autostart: false,
 };
 
-export default function VmPlanner({ onClose, csrfToken = "" }: { onClose: () => void; csrfToken?: string }) {
+export default function VmPlanner({ onClose, onOpenRepair, csrfToken = "" }: { onClose: () => void; onOpenRepair: () => void; csrfToken?: string }) {
   const [options, setOptions] = useState<VmPlanningOptions | null>(null);
   const [input, setInput] = useState<VmPlanInput>(initialInput);
   const [plan, setPlan] = useState<VmCreationPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [staging, setStaging] = useState(false);
+  const [jobId, setJobId] = useState<string | null>(null);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -46,7 +49,23 @@ export default function VmPlanner({ onClose, csrfToken = "" }: { onClose: () => 
   const updateInput = <Key extends keyof VmPlanInput>(key: Key, value: VmPlanInput[Key]) => {
     setInput((current) => ({ ...current, [key]: value }));
     setPlan(null);
+    setJobId(null);
     setError(null);
+  };
+
+  const stage = async () => {
+    if (!plan) return;
+    setStaging(true);
+    setError(null);
+    try {
+      const job = await stageVmPlan(plan.id, plan.revision, csrfToken);
+      setJobId(job.id);
+      setPlan((current) => current ? { ...current, status: "staged" } : current);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to stage VM creation");
+    } finally {
+      setStaging(false);
+    }
   };
 
   const submit = async (event: FormEvent) => {
@@ -67,7 +86,7 @@ export default function VmPlanner({ onClose, csrfToken = "" }: { onClose: () => 
     <div className="vm-planner-backdrop" role="presentation">
       <section className="vm-planner-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-planner-title">
         <header className="vm-planner-header">
-          <div><span className="eyebrow">Read-only planning</span><h2 id="vm-planner-title">Plan a new virtual machine</h2><p>Validate capacity, media, and libvirt arguments without creating a disk or guest.</p></div>
+          <div><span className="eyebrow">Durable guarded creation</span><h2 id="vm-planner-title">Plan a new virtual machine</h2><p>Validate capacity and media, then stage an immutable job for separate password approval.</p></div>
           <button type="button" className="modal-close" aria-label="Close VM planner" onClick={onClose} autoFocus>X</button>
         </header>
 
@@ -122,7 +141,7 @@ export default function VmPlanner({ onClose, csrfToken = "" }: { onClose: () => 
                 <div className="vm-plan-placeholder"><span>01</span><strong>Complete the plan</strong><p>BoxPilot will validate every field on the server and render the exact argument array.</p></div>
               ) : (
                 <>
-                  <div className="vm-plan-ready"><span className="eyebrow">Plan revision {plan.revision}</span><strong>Validated, not executable</strong><p>This route did not invoke virt-install, define a domain, or create a disk.</p></div>
+                  <div className="vm-plan-ready"><span className="eyebrow">Plan revision {plan.revision}</span><strong>{jobId ? "Staged for owner approval" : plan.stageable ? "Validated and ready to stage" : "Validated with an execution gate"}</strong><p>{jobId ? `Job ${jobId} is waiting in Repair Center. No VM is created until password reauthentication succeeds.` : "Planning did not invoke virt-install, define a domain, or create a disk."}</p></div>
                   <dl className="vm-plan-summary">
                     <div><dt>Guest</dt><dd>{plan.input.name}</dd></div>
                     <div><dt>Profile</dt><dd>{plan.profile.label}</dd></div>
@@ -130,9 +149,13 @@ export default function VmPlanner({ onClose, csrfToken = "" }: { onClose: () => 
                     <div><dt>Media</dt><dd>{plan.media.name}</dd></div>
                   </dl>
                   {plan.warnings.length > 0 && <div className="vm-plan-warnings"><strong>Warnings</strong>{plan.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div>}
-                  <div className="vm-command-preview"><strong>Future helper request preview</strong><code>{plan.command.display}</code></div>
-                  <div className="vm-plan-gates"><strong>Required before Apply</strong><ol>{plan.gates.map((gate) => <li key={gate}>{gate}</li>)}</ol></div>
-                  <button type="button" className="primary-button" disabled title="Restricted helper and durable approvals are required">Apply remains locked</button>
+                  <div className="vm-command-preview"><strong>Fixed helper execution preview</strong><code>{plan.command.display}</code></div>
+                  <div className="vm-plan-gates"><strong>Guardrails</strong><ol>{plan.gates.map((gate) => <li key={gate}>{gate}</li>)}</ol></div>
+                  {jobId ? (
+                    <button type="button" className="primary-button" onClick={() => { onClose(); onOpenRepair(); }}>Open Repair Center to approve</button>
+                  ) : (
+                    <button type="button" className="primary-button" disabled={!plan.stageable || staging} onClick={() => void stage()} title={plan.stageable ? "Create an awaiting-approval job" : "This operating-system profile needs additional host capability checks"}>{staging ? "Revalidating host..." : plan.stageable ? "Stage for password approval" : "Apply remains locked"}</button>
+                  )}
                 </>
               )}
             </aside>

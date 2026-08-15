@@ -4,17 +4,17 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.8.0` adds read-only migration source manifests and destination compatibility plans. A source BoxPilot node exports only the bounded sanitized inventory contract. The destination reconstructs the allowed fields, verifies the SHA-256 fingerprint, stores an attributable source snapshot, and detects architecture, container-name, and published-port conflicts. No SSH credential, source write, data transfer, route cutover, or deletion operation exists yet.
+Version `0.9.0` adds guarded QEMU/KVM creation. A validated VM plan is stored as an immutable SQLite revision, revalidated before staging and approval, and executed only after owner password reauthentication. The root helper derives a fixed `virt-install` argument array from typed fields, confines media to the managed ISO directory, verifies the resulting domain, disk, default network, and autostart state, and removes only the newly created exact-name domain and storage if post-create verification fails. Windows 11 creation remains locked until TPM 2.0 and Secure Boot checks exist.
 
 ### What works now
 
-| Area | Status in `0.8.0` | Capability |
+| Area | Status in `0.9.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
 | Operations Core | Live foundation | Persists plans, steps, approvals, results, recovery guidance, and audit attribution in SQLite. Interrupted applying or verifying jobs fail closed for review after restart. |
 | Repair Center | Live foundation | Checks Node.js, state storage, the helper, Docker, libvirt, Tailscale, and DNS port availability without returning peer details or raw command output. |
-| Restricted helper | Canary plus one curated adapter | Uses a versioned, allowlisted protocol over a local Unix socket. It accepts no command strings, image names, paths, Compose source, or executable selection from the browser. |
+| Restricted helper | Live typed operations | Uses a versioned, allowlisted protocol over a local Unix socket for the canary, bounded inventory and logs, Uptime Kuma deployment and backup, and guarded VM creation. It accepts no command strings, binary selection, libvirt URI, argument arrays, ISO paths, Compose source, or arbitrary root paths from the browser. |
 | Host and Docker inventory | Live | Reports authenticated host identity, CPU, memory, root storage, uptime, selected service state, LAN addresses, Tailscale self-state, and sanitized Docker containers, images, networks, volumes, and Compose projects. |
 | System logs | Live restricted sources | Returns capped, redacted entries for fixed BoxPilot, Docker, Tailscale, and virtualization unit sets. Credential-like values and URL query strings are redacted. |
 | Application catalog | Live | Publishes integrity-addressed manifests, live installation state, exact image policy, targets, ports, storage, prerequisites, recovery, and adapter risk. |
@@ -24,7 +24,7 @@ Version `0.8.0` adds read-only migration source manifests and destination compat
 | Migration Center | Read-only manifest discovery | Exports fingerprinted sanitized source manifests, validates and durably imports them, and creates immutable destination compatibility plans. Transfer and cutover are locked. |
 | QEMU/KVM preflight | Live on the native host | Checks Linux, `/dev/kvm`, QEMU, `virsh`, `virt-install`, `qemu:///system`, service-user groups, the default NAT network, the default storage pool, and Tailscale access. |
 | VM and libvirt inventory | Live on the native host | Lists domains, state, CPU, memory, autostart, lease-reported addresses, disks, interfaces, snapshot count, networks, and storage pools. |
-| VM creation planner | Validated read-only | Discovers regular ISO files in one managed directory, validates fields on the server, checks name collisions and reported pool space, and renders a non-executing `virt-install` argument preview. |
+| VM creation | Guarded and executable for Linux profiles | Discovers regular ISO files in one managed directory, validates fields, checks live name, network, pool, and capacity state, stores an immutable plan, stages an awaiting-approval job, and executes a fixed helper adapter with post-create verification and exact-domain rollback. |
 | VM lifecycle controls | Provisional and off by default | Can request start, graceful shutdown, reboot, and autostart through fixed `virsh` argument arrays after an operator enables the route and supplies a token. |
 | VM event log | Limited live foundation | Writes and displays redacted JSONL events for VM plans and enabled lifecycle requests. It is not the final authenticated job ledger. |
 | Compose inspector | Browser-only preview | Performs a lightweight structural and risk scan. It is not a full YAML parser and cannot deploy. |
@@ -36,7 +36,7 @@ The repository also includes a read-only Ubuntu deployment doctor and a USB-to-h
 
 ### Not implemented yet
 
-- VM plan application, VM creation, delete, force-off, console, snapshot mutation, bridge creation, passthrough, backup, restore, export, or migration
+- VM delete, force-off, console, snapshot mutation, bridge creation, passthrough, backup, restore, export, cloud-init, Windows TPM/Secure Boot creation, or migration
 - General Docker mutation, custom Compose deployment, additional application installation, package updates, firewall changes, storage changes, or arbitrary command execution
 - Backup schedules, retention, NAS/restic/cloud destinations, Keel Notes export, SSH source discovery, resumable transfer, or migration cutover
 - Keel Notes, AdGuard Home, Jellyfin, Home Assistant, PostgreSQL, router, GitHub, or remote-agent adapters
@@ -56,11 +56,17 @@ This is an actual `0.3.0` UI capture retained to show the workflow shell. The wo
 
 This is an actual host-backed capture from a non-Linux development machine. The failed checks are expected and demonstrate that the module reports missing KVM and libvirt dependencies instead of showing a false ready state.
 
-### Read-only VM creation planner
+### Earlier VM creation planner capture
 
 ![BoxPilot validated VM planner](docs/screenshots/vm-planner.jpg)
 
-This capture uses a local development ISO fixture. The plan was validated by the running server, but the displayed `virt-install` request was not executed. Apply remains locked.
+This older `0.3.0` capture uses a local development ISO fixture and shows the planning foundation before guarded execution shipped. In `0.9.0`, supported Linux plans can be staged for a separate password approval. The repository does not claim that this fixture created a VM.
+
+### Guarded VM creation approval mockup
+
+![BoxPilot durable VM creation plan staged for approval](docs/screenshots/vm-creation-approval-mock.png)
+
+This `0.9.0` mock screenshot is rendered from the current BoxPilot styles and is explicitly labeled as mocked product state. It demonstrates the staged job, fixed helper preview, and handoff to Repair Center. No VM was created for the capture.
 
 ## Safety contract
 
@@ -73,7 +79,7 @@ Every future host change must follow:
 5. Apply with streamed logs
 6. Verify or roll back
 
-The current VM action route maps validated requests to fixed `virsh` argument arrays and never invokes a shell. Version `0.8.0` builds migration discovery from the sanitized inventory contract and adds no privileged helper operation. Higher-impact operations remain locked until each typed handler has path, authorization, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
+The provisional VM lifecycle route maps validated requests to fixed `virsh` argument arrays and never invokes a shell. VM creation uses the durable job executor and a separate typed helper operation. The helper derives its own binary paths, libvirt URI, managed-media path, and argument array; the web process cannot supply them. Higher-impact operations remain locked until each handler has authorization, path confinement, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
 
 ## Run for development
 
@@ -168,7 +174,7 @@ docker build -t boxpilot:local .
 
 ## Keel Notes roadmap adapter
 
-No Keel adapter ships in `0.4.0`. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
+No Keel adapter ships in `0.9.0`. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
 
 - Detect a Keel Docker or service installation
 - Inventory the database dialect and protected data paths without exposing secrets

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BoxPilot guarded VM creation mockup</title>
+    <link rel="stylesheet" href="../../src/styles.css" />
+    <style>
+      .mock-disclosure { position: fixed; z-index: 200; right: 24px; bottom: 18px; padding: 8px 12px; border: 1px solid #67502b; border-radius: 9px; color: #e5d3b4; background: #241d13; font-size: 11px; }
+      .vm-planner-dialog { max-height: calc(100vh - 80px); }
+    </style>
+  </head>
+  <body>
+    <div class="vm-planner-backdrop">
+      <section class="vm-planner-dialog" role="dialog" aria-labelledby="vm-planner-title">
+        <header class="vm-planner-header">
+          <div><span class="eyebrow">Durable guarded creation</span><h2 id="vm-planner-title">Plan a new virtual machine</h2><p>Validate capacity and media, then stage an immutable job for separate password approval.</p></div>
+          <button type="button" class="modal-close" aria-label="Close VM planner">X</button>
+        </header>
+        <div class="vm-planner-body">
+          <form class="vm-plan-form">
+            <div class="vm-capacity-strip">
+              <span><strong>16</strong> host CPU threads</span>
+              <span><strong>31 GiB</strong> host memory</span>
+              <span><strong>1</strong> managed ISO</span>
+            </div>
+            <div class="vm-form-grid">
+              <label>VM name<input value="ubuntu-services" readonly /></label>
+              <label>Operating system<select><option>Ubuntu 24.04 LTS</option></select></label>
+              <label>vCPUs<input type="number" value="4" readonly /></label>
+              <label>Memory (MiB)<input type="number" value="8192" readonly /></label>
+              <label>Disk (GiB)<input type="number" value="80" readonly /></label>
+              <label>Install ISO<select><option>ubuntu-24.04.3-live-server-amd64.iso (3.0 GiB)</option></select></label>
+              <label>Network<select><option>default (NAT)</option></select></label>
+              <label>Firmware<select><option>UEFI</option></select></label>
+            </div>
+            <label class="vm-checkbox"><input type="checkbox" checked /><span>Start this VM automatically with the host</span></label>
+            <div class="vm-plan-form-actions">
+              <button type="button" class="text-button">Cancel</button>
+              <button type="button" class="primary-button">Generate reviewed plan</button>
+            </div>
+          </form>
+          <aside class="vm-plan-preview">
+            <div class="vm-plan-ready"><span class="eyebrow">Plan revision 9d31f6e2d4a87c10</span><strong>Staged for owner approval</strong><p>Job 8ed8d937 is waiting in Repair Center. No VM is created until password reauthentication succeeds.</p></div>
+            <dl class="vm-plan-summary">
+              <div><dt>Guest</dt><dd>ubuntu-services</dd></div>
+              <div><dt>Profile</dt><dd>Ubuntu 24.04 LTS</dd></div>
+              <div><dt>Resources</dt><dd>4 vCPU | 8 GiB RAM | 80 GiB disk</dd></div>
+              <div><dt>Media</dt><dd>ubuntu-24.04.3-live-server-amd64.iso</dd></div>
+            </dl>
+            <div class="vm-command-preview"><strong>Fixed helper execution preview</strong><code>virt-install --connect qemu:///system --name ubuntu-services --vcpus 4 --memory 8192 --os-variant ubuntu24.04 --disk pool=default,size=80,format=qcow2,bus=virtio --network network=default,model=virtio --cdrom /var/lib/libvirt/boot/ubuntu-24.04.3-live-server-amd64.iso --boot uefi --graphics spice,listen=127.0.0.1 --noautoconsole --autostart</code></div>
+            <div class="vm-plan-gates"><strong>Guardrails</strong><ol><li>Confirm storage-pool free space and backup coverage</li><li>Stage this durable plan and reauthenticate approval</li><li>Execute through the restricted libvirt helper</li><li>Verify domain identity, disk, network, and autostart state</li></ol></div>
+            <button type="button" class="primary-button">Open Repair Center to approve</button>
+          </aside>
+        </div>
+      </section>
+    </div>
+    <div class="mock-disclosure">Mocked 0.9.0 state for documentation. No VM was executed.</div>
+  </body>
+</html>

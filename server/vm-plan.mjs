@@ -68,7 +68,7 @@ function displayArgument(argument) {
   return /^[A-Za-z0-9_./,:=+-]+$/.test(argument) ? argument : `'${argument.replaceAll("'", "'\\''")}'`;
 }
 
-function normalizedInput(input) {
+export function normalizeVmPlanInput(input) {
   return {
     name: input.name,
     osProfile: input.osProfile,
@@ -80,6 +80,29 @@ function normalizedInput(input) {
     firmware: input.firmware,
     autostart: Boolean(input.autostart),
   };
+}
+
+export function buildVirtInstallArguments(input, {
+  mediaRoot = process.env.BOXPILOT_ISO_DIRECTORY ?? "/var/lib/libvirt/boot",
+  connectionUri = process.env.BOXPILOT_LIBVIRT_URI ?? "qemu:///system",
+} = {}) {
+  const profile = osProfiles[input.osProfile];
+  if (!profile) throw new Error("Unsupported operating-system profile");
+  const argumentsList = [
+    "--connect", connectionUri,
+    "--name", input.name,
+    "--vcpus", String(input.vcpus),
+    "--memory", String(input.memoryMiB),
+    "--os-variant", profile.osVariant,
+    "--disk", `pool=default,size=${input.diskGiB},format=qcow2,bus=${profile.diskBus}`,
+    "--network", `network=default,model=${profile.networkModel}`,
+    "--cdrom", path.join(path.resolve(mediaRoot), input.isoFile),
+    "--boot", input.firmware,
+    "--graphics", "spice,listen=127.0.0.1",
+    "--noautoconsole",
+  ];
+  if (input.autostart) argumentsList.push("--autostart");
+  return argumentsList;
 }
 
 export function validateVmPlanInput(input) {
@@ -162,7 +185,7 @@ export function createVmPlanner({
       return { ok: false, errors: [options.mediaError ?? "The selected ISO is not present in the managed media library"] };
     }
 
-    const normalized = normalizedInput(input);
+    const normalized = normalizeVmPlanInput(input);
     const profile = osProfiles[normalized.osProfile];
     const warnings = [];
     if (normalized.memoryMiB < profile.minimumMemoryMiB) {
@@ -181,21 +204,7 @@ export function createVmPlanner({
       warnings.push("Windows 11 creation will require a TPM 2.0 and Secure Boot capability check before Apply can be enabled");
     }
 
-    const isoPath = path.join(resolvedMediaRoot, normalized.isoFile);
-    const argumentsList = [
-      "--connect", connectionUri,
-      "--name", normalized.name,
-      "--vcpus", String(normalized.vcpus),
-      "--memory", String(normalized.memoryMiB),
-      "--os-variant", profile.osVariant,
-      "--disk", `pool=default,size=${normalized.diskGiB},format=qcow2,bus=${profile.diskBus}`,
-      "--network", `network=default,model=${profile.networkModel}`,
-      "--cdrom", isoPath,
-      "--boot", normalized.firmware,
-      "--graphics", "spice,listen=127.0.0.1",
-      "--noautoconsole",
-    ];
-    if (normalized.autostart) argumentsList.push("--autostart");
+    const argumentsList = buildVirtInstallArguments(normalized, { mediaRoot: resolvedMediaRoot, connectionUri });
 
     const revision = createHash("sha256").update(JSON.stringify({
       input: normalized,
@@ -207,7 +216,8 @@ export function createVmPlanner({
       ok: true,
       plan: {
         revision,
-        executable: false,
+        executable: normalized.osProfile !== "windows-11",
+        stageable: normalized.osProfile !== "windows-11",
         requiresRestrictedHelper: true,
         createdAt: new Date().toISOString(),
         input: normalized,
@@ -221,7 +231,7 @@ export function createVmPlanner({
         },
         gates: [
           "Confirm storage-pool free space and backup coverage",
-          "Create a durable plan revision and authenticated approval",
+          "Stage this durable plan and reauthenticate approval",
           "Execute through the restricted libvirt helper",
           "Verify the domain definition, disk, network, and first console boot",
         ],

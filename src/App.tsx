@@ -67,12 +67,12 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   repairs: {
     label: "Live Operations Core",
     tone: "live",
-    description: "Prerequisite checks, durable approvals, the helper canary, Uptime Kuma deployment, and verified backup jobs come from Bigbox. General package and application mutations remain locked.",
+    description: "Prerequisite checks, durable approvals, the helper canary, Uptime Kuma deployment and backups, and guarded Linux VM creation jobs come from Bigbox. General package and application mutations remain locked.",
   },
   virtualization: {
     label: "Host-backed module",
     tone: "live",
-    description: "Readiness, libvirt inventory, resources, managed ISO discovery, and plan validation come from the server. Creation remains locked.",
+    description: "Readiness, libvirt inventory, managed ISO discovery, immutable plan staging, owner approval, helper execution, verification, and rollback come from the server. Windows, console, snapshots, and delete remain locked.",
   },
   backups: {
     label: "Application-aware backup engine",
@@ -216,7 +216,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
       );
     }
     if (view === "repairs") return <RepairCenter csrfToken={authStatus.csrfToken ?? ""} />;
-    if (view === "virtualization") return <VirtualMachines csrfToken={authStatus.csrfToken ?? ""} />;
+    if (view === "virtualization") return <VirtualMachines csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "backups") return <BackupCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "migrations") return <MigrationCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "logs") return <SystemLogs />;
@@ -242,7 +242,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.8.0",
+      version: "0.9.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
@@ -284,7 +284,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.8.0 migration manifests<br />Live surfaces are labeled</div>
+        <div className="prototype-label">v0.9.0 guarded VM creation<br />Live surfaces are labeled</div>
       </aside>
 
       <main>
