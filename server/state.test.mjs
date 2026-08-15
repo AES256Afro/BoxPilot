@@ -158,7 +158,15 @@ describe("BoxPilot state store", () => {
     });
 
     expect(backup).toMatchObject({ exportId, encrypted: true, independent: true, repositoryVerified: true, protected: false, restoreDrill: { passed: false } });
+    const protectedBackup = store.recordVmRestoreDrill({
+      backupId: backup.id,
+      restoreDrill: { passed: true, network: "none", transient: true, guestAgentPing: true, cleanupVerified: true },
+      createdBy: owner.id,
+    });
+    expect(protectedBackup).toMatchObject({ protected: true, restoreDrill: { passed: true, network: "none", transient: true, guestAgentPing: true, cleanupVerified: true } });
+    expect(() => store.recordVmRestoreDrill({ backupId: backup.id, restoreDrill: { passed: true }, createdBy: owner.id })).toThrow("already protected");
     expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "vm.backup.recorded", subjectId: backup.id })]));
+    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "vm.restore_drill.passed", subjectId: backup.id })]));
     store.close();
   });
 

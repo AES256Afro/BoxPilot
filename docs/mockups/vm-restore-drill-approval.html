@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BoxPilot isolated VM restore drill mockup</title>
+    <link rel="stylesheet" href="../../src/styles.css" />
+    <style>
+      .mock-disclosure { position: fixed; z-index: 200; right: 24px; bottom: 18px; padding: 8px 12px; border: 1px solid #67502b; border-radius: 9px; color: #e5d3b4; background: #241d13; font-size: 11px; }
+      .vm-planner-dialog { max-width: 900px; }
+    </style>
+  </head>
+  <body>
+    <div class="vm-planner-backdrop">
+      <section class="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-restore-drill-title">
+        <header class="vm-planner-header">
+          <div><span class="eyebrow">Isolated VM restore drill</span><h2 id="vm-restore-drill-title">Validate ubuntu-services</h2><p>Restore the exact encrypted snapshot, boot it transiently with no network, and require guest-agent health before protected status.</p></div>
+          <button type="button" class="modal-close" aria-label="Close restore drill plan">X</button>
+        </header>
+        <div class="vm-action-review">
+          <dl class="vm-plan-summary">
+            <div><dt>Restore size</dt><dd>18.7 GiB</dd></div>
+            <div><dt>Temporary free</dt><dd>79.4 GiB</dd></div>
+            <div><dt>Guest resources</dt><dd>2 vCPU | 2048 MiB</dd></div>
+            <div><dt>Network</dt><dd>None</dd></div>
+          </dl>
+          <div class="vm-plan-gates"><strong>Exact changes</strong><ol><li>Restore the exact encrypted restic snapshot into a server-generated temporary workspace</li><li>Reverify its manifest, every SHA-256 checksum, exact size, and each qcow2 disk structure</li><li>Grant QEMU temporary access only to the verified restored disks</li><li>Boot a generated transient libvirt domain with no network interface</li><li>Destroy the domain, remove generated UEFI state, revoke disk access, and verify workspace cleanup</li><li>Promote only this backup record to protected after every check passes</li></ol></div>
+          <div class="vm-plan-gates"><strong>Required verification</strong><ol><li>Exact repository, snapshot id, source path, and server-generated tags</li><li>Transient running domain with zero network interfaces</li><li>Two QEMU guest-agent pings while the restored guest remains running</li><li>Domain, UEFI NVRAM, temporary permission, and workspace cleanup</li></ol></div>
+          <div class="vm-plan-warnings"><strong>Warnings</strong><span>The source guest must contain and enable qemu-guest-agent or this drill will fail safely.</span><span>The job can run for hours while restic restores and verifies the disks.</span><span>No-network boot proves guest-agent health, not application-level network services.</span></div>
+          <div class="vm-plan-warnings"><strong>Recovery boundary</strong><span>Failure never promotes protection. BoxPilot stops only the generated transient domain, removes only its generated UEFI state, revokes temporary QEMU access, and preserves restored files root-only for inspection.</span></div>
+          <p class="vm-action-revision">Plan revision <code>45dc5d2e99bac3c1</code>. Backup evidence, repository identity, temporary capacity, generated domain name, and isolation policy are checked again before execution.</p>
+          <div class="vm-plan-form-actions"><button type="button" class="text-button">Cancel</button><button type="button" class="primary-button">Stage for password approval</button></div>
+        </div>
+      </section>
+    </div>
+    <div class="mock-disclosure">Mocked 0.14.0 plan. No snapshot was restored and no VM was booted.</div>
+  </body>
+</html>

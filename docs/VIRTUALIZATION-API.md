@@ -1,6 +1,6 @@
 # Virtualization API
 
-The BoxPilot `v1` virtualization API is loopback-only by default. Tailscale Serve may proxy it privately, but it is not an internet API. Version `0.13.0` requires an authenticated owner session for virtualization routes and a CSRF token for POST requests. Network privacy remains mandatory.
+The BoxPilot `v1` virtualization API is loopback-only by default. Tailscale Serve may proxy it privately, but it is not an internet API. Version `0.14.0` requires an authenticated owner session for virtualization routes and a CSRF token for POST requests. Network privacy remains mandatory.
 
 All API responses use JSON and send `Cache-Control: no-store`.
 
@@ -234,7 +234,7 @@ GET /api/v1/virtualization/protection
 
 The response contains one fixed `mounted-restic` destination inspection and durable completed-copy records. Destination evidence includes readiness, restic version, exact mount metadata, independent-filesystem status, repository id, destination revision, free bytes, structured blockers, and the fixed terminal setup command. It never returns the repository password or password-file contents.
 
-Completed records contain the server-generated backup id, source export id, domain identity, repository and snapshot ids, size, encryption, independence, full repository-read verification, restore-drill evidence, and protection state. In `0.13.0`, a successful record must still report `protected: false` and `restoreDrill.passed: false`.
+Completed records contain the server-generated backup id, source export id, domain identity, repository and snapshot ids, size, encryption, independence, full repository-read verification, restore-drill evidence, and protection state. A new copy reports `protected: false` and `restoreDrill.passed: false`. Version `0.14.0` changes only that exact record to `protected: true` after strict passing restore-drill evidence is committed.
 
 ## Create an encrypted independent-copy plan
 
@@ -264,7 +264,37 @@ Body:
 
 Staging and password approval recheck the local export evidence, exact repository identity, independent mount identity, and capacity. The approved operation runs in the background with a twelve-hour typed-operation timeout. Helper mutations remain serialized.
 
-The helper rehashes the local manifest and all files, creates one tagged restic snapshot, requires an exact JSON summary, performs a full-repository `check --read-data`, and reads back the exact snapshot path and tags. The full check is compatible with Ubuntu 26.04's restic 0.18.1 package and can become slower as the repository grows. It cannot invoke `forget`, `prune`, restore, repository deletion, or an operator-selected destination. Failure never changes the local export and never automatically deletes repository data.
+The helper rehashes the local manifest and all files, creates one tagged restic snapshot, requires an exact JSON summary, performs a full-repository `check --read-data`, and reads back the exact snapshot path and tags. The full check is compatible with Ubuntu 26.04's restic 0.18.1 package and can become slower as the repository grows. It cannot invoke `forget`, `prune`, repository deletion, an operator-selected destination, or an operator-selected restore. Failure never changes the local export and never automatically deletes repository data.
+
+## Create an isolated restore-drill plan
+
+```text
+POST /api/v1/virtualization/backups/:id/restore-drill-plans
+Content-Type: application/json
+X-BoxPilot-CSRF: <session CSRF token>
+```
+
+The body is empty. Planning requires an unprotected completed backup with encrypted, independent, full-repository verification evidence plus its unchanged local export record. The helper rechecks repository identity, exact mount state, free temporary capacity, generated domain-name availability, and generated UEFI-state availability.
+
+The immutable input contains only the server-generated drill, backup, and export ids; domain identity; repository and snapshot ids; expected manifest SHA-256 and size; and destination revision. The output fixes `network: "none"`, `transient: true`, 2 vCPUs, 2048 MiB, blockers, exact changes, verification, warnings, and recovery behavior.
+
+## Stage an isolated restore-drill job
+
+```text
+POST /api/v1/virtualization/restore-drill-plans/:id/stage
+Content-Type: application/json
+X-BoxPilot-CSRF: <session CSRF token>
+```
+
+Body:
+
+```json
+{ "revision": "immutable-plan-revision" }
+```
+
+Staging and password approval recheck durable backup and export identity, repository revision, capacity, domain-name absence, and UEFI-state absence. The approved operation runs in the background with a twelve-hour typed-operation timeout. Helper mutations remain serialized.
+
+The helper restores only the exact recorded snapshot into a fixed server-generated workspace, verifies every file and qcow2 structure, temporarily grants QEMU access to verified disk files, and imports a transient no-network domain. A passing result must include repeated guest-agent health plus verified domain, workspace, QEMU permission, and UEFI NVRAM cleanup. Only then does Operations Core atomically promote the exact backup record to protected. A failure cannot promote protection and preserves root-only restored files for inspection.
 
 ## Agent integration rules
 
@@ -278,4 +308,4 @@ An agent integrating with BoxPilot should:
 6. Refresh host and domain state immediately before requesting a lifecycle action.
 7. Explain when a guest address is unknown rather than inventing one.
 8. Treat a local VM export and a repository-verified encrypted copy as unprotected until the API reports a passed isolated restore drill.
-9. Keep bridge, passthrough, storage, online snapshot, snapshot revert/delete, restore, and force-off operations unavailable until their capability appears explicitly.
+9. Keep bridge, passthrough, storage, online snapshot, snapshot revert/delete, operator-directed restore, and force-off operations unavailable until their capability appears explicitly.
