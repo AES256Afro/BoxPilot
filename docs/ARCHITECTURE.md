@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.2.0` adds live libvirt inspection and a provisional VM lifecycle boundary. The native service can invoke fixed `virsh` argument arrays for start, graceful shutdown, reboot, and autostart after an operator enables the feature and supplies a bearer token. It still cannot install packages, create or delete VMs, force power off, change networks or storage, open consoles, or execute arbitrary commands.
+Version `0.3.0` adds live libvirt inspection, read-only VM creation planning, and a provisional VM lifecycle boundary. The planner discovers regular ISO files from one configured media root, validates resources, checks domain-name collisions and reported pool space, and renders a structured `virt-install` preview without invoking it. The native service can invoke fixed `virsh` argument arrays for start, graceful shutdown, reboot, and autostart after an operator enables the feature and supplies a bearer token. It still cannot install packages, apply creation plans, delete VMs, force power off, change networks or storage, open consoles, or execute arbitrary commands.
 
 Because the native process belongs to `libvirt`, this is an intermediate boundary rather than the final security model. The restricted helper described below remains the target for all mutations.
 
@@ -22,6 +22,10 @@ BoxPilot web and API process (unprivileged)
           |       systemd, journald, SMART, Docker, libvirt, Tailscale
           |
           +---- Provisional fixed libvirt lifecycle allowlist (0.2.0)
+          |
+          +---- Validated non-executing VM creation planner (0.3.0)
+          |
+          +---- Redacted VM audit JSONL in systemd StateDirectory (0.3.0 foundation)
           |
           v
 Restricted helper over a local Unix socket (future)
@@ -134,7 +138,7 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.2.0 limitations
+## Version 0.3.0 limitations
 
 - Dashboard values are demonstration data.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
@@ -142,5 +146,8 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - The administrator token is route-level authorization, not owner bootstrap, sessions, CSRF protection, or approval reauthentication.
 - The web process has `libvirt` group permissions in the host-native deployment. Mutations have not yet moved to the restricted helper.
 - VM actions are limited to start, graceful shutdown, reboot, and autostart. They are disabled unless explicitly configured.
+- VM creation stops at a validated plan. The displayed `virt-install` argument array has no Apply route.
+- Managed media discovery lists regular `.iso` files only and does not upload or download installation media.
+- The JSONL audit is a bounded foundation for the live log view, not the final SQLite job and approval ledger. Rotation, authenticated attribution, and tamper evidence remain pending.
 - No application, backup, migration, firewall, package, storage, Docker, VM creation, console, snapshot, delete, or force-off operation is executed.
 - The safe Docker deployment cannot see host libvirt. Live VM support currently requires the native systemd service.

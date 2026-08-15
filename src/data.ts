@@ -82,43 +82,43 @@ export const applications: Application[] = [
   {
     name: "Keel Notes",
     description:
-      "Self-hosted notebook with app-aware exports, encrypted snapshots, and optional cloud replication.",
-    status: "Installed | Healthy",
-    installed: true,
+      "Planned app-aware discovery, export, managed-secret preservation, backup, restore, and migration support.",
+    status: "Preview integration",
+    installed: false,
   },
   {
     name: "AdGuard Home",
     description:
       "DNS filtering with upstream validation, LAN checks, and outage rollback.",
-    status: "Preview install",
+    status: "Planned adapter",
     installed: false,
   },
   {
     name: "Jellyfin",
     description:
       "Media server with hardware detection, library mapping, and migration assistance.",
-    status: "Preview install",
+    status: "Planned adapter",
     installed: false,
   },
   {
     name: "Home Assistant",
     description:
       "Container or VM deployment with USB-device checks and backup registration.",
-    status: "Preview install",
+    status: "Planned adapter",
     installed: false,
   },
   {
     name: "PostgreSQL",
     description:
       "Local database with encrypted secrets and application-aware dumps.",
-    status: "Preview install",
+    status: "Planned adapter",
     installed: false,
   },
   {
     name: "Custom stack",
     description:
       "Paste Compose, inspect risks, map volumes, and create a dry-run plan.",
-    status: "Guided import",
+    status: "Open dry-run inspector",
     installed: false,
   },
 ];
