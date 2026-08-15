@@ -271,6 +271,42 @@ export interface VmProtectionPlan {
   };
 }
 
+export interface VmRestoreDrillPlan {
+  id: string;
+  revision: string;
+  status: "draft" | "staged";
+  expiresAt: string;
+  input: {
+    drillId: string;
+    backupId: string;
+    exportId: string;
+    domainName: string;
+    domainUuid: string;
+    repositoryId: string;
+    snapshotId: string;
+    expectedManifestChecksumSha256: string;
+    expectedSizeBytes: number;
+    expectedDestinationRevision: string;
+  };
+  output: {
+    executable: boolean;
+    drillDomain: string;
+    network: "none";
+    transient: true;
+    memoryMiB: number;
+    vcpus: number;
+    restoreFreeBytes: number | null;
+    requiredBytes: number;
+    blockers: string[];
+    changes: string[];
+    verification: string[];
+    protected: false;
+    protectedOnSuccess: true;
+    warnings: string[];
+    recovery: string;
+  };
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   const body = (await response.json()) as T & { error?: string; errors?: string[] };
   if (!response.ok && response.status !== 503) {
@@ -403,6 +439,26 @@ export async function createVmProtectionPlan(exportId: string, csrfToken: string
 
 export async function stageVmProtectionPlan(planId: string, revision: string, csrfToken: string): Promise<VmCreationJob> {
   const response = await fetch(`/api/v1/virtualization/protection-plans/${encodeURIComponent(planId)}/stage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: JSON.stringify({ revision }),
+  });
+  const body = await readJson<{ job: VmCreationJob }>(response);
+  return body.job;
+}
+
+export async function createVmRestoreDrillPlan(backupId: string, csrfToken: string): Promise<VmRestoreDrillPlan> {
+  const response = await fetch(`/api/v1/virtualization/backups/${encodeURIComponent(backupId)}/restore-drill-plans`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: "{}",
+  });
+  const body = await readJson<{ plan: VmRestoreDrillPlan }>(response);
+  return body.plan;
+}
+
+export async function stageVmRestoreDrillPlan(planId: string, revision: string, csrfToken: string): Promise<VmCreationJob> {
+  const response = await fetch(`/api/v1/virtualization/restore-drill-plans/${encodeURIComponent(planId)}/stage`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
     body: JSON.stringify({ revision }),

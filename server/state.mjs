@@ -468,9 +468,8 @@ export function createStateStore({
     return listVmBackups(1)[0];
   }
 
-  function listVmBackups(limit = 50) {
-    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
-    return database.prepare("SELECT * FROM vm_backups ORDER BY created_at DESC LIMIT ?").all(safeLimit).map((row) => ({
+  function mapVmBackup(row) {
+    return row ? {
       id: row.id,
       exportId: row.export_id,
       domainName: row.domain_name,
@@ -486,7 +485,36 @@ export function createStateStore({
       restoreDrill: parseJson(row.restore_drill_json),
       createdBy: row.created_by,
       createdAt: row.created_at,
-    }));
+    } : null;
+  }
+
+  function listVmBackups(limit = 50) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    return database.prepare("SELECT * FROM vm_backups ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapVmBackup);
+  }
+
+  function getVmBackup(id) {
+    return mapVmBackup(database.prepare("SELECT * FROM vm_backups WHERE id = ?").get(id));
+  }
+
+  function recordVmRestoreDrill({ backupId, restoreDrill, createdBy }) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const update = database.prepare("UPDATE vm_backups SET protected = 1, restore_drill_json = ? WHERE id = ? AND protected = 0")
+        .run(json(restoreDrill), backupId);
+      if (Number(update.changes) !== 1) throw new Error("VM backup is unavailable or already protected");
+      recordAudit("vm.restore_drill.passed", { actorId: createdBy, subjectId: backupId, details: restoreDrill });
+      const backup = getVmBackup(backupId);
+      database.exec("COMMIT");
+      return backup;
+    } catch (error) {
+      try {
+        database.exec("ROLLBACK");
+      } catch {
+        // Preserve the original evidence-write error if SQLite already ended the transaction.
+      }
+      throw error;
+    }
   }
 
   function importMigrationSource({ fingerprint, manifest, importedBy }) {
@@ -552,6 +580,8 @@ export function createStateStore({
     getVmExport,
     recordVmBackup,
     listVmBackups,
+    getVmBackup,
+    recordVmRestoreDrill,
     importMigrationSource,
     getMigrationSource,
     listMigrationSources,

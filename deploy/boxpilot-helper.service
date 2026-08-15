@@ -24,6 +24,9 @@ Environment=BOXPILOT_SYSTEMCTL_BINARY=/usr/bin/systemctl
 Environment=BOXPILOT_VM_IMAGE_ROOT=/var/lib/libvirt/images
 Environment=BOXPILOT_VM_EXPORT_ROOT=/var/lib/boxpilot-managed/vm-exports
 Environment=BOXPILOT_VM_BACKUP_MOUNT=/mnt/boxpilot-backup
+Environment=BOXPILOT_VM_RESTORE_DRILL_ROOT=/var/lib/libvirt/images/boxpilot-restore-drills
+Environment=BOXPILOT_LIBVIRT_QEMU_GROUP=libvirt-qemu
+Environment=BOXPILOT_LIBVIRT_NVRAM_ROOT=/var/lib/libvirt/qemu/nvram
 Environment=BOXPILOT_RESTIC_PASSWORD_FILE=/etc/boxpilot/secrets/vm-backup-restic-password
 Environment=BOXPILOT_RESTIC_CACHE_DIRECTORY=/var/cache/boxpilot-restic
 Environment=BOXPILOT_ISO_DIRECTORY=/var/lib/libvirt/boot
@@ -50,6 +53,8 @@ ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectSystem=strict
+ReadWritePaths=/var/lib/libvirt/images
+ReadWritePaths=/var/lib/libvirt/qemu/nvram
 ReadWritePaths=-/mnt/boxpilot-backup
 RestrictAddressFamilies=AF_UNIX
 RestrictNamespaces=true

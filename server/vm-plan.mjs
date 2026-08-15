@@ -111,6 +111,7 @@ export function validateVmPlanInput(input) {
     return ["A VM plan object is required"];
   }
   if (!validateDomainName(input.name)) errors.push("Name must use 1-63 letters, numbers, dots, underscores, or hyphens");
+  if (typeof input.name === "string" && input.name.toLowerCase().startsWith("boxpilot-drill-")) errors.push("Names beginning with boxpilot-drill- are reserved for isolated restore recovery");
   if (!Object.hasOwn(osProfiles, input.osProfile)) errors.push("Select a supported operating-system profile");
   if (!inIntegerRange(input.vcpus, limits.vcpus)) errors.push("vCPU count must be an integer from 1 to 32");
   if (!inIntegerRange(input.memoryMiB, limits.memoryMiB)) errors.push("Memory must be an integer from 1024 to 131072 MiB");

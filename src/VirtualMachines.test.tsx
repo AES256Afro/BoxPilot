@@ -78,7 +78,11 @@ describe("Virtual Machines", () => {
         repositoryId: "d".repeat(64), destinationRevision: "e".repeat(64), destinationFreeBytes: 20 * 1024 ** 3,
         blockers: [], setupCommand: "sudo /opt/boxpilot/scripts/boxpilot-restic-setup.sh", recoveryKeyRequired: true,
       },
-      backups: [],
+      backups: [{
+        id: "55555555-5555-4555-8555-555555555555", exportId: exportArtifact.id, domainName: "snapshot-lab", domainUuid: exportArtifact.domainUuid,
+        destination: "mounted-restic", repositoryId: "d".repeat(64), snapshotId: "f".repeat(64), sizeBytes: 4096,
+        encrypted: true, independent: true, repositoryVerified: true, protected: false, restoreDrill: { passed: false, reason: "not run" }, createdAt: "2026-08-15T20:30:00Z",
+      }],
     };
     const protectionPlan = {
       id: "protection-plan-1", revision: "protection-revision-1", status: "draft", expiresAt: "2026-08-15T21:00:00Z",
@@ -95,13 +99,29 @@ describe("Virtual Machines", () => {
         warnings: ["Keep a recovery copy outside Bigbox."], recovery: "The local export remains unchanged.",
       },
     };
+    const restoreDrillPlan = {
+      id: "restore-drill-plan-1", revision: "restore-drill-revision-1", status: "draft", expiresAt: "2026-08-15T22:00:00Z",
+      input: {
+        drillId: "66666666-6666-4666-8666-666666666666", backupId: protection.backups[0].id, exportId: exportArtifact.id,
+        domainName: "snapshot-lab", domainUuid: exportArtifact.domainUuid, repositoryId: "d".repeat(64), snapshotId: "f".repeat(64),
+        expectedManifestChecksumSha256: exportArtifact.manifestChecksumSha256, expectedSizeBytes: 4096, expectedDestinationRevision: "e".repeat(64),
+      },
+      output: {
+        executable: true, drillDomain: "boxpilot-drill-66666666666646668666666666666666", network: "none", transient: true, memoryMiB: 2048, vcpus: 2,
+        restoreFreeBytes: 20 * 1024 ** 3, requiredBytes: 1024 ** 3 + 4096, blockers: [],
+        changes: ["Boot the restored disks as a fixed transient libvirt domain with no network interface"],
+        verification: ["Repeated QEMU guest-agent health signal"], protected: false, protectedOnSuccess: true,
+        warnings: ["The source guest must contain and enable qemu-guest-agent or this drill will fail safely."],
+        recovery: "Remove only the server-generated transient drill domain.",
+      },
+    };
     const onOpenRepair = vi.fn();
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       const body = init?.method === "POST"
         ? url.endsWith("/stage")
           ? { job: { id: "job-1", state: "awaiting_approval", title: "Reviewed VM job" } }
-          : { plan: url.endsWith("/snapshot-plans") ? snapshotPlan : url.endsWith("/export-plans") ? exportPlan : url.endsWith("/protection-plans") ? protectionPlan : actionPlan }
+          : { plan: url.endsWith("/snapshot-plans") ? snapshotPlan : url.endsWith("/export-plans") ? exportPlan : url.endsWith("/protection-plans") ? protectionPlan : url.endsWith("/restore-drill-plans") ? restoreDrillPlan : actionPlan }
         : url.endsWith("/status") ? status : url.endsWith("/resources") ? resources : url.endsWith("/console-guidance") ? consoleGuidance : url.endsWith("/protection") ? protection : url.endsWith("/exports") ? { exports: [exportArtifact] } : domains;
       return new Response(JSON.stringify(body), {
         status: 200,
@@ -142,5 +162,11 @@ describe("Virtual Machines", () => {
     expect(screen.getByText("Keep a recovery copy outside Bigbox.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stage for password approval" }));
     await vi.waitFor(() => expect(onOpenRepair).toHaveBeenCalledTimes(4));
+    fireEvent.click(screen.getByRole("button", { name: "Plan isolated restore drill" }));
+    expect(await screen.findByText("Isolated VM restore drill")).toBeTruthy();
+    expect(screen.getByText("Repeated QEMU guest-agent health signal")).toBeTruthy();
+    expect(screen.getByText("The source guest must contain and enable qemu-guest-agent or this drill will fail safely.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage for password approval" }));
+    await vi.waitFor(() => expect(onOpenRepair).toHaveBeenCalledTimes(5));
   });
 });

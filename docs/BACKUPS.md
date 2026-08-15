@@ -1,6 +1,6 @@
 # Verified application backups
 
-BoxPilot provides two deliberately narrow evidence workflows: the `0.6.0` restore-verified local Uptime Kuma adapter and the `0.13.0` encrypted independent-copy stage for stopped-VM exports. It does not report a workload as protected merely because a file was copied.
+BoxPilot provides two deliberately narrow evidence workflows: the `0.6.0` restore-verified local Uptime Kuma adapter and the VM export, encrypted independent-copy, and isolated restore-drill chain completed through `0.14.0`. It does not report a workload as protected merely because a file was copied.
 
 ## Safety boundary
 
@@ -79,9 +79,9 @@ For an approved copy job, BoxPilot:
 
 BoxPilot does not run `forget`, `prune`, or automatic repository deletion. A failed post-copy verification leaves the repository intact for inspection. The local VM export is unchanged.
 
-### Honest protection state
+### Protection state before a restore drill
 
-The `0.13.0` VM copy is reported as:
+A newly completed VM copy is reported as:
 
 - encrypted: yes
 - independent: yes
@@ -89,8 +89,38 @@ The `0.13.0` VM copy is reported as:
 - isolated restore drill: no
 - protected: no
 
-This distinction is intentional. Repository readability does not prove that the domain XML and qcow2 disks can boot as an isolated guest. The next milestone must restore into a root-only temporary area, verify the restored files, boot with no network, and require a guest health signal before protected status can become true.
+This distinction is intentional. Repository readability does not prove that the domain XML and qcow2 disks can boot as an isolated guest.
+
+## VM isolated restore drill
+
+Version `0.14.0` can validate one completed encrypted independent VM backup. It never accepts a browser-supplied snapshot, repository, restore path, domain name, network, firmware path, command, or binary. The immutable job is tied to the durable backup and export records plus the exact repository and snapshot ids recorded by `0.13.0`.
+
+For an approved drill, BoxPilot:
+
+1. Revalidates repository identity, exact snapshot path and server-generated tags, temporary capacity, and the generated drill-domain name.
+2. Restores the exact snapshot with restic content verification under `/var/lib/libvirt/images/boxpilot-restore-drills/<server-generated-uuid>`.
+3. Rehashes the manifest, inactive XML, and every disk; rejects unexpected files; and runs `qemu-img check` on each restored qcow2 image.
+4. Temporarily grants the `libvirt-qemu` group read and traversal access only to the verified restored disk paths.
+5. Imports the disks into a generated transient libvirt domain using 2 vCPUs, 2048 MiB, the recorded BIOS or UEFI mode, a fixed QEMU guest-agent channel, and `--network none`.
+6. Confirms that the domain is running and non-persistent and has zero libvirt network interfaces.
+7. Requires two guest-agent pings while the domain remains running.
+8. Destroys the transient domain, removes only its generated UEFI NVRAM if present, revokes temporary QEMU disk access, removes the successful restore workspace, and verifies cleanup.
+9. Atomically records the passing evidence and promotes only that backup record to `protected: true`.
+
+The guest must already contain and enable `qemu-guest-agent`. A drill without it fails safely. The no-network policy intentionally does not test DNS, HTTP, database clients, or other application-level network health.
+
+On failure, BoxPilot never promotes protection. It attempts to destroy only the generated transient domain, removes only generated drill NVRAM, revokes temporary QEMU permissions, and preserves the restored workspace as root-only evidence for inspection. It never modifies the source VM, local export, restic snapshot, or repository retention.
+
+If the helper process or host restarts mid-drill, helper startup reserves the full server-generated drill UUID namespace and reconciles only a transient zero-network domain whose disk paths match its exact managed workspace. It then removes generated NVRAM, resets the preserved tree to root-only ownership and modes, and starts the helper. An ambiguous domain, path, or firmware artifact fails helper startup for manual inspection instead of triggering broad cleanup.
+
+The successful state is:
+
+- encrypted: yes
+- independent: yes
+- repository verified: yes
+- isolated restore drill: yes
+- protected backup record: yes
 
 ## Current limitations
 
-The Uptime Kuma artifact remains local to Bigbox. The VM workflow supports only the fixed mounted-restic destination and requires an operator-provided independent filesystem. Bigbox currently has no configured independent backup mount, so its live UI correctly reports setup blockers. Remote restic backends, offsite copies, schedules, retention mutation, notification, isolated VM restore boot, restore execution, Keel Notes export, PostgreSQL, and Litestream-aware adapters remain future milestones.
+The Uptime Kuma artifact remains local to Bigbox. The VM workflow supports only the fixed mounted-restic destination and requires an operator-provided independent filesystem. Bigbox currently has no configured independent backup mount, so its live UI correctly reports setup blockers and no real VM restore drill has run there. Remote restic backends, offsite copies, schedules, retention mutation, notification, operator-directed restore execution, application-level VM restore tests, Keel Notes export, PostgreSQL, and Litestream-aware adapters remain future milestones.
