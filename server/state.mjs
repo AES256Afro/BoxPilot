@@ -131,6 +131,13 @@ export function createStateStore({
       created_at TEXT NOT NULL,
       verified_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS migration_sources (
+      id TEXT PRIMARY KEY,
+      fingerprint TEXT NOT NULL UNIQUE,
+      manifest_json TEXT NOT NULL,
+      imported_by TEXT NOT NULL REFERENCES owners(id),
+      imported_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS audit_events (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,
@@ -143,6 +150,7 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_plans_created_at ON plans(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_job_steps_job_id ON job_steps(job_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_backups_created_at ON backups(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_migration_sources_imported_at ON migration_sources(imported_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_events(created_at DESC);
   `);
 
@@ -381,6 +389,26 @@ export function createStateStore({
     }));
   }
 
+  function importMigrationSource({ fingerprint, manifest, importedBy }) {
+    const existing = database.prepare("SELECT id FROM migration_sources WHERE fingerprint = ?").get(fingerprint);
+    if (existing) return getMigrationSource(existing.id);
+    const source = { id: randomUUID(), fingerprint, manifest, importedBy, importedAt: timestamp() };
+    database.prepare("INSERT INTO migration_sources (id, fingerprint, manifest_json, imported_by, imported_at) VALUES (?, ?, ?, ?, ?)")
+      .run(source.id, source.fingerprint, json(source.manifest), source.importedBy, source.importedAt);
+    recordAudit("migration.source.imported", { actorId: importedBy, subjectId: source.id, details: { fingerprint, hostname: manifest.source.hostname } });
+    return source;
+  }
+
+  function getMigrationSource(id) {
+    const row = database.prepare("SELECT * FROM migration_sources WHERE id = ?").get(id);
+    return row ? { id: row.id, fingerprint: row.fingerprint, manifest: parseJson(row.manifest_json), importedBy: row.imported_by, importedAt: row.imported_at } : null;
+  }
+
+  function listMigrationSources(limit = 50) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    return database.prepare("SELECT id FROM migration_sources ORDER BY imported_at DESC LIMIT ?").all(safeLimit).map((row) => getMigrationSource(row.id));
+  }
+
   function recoverInterruptedJobs() {
     const interrupted = database.prepare("SELECT id FROM jobs WHERE state IN ('applying', 'verifying')").all();
     for (const { id } of interrupted) {
@@ -419,6 +447,9 @@ export function createStateStore({
     listJobs,
     recordBackup,
     listBackups,
+    importMigrationSource,
+    getMigrationSource,
+    listMigrationSources,
     recoverInterruptedJobs,
     close,
   };
