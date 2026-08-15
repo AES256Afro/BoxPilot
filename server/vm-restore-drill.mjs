@@ -7,6 +7,7 @@ export function createVmRestoreDrillService({ store, helper }) {
   function recordedEvidence(backupId) {
     const backup = store.getVmBackup(backupId);
     if (!backup) throw new Error("VM backup not found");
+    if (backup.retained === false) throw new Error("VM backup snapshot was forgotten by an approved retention run");
     if (backup.protected || backup.restoreDrill?.passed) throw new Error("VM backup already has passing restore evidence");
     if (!backup.encrypted || !backup.independent || !backup.repositoryVerified || backup.destination !== "mounted-restic") {
       throw new Error("VM backup does not have the required encrypted independent repository evidence");

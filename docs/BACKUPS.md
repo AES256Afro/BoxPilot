@@ -1,6 +1,6 @@
 # Verified application backups
 
-BoxPilot provides two deliberately narrow evidence workflows: the `0.6.0` restore-verified local Uptime Kuma adapter and the VM export, encrypted independent-copy, isolated restore-drill, and guarded recovery-clone chain completed through `0.15.0`. It does not report a workload as protected merely because a file was copied.
+BoxPilot provides two deliberately narrow evidence workflows: the `0.6.0` restore-verified local Uptime Kuma adapter and the VM export, encrypted independent-copy, isolated restore-drill, guarded recovery-clone, and evidence-gated retention chain completed through `0.16.0`. It does not report a workload as protected merely because a file was copied.
 
 ## Safety boundary
 
@@ -77,7 +77,7 @@ For an approved copy job, BoxPilot:
 6. Reads the snapshot back and confirms its id, source path, and both server-generated tags.
 7. Records encryption, independence, repository id, snapshot id, size, operator, and verification evidence in SQLite.
 
-BoxPilot does not run `forget`, `prune`, or automatic repository deletion. A failed post-copy verification leaves the repository intact for inspection. The local VM export is unchanged.
+The copy operation does not run `forget`, `prune`, or automatic repository deletion. A failed post-copy verification leaves the repository intact for inspection. The local VM export is unchanged. Retention is a separate high-risk workflow with its own immutable preview and approval.
 
 ### Protection state before a restore drill
 
@@ -140,6 +140,38 @@ The source VM, local export, restic snapshot, repository retention, and existing
 
 The recovered domain is not automatically started and cannot receive a network interface through this release. Starting it uses a separate password-approved lifecycle plan. In-place overwrite, source deletion, automatic cutover, and application-level acceptance remain unavailable.
 
+## Guarded VM backup retention
+
+Version `0.16.0` adds one fixed retention policy for the current mounted-restic VM repository. It does not accept a browser-supplied repository, path, restic command, selector, retention count, age, prune flag, or password.
+
+The policy evaluates active durable VM backup records by domain UUID and keeps:
+
+- The three newest active backups for every VM
+- Every backup less than 30 days old
+- Every backup without complete passing restore-drill evidence
+- Every backup referenced by a recorded recovery clone
+- Every backup currently consumed by an applying or verifying restore-drill or recovery job
+- Every repository snapshot that BoxPilot cannot attribute exactly to an active durable backup record, by blocking the run for investigation
+
+At most 100 eligible snapshots enter one approved batch. Additional eligible snapshots are deferred to a later plan. Planning records the exact repository id, destination revision, complete BoxPilot-tagged snapshot-set revision, backup ids, snapshot ids, age, size, and keep reasons.
+
+For an approved retention job, BoxPilot:
+
+1. Recomputes the policy and requires the exact same candidates and snapshot-set revision.
+2. Sends only a sorted list of one to 100 full 64-character snapshot ids through the restricted helper protocol.
+3. Rechecks the fixed independent mount, encrypted repository identity, and complete tagged snapshot inventory.
+4. Runs `restic forget` only for those exact ids. Selectors such as `latest`, arbitrary tags, keep flags, and paths are rejected.
+5. Does not run `restic prune`.
+6. Runs a full `restic check --read-data` after forgetting the selected references.
+7. Proves every approved id is absent and every noncandidate id from the reviewed snapshot set remains.
+8. Atomically records the run and marks the corresponding durable backup records as forgotten.
+
+Restore-drill and recovery planning reject forgotten backup records. Source VMs, local exports, recovery domains, repository configuration, noncandidate snapshots, and pack data are not intentionally changed. Forgetting a snapshot reference cannot be automatically rolled back, even when prune has not run, so BoxPilot directs recovery to another retained protected snapshot and never claims that forgotten data is recoverable.
+
+If `restic forget` confirms a full or partial mutation but the later full repository read or inventory verification fails, BoxPilot records every confirmed forgotten id before the job enters failed state. Those records remain unusable for restore or recovery, and the retention run preserves bounded verification reason codes for operator investigation. This avoids presenting a removed snapshot as available after a post-mutation failure.
+
+This release does not reclaim space. A future prune workflow needs a separate capacity preview, repository lock and interruption handling, pack-level verification, explicit approval, and recovery guidance.
+
 ## Current limitations
 
-The Uptime Kuma artifact remains local to Bigbox. The VM workflow supports only the fixed mounted-restic destination and requires an operator-provided independent filesystem. Bigbox currently has no configured independent backup mount, so its live UI correctly reports setup blockers and no real VM restore drill or recovery clone has run there. Remote restic backends, offsite copies, schedules, retention mutation, notification, in-place restore, recovered-VM network attachment, application-level VM restore tests, Keel Notes export, PostgreSQL, and Litestream-aware adapters remain future milestones.
+The Uptime Kuma artifact remains local to Bigbox. The VM workflow supports only the fixed mounted-restic destination and requires an operator-provided independent filesystem. Bigbox currently has no configured independent backup mount, so its live UI correctly reports setup blockers and no real VM restore drill, recovery clone, or retention mutation has run there. Remote restic backends, offsite copies, schedules, restic prune, configurable policies, notification, in-place restore, recovered-VM network attachment, application-level VM restore tests, Keel Notes export, PostgreSQL, and Litestream-aware adapters remain future milestones.
