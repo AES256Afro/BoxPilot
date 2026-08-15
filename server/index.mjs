@@ -1,7 +1,6 @@
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { requireVmActionAuthorization, vmActionsConfiguration } from "./auth.mjs";
 import { createAuditLog } from "./audit.mjs";
 import { createApplicationService } from "./applications.mjs";
 import { createBackupService } from "./backups.mjs";
@@ -9,11 +8,12 @@ import { createAuthService } from "./security.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { createInventoryService } from "./inventory.mjs";
 import { createJobService } from "./jobs.mjs";
-import { createLibvirtService, getSetupPlan, validateAction, validateDomainName } from "./libvirt.mjs";
+import { createLibvirtService, getSetupPlan } from "./libvirt.mjs";
 import { createMigrationService } from "./migrations.mjs";
 import { createPrerequisiteService } from "./prerequisites.mjs";
 import { createStateStore } from "./state.mjs";
 import { createVmCreationService } from "./vm-creation.mjs";
+import { createVmLifecycleService } from "./vm-lifecycle.mjs";
 import { createVmPlanner, validateVmPlanInput } from "./vm-plan.mjs";
 
 const app = express();
@@ -24,7 +24,6 @@ const dist = path.join(root, "dist");
 const libvirt = createLibvirtService();
 const vmPlanner = createVmPlanner();
 const audit = createAuditLog();
-const vmActions = vmActionsConfiguration();
 const state = createStateStore();
 const auth = createAuthService(state);
 const helper = createHelperClient({ timeoutMs: 180000 });
@@ -37,11 +36,13 @@ const backups = createBackupService({ store: state, prerequisites, helper });
 const inventory = createInventoryService({ helper });
 const migrations = createMigrationService({ store: state, inventory });
 const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, libvirt });
+const vmLifecycle = createVmLifecycleService({ store: state, libvirt });
 const jobs = createJobService(state, helper, {
   validateApplicationJob: applications.validateJob,
   validateBackupJob: backups.validateJob,
   recordBackupResult: backups.recordResult,
   validateVmCreationJob: vmCreation.validateJob,
+  validateVmLifecycleJob: vmLifecycle.validateJob,
 });
 state.deleteExpiredSessions();
 const interruptedJobs = state.recoverInterruptedJobs();
@@ -65,10 +66,11 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.9.1",
+    version: "0.10.0",
     mode: "host-aware",
-    safeMode: !vmActions.enabled,
-    hostMutationsEnabled: vmActions.enabled,
+    safeMode: true,
+    hostMutationsEnabled: true,
+    mutationPolicy: "durable-approved-helper-only",
     ownerBootstrapRequired: state.ownerCount() === 0,
     timestamp: new Date().toISOString(),
   });
@@ -96,16 +98,13 @@ app.get("/api/v1/capabilities", (_request, response) => {
     supportBundle: "browser-only",
     backups: "uptime-kuma-local-with-restore-drill",
     migrations: "read-only-sanitized-manifests-and-compatibility-plans",
-    privilegedHelper: "typed-canary-applications-backups-inventory-logs-vm-creation",
+    privilegedHelper: "typed-canary-applications-backups-inventory-logs-vm-creation-and-lifecycle",
     identity: "owner-password-foundation",
-    durableJobs: "sqlite-approved-application-backup-and-vm-workflows",
+    durableJobs: "sqlite-approved-application-backup-vm-creation-and-lifecycle-workflows",
     virtualization: "live-libvirt",
     vmCreationPlanning: "validated-durable-approved",
     audit: "redacted-jsonl-foundation",
-    vmActions: {
-      enabled: vmActions.enabled,
-      reason: vmActions.reason,
-    },
+    vmActions: { enabled: true, mode: "durable-approved-helper-jobs" },
   });
 });
 
@@ -226,7 +225,7 @@ app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response)
 app.get("/api/v1/virtualization/status", async (_request, response) => {
   response.json({
     ...(await libvirt.getStatus()),
-    actions: { enabled: vmActions.enabled, reason: vmActions.reason },
+    actions: { enabled: true, reason: "Lifecycle actions use immutable plans, password approval, and the restricted helper" },
   });
 });
 
@@ -295,42 +294,25 @@ app.post("/api/v1/virtualization/plans/:id/stage", async (request, response) => 
   }
 });
 
-app.post(
-  "/api/v1/virtualization/domains/:name/actions",
-  requireVmActionAuthorization(vmActions),
-  async (request, response) => {
-    const { name } = request.params;
-    const { action } = request.body ?? {};
-    if (!validateDomainName(name) || !validateAction(action)) {
-      response.status(400).json({ error: "Invalid domain name or unsupported action", code: "invalid_action" });
-      return;
-    }
-    try {
-      await audit.record("vm.action.requested", { domain: name, action });
-    } catch {
-      response.status(503).json({ error: "Audit log is unavailable; no VM action was sent", code: "audit_unavailable" });
-      return;
-    }
-    try {
-      const result = await libvirt.runDomainAction(name, action);
-      try {
-        await audit.record("vm.action.completed", { domain: name, action, state: result.current?.state ?? null });
-      } catch {
-        console.warn(JSON.stringify({ timestamp: new Date().toISOString(), event: "audit_write", result: "failed", type: "vm.action.completed" }));
-      }
-      console.info(JSON.stringify({ timestamp: new Date().toISOString(), event: "vm_action", domain: name, action, result: "accepted" }));
-      response.json(result);
-    } catch (error) {
-      try {
-        await audit.record("vm.action.failed", { domain: name, action });
-      } catch {
-        console.warn(JSON.stringify({ timestamp: new Date().toISOString(), event: "audit_write", result: "failed", type: "vm.action.failed" }));
-      }
-      console.warn(JSON.stringify({ timestamp: new Date().toISOString(), event: "vm_action", domain: name, action, result: "failed" }));
-      response.status(409).json({ error: error.message, code: "libvirt_action_failed" });
-    }
-  },
-);
+app.post("/api/v1/virtualization/domains/:name/action-plans", async (request, response) => {
+  try {
+    const plan = await vmLifecycle.plan(request.params.name, request.body?.action, request.boxpilotSession.owner.id);
+    response.status(201).json({ plan });
+  } catch (error) {
+    const status = error.message.includes("not found") ? 404 : 409;
+    response.status(status).json({ error: error.message, code: "vm_lifecycle_plan_failed" });
+  }
+});
+
+app.post("/api/v1/virtualization/action-plans/:id/stage", async (request, response) => {
+  try {
+    const job = await vmLifecycle.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
+    response.status(201).json({ job });
+  } catch (error) {
+    const status = error.message.includes("not found") ? 404 : 409;
+    response.status(status).json({ error: error.message, code: "vm_lifecycle_stage_failed" });
+  }
+});
 
 app.use(express.static(dist, { index: false }));
 app.use((request, response, next) => {
@@ -347,7 +329,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.9.1 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.10.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
-  console.log(vmActions.enabled ? "Authenticated VM lifecycle actions are enabled." : `Safe mode: ${vmActions.reason}.`);
+  console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

@@ -11,13 +11,6 @@ if (connectionUri !== "qemu:///system") {
 }
 const qemuSystemBinary = process.arch === "arm64" ? "qemu-system-aarch64" : "qemu-system-x86_64";
 const domainPattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$/;
-const supportedActions = new Map([
-  ["start", ["start"]],
-  ["shutdown", ["shutdown"]],
-  ["reboot", ["reboot"]],
-  ["autostart-on", ["autostart"]],
-  ["autostart-off", ["autostart", "--disable"]],
-]);
 
 async function defaultRunCommand(command, args, options = {}) {
   try {
@@ -135,10 +128,6 @@ export function getSetupPlan() {
 
 export function validateDomainName(name) {
   return typeof name === "string" && domainPattern.test(name);
-}
-
-export function validateAction(action) {
-  return typeof action === "string" && supportedActions.has(action);
 }
 
 export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmAccess } = {}) {
@@ -303,15 +292,5 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
     };
   }
 
-  async function runDomainAction(name, action) {
-    if (!validateDomainName(name)) throw new Error("Invalid domain name");
-    if (!validateAction(action)) throw new Error("Unsupported VM action");
-    const verb = supportedActions.get(action);
-    const args = ["--connect", connectionUri, ...verb, name];
-    const result = await runCommand("virsh", args, { timeout: 30000 });
-    if (!result.ok) throw new Error(result.stderr || `virsh ${verb[0]} failed`);
-    return { action, domain: name, output: result.stdout, current: await getDomain(name) };
-  }
-
-  return { getStatus, listDomains, listResources, getDomain, runDomainAction };
+  return { getStatus, listDomains, listResources, getDomain };
 }

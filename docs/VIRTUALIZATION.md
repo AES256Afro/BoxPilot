@@ -1,6 +1,6 @@
 # QEMU/KVM setup and operation
 
-BoxPilot `0.9.1` can inspect a local libvirt system connection, create supported Linux virtual machines through durable approved jobs, and manage a deliberately small set of virtual-machine lifecycle operations after owner authentication. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
+BoxPilot `0.10.0` can inspect a local libvirt system connection, create supported Linux virtual machines through durable approved jobs, and manage a deliberately small set of virtual-machine lifecycle operations through the same approval and helper boundary. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
 
 ## What works now
 
@@ -10,6 +10,8 @@ BoxPilot `0.9.1` can inspect a local libvirt system connection, create supported
 - Start a stopped VM
 - Request graceful shutdown or reboot of a running VM
 - Enable or disable VM autostart
+- Review current and desired lifecycle state before staging an immutable plan
+- Revalidate lifecycle state before staging, after password approval, and after the fixed helper operation
 - Detect the host's Tailscale name and an existing Tailscale Serve URL
 - Discover managed ISO images, libvirt networks, pools, guest disks, interfaces, and snapshot count
 - Validate and durably store a new VM plan with an exact `virt-install` preview
@@ -18,7 +20,7 @@ BoxPilot `0.9.1` can inspect a local libvirt system connection, create supported
 - Verify the domain identity, disk, default network, and autostart state after creation
 - Remove only the newly created exact-name domain and allocated storage if creation verification fails
 
-The release does not delete VMs, force power off, edit definitions, open a web console, make snapshots, change storage pools, build a network bridge, generate cloud-init media, or create Windows 11 guests. Windows 11 remains locked until TPM 2.0 and Secure Boot checks exist. The existing lifecycle controls remain a provisional fixed-argument route rather than durable jobs.
+The release does not delete VMs, force power off, edit definitions, open a web console, make snapshots, change storage pools, build a network bridge, generate cloud-init media, or create Windows 11 guests. Windows 11 remains locked until TPM 2.0 and Secure Boot checks exist.
 
 ## 1. Prepare Ubuntu for virtualization
 
@@ -96,7 +98,7 @@ sudo -u boxpilot npm run doctor
 
 It checks Linux, KVM access, required commands, groups, libvirt, the default network and pool, managed ISO media, the loopback health endpoint, and Tailscale. It does not install packages or change configuration.
 
-The systemd unit creates `/var/lib/boxpilot` with mode `0700` for redacted audit events. The service records successful creation plans plus requested, completed, and failed lifecycle operations. It never records the administrator token or a complete environment. Open **Logs** in BoxPilot to see the newest events. This JSONL foundation is not yet a tamper-evident, owner-attributed audit ledger.
+The systemd unit creates `/var/lib/boxpilot` with mode `0700` for SQLite plans, approvals, jobs, results, and audit attribution plus the older bounded JSONL VM event file. It never records the owner password or a complete environment. Open **Repair Center** for durable job evidence and **Logs** for redacted fixed service journals. Tamper-evident audit chaining is not yet implemented.
 
 ## 3. Add installation media and create a VM
 
@@ -136,30 +138,16 @@ Use the HTTPS URL displayed by `tailscale serve status`. Keep Funnel disabled. I
 
 Tailscale DNS Override can remain off. BoxPilot does not require a tailnet-wide DNS override to use Tailscale Serve.
 
-## 5. Unlock the guarded lifecycle controls
+## 5. Use guarded lifecycle controls
 
-Leave the controls locked until read-only discovery works. Generate a dedicated random token on the server:
+1. Open **Virtual Machines** and refresh live state.
+2. Select **Start**, **Shut down**, **Reboot**, or an autostart change on a managed domain.
+3. Review current state, desired state, exact changes, recovery limits, and the immutable revision.
+4. Select **Stage for password approval**. BoxPilot rejects the stage if state changed after planning.
+5. In **Repair Center**, review the job and re-enter the owner password.
+6. The helper independently checks exact domain state and autostart, runs one fixed `virsh` verb, and reads back post-operation state.
 
-```bash
-openssl rand -hex 32
-```
-
-Edit `/etc/boxpilot/boxpilot.env` as root and set:
-
-```ini
-BOXPILOT_VM_ACTIONS_ENABLED=true
-BOXPILOT_ADMIN_TOKEN=paste-the-random-token-here
-```
-
-Protect and activate the configuration:
-
-```bash
-sudo chmod 0600 /etc/boxpilot/boxpilot.env
-sudo systemctl restart boxpilot
-curl http://127.0.0.1:8787/api/v1/capabilities
-```
-
-Enter the token only when the Virtual Machines page requests it. The browser keeps it in component memory and does not persist it to local storage. Lifecycle buttons still require confirmation and can invoke only `start`, `shutdown`, `reboot`, and autostart on or off. There is intentionally no `destroy` or force-off action.
+There is no lifecycle bearer token or configuration switch. The old direct mutation route has been removed. Graceful shutdown waits up to two minutes for the stopped state. A reboot job verifies that libvirt accepted the request and the domain remains running; guest or application health still requires a guest agent or workload-specific check. There is intentionally no `destroy`, force-off, delete, XML edit, or arbitrary action.
 
 ## 6. Choose VM networking deliberately
 
@@ -208,6 +196,6 @@ Correct the specific failed requirement and refresh the page. Do not loosen the 
 
 ## Security boundary
 
-Membership in the `libvirt` group is powerful. In `0.9.1`, the native BoxPilot process still has that membership so it can inspect libvirt and issue the provisional small action allowlist. VM creation itself has moved to the root helper, but lifecycle mutations have not. A compromised web process would still have the operating-system permissions of the `boxpilot` service account. Keep the service loopback-only, keep Funnel off, protect the token, and do not treat this release as an internet-facing appliance.
+Membership in the `libvirt` group is powerful. In `0.10.0`, all shipped VM mutations use the typed root helper, but the native web process still has `libvirt` and `kvm` membership for discovery. Removing those groups requires a read-only helper inventory operation and remains a security milestone. Keep the service loopback-only, keep Funnel off, and do not treat this release as an internet-facing appliance.
 
-The Operations Core now proves typed Unix-socket requests and durable approvals with a no-mutation canary. VM creation, storage, bridges, snapshots, backup, migration, and console access remain locked until their operation-specific helper handlers, recovery checkpoints, path rules, and negative tests are complete.
+Operations Core records typed Unix-socket requests and durable approvals. VM creation and lifecycle actions have operation-specific helper handlers. Storage administration, bridges, snapshots, VM backup, migration transfer, console access, and delete remain locked until their recovery checkpoints, path rules, and negative tests are complete.

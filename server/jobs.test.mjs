@@ -125,4 +125,20 @@ describe("durable job executor", () => {
     expect(completed).toMatchObject({ state: "completed", result: { verified: true, domain: "ubuntu-lab" } });
     store.close();
   });
+
+  it("revalidates and executes a typed VM lifecycle plan", async () => {
+    const input = { name: "ubuntu-lab", action: "shutdown", expectedState: "running", expectedAutostart: false };
+    const helper = { request: vi.fn(async () => ({ verified: true, domain: input.name, action: input.action, current: { state: "stopped", autostart: false } })) };
+    const { store, owner } = await setup(helper);
+    const validateVmLifecycleJob = vi.fn(async () => ({ input, output: { label: "Shut down" } }));
+    const jobs = createJobService(store, helper, { validateVmLifecycleJob });
+    const job = store.createJob({ type: "virtualization.domain.action", title: "Shut down ubuntu-lab", parameters: { input }, recovery: {}, createdBy: owner.id });
+
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+
+    expect(validateVmLifecycleJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("virtualization.domain.action", input);
+    expect(completed).toMatchObject({ state: "completed", result: { verified: true, action: "shutdown" } });
+    store.close();
+  });
 });

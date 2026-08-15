@@ -131,6 +131,23 @@ export interface VmCreationJob {
   title: string;
 }
 
+export interface VmLifecyclePlan {
+  id: string;
+  revision: string;
+  status: "draft" | "staged";
+  expiresAt: string;
+  input: { name: string; action: string; expectedState: string; expectedAutostart: boolean };
+  output: {
+    executable: boolean;
+    action: string;
+    label: string;
+    current: { state: string; autostart: boolean };
+    desired: { state: string; autostart: boolean };
+    changes: string[];
+    recovery: string;
+  };
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   const body = (await response.json()) as T & { error?: string; errors?: string[] };
   if (!response.ok && response.status !== 503) {
@@ -177,22 +194,27 @@ export async function stageVmPlan(planId: string, revision: string, csrfToken: s
   return body.job;
 }
 
-export async function runVirtualMachineAction(
-  domain: string,
-  action: string,
-  token: string,
-  csrfToken: string,
-): Promise<void> {
-  const response = await fetch(`/api/v1/virtualization/domains/${encodeURIComponent(domain)}/actions`, {
+export async function createVmLifecyclePlan(domain: string, action: string, csrfToken: string): Promise<VmLifecyclePlan> {
+  const response = await fetch(`/api/v1/virtualization/domains/${encodeURIComponent(domain)}/action-plans`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
       "X-BoxPilot-CSRF": csrfToken,
     },
     body: JSON.stringify({ action }),
   });
-  await readJson(response);
+  const body = await readJson<{ plan: VmLifecyclePlan }>(response);
+  return body.plan;
+}
+
+export async function stageVmLifecyclePlan(planId: string, revision: string, csrfToken: string): Promise<VmCreationJob> {
+  const response = await fetch(`/api/v1/virtualization/action-plans/${encodeURIComponent(planId)}/stage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: JSON.stringify({ revision }),
+  });
+  const body = await readJson<{ job: VmCreationJob }>(response);
+  return body.job;
 }
 
 export function formatMemory(memoryKiB: number): string {

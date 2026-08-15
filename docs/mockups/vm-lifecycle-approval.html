@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BoxPilot durable VM lifecycle approval mockup</title>
+    <link rel="stylesheet" href="../../src/styles.css" />
+    <style>
+      .mock-shell { min-height: 100vh; padding: 38px; background: radial-gradient(circle at 80% 8%, #16263b 0, #0d131c 34%, #080c12 100%); }
+      .mock-shell-card { max-width: 1180px; height: 710px; margin: 0 auto; border: 1px solid #263141; border-radius: 22px; background: #101721; opacity: .74; }
+      .mock-shell-bar { display: flex; justify-content: space-between; padding: 24px 28px; border-bottom: 1px solid #273140; color: #aab5c5; }
+      .mock-shell-lines { display: grid; gap: 18px; padding: 32px; }
+      .mock-line { height: 86px; border: 1px solid #273140; border-radius: 14px; background: #131c28; }
+      .mock-disclosure { position: fixed; z-index: 200; right: 24px; bottom: 18px; padding: 8px 12px; border: 1px solid #67502b; border-radius: 9px; color: #e5d3b4; background: #241d13; font-size: 11px; }
+      .vm-planner-dialog { max-width: 850px; }
+    </style>
+  </head>
+  <body>
+    <main class="mock-shell" aria-hidden="true">
+      <div class="mock-shell-card">
+        <div class="mock-shell-bar"><strong>Virtual Machines</strong><span>Live libvirt inventory</span></div>
+        <div class="mock-shell-lines"><div class="mock-line"></div><div class="mock-line"></div><div class="mock-line"></div></div>
+      </div>
+    </main>
+    <div class="vm-planner-backdrop">
+      <section class="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-action-title">
+        <header class="vm-planner-header">
+          <div><span class="eyebrow">Immutable lifecycle plan</span><h2 id="vm-action-title">Shut down ubuntu-services</h2><p>Review current state, desired state, and recovery before creating an approval job.</p></div>
+          <button type="button" class="modal-close" aria-label="Close lifecycle plan">X</button>
+        </header>
+        <div class="vm-action-review">
+          <dl class="vm-plan-summary">
+            <div><dt>Current power</dt><dd>running</dd></div>
+            <div><dt>Desired power</dt><dd>stopped</dd></div>
+            <div><dt>Current autostart</dt><dd>enabled</dd></div>
+            <div><dt>Desired autostart</dt><dd>enabled</dd></div>
+          </dl>
+          <div class="vm-plan-gates"><strong>Exact changes</strong><ol><li>Request a graceful ACPI shutdown</li><li>Wait up to two minutes for libvirt to report the domain stopped</li></ol></div>
+          <div class="vm-plan-warnings"><strong>Recovery boundary</strong><span>If the guest does not stop, use its console or SSH session to shut it down normally. BoxPilot will not force power off.</span></div>
+          <p class="vm-action-revision">Plan revision <code>3cf7a2b1ea1094d8</code>. Host state will be checked again before staging and again after password approval.</p>
+          <div class="vm-plan-form-actions"><button type="button" class="text-button">Cancel</button><button type="button" class="primary-button">Stage for password approval</button></div>
+        </div>
+      </section>
+    </div>
+    <div class="mock-disclosure">Mocked 0.10.0 lifecycle plan for documentation. No VM was changed.</div>
+  </body>
+</html>

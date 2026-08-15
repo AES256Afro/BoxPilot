@@ -3,6 +3,7 @@ import { lstat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { buildVirtInstallArguments, normalizeVmPlanInput, validateVmPlanInput } from "./vm-plan.mjs";
+import { vmLifecycleActions } from "./vm-lifecycle.mjs";
 
 const execFile = promisify(execFileCallback);
 
@@ -16,6 +17,10 @@ async function defaultRunner(binary, args, { timeout = 180000 } = {}) {
   return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };
 }
 
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
 export function createVmHelper({
   mediaRoot = process.env.BOXPILOT_ISO_DIRECTORY ?? "/var/lib/libvirt/boot",
   connectionUri = process.env.BOXPILOT_LIBVIRT_URI ?? "qemu:///system",
@@ -23,6 +28,7 @@ export function createVmHelper({
   virshBinary = process.env.BOXPILOT_VIRSH_BINARY ?? "/usr/bin/virsh",
   statFile = lstat,
   run = defaultRunner,
+  wait = delay,
 } = {}) {
   const resolvedMediaRoot = path.resolve(mediaRoot);
 
@@ -39,6 +45,55 @@ export function createVmHelper({
     await virsh(["destroy", name], { timeout: 30000 }).catch(() => {});
     await virsh(["undefine", name, "--remove-all-storage", "--nvram"], { timeout: 120000 })
       .catch(() => virsh(["undefine", name, "--remove-all-storage"], { timeout: 120000 }));
+  }
+
+  async function domainSnapshot(name) {
+    const [stateResult, infoResult] = await Promise.all([
+      virsh(["domstate", name], { timeout: 15000 }),
+      virsh(["dominfo", name], { timeout: 15000 }),
+    ]);
+    const state = stateResult.stdout === "shut off" ? "stopped" : stateResult.stdout.split("\n")[0].trim();
+    const autostartMatch = infoResult.stdout.match(/^Autostart:\s+(enable|disable|yes|no)/mi);
+    if (!["running", "stopped"].includes(state) || !autostartMatch) throw new Error("Unable to verify the current VM lifecycle state");
+    return { state, autostart: ["enable", "yes"].includes(autostartMatch[1].toLowerCase()) };
+  }
+
+  async function waitForState(name, desiredState, attempts) {
+    let current = null;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      current = await domainSnapshot(name);
+      if (current.state === desiredState) return current;
+      await wait(1000);
+    }
+    throw new Error(`VM did not reach ${desiredState} before the verification timeout`);
+  }
+
+  async function action(parameters) {
+    const definition = vmLifecycleActions[parameters.action];
+    if (!definition) throw new Error("Unsupported VM lifecycle action");
+    const previous = await domainSnapshot(parameters.name);
+    if (previous.state !== parameters.expectedState || previous.autostart !== parameters.expectedAutostart) {
+      throw new Error("VM lifecycle state changed after approval");
+    }
+    const actionArguments = parameters.action === "start" ? ["start", parameters.name]
+      : parameters.action === "shutdown" ? ["shutdown", parameters.name]
+        : parameters.action === "reboot" ? ["reboot", parameters.name]
+          : parameters.action === "autostart-on" ? ["autostart", parameters.name]
+            : ["autostart", parameters.name, "--disable"];
+    await virsh(actionArguments, { timeout: 30000 });
+    const current = parameters.action === "shutdown" ? await waitForState(parameters.name, "stopped", 120)
+      : parameters.action === "start" ? await waitForState(parameters.name, "running", 30)
+        : await domainSnapshot(parameters.name);
+    if (parameters.action === "reboot" && current.state !== "running") throw new Error("VM reboot request did not leave the domain running");
+    if (definition.desiredAutostart !== undefined && current.autostart !== definition.desiredAutostart) throw new Error("VM autostart verification failed");
+    return {
+      action: parameters.action,
+      domain: parameters.name,
+      verified: true,
+      previous,
+      current,
+      verification: parameters.action === "reboot" ? "reboot-request-accepted-domain-running" : "desired-state-observed",
+    };
   }
 
   async function create(parameters) {
@@ -104,7 +159,7 @@ export function createVmHelper({
     }
   }
 
-  return { create };
+  return { create, action };
 }
 
 export const vmHelperInternals = { defaultRunner };

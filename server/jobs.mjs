@@ -4,6 +4,7 @@ export function createJobService(store, helper, {
   validateApplicationJob = async () => {},
   validateBackupJob = async () => {},
   validateVmCreationJob = async () => {},
+  validateVmLifecycleJob = async () => {},
   recordBackupResult = () => {},
 } = {}) {
   function createCanary(ownerId) {
@@ -26,11 +27,13 @@ export function createJobService(store, helper, {
     if (!owner || !(await verifyPassword(password, owner.passwordHash))) throw new Error("Approval reauthentication failed");
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
-    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.domain.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.domain.create", "virtualization.domain.action"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     if (job.type === "application.uptime-kuma.deploy") await validateApplicationJob(job);
     if (job.type === "application.uptime-kuma.backup") await validateBackupJob(job);
     const validatedVmPlan = job.type === "virtualization.domain.create" ? await validateVmCreationJob(job) : null;
+    const validatedVmLifecyclePlan = job.type === "virtualization.domain.action" ? await validateVmLifecycleJob(job) : null;
     if (job.type === "virtualization.domain.create" && !validatedVmPlan?.input) throw new Error("The staged VM creation plan is unavailable or changed");
+    if (job.type === "virtualization.domain.action" && !validatedVmLifecyclePlan?.input) throw new Error("The staged VM lifecycle plan is unavailable or changed");
     const execution = job.type === "helper.canary.verify" ? {
       operation: "canary.verify",
       parameters: {},
@@ -55,7 +58,7 @@ export function createJobService(store, helper, {
       verified: "An isolated no-network restore container passed health verification and was removed",
       failed: "The backup or isolated restore drill did not pass verification",
       validate: (result) => result?.backupId === job.parameters.backupId && result?.sourceRestartVerified && result?.restoreDrill?.passed,
-    } : {
+    } : job.type === "virtualization.domain.create" ? {
       operation: "virtualization.domain.create",
       parameters: validatedVmPlan.input,
       applying: "Creating the exact validated VM through the restricted libvirt helper",
@@ -63,6 +66,14 @@ export function createJobService(store, helper, {
       verified: "Domain identity, allocated disk, default network, and requested autostart state were verified",
       failed: "VM creation or its post-create verification did not complete successfully",
       validate: (result) => result?.created && result?.verified && result?.domain === validatedVmPlan.input.name && result?.media === validatedVmPlan.input.isoFile,
+    } : {
+      operation: "virtualization.domain.action",
+      parameters: validatedVmLifecyclePlan.input,
+      applying: `Requesting the reviewed ${validatedVmLifecyclePlan.output.label.toLowerCase()} operation through the restricted libvirt helper`,
+      applied: "Restricted helper accepted the fixed lifecycle operation after independently matching current VM state",
+      verified: "Post-operation power and autostart state matched the reviewed lifecycle plan",
+      failed: "VM lifecycle execution or state verification did not complete successfully",
+      validate: (result) => result?.verified && result?.domain === validatedVmLifecyclePlan.input.name && result?.action === validatedVmLifecyclePlan.input.action,
     };
     store.addApproval(jobId, ownerId);
     store.recordAudit("job.approved", { actorId: ownerId, subjectId: jobId, details: { type: job.type } });

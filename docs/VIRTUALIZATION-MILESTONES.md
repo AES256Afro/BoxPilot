@@ -2,22 +2,22 @@
 
 This plan turns the current QEMU/KVM module into a dependable home-server virtualization control plane. Milestones are dependency ordered. A later milestone cannot ship merely because its interface is complete.
 
-## Current baseline: 0.9.1
+## Current baseline: 0.10.0
 
 Shipped:
 
 - Live QEMU, KVM, libvirt, default network, default storage pool, and Tailscale preflight
 - Live VM inventory with power state, CPU, memory, autostart, and lease-reported addresses
-- Token-protected start, graceful shutdown, reboot, and autostart operations
+- Durable password-approved start, graceful shutdown, reboot request, and autostart jobs
 - Fixed `virsh` argument arrays with no shell execution
 - Loopback-only native service and private Tailscale Serve guidance
 - Durable owner sessions, CSRF protection, immutable SQLite plans, password approvals, jobs, steps, and audit attribution
 - Guarded Linux VM creation through the typed root helper with live revalidation, post-create verification, and exact-domain rollback
+- Fixed helper lifecycle arguments with expected-state checks before and after execution
 
 Known boundary:
 
-- The web service currently belongs to `libvirt`; mutations have not moved to the restricted helper.
-- The provisional lifecycle controls have not yet moved into the durable job executor or root helper.
+- The web service still belongs to `libvirt` and `kvm` for read-only discovery even though all shipped VM mutations use the helper.
 - Windows TPM/Secure Boot, cloud-init, console, snapshots, VM backup and restore, bridge management, passthrough, and fleet placement remain pending.
 - The safe Docker preview cannot inspect host libvirt.
 
@@ -65,7 +65,7 @@ Acceptance:
 
 Target: `0.5.0`
 
-Status: VM creation uses the root-owned Unix socket, fixed binaries, fixed local libvirt URI, fixed managed-media root, an exact typed schema, durable steps, and rollback in `0.9.0`. Moving provisional lifecycle actions out of the web process, AppArmor policy, and removal of the web service from `libvirt` and `kvm` remain pending.
+Status: VM creation uses the root-owned Unix socket, fixed binaries, fixed local libvirt URI, fixed managed-media root, an exact typed schema, durable steps, and rollback in `0.9.0`. Start, graceful shutdown, reboot requests, and autostart move into typed helper jobs in `0.10.0`. AppArmor policy and removal of the web service from `libvirt` and `kvm` remain pending.
 
 - Root-owned Unix socket with a versioned typed protocol
 - Separate helper user and AppArmor/systemd confinement

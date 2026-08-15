@@ -57,4 +57,43 @@ describe("restricted VM helper", () => {
     await expect(helper.create(input())).rejects.toThrow("Automated rollback completed");
     expect(run).toHaveBeenCalledWith("/usr/bin/virsh", ["--connect", "qemu:///system", "undefine", "ubuntu-lab", "--remove-all-storage", "--nvram"], { timeout: 120000 });
   });
+
+  it("starts a VM through a fixed virsh action and verifies running state", async () => {
+    let state = "shut off";
+    const run = vi.fn(async (_binary, args) => {
+      if (args[2] === "domstate") return { stdout: state, stderr: "" };
+      if (args[2] === "dominfo") return { stdout: "Name: ubuntu-lab\nAutostart: disable", stderr: "" };
+      if (args[2] === "start") { state = "running"; return { stdout: "started", stderr: "" }; }
+      throw new Error("unexpected command");
+    });
+    const helper = createVmHelper({ run, wait: async () => {} });
+
+    await expect(helper.action({ name: "ubuntu-lab", action: "start", expectedState: "stopped", expectedAutostart: false })).resolves.toMatchObject({
+      verified: true, domain: "ubuntu-lab", action: "start", previous: { state: "stopped" }, current: { state: "running" },
+    });
+    expect(run).toHaveBeenCalledWith("/usr/bin/virsh", ["--connect", "qemu:///system", "start", "ubuntu-lab"], { timeout: 30000 });
+  });
+
+  it("changes and reads back autostart with no arbitrary virsh arguments", async () => {
+    let autostart = true;
+    const run = vi.fn(async (_binary, args) => {
+      if (args[2] === "domstate") return { stdout: "running", stderr: "" };
+      if (args[2] === "dominfo") return { stdout: `Name: ubuntu-lab\nAutostart: ${autostart ? "enable" : "disable"}`, stderr: "" };
+      if (args[2] === "autostart") { autostart = false; return { stdout: "", stderr: "" }; }
+      throw new Error("unexpected command");
+    });
+    const helper = createVmHelper({ run });
+
+    await expect(helper.action({ name: "ubuntu-lab", action: "autostart-off", expectedState: "running", expectedAutostart: true })).resolves.toMatchObject({ current: { autostart: false } });
+    expect(run).toHaveBeenCalledWith("/usr/bin/virsh", ["--connect", "qemu:///system", "autostart", "ubuntu-lab", "--disable"], { timeout: 30000 });
+  });
+
+  it("refuses lifecycle execution when approved state has drifted", async () => {
+    const run = vi.fn(async (_binary, args) => args[2] === "domstate"
+      ? { stdout: "stopped", stderr: "" }
+      : { stdout: "Name: ubuntu-lab\nAutostart: disable", stderr: "" });
+    const helper = createVmHelper({ run });
+    await expect(helper.action({ name: "ubuntu-lab", action: "shutdown", expectedState: "running", expectedAutostart: false })).rejects.toThrow("state changed after approval");
+    expect(run.mock.calls.some(([, args]) => args[2] === "shutdown")).toBe(false);
+  });
 });
