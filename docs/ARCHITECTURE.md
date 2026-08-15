@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.6.0` adds a fixed application-aware backup operation to the integrity-addressed application and durable-job foundations. Uptime Kuma archives are produced only after a clean stop, the source is restarted and verified, and the artifact is restore-tested inside a temporary container with no network or published ports. Live libvirt inspection, read-only VM creation planning, and the provisional VM lifecycle route remain available after authentication. BoxPilot still cannot install packages, deploy arbitrary Compose, apply VM creation plans, delete VMs, change networks or storage, open consoles, or execute arbitrary commands.
+Version `0.7.0` adds authenticated host and service inventory plus two restricted read-only helper operations: sanitized Docker resource inventory and fixed-source journal collection. The helper removes Docker labels, commands, mount paths, environment values, and Compose file paths. Journal source names and arguments are allowlisted, result counts are capped, and credential-like values are redacted. Application deployment, verified backup, live libvirt inspection, read-only VM creation planning, and the provisional VM lifecycle route remain available after authentication.
 
 Because the native process belongs to `libvirt`, this is an intermediate boundary rather than the final security model. The restricted helper described below remains the target for all mutations.
 
@@ -141,7 +141,7 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.6.0 limitations
+## Version 0.7.0 limitations
 
 - Dashboard values are demonstration data.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.

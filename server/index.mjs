@@ -7,6 +7,7 @@ import { createApplicationService } from "./applications.mjs";
 import { createBackupService } from "./backups.mjs";
 import { createAuthService } from "./security.mjs";
 import { createHelperClient } from "./helper-client.mjs";
+import { createInventoryService } from "./inventory.mjs";
 import { createJobService } from "./jobs.mjs";
 import { createLibvirtService, getSetupPlan, validateAction, validateDomainName } from "./libvirt.mjs";
 import { createPrerequisiteService } from "./prerequisites.mjs";
@@ -31,6 +32,7 @@ const prerequisites = createPrerequisiteService({
 });
 const applications = createApplicationService({ store: state, prerequisites, helper });
 const backups = createBackupService({ store: state, prerequisites, helper });
+const inventory = createInventoryService({ helper });
 const jobs = createJobService(state, helper, {
   validateApplicationJob: applications.validateJob,
   validateBackupJob: backups.validateJob,
@@ -58,7 +60,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.6.0",
+    version: "0.7.0",
     mode: "host-aware",
     safeMode: !vmActions.enabled,
     hostMutationsEnabled: vmActions.enabled,
@@ -83,7 +85,7 @@ app.use("/api/v1", (request, response, next) => {
 
 app.get("/api/v1/capabilities", (_request, response) => {
   response.json({
-    inventory: "mixed-live-and-demo",
+    inventory: "sanitized-host-docker-services-and-network",
     composeInspection: "browser-only",
     applications: "curated-plans-and-uptime-kuma-adapter",
     supportBundle: "browser-only",
@@ -104,6 +106,24 @@ app.get("/api/v1/capabilities", (_request, response) => {
 
 app.get("/api/v1/operations/prerequisites", async (_request, response) => {
   response.json(await prerequisites.inspect());
+});
+
+app.get("/api/v1/inventory", async (_request, response) => {
+  response.json(await inventory.inspect());
+});
+
+app.get("/api/v1/logs", async (request, response) => {
+  const source = String(request.query.source ?? "boxpilot");
+  const limit = Number.parseInt(String(request.query.limit ?? "100"), 10);
+  if (!["boxpilot", "docker", "tailscale", "virtualization"].includes(source) || !Number.isInteger(limit) || limit < 1 || limit > 200) {
+    response.status(400).json({ error: "Choose a supported log source and a limit from 1 to 200", code: "invalid_log_query" });
+    return;
+  }
+  try {
+    response.json(await helper.request("system.logs.inspect", { source, limit }));
+  } catch {
+    response.status(503).json({ error: "The selected redacted log source is unavailable", code: "logs_unavailable" });
+  }
 });
 
 app.get("/api/v1/applications", async (_request, response) => {
@@ -285,7 +305,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.6.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.7.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log(vmActions.enabled ? "Authenticated VM lifecycle actions are enabled." : `Safe mode: ${vmActions.reason}.`);
 });
