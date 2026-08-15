@@ -827,6 +827,28 @@ dd {
   font-size: 9px;
 }
 
+.log-source-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.log-source-tabs button {
+  padding: 6px 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  color: var(--muted);
+  background: var(--surface-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.log-source-tabs button.active {
+  border-color: #3f7568;
+  color: var(--mint);
+  background: #102720;
+}
+
 .log-row {
   display: grid;
   grid-template-columns: 66px 84px minmax(0, 1fr);
@@ -855,6 +877,39 @@ dd {
 .log-row code {
   color: #c5d0dc;
   font: inherit;
+}
+
+.inventory-network {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.8fr) minmax(0, 1.2fr);
+  gap: 20px;
+  align-items: center;
+}
+
+.inventory-network h3 {
+  margin: 5px 0;
+}
+
+.inventory-network p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.inventory-network > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.inventory-network > div:last-child span {
+  padding: 7px 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: 7px;
+  color: var(--muted);
+  background: var(--surface-muted);
+  font-size: 8px;
 }
 
 .settings-panel dl {
@@ -2523,6 +2578,14 @@ textarea {
 
   .backup-plan-columns {
     grid-template-columns: 1fr;
+  }
+
+  .inventory-network {
+    grid-template-columns: 1fr;
+  }
+
+  .inventory-network > div:last-child {
+    justify-content: flex-start;
   }
 
   .vm-resource-grid > div + div {

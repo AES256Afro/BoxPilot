@@ -25,7 +25,7 @@ Acceptance:
 
 ## Phase 1: real read-only inventory
 
-Status: libvirt VM, network, pool, and Tailscale access discovery included in `0.2.0`; remaining collectors are pending.
+Status: libvirt VM, network, pool, and Tailscale access discovery is included in `0.2.0`. Version `0.7.0` adds host identity and resources, root storage, LAN addresses, selected systemd services, sanitized Docker resource inventory, and fixed redacted journal sources. SMART, full mount inventory, support-bundle redaction policies, and broader hardware collectors remain pending.
 
 - Host identity, OS, kernel, uptime, CPU, memory, mounts, and disk space
 - SMART and filesystem health

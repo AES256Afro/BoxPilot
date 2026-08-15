@@ -27,6 +27,11 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.backup", parameters: { backupId: randomUUID() } }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.backup", parameters: { backupId: "../../etc" } }))).toContain("backupId UUID");
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.backup", parameters: { backupId: randomUUID(), destination: "/tmp" } }))).toContain("only a backupId");
+    expect(validateHelperRequest(request({ operation: "container.docker.inventory", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "container.docker.inventory", parameters: { labels: true } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "system.logs.inspect", parameters: { source: "boxpilot", limit: 50 } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "system.logs.inspect", parameters: { source: "../../etc", limit: 50 } }))).toContain("fixed source");
+    expect(validateHelperRequest(request({ operation: "system.logs.inspect", parameters: { source: "docker", limit: 500 } }))).toContain("1 to 200");
   });
 
   it("returns only the Docker server availability and version", async () => {

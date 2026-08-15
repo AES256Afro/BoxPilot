@@ -1,26 +1,24 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  metrics,
   navItems,
-  timeline,
-  workloads,
   type ViewName,
 } from "./data";
 import { inspectCompose, type ComposeInspection } from "./composeInspector";
 import AuthScreen from "./AuthScreen";
 import ApplicationCatalog from "./ApplicationCatalog";
 import BackupCenter from "./BackupCenter";
+import HostOverview from "./HostOverview";
 import RepairCenter from "./RepairCenter";
+import SystemLogs from "./SystemLogs";
 import { fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import VirtualMachines from "./VirtualMachines";
 
-type DialogName = "compose" | "change" | "migration" | null;
+type DialogName = "compose" | "migration" | null;
 
 const viewCopy: Record<ViewName, { title: string; description: string; action?: string }> = {
   overview: {
     title: "Server overview",
-    description: "Explore the planned operating workflow without mistaking sample cards for live host telemetry.",
-    action: "Run health check",
+    description: "Inspect sanitized host, service, network, storage, and Docker state from Bigbox.",
   },
   applications: {
     title: "Applications",
@@ -46,7 +44,7 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   },
   logs: {
     title: "Logs and events",
-    description: "Redacted VM plans and lifecycle changes, with broader system sources still to come.",
+    description: "Read fixed, redacted service sources without exposing arbitrary journal queries.",
     action: "Download support bundle",
   },
   settings: {
@@ -57,9 +55,9 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
 
 const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; description: string }> = {
   overview: {
-    label: "UI demonstration",
-    tone: "sample",
-    description: "The metrics, workloads, backup claims, and change timeline on this page are sample data in v0.6.0.",
+    label: "Live sanitized inventory",
+    tone: "live",
+    description: "Host identity, compute, root storage, LAN addresses, Tailscale self-state, selected services, and Docker inventory come from Bigbox. Docker labels, commands, mount paths, and environment values are excluded.",
   },
   applications: {
     label: "Curated application engine",
@@ -87,9 +85,9 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     description: "This page illustrates the planned migration sequence. Source discovery, transfer, validation, and cutover are not implemented.",
   },
   logs: {
-    label: "Host-backed module",
+    label: "Restricted journal inventory",
     tone: "live",
-    description: "This page reads only redacted VM planning and lifecycle events. General system, Docker, and application logs are not collected yet.",
+    description: "BoxPilot, Docker, Tailscale, and virtualization logs use fixed unit sets, capped result sizes, and credential-pattern redaction. Arbitrary units and journal arguments are rejected.",
   },
   settings: {
     label: "Deployment guidance",
@@ -143,90 +141,6 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
   );
 }
 
-function Overview({ healthStatus, onReview }: { healthStatus: string; onReview: () => void }) {
-  return (
-    <>
-      <div className="readiness">
-        <div>
-          <strong>Example recovery posture</strong>
-          <span>Illustrative backup, access, and rollback status for the planned live dashboard</span>
-        </div>
-        <StatusPill tone="neutral">Sample data</StatusPill>
-      </div>
-
-      <div className="metric-grid">
-        {metrics.map((metric) => (
-          <article className="metric" key={metric.label}>
-            <span>{metric.label}</span>
-            <strong>{metric.value}</strong>
-            <div className="meter" aria-label={`${metric.label}: ${metric.value}`}>
-              <i style={{ width: `${metric.percent}%` }} />
-            </div>
-          </article>
-        ))}
-      </div>
-
-      <div className="dashboard-grid">
-        <Panel>
-          <header className="panel-header">
-            <strong>Example workloads</strong>
-            <span>Sample only</span>
-          </header>
-          <div className="workload-list">
-            {workloads.map((workload) => (
-              <div className="workload" key={workload.name}>
-                <div>
-                  <strong>{workload.name}</strong>
-                  <span>{workload.detail}</span>
-                </div>
-                <span className="workload-kind">{workload.kind}</span>
-                <StatusPill tone={workload.tone}>{workload.state}</StatusPill>
-              </div>
-            ))}
-          </div>
-        </Panel>
-
-        <Panel>
-          <header className="panel-header">
-            <strong>Example activity</strong>
-            <span>Sample only</span>
-          </header>
-          <div className="timeline">
-            {timeline.map(([time, event]) => (
-              <div className="timeline-row" key={`${time}-${event}`}>
-                <time>{time}</time>
-                <i />
-                <span>{event}</span>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      </div>
-
-      <section className="change-card">
-        <div className="change-heading">
-          <div>
-            <span className="eyebrow">Approval required</span>
-            <strong>Sample change: install 7 security updates</strong>
-          </div>
-          <button className="secondary-button" type="button" onClick={onReview}>
-            Review plan
-          </button>
-        </div>
-        <div className="change-steps" aria-label="Change workflow">
-          <span className="done">Preflight</span>
-          <span className="done">Checkpoint</span>
-          <span className="current">Review</span>
-          <span>Apply</span>
-          <span>Verify or roll back</span>
-        </div>
-      </section>
-
-      <p className="session-result" aria-live="polite">{healthStatus}</p>
-    </>
-  );
-}
-
 function Migrations() {
   const steps = [
     ["Inventory source", "Read-only scan of services, stacks, volumes, users, storage, and versions."],
@@ -265,50 +179,6 @@ function Migrations() {
         </dl>
       </Panel>
     </div>
-  );
-}
-
-function Logs() {
-  const [auditEvents, setAuditEvents] = useState<Array<Record<string, unknown>>>([]);
-  const [auditPersistent, setAuditPersistent] = useState(false);
-  const [auditStatus, setAuditStatus] = useState("Loading virtualization audit...");
-
-  useEffect(() => {
-    fetch("/api/v1/audit?limit=100")
-      .then(async (response) => {
-        const body = await response.json() as { available: boolean; persistent: boolean; events: Array<Record<string, unknown>>; error?: string };
-        if (!response.ok || !body.available) throw new Error(body.error ?? "Audit log unavailable");
-        setAuditEvents(body.events);
-        setAuditPersistent(body.persistent);
-        setAuditStatus(body.events.length ? "Live redacted virtualization audit" : "Audit is ready; no VM events recorded yet");
-      })
-      .catch((error) => setAuditStatus(error instanceof Error ? error.message : "Audit log unavailable"));
-  }, []);
-
-  const describeEvent = (event: Record<string, unknown>) => {
-    if (event.type === "vm.plan.created") return `Plan ${event.revision} validated for ${event.domain}`;
-    if (event.type === "vm.action.requested") return `${event.action} requested for ${event.domain}`;
-    if (event.type === "vm.action.completed") return `${event.action} completed for ${event.domain}; state ${event.state ?? "unknown"}`;
-    if (event.type === "vm.action.failed") return `${event.action} failed for ${event.domain}`;
-    return String(event.type ?? "Unknown virtualization event");
-  };
-
-  return (
-    <Panel className="log-panel">
-      <div className="log-toolbar">
-        <span>{auditStatus}</span>
-        <StatusPill tone={auditPersistent ? "good" : "neutral"}>{auditPersistent ? "Persistent" : "Development mode"}</StatusPill>
-      </div>
-      {auditEvents.length === 0 ? (
-        <div className="log-empty">Generate a VM plan or request an enabled lifecycle action to create the first redacted event.</div>
-      ) : auditEvents.map((event) => (
-        <div className="log-row" key={String(event.id)}>
-          <time>{new Date(String(event.timestamp)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
-          <span>{String(event.type).startsWith("vm.plan") ? "planner" : "libvirt"}</span>
-          <code>{describeEvent(event)}</code>
-        </div>
-      ))}
-    </Panel>
   );
 }
 
@@ -354,9 +224,6 @@ function Settings({ apiMode }: { apiMode: string }) {
 function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSignedOut: () => void }) {
   const [view, setView] = useState<ViewName>("overview");
   const [dialog, setDialog] = useState<DialogName>(null);
-  const [selectedApplication, setSelectedApplication] = useState("security updates");
-  const [healthStatus, setHealthStatus] = useState("Health check has not run in this browser session.");
-  const [healthRunning, setHealthRunning] = useState(false);
   const [apiMode, setApiMode] = useState("browser preview");
   const [composeSource, setComposeSource] = useState(sampleCompose);
   const [inspection, setInspection] = useState<ComposeInspection | null>(null);
@@ -378,7 +245,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
 
   const pageContent = useMemo(() => {
     if (view === "overview") {
-      return <Overview healthStatus={healthStatus} onReview={() => setDialog("change")} />;
+      return <HostOverview />;
     }
     if (view === "applications") {
       return (
@@ -393,21 +260,13 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     if (view === "virtualization") return <VirtualMachines csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "backups") return <BackupCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "migrations") return <Migrations />;
-    if (view === "logs") return <Logs />;
+    if (view === "logs") return <SystemLogs />;
     return <Settings apiMode={apiMode} />;
-  }, [apiMode, authStatus.csrfToken, healthStatus, view]);
-
-  const runHealthCheck = () => {
-    setHealthRunning(true);
-    setHealthStatus("Running six safe browser checks...");
-    window.setTimeout(() => {
-      setHealthRunning(false);
-      setHealthStatus(`Six browser checks passed at ${new Date().toLocaleTimeString()}. Open Virtual Machines for live host checks.`);
-    }, 700);
-  };
+  }, [apiMode, authStatus.csrfToken, view]);
 
   const downloadSupportBundle = async () => {
     let virtualizationAudit: Array<Record<string, unknown>> = [];
+    let sanitizedInventory: Record<string, unknown> | null = null;
     try {
       const response = await fetch("/api/v1/audit?limit=100");
       const body = await response.json() as { events?: Array<Record<string, unknown>> };
@@ -415,27 +274,33 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     } catch {
       virtualizationAudit = [];
     }
+    try {
+      const response = await fetch("/api/v1/inventory");
+      if (response.ok) sanitizedInventory = await response.json() as Record<string, unknown>;
+    } catch {
+      sanitizedInventory = null;
+    }
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.6.0",
+      version: "0.7.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
-      server: { hostname: null, lanAddress: null, note: "Host identity collection is not implemented in v0.6.0." },
+      inventory: sanitizedInventory,
+      inventorySource: sanitizedInventory ? "sanitized-live-inventory" : "unavailable",
       events: virtualizationAudit,
       eventSource: virtualizationAudit.length ? "redacted-virtualization-audit" : "unavailable-or-empty",
     };
     const url = URL.createObjectURL(new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" }));
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = "boxpilot-support-bundle-demo.json";
+    anchor.download = "boxpilot-support-bundle.json";
     anchor.click();
     URL.revokeObjectURL(url);
   };
 
   const handlePrimaryAction = () => {
-    if (view === "overview") runHealthCheck();
     if (view === "applications") setDialog("compose");
     if (view === "migrations") setDialog("migration");
     if (view === "logs") void downloadSupportBundle();
@@ -461,13 +326,13 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.6.0 backup engine<br />Live surfaces are labeled</div>
+        <div className="prototype-label">v0.7.0 live inventory<br />Live surfaces are labeled</div>
       </aside>
 
       <main>
         <header className="topbar">
           <div className="hostline">
-            <div><strong>BoxPilot preview</strong><span>Host identity is not collected on this screen</span></div>
+            <div><strong>BoxPilot control plane</strong><span>Authenticated, sanitized live inventory</span></div>
             <StatusPill tone="neutral">Mixed data</StatusPill>
           </div>
           <div className="topbar-right"><StatusPill tone="warning">Guarded mode</StatusPill><span className="signed-in-user">{authStatus.owner?.username}</span><button className="text-button" type="button" onClick={() => void logoutOwner(authStatus.csrfToken ?? "").then(onSignedOut)}>Sign out</button></div>
@@ -477,8 +342,8 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <header className="page-header">
             <div><span className="eyebrow">{view === "overview" ? "System overview" : "BoxPilot"}</span><h1>{copy.title}</h1><p>{copy.description}</p></div>
             {copy.action && (
-              <button className="primary-button" type="button" onClick={handlePrimaryAction} disabled={healthRunning}>
-                {healthRunning ? "Checking..." : copy.action}
+              <button className="primary-button" type="button" onClick={handlePrimaryAction}>
+                {copy.action}
               </button>
             )}
           </header>
@@ -507,19 +372,6 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
             <button className="text-button" type="button" onClick={() => setDialog(null)}>Cancel</button>
             <button className="primary-button" type="button" onClick={() => setInspection(inspectCompose(composeSource))}>Run dry scan</button>
           </footer>
-        </Modal>
-      )}
-
-      {dialog === "change" && (
-        <Modal title={`Review ${selectedApplication}`} onClose={() => setDialog(null)}>
-          <div className="notice warning-notice"><strong>Plan only</strong><span>This sample change is not connected to an executable adapter, so Apply is intentionally unavailable.</span></div>
-          <ol className="review-list">
-            <li><strong>Preflight</strong><span>Check OS version, free space, network, conflicting ports, and current health.</span></li>
-            <li><strong>Checkpoint</strong><span>Create a recovery point and verify its destination before changes.</span></li>
-            <li><strong>Apply</strong><span>Require explicit approval, stream output, and stop on failed checks.</span></li>
-            <li><strong>Verify</strong><span>Run health tests and offer immediate rollback when acceptance fails.</span></li>
-          </ol>
-          <footer className="modal-actions"><button className="primary-button" type="button" onClick={() => setDialog(null)}>Close preview</button></footer>
         </Modal>
       )}
 
