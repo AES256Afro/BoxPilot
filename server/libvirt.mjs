@@ -6,6 +6,9 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const connectionUri = process.env.BOXPILOT_LIBVIRT_URI ?? "qemu:///system";
+if (connectionUri !== "qemu:///system") {
+  throw new Error("BOXPILOT_LIBVIRT_URI must remain qemu:///system in this release");
+}
 const qemuSystemBinary = process.arch === "arm64" ? "qemu-system-aarch64" : "qemu-system-x86_64";
 const domainPattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$/;
 const supportedActions = new Map([
@@ -24,7 +27,7 @@ async function defaultRunCommand(command, args, options = {}) {
       timeout: options.timeout ?? 8000,
       windowsHide: true,
       env: {
-        PATH: process.env.PATH ?? "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
         LANG: "C.UTF-8",
         LC_ALL: "C.UTF-8",
       },
@@ -59,11 +62,44 @@ function parseAddresses(output) {
     .map((parts) => ({ interface: parts[0], protocol: parts[2], address: parts[3] }));
 }
 
+function tableBody(output) {
+  const lines = output.split("\n");
+  const separator = lines.findIndex((line) => /^\s*-{3,}/.test(line));
+  return (separator === -1 ? [] : lines.slice(separator + 1)).map((line) => line.trim()).filter(Boolean);
+}
+
+function parseBlockDevices(output) {
+  return tableBody(output).map((line) => line.split(/\s+/)).filter((parts) => parts.length >= 4).map((parts) => ({
+    type: parts[0],
+    device: parts[1],
+    target: parts[2],
+    source: parts.slice(3).join(" "),
+  }));
+}
+
+function parseInterfaces(output) {
+  return tableBody(output).map((line) => line.split(/\s+/)).filter((parts) => parts.length >= 5).map((parts) => ({
+    interface: parts[0],
+    type: parts[1],
+    source: parts[2],
+    model: parts[3] === "-" ? null : parts[3],
+    mac: parts[4],
+  }));
+}
+
 function normalizeState(state = "unknown") {
   if (state === "shut off") return "stopped";
   if (state === "in shutdown") return "stopping";
   if (state === "pmsuspended") return "suspended";
   return state;
+}
+
+function parseStorageBytes(value) {
+  if (typeof value !== "string") return null;
+  const match = value.match(/^([0-9]+(?:\.[0-9]+)?)\s+(bytes|KiB|MiB|GiB|TiB)$/i);
+  if (!match) return null;
+  const multipliers = { bytes: 1, kib: 1024, mib: 1024 ** 2, gib: 1024 ** 3, tib: 1024 ** 4 };
+  return Math.round(Number.parseFloat(match[1]) * multipliers[match[2].toLowerCase()]);
 }
 
 function safeUsername() {
@@ -82,6 +118,7 @@ export function getSetupPlan() {
       "sudo apt install -y qemu-kvm libvirt-daemon-system libvirt-clients virtinst cpu-checker",
       `sudo adduser ${username} libvirt`,
       `sudo adduser ${username} kvm`,
+      "sudo install -d -m 0755 /var/lib/libvirt/boot",
       "sudo virsh net-start default || true",
       "sudo virsh net-autostart default",
       "sudo virsh pool-start default || true",
@@ -192,7 +229,12 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
     const infoResult = await runCommand("virsh", ["--connect", connectionUri, "dominfo", name]);
     if (!infoResult.ok) return null;
     const info = parseKeyValueOutput(infoResult.stdout);
-    const addressResult = await runCommand("virsh", ["--connect", connectionUri, "domifaddr", name, "--source", "lease"]);
+    const [addressResult, blockResult, interfaceResult, snapshotResult] = await Promise.all([
+      runCommand("virsh", ["--connect", connectionUri, "domifaddr", name, "--source", "lease"]),
+      runCommand("virsh", ["--connect", connectionUri, "domblklist", name, "--details"]),
+      runCommand("virsh", ["--connect", connectionUri, "domiflist", name]),
+      runCommand("virsh", ["--connect", connectionUri, "snapshot-list", name, "--name"]),
+    ]);
     return {
       name: info.name ?? name,
       uuid: info.uuid ?? null,
@@ -203,6 +245,9 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
       autostart: info.autostart === "enable" || info.autostart === "yes",
       managed: validateDomainName(info.name ?? name),
       addresses: addressResult.ok ? parseAddresses(addressResult.stdout) : [],
+      disks: blockResult.ok ? parseBlockDevices(blockResult.stdout) : [],
+      interfaces: interfaceResult.ok ? parseInterfaces(interfaceResult.stdout) : [],
+      snapshotCount: snapshotResult.ok ? snapshotResult.stdout.split("\n").map((snapshot) => snapshot.trim()).filter(Boolean).length : null,
     };
   }
 
@@ -216,6 +261,48 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
     return { connected: true, domains, error: null };
   }
 
+  async function listResources() {
+    const [networkList, poolList] = await Promise.all([
+      runCommand("virsh", ["--connect", connectionUri, "net-list", "--all", "--name"]),
+      runCommand("virsh", ["--connect", connectionUri, "pool-list", "--all", "--name"]),
+    ]);
+    const networkNames = networkList.ok ? networkList.stdout.split("\n").map((name) => name.trim()).filter(Boolean) : [];
+    const poolNames = poolList.ok ? poolList.stdout.split("\n").map((name) => name.trim()).filter(Boolean) : [];
+    const [networks, pools] = await Promise.all([
+      Promise.all(networkNames.filter(validateDomainName).map(async (name) => {
+        const resource = await inspectResource("net", name);
+        return {
+          name,
+          active: resource.active,
+          autostart: resource.autostart ?? false,
+          persistent: resource.detail?.persistent === "yes",
+          bridge: resource.detail?.bridge ?? null,
+        };
+      })),
+      Promise.all(poolNames.filter(validateDomainName).map(async (name) => {
+        const resource = await inspectResource("pool", name);
+        return {
+          name,
+          active: resource.active,
+          autostart: resource.autostart ?? false,
+          persistent: resource.detail?.persistent === "yes",
+          type: resource.detail?.type ?? null,
+          targetPath: resource.detail?.target_path ?? null,
+          capacity: resource.detail?.capacity ?? null,
+          allocation: resource.detail?.allocation ?? null,
+          available: resource.detail?.available ?? null,
+          availableBytes: parseStorageBytes(resource.detail?.available),
+        };
+      })),
+    ]);
+    return {
+      connected: networkList.ok || poolList.ok,
+      networks,
+      pools,
+      errors: [networkList.ok ? null : networkList.stderr, poolList.ok ? null : poolList.stderr].filter(Boolean),
+    };
+  }
+
   async function runDomainAction(name, action) {
     if (!validateDomainName(name)) throw new Error("Invalid domain name");
     if (!validateAction(action)) throw new Error("Unsupported VM action");
@@ -226,5 +313,5 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
     return { action, domain: name, output: result.stdout, current: await getDomain(name) };
   }
 
-  return { getStatus, listDomains, getDomain, runDomainAction };
+  return { getStatus, listDomains, listResources, getDomain, runDomainAction };
 }

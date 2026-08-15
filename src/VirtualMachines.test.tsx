@@ -32,11 +32,21 @@ describe("Virtual Machines", () => {
         autostart: true,
         managed: true,
         addresses: [{ interface: "vnet0", protocol: "ipv4", address: "192.168.122.25/24" }],
+        disks: [{ type: "file", device: "disk", target: "vda", source: "/var/lib/libvirt/images/ubuntu-lab.qcow2" }],
+        interfaces: [{ interface: "vnet0", type: "network", source: "default", model: "virtio", mac: "52:54:00:aa:bb:cc" }],
+        snapshotCount: 2,
       }],
+    };
+    const resources = {
+      connected: true,
+      networks: [{ name: "default", active: true, autostart: true, persistent: true, bridge: "virbr0" }],
+      pools: [{ name: "default", active: true, autostart: true, persistent: true, type: "dir", targetPath: "/var/lib/libvirt/images", capacity: "100 GiB", allocation: "20 GiB", available: "80 GiB" }],
+      errors: [],
     };
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
-      return new Response(JSON.stringify(url.endsWith("/status") ? status : domains), {
+      const body = url.endsWith("/status") ? status : url.endsWith("/resources") ? resources : domains;
+      return new Response(JSON.stringify(body), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -47,6 +57,8 @@ describe("Virtual Machines", () => {
     expect(await screen.findByText("KVM host is ready")).toBeTruthy();
     expect(screen.getByText("ubuntu-lab")).toBeTruthy();
     expect(screen.getByText("192.168.122.25/24")).toBeTruthy();
+    expect(screen.getByText("Libvirt resources")).toBeTruthy();
+    expect(screen.getByText(/80 GiB/)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Reboot" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

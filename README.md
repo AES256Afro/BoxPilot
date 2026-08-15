@@ -1,27 +1,55 @@
 # BoxPilot
 
-BoxPilot is a safety-first, local control plane for an Ubuntu home server. It is designed to make applications, backups, logs, imports, migrations, Docker workloads, and virtual machines manageable from another computer over the LAN or Tailscale.
+BoxPilot is an early, safety-first control plane for an Ubuntu home server. The long-term product is a guided interface for applications, backups, logs, imports, migrations, Docker workloads, routers, agents, and virtual machines over a private LAN or Tailscale connection.
 
 ## Current status
 
-Version `0.2.0` adds a live QEMU/KVM and libvirt module. BoxPilot can inspect host readiness, discover virtual machines, show leased guest addresses, and optionally request a small allowlist of lifecycle operations. VM controls are disabled by default. Package installation, VM creation, deletion, force-off, bridges, storage changes, snapshots, consoles, Docker socket access, firewall edits, and arbitrary command execution remain unavailable.
+Version `0.3.0` is a host-aware prototype, not a complete server manager. Its QEMU/KVM module has real read-only collectors and server-side VM plan validation when BoxPilot runs natively on Linux. Most other product areas are workflow mockups with visibly labeled sample data.
 
-The current slice includes:
+### What works now
 
-- Responsive server dashboard and workload inventory
-- Keel Notes as the first app-aware managed workload
-- Browser-only Docker Compose dry-run inspection with risk warnings
-- Backup coverage and restore-drill views
-- Non-destructive migration workflow
-- Prototype logs and downloadable redacted support bundle
-- Read-only health and capability API endpoints
-- Live QEMU/KVM host preflight and libvirt VM inventory
-- Token-protected start, graceful shutdown, reboot, and autostart controls
-- Copyable Ubuntu virtualization setup plan
-- Hardened, loopback-only Docker deployment
-- Full USB-to-headless Ubuntu installation runbook
+| Area | Status in `0.3.0` | Capability |
+| --- | --- | --- |
+| Health and capabilities API | Live | Reports release mode and available product boundaries. |
+| QEMU/KVM preflight | Live on the native host | Checks Linux, `/dev/kvm`, QEMU, `virsh`, `virt-install`, `qemu:///system`, service-user groups, the default NAT network, the default storage pool, and Tailscale access. |
+| VM and libvirt inventory | Live on the native host | Lists domains, state, CPU, memory, autostart, lease-reported addresses, disks, interfaces, snapshot count, networks, and storage pools. |
+| VM creation planner | Validated read-only | Discovers regular ISO files in one managed directory, validates fields on the server, checks name collisions and reported pool space, and renders a non-executing `virt-install` argument preview. |
+| VM lifecycle controls | Provisional and off by default | Can request start, graceful shutdown, reboot, and autostart through fixed `virsh` argument arrays after an operator enables the route and supplies a token. |
+| VM event log | Limited live foundation | Writes and displays redacted JSONL events for VM plans and enabled lifecycle requests. It is not the final authenticated job ledger. |
+| Compose inspector | Browser-only preview | Performs a lightweight structural and risk scan. It is not a full YAML parser and cannot deploy. |
+| Support bundle | Browser-generated preview | Downloads release metadata and available redacted VM audit events. It is not yet a general host support bundle. |
+| Overview, apps, backups, migrations, and settings | UI demonstration | Shows the intended operator workflow using sample data. These pages do not collect or change host state. |
+| Docker deployment | Safe preview | Runs loopback-only without capabilities, host mounts, or the Docker socket. This container cannot inspect host libvirt. |
 
-The Virtual Machines page uses live libvirt data when BoxPilot runs natively on the Ubuntu host. Other dashboard measurements remain demonstration data until their collectors are implemented.
+The repository also includes a read-only Ubuntu deployment doctor and a USB-to-headless installation runbook.
+
+### Not implemented yet
+
+- VM plan application, VM creation, delete, force-off, console, snapshot mutation, bridge creation, passthrough, backup, restore, export, or migration
+- Docker inventory, Compose deployment, application installation, package updates, firewall changes, storage changes, or arbitrary command execution
+- Backup execution, restore drills, source-server discovery, transfer, or migration cutover
+- Keel Notes, AdGuard Home, Jellyfin, Home Assistant, PostgreSQL, router, GitHub, or remote-agent adapters
+- Owner bootstrap, user sessions, WebAuthn, CSRF protection, durable approval jobs, or the restricted privileged helper
+
+## Screenshots
+
+### Workflow overview mockup
+
+![BoxPilot overview with sample-data disclosure](docs/screenshots/overview-demo.jpg)
+
+This is an actual `0.3.0` UI capture. The workload, health, backup, and activity values are demonstration data, and the interface labels them accordingly.
+
+### Host-backed virtualization preflight
+
+![BoxPilot virtualization preflight](docs/screenshots/virtualization-preflight.jpg)
+
+This is an actual host-backed capture from a non-Linux development machine. The failed checks are expected and demonstrate that the module reports missing KVM and libvirt dependencies instead of showing a false ready state.
+
+### Read-only VM creation planner
+
+![BoxPilot validated VM planner](docs/screenshots/vm-planner.jpg)
+
+This capture uses a local development ISO fixture. The plan was validated by the running server, but the displayed `virt-install` request was not executed. Apply remains locked.
 
 ## Safety contract
 
@@ -34,7 +62,7 @@ Every future host change must follow:
 5. Apply with streamed logs
 6. Verify or roll back
 
-The current VM action route maps validated requests to fixed `virsh` argument arrays and never invokes a shell. A separate privileged helper, durable approvals, and an audit log are still required before higher-impact operations can ship. BoxPilot will not provide an arbitrary root shell.
+The current VM action route maps validated requests to fixed `virsh` argument arrays and never invokes a shell. A separate privileged helper, owner authentication, durable approvals, and a tamper-evident job ledger are still required before higher-impact operations can ship. BoxPilot will not provide an arbitrary root shell.
 
 ## Run for development
 
@@ -102,6 +130,7 @@ Open the HTTPS URL shown by `tailscale serve status` from another device on the 
 
 ```bash
 npm run check
+npm run doctor
 docker build -t boxpilot:local .
 ```
 
@@ -110,11 +139,13 @@ docker build -t boxpilot:local .
 - [Architecture and security boundaries](docs/ARCHITECTURE.md)
 - [Dependency-ordered roadmap](docs/ROADMAP.md)
 - [QEMU/KVM setup and operation](docs/VIRTUALIZATION.md)
+- [QEMU/KVM milestones](docs/VIRTUALIZATION-MILESTONES.md)
+- [QEMU/KVM API and agent contract](docs/VIRTUALIZATION-API.md)
 - [Ubuntu Server installation runbook](UBUNTU-SERVER-INSTALL-RUNBOOK.md)
 
-## Keel Notes integration target
+## Keel Notes roadmap adapter
 
-The first application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
+No Keel adapter ships in `0.3.0`. The first planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
 
 - Detect a Keel Docker or service installation
 - Inventory the database dialect and protected data paths without exposing secrets

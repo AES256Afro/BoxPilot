@@ -1,6 +1,6 @@
 # QEMU/KVM setup and operation
 
-BoxPilot `0.2.0` can inspect a local libvirt system connection and manage a deliberately small set of virtual-machine lifecycle operations. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
+BoxPilot `0.3.0` can inspect a local libvirt system connection, produce validated non-executing VM creation plans, and manage a deliberately small set of virtual-machine lifecycle operations. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
 
 ## What works now
 
@@ -11,8 +11,10 @@ BoxPilot `0.2.0` can inspect a local libvirt system connection and manage a deli
 - Request graceful shutdown or reboot of a running VM
 - Enable or disable VM autostart
 - Detect the host's Tailscale name and an existing Tailscale Serve URL
+- Discover managed ISO images, libvirt networks, pools, guest disks, interfaces, and snapshot count
+- Validate a new VM plan and render its exact future `virt-install` argument array without executing it
 
-The release does not create or delete VMs, force power off, edit VM definitions, open a web console, make snapshots, change storage pools, or build a network bridge. These operations need durable plans, stronger identity, audit records, recovery checkpoints, and a restricted local helper.
+The release does not apply a VM creation plan, create or delete VMs, force power off, edit VM definitions, open a web console, make snapshots, change storage pools, or build a network bridge. These operations need durable plans, stronger identity, audit records, recovery checkpoints, and a restricted local helper.
 
 ## 1. Prepare Ubuntu for virtualization
 
@@ -23,6 +25,7 @@ sudo apt update
 sudo apt install -y qemu-kvm libvirt-daemon-system libvirt-clients virtinst cpu-checker
 sudo adduser "$USER" libvirt
 sudo adduser "$USER" kvm
+sudo install -d -m 0755 /var/lib/libvirt/boot
 sudo virsh net-start default || true
 sudo virsh net-autostart default
 sudo virsh pool-start default || true
@@ -81,7 +84,40 @@ curl http://127.0.0.1:8787/api/v1/virtualization/domains
 
 Open **Virtual Machines** in BoxPilot. The preflight checklist names each missing requirement without changing the host.
 
-## 3. Publish BoxPilot privately through Tailscale
+Run the read-only deployment doctor at any time:
+
+```bash
+cd /opt/boxpilot
+sudo -u boxpilot npm run doctor
+```
+
+It checks Linux, KVM access, required commands, groups, libvirt, the default network and pool, managed ISO media, the loopback health endpoint, and Tailscale. It does not install packages or change configuration.
+
+The systemd unit creates `/var/lib/boxpilot` with mode `0700` for redacted audit events. The service records successful creation plans plus requested, completed, and failed lifecycle operations. It never records the administrator token or a complete environment. Open **Logs** in BoxPilot to see the newest events. This JSONL foundation is not yet a tamper-evident, owner-attributed audit ledger.
+
+## 3. Add installation media and create a VM plan
+
+Copy an installer ISO into the configured managed-media directory:
+
+```bash
+sudo install -d -m 0755 /var/lib/libvirt/boot
+sudo cp /path/to/installer.iso /var/lib/libvirt/boot/
+sudo chmod 0644 /var/lib/libvirt/boot/installer.iso
+```
+
+If a different directory is required, set `BOXPILOT_ISO_DIRECTORY` in `/etc/boxpilot/boxpilot.env` and restart BoxPilot. Use a dedicated media directory. Do not point it at `/`, a home directory, or a directory containing secrets.
+
+In BoxPilot:
+
+1. Open **Virtual Machines**.
+2. Select **Plan new VM**.
+3. Choose the guest name, operating-system profile, vCPU, memory, disk, managed ISO, default NAT network, firmware, and autostart preference.
+4. Select **Generate reviewed plan**.
+5. Review capacity warnings, the deterministic plan revision, the structured `virt-install` preview, and the gates required before Apply.
+
+The planning API verifies numeric limits, rejects unsafe ISO names and path traversal, checks that the ISO is a regular discovered file, refuses an existing domain name, and rejects a disk larger than the reported free space in the default pool. It never invokes `virt-install` and cannot create a disk or domain.
+
+## 4. Publish BoxPilot privately through Tailscale
 
 Keep BoxPilot bound to loopback and publish it only to the tailnet:
 
@@ -94,7 +130,7 @@ Use the HTTPS URL displayed by `tailscale serve status`. Keep Funnel disabled. I
 
 Tailscale DNS Override can remain off. BoxPilot does not require a tailnet-wide DNS override to use Tailscale Serve.
 
-## 4. Unlock the guarded lifecycle controls
+## 5. Unlock the guarded lifecycle controls
 
 Leave the controls locked until read-only discovery works. Generate a dedicated random token on the server:
 
@@ -119,9 +155,9 @@ curl http://127.0.0.1:8787/api/v1/capabilities
 
 Enter the token only when the Virtual Machines page requests it. The browser keeps it in component memory and does not persist it to local storage. Lifecycle buttons still require confirmation and can invoke only `start`, `shutdown`, `reboot`, and autostart on or off. There is intentionally no `destroy` or force-off action.
 
-## 5. Choose VM networking deliberately
+## 6. Choose VM networking deliberately
 
-Start with libvirt's default NAT network. Guests receive an address such as `192.168.122.x`, can reach the internet, and remain separated from the main `192.168.0.x` LAN.
+Start with libvirt's default NAT network. Guests receive an address such as `192.168.122.x`, can reach the internet, and remain separated from the main `192.168.8.x` LAN.
 
 To reach a guest application remotely, use one of these approaches:
 
@@ -131,7 +167,7 @@ To reach a guest application remotely, use one of these approaches:
 
 A bridge can interrupt the server's only network connection. BoxPilot will not automate bridging until it can create a connectivity checkpoint, display console recovery commands, and verify the new route. Do not bridge Wi-Fi interfaces as if they were ordinary Ethernet ports.
 
-## 6. Troubleshoot safely
+## 7. Troubleshoot safely
 
 ### The system connection fails
 
@@ -166,6 +202,6 @@ Correct the specific failed requirement and refresh the page. Do not loosen the 
 
 ## Security boundary
 
-Membership in the `libvirt` group is powerful. In `0.2.0`, the native BoxPilot process has that membership so it can inspect libvirt and issue the small action allowlist. A compromised web process would still have the operating-system permissions of that service account. Keep the service loopback-only, keep Funnel off, protect the token, and do not treat this release as an internet-facing appliance.
+Membership in the `libvirt` group is powerful. In `0.3.0`, the native BoxPilot process has that membership so it can inspect libvirt and issue the small action allowlist. A compromised web process would still have the operating-system permissions of that service account. Keep the service loopback-only, keep Funnel off, protect the token, and do not treat this release as an internet-facing appliance.
 
 The next security milestone moves mutations to a local Unix-socket helper with typed requests, durable approvals, append-only audit events, and operation-specific authorization. VM creation, storage, bridges, snapshots, backup, migration, and console access should wait for that boundary.

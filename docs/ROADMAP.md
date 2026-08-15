@@ -2,6 +2,8 @@
 
 The roadmap is ordered by dependency and safety. A later phase cannot ship merely because its interface exists.
 
+The detailed QEMU/KVM sequence and acceptance gates live in [Virtualization milestones](VIRTUALIZATION-MILESTONES.md).
+
 ## Phase 0: runnable product shell
 
 Status: included in `0.1.0`.
@@ -124,6 +126,7 @@ Acceptance:
 ## Phase 7: virtual machines and storage
 
 - Live libvirt discovery and guarded start, graceful shutdown, reboot, and autostart controls included in `0.2.0`
+- Read-only creation planning, managed ISO discovery, resource guardrails, and detailed guest/network/pool inventory included in `0.3.0`
 - Guided VM creation, console, snapshot, export, and restore
 - Storage pool management with destructive-operation confirmation
 - Cloud-init templates and bridged-network planning

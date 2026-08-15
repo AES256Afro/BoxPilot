@@ -45,6 +45,9 @@ export interface VirtualDomain {
   autostart: boolean;
   managed: boolean;
   addresses: DomainAddress[];
+  disks: Array<{ type: string; device: string; target: string; source: string }>;
+  interfaces: Array<{ interface: string; type: string; source: string; model: string | null; mac: string }>;
+  snapshotCount: number | null;
 }
 
 export interface DomainList {
@@ -53,23 +56,104 @@ export interface DomainList {
   error: string | null;
 }
 
+export interface LibvirtResources {
+  connected: boolean;
+  networks: Array<{ name: string; active: boolean; autostart: boolean; persistent: boolean; bridge: string | null }>;
+  pools: Array<{
+    name: string;
+    active: boolean;
+    autostart: boolean;
+    persistent: boolean;
+    type: string | null;
+    targetPath: string | null;
+    capacity: string | null;
+    allocation: string | null;
+    available: string | null;
+    availableBytes: number | null;
+  }>;
+  errors: string[];
+}
+
+export interface VmPlanningOptions {
+  mediaRoot: string;
+  mediaError: string | null;
+  isoImages: Array<{ name: string; sizeBytes: number; modifiedAt: string }>;
+  hostCapacity: { cpuThreads: number; memoryMiB: number };
+  limits: {
+    vcpus: { minimum: number; maximum: number };
+    memoryMiB: { minimum: number; maximum: number };
+    diskGiB: { minimum: number; maximum: number };
+  };
+  profiles: Array<{
+    id: string;
+    label: string;
+    osVariant: string;
+    minimumMemoryMiB: number;
+    minimumDiskGiB: number;
+  }>;
+  networks: Array<{ name: string; kind: string; recommended: boolean }>;
+  firmware: string[];
+}
+
+export interface VmPlanInput {
+  name: string;
+  osProfile: string;
+  vcpus: number;
+  memoryMiB: number;
+  diskGiB: number;
+  isoFile: string;
+  network: string;
+  firmware: "uefi" | "bios";
+  autostart: boolean;
+}
+
+export interface VmCreationPlan {
+  revision: string;
+  executable: false;
+  requiresRestrictedHelper: true;
+  createdAt: string;
+  input: VmPlanInput;
+  profile: { label: string; osVariant: string };
+  media: { name: string; sizeBytes: number; modifiedAt: string };
+  warnings: string[];
+  command: { program: string; arguments: string[]; display: string };
+  gates: string[];
+}
+
 async function readJson<T>(response: Response): Promise<T> {
-  const body = (await response.json()) as T & { error?: string };
+  const body = (await response.json()) as T & { error?: string; errors?: string[] };
   if (!response.ok && response.status !== 503) {
-    throw new Error(body.error ?? `Request failed with status ${response.status}`);
+    throw new Error(body.error ?? body.errors?.join(" | ") ?? `Request failed with status ${response.status}`);
   }
   return body;
 }
 
-export async function fetchVirtualization(): Promise<[VirtualizationStatus, DomainList]> {
-  const [statusResponse, domainsResponse] = await Promise.all([
+export async function fetchVirtualization(): Promise<[VirtualizationStatus, DomainList, LibvirtResources]> {
+  const [statusResponse, domainsResponse, resourcesResponse] = await Promise.all([
     fetch("/api/v1/virtualization/status"),
     fetch("/api/v1/virtualization/domains"),
+    fetch("/api/v1/virtualization/resources"),
   ]);
   return Promise.all([
     readJson<VirtualizationStatus>(statusResponse),
     readJson<DomainList>(domainsResponse),
+    readJson<LibvirtResources>(resourcesResponse),
   ]);
+}
+
+export async function fetchVmPlanningOptions(): Promise<VmPlanningOptions> {
+  return readJson<VmPlanningOptions>(await fetch("/api/v1/virtualization/planning-options"));
+}
+
+export async function createVmPlan(input: VmPlanInput): Promise<VmCreationPlan> {
+  const response = await fetch("/api/v1/virtualization/plans", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const body = await readJson<{ ok: boolean; errors?: string[]; plan?: VmCreationPlan }>(response);
+  if (!body.ok || !body.plan) throw new Error(body.errors?.join(" | ") ?? "Unable to create VM plan");
+  return body.plan;
 }
 
 export async function runVirtualMachineAction(
@@ -92,4 +176,11 @@ export function formatMemory(memoryKiB: number): string {
   if (!Number.isFinite(memoryKiB) || memoryKiB <= 0) return "Unknown";
   const gib = memoryKiB / 1024 / 1024;
   return `${Number.isInteger(gib) ? gib : gib.toFixed(1)} GiB`;
+}
+
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "Unknown";
+  const gib = bytes / 1024 / 1024 / 1024;
+  if (gib >= 1) return `${gib.toFixed(gib >= 10 ? 0 : 1)} GiB`;
+  return `${(bytes / 1024 / 1024).toFixed(0)} MiB`;
 }

@@ -34,6 +34,13 @@ describe("libvirt service", () => {
       if (operation === "domifaddr" && args[3] === "ubuntu-lab") {
         return successful("Name MAC address Protocol Address\n------------------------------------------------\nvnet0 52:54:00:aa:bb:cc ipv4 192.168.122.25/24");
       }
+      if (operation === "domblklist" && args[3] === "ubuntu-lab") {
+        return successful("Type Device Target Source\n---------------------------------------------\nfile disk vda /var/lib/libvirt/images/ubuntu-lab.qcow2\nfile cdrom sda /var/lib/libvirt/boot/ubuntu.iso");
+      }
+      if (operation === "domiflist" && args[3] === "ubuntu-lab") {
+        return successful("Interface Type Source Model MAC\n-------------------------------------------------------\nvnet0 network default virtio 52:54:00:aa:bb:cc");
+      }
+      if (operation === "snapshot-list" && args[3] === "ubuntu-lab") return successful("clean-install\npre-upgrade");
       return successful();
     });
     const service = createLibvirtService({ runCommand });
@@ -50,7 +57,32 @@ describe("libvirt service", () => {
       autostart: true,
     });
     expect(result.domains[0].addresses[0].address).toBe("192.168.122.25/24");
+    expect(result.domains[0].disks).toHaveLength(2);
+    expect(result.domains[0].interfaces[0]).toMatchObject({ source: "default", model: "virtio" });
+    expect(result.domains[0].snapshotCount).toBe(2);
     expect(result.domains[1].state).toBe("stopped");
+  });
+
+  it("discovers libvirt networks and storage pools", async () => {
+    const runCommand = vi.fn(async (_command, args) => {
+      if (args[2] === "net-list") return successful("default\nlab-net");
+      if (args[2] === "pool-list") return successful("default");
+      if (args[2] === "net-info") {
+        return successful(`Name: ${args[3]}\nActive: yes\nPersistent: yes\nAutostart: yes\nBridge: virbr0`);
+      }
+      if (args[2] === "pool-info") {
+        return successful("Name: default\nState: running\nPersistent: yes\nAutostart: yes\nCapacity: 500.00 GiB\nAllocation: 80.00 GiB\nAvailable: 420.00 GiB");
+      }
+      return successful();
+    });
+    const service = createLibvirtService({ runCommand });
+
+    const result = await service.listResources();
+
+    expect(result.connected).toBe(true);
+    expect(result.networks).toHaveLength(2);
+    expect(result.networks[0]).toMatchObject({ name: "default", active: true, bridge: "virbr0" });
+    expect(result.pools[0]).toMatchObject({ name: "default", available: "420.00 GiB", availableBytes: 450971566080 });
   });
 
   it("maps an approved action to a fixed virsh argument array", async () => {

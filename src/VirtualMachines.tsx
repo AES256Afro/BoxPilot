@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import {
   fetchVirtualization,
   formatMemory,
+  type LibvirtResources,
   runVirtualMachineAction,
   type DomainList,
   type VirtualDomain,
   type VirtualizationStatus,
 } from "./virtualization";
+import VmPlanner from "./VmPlanner";
 
 function stateTone(state: string): string {
   if (state === "running") return "good";
@@ -34,19 +36,22 @@ function availableActions(domain: VirtualDomain) {
 export default function VirtualMachines() {
   const [status, setStatus] = useState<VirtualizationStatus | null>(null);
   const [domainList, setDomainList] = useState<DomainList | null>(null);
+  const [resources, setResources] = useState<LibvirtResources | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [token, setToken] = useState("");
   const [pending, setPending] = useState<string | null>(null);
+  const [plannerOpen, setPlannerOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [nextStatus, nextDomains] = await fetchVirtualization();
+      const [nextStatus, nextDomains, nextResources] = await fetchVirtualization();
       setStatus(nextStatus);
       setDomainList(nextDomains);
+      setResources(nextResources);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to load virtualization status");
     } finally {
@@ -122,7 +127,7 @@ export default function VirtualMachines() {
         <section className="panel vm-domains-panel">
           <header className="panel-header">
             <div><strong>Virtual machines</strong><span>Live from libvirt</span></div>
-            <button type="button" className="secondary-button" disabled title="VM creation is the next guarded operation">New VM</button>
+            <button type="button" className="secondary-button" onClick={() => setPlannerOpen(true)}>Plan new VM</button>
           </header>
 
           {!domainList?.connected ? (
@@ -155,6 +160,14 @@ export default function VirtualMachines() {
                       </button>
                     ))}
                   </div>
+                  <details className="vm-domain-details">
+                    <summary>Disks, network, and snapshots</summary>
+                    <div className="vm-detail-grid">
+                      <div><strong>Disks</strong>{domain.disks.length ? domain.disks.map((disk) => <span key={`${disk.target}-${disk.source}`}><code>{disk.target}</code>{disk.source}</span>) : <span>No block devices reported</span>}</div>
+                      <div><strong>Interfaces</strong>{domain.interfaces.length ? domain.interfaces.map((networkInterface) => <span key={networkInterface.mac}><code>{networkInterface.interface}</code>{networkInterface.source} | {networkInterface.model ?? "default model"}</span>) : <span>No interfaces reported</span>}</div>
+                      <div><strong>Snapshots</strong><span>{domain.snapshotCount === null ? "Unavailable" : `${domain.snapshotCount} reported`}</span></div>
+                    </div>
+                  </details>
                 </article>
               ))}
             </div>
@@ -181,6 +194,14 @@ export default function VirtualMachines() {
         </aside>
       </div>
 
+      <section className="panel vm-resources-panel">
+        <header className="panel-header"><div><strong>Libvirt resources</strong><span>Live networks and storage pools</span></div><span className={`status-pill ${resources?.connected ? "status-good" : "status-warning"}`}>{resources?.connected ? "Connected" : "Unavailable"}</span></header>
+        <div className="vm-resource-grid">
+          <div><span className="eyebrow">Networks</span>{resources?.networks.length ? resources.networks.map((network) => <div className="vm-resource-row" key={network.name}><strong>{network.name}</strong><span>{network.active ? "Active" : "Inactive"} | {network.bridge ?? "no bridge"} | {network.autostart ? "autostart" : "manual"}</span></div>) : <p>No libvirt networks reported.</p>}</div>
+          <div><span className="eyebrow">Storage pools</span>{resources?.pools.length ? resources.pools.map((pool) => <div className="vm-resource-row" key={pool.name}><strong>{pool.name}</strong><span>{pool.active ? "Active" : "Inactive"} | {pool.available ?? "free space unavailable"}</span><code>{pool.targetPath ?? "target path unavailable"}</code></div>) : <p>No storage pools reported.</p>}</div>
+        </div>
+      </section>
+
       <div className="vm-bottom-grid">
         <section className="panel vm-setup-panel">
           <header className="panel-header"><div><strong>Guided Ubuntu setup</strong><span>Review in the physical or SSH console</span></div><button type="button" className="secondary-button" onClick={() => void copySetupCommands()}>Copy commands</button></header>
@@ -199,6 +220,7 @@ export default function VirtualMachines() {
       </div>
 
       {message && <p className="vm-message" aria-live="polite">{message}</p>}
+      {plannerOpen && <VmPlanner onClose={() => setPlannerOpen(false)} />}
     </div>
   );
 }

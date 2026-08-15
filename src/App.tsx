@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   applications,
   backupRows,
-  logRows,
   metrics,
   navItems,
   timeline,
@@ -16,8 +15,8 @@ type DialogName = "compose" | "change" | "backup" | "migration" | null;
 
 const viewCopy: Record<ViewName, { title: string; description: string; action?: string }> = {
   overview: {
-    title: "Good morning, Chris",
-    description: "The server is reachable, protected, and ready for workloads.",
+    title: "Server overview",
+    description: "Explore the planned operating workflow without mistaking sample cards for live host telemetry.",
     action: "Run health check",
   },
   applications: {
@@ -41,12 +40,50 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   },
   logs: {
     title: "Logs and events",
-    description: "System, containers, VMs, backups, and changes in one filtered timeline.",
+    description: "Redacted VM plans and lifecycle changes, with broader system sources still to come.",
     action: "Download support bundle",
   },
   settings: {
     title: "Settings",
     description: "Review access, network, safety, and prototype capabilities.",
+  },
+};
+
+const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; description: string }> = {
+  overview: {
+    label: "UI demonstration",
+    tone: "sample",
+    description: "The metrics, workloads, backup claims, and change timeline on this page are sample data in v0.3.0.",
+  },
+  applications: {
+    label: "Preview adapters",
+    tone: "sample",
+    description: "Application cards describe planned integrations. Only the local Compose risk scan runs today, and it never deploys a stack.",
+  },
+  virtualization: {
+    label: "Host-backed module",
+    tone: "live",
+    description: "Readiness, libvirt inventory, resources, managed ISO discovery, and plan validation come from the server. Creation remains locked.",
+  },
+  backups: {
+    label: "Workflow mockup",
+    tone: "sample",
+    description: "Backup coverage and restore results are sample data. No backup engine or scheduler is included in v0.3.0.",
+  },
+  migrations: {
+    label: "Workflow mockup",
+    tone: "sample",
+    description: "This page illustrates the planned migration sequence. Source discovery, transfer, validation, and cutover are not implemented.",
+  },
+  logs: {
+    label: "Host-backed module",
+    tone: "live",
+    description: "This page reads only redacted VM planning and lifecycle events. General system, Docker, and application logs are not collected yet.",
+  },
+  settings: {
+    label: "Deployment guidance",
+    tone: "sample",
+    description: "These rows describe recommended deployment boundaries. BoxPilot does not currently edit router, firewall, Tailscale, or DNS settings.",
   },
 };
 
@@ -100,10 +137,10 @@ function Overview({ healthStatus, onReview }: { healthStatus: string; onReview: 
     <>
       <div className="readiness">
         <div>
-          <strong>Recovery readiness is healthy</strong>
-          <span>Backup verified 2 hours ago | SSH and Tailscale tested | rollback point available</span>
+          <strong>Example recovery posture</strong>
+          <span>Illustrative backup, access, and rollback status for the planned live dashboard</span>
         </div>
-        <StatusPill>Protected</StatusPill>
+        <StatusPill tone="neutral">Sample data</StatusPill>
       </div>
 
       <div className="metric-grid">
@@ -121,8 +158,8 @@ function Overview({ healthStatus, onReview }: { healthStatus: string; onReview: 
       <div className="dashboard-grid">
         <Panel>
           <header className="panel-header">
-            <strong>Workloads</strong>
-            <span>4 healthy</span>
+            <strong>Example workloads</strong>
+            <span>Sample only</span>
           </header>
           <div className="workload-list">
             {workloads.map((workload) => (
@@ -140,8 +177,8 @@ function Overview({ healthStatus, onReview }: { healthStatus: string; onReview: 
 
         <Panel>
           <header className="panel-header">
-            <strong>Today</strong>
-            <span>Audit trail</span>
+            <strong>Example activity</strong>
+            <span>Sample only</span>
           </header>
           <div className="timeline">
             {timeline.map(([time, event]) => (
@@ -159,7 +196,7 @@ function Overview({ healthStatus, onReview }: { healthStatus: string; onReview: 
         <div className="change-heading">
           <div>
             <span className="eyebrow">Approval required</span>
-            <strong>Pending change: install 7 security updates</strong>
+            <strong>Sample change: install 7 security updates</strong>
           </div>
           <button className="secondary-button" type="button" onClick={onReview}>
             Review plan
@@ -258,7 +295,7 @@ function Migrations() {
     <div className="migration-grid">
       <Panel className="flow-panel">
         <span className="eyebrow">Resumable plan</span>
-        <h3>Old Ubuntu server to ubuntu-server</h3>
+        <h3>Source server to BoxPilot host</h3>
         <p>A migration workflow for containers, files, databases, and virtual machines.</p>
         <div className="flow-list">
           {steps.map(([name, description], index) => (
@@ -287,17 +324,43 @@ function Migrations() {
 }
 
 function Logs() {
+  const [auditEvents, setAuditEvents] = useState<Array<Record<string, unknown>>>([]);
+  const [auditPersistent, setAuditPersistent] = useState(false);
+  const [auditStatus, setAuditStatus] = useState("Loading virtualization audit...");
+
+  useEffect(() => {
+    fetch("/api/v1/audit?limit=100")
+      .then(async (response) => {
+        const body = await response.json() as { available: boolean; persistent: boolean; events: Array<Record<string, unknown>>; error?: string };
+        if (!response.ok || !body.available) throw new Error(body.error ?? "Audit log unavailable");
+        setAuditEvents(body.events);
+        setAuditPersistent(body.persistent);
+        setAuditStatus(body.events.length ? "Live redacted virtualization audit" : "Audit is ready; no VM events recorded yet");
+      })
+      .catch((error) => setAuditStatus(error instanceof Error ? error.message : "Audit log unavailable"));
+  }, []);
+
+  const describeEvent = (event: Record<string, unknown>) => {
+    if (event.type === "vm.plan.created") return `Plan ${event.revision} validated for ${event.domain}`;
+    if (event.type === "vm.action.requested") return `${event.action} requested for ${event.domain}`;
+    if (event.type === "vm.action.completed") return `${event.action} completed for ${event.domain}; state ${event.state ?? "unknown"}`;
+    if (event.type === "vm.action.failed") return `${event.action} failed for ${event.domain}`;
+    return String(event.type ?? "Unknown virtualization event");
+  };
+
   return (
     <Panel className="log-panel">
       <div className="log-toolbar">
-        <span>Prototype event stream</span>
-        <StatusPill tone="neutral">6 events</StatusPill>
+        <span>{auditStatus}</span>
+        <StatusPill tone={auditPersistent ? "good" : "neutral"}>{auditPersistent ? "Persistent" : "Development mode"}</StatusPill>
       </div>
-      {logRows.map(([time, unit, message]) => (
-        <div className="log-row" key={`${time}-${unit}`}>
-          <time>{time}</time>
-          <span>{unit}</span>
-          <code>{message}</code>
+      {auditEvents.length === 0 ? (
+        <div className="log-empty">Generate a VM plan or request an enabled lifecycle action to create the first redacted event.</div>
+      ) : auditEvents.map((event) => (
+        <div className="log-row" key={String(event.id)}>
+          <time>{new Date(String(event.timestamp)).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
+          <span>{String(event.type).startsWith("vm.plan") ? "planner" : "libvirt"}</span>
+          <code>{describeEvent(event)}</code>
         </div>
       ))}
     </Panel>
@@ -306,10 +369,10 @@ function Logs() {
 
 function Settings({ apiMode }: { apiMode: string }) {
   const rows = [
-    ["LAN address", "192.168.0.10", "Router DHCP reservation"],
-    ["Private access", "Tailscale HTTPS", "Funnel disabled"],
-    ["Tailscale DNS", "Override off", "Prevents DNS outage dependency"],
-    ["DNS resolvers", "94.140.14.49, 94.140.14.59", "AdGuard DNS"],
+    ["LAN address", "Deployment specific", "Use a router DHCP reservation"],
+    ["Private access", "Tailscale Serve recommended", "Keep Funnel disabled"],
+    ["Tailscale DNS", "Operator controlled", "BoxPilot does not change DNS"],
+    ["DNS resolvers", "Operator controlled", "BoxPilot does not replace a DNS service"],
     ["Host mutation", "VM-only when unlocked", "Token-protected libvirt allowlist"],
     ["API mode", apiMode, "Live host inspection endpoints"],
   ];
@@ -317,7 +380,7 @@ function Settings({ apiMode }: { apiMode: string }) {
   return (
     <div className="settings-grid">
       <Panel className="settings-panel">
-        <header className="panel-header"><strong>Server and access</strong><span>ubuntu-server</span></header>
+        <header className="panel-header"><strong>Server and access</strong><span>Deployment guidance</span></header>
         <dl>
           {rows.map(([label, value, detail]) => (
             <div key={label}>
@@ -399,16 +462,25 @@ function App() {
     }, 700);
   };
 
-  const downloadSupportBundle = () => {
+  const downloadSupportBundle = async () => {
+    let virtualizationAudit: Array<Record<string, unknown>> = [];
+    try {
+      const response = await fetch("/api/v1/audit?limit=100");
+      const body = await response.json() as { events?: Array<Record<string, unknown>> };
+      if (response.ok) virtualizationAudit = body.events ?? [];
+    } catch {
+      virtualizationAudit = [];
+    }
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.2.0",
+      version: "0.3.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
-      server: { hostname: "ubuntu-server", lanAddress: "192.168.0.10" },
-      events: logRows,
+      server: { hostname: null, lanAddress: null, note: "Host identity collection is not implemented in v0.3.0." },
+      events: virtualizationAudit,
+      eventSource: virtualizationAudit.length ? "redacted-virtualization-audit" : "unavailable-or-empty",
     };
     const url = URL.createObjectURL(new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" }));
     const anchor = document.createElement("a");
@@ -423,7 +495,7 @@ function App() {
     if (view === "applications") setDialog("compose");
     if (view === "backups") setDialog("backup");
     if (view === "migrations") setDialog("migration");
-    if (view === "logs") downloadSupportBundle();
+    if (view === "logs") void downloadSupportBundle();
   };
 
   return (
@@ -446,16 +518,16 @@ function App() {
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.2.0 host-aware<br />VM controls locked by default</div>
+        <div className="prototype-label">v0.3.0 mixed data mode<br />Live surfaces are labeled</div>
       </aside>
 
       <main>
         <header className="topbar">
           <div className="hostline">
-            <div><strong>ubuntu-server</strong><span>192.168.0.10 | tailnet address</span></div>
-            <StatusPill>Online</StatusPill>
+            <div><strong>BoxPilot preview</strong><span>Host identity is not collected on this screen</span></div>
+            <StatusPill tone="neutral">Mixed data</StatusPill>
           </div>
-          <div className="topbar-right"><StatusPill tone="warning">Guarded mode</StatusPill><span className="avatar">CC</span></div>
+          <div className="topbar-right"><StatusPill tone="warning">Guarded mode</StatusPill><span className="avatar">OP</span></div>
         </header>
 
         <div className="content">
@@ -467,6 +539,10 @@ function App() {
               </button>
             )}
           </header>
+          <section className={`surface-notice surface-${viewStatus[view].tone}`} aria-label="Data source">
+            <strong>{viewStatus[view].label}</strong>
+            <span>{viewStatus[view].description}</span>
+          </section>
           {pageContent}
         </div>
       </main>
@@ -493,7 +569,7 @@ function App() {
 
       {dialog === "change" && (
         <Modal title={`Review ${selectedApplication}`} onClose={() => setDialog(null)}>
-          <div className="notice warning-notice"><strong>Plan only</strong><span>Application installation is not enabled in v0.2.0, so Apply is intentionally unavailable.</span></div>
+          <div className="notice warning-notice"><strong>Plan only</strong><span>Application installation is not enabled in v0.3.0, so Apply is intentionally unavailable.</span></div>
           <ol className="review-list">
             <li><strong>Preflight</strong><span>Check OS version, free space, network, conflicting ports, and current health.</span></li>
             <li><strong>Checkpoint</strong><span>Create a recovery point and verify its destination before changes.</span></li>
