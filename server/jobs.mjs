@@ -3,6 +3,7 @@ import { verifyPassword } from "./security.mjs";
 export function createJobService(store, helper, {
   validateApplicationJob = async () => {},
   validateBackupJob = async () => {},
+  validateVmCreationJob = async () => {},
   recordBackupResult = () => {},
 } = {}) {
   function createCanary(ownerId) {
@@ -25,9 +26,11 @@ export function createJobService(store, helper, {
     if (!owner || !(await verifyPassword(password, owner.passwordHash))) throw new Error("Approval reauthentication failed");
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
-    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.uptime-kuma.backup"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.domain.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     if (job.type === "application.uptime-kuma.deploy") await validateApplicationJob(job);
     if (job.type === "application.uptime-kuma.backup") await validateBackupJob(job);
+    const validatedVmPlan = job.type === "virtualization.domain.create" ? await validateVmCreationJob(job) : null;
+    if (job.type === "virtualization.domain.create" && !validatedVmPlan?.input) throw new Error("The staged VM creation plan is unavailable or changed");
     const execution = job.type === "helper.canary.verify" ? {
       operation: "canary.verify",
       parameters: {},
@@ -44,7 +47,7 @@ export function createJobService(store, helper, {
       verified: "Uptime Kuma container and internal HTTP health check passed",
       failed: "Uptime Kuma did not pass deployment and health verification",
       validate: (result) => result?.installed && result?.healthy && result?.dataPreserved,
-    } : {
+    } : job.type === "application.uptime-kuma.backup" ? {
       operation: "application.uptime-kuma.backup",
       parameters: { backupId: job.parameters.backupId },
       applying: "Stopping the source cleanly, archiving managed data, and restarting it through the restricted helper",
@@ -52,6 +55,14 @@ export function createJobService(store, helper, {
       verified: "An isolated no-network restore container passed health verification and was removed",
       failed: "The backup or isolated restore drill did not pass verification",
       validate: (result) => result?.backupId === job.parameters.backupId && result?.sourceRestartVerified && result?.restoreDrill?.passed,
+    } : {
+      operation: "virtualization.domain.create",
+      parameters: validatedVmPlan.input,
+      applying: "Creating the exact validated VM through the restricted libvirt helper",
+      applied: "Restricted helper created the domain without accepting a command, path, or argument array from the web process",
+      verified: "Domain identity, allocated disk, default network, and requested autostart state were verified",
+      failed: "VM creation or its post-create verification did not complete successfully",
+      validate: (result) => result?.created && result?.verified && result?.domain === validatedVmPlan.input.name && result?.media === validatedVmPlan.input.isoFile,
     };
     store.addApproval(jobId, ownerId);
     store.recordAudit("job.approved", { actorId: ownerId, subjectId: jobId, details: { type: job.type } });
@@ -74,6 +85,9 @@ export function createJobService(store, helper, {
         store.addJobStep(jobId, "verify", "failed", execution.failed);
         if (job.type === "application.uptime-kuma.deploy" && error.message.includes("Automated rollback completed")) {
           store.addJobStep(jobId, "rollback", "completed", "Managed container and network were removed or the previous Compose definition was restored; data was preserved");
+        }
+        if (job.type === "virtualization.domain.create" && error.message.includes("Automated rollback completed")) {
+          store.addJobStep(jobId, "rollback", "completed", "The newly created exact-name domain and its allocated storage were removed");
         }
         store.transitionJob(jobId, current.state, "failed", { error: error.message });
       }

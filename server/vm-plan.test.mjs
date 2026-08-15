@@ -46,7 +46,7 @@ describe("VM creation planning", () => {
     expect(options.mediaRoot).toBe("/safe/iso");
   });
 
-  it("builds a deterministic non-executable virt-install preview", async () => {
+  it("builds a deterministic stageable virt-install preview", async () => {
     const planner = createVmPlanner({
       mediaRoot: "/safe/iso",
       readDirectory: async () => [isoEntry("ubuntu-24.04.iso")],
@@ -58,7 +58,8 @@ describe("VM creation planning", () => {
 
     expect(result.ok).toBe(true);
     expect(result.plan).toMatchObject({
-      executable: false,
+      executable: true,
+      stageable: true,
       requiresRestrictedHelper: true,
       revision: "da7a1f7a5de90ce3",
       input: { name: "ubuntu-lab", network: "default" },

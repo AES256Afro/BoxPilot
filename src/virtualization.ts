@@ -108,8 +108,13 @@ export interface VmPlanInput {
 }
 
 export interface VmCreationPlan {
+  id: string;
   revision: string;
-  executable: false;
+  adapterRevision: string;
+  executable: boolean;
+  stageable: boolean;
+  status: "draft" | "staged";
+  expiresAt: string;
   requiresRestrictedHelper: true;
   createdAt: string;
   input: VmPlanInput;
@@ -118,6 +123,12 @@ export interface VmCreationPlan {
   warnings: string[];
   command: { program: string; arguments: string[]; display: string };
   gates: string[];
+}
+
+export interface VmCreationJob {
+  id: string;
+  state: string;
+  title: string;
 }
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -154,6 +165,16 @@ export async function createVmPlan(input: VmPlanInput, csrfToken: string): Promi
   const body = await readJson<{ ok: boolean; errors?: string[]; plan?: VmCreationPlan }>(response);
   if (!body.ok || !body.plan) throw new Error(body.errors?.join(" | ") ?? "Unable to create VM plan");
   return body.plan;
+}
+
+export async function stageVmPlan(planId: string, revision: string, csrfToken: string): Promise<VmCreationJob> {
+  const response = await fetch(`/api/v1/virtualization/plans/${encodeURIComponent(planId)}/stage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: JSON.stringify({ revision }),
+  });
+  const body = await readJson<{ job: VmCreationJob }>(response);
+  return body.job;
 }
 
 export async function runVirtualMachineAction(

@@ -33,7 +33,7 @@ function availableActions(domain: VirtualDomain) {
   return actions;
 }
 
-export default function VirtualMachines({ csrfToken = "" }: { csrfToken?: string }) {
+export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {} }: { csrfToken?: string; onOpenRepair?: () => void }) {
   const [status, setStatus] = useState<VirtualizationStatus | null>(null);
   const [domainList, setDomainList] = useState<DomainList | null>(null);
   const [resources, setResources] = useState<LibvirtResources | null>(null);
@@ -133,7 +133,7 @@ export default function VirtualMachines({ csrfToken = "" }: { csrfToken?: string
           {!domainList?.connected ? (
             <div className="vm-empty"><strong>libvirt is not connected</strong><p>{domainList?.error ?? "Complete the host setup checklist, then refresh."}</p></div>
           ) : domains.length === 0 ? (
-            <div className="vm-empty"><strong>No virtual machines found</strong><p>The system connection works. Guided VM creation is the next guarded operation.</p></div>
+            <div className="vm-empty"><strong>No virtual machines found</strong><p>The system connection works. Add a managed ISO, then use the guarded creation workflow.</p></div>
           ) : (
             <div className="vm-domain-list">
               {domains.map((domain) => (
@@ -220,7 +220,7 @@ export default function VirtualMachines({ csrfToken = "" }: { csrfToken?: string
       </div>
 
       {message && <p className="vm-message" aria-live="polite">{message}</p>}
-      {plannerOpen && <VmPlanner csrfToken={csrfToken} onClose={() => setPlannerOpen(false)} />}
+      {plannerOpen && <VmPlanner csrfToken={csrfToken} onClose={() => setPlannerOpen(false)} onOpenRepair={onOpenRepair} />}
     </div>
   );
 }

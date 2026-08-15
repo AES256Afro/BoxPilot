@@ -103,4 +103,26 @@ describe("durable job executor", () => {
     expect(completed.state).toBe("completed");
     store.close();
   });
+
+  it("revalidates and executes only the staged typed VM input", async () => {
+    const input = { name: "ubuntu-lab", osProfile: "ubuntu-24.04", vcpus: 2, memoryMiB: 4096, diskGiB: 40, isoFile: "ubuntu.iso", network: "default", firmware: "uefi", autostart: false };
+    const helper = { request: vi.fn(async () => ({ created: true, verified: true, domain: input.name, media: input.isoFile })) };
+    const { store, owner } = await setup(helper);
+    const validateVmCreationJob = vi.fn(async () => ({ input }));
+    const jobs = createJobService(store, helper, { validateVmCreationJob });
+    const job = store.createJob({
+      type: "virtualization.domain.create",
+      title: "Create ubuntu-lab",
+      parameters: { input },
+      recovery: { automaticRollback: true },
+      createdBy: owner.id,
+    });
+
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+
+    expect(validateVmCreationJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("virtualization.domain.create", input);
+    expect(completed).toMatchObject({ state: "completed", result: { verified: true, domain: "ubuntu-lab" } });
+    store.close();
+  });
 });
