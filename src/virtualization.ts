@@ -145,10 +145,10 @@ export async function fetchVmPlanningOptions(): Promise<VmPlanningOptions> {
   return readJson<VmPlanningOptions>(await fetch("/api/v1/virtualization/planning-options"));
 }
 
-export async function createVmPlan(input: VmPlanInput): Promise<VmCreationPlan> {
+export async function createVmPlan(input: VmPlanInput, csrfToken: string): Promise<VmCreationPlan> {
   const response = await fetch("/api/v1/virtualization/plans", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
     body: JSON.stringify(input),
   });
   const body = await readJson<{ ok: boolean; errors?: string[]; plan?: VmCreationPlan }>(response);
@@ -160,12 +160,14 @@ export async function runVirtualMachineAction(
   domain: string,
   action: string,
   token: string,
+  csrfToken: string,
 ): Promise<void> {
   const response = await fetch(`/api/v1/virtualization/domains/${encodeURIComponent(domain)}/actions`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
+      "X-BoxPilot-CSRF": csrfToken,
     },
     body: JSON.stringify({ action }),
   });

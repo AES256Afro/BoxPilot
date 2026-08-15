@@ -44,6 +44,8 @@ Acceptance:
 
 ## Phase 2: identity, audit, and durable jobs
 
+Status: password-based owner bootstrap, expiring sessions, CSRF protection, SQLite jobs, approval reauthentication, audit attribution, and interrupted-job fail-closed recovery are included in `0.4.0`. WebAuthn, recovery codes, migration tooling, and proxy identity remain pending.
+
 - Local owner bootstrap from the server terminal
 - Password plus WebAuthn support
 - Tailscale identity header integration only behind a verified proxy
@@ -59,6 +61,8 @@ Acceptance:
 - Security tests cover session, CSRF, proxy-header, and authorization boundaries.
 
 ## Phase 3: backup engine and Keel Notes adapter
+
+Status: blocked from host mutation until the Phase 4 helper grows beyond its `0.4.0` no-mutation canary. Read-only adapter and destination discovery may proceed first.
 
 - Destination adapters for local disk, mounted NAS, restic repositories, and optional cloud object storage
 - Keel discovery for Docker and service installs
@@ -76,6 +80,8 @@ Acceptance:
 - Migration preserves the source until the operator accepts the destination.
 
 ## Phase 4: restricted privileged helper
+
+Status: the root-owned service, Unix-socket boundary, versioned allowlist, hardened unit, negative protocol tests, and no-mutation canary are included in `0.4.0`. Package, service, firewall, storage, reboot, Docker, libvirt, and backup handlers remain locked.
 
 - Root-owned Unix socket
 - Versioned typed-operation protocol

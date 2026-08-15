@@ -33,7 +33,7 @@ function availableActions(domain: VirtualDomain) {
   return actions;
 }
 
-export default function VirtualMachines() {
+export default function VirtualMachines({ csrfToken = "" }: { csrfToken?: string }) {
   const [status, setStatus] = useState<VirtualizationStatus | null>(null);
   const [domainList, setDomainList] = useState<DomainList | null>(null);
   const [resources, setResources] = useState<LibvirtResources | null>(null);
@@ -83,7 +83,7 @@ export default function VirtualMachines() {
     setPending(operation);
     setMessage(null);
     try {
-      await runVirtualMachineAction(domain.name, action, token);
+      await runVirtualMachineAction(domain.name, action, token, csrfToken);
       setMessage(`${label} requested for ${domain.name}. Live state refreshed.`);
       await refresh();
     } catch (actionError) {
@@ -220,7 +220,7 @@ export default function VirtualMachines() {
       </div>
 
       {message && <p className="vm-message" aria-live="polite">{message}</p>}
-      {plannerOpen && <VmPlanner onClose={() => setPlannerOpen(false)} />}
+      {plannerOpen && <VmPlanner csrfToken={csrfToken} onClose={() => setPlannerOpen(false)} />}
     </div>
   );
 }
