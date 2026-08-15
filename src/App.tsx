@@ -72,7 +72,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   virtualization: {
     label: "Host-backed module",
     tone: "live",
-    description: "Helper-backed libvirt inventory, guest-agent status, immutable VM plans, lifecycle approvals, stopped-VM snapshots, and integrity-verified local exports come from the server. Exports remain unprotected until encryption, an independent destination, and an isolated restore boot pass.",
+    description: "Helper-backed libvirt inventory, immutable VM plans, lifecycle approvals, offline snapshots, verified exports, encrypted restic copies, isolated restore drills, and stopped no-network recovery clones come from the server. In-place restore and recovery network attachment remain locked.",
   },
   backups: {
     label: "Application-aware backup engine",
@@ -242,7 +242,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.14.0",
+      version: "0.15.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
@@ -284,7 +284,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.14.0 isolated VM restore drills<br />Protection requires passing evidence</div>
+        <div className="prototype-label">v0.15.0 guarded VM recovery clones<br />Stopped, isolated, source preserved</div>
       </aside>
 
       <main>

@@ -34,6 +34,15 @@ function restoreDrillParameters(overrides = {}) {
   };
 }
 
+function recoveryParameters(overrides = {}) {
+  return {
+    restoreId: "55555555-5555-4555-8555-555555555555", backupId: "22222222-2222-4222-8222-222222222222", exportId: "33333333-3333-4333-8333-333333333333",
+    sourceDomainName: "ubuntu-lab", sourceDomainUuid: "11111111-1111-4111-8111-111111111111", targetDomainName: "ubuntu-recovered",
+    restoreDrillId: "44444444-4444-4444-8444-444444444444", repositoryId: "a".repeat(64), snapshotId: "b".repeat(64),
+    expectedManifestChecksumSha256: "c".repeat(64), expectedSizeBytes: 8192, expectedDestinationRevision: "d".repeat(64), ...overrides,
+  };
+}
+
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
@@ -163,5 +172,18 @@ describe("restricted helper protocol", () => {
     };
     await expect(executeHelperOperation(request({ operation: "virtualization.export.backup.restore-drill.inspect", parameters: restoreDrillParameters() }), { vmRestoreDrill })).resolves.toMatchObject({ ok: true, result: { ready: true, network: "none" } });
     await expect(executeHelperOperation(request({ operation: "virtualization.export.backup.restore-drill", parameters: restoreDrillParameters() }), { vmRestoreDrill })).resolves.toMatchObject({ ok: true, result: { passed: true, protected: true } });
+  });
+
+  it("accepts only fixed protected-backup recovery fields and delegates a stopped no-network clone", async () => {
+    expect(validateHelperRequest(request({ operation: "virtualization.backup.recovery.inspect", parameters: recoveryParameters() }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.backup.recovery.create", parameters: recoveryParameters() }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.backup.recovery.create", parameters: recoveryParameters({ path: "/tmp/restore" }) }))).toContain("only the fixed typed protected-backup fields");
+    expect(validateHelperRequest(request({ operation: "virtualization.backup.recovery.create", parameters: recoveryParameters({ targetDomainName: "boxpilot-drill-manual" }) }))).toContain("reserved restore-drill namespace");
+    const vmRecovery = {
+      inspect: async (parameters) => ({ ready: true, targetDomainName: parameters.targetDomainName, network: "none", persistent: true, initialState: "stopped" }),
+      createRecovery: async (parameters) => ({ created: true, restoreId: parameters.restoreId, domain: parameters.targetDomainName, network: "none", persistent: true, state: "stopped" }),
+    };
+    await expect(executeHelperOperation(request({ operation: "virtualization.backup.recovery.inspect", parameters: recoveryParameters() }), { vmRecovery })).resolves.toMatchObject({ ok: true, result: { ready: true, network: "none", initialState: "stopped" } });
+    await expect(executeHelperOperation(request({ operation: "virtualization.backup.recovery.create", parameters: recoveryParameters() }), { vmRecovery })).resolves.toMatchObject({ ok: true, result: { created: true, domain: "ubuntu-recovered", persistent: true } });
   });
 });
