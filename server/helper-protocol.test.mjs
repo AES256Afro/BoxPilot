@@ -10,6 +10,10 @@ function vmParameters(overrides = {}) {
   return { name: "ubuntu-lab", osProfile: "ubuntu-24.04", vcpus: 2, memoryMiB: 4096, diskGiB: 40, isoFile: "ubuntu.iso", network: "default", firmware: "uefi", autostart: false, ...overrides };
 }
 
+function lifecycleParameters(overrides = {}) {
+  return { name: "ubuntu-lab", action: "shutdown", expectedState: "running", expectedAutostart: false, ...overrides };
+}
+
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
@@ -65,5 +69,14 @@ describe("restricted helper protocol", () => {
     const virtualization = { create: async (parameters) => ({ created: true, verified: true, domain: parameters.name }) };
     const result = await executeHelperOperation(request({ operation: "virtualization.domain.create", parameters: vmParameters() }), { virtualization });
     expect(result).toMatchObject({ ok: true, result: { created: true, verified: true, domain: "ubuntu-lab" } });
+  });
+
+  it("accepts only fixed lifecycle state and action fields", async () => {
+    expect(validateHelperRequest(request({ operation: "virtualization.domain.action", parameters: lifecycleParameters() }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.domain.action", parameters: lifecycleParameters({ action: "destroy" }) }))).toContain("Unsupported VM lifecycle action");
+    expect(validateHelperRequest(request({ operation: "virtualization.domain.action", parameters: lifecycleParameters({ arguments: ["destroy"] }) }))).toContain("only the fixed typed plan fields");
+    const virtualization = { action: async (parameters) => ({ verified: true, domain: parameters.name, action: parameters.action }) };
+    const result = await executeHelperOperation(request({ operation: "virtualization.domain.action", parameters: lifecycleParameters() }), { virtualization });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, domain: "ubuntu-lab", action: "shutdown" } });
   });
 });

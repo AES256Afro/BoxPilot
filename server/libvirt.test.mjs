@@ -1,17 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
-import { createLibvirtService, getSetupPlan, validateAction, validateDomainName } from "./libvirt.mjs";
+import { createLibvirtService, getSetupPlan, validateDomainName } from "./libvirt.mjs";
 
 function successful(stdout = "") {
   return { ok: true, stdout, stderr: "" };
 }
 
 describe("libvirt service", () => {
-  it("accepts only constrained domain names and lifecycle actions", () => {
+  it("accepts only constrained domain names", () => {
     expect(validateDomainName("ubuntu-lab_01")).toBe(true);
     expect(validateDomainName("../../etc/passwd")).toBe(false);
     expect(validateDomainName("vm name")).toBe(false);
-    expect(validateAction("start")).toBe(true);
-    expect(validateAction("destroy")).toBe(false);
   });
 
   it("returns a guided Ubuntu setup plan", () => {
@@ -85,23 +83,4 @@ describe("libvirt service", () => {
     expect(result.pools[0]).toMatchObject({ name: "default", available: "420.00 GiB", availableBytes: 450971566080 });
   });
 
-  it("maps an approved action to a fixed virsh argument array", async () => {
-    const runCommand = vi.fn(async (_command, args) => {
-      if (args[2] === "start") return successful("Domain ubuntu-lab started");
-      if (args[2] === "dominfo") {
-        return successful("Name: ubuntu-lab\nState: running\nCPU(s): 2\nMax memory: 4194304 KiB\nPersistent: yes\nAutostart: disable");
-      }
-      return successful();
-    });
-    const service = createLibvirtService({ runCommand });
-
-    const result = await service.runDomainAction("ubuntu-lab", "start");
-
-    expect(result.action).toBe("start");
-    expect(runCommand).toHaveBeenCalledWith(
-      "virsh",
-      ["--connect", "qemu:///system", "start", "ubuntu-lab"],
-      { timeout: 30000 },
-    );
-  });
 });
