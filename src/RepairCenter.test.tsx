@@ -79,4 +79,30 @@ describe("Repair Center", () => {
     expect(screen.getByText("Recovery kit unavailable")).toBeTruthy();
     expect(screen.getByText(/Prerequisite checks and durable jobs remain available/)).toBeTruthy();
   });
+
+  it("reviews and stages only the immutable smartmontools repair plan", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/operations/prerequisites") return new Response(JSON.stringify({ checks: [{ id: "storage.smartmontools", group: "Storage", name: "SMART monitoring tools", status: "repairable", summary: "Configured APT metadata offers smartmontools 7.5-2", repair: { kind: "approved", description: "Review the exact repair" } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/v1/prerequisite-repairs/smartmontools/plans") {
+        expect(init).toMatchObject({ method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": "csrf-token" }, body: "{}" });
+        return new Response(JSON.stringify({ plan: { id: "plan-one", revision: "revision-one", expiresAt: "2026-08-16T06:00:00.000Z", output: { package: "smartmontools", selectedVersion: "7.5-2", currentState: "Not installed", action: "Install only smartmontools and run the fixed scan", networkAccess: true, aptUpdatePerformed: false, arbitraryPackageSelection: false, automaticRollback: false, recovery: "Inspect APT and dpkg before retrying." } } }), { status: 201, headers: { "Content-Type": "application/json" } });
+      }
+      if (url === "/api/v1/prerequisite-repair-plans/plan-one/stage") {
+        expect(init).toMatchObject({ method: "POST", body: JSON.stringify({ revision: "revision-one" }) });
+        return new Response(JSON.stringify({ job: { id: "job-one" } }), { status: 201, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("action-center")) return new Response(JSON.stringify({ error: "unavailable" }), { status: 503, headers: { "Content-Type": "application/json" } });
+      if (url.includes("recovery-kit")) return new Response(JSON.stringify({ error: "unavailable" }), { status: 503, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ jobs: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RepairCenter csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review exact repair" }));
+    expect(await screen.findByText("smartmontools 7.5-2")).toBeTruthy();
+    expect(screen.getByText("Not permitted")).toBeTruthy();
+    expect(screen.getByText(/No package name, repository, command, argument, disk, mount, or SMART setting comes from the browser/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage exact repair for password approval" }));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/prerequisite-repair-plans/plan-one/stage", expect.objectContaining({ method: "POST" })));
+  });
 });

@@ -41,7 +41,7 @@ describe("native systemd network boundaries", () => {
     expect(dockerfile).toContain("BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot");
     expect(dockerfile).toContain("BOXPILOT_COOKIE_SECURE=false");
     expect(dockerfile).toContain("USER node");
-    expect(compose).toContain("image: boxpilot:0.30.1");
+    expect(compose).toContain("image: boxpilot:0.31.0");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("/tmp:size=16m,mode=1777");
   });
@@ -73,6 +73,26 @@ describe("native systemd network boundaries", () => {
     expect(scanner).toContain('["--json=c", "--all", device]');
     expect(scanner).not.toContain("process.argv[2]");
     expect(protocol).not.toContain("storage.smart.scan");
+  });
+
+  it("ships a static exact-package smartmontools installer without a general package argument", async () => {
+    const service = await readFile("deploy/boxpilot-smartmontools-install.service", "utf8");
+    const protocol = await readFile("server/helper-protocol.mjs", "utf8");
+    expect(service).toContain("Type=oneshot");
+    const installer = await readFile("scripts/boxpilot-smartmontools-install.mjs", "utf8");
+    expect(service).toContain("ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-smartmontools-install.mjs");
+    expect(service).toContain("ConditionPathExists=!/usr/sbin/smartctl");
+    expect(service).toContain("ConditionPathExists=/run/boxpilot/smartmontools-approval.json");
+    expect(installer).toContain("`smartmontools=${approval.expectedVersion}`");
+    expect(installer).toContain("[\"start\", \"boxpilot-storage-scan.service\"]");
+    expect(installer).toContain("process.argv.length !== 2");
+    expect(service).not.toContain("apt-get update");
+    expect(installer).not.toContain("apt-get update");
+    expect(service).not.toContain("%i");
+    expect(service).not.toContain("$PACKAGE");
+    expect(service).not.toContain("[Install]");
+    expect(protocol).toContain("prerequisite.smartmontools.install");
+    expect(protocol).not.toContain("package.install");
   });
 
   it("ships a terminal-only migration packer without a browser-selectable inbox", async () => {

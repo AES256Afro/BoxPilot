@@ -2,6 +2,7 @@ import { verifyPassword } from "./security.mjs";
 
 export function createJobService(store, helper, {
   validateApplicationJob = async () => {},
+  validatePrerequisiteRepairJob = async () => {},
   validateBackupJob = async () => {},
   validateDnsAcceptanceJob = async () => {},
   executeDnsAcceptanceJob = async () => {},
@@ -44,7 +45,8 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.uptime-kuma.backup", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.uptime-kuma.backup", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    const validatedPrerequisiteRepair = job.type === "prerequisite.smartmontools.install" ? await validatePrerequisiteRepairJob(job) : null;
     const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy"].includes(job.type) ? await validateApplicationJob(job) : null;
     if (["application.uptime-kuma.backup", "application.pi-hole.backup"].includes(job.type)) await validateBackupJob(job);
     const validatedDnsAcceptancePlan = job.type === "network.dns.acceptance.run" ? await validateDnsAcceptanceJob(job) : null;
@@ -58,6 +60,7 @@ export function createJobService(store, helper, {
     const validatedVmLifecyclePlan = job.type === "virtualization.domain.action" ? await validateVmLifecycleJob(job) : null;
     const validatedVmSnapshotPlan = job.type === "virtualization.domain.snapshot.create" ? await validateVmSnapshotJob(job) : null;
     if (job.type === "virtualization.domain.create" && !validatedVmPlan?.input) throw new Error("The staged VM creation plan is unavailable or changed");
+    if (job.type === "prerequisite.smartmontools.install" && !validatedPrerequisiteRepair?.plan?.input) throw new Error("The staged smartmontools repair plan is unavailable or changed");
     if (job.type === "migration.bundle.transfer" && !validatedMigrationTransferPlan?.input) throw new Error("The staged migration transfer plan is unavailable or changed");
     if (job.type === "virtualization.domain.export.create" && !validatedVmExportPlan?.input) throw new Error("The staged VM export plan is unavailable or changed");
     if (job.type === "virtualization.export.backup.create" && !validatedVmProtectionPlan?.input) throw new Error("The staged VM protection plan is unavailable or changed");
@@ -84,6 +87,23 @@ export function createJobService(store, helper, {
       verified: "Helper identity and no-mutation guarantee verified",
       failed: "The helper canary did not complete successfully",
       validate: (result) => result?.verified && result?.mutationPerformed === false,
+    } : job.type === "prerequisite.smartmontools.install" ? {
+      operation: "prerequisite.smartmontools.install",
+      parameters: { expectedVersion: validatedPrerequisiteRepair.plan.input.expectedVersion },
+      timeoutMs: 15 * 60 * 1000,
+      applying: validatedPrerequisiteRepair.state.installed ? "Running the fixed root-only storage evidence scan against the already installed approved smartmontools version" : "Starting the fixed package service to install only the approved smartmontools version without apt update or browser-selected arguments",
+      applied: "The fixed smartmontools package state was verified and the separate root-only storage evidence scan completed",
+      verified: "The approved exact smartmontools version is installed and current bounded storage evidence was produced without changing disks, mounts, SMART settings, or unrelated packages",
+      failed: "The fixed smartmontools package or storage evidence verification failed; inspect APT, dpkg, and the dedicated installation service before creating a new plan",
+      validate: (result) => result?.package === "smartmontools"
+        && result?.installed === true
+        && result?.version === validatedPrerequisiteRepair.plan.input.expectedVersion
+        && result?.scan?.completed === true
+        && result?.scan?.evidenceRefreshed === true
+        && result?.boundary?.fixedPackage === true
+        && result?.boundary?.arbitraryPackageAccepted === false
+        && result?.boundary?.aptUpdatePerformed === false
+        && result?.boundary?.packageRemovalPerformed === false,
     } : job.type === "network.dns.acceptance.run" ? {
       run: () => executeDnsAcceptanceJob(job, validatedDnsAcceptancePlan),
       applying: "Sending four fixed direct DNS queries from the unprivileged BoxPilot controller to the exact reviewed Pi-hole address",
