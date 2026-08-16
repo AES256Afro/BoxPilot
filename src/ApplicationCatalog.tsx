@@ -23,6 +23,22 @@ interface ApplicationManifest {
     provenance?: { status: string; checkedAt: string | null };
     boundary?: { mutationPerformed: boolean; environmentRead: boolean; databaseOpened: boolean; secretRead: boolean; arbitraryPathAccepted?: boolean };
     webUrl?: string | null; secretRetrievalCommand?: string; backup?: { state: string; verifiedAt: string | null };
+    lifecycle?: { installed: boolean; managed: boolean; state: string; running: boolean; healthy: boolean; port: number | null; revision: string | null; allowedActions: Array<"start" | "stop" | "restart">; detail: string };
+  };
+}
+
+interface ApplicationLifecyclePlan {
+  id: string;
+  revision: string;
+  input: { applicationId: "uptime-kuma"; action: "start" | "stop" | "restart"; expectedRevision: string };
+  output: {
+    executable: true;
+    label: string;
+    current: { state: string; healthy: boolean; port: number };
+    desired: { state: string; healthy: boolean; port: number };
+    changes: string[];
+    recovery: string;
+    boundaries: string[];
   };
 }
 
@@ -87,6 +103,7 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
   const [hostPort, setHostPort] = useState(3001);
   const [plan, setPlan] = useState<ApplicationPlan | null>(null);
   const [artifactPlan, setArtifactPlan] = useState<KeelArtifactPlan | null>(null);
+  const [lifecyclePlan, setLifecyclePlan] = useState<ApplicationLifecyclePlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -112,8 +129,46 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
     setHostPort(application.id === "pi-hole" ? 8080 : application.id === "keel" ? 3000 : application.live.port ?? 3001);
     setPlan(null);
     setArtifactPlan(null);
+    setLifecyclePlan(null);
     setError(null);
     setMessage(null);
+  };
+
+  const generateLifecyclePlan = async (application: ApplicationManifest, action: "start" | "stop" | "restart") => {
+    setSubmitting(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const body = await readJson<{ plan: ApplicationLifecyclePlan }>(await fetch(`/api/v1/applications/${application.id}/action-plans`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ action }),
+      }));
+      setSelected(application);
+      setLifecyclePlan(body.plan);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to generate application lifecycle plan");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const stageLifecyclePlan = async () => {
+    if (!lifecyclePlan) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await readJson(await fetch(`/api/v1/application-action-plans/${lifecyclePlan.id}/stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ revision: lifecyclePlan.revision }),
+      }));
+      setMessage(`${lifecyclePlan.output.label} job staged. Open Repair Center to review, reauthenticate, and execute the exact managed-container action.`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to stage application lifecycle action");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const generateArtifactPlan = async () => {
@@ -211,7 +266,13 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
             {application.live.secretRetrievalCommand && application.live.installed && <span className="app-live-detail">Password from Bigbox terminal: <code>{application.live.secretRetrievalCommand}</code></span>}
             {application.live.backup && <span className={`app-live-detail ${application.live.backup.state === "verified" ? "good-text" : application.live.backup.state === "required" ? "warning-text" : ""}`}>Backup: {application.live.backup.state === "verified" ? `restore verified ${new Date(application.live.backup.verifiedAt ?? "").toLocaleDateString()}` : application.live.backup.state}</span>}
             {application.id === "keel" && application.live.loginProof?.verified && <span className="app-live-detail good-text">Owner login and logout proved {new Date(application.live.loginProof.verifiedAt ?? "").toLocaleDateString()}</span>}
-            <button type="button" className="secondary-button" onClick={() => openPlanner(application)}>{application.live.installed ? "Review deployment" : application.execution === "staging-enabled" ? application.live.installation?.readyToInstall ? "Plan private install" : "Plan safe staging" : "Plan deployment"}</button>
+            {application.id === "uptime-kuma" && application.live.installed ? (
+              <div className="app-lifecycle-actions">
+                {application.live.lifecycle?.managed
+                  ? application.live.lifecycle.allowedActions.map((action) => <button type="button" className="secondary-button" key={action} onClick={() => void generateLifecyclePlan(application, action)} disabled={submitting}>{action === "start" ? "Plan start" : action === "stop" ? "Plan stop" : "Plan restart"}</button>)
+                  : <span className="warning-text">Lifecycle actions locked: {application.live.lifecycle?.detail ?? "exact managed identity unavailable"}</span>}
+              </div>
+            ) : <button type="button" className="secondary-button" onClick={() => openPlanner(application)}>{application.live.installed ? "Review deployment" : application.execution === "staging-enabled" ? application.live.installation?.readyToInstall ? "Plan private install" : "Plan safe staging" : "Plan deployment"}</button>}
           </article>
         ))}
         <article className="app-card">
@@ -223,7 +284,7 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
         </article>
       </div>
 
-      {selected && (
+      {selected && !lifecyclePlan && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setSelected(null)}>
           <section className="modal app-plan-dialog" role="dialog" aria-modal="true" aria-labelledby="app-plan-title" onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Curated adapter</span><h2 id="app-plan-title">Plan {selected.name}</h2></div><button className="icon-button" type="button" onClick={() => setSelected(null)} aria-label="Close application planner">X</button></header>
@@ -305,6 +366,27 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
             </div>}
             {error && <div className="auth-error" role="alert">{error}</div>}
             {message && <div className="notice"><strong>Job ready</strong><span>{message}</span><button className="text-button" type="button" onClick={onOpenRepair}>Open Repair Center</button></div>}
+          </section>
+        </div>
+      )}
+      {selected && lifecyclePlan && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal app-plan-dialog" role="dialog" aria-modal="true" aria-labelledby="application-lifecycle-title">
+            <header className="modal-header"><div><span className="eyebrow">Immutable managed-container action</span><h2 id="application-lifecycle-title">{lifecyclePlan.output.label} Uptime Kuma</h2></div><button className="icon-button" type="button" onClick={() => { setLifecyclePlan(null); setSelected(null); setMessage(null); setError(null); }} aria-label="Close application lifecycle plan">X</button></header>
+            <dl className="vm-plan-summary">
+              <div><dt>Current state</dt><dd>{lifecyclePlan.output.current.state}</dd></div>
+              <div><dt>Desired state</dt><dd>{lifecyclePlan.output.desired.state}</dd></div>
+              <div><dt>Loopback port</dt><dd>{lifecyclePlan.output.current.port}</dd></div>
+              <div><dt>Persistent data</dt><dd>Preserved</dd></div>
+            </dl>
+            <div className="application-plan-result"><div><strong>Exact changes</strong><ol>{lifecyclePlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol></div></div>
+            <div className="plan-warnings"><strong>Locked boundaries</strong>{lifecyclePlan.output.boundaries.map((boundary) => <span key={boundary}>{boundary}</span>)}</div>
+            <p className="plan-recovery"><strong>Recovery:</strong> {lifecyclePlan.output.recovery}</p>
+            <p className="vm-action-revision">Plan revision <code>{lifecyclePlan.revision}</code>. Exact container identity and state are checked again before staging and after password approval.</p>
+            {error && <div className="auth-error" role="alert">{error}</div>}
+            {message
+              ? <div className="notice"><strong>Job ready</strong><span>{message}</span><button className="text-button" type="button" onClick={onOpenRepair}>Open Repair Center</button></div>
+              : <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => { setLifecyclePlan(null); setSelected(null); }}>Cancel</button><button type="button" className="primary-button" onClick={() => void stageLifecyclePlan()} disabled={submitting}>{submitting ? "Revalidating..." : "Stage for password approval"}</button></div>}
           </section>
         </div>
       )}

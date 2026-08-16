@@ -143,6 +143,154 @@ export function createApplicationHelper({
     }
   }
 
+  async function inspectUptimeKumaLifecycle() {
+    try {
+      const result = await docker(["inspect", "--format", "{{json .}}", containerName], { timeout: 5000 });
+      const container = JSON.parse(result.stdout);
+      const state = container.State ?? {};
+      const bindings = container.HostConfig?.PortBindings?.["3001/tcp"] ?? [];
+      const binding = Array.isArray(bindings) && bindings.length === 1 ? bindings[0] : null;
+      const port = binding?.HostIp === "127.0.0.1" && /^\d{1,5}$/.test(String(binding?.HostPort ?? ""))
+        ? Number.parseInt(binding.HostPort, 10)
+        : null;
+      const mounts = Array.isArray(container.Mounts) ? container.Mounts : [];
+      const exactDataMount = mounts.length === 1
+        && mounts[0]?.Type === "bind"
+        && path.resolve(mounts[0]?.Source ?? "/") === dataDirectory
+        && mounts[0]?.Destination === "/app/data"
+        && mounts[0]?.RW === true;
+      const labels = container.Config?.Labels ?? {};
+      const devices = Array.isArray(container.HostConfig?.Devices) ? container.HostConfig.Devices : [];
+      const capAdd = Array.isArray(container.HostConfig?.CapAdd) ? container.HostConfig.CapAdd : [];
+      const managed = container.Name === `/${containerName}`
+        && container.Config?.Image === applicationInternals.uptimeKumaImage
+        && labels["com.docker.compose.project"] === containerName
+        && labels["com.docker.compose.service"] === "uptime-kuma"
+        && container.HostConfig?.RestartPolicy?.Name === "unless-stopped"
+        && container.HostConfig?.Privileged === false
+        && devices.length === 0
+        && capAdd.length === 0
+        && exactDataMount
+        && Number.isInteger(port)
+        && port >= 1024
+        && port <= 65535;
+      const running = state.Running === true;
+      const healthy = managed && running && !state.Error && state.Health?.Status === "healthy";
+      const revisionEvidence = {
+        id: String(container.Id ?? ""),
+        imageId: String(container.Image ?? ""),
+        configuredImage: String(container.Config?.Image ?? ""),
+        name: String(container.Name ?? ""),
+        state: String(state.Status ?? "unknown"),
+        running,
+        health: String(state.Health?.Status ?? "none"),
+        port,
+        restartPolicy: String(container.HostConfig?.RestartPolicy?.Name ?? ""),
+        project: String(labels["com.docker.compose.project"] ?? ""),
+        service: String(labels["com.docker.compose.service"] ?? ""),
+        exactDataMount,
+        privileged: container.HostConfig?.Privileged === true,
+        deviceCount: devices.length,
+        capAdd: [...capAdd].sort(),
+      };
+      const revision = createHash("sha256").update(applicationInternals.canonical(revisionEvidence)).digest("hex");
+      return {
+        installed: true,
+        managed,
+        state: running ? "running" : "stopped",
+        running,
+        healthy,
+        port,
+        revision,
+        allowedActions: managed ? running ? ["stop", "restart"] : ["start"] : [],
+        detail: managed
+          ? running
+            ? `Managed Uptime Kuma is ${healthy ? "healthy" : "running but unhealthy"} on loopback port ${port}`
+            : "Managed Uptime Kuma is stopped and can be started through an approved action"
+          : "A container uses the reserved Uptime Kuma name but failed the fixed managed identity checks",
+        boundary: {
+          exactContainerName: true,
+          digestPinnedImage: container.Config?.Image === applicationInternals.uptimeKumaImage,
+          loopbackOnly: Number.isInteger(port),
+          exactDataMount,
+          privileged: container.HostConfig?.Privileged === true,
+          deviceCount: devices.length,
+          addedCapabilities: capAdd.length,
+          dockerSocketMounted: mounts.some((mount) => mount?.Source === "/var/run/docker.sock" || mount?.Destination === "/var/run/docker.sock"),
+          arbitraryContainerAccepted: false,
+          arbitraryCommandAccepted: false,
+          mutationPerformed: false,
+        },
+      };
+    } catch {
+      return {
+        installed: false,
+        managed: false,
+        state: "not-installed",
+        running: false,
+        healthy: false,
+        port: null,
+        revision: null,
+        allowedActions: [],
+        detail: "Managed Uptime Kuma container was not found",
+        boundary: {
+          exactContainerName: true,
+          digestPinnedImage: false,
+          loopbackOnly: false,
+          exactDataMount: false,
+          privileged: false,
+          deviceCount: 0,
+          addedCapabilities: 0,
+          dockerSocketMounted: false,
+          arbitraryContainerAccepted: false,
+          arbitraryCommandAccepted: false,
+          mutationPerformed: false,
+        },
+      };
+    }
+  }
+
+  async function actionUptimeKuma({ action, expectedRevision }) {
+    if (!["start", "stop", "restart"].includes(action) || !/^[a-f0-9]{64}$/.test(String(expectedRevision ?? ""))) {
+      throw new Error("Uptime Kuma lifecycle accepts only a fixed action and exact state revision");
+    }
+    const before = await inspectUptimeKumaLifecycle();
+    if (!before.installed || !before.managed || before.revision !== expectedRevision) throw new Error("Managed Uptime Kuma state changed or failed identity validation");
+    if (!before.allowedActions.includes(action)) throw new Error(`Uptime Kuma ${action} is not valid while the container is ${before.state}`);
+
+    if (action === "start") await docker(["start", containerName], { timeout: 30000 });
+    if (action === "stop") await docker(["stop", "--time", "30", containerName], { timeout: 45000 });
+    if (action === "restart") await docker(["restart", "--time", "30", containerName], { timeout: 60000 });
+    if (action !== "stop") await verifyHealth(containerName);
+
+    const after = await inspectUptimeKumaLifecycle();
+    if (!after.installed || !after.managed) throw new Error("Managed Uptime Kuma failed post-action identity validation");
+    if (action === "stop" ? after.running : !after.running || !after.healthy) throw new Error(`Uptime Kuma ${action} failed post-action state verification`);
+    const dataState = await stat(dataDirectory);
+    if (!dataState.isDirectory()) throw new Error("Managed Uptime Kuma data directory failed preservation verification");
+    return {
+      applicationId: "uptime-kuma",
+      action,
+      performed: true,
+      expectedRevision,
+      revisionAfter: after.revision,
+      state: after.state,
+      running: after.running,
+      healthy: after.healthy,
+      port: after.port,
+      dataPreserved: true,
+      boundary: {
+        exactContainerOnly: true,
+        imageChanged: false,
+        composeChanged: false,
+        dataDeleted: false,
+        networkDeleted: false,
+        arbitraryContainerAccepted: false,
+        arbitraryCommandAccepted: false,
+      },
+    };
+  }
+
   async function inspectPihole() {
     try {
       const result = await docker(["inspect", "--format", "{{json .State}}", piholeContainerName], { timeout: 5000 });
@@ -600,7 +748,7 @@ export function createApplicationHelper({
     }
   }
 
-  return { appDirectory, composePath, piholeDirectory, piholeComposePath, piholeSecretPath, piholeBackupMarkerPath, inspectDocker, inventoryDocker, inspectLogs, inspect, inspectPihole, deploy, deployPihole, backup, backupPihole, recoverInterruptedPiholeBackup };
+  return { appDirectory, composePath, dataDirectory, piholeDirectory, piholeComposePath, piholeSecretPath, piholeBackupMarkerPath, inspectDocker, inventoryDocker, inspectLogs, inspect, inspectUptimeKumaLifecycle, actionUptimeKuma, inspectPihole, deploy, deployPihole, backup, backupPihole, recoverInterruptedPiholeBackup };
 }
 
 export const applicationHelperInternals = { composeDefinition, piholeComposeDefinition, containerName, piholeContainerName, piholeCapabilities, parseJsonLines, sanitizeLogMessage, logSources };

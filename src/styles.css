@@ -720,6 +720,17 @@ main {
   margin-top: auto;
 }
 
+.app-lifecycle-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.app-lifecycle-actions button {
+  margin-top: 0;
+}
+
 .table-panel {
   overflow: hidden;
 }

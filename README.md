@@ -42,9 +42,11 @@ Version `0.55.1` corrects KVM readiness inspection under the helper's hardened p
 
 Version `0.56.0` adds a real platform-managed libvirt foundation workflow after the prerequisite stack is ready. Parameter-free inspection recognizes only the canonical persistent `default` NAT network on `virbr0` with `192.168.122.0/24` and the canonical `default` directory pool at `/var/lib/libvirt/images`. A clean or inactive compatible host can create an immutable plan, stage it, re-enter the BoxPilot password, and run one static no-argument root unit. Existing incompatible names, host routes, bridges, and unsafe target paths fail closed. The job defines, starts, and enables only missing or inactive canonical resources, verifies them through `qemu:///system`, and automatically reverses only its own changes after failure. It cannot accept XML, a name, subnet, bridge, pool, path, URI, command, or argument from the browser and never changes another resource, VM, disk, ISO, operator group, LAN route, firewall, or Tailscale setting.
 
+Version `0.57.0` turns the Uptime Kuma canary into a manageable service after deployment. Applications can create immutable Start, Stop, or Restart plans only when a parameter-free helper inspection proves the exact managed container name, digest-pinned image, Compose project and service labels, loopback port, fixed persistent data mount, `unless-stopped` policy, and absence of privileges, devices, added capabilities, or Docker-socket access. Staging and owner-password approval pin the complete sanitized state revision. The helper changes only that exact container, then rechecks state, health when running, port, identity, and persistent data. The browser cannot select a container, image, command, argument, port, mount, network, environment, or Docker option. Image, Compose, volume, network, persistent data, other containers, router, DNS, firewall, and Tailscale settings remain unchanged. Removal is still locked.
+
 ### What works now
 
-| Area | Status in `0.56.0` | Capability |
+| Area | Status in `0.57.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
@@ -60,7 +62,7 @@ Version `0.56.0` adds a real platform-managed libvirt foundation workflow after 
 | System logs and support bundle | Live restricted sources | Returns capped entries for four fixed journal source groups. The authenticated server-generated bundle combines only fixed collectors and applies built-in plus bounded site-specific literal and path-prefix redaction. It accepts no unit, command, device, regex, environment, or arbitrary path. |
 | Application catalog | Live | Publishes integrity-addressed manifests, live installation state, exact image policy, targets, ports, storage, prerequisites, recovery, and adapter risk. |
 | Keel Notes adapter | Guarded acquisition, staging, private install, terminal claim and owner-login proof, backup, drilled recovery, promotion, and operator rollback | Inspects bounded existing-install evidence, then locally verifies and safely stages only fixed `v1.2.6`. Separate password-approved install and backup plans use dedicated static units. Keel runs as one non-login account on `127.0.0.1:3000`; the backup stops only that unit, runs the fixed upstream export as `keel`, restarts and health-checks the source, and verifies a root-only archive in an isolated SQLite-open drill. Separate high-risk plans materialize a stopped recovery and run a disposable private-namespace startup rehearsal. Critical promotion and operator-rollback jobs use exact-evidence atomic state exchange, preserve both required local checkpoints, and automatically restore the prior active state on failure. The terminal claim token never enters BoxPilot. The separate owner-login proof keeps email, password, and session inside an unprivileged terminal worker, verifies the instance-owner route, forces logout, and stores only sanitized root-only evidence. Private exposure, import, adoption, update, removal, and rollback-checkpoint retention remain unavailable. |
-| Uptime Kuma adapter | Executable deployment | Uses the official `2.5.0` image pinned by multi-platform digest, a loopback-only port, local persistent storage, Docker health, approval, and data-preserving rollback. The catalog shows whether restore-verified backup evidence exists. |
+| Uptime Kuma adapter | Executable deployment and lifecycle | Uses the official `2.5.0` image pinned by multi-platform digest, a loopback-only port, local persistent storage, Docker health, approval, and data-preserving rollback. Exact managed-container Start, Stop, and Restart actions require separate immutable plans and password approval. The catalog shows whether restore-verified backup evidence exists. |
 | Pi-hole adapter | Guarded staging, recovery, and two-origin DNS proof | Starts a digest-pinned Docker service only after a fresh Pi-hole-on-Bigbox network assessment and separate approval. Separate workflows verify configuration recovery, fixed direct queries from Bigbox, and the same fixed queries from an enrolled signed LAN device. DHCP, NTP, router writes, client DNS advertisement, Tailscale changes, and cutover do not exist. The dedicated-VM target remains planning-only. |
 | Fleet agents | Two signed one-shot DNS policies | Creates password-gated enrollments, registers device-generated Ed25519 public keys, rejects stale or replayed requests, supports revocation, and requires owner reauthentication for immediate, 5-minute, or 10-minute one-shot windows. The only tasks are fixed Pi-hole proof or fixed Flint 2 observed-gateway proof; the latter also requires a node-local default-gateway match. It provides no recurrence, unattended execution, shell, arbitrary command, arbitrary target, file access, package operation, or general plugin execution. |
 | Backup engine | Controller plus three application adapters and guarded Keel state recovery | Creates a no-downtime WAL-aware BoxPilot SQLite snapshot and immutable local Uptime Kuma, Pi-hole, and Keel archives. Keel adds clean native-service export, guaranteed source restart, a complete manifest and tree digest, an isolated restored-SQLite drill, a stopped recovery clone, a private-namespace startup rehearsal, rollback-backed atomic promotion, and operator-requested rollback with displaced-state preservation. Controller, application, and VM protection use separate fixed restic repositories and recovery passwords. Application protection requires the earlier adapter-aware drill, then performs a complete repository read and byte-for-byte exact archive restore. Controller retention exists; application and Keel rollback retention do not. |
@@ -96,11 +98,9 @@ The repository also includes a read-only Ubuntu deployment doctor and a USB-to-h
 
 ## Screenshots
 
-### Workflow overview mockup
+Every image shown below is an explicitly disclosed mock created for GitHub and future website use. The mockups demonstrate current product workflows without exposing Bigbox, its addresses, accounts, workload names, logs, or live infrastructure state. Live Bigbox screenshots are not published here.
 
-![BoxPilot overview with sample-data disclosure](docs/screenshots/overview-demo.jpg)
-
-This is an actual `0.3.0` UI capture retained to show the workflow shell. The workload, health, backup, and activity values are demonstration data, and the interface labels them accordingly.
+The next website artwork can be rendered from the explicitly disclosed [Uptime Kuma lifecycle mock source](docs/mockups/uptime-kuma-lifecycle.html). It contains representative state only and is not a Bigbox capture.
 
 ### BoxPilot controller backup approval mockup
 
@@ -131,18 +131,6 @@ This explicitly disclosed `0.45.0` mock shows the read-only restic candidate che
 ![BoxPilot fixed evidence-gated controller retention](docs/screenshots/controller-retention-approval-mock.png)
 
 This explicitly disclosed `0.40.0` mock shows the three-copy and 30-day floors, exact reviewed candidates, complete post-forget repository read, durable partial-removal evidence, and the deliberate no-prune boundary. No password was entered, plan or job created, repository read, snapshot forgotten or pruned, database opened, artifact removed, or host state changed for the capture.
-
-### Host-backed virtualization preflight
-
-![BoxPilot virtualization preflight](docs/screenshots/virtualization-preflight.jpg)
-
-This is an actual host-backed capture from a non-Linux development machine. The failed checks are expected and demonstrate that the module reports missing KVM and libvirt dependencies instead of showing a false ready state.
-
-### Earlier VM creation planner capture
-
-![BoxPilot validated VM planner](docs/screenshots/vm-planner.jpg)
-
-This older `0.3.0` capture uses a local development ISO fixture and shows the planning foundation before guarded execution shipped. In `0.9.0`, supported Linux plans can be staged for a separate password approval. The repository does not claim that this fixture created a VM.
 
 ### Guarded VM creation approval mockup
 

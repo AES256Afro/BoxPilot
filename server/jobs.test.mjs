@@ -190,6 +190,33 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("revalidates and executes an exact Uptime Kuma lifecycle plan", async () => {
+    const input = { applicationId: "uptime-kuma", action: "restart", expectedRevision: "a".repeat(64) };
+    const result = {
+      applicationId: "uptime-kuma", action: "restart", expectedRevision: input.expectedRevision,
+      performed: true, state: "running", running: true, healthy: true, port: 3101, dataPreserved: true,
+      boundary: { exactContainerOnly: true, imageChanged: false, composeChanged: false, dataDeleted: false, networkDeleted: false, arbitraryContainerAccepted: false, arbitraryCommandAccepted: false },
+    };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const validateApplicationLifecycleJob = vi.fn(async () => ({ input, output: { label: "Restart", desired: { state: "running", port: 3101 } } }));
+    const jobs = createJobService(store, helper, { validateApplicationLifecycleJob });
+    const job = store.createJob({
+      type: "application.uptime-kuma.action",
+      title: "Restart Uptime Kuma",
+      parameters: { planId: "plan-one", revision: "revision-one", input },
+      recovery: { automaticRollback: false },
+      createdBy: owner.id,
+    });
+
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+
+    expect(validateApplicationLifecycleJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("application.uptime-kuma.action", input);
+    expect(completed).toMatchObject({ state: "completed", result: { action: "restart", state: "running", dataPreserved: true } });
+    store.close();
+  });
+
   it("revalidates and stages Pi-hole without granting router, DHCP, or DNS cutover authority", async () => {
     const input = { target: "docker", hostPort: 8080, lanAddress: "192.168.8.10", networkAssessmentId: "network-plan-one", fallbackDnsAddress: "94.140.14.59" };
     const result = {
