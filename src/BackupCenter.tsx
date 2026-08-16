@@ -42,8 +42,34 @@ type ApplicationProtectionRecord = {
   independent: boolean;
   repositoryVerified: boolean;
   protected: boolean;
+  retained: boolean;
+  retention: { runId: string; forgottenAt: string } | null;
   restoreDrill: { passed: boolean; mode: string; network: string; workspaceRemoved: boolean; artifactChecksumMatched: boolean };
   createdAt: string;
+};
+
+type ApplicationRetentionStatus = {
+  executable: boolean;
+  repositoryId: string | null;
+  beforeCount: number;
+  policy: { minimumCopiesPerApplication: number; minimumAgeDays: number; requiresProtectedRestoreDrill: boolean; preserveRecoveryReferences: boolean; preserveActiveApplicationOperations: boolean };
+  candidates: Array<{ protectionId: string; backupId: string; applicationId: string; snapshotId: string; createdAt: string; ageDays: number; sizeBytes: number }>;
+  kept: Array<{ protectionId: string; backupId: string; applicationId: string; snapshotId: string; createdAt: string; ageDays: number; sizeBytes: number; reasons: string[] }>;
+  retentionRuns: Array<{ id: string; forgotten: unknown[]; repositoryVerified: boolean; complete: boolean; prunePerformed: boolean; createdAt: string }>;
+  blockers: string[];
+  changes: string[];
+  warnings: string[];
+  verification: string[];
+  recovery: string;
+  prunePerformed: false;
+  spaceReclaimed: false;
+};
+
+type ApplicationRetentionPlan = {
+  id: string;
+  revision: string;
+  subjectId: string;
+  output: ApplicationRetentionStatus;
 };
 
 type ControllerRetentionStatus = {
@@ -282,6 +308,8 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
   const [applicationProtectionPlan, setApplicationProtectionPlan] = useState<ControllerProtectionPlan | null>(null);
   const [controllerRetention, setControllerRetention] = useState<ControllerRetentionStatus | null>(null);
   const [retentionPlan, setRetentionPlan] = useState<ControllerRetentionPlan | null>(null);
+  const [applicationRetention, setApplicationRetention] = useState<ApplicationRetentionStatus | null>(null);
+  const [applicationRetentionPlan, setApplicationRetentionPlan] = useState<ApplicationRetentionPlan | null>(null);
   const [keelRecoveries, setKeelRecoveries] = useState<KeelRecoveryRecord[]>([]);
   const [keelRecoveryPlan, setKeelRecoveryPlan] = useState<KeelRecoveryPlan | null>(null);
   const [keelRecoveryDrills, setKeelRecoveryDrills] = useState<KeelRecoveryDrillRecord[]>([]);
@@ -297,11 +325,16 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [body, protection, applicationProtection, retention, recovery, recoveryDrills, promotions, rollbacks] = await Promise.all([
+      const [body, protection, applicationProtection, retention, appRetention, recovery, recoveryDrills, promotions, rollbacks] = await Promise.all([
         requestJson<{ coverage: Coverage[]; backups: BackupRecord[]; limitations: string[] }>("/api/v1/backups"),
         requestJson<{ destination: ControllerDestination; protections: ControllerProtectionRecord[] }>("/api/v1/controller-backup-protection"),
         requestJson<{ destination: ApplicationDestination; protections: ApplicationProtectionRecord[] }>("/api/v1/application-backup-protection"),
         requestJson<ControllerRetentionStatus>("/api/v1/controller-backup-retention"),
+        requestJson<ApplicationRetentionStatus>("/api/v1/application-backup-retention").catch(() => ({
+          executable: false, repositoryId: null, beforeCount: 0,
+          policy: { minimumCopiesPerApplication: 3, minimumAgeDays: 30, requiresProtectedRestoreDrill: true, preserveRecoveryReferences: true, preserveActiveApplicationOperations: true },
+          candidates: [], kept: [], retentionRuns: [], blockers: ["Application retention inventory is unavailable"], changes: [], warnings: [], verification: [], recovery: "Keep protected snapshots unchanged", prunePerformed: false, spaceReclaimed: false,
+        } as ApplicationRetentionStatus)),
         requestJson<{ recoveries: KeelRecoveryRecord[] }>("/api/v1/keel-recoveries").catch(() => ({ recoveries: [] })),
         requestJson<{ drills: KeelRecoveryDrillRecord[] }>("/api/v1/keel-recovery-drills").catch(() => ({ drills: [] })),
         requestJson<{ promotions: KeelPromotionRecord[] }>("/api/v1/keel-recovery-promotions").catch(() => ({ promotions: [] })),
@@ -315,6 +348,7 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
       setApplicationDestination(applicationProtection.destination);
       setApplicationProtections(applicationProtection.protections ?? []);
       setControllerRetention(retention);
+      setApplicationRetention(appRetention);
       setKeelRecoveries(recovery.recoveries ?? []);
       setKeelRecoveryDrills(recoveryDrills.drills ?? []);
       setKeelPromotions(promotions.promotions ?? []);
@@ -464,6 +498,41 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
       onOpenRepair();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Controller retention staging failed");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const createApplicationRetentionPlan = async () => {
+    setPending(true);
+    try {
+      const body = await requestJson<{ plan: ApplicationRetentionPlan }>("/api/v1/application-retention-plans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: "{}",
+      });
+      setApplicationRetentionPlan(body.plan);
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Application retention planning failed");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const stageApplicationRetention = async () => {
+    if (!applicationRetentionPlan) return;
+    setPending(true);
+    try {
+      await requestJson(`/api/v1/application-retention-plans/${applicationRetentionPlan.id}/stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ revision: applicationRetentionPlan.revision }),
+      });
+      setApplicationRetentionPlan(null);
+      onOpenRepair();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Application retention staging failed");
     } finally {
       setPending(false);
     }
@@ -691,6 +760,14 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
         <footer className="modal-actions"><button className="primary-button" type="button" disabled={pending || loading} onClick={() => void createRetentionPlan()}>Build fixed retention plan</button></footer>
       </section>
 
+      <section className="panel backup-plan-card" aria-label="Application retention">
+        <div className="section-heading"><div><span className="eyebrow">Independent application lifecycle</span><h3>Per-application evidence-gated retention</h3></div><span className={`status-pill ${applicationRetention?.executable ? "status-good" : "status-warning"}`}>{applicationRetention?.executable ? `${applicationRetention.candidates.length} eligible` : "no eligible batch"}</span></div>
+        <p>BoxPilot keeps at least {applicationRetention?.policy?.minimumCopiesPerApplication ?? 3} retained protected snapshots for each application, keeps every snapshot younger than {applicationRetention?.policy?.minimumAgeDays ?? 30} days, preserves recovery references, and never runs restic prune.</p>
+        <div className="backup-plan-columns"><div><strong>Current evidence</strong><ul><li>{applicationRetention?.beforeCount ?? 0} active application snapshot(s) in the fixed repository</li><li>{applicationRetention?.candidates?.length ?? 0} exact candidate(s)</li><li>{applicationRetention?.retentionRuns?.length ?? 0} recorded retention run(s)</li></ul></div><div><strong>Permanent boundaries</strong><ul><li>Running applications, local verified archives, and recovery objects remain unchanged</li><li>No path, repository, selector, policy, password, schedule, prune, or space-reclamation input</li><li>Only exact old restore-tested unreferenced snapshots can qualify</li></ul></div></div>
+        {applicationRetention?.blockers?.map((blocker) => <div className="notice warning-notice" key={blocker}><strong>Retention blocker</strong><span>{blocker}</span></div>)}
+        <footer className="modal-actions"><button className="primary-button" type="button" disabled={pending || loading} onClick={() => void createApplicationRetentionPlan()}>Build application retention plan</button></footer>
+      </section>
+
       {protectionPlan && (
         <section className="panel backup-plan-card" aria-label="Controller protection plan">
           <div className="section-heading"><div><span className="eyebrow">Immutable protection plan {protectionPlan.revision}</span><h3>{protectionPlan.output.executable ? "Ready for owner approval" : "Independent protection is blocked"}</h3></div><span className={`status-pill ${protectionPlan.output.executable ? "status-good" : "status-warning"}`}>{protectionPlan.output.destination}</span></div>
@@ -716,6 +793,16 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
           {retentionPlan.output.candidates.map((candidate) => <div className="notice" key={candidate.protectionId}><strong>{candidate.ageDays} days old</strong><span>Snapshot <code>{candidate.snapshotId}</code> from controller backup <code>{candidate.backupId}</code></span></div>)}
           {retentionPlan.output.blockers.map((blocker) => <div className="notice warning-notice" key={blocker}><strong>Retention blocker</strong><span>{blocker}</span></div>)}
           <footer className="modal-actions"><button className="text-button" type="button" onClick={() => setRetentionPlan(null)}>Discard plan</button><button className="primary-button" type="button" disabled={!retentionPlan.output.executable || pending} onClick={() => void stageRetention()}>Stage exact retention batch</button></footer>
+        </section>
+      )}
+
+      {applicationRetentionPlan && (
+        <section className="panel backup-plan-card" aria-label="Application retention plan">
+          <div className="section-heading"><div><span className="eyebrow">Immutable application retention plan {applicationRetentionPlan.revision}</span><h3>{applicationRetentionPlan.output.executable ? `${applicationRetentionPlan.output.candidates.length} exact snapshot(s) ready for approval` : "Application retention is blocked"}</h3></div><span className={`status-pill ${applicationRetentionPlan.output.executable ? "status-good" : "status-warning"}`}>high risk</span></div>
+          <div className="backup-plan-columns"><div><strong>Exact workflow</strong><ol>{applicationRetentionPlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol><strong>Required evidence</strong><ol>{applicationRetentionPlan.output.verification.map((check) => <li key={check}>{check}</li>)}</ol></div><div><strong>Warnings and recovery</strong><ul>{applicationRetentionPlan.output.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><p>{applicationRetentionPlan.output.recovery}</p></div></div>
+          {applicationRetentionPlan.output.candidates.map((candidate) => <div className="notice" key={candidate.protectionId}><strong>{candidate.applicationId} | {candidate.ageDays} days old</strong><span>Snapshot <code>{candidate.snapshotId}</code> from backup <code>{candidate.backupId}</code></span></div>)}
+          {applicationRetentionPlan.output.blockers.map((blocker) => <div className="notice warning-notice" key={blocker}><strong>Retention blocker</strong><span>{blocker}</span></div>)}
+          <footer className="modal-actions"><button className="text-button" type="button" onClick={() => setApplicationRetentionPlan(null)}>Discard plan</button><button className="primary-button" type="button" disabled={!applicationRetentionPlan.output.executable || pending} onClick={() => void stageApplicationRetention()}>Stage application retention batch</button></footer>
         </section>
       )}
 

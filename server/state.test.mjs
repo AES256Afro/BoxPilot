@@ -217,7 +217,25 @@ describe("BoxPilot state store", () => {
     expect(store.getApplicationBackupProtectionByBackup(backupId)).toEqual(protection);
     expect(store.listApplicationBackupProtections()).toEqual([protection]);
     expect(() => store.recordApplicationBackupProtection({ ...protection, id: "33333333-3333-4333-8333-333333333333" })).toThrow();
+    const retention = store.recordApplicationRetention({
+      id: "44444444-4444-4444-8444-444444444444",
+      repositoryId: protection.repositoryId,
+      beforeSnapshotSetRevision: "e".repeat(64),
+      afterSnapshotSetRevision: "f".repeat(64),
+      beforeCount: 4,
+      afterCount: 3,
+      forgotten: [{ protectionId: protection.id, backupId, applicationId: "pi-hole", snapshotId: protection.snapshotId }],
+      keptSnapshotIds: ["1".repeat(64), "2".repeat(64), "3".repeat(64)],
+      repositoryVerified: true,
+      complete: true,
+      prunePerformed: false,
+      createdBy: owner.id,
+    });
+    expect(retention).toMatchObject({ beforeCount: 4, afterCount: 3, repositoryVerified: true, complete: true, prunePerformed: false });
+    expect(store.getApplicationBackupProtection(protection.id)).toMatchObject({ protected: false, retained: false, retention: { runId: retention.id } });
+    expect(store.listApplicationRetentionRuns()).toEqual([retention]);
     expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "application.backup.protected", subjectId: protection.id })]));
+    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "application.retention.applied", subjectId: retention.id })]));
     store.close();
   });
 

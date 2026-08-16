@@ -6,6 +6,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 const blockedRetention = { executable: false, repositoryId: null, beforeCount: 0, policy: { minimumCopies: 3, minimumAgeDays: 30, requiresProtectedRestoreDrill: true, preserveActiveControllerOperations: true }, candidates: [], kept: [], retentionRuns: [], blockers: ["No eligible controller snapshot"], changes: [], warnings: [], verification: [], recovery: "Keep retained snapshots", prunePerformed: false, spaceReclaimed: false };
 const blockedApplicationProtection = { destination: { ready: false, blockers: ["Mount independent application storage"], setupCommand: "sudo /opt/boxpilot/scripts/boxpilot-application-restic-setup.sh" }, protections: [] };
+const blockedApplicationRetention = { executable: false, repositoryId: null, beforeCount: 0, policy: { minimumCopiesPerApplication: 3, minimumAgeDays: 30, requiresProtectedRestoreDrill: true, preserveRecoveryReferences: true, preserveActiveApplicationOperations: true }, candidates: [], kept: [], retentionRuns: [], blockers: ["No eligible application snapshot"], changes: [], warnings: [], verification: [], recovery: "Keep retained snapshots", prunePerformed: false, spaceReclaimed: false };
 
 describe("Backup Center", () => {
   it("plans and stages a restore-verified backup", async () => {
@@ -117,6 +118,29 @@ describe("Backup Center", () => {
     expect(screen.getByText("Full repository read")).toBeTruthy();
     expect(screen.getByText("No prune")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stage exact retention batch" }));
+    await waitFor(() => expect(onOpenRepair).toHaveBeenCalled());
+  });
+
+  it("shows and stages fixed per-application no-prune retention", async () => {
+    const onOpenRepair = vi.fn();
+    const eligible = { ...blockedApplicationRetention, executable: true, repositoryId: "a".repeat(64), beforeCount: 5, blockers: [], candidates: [{ protectionId: "protect-one", backupId: "backup-one", applicationId: "uptime-kuma", snapshotId: "b".repeat(64), createdAt: "2026-06-01T00:00:00.000Z", ageDays: 76, sizeBytes: 8192 }], kept: [], changes: ["Forget one exact application snapshot"], warnings: ["No prune"], verification: ["Full application repository read"], recovery: "Use another retained application snapshot" };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/backups") return new Response(JSON.stringify({ coverage: [], backups: [], limitations: [] }), { status: 200 });
+      if (url === "/api/v1/controller-backup-protection") return new Response(JSON.stringify({ destination: { ready: false, blockers: [], setupCommand: "sudo setup" }, protections: [] }), { status: 200 });
+      if (url === "/api/v1/application-backup-protection") return new Response(JSON.stringify(blockedApplicationProtection), { status: 200 });
+      if (url === "/api/v1/controller-backup-retention") return new Response(JSON.stringify(blockedRetention), { status: 200 });
+      if (url === "/api/v1/application-backup-retention" && !init?.method) return new Response(JSON.stringify(eligible), { status: 200 });
+      if (url === "/api/v1/application-retention-plans" && init?.method === "POST") return new Response(JSON.stringify({ plan: { id: "app-retention-plan", revision: "app-retention-revision", subjectId: eligible.repositoryId, output: eligible } }), { status: 201 });
+      if (url === "/api/v1/application-retention-plans/app-retention-plan/stage" && init?.method === "POST") return new Response(JSON.stringify({ job: { id: "app-retention-job" } }), { status: 201 });
+      return new Response("{}", { status: 404 });
+    }));
+
+    render(<BackupCenter csrfToken="csrf" onOpenRepair={onOpenRepair} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Build application retention plan" }));
+    expect(await screen.findByRole("region", { name: "Application retention plan" })).toBeTruthy();
+    expect(screen.getByText("Full application repository read")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage application retention batch" }));
     await waitFor(() => expect(onOpenRepair).toHaveBeenCalled());
   });
 

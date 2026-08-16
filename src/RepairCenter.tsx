@@ -34,7 +34,7 @@ interface RecoveryKit {
   product: { name: string; version: string };
   summary: { status: string; verified: number; actionRequired: number; operatorChecks: number; notApplicable: number; total: number };
   checks: Array<{ id: string; state: "verified" | "action-required" | "operator-check" | "not-applicable" | "unavailable"; title: string; evidence: string; action: string }>;
-  evidence: { jobs: unknown[]; controllerBackups: unknown[]; controllerProtections?: unknown[]; controllerRetentionRuns?: unknown[]; applicationBackups: unknown[]; applicationProtections?: unknown[]; vmBackups: unknown[]; routerCheckpoints: unknown[]; migrationTransfers: unknown[]; fleet: { activeAgents: number; revokedAgents: number } };
+  evidence: { jobs: unknown[]; controllerBackups: unknown[]; controllerProtections?: unknown[]; controllerRetentionRuns?: unknown[]; applicationBackups: unknown[]; applicationProtections?: unknown[]; applicationRetentionRuns?: unknown[]; vmBackups: unknown[]; routerCheckpoints: unknown[]; migrationTransfers: unknown[]; fleet: { activeAgents: number; revokedAgents: number } };
   boundary: { mutationsPerformed: boolean; databaseCopied: boolean; backupDataIncluded: boolean; configurationFilesIncluded: boolean; credentialsIncluded: boolean; excluded: string[] };
   runbookMarkdown: string;
 }
@@ -576,6 +576,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
             <span>{recoveryKit.evidence.controllerBackups.length} controller backups</span>
             <span>{recoveryKit.evidence.controllerProtections?.length ?? 0} independently protected</span>
             <span>{recoveryKit.evidence.controllerRetentionRuns?.length ?? 0} controller retention runs</span>
+            <span>{recoveryKit.evidence.applicationRetentionRuns?.length ?? 0} application retention runs</span>
             <span>{recoveryKit.evidence.applicationBackups.length} app backups</span>
             <span>{recoveryKit.evidence.applicationProtections?.length ?? 0} protected app snapshots</span>
             <span>{recoveryKit.evidence.vmBackups.length} VM backups</span>
