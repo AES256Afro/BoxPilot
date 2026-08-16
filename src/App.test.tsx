@@ -40,6 +40,10 @@ describe("BoxPilot console", () => {
     expect(screen.getByRole("heading", { name: "Applications" })).toBeTruthy();
     expect(await screen.findByText("Uptime Kuma")).toBeTruthy();
     expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("staging are live");
+    fireEvent.click(screen.getByRole("button", { name: /Backups/ }));
+    expect(screen.getByRole("heading", { name: "Backups" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("Controller and application backup engine");
+    expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("WAL-aware snapshot and isolated copy-open drill");
   });
 
   it("opens the browser-only Compose inspector", async () => {

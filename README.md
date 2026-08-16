@@ -4,11 +4,11 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.38.0` adds the first guarded backup of BoxPilot's own live SQLite controller state. After immutable planning and owner-password approval, the restricted helper uses SQLite `VACUUM INTO` to capture committed WAL state without stopping BoxPilot. It verifies the artifact checksum, integrity, foreign keys, required schema, and owner state, repeats those checks against a separate copy, removes the drill workspace, writes a root-only manifest, and records success only after every check passes. The browser supplies only a server-generated UUID. The local artifact is sensitive and remains on Bigbox, so an encrypted independent copy is still required for disaster protection.
+Version `0.38.1` includes the first guarded backup of BoxPilot's own live SQLite controller state and corrects the Backups page disclosure to distinguish its copy-open drill from application container restore drills. After immutable planning and owner-password approval, the restricted helper uses SQLite `VACUUM INTO` to capture committed WAL state without stopping BoxPilot. It verifies the artifact checksum, integrity, foreign keys, required schema, and owner state, repeats those checks against a separate copy, removes the drill workspace, writes a root-only manifest, and records success only after every check passes. The browser supplies only a server-generated UUID. The local artifact is sensitive and remains on Bigbox, so an encrypted independent copy is still required for disaster protection.
 
 ### What works now
 
-| Area | Status in `0.38.0` | Capability |
+| Area | Status in `0.38.1` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
