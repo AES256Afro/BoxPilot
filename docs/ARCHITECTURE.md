@@ -20,6 +20,8 @@ Version `0.39.0` adds a second controller protection stage. The web process can 
 
 Version `0.40.0` adds one fixed controller-retention policy. It keeps the three newest active protected snapshots, every snapshot younger than 30 days, every snapshot without complete passing restore evidence, and every snapshot referenced by an active controller protection or retention job. A high-risk immutable plan contains at most 100 exact old snapshot ids and the complete destination and snapshot-set evidence. The helper revalidates the fixed repository and inventory, forgets only those ids, performs a complete post-mutation repository data read, proves every candidate absent and every reviewed noncandidate present, and returns bounded partial-removal evidence when later verification fails. Durable state never presents a confirmed forgotten record as protected or retained. No browser policy, selector, path, password, repository, schedule, prune, space reclamation, local-artifact deletion, production restore, or live database mutation is added.
 
+Version `0.40.1` corrects the Backups data-source disclosure to describe the already shipped controller protection and retention boundary while leaving independent application destinations and scheduling explicitly pending. No helper, job, state, API, or mutation contract changes.
+
 ## Target components
 
 ```text
@@ -205,7 +207,7 @@ A successful copy is not a verified backup. The controller adapter requires a co
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.40.0 limitations
+## Version 0.40.1 limitations
 
 - The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.

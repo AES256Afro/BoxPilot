@@ -56,7 +56,7 @@ If the recovery collector throws, returns an incomplete object, or introduces an
 
 ## Deliberate exclusions
 
-Version `0.40.0` Action Center has no:
+Version `0.40.1` Action Center has no:
 
 - Automatic repair or remediation execution
 - Arbitrary command, package, service, file, Docker, libvirt, router, DNS, firewall, or Tailscale operation
