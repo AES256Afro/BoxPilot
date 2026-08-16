@@ -517,6 +517,15 @@ main {
 .storage-boundary { display: grid; gap: 3px; margin: 0 15px 15px; padding: 10px 11px; color: #a9c9c1; background: #102a25; border: 1px solid #28584c; border-radius: 8px; }
 .storage-boundary strong { font-size: 9px; }
 .storage-boundary span { font-size: 8px; line-height: 1.5; }
+.power-evidence-panel { display: grid; gap: 0; margin-bottom: 14px; }
+.power-evidence-panel .panel-header > div { display: grid; gap: 3px; }
+.power-evidence-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; padding: 13px 15px; }
+.power-evidence-summary > div { display: grid; gap: 4px; padding: 11px; background: #0a151e; border: 1px solid var(--line-soft); border-radius: 9px; }
+.power-evidence-summary strong { font-size: 11px; }
+.power-evidence-summary small { color: var(--muted); font-size: 8px; }
+.power-boundary { display: grid; gap: 3px; margin: 0 15px 15px; padding: 10px 11px; color: #a9c9c1; background: #102a25; border: 1px solid #28584c; border-radius: 8px; }
+.power-boundary strong { font-size: 9px; }
+.power-boundary span { font-size: 8px; line-height: 1.5; }
 
 .panel {
   overflow: hidden;
@@ -2738,6 +2747,7 @@ textarea {
   }
 
   .storage-evidence-summary,
+  .power-evidence-summary,
   .mount-grid,
   .smart-grid { grid-template-columns: 1fr; }
 

@@ -10,6 +10,7 @@ type Inventory = {
     blockDevices?: { available: boolean; devices: Array<{ name: string; parent: string | null; type: string; filesystem: string | null; sizeBytes: number | null; mountTargets: string[]; rotational: boolean | null; readOnly: boolean | null; transport: string | null; model: string | null }> };
     smart?: { available: boolean; status: "healthy" | "warning" | "critical" | "stale" | "unavailable"; reason: string; generatedAt: string | null; stale: boolean; disks: Array<{ device: string; health: string; passed: boolean | null; temperatureCelsius: number | null; powerOnHours: number | null; percentageUsed: number | null; mediaErrors: number | null; unsafeShutdowns: number | null }> };
   };
+  power?: { ups: { installed: boolean; configured: boolean; available: boolean; state: "online" | "on-battery" | "low-battery" | "forced-shutdown" | "bypass" | "offline" | "unavailable"; reason: string; deviceCount: number; statusTokens: string[]; batteryChargePercent: number | null; estimatedRuntimeSeconds: number | null; loadPercent: number | null; source: "nut-localhost-fixed"; boundary: { mutationPerformed: false; powerCommandAvailable: false; shutdownPolicyChanged: false; localhostOnly: true; remoteNetworkProbePerformed: false; browserTargetAccepted: false; rawOutputIncluded: false; deviceNameIncluded: false; serialIncluded: false } } };
   network: { addresses: Array<{ interface: string; address: string; cidr: string | null }>; tailscale: { installed: boolean; connected: boolean; dnsName: string | null } };
   services: Array<{ unit: string; load: string; active: string; sub: string; enabled: string }>;
   docker: { available: boolean; error?: string; containers: Array<{ id: string; name: string; image: string; state: string; status: string; ports: string; networks: string }>; images: unknown[]; networks: unknown[]; volumes: unknown[]; projects: Array<{ name: string; status: string }> };
@@ -51,6 +52,7 @@ export default function HostOverview() {
   const filesystems = inventory.storage.filesystems ?? { available: false, namespace: "unavailable" as const, mounts: [], summary: { healthy: 0, warning: 0, critical: 0, unavailable: 0 }, errors: { healthy: 0, critical: 0, unavailable: 0, unsupported: 0 } };
   const blockDevices = inventory.storage.blockDevices ?? { available: false, devices: [] };
   const smart = inventory.storage.smart ?? { available: false, status: "unavailable" as const, reason: "storage-scan-evidence-missing", generatedAt: null, stale: true, disks: [] };
+  const ups = inventory.power?.ups ?? { installed: false, configured: false, available: false, state: "unavailable" as const, reason: "ups-evidence-missing", deviceCount: 0, statusTokens: [], batteryChargePercent: null, estimatedRuntimeSeconds: null, loadPercent: null };
   const physicalDisks = blockDevices.devices.filter((device) => device.type === "disk");
   const storageStatus = filesystems.errors.critical > 0 || filesystems.summary.critical > 0 || smart.status === "critical"
     ? "critical"
@@ -59,6 +61,20 @@ export default function HostOverview() {
       : !filesystems.available || !smart.available || filesystems.errors.unsupported > 0
         ? "review"
         : "healthy";
+  const upsStatus = ["low-battery", "forced-shutdown"].includes(ups.state)
+    ? "critical"
+    : ["on-battery", "bypass", "offline"].includes(ups.state) || (ups.configured && !ups.available)
+      ? "warning"
+      : ups.state === "online"
+        ? "healthy"
+        : "not configured";
+  const upsHeadline = ups.state === "online" ? "Local UPS is online"
+    : ups.state === "on-battery" ? "Local UPS is on battery"
+      : ups.state === "low-battery" ? "Local UPS battery is low"
+        : ups.state === "forced-shutdown" ? "Local UPS reports forced shutdown"
+          : ups.reason === "nut-client-not-installed" ? "NUT client is not installed"
+            : ups.reason === "no-local-ups-configured" ? "No local UPS is configured"
+              : ups.configured ? "Local UPS evidence is unavailable" : "UPS evidence is unavailable";
   const metrics = [
     { label: "CPU load", value: `${inventory.compute.load1.toFixed(2)} / ${inventory.compute.cpuCount} cores`, percent: inventory.compute.loadPercent },
     { label: "Memory", value: `${gib(inventory.compute.usedMemoryBytes)} / ${gib(inventory.compute.totalMemoryBytes)}`, percent: inventory.compute.memoryUsedPercent },
@@ -81,6 +97,15 @@ export default function HostOverview() {
         {filesystems.mounts.length > 0 && <div className="mount-grid">{filesystems.mounts.map((mount) => <article key={`${mount.target}-${mount.source}`}><div><strong>{mount.target}</strong><span className={`status-pill status-${mount.capacityState === "healthy" ? "good" : mount.capacityState === "unavailable" ? "neutral" : "warning"}`}>{mount.usedPercent === null ? "unknown" : `${mount.usedPercent}% used`}</span></div><p>{mount.source} | {mount.filesystem} | {mount.totalBytes === null ? "size unavailable" : gib(mount.totalBytes)}</p><small>{mount.readOnly ? "read-only" : "read-write"} | {mount.optionNames.length ? mount.optionNames.join(", ") : "no safe option flags reported"}</small><small className={`filesystem-error filesystem-error-${mount.errorEvidence.state}`}>{mount.errorEvidence.state === "healthy" ? `ext4 kernel errors: ${mount.errorEvidence.errorsCount}` : mount.errorEvidence.state === "critical" ? `ext4 kernel errors recorded: ${mount.errorEvidence.errorsCount}` : mount.errorEvidence.state === "unsupported" ? `${mount.filesystem} error counter unsupported` : "ext4 error counter unavailable"}</small></article>)}</div>}
         {smart.disks.length > 0 && <div className="smart-grid">{smart.disks.map((disk) => <article key={disk.device}><div><strong>{disk.device}</strong><span className={`status-pill status-${disk.health === "healthy" ? "good" : disk.health === "unavailable" ? "neutral" : "warning"}`}>{disk.health}</span></div><span>{disk.temperatureCelsius === null ? "temperature unavailable" : `${disk.temperatureCelsius} C`} | {disk.percentageUsed === null ? "wear unavailable" : `${disk.percentageUsed}% life used`} | {disk.mediaErrors === null ? "media errors unavailable" : `${disk.mediaErrors} media errors`}</span></article>)}</div>}
         <div className="storage-boundary"><strong>Read-only evidence boundary</strong><span>The browser cannot select a device, run smartctl, or start fsck. A fixed root-only timer reads the host PID 1 mount table, reads only the mounted ext4 kernel errors_count file, and writes bounded fields. Unsupported filesystems stay explicit; service-sandbox mounts, serials, UUIDs, raw SMART output, mount option values, and private home paths are excluded.</span></div>
+      </section>
+      <section className="panel power-evidence-panel">
+        <header className="panel-header"><div><strong>UPS power protection</strong><span>Optional read-only evidence from one locally enumerated NUT device</span></div><span className={`status-pill ${upsStatus === "healthy" ? "status-good" : upsStatus === "critical" || upsStatus === "warning" ? "status-warning" : "status-neutral"}`}>{upsStatus}</span></header>
+        <div className="power-evidence-summary">
+          <div><span className="eyebrow">Local state</span><strong>{upsHeadline}</strong><small>{ups.available ? ups.statusTokens.join(" ") || "status unavailable" : ups.reason.replaceAll("-", " ")}</small></div>
+          <div><span className="eyebrow">Battery charge</span><strong>{ups.batteryChargePercent === null ? "Unavailable" : `${ups.batteryChargePercent}%`}</strong><small>{ups.estimatedRuntimeSeconds === null ? "Runtime estimate unavailable" : `${duration(ups.estimatedRuntimeSeconds)} estimated runtime`}</small></div>
+          <div><span className="eyebrow">UPS load</span><strong>{ups.loadPercent === null ? "Unavailable" : `${ups.loadPercent}%`}</strong><small>{ups.deviceCount === 1 ? "One bounded local device" : `${ups.deviceCount} bounded local devices`}</small></div>
+        </div>
+        <div className="power-boundary"><strong>Read-only localhost boundary</strong><span>BoxPilot runs only fixed upsc queries against localhost. The browser cannot provide a target, device name, command, or argument. Device names, serials, alarms, and raw output are excluded. BoxPilot cannot switch power, start a shutdown, change NUT policy, or probe a remote UPS.</span></div>
       </section>
       <div className="dashboard-grid">
         <section className="panel"><header className="panel-header"><strong>Docker workloads</strong><span>{inventory.docker.available ? `${inventory.docker.containers.length} containers | ${inventory.docker.projects.length} projects` : "Unavailable"}</span></header>{inventory.docker.containers.length ? <div className="workload-list">{inventory.docker.containers.map((container) => <div className="workload" key={container.id}><div><strong>{container.name}</strong><span>{container.image} | {container.ports || "no published ports"}</span></div><span className="workload-kind">{container.networks || "Docker"}</span><span className={`status-pill ${container.state === "running" ? "status-good" : "status-warning"}`}>{container.state}</span></div>)}</div> : <p className="empty-state">{inventory.docker.error ?? "No Docker containers are present."}</p>}</section>

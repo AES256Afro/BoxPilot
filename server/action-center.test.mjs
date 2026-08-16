@@ -72,4 +72,19 @@ describe("read-only local Action Center", () => {
     const unsupported = await createActionCenterService({ recoveryKit, inventory, now }).inspect();
     expect(unsupported.notices).toEqual([expect.objectContaining({ id: "storage.filesystem-errors-unsupported", severity: "info" })]);
   });
+
+  it("maps optional local UPS evidence without exposing power controls", async () => {
+    const recoveryKit = { inspect: vi.fn(async () => ({ checks: [], evidence: { jobs: [] } })) };
+    const storage = { filesystems: { available: true, summary: { healthy: 1, warning: 0, critical: 0, unavailable: 0 }, errors: { healthy: 1, critical: 0, unavailable: 0, unsupported: 0 } }, smart: { available: true, status: "healthy", reason: "fixed-root-scan" } };
+    const inventory = { inspect: vi.fn(async () => ({ storage, power: { ups: { installed: false, configured: false, available: false, state: "unavailable", reason: "nut-client-not-installed" } } })) };
+    const optional = await createActionCenterService({ recoveryKit, inventory, now }).inspect();
+    expect(optional.notices).toEqual([expect.objectContaining({ id: "power.ups-not-configured", severity: "info", boundary: expect.objectContaining({ automaticFixAvailable: false }) })]);
+
+    inventory.inspect.mockResolvedValueOnce({ storage, power: { ups: { installed: true, configured: true, available: true, state: "low-battery", batteryChargePercent: 8 } } });
+    const critical = await createActionCenterService({ recoveryKit, inventory, now }).inspect();
+    expect(critical.notices).toEqual([expect.objectContaining({ id: "power.ups-critical", severity: "critical" })]);
+    const serialized = JSON.stringify(critical);
+    expect(serialized).not.toContain("upsdrvctl");
+    expect(serialized).not.toContain("shutdown -");
+  });
 });
