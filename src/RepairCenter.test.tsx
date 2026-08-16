@@ -183,4 +183,37 @@ describe("Repair Center", () => {
     fireEvent.click(screen.getByRole("button", { name: "Stage Docker install for password approval" }));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/prerequisite-repair-plans/docker-plan/stage", expect.objectContaining({ method: "POST" })));
   });
+
+  it("reviews and stages only the immutable Ubuntu virtualization bundle", async () => {
+    const packageSet = [
+      { name: "qemu-system-x86", version: "1:10.2.1+ds-1ubuntu3.2" },
+      { name: "libvirt-daemon-system", version: "12.0.0-1ubuntu5.2" },
+      { name: "libvirt-clients", version: "12.0.0-1ubuntu5.2" },
+      { name: "virtinst", version: "1:5.1.0-1" },
+      { name: "ovmf", version: "2025.11-3ubuntu7" },
+    ];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/operations/prerequisites") return new Response(JSON.stringify({ checks: [{ id: "virtualization.libvirt", group: "Virtualization", name: "KVM, QEMU, and libvirt", status: "repairable", summary: "Every fixed candidate is available", repair: { kind: "approved", description: "Review the exact five-package plan" } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/v1/prerequisite-repairs/virtualization/plans") {
+        expect(init).toMatchObject({ method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": "csrf-token" }, body: "{}" });
+        return new Response(JSON.stringify({ plan: { id: "virtualization-plan", revision: "virtualization-revision", expiresAt: "2026-08-16T13:00:00.000Z", output: { packageSet, currentState: "Hardware virtualization is available and no provider was detected", action: "Install the fixed Ubuntu virtualization bundle and verify qemu:///system", networkAccess: true, aptUpdatePerformed: false, dependencyChangesPossible: true, arbitraryPackageSelection: false, arbitraryRepositorySelection: false, operatorUserGroupChanged: false, networkCreated: false, storagePoolCreated: false, virtualMachineCreated: false, automaticRollback: false, recovery: "Inspect the dedicated unit, libvirtd, APT, dpkg, and /dev/kvm before retrying." } } }), { status: 201, headers: { "Content-Type": "application/json" } });
+      }
+      if (url === "/api/v1/prerequisite-repair-plans/virtualization-plan/stage") {
+        expect(init).toMatchObject({ method: "POST", body: JSON.stringify({ revision: "virtualization-revision" }) });
+        return new Response(JSON.stringify({ job: { id: "virtualization-job" } }), { status: 201, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("action-center")) return new Response(JSON.stringify({ error: "unavailable" }), { status: 503, headers: { "Content-Type": "application/json" } });
+      if (url.includes("recovery-kit")) return new Response(JSON.stringify({ error: "unavailable" }), { status: 503, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ jobs: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RepairCenter csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review virtualization install" }));
+    expect(await screen.findByText("KVM, QEMU, and libvirt Ubuntu bundle")).toBeTruthy();
+    expect(screen.getByText("5 exact Ubuntu candidates")).toBeTruthy();
+    expect(screen.getByText(/Ubuntu may install or update required dependencies/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage virtualization install for password approval" }));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/prerequisite-repair-plans/virtualization-plan/stage", expect.objectContaining({ method: "POST" })));
+  });
 });

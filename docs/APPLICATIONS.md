@@ -1,6 +1,6 @@
 # Curated applications
 
-BoxPilot `0.54.0` provides integrity-addressed manifests, executable Uptime Kuma and guarded Pi-hole adapters, three application-aware local backup adapters, encrypted independent exact-archive protection for verified Uptime Kuma, Pi-hole, and Keel records, and the guarded Keel recovery lifecycle through operator rollback. Its Repair Center can now install the fixed Ubuntu `docker.io` prerequisite when no compatible provider is active. The web process never receives the Docker socket or a general root operation.
+BoxPilot `0.55.0` provides integrity-addressed manifests, executable Uptime Kuma and guarded Pi-hole adapters, three application-aware local backup adapters, encrypted independent exact-archive protection for verified Uptime Kuma, Pi-hole, and Keel records, and the guarded Keel recovery lifecycle through operator rollback. Repair Center can install the fixed Ubuntu `docker.io` prerequisite on a clean host and the separate fixed KVM, QEMU, and libvirt bundle needed by Virtual Machines. The web process never receives the Docker socket or a general root operation.
 
 ## Install the Docker prerequisite on Ubuntu
 

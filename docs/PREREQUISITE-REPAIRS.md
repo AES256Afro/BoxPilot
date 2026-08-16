@@ -1,6 +1,6 @@
 # Exact prerequisite repair boundary
 
-BoxPilot `0.31.0` enables one narrowly scoped executable prerequisite repair: install the fixed Ubuntu `smartmontools` package and verify that the separate storage evidence scanner produces current evidence. Version `0.35.0` adds a separate metadata-only repair that runs the fixed configured-repository refresh without changing installed packages. Version `0.45.0` adds a second fixed package repair for the `restic` binary used by BoxPilot's separately configured encrypted repositories. Version `0.54.0` adds an Ubuntu `docker.io` installer only when no compatible Docker provider is active. None of these workflows is a general package manager.
+BoxPilot `0.31.0` enables one narrowly scoped executable prerequisite repair: install the fixed Ubuntu `smartmontools` package and verify that the separate storage evidence scanner produces current evidence. Version `0.35.0` adds a separate metadata-only repair that runs the fixed configured-repository refresh without changing installed packages. Version `0.45.0` adds a second fixed package repair for the `restic` binary used by BoxPilot's separately configured encrypted repositories. Version `0.54.0` adds an Ubuntu `docker.io` installer only on a provider-free host. Version `0.55.0` adds a clean-host five-root Ubuntu KVM, QEMU, libvirt, virt-install, and OVMF installer. None of these workflows is a general package manager.
 
 ## Operator workflow
 
@@ -16,6 +16,8 @@ BoxPilot `0.31.0` enables one narrowly scoped executable prerequisite repair: in
 The restic workflow follows the same plan, stage, and reauthentication sequence through **Review restic repair**. Its verification requires the exact package version and a successful fixed `/usr/bin/restic version` probe. It deliberately stops there. Independent storage mounting, recovery-key creation, repository initialization, backup execution, restore drills, retention, and prune are not part of this repair.
 
 The Docker workflow begins with **Review Docker install** only when fixed inspection proves there is no Docker client at the fixed path, no installed `docker.io` provider, and configured Ubuntu metadata exposes a candidate. An active compatible provider is already ready; a present but inactive or unrecognized provider is left for manual repair rather than replaced. The immutable plan shows the exact package version and daemon boundary. After staging and password reauthentication, the job installs that exact package, enables and starts only `docker.service`, and verifies the local server version. It does not replace an existing Docker CE or other provider, change daemon configuration, add a user to the `docker` group, pull an image, create a container, or deploy an application.
+
+The virtualization workflow begins with **Review virtualization install** only when `/dev/kvm` is a usable character device, neither fixed provider path nor any fixed root package is present, and configured Ubuntu metadata exposes candidates for all five roots. An existing active stack is ready; partial or inactive provider state is left for manual repair. The immutable plan shows each exact root version and discloses that APT may install or update required dependencies. After staging and password reauthentication, the job installs only those fixed roots, enables and starts only `libvirtd.service`, and verifies `/dev/kvm`, QEMU, and `qemu:///system`. Network, pool, media, disk, and VM setup remain separate operations.
 
 ## Fixed package unit
 
@@ -65,6 +67,18 @@ The helper creates `/run/boxpilot/docker-approval.json` only after confirming th
 
 The operation never runs `apt-get update`, adds the Docker repository or a signing key, changes `/etc/docker/daemon.json`, edits users or groups, opens a TCP daemon socket, pulls an image, creates a network or volume, or runs a container. Existing compatible providers are reported ready and cannot produce an installation plan.
 
+## Fixed virtualization package unit
+
+The `0.55.0` unit is another static no-argument operation:
+
+```ini
+ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-virtualization-install.mjs
+```
+
+The helper creates `/run/boxpilot/virtualization-approval.json` only after confirming the fixed five candidates, a usable `/dev/kvm`, and provider-free state. The marker contains only the exact five-root version map and approval time. The unit independently repeats every check, installs exact `name=version` roots for `qemu-system-x86`, `libvirt-daemon-system`, `libvirt-clients`, `virtinst`, and `ovmf`, enables and starts only `libvirtd.service`, and requires QEMU plus `qemu:///system` proof. Ubuntu APT resolves required dependencies from already configured repositories; the plan states that dependencies may be installed or updated.
+
+The operation never runs `apt-get update`, adds a repository or key, edits an operator user or group, replaces an existing or partial provider, creates or changes a libvirt network or storage pool, downloads or attaches an ISO, allocates a VM disk, defines a domain, starts a VM, or accepts a browser path, URI, command, option, package, or resource name.
+
 ## Durable and helper boundaries
 
 The browser can submit only an empty plan request and later the immutable revision. The helper protocol accepts:
@@ -75,6 +89,8 @@ The browser can submit only an empty plan request and later the immutable revisi
 - `prerequisite.restic.install` with one bounded `expectedVersion`
 - `prerequisite.docker.inspect` with no parameters
 - `prerequisite.docker.install` with one bounded `expectedVersion`
+- `prerequisite.virtualization.inspect` with no parameters
+- `prerequisite.virtualization.install` with the exact fixed five-key `expectedPackages` map
 - `prerequisite.apt-metadata.inspect` with no parameters
 - `prerequisite.apt-metadata.refresh` with one exact previous `expectedUpdatedAt` value
 
@@ -93,6 +109,9 @@ sudo systemctl status boxpilot-restic-install.service --no-pager
 sudo journalctl -u boxpilot-restic-install.service -n 100 --no-pager
 sudo systemctl status boxpilot-docker-install.service docker.service --no-pager
 sudo journalctl -u boxpilot-docker-install.service -u docker.service -n 100 --no-pager
+sudo systemctl status boxpilot-virtualization-install.service libvirtd.service --no-pager
+sudo journalctl -u boxpilot-virtualization-install.service -u libvirtd.service -n 100 --no-pager
+stat /dev/kvm
 sudo dpkg --audit
 sudo apt-get check
 ```
@@ -101,14 +120,15 @@ Repair interrupted dpkg or APT state from the server console before creating a n
 
 ## Explicit exclusions
 
-Version `0.54.0` cannot:
+Version `0.55.0` cannot:
 
-- Install, update, downgrade, hold, or remove any package other than the separately approved exact `smartmontools`, `restic`, or Ubuntu `docker.io` candidate
+- Install, update, downgrade, hold, or remove a requested root package other than the separately approved exact `smartmontools`, `restic`, Ubuntu `docker.io`, or fixed five-root virtualization set. APT may resolve dependencies required by an approved root.
 - Select a package name, repository, mirror, key, package file, option, command, or argument from the browser
-- Run any APT action except the separately approved fixed metadata-only `apt-get update --error-on=any`; it cannot run upgrade, dist-upgrade, install, remove, purge, autoremove, download, source, or repository-management operations
+- Run a general APT action. The only APT verbs are the separately approved metadata-only `apt-get update --error-on=any` and static exact-root `apt-get install` units. There is no browser-selected upgrade, dist-upgrade, remove, purge, autoremove, download, source, or repository-management operation.
 - Change a disk, partition, filesystem, mount, SMART setting, router, DNS setting, firewall, Tailscale setting, or reboot state
 - Create or read a restic recovery password, initialize or select a repository, start a backup or restore, change retention, prune data, or claim independent protection
 - Replace an active Docker provider, configure the Docker daemon, add users to the `docker` group, pull an image, or create a container, network, or volume
+- Replace a partial virtualization provider, change an operator user or group, create or change a libvirt network or pool, attach media, allocate a disk, define a domain, or start a VM
 - Automatically approve, schedule, retry, roll back, or hide a failed package operation
 - Turn missing or stale scanner evidence into a healthy claim
 

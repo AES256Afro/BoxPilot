@@ -11,8 +11,10 @@ const defaultEvidencePath = "/var/lib/boxpilot/storage-health.json";
 const defaultApprovalPath = "/run/boxpilot/smartmontools-approval.json";
 const defaultResticApprovalPath = "/run/boxpilot/restic-approval.json";
 const defaultDockerApprovalPath = "/run/boxpilot/docker-approval.json";
+const defaultVirtualizationApprovalPath = "/run/boxpilot/virtualization-approval.json";
 const defaultAptApprovalPath = "/run/boxpilot/apt-refresh-approval.json";
 const versionPattern = /^[0-9A-Za-z.+:~_-]{1,64}$/;
+const virtualizationPackageNames = ["qemu-system-x86", "libvirt-daemon-system", "libvirt-clients", "virtinst", "ovmf"];
 
 async function fixedRun(binary, args, { timeout = 30000 } = {}) {
   try {
@@ -73,6 +75,18 @@ async function writeDockerApprovalFile(approval) {
   await writeFile(defaultDockerApprovalPath, `${JSON.stringify(approval)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
 }
 
+async function clearVirtualizationApprovalFile() {
+  try {
+    await unlink(defaultVirtualizationApprovalPath);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+}
+
+async function writeVirtualizationApprovalFile(approval) {
+  await writeFile(defaultVirtualizationApprovalPath, `${JSON.stringify(approval)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+}
+
 async function clearAptApprovalFile() {
   try {
     await unlink(defaultAptApprovalPath);
@@ -98,6 +112,8 @@ export function createPrerequisiteHelper({
   writeResticApproval = writeResticApprovalFile,
   clearDockerApproval = clearDockerApprovalFile,
   writeDockerApproval = writeDockerApprovalFile,
+  clearVirtualizationApproval = clearVirtualizationApprovalFile,
+  writeVirtualizationApproval = writeVirtualizationApprovalFile,
   maintenance = createMaintenanceService(),
   clearAptApproval = clearAptApprovalFile,
   writeAptApproval = writeAptApprovalFile,
@@ -290,6 +306,103 @@ export function createPrerequisiteHelper({
     };
   }
 
+  async function inspectVirtualization() {
+    const packageEvidence = await Promise.all(virtualizationPackageNames.map(async (name) => {
+      const [installedResult, policyResult] = await Promise.all([
+        run(dpkgQueryBinary, ["--show", "--showformat=${Status}\\t${Version}", name], { timeout: 10000 }),
+        run(aptCacheBinary, ["policy", name], { timeout: 10000 }),
+      ]);
+      return {
+        name,
+        installedVersion: installedResult.ok ? installedVersion(installedResult.stdout) : null,
+        candidateVersion: policyResult.ok ? candidateVersion(policyResult.stdout) : null,
+      };
+    }));
+    const [virshPath, qemuPath, kvmDevice, service, uri, qemu] = await Promise.all([
+      run("/usr/bin/test", ["-e", "/usr/bin/virsh"], { timeout: 10000 }),
+      run("/usr/bin/test", ["-e", "/usr/bin/qemu-system-x86_64"], { timeout: 10000 }),
+      run("/usr/bin/test", ["-c", "/dev/kvm"], { timeout: 10000 }),
+      run(systemctlBinary, ["is-active", "--quiet", "libvirtd.service"], { timeout: 10000 }),
+      run("/usr/bin/virsh", ["--connect", "qemu:///system", "uri"], { timeout: 15000 }),
+      run("/usr/bin/qemu-system-x86_64", ["--version"], { timeout: 10000 }),
+    ]);
+    const installedPackages = Object.fromEntries(packageEvidence.map((item) => [item.name, item.installedVersion]));
+    const candidatePackages = Object.fromEntries(packageEvidence.map((item) => [item.name, item.candidateVersion]));
+    const providerPresent = virshPath.ok || qemuPath.ok || packageEvidence.some((item) => item.installedVersion !== null);
+    const packageSetInstalled = packageEvidence.every((item) => item.installedVersion !== null);
+    const candidateSetAvailable = packageEvidence.every((item) => item.candidateVersion !== null);
+    const connectionReady = uri.ok && uri.stdout === "qemu:///system";
+    const qemuVerified = qemu.ok && /^QEMU emulator version\s+\S+/i.test(qemu.stdout);
+    const installed = packageSetInstalled && kvmDevice.ok && service.ok && connectionReady && qemuVerified;
+    return {
+      installed,
+      installedPackages,
+      candidatePackages,
+      packageNames: [...virtualizationPackageNames],
+      packageSetInstalled,
+      candidateSetAvailable,
+      providerPresent,
+      kvmDeviceAvailable: kvmDevice.ok,
+      serviceActive: service.ok,
+      connectionReady,
+      connectionUri: connectionReady ? uri.stdout : null,
+      qemuVerified,
+      supported: providerPresent || (kvmDevice.ok && candidateSetAvailable),
+      repairAvailable: !providerPresent && kvmDevice.ok && candidateSetAvailable,
+      source: providerPresent ? "existing-virtualization-provider" : candidateSetAvailable ? "configured-apt-candidates" : "unavailable",
+      mutationPerformed: false,
+      arbitraryPackageAccepted: false,
+      arbitraryRepositoryAccepted: false,
+    };
+  }
+
+  async function installVirtualization({ expectedPackages }) {
+    const keys = expectedPackages && typeof expectedPackages === "object" && !Array.isArray(expectedPackages) ? Object.keys(expectedPackages).sort() : [];
+    const expectedKeys = [...virtualizationPackageNames].sort();
+    if (keys.length !== expectedKeys.length || keys.some((key, index) => key !== expectedKeys[index]) || keys.some((key) => !versionPattern.test(String(expectedPackages[key] ?? "")))) {
+      throw new Error("The expected virtualization package set is invalid");
+    }
+    const before = await inspectVirtualization();
+    if (before.installed) throw new Error("The KVM, QEMU, and libvirt stack is already active; BoxPilot will not replace it");
+    if (!before.repairAvailable || expectedKeys.some((name) => before.candidatePackages[name] !== expectedPackages[name])) {
+      throw new Error("Host state changed: the fixed virtualization package candidates no longer match the approved plan");
+    }
+    await clearVirtualizationApproval();
+    await writeVirtualizationApproval({ packages: expectedPackages, approvedAt: now().toISOString() });
+    let start;
+    try {
+      start = await run(systemctlBinary, ["start", "boxpilot-virtualization-install.service"], { timeout: 21 * 60 * 1000 });
+    } finally {
+      await clearVirtualizationApproval();
+    }
+    if (!start.ok) throw new Error("The fixed virtualization installation service failed");
+    const after = await inspectVirtualization();
+    if (!after.installed || expectedKeys.some((name) => after.installedPackages[name] !== expectedPackages[name])) {
+      throw new Error("The virtualization stack did not match the approved package, KVM, service, QEMU, and system-URI proof after installation");
+    }
+    return {
+      installed: true,
+      packages: after.installedPackages,
+      serviceActive: true,
+      connectionUri: after.connectionUri,
+      qemuVerified: true,
+      kvmDeviceVerified: true,
+      boundary: {
+        fixedPackageSet: true,
+        arbitraryPackageAccepted: false,
+        arbitraryRepositoryAccepted: false,
+        aptUpdatePerformed: false,
+        packageRemovalPerformed: false,
+        existingProviderReplaced: false,
+        operatorUserGroupChanged: false,
+        networkCreated: false,
+        storagePoolCreated: false,
+        virtualMachineCreated: false,
+        browserCommandAccepted: false,
+      },
+    };
+  }
+
   async function inspectAptMetadata() {
     const evidence = await maintenance.inspect();
     const packageManagerState = evidence.packageManager.state;
@@ -340,7 +453,7 @@ export function createPrerequisiteHelper({
     };
   }
 
-  return { inspectSmartmontools, installSmartmontools, inspectRestic, installRestic, inspectDocker, installDocker, inspectAptMetadata, refreshAptMetadata };
+  return { inspectSmartmontools, installSmartmontools, inspectRestic, installRestic, inspectDocker, installDocker, inspectVirtualization, installVirtualization, inspectAptMetadata, refreshAptMetadata };
 }
 
-export const prerequisiteHelperInternals = { candidateVersion, cleanVersion, defaultAptCache, defaultAptApprovalPath, defaultApprovalPath, defaultResticApprovalPath, defaultDockerApprovalPath, defaultDpkgQuery, defaultEvidencePath, defaultSystemctl, installedVersion, versionPattern };
+export const prerequisiteHelperInternals = { candidateVersion, cleanVersion, defaultAptCache, defaultAptApprovalPath, defaultApprovalPath, defaultResticApprovalPath, defaultDockerApprovalPath, defaultVirtualizationApprovalPath, defaultDpkgQuery, defaultEvidencePath, defaultSystemctl, installedVersion, versionPattern, virtualizationPackageNames };
