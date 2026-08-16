@@ -164,6 +164,29 @@ export function createStateStore({
       created_by TEXT NOT NULL REFERENCES owners(id),
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS application_recovery_promotions (
+      id TEXT PRIMARY KEY,
+      recovery_id TEXT NOT NULL REFERENCES application_recoveries(id),
+      drill_id TEXT NOT NULL REFERENCES application_recovery_drills(id),
+      application_id TEXT NOT NULL,
+      release_version TEXT NOT NULL,
+      previous_install_id TEXT NOT NULL,
+      source_evidence_checksum_sha256 TEXT NOT NULL,
+      source_state_tree_digest_sha256 TEXT NOT NULL,
+      previous_state_tree_digest_sha256 TEXT NOT NULL,
+      promoted_state_tree_digest_sha256 TEXT NOT NULL,
+      rollback_path TEXT NOT NULL UNIQUE,
+      rollback_evidence_path TEXT NOT NULL UNIQUE,
+      health_identity_verified INTEGER NOT NULL,
+      database_integrity TEXT NOT NULL,
+      foreign_key_issues INTEGER NOT NULL,
+      schema_verified INTEGER NOT NULL,
+      rollback_available INTEGER NOT NULL,
+      source_recovery_unchanged INTEGER NOT NULL,
+      owner_login_tested INTEGER NOT NULL,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS controller_backup_protections (
       id TEXT PRIMARY KEY,
       backup_id TEXT NOT NULL UNIQUE REFERENCES backups(id),
@@ -414,6 +437,7 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_vm_recoveries_created_at ON vm_recoveries(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_application_recoveries_created_at ON application_recoveries(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_application_recovery_drills_created_at ON application_recovery_drills(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_application_recovery_promotions_created_at ON application_recovery_promotions(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_vm_retention_runs_created_at ON vm_retention_runs(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_migration_sources_imported_at ON migration_sources(imported_at DESC);
     CREATE INDEX IF NOT EXISTS idx_migration_transfers_created_at ON migration_transfers(created_at DESC);
@@ -774,6 +798,51 @@ export function createStateStore({
   function listApplicationRecoveryDrills(limit = 50) {
     const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
     return database.prepare("SELECT * FROM application_recovery_drills ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapApplicationRecoveryDrill);
+  }
+
+  function mapApplicationRecoveryPromotion(row) {
+    return row ? {
+      id: row.id,
+      recoveryId: row.recovery_id,
+      drillId: row.drill_id,
+      applicationId: row.application_id,
+      releaseVersion: row.release_version,
+      previousInstallId: row.previous_install_id,
+      sourceEvidenceChecksumSha256: row.source_evidence_checksum_sha256,
+      sourceStateTreeDigestSha256: row.source_state_tree_digest_sha256,
+      previousStateTreeDigestSha256: row.previous_state_tree_digest_sha256,
+      promotedStateTreeDigestSha256: row.promoted_state_tree_digest_sha256,
+      rollbackPath: row.rollback_path,
+      rollbackEvidencePath: row.rollback_evidence_path,
+      healthIdentityVerified: Boolean(row.health_identity_verified),
+      databaseIntegrity: row.database_integrity,
+      foreignKeyIssues: Number(row.foreign_key_issues),
+      schemaVerified: Boolean(row.schema_verified),
+      rollbackAvailable: Boolean(row.rollback_available),
+      sourceRecoveryUnchanged: Boolean(row.source_recovery_unchanged),
+      ownerLoginTested: Boolean(row.owner_login_tested),
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+    } : null;
+  }
+
+  function recordApplicationRecoveryPromotion({ id, recoveryId, drillId, applicationId, releaseVersion, previousInstallId, sourceEvidenceChecksumSha256, sourceStateTreeDigestSha256, previousStateTreeDigestSha256, promotedStateTreeDigestSha256, rollbackPath, rollbackEvidencePath, healthIdentityVerified, databaseIntegrity, foreignKeyIssues, schemaVerified, rollbackAvailable, sourceRecoveryUnchanged, ownerLoginTested, createdBy }) {
+    const at = timestamp();
+    database.prepare(`
+      INSERT INTO application_recovery_promotions (id, recovery_id, drill_id, application_id, release_version, previous_install_id, source_evidence_checksum_sha256, source_state_tree_digest_sha256, previous_state_tree_digest_sha256, promoted_state_tree_digest_sha256, rollback_path, rollback_evidence_path, health_identity_verified, database_integrity, foreign_key_issues, schema_verified, rollback_available, source_recovery_unchanged, owner_login_tested, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, recoveryId, drillId, applicationId, releaseVersion, previousInstallId, sourceEvidenceChecksumSha256, sourceStateTreeDigestSha256, previousStateTreeDigestSha256, promotedStateTreeDigestSha256, rollbackPath, rollbackEvidencePath, healthIdentityVerified ? 1 : 0, databaseIntegrity, foreignKeyIssues, schemaVerified ? 1 : 0, rollbackAvailable ? 1 : 0, sourceRecoveryUnchanged ? 1 : 0, ownerLoginTested ? 1 : 0, createdBy, at);
+    recordAudit("application.recovery.promoted", { actorId: createdBy, subjectId: id, details: { recoveryId, drillId, applicationId, releaseVersion, rollbackAvailable } });
+    return getApplicationRecoveryPromotion(id);
+  }
+
+  function getApplicationRecoveryPromotion(id) {
+    return mapApplicationRecoveryPromotion(database.prepare("SELECT * FROM application_recovery_promotions WHERE id = ?").get(id));
+  }
+
+  function listApplicationRecoveryPromotions(limit = 50) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    return database.prepare("SELECT * FROM application_recovery_promotions ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapApplicationRecoveryPromotion);
   }
 
   function recordApplicationBackupProtection({ id, backupId, applicationId, destination, repositoryId, snapshotId, sizeBytes, encrypted, independent, repositoryVerified, protected: protectedState, restoreDrill, createdBy }) {
@@ -1578,6 +1647,9 @@ export function createStateStore({
     recordApplicationRecoveryDrill,
     getApplicationRecoveryDrill,
     listApplicationRecoveryDrills,
+    recordApplicationRecoveryPromotion,
+    getApplicationRecoveryPromotion,
+    listApplicationRecoveryPromotions,
     recordApplicationBackupProtection,
     getApplicationBackupProtection,
     getApplicationBackupProtectionByBackup,

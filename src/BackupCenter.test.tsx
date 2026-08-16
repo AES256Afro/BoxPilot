@@ -189,4 +189,50 @@ describe("Backup Center", () => {
     fireEvent.click(screen.getByRole("button", { name: "Stage isolated startup rehearsal" }));
     await waitFor(() => expect(onOpenRepair).toHaveBeenCalled());
   });
+
+  it("plans and stages only a drilled Keel recovery for critical production promotion", async () => {
+    const onOpenRepair = vi.fn();
+    const recoveryId = "22222222-2222-4222-8222-222222222222";
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/backups") return new Response(JSON.stringify({ coverage: [], backups: [], limitations: [] }), { status: 200 });
+      if (url === "/api/v1/controller-backup-protection") return new Response(JSON.stringify({ destination: { ready: false, blockers: [], setupCommand: "sudo setup" }, protections: [] }), { status: 200 });
+      if (url === "/api/v1/application-backup-protection") return new Response(JSON.stringify(blockedApplicationProtection), { status: 200 });
+      if (url === "/api/v1/controller-backup-retention") return new Response(JSON.stringify(blockedRetention), { status: 200 });
+      if (url === "/api/v1/keel-recoveries") return new Response(JSON.stringify({ recoveries: [{ id: recoveryId, backupId: "11111111-1111-4111-8111-111111111111", applicationId: "keel", destination: "managed-keel-recovery", statePath: `/var/lib/boxpilot-managed/keel-recoveries/${recoveryId}/state`, evidencePath: `/var/lib/boxpilot-managed/keel-recoveries/${recoveryId}/recovery.json`, sizeBytes: 4096, state: "stopped", network: "none", createdAt: "2026-08-16T00:00:00.000Z" }] }), { status: 200 });
+      if (url === "/api/v1/keel-recovery-drills") return new Response(JSON.stringify({ drills: [{ id: "33333333-3333-4333-8333-333333333333", recoveryId, applicationId: "keel", releaseVersion: "1.2.6", network: "private-loopback-only", healthIdentityVerified: true, databaseIntegrity: "ok", foreignKeyIssues: 0, schemaVerified: true, processStarted: true, processStopped: true, workspaceRemoved: true, sourceRecoveryUnchanged: true, passed: true, createdAt: "2026-08-16T00:05:00.000Z" }] }), { status: 200 });
+      if (url === "/api/v1/keel-recovery-promotions") return new Response(JSON.stringify({ promotions: [] }), { status: 200 });
+      if (url === `/api/v1/keel-recoveries/${recoveryId}/promotion-plans` && init?.method === "POST") return new Response(JSON.stringify({ plan: { id: "promotion-plan", revision: "promotion-revision", subjectId: recoveryId, output: { executable: true, releaseVersion: "1.2.6", network: "host-loopback-only", rollbackDestination: "managed-keel-promotion-rollback", blockers: [], changes: ["Atomically activate drilled state"], verification: ["Previous production rollback retained"], warnings: ["Owner login is not tested"], recovery: "Restore previous production automatically" } } }), { status: 201 });
+      if (url === "/api/v1/keel-promotion-plans/promotion-plan/stage" && init?.method === "POST") return new Response(JSON.stringify({ job: { id: "promotion-job" } }), { status: 201 });
+      return new Response("{}", { status: 404 });
+    }));
+    render(<BackupCenter csrfToken="csrf" onOpenRepair={onOpenRepair} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Plan production promotion" }));
+    expect(await screen.findByRole("region", { name: "Keel production promotion plan" })).toBeTruthy();
+    expect(screen.getByText("Previous production rollback retained")).toBeTruthy();
+    expect(screen.getByText(/host-loopback-only/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage critical production promotion" }));
+    await waitFor(() => expect(onOpenRepair).toHaveBeenCalled());
+  });
+
+  it("does not offer promotion when a newer rehearsal failed", async () => {
+    const recoveryId = "22222222-2222-4222-8222-222222222222";
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === "/api/v1/backups") return new Response(JSON.stringify({ coverage: [], backups: [], limitations: [] }), { status: 200 });
+      if (url === "/api/v1/controller-backup-protection") return new Response(JSON.stringify({ destination: { ready: false, blockers: [], setupCommand: "sudo setup" }, protections: [] }), { status: 200 });
+      if (url === "/api/v1/application-backup-protection") return new Response(JSON.stringify(blockedApplicationProtection), { status: 200 });
+      if (url === "/api/v1/controller-backup-retention") return new Response(JSON.stringify(blockedRetention), { status: 200 });
+      if (url === "/api/v1/keel-recoveries") return new Response(JSON.stringify({ recoveries: [{ id: recoveryId, backupId: "11111111-1111-4111-8111-111111111111", applicationId: "keel", destination: "managed-keel-recovery", statePath: `/var/lib/boxpilot-managed/keel-recoveries/${recoveryId}/state`, evidencePath: `/var/lib/boxpilot-managed/keel-recoveries/${recoveryId}/recovery.json`, sizeBytes: 4096, state: "stopped", network: "none", createdAt: "2026-08-16T00:00:00.000Z" }] }), { status: 200 });
+      if (url === "/api/v1/keel-recovery-drills") return new Response(JSON.stringify({ drills: [
+        { id: "44444444-4444-4444-8444-444444444444", recoveryId, applicationId: "keel", releaseVersion: "1.2.6", passed: false, createdAt: "2026-08-16T00:10:00.000Z" },
+        { id: "33333333-3333-4333-8333-333333333333", recoveryId, applicationId: "keel", releaseVersion: "1.2.6", passed: true, createdAt: "2026-08-16T00:05:00.000Z" },
+      ] }), { status: 200 });
+      if (url === "/api/v1/keel-recovery-promotions") return new Response(JSON.stringify({ promotions: [] }), { status: 200 });
+      return new Response("{}", { status: 404 });
+    }));
+    render(<BackupCenter csrfToken="csrf" onOpenRepair={() => {}} />);
+    expect(await screen.findByRole("button", { name: "Plan isolated startup rehearsal" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Plan production promotion" })).toBeNull();
+  });
 });
