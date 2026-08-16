@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.52.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.53.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -377,6 +377,16 @@ describe("restricted helper protocol", () => {
     };
     await expect(executeHelperOperation(request({ operation: "application.keel.install.inspect", parameters: {} }), { keelInstall })).resolves.toMatchObject({ ok: true, result: { state: "absent", readyToInstall: true, boundary: { mutationPerformed: false } } });
     await expect(executeHelperOperation(request({ operation: "application.keel.install", parameters: { installId } }), { keelInstall })).resolves.toMatchObject({ ok: true, result: { installed: true, healthy: true, installId, listener: "127.0.0.1:3000", boundary: { claimChanged: false, arbitraryCommandAccepted: false } } });
+  });
+
+  it("accepts only parameter-free sanitized Keel owner-login proof inspection", async () => {
+    expect(validateHelperRequest(request({ operation: "application.keel.login-proof.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.keel.login-proof.inspect", parameters: { email: "owner@example.test" } }))).toContain("no parameters");
+    const keelLoginProof = { inspect: async () => ({ state: "verified", verified: true, credentialsStored: false, sessionStored: false, boundary: { credentialRead: false, sessionRead: false } }) };
+    await expect(executeHelperOperation(request({ operation: "application.keel.login-proof.inspect", parameters: {} }), { keelLoginProof })).resolves.toMatchObject({
+      ok: true,
+      result: { state: "verified", verified: true, credentialsStored: false, sessionStored: false, boundary: { credentialRead: false, sessionRead: false } },
+    });
   });
 
   it("accepts only exact migration bundle evidence and keeps all paths helper-owned", async () => {

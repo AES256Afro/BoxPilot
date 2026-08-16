@@ -82,7 +82,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   applications: {
     label: "Curated application engine",
     tone: "live",
-    description: "Manifests, host-backed plans, Uptime Kuma, guarded Pi-hole staging, and Keel discovery are live. Keel 1.2.6 can be acquired, checked twice, and staged as an inert root-only release tree. Installation, router writes, and client DNS cutover remain locked.",
+    description: "Curated deployment, backup, and recovery adapters are live. Keel 1.2.6 includes guarded native install, terminal claim, sanitized instance-owner login proof, backup, recovery rehearsal, promotion, and rollback. Router writes, client DNS cutover, and general application execution remain locked.",
   },
   network: {
     label: "Network intelligence and guarded direct tests",
@@ -313,7 +313,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.52.0 Keel recovery<br />operator rollback</div>
+        <div className="prototype-label">v0.53.0 Keel owner login<br />terminal proof</div>
       </aside>
 
       <main>

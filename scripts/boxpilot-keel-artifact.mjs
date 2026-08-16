@@ -33,7 +33,7 @@ function validateRequestUrl(value, redirectNumber, spec = keelArtifactSpec) {
 function defaultRequest(url) {
   return new Promise((resolve, reject) => {
     const request = https.get(url, {
-      headers: { Accept: "application/octet-stream", "User-Agent": "BoxPilot-Keel-Artifact/0.52.0" },
+      headers: { Accept: "application/octet-stream", "User-Agent": "BoxPilot-Keel-Artifact/0.53.0" },
       timeout: 30000,
     }, resolve);
     request.once("timeout", () => request.destroy(new Error("The Keel artifact request timed out")));
