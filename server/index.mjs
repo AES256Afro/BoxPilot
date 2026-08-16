@@ -5,6 +5,7 @@ import { createAuditLog } from "./audit.mjs";
 import { createApplicationService } from "./applications.mjs";
 import { createBackupService } from "./backups.mjs";
 import { createDnsAcceptanceService } from "./dns-acceptance.mjs";
+import { createFleetService } from "./fleet.mjs";
 import { createAuthService } from "./security.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { buildConsoleGuidanceResponse, createHelperLibvirtService } from "./helper-libvirt.mjs";
@@ -44,6 +45,7 @@ const network = createNetworkService({ store: state });
 const applications = createApplicationService({ store: state, prerequisites, helper, network });
 const backups = createBackupService({ store: state, prerequisites, helper });
 const dnsAcceptance = createDnsAcceptanceService({ store: state, helper, network });
+const fleet = createFleetService({ store: state });
 const inventory = createInventoryService({ helper });
 const migrations = createMigrationService({ store: state, inventory, helper });
 const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, libvirt });
@@ -99,7 +101,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.21.0",
+    version: "0.22.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -113,6 +115,44 @@ app.get("/api/v1/auth/status", auth.status);
 app.post("/api/v1/auth/bootstrap", auth.bootstrap);
 app.post("/api/v1/auth/login", auth.login);
 app.post("/api/v1/auth/logout", auth.requireSession, auth.requireCsrf, auth.logout);
+
+app.post("/api/v1/agent/enroll", (request, response) => {
+  try {
+    response.status(201).json({ agent: fleet.enroll(request.body) });
+  } catch (error) {
+    response.status(401).json({ error: error.message, code: "agent_enrollment_rejected" });
+  }
+});
+
+function agentHeaders(request) {
+  return {
+    agentId: request.get("x-boxpilot-agent-id"),
+    sequence: request.get("x-boxpilot-agent-sequence"),
+    timestamp: request.get("x-boxpilot-agent-timestamp"),
+    signature: request.get("x-boxpilot-agent-signature"),
+  };
+}
+
+app.get("/api/v1/agent/tasks/next", (request, response) => {
+  try {
+    const task = fleet.nextTask({ headers: agentHeaders(request) });
+    if (!task) {
+      response.status(204).end();
+      return;
+    }
+    response.json({ task });
+  } catch (error) {
+    response.status(401).json({ error: error.message, code: "agent_request_rejected" });
+  }
+});
+
+app.post("/api/v1/agent/evidence", (request, response) => {
+  try {
+    response.status(201).json({ evidence: fleet.submitEvidence({ headers: agentHeaders(request) }, request.body) });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "agent_evidence_rejected" });
+  }
+});
 
 app.use("/api/v1", auth.requireSession);
 app.use("/api/v1", (request, response, next) => {
@@ -144,7 +184,37 @@ app.get("/api/v1/capabilities", (_request, response) => {
     vmProtection: { destination: "fixed-independent-mounted-restic", encrypted: true, repositoryReadVerified: true, isolatedRestoreDrill: "transient-no-network-guest-agent", protectedBackup: "after-passing-restore-drill", retentionMutation: "exact-protected-old-snapshot-forget-without-prune" },
     vmRecovery: { create: "protected-snapshot-to-new-stopped-persistent-domain", network: "none", autostart: false, inPlaceRestore: false, sourceDeletion: false },
     vmConsole: { nativeProxy: false, cockpitHandoff: "detect-existing-only" },
+    fleet: { enrollment: "one-time-digest-stored-token", identity: "ed25519-signed-replay-protected", execution: "node-local-allowlisted-dns-probe-only", controllerShellAccess: false },
   });
+});
+
+app.get("/api/v1/fleet", (_request, response) => {
+  response.json(fleet.inspect());
+});
+
+app.post("/api/v1/fleet/enrollments", async (request, response) => {
+  try {
+    const enrollment = await fleet.createEnrollment(request.boxpilotSession.owner.id, request.body);
+    response.status(201).json({ enrollment });
+  } catch (error) {
+    response.status(401).json({ error: error.message, code: "fleet_enrollment_creation_rejected" });
+  }
+});
+
+app.post("/api/v1/fleet/agents/:id/revoke", async (request, response) => {
+  try {
+    response.json({ agent: await fleet.revoke(request.boxpilotSession.owner.id, request.params.id, request.body) });
+  } catch (error) {
+    response.status(error.message.includes("not found") ? 404 : 401).json({ error: error.message, code: "fleet_agent_revocation_rejected" });
+  }
+});
+
+app.post("/api/v1/fleet/dns-probe-tasks", (request, response) => {
+  try {
+    response.status(201).json({ task: fleet.createDnsProbeTask(request.boxpilotSession.owner.id, request.body) });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "fleet_dns_probe_task_rejected" });
+  }
 });
 
 app.get("/api/v1/operations/prerequisites", async (_request, response) => {
@@ -583,7 +653,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.21.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.22.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });
