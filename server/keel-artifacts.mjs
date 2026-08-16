@@ -94,7 +94,7 @@ export function createKeelArtifactService({
     store.stagePlan(plan.id, ownerId);
     return store.createJob({
       type: "application.keel.artifact.acquire",
-      title: "Acquire and locally verify Keel 1.2.5 artifact",
+      title: "Acquire and locally verify Keel 1.2.6 artifact",
       risk: "networked-artifact",
       parameters: { planId: plan.id, revision: plan.revision, acquisitionId: plan.input.acquisitionId, expectedArtifactState: plan.input.expectedArtifactState },
       recovery: {

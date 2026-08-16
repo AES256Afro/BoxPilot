@@ -3,11 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApplicationService, listApplicationManifests } from "./applications.mjs";
+import { keelArtifactSpec } from "./keel-artifact-spec.mjs";
 import { createStateStore } from "./state.mjs";
 
 const directories = [];
 
-async function setup({ statuses = {}, portInUse = false, assessmentError = null, keelProvenanceMatches = true, keelDiscovery = null, keelDiscoveryError = null, keelArchive = null, hostPlatform = "linux", hostArchitecture = "x64" } = {}) {
+async function setup({ statuses = {}, portInUse = false, assessmentError = null, keelProvenanceMatches = true, keelDiscovery = null, keelDiscoveryError = null, keelArtifact = null, keelArchive = null, keelStaging = null, hostPlatform = "linux", hostArchitecture = "x64" } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-apps-"));
   directories.push(directory);
   const store = createStateStore({ stateDirectory: directory });
@@ -29,9 +30,9 @@ async function setup({ statuses = {}, portInUse = false, assessmentError = null,
       repositories: [{
         id: "keel", status: "available",
         latestRelease: {
-          tagName: "v1.2.5",
-          commit: { sha: "bcf872e2cee5820bdeb74685f5573cc6beb0a28f" },
-          assets: [{ name: "keel-1.2.5-linux-x64.tar.gz", sizeBytes: 47655144, digest: keelProvenanceMatches ? "sha256:4b24067aa219bc00bf4f7c1846f78945e8abda3f5b68353e4967570d5b57e6ee" : `sha256:${"f".repeat(64)}` }],
+          tagName: keelArtifactSpec.releaseTag,
+          commit: { sha: keelArtifactSpec.releaseCommitSha },
+          assets: [{ name: keelArtifactSpec.name, sizeBytes: keelArtifactSpec.sizeBytes, digest: keelProvenanceMatches ? keelArtifactSpec.digest : `sha256:${"f".repeat(64)}` }],
         },
       }],
     })),
@@ -47,8 +48,9 @@ async function setup({ statuses = {}, portInUse = false, assessmentError = null,
       if (keelDiscoveryError) throw new Error(keelDiscoveryError);
       return defaultKeelDiscovery;
     }
-    if (operation === "application.keel.artifact.inspect") return { state: "absent", readyToAcquire: true, artifactPresent: false, locallyVerified: false, partialPresent: false, acquiredAt: null, detail: "The fixed Keel release archive is not present", boundary: { mutationPerformed: false, extractionPerformed: false, applicationInstalled: false } };
+    if (operation === "application.keel.artifact.inspect") return keelArtifact ?? { state: "absent", readyToAcquire: true, artifactPresent: false, locallyVerified: false, partialPresent: false, acquiredAt: null, detail: "The fixed Keel release archive is not present", boundary: { mutationPerformed: false, extractionPerformed: false, applicationInstalled: false } };
     if (operation === "application.keel.archive.inspect") return keelArchive ?? { state: "artifact-required", safeToExtract: false, artifactLocallyVerified: false, memberCount: 0, risks: ["artifact-required"], detail: "Acquire the fixed archive first", boundary: { mutationPerformed: false, extractionPerformed: false } };
+    if (operation === "application.keel.stage.inspect") return keelStaging ?? { state: "absent", staged: false, readyToStage: true, version: null, sourceMemberCount: 0, partialCount: 0, stagedAt: null, detail: "The fixed Keel release has not been staged", boundary: { mutationPerformed: false } };
     return { installed: false, state: "not-installed", detail: "Ready to plan" };
   });
   const service = createApplicationService({
@@ -74,7 +76,7 @@ describe("application manifests and plans", () => {
     expect(catalog.map((item) => item.id)).toEqual(["uptime-kuma", "pi-hole", "keel"]);
     expect(catalog[0]).toMatchObject({ image: { version: "2.5.0", digestPinned: true }, integrity: expect.stringMatching(/^sha256:[a-f0-9]{64}$/) });
     expect(catalog[1]).toMatchObject({ execution: "enabled", risk: "network-critical", adapterVersion: "0.2.0", image: { version: "2026.07.2", digestPinned: true, reference: expect.stringMatching(/^pihole\/pihole@sha256:/) } });
-    expect(catalog[2]).toMatchObject({ adapterVersion: "0.2.0-plan", execution: "planning-only", risk: "stateful", targets: ["native-service"], artifact: { releaseTag: "v1.2.5", releaseCommitSha: "bcf872e2cee5820bdeb74685f5573cc6beb0a28f", name: "keel-1.2.5-linux-x64.tar.gz", digest: "sha256:4b24067aa219bc00bf4f7c1846f78945e8abda3f5b68353e4967570d5b57e6ee", locallyVerifiedByBoxPilot: false } });
+    expect(catalog[2]).toMatchObject({ adapterVersion: "0.3.0-stage", execution: "staging-enabled", risk: "stateful", targets: ["native-service"], image: { version: "1.2.6", digestPinned: true }, artifact: { ...keelArtifactSpec, locallyVerifiedByBoxPilot: false } });
   });
 
   it("reports fixed read-only Keel host discovery together with release provenance", async () => {
@@ -87,12 +89,14 @@ describe("application manifests and plans", () => {
       provenance: { status: "matched", checkedAt: "2026-08-16T03:00:00.000Z" },
       artifact: { state: "absent", readyToAcquire: true, locallyVerified: false },
       archive: { state: "artifact-required", safeToExtract: false, risks: ["artifact-required"] },
+      staging: { state: "absent", staged: false, readyToStage: true },
       boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false },
     });
     expect(catalog.applications.find((item) => item.id === "keel")?.live.detail).toContain("No supported Keel");
     expect(helperRequest).toHaveBeenCalledWith("application.keel.inspect", {});
     expect(helperRequest).toHaveBeenCalledWith("application.keel.artifact.inspect", {});
     expect(helperRequest).toHaveBeenCalledWith("application.keel.archive.inspect", {});
+    expect(helperRequest).toHaveBeenCalledWith("application.keel.stage.inspect", {});
     expect(githubProvenance.inspect).toHaveBeenCalled();
     store.close();
   });
@@ -135,24 +139,31 @@ describe("application manifests and plans", () => {
     store.close();
   });
 
-  it("creates an immutable but non-executable Keel plan only when exact public provenance matches", async () => {
-    const { store, owner, service, githubProvenance } = await setup();
+  it("creates, stages, and revalidates an executable inert Keel 1.2.6 release plan", async () => {
+    const { store, owner, service, githubProvenance, helperRequest } = await setup({
+      keelArtifact: { state: "verified", readyToAcquire: false, artifactPresent: true, locallyVerified: true, partialPresent: false, acquiredAt: "2026-08-16T04:00:00.000Z", sha256: keelArtifactSpec.digest, detail: "Exact local bytes verified" },
+      keelArchive: { state: "safe", safeToExtract: true, artifactLocallyVerified: true, memberCount: 2974, risks: [], detail: "The exact archive passed the runtime gate" },
+    });
     const plan = await service.plan("keel", { target: "native-service", hostPort: 3000 }, owner.id);
     expect(plan.output).toMatchObject({
-      executable: false,
+      executable: true,
       artifact: {
-        releaseTag: "v1.2.5", releaseCommitSha: "bcf872e2cee5820bdeb74685f5573cc6beb0a28f", sizeBytes: 47655144,
-        digest: "sha256:4b24067aa219bc00bf4f7c1846f78945e8abda3f5b68353e4967570d5b57e6ee",
-        githubReportedDigestMatched: true, locallyVerifiedByBoxPilot: false,
+        releaseTag: "v1.2.6", releaseCommitSha: "884e7ab1cc48139ed51de350ea5812a2e3a9cc7d", sizeBytes: 71052143,
+        digest: "sha256:696f5e444696d3da876f870fe72b6743e7e15c4fbf25809d02469a14da1f2e00",
+        githubReportedDigestMatched: true, locallyVerifiedByBoxPilot: true,
       },
-      archiveInspection: { state: "artifact-required", safeToExtract: false },
-      blockers: expect.arrayContaining([expect.objectContaining({ id: "keel.archive" }), expect.objectContaining({ id: "keel.execution" })]),
+      archiveInspection: { state: "safe", safeToExtract: true, memberCount: 2974 },
+      stagingInspection: { state: "absent", readyToStage: true },
+      blockers: [],
       discovery: { installed: false, state: "not-installed", listener: "none", risks: [] },
     });
-    expect(plan.output.changes.join(" ")).toContain("five-minute one-use terminal claim");
+    expect(plan.output.changes.join(" ")).toContain("Leave service installation");
     expect(plan.output.warnings.join(" ")).toContain(".keel-server-secrets.key");
     expect(githubProvenance.inspect).toHaveBeenCalled();
-    await expect(service.stage(plan.id, plan.revision, owner.id)).rejects.toThrow("unresolved blockers");
+    const job = await service.stage(plan.id, plan.revision, owner.id);
+    expect(job).toMatchObject({ type: "application.keel.stage", risk: "stateful-staging", parameters: { planId: plan.id, revision: plan.revision, stageId: plan.input.stageId, hostPort: 3000 } });
+    await expect(service.validateJob(job)).resolves.toMatchObject({ id: plan.id, status: "staged", input: { stageId: plan.input.stageId } });
+    expect(helperRequest).toHaveBeenCalledWith("application.keel.stage.inspect", {});
     store.close();
   });
 
@@ -190,7 +201,6 @@ describe("application manifests and plans", () => {
     expect(plan.output.blockers).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "keel.existing-install" }),
       expect.objectContaining({ id: "keel.discovery-risk", summary: expect.stringContaining("non-loopback-listener") }),
-      expect.objectContaining({ id: "keel.execution" }),
     ]));
     expect(plan.output.blockers.find((item) => item.id === "port.3000")).toBeUndefined();
     expect(plan.output.discovery.boundary.secretRead).toBe(false);
@@ -202,7 +212,7 @@ describe("application manifests and plans", () => {
     const catalog = await service.list();
     expect(catalog.applications.find((item) => item.id === "keel")?.live).toMatchObject({ state: "discovery-unavailable", listener: "unknown", risks: ["helper-unavailable"] });
     const plan = await service.plan("keel", { target: "native-service", hostPort: 3000 }, owner.id);
-    expect(plan.output.blockers).toEqual(expect.arrayContaining([expect.objectContaining({ id: "keel.discovery" }), expect.objectContaining({ id: "keel.execution" })]));
+    expect(plan.output.blockers).toEqual(expect.arrayContaining([expect.objectContaining({ id: "keel.discovery" })]));
     expect(plan.output.discovery).toBeNull();
     store.close();
   });
@@ -213,7 +223,6 @@ describe("application manifests and plans", () => {
     expect(plan.output.blockers).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: "keel.platform" }),
       expect.objectContaining({ id: "github.provenance" }),
-      expect.objectContaining({ id: "keel.execution" }),
     ]));
     expect(plan.output.artifact.githubReportedDigestMatched).toBeUndefined();
     store.close();

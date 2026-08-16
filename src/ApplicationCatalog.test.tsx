@@ -59,25 +59,25 @@ describe("curated application catalog", () => {
     expect(screen.getByText(/DNS 192\.168\.8\.10:53 TCP\/UDP/)).toBeTruthy();
   });
 
-  it("shows an exact Keel release plan while keeping every execution step locked", async () => {
+  it("shows and stages the exact inert Keel 1.2.6 release without claiming installation", async () => {
     const artifact = {
-      repository: "AES256Afro/Keel", releaseTag: "v1.2.5", releaseCommitSha: "bcf872e2cee5820bdeb74685f5573cc6beb0a28f",
-      name: "keel-1.2.5-linux-x64.tar.gz", sizeBytes: 47655144,
-      digest: "sha256:4b24067aa219bc00bf4f7c1846f78945e8abda3f5b68353e4967570d5b57e6ee",
+      repository: "AES256Afro/Keel", releaseTag: "v1.2.6", releaseCommitSha: "884e7ab1cc48139ed51de350ea5812a2e3a9cc7d",
+      name: "keel-1.2.6-linux-x64.tar.gz", sizeBytes: 71052143,
+      digest: "sha256:696f5e444696d3da876f870fe72b6743e7e15c4fbf25809d02469a14da1f2e00",
       locallyVerifiedByBoxPilot: false,
     };
     const application = {
-      id: "keel", name: "Keel Notes", category: "Knowledge", description: "Self-hosted notebook", execution: "planning-only", risk: "stateful", targets: ["native-service"],
-      image: { version: "1.2.5", digestPinned: false }, artifact, integrity: `sha256:${"c".repeat(64)}`,
-      live: { installed: false, state: "not-installed", healthy: false, kind: null, version: null, listener: "none", healthIdentityVerified: false, risks: [], native: { candidateCount: 0 }, docker: { available: true, candidateCount: 0 }, provenance: { status: "matched", checkedAt: "2026-08-16T04:00:00Z" }, artifact: { state: "absent", readyToAcquire: true, artifactPresent: false, locallyVerified: false, partialPresent: false, detail: "The fixed Keel release archive is not present" }, archive: { state: "artifact-required", safeToExtract: false, artifactLocallyVerified: false, memberCount: 0, expectedMemberCount: 2900, risks: ["artifact-required"], detail: "Acquire and verify the archive first" }, detail: "No supported Keel installation was found", boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false } },
+      id: "keel", name: "Keel Notes", category: "Knowledge", description: "Self-hosted notebook", execution: "staging-enabled", risk: "stateful", targets: ["native-service"],
+      image: { version: "1.2.6", digestPinned: true }, artifact, integrity: `sha256:${"c".repeat(64)}`,
+      live: { installed: false, state: "not-installed", healthy: false, kind: null, version: null, listener: "none", healthIdentityVerified: false, risks: [], native: { candidateCount: 0 }, docker: { available: true, candidateCount: 0 }, provenance: { status: "matched", checkedAt: "2026-08-16T04:00:00Z" }, artifact: { state: "verified", readyToAcquire: false, artifactPresent: true, locallyVerified: true, partialPresent: false, detail: "The exact Keel release archive is locally verified" }, archive: { state: "safe", safeToExtract: true, artifactLocallyVerified: true, memberCount: 2974, expectedMemberCount: 2974, risks: [], detail: "The exact archive passed the runtime membership gate" }, staging: { state: "absent", staged: false, readyToStage: true, partialCount: 0, detail: "The fixed Keel release has not been staged" }, detail: "No supported Keel installation was found", boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false } },
     };
     const plan = {
       id: "keel-plan", subjectId: "keel", revision: "revision789", input: { target: "native-service", hostPort: 3000 }, expiresAt: "2026-08-16T04:00:00Z",
       output: {
-        executable: false, artifact: { ...artifact, githubReportedDigestMatched: true }, image: application.image, archiveInspection: application.live.archive,
+        executable: true, artifact: { ...artifact, locallyVerifiedByBoxPilot: true, githubReportedDigestMatched: true }, image: application.image, archiveInspection: application.live.archive, stagingInspection: application.live.staging,
         discovery: { installed: false, state: "not-installed", healthy: false, kind: null, version: null, port: 3000, listener: "none", healthIdentityVerified: false, risks: [], native: { candidateCount: 0 }, docker: { available: true, candidateCount: 0 }, detail: "No supported Keel installation was found", boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false } },
-        changes: ["Require a five-minute one-use terminal claim"],
-        blockers: [{ id: "keel.execution", summary: "Keel installation remains disabled", repair: { description: "Complete the restricted adapter" } }],
+        changes: ["Publish an inert root-only release tree", "Leave service, state, accounts, registration, and listeners unchanged"],
+        blockers: [],
         warnings: ["Keep the managed-secret key with the database"], recovery: { summary: "Preserve workspace data", preservesData: true },
       },
     };
@@ -90,6 +90,7 @@ describe("curated application catalog", () => {
       if (url.endsWith("/api/v1/applications")) return new Response(JSON.stringify({ applications: [application] }), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url.endsWith("/api/v1/applications/keel/artifact-plans")) return new Response(JSON.stringify({ plan: artifactPlan }), { status: 201, headers: { "Content-Type": "application/json" } });
       if (url.endsWith("/api/v1/keel-artifact-plans/keel-artifact-plan/stage")) return new Response(JSON.stringify({ job: { id: "job-one", state: "awaiting_approval" } }), { status: 201, headers: { "Content-Type": "application/json" } });
+      if (url.endsWith("/api/v1/application-plans/keel-plan/stage")) return new Response(JSON.stringify({ job: { id: "job-two", state: "awaiting_approval", type: "application.keel.stage" } }), { status: 201, headers: { "Content-Type": "application/json" } });
       expect(JSON.parse(String(init?.body))).toEqual({ target: "native-service", hostPort: 3000 });
       return new Response(JSON.stringify({ plan }), { status: 201, headers: { "Content-Type": "application/json" } });
     });
@@ -97,24 +98,22 @@ describe("curated application catalog", () => {
     render(<ApplicationCatalog csrfToken="csrf" onInspectCompose={vi.fn()} onOpenRepair={vi.fn()} />);
 
     expect(await screen.findByText("Keel Notes")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Plan deployment" }));
-    expect(screen.getByText("Archive gate enforced")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Plan safe staging" }));
+    expect(screen.getByText("Corrected release staging enabled")).toBeTruthy();
     expect(screen.getByText(/Native candidates: 0 \| Docker candidates: 0/)).toBeTruthy();
     expect(screen.getByText(/Release asset digest pinned/)).toBeTruthy();
-    expect(screen.getByText(/State: absent \| local bytes verified: no/)).toBeTruthy();
-    expect(screen.getByText(/State: artifact-required \| safe to extract: no/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Plan fixed artifact acquisition" }));
-    expect(await screen.findByText("Artifact ready to stage")).toBeTruthy();
-    expect(screen.getByText("Keep it unextracted and uninstalled")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Stage artifact verification for approval" }));
-    expect(await screen.findByText(/Keel artifact job staged/)).toBeTruthy();
+    expect(screen.getByText(/State: verified \| local bytes verified: yes/)).toBeTruthy();
+    expect(screen.getByText(/State: safe \| safe to extract: yes/)).toBeTruthy();
+    expect(screen.getByText(/State: absent \| staged: no \| ready: yes/)).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Deployment target" })).toHaveProperty("value", "native-service");
     fireEvent.click(screen.getByRole("button", { name: "Generate live plan" }));
-    expect(await screen.findByText("Planning result")).toBeTruthy();
-    expect(screen.getAllByText(/bcf872e2cee5/)).toHaveLength(2);
-    expect(screen.getByText(/verified from local bytes: no/)).toBeTruthy();
+    expect(await screen.findByText("Ready to stage")).toBeTruthy();
+    expect(screen.getAllByText(/884e7ab1cc48/)).toHaveLength(1);
+    expect(screen.getByText(/verified from local bytes: yes/)).toBeTruthy();
     expect(screen.getByText("Plan-time discovery")).toBeTruthy();
     expect(screen.getByText("Plan-time archive gate")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Stage for approval" })).toBeNull();
+    expect(screen.getByText("Plan-time staging boundary")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage inert release for approval" }));
+    expect(await screen.findByText(/Keel 1.2.6 inert staging job created/)).toBeTruthy();
   });
 });

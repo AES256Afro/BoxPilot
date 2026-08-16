@@ -1,4 +1,5 @@
 import { verifyPassword } from "./security.mjs";
+import { keelArtifactSpec } from "./keel-artifact-spec.mjs";
 
 export function createJobService(store, helper, {
   validateApplicationJob = async () => {},
@@ -55,9 +56,9 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.artifact.acquire", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
-    const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy"].includes(job.type) ? await validateApplicationJob(job) : null;
+    const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.stage"].includes(job.type) ? await validateApplicationJob(job) : null;
     const validatedKeelArtifactPlan = job.type === "application.keel.artifact.acquire" ? await validateKeelArtifactJob(job) : null;
     if (["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup"].includes(job.type)) await validateBackupJob(job);
     const validatedControllerProtectionPlan = job.type === "controller.database.backup.protect" ? await validateControllerProtectionJob(job) : null;
@@ -88,6 +89,7 @@ export function createJobService(store, helper, {
     if (job.type === "virtualization.domain.action" && !validatedVmLifecyclePlan?.input) throw new Error("The staged VM lifecycle plan is unavailable or changed");
     if (job.type === "virtualization.domain.snapshot.create" && !validatedVmSnapshotPlan?.input) throw new Error("The staged VM snapshot plan is unavailable or changed");
     if (job.type === "application.pi-hole.deploy" && !validatedApplicationPlan?.input) throw new Error("The staged Pi-hole plan is unavailable or changed");
+    if (job.type === "application.keel.stage" && !validatedApplicationPlan?.input) throw new Error("The staged Keel release plan is unavailable or changed");
     if (job.type === "application.keel.artifact.acquire" && !validatedKeelArtifactPlan?.input) throw new Error("The staged Keel artifact plan is unavailable or changed");
     if (job.type === "network.dns.acceptance.run" && !validatedDnsAcceptancePlan?.input) throw new Error("The staged DNS acceptance plan is unavailable or changed");
     if (job.type === "network.flint2-adguard.acceptance.run" && !validatedFlint2AdguardPlan?.input) throw new Error("The staged Flint 2 AdGuard Home acceptance plan is unavailable or changed");
@@ -174,11 +176,11 @@ export function createJobService(store, helper, {
       failed: "Keel artifact acquisition or local verification failed; fixed partial files were removed and no application installation was attempted",
       validate: (result) => result?.acquired === true
         && result?.acquisitionId === validatedKeelArtifactPlan.input.acquisitionId
-        && result?.releaseTag === "v1.2.5"
-        && result?.releaseCommitSha === "bcf872e2cee5820bdeb74685f5573cc6beb0a28f"
-        && result?.name === "keel-1.2.5-linux-x64.tar.gz"
-        && result?.sizeBytes === 47655144
-        && result?.sha256 === "sha256:4b24067aa219bc00bf4f7c1846f78945e8abda3f5b68353e4967570d5b57e6ee"
+        && result?.releaseTag === keelArtifactSpec.releaseTag
+        && result?.releaseCommitSha === keelArtifactSpec.releaseCommitSha
+        && result?.name === keelArtifactSpec.name
+        && result?.sizeBytes === keelArtifactSpec.sizeBytes
+        && result?.sha256 === keelArtifactSpec.digest
         && result?.locallyVerified === true
         && result?.evidenceRecorded === true
         && result?.boundary?.networkAccess === true
@@ -191,6 +193,36 @@ export function createJobService(store, helper, {
         && result?.boundary?.arbitraryPathAccepted === false
         && result?.boundary?.browserDigestAccepted === false
         && result?.boundary?.artifactBytesReturned === false,
+    } : job.type === "application.keel.stage" ? {
+      operation: "application.keel.stage",
+      parameters: { stageId: validatedApplicationPlan.input.stageId },
+      timeoutMs: 15 * 60 * 1000,
+      applying: "Rechecking the fixed artifact and runtime archive gate, then extracting into one helper-generated root-only partial release tree",
+      applied: "The exact Keel 1.2.6 tree passed package identity, required-file, state-file, link, membership, and permission checks before atomic publication",
+      verified: "Keel 1.2.6 is staged as inert root-only release bytes; no service, state, account, registration, listener, archive execution, or application installation occurred",
+      failed: "Keel staging failed and the helper removed its generated partial or newly published release tree without touching application state or services",
+      validate: (result) => result?.staged === true
+        && result?.stageId === validatedApplicationPlan.input.stageId
+        && result?.version === keelArtifactSpec.releaseTag.slice(1)
+        && result?.releaseTag === keelArtifactSpec.releaseTag
+        && result?.releaseCommitSha === keelArtifactSpec.releaseCommitSha
+        && result?.artifactDigest === keelArtifactSpec.digest
+        && result?.sourceMemberCount === keelArtifactSpec.archiveMembersObservedDuringAdapterReview
+        && result?.regularFiles === keelArtifactSpec.archiveRegularFilesObservedDuringAdapterReview
+        && result?.directories === keelArtifactSpec.archiveDirectoriesObservedDuringAdapterReview
+        && result?.managedMetadataFiles === 1
+        && result?.boundary?.networkAccess === false
+        && result?.boundary?.extractionPerformed === true
+        && result?.boundary?.archiveExecuted === false
+        && result?.boundary?.applicationInstalled === false
+        && result?.boundary?.applicationStateCreated === false
+        && result?.boundary?.serviceChanged === false
+        && result?.boundary?.registrationChanged === false
+        && result?.boundary?.listenerChanged === false
+        && result?.boundary?.arbitraryPathAccepted === false
+        && result?.boundary?.browserArchiveAccepted === false
+        && result?.boundary?.memberNamesReturned === false
+        && result?.boundary?.memberContentsReturned === false,
     } : job.type === "network.dns.acceptance.run" ? {
       run: () => executeDnsAcceptanceJob(job, validatedDnsAcceptancePlan),
       applying: "Sending four fixed direct DNS queries from the unprivileged BoxPilot controller to the exact reviewed Pi-hole address",

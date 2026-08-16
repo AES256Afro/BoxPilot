@@ -3,11 +3,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createKeelArtifactService } from "./keel-artifacts.mjs";
+import { keelArtifactSpec } from "./keel-artifact-spec.mjs";
 import { createStateStore } from "./state.mjs";
 
 const directories = [];
 
-async function setup({ artifactState = "absent", provenanceDigest = "sha256:4b24067aa219bc00bf4f7c1846f78945e8abda3f5b68353e4967570d5b57e6ee", discoveryRisks = [], architecture = "x64" } = {}) {
+async function setup({ artifactState = "absent", provenanceDigest = keelArtifactSpec.digest, discoveryRisks = [], architecture = "x64" } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-keel-service-"));
   directories.push(directory);
   const store = createStateStore({ stateDirectory: directory });
@@ -20,7 +21,7 @@ async function setup({ artifactState = "absent", provenanceDigest = "sha256:4b24
     throw new Error("unexpected helper operation");
   }) };
   const prerequisites = { inspect: vi.fn(async () => ({ checks: ["runtime.node", "storage.state", "helper.boundary"].map((id) => ({ id, status: "ready", summary: "ready", repair: null })) })) };
-  const githubProvenance = { inspect: vi.fn(async () => ({ repositories: [{ id: "keel", status: "available", latestRelease: { tagName: "v1.2.5", commit: { sha: "bcf872e2cee5820bdeb74685f5573cc6beb0a28f" }, assets: [{ name: "keel-1.2.5-linux-x64.tar.gz", sizeBytes: 47655144, digest: provenanceDigest }] } }] })) };
+  const githubProvenance = { inspect: vi.fn(async () => ({ repositories: [{ id: "keel", status: "available", latestRelease: { tagName: keelArtifactSpec.releaseTag, commit: { sha: keelArtifactSpec.releaseCommitSha }, assets: [{ name: keelArtifactSpec.name, sizeBytes: keelArtifactSpec.sizeBytes, digest: provenanceDigest }] } }] })) };
   const service = createKeelArtifactService({ store, helper, prerequisites, githubProvenance, hostPlatform: "linux", hostArchitecture: architecture });
   return { store, owner, service, helper, setArtifactState: (value) => { currentArtifactState = value; } };
 }

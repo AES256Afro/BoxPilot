@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createJobService } from "./jobs.mjs";
+import { keelArtifactSpec } from "./keel-artifact-spec.mjs";
 import { hashPassword } from "./security.mjs";
 import { createStateStore } from "./state.mjs";
 
@@ -162,8 +163,8 @@ describe("durable job executor", () => {
   it("revalidates and acquires only the immutable fixed Keel artifact without installing it", async () => {
     const acquisitionId = "11111111-1111-4111-8111-111111111111";
     const result = {
-      acquired: true, acquisitionId, releaseTag: "v1.2.5", releaseCommitSha: "bcf872e2cee5820bdeb74685f5573cc6beb0a28f", name: "keel-1.2.5-linux-x64.tar.gz", sizeBytes: 47655144,
-      sha256: "sha256:4b24067aa219bc00bf4f7c1846f78945e8abda3f5b68353e4967570d5b57e6ee", locallyVerified: true, evidenceRecorded: true,
+      acquired: true, acquisitionId, releaseTag: keelArtifactSpec.releaseTag, releaseCommitSha: keelArtifactSpec.releaseCommitSha, name: keelArtifactSpec.name, sizeBytes: keelArtifactSpec.sizeBytes,
+      sha256: keelArtifactSpec.digest, locallyVerified: true, evidenceRecorded: true,
       boundary: { networkAccess: true, extractionPerformed: false, archiveExecuted: false, applicationInstalled: false, serviceChanged: false, registrationChanged: false, arbitraryUrlAccepted: false, arbitraryPathAccepted: false, browserDigestAccepted: false, artifactBytesReturned: false },
     };
     const helper = { request: vi.fn(async () => result) };
@@ -175,6 +176,35 @@ describe("durable job executor", () => {
     expect(validateKeelArtifactJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
     expect(helper.request).toHaveBeenCalledWith("application.keel.artifact.acquire", { acquisitionId }, { timeoutMs: 15 * 60 * 1000 });
     expect(completed).toMatchObject({ state: "completed", result: { locallyVerified: true, boundary: { extractionPerformed: false, applicationInstalled: false } } });
+    store.close();
+  });
+
+  it("revalidates and stages only inert Keel 1.2.6 release bytes", async () => {
+    const stageId = "22222222-2222-4222-8222-222222222222";
+    const result = {
+      staged: true,
+      stageId,
+      version: "1.2.6",
+      releaseTag: keelArtifactSpec.releaseTag,
+      releaseCommitSha: keelArtifactSpec.releaseCommitSha,
+      artifactDigest: keelArtifactSpec.digest,
+      sourceMemberCount: keelArtifactSpec.archiveMembersObservedDuringAdapterReview,
+      regularFiles: keelArtifactSpec.archiveRegularFilesObservedDuringAdapterReview,
+      directories: keelArtifactSpec.archiveDirectoriesObservedDuringAdapterReview,
+      managedMetadataFiles: 1,
+      boundary: { networkAccess: false, extractionPerformed: true, archiveExecuted: false, applicationInstalled: false, applicationStateCreated: false, serviceChanged: false, registrationChanged: false, listenerChanged: false, arbitraryPathAccepted: false, browserArchiveAccepted: false, memberNamesReturned: false, memberContentsReturned: false },
+    };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const validateApplicationJob = vi.fn(async () => ({ input: { stageId } }));
+    const jobs = createJobService(store, helper, { validateApplicationJob });
+    const job = store.createJob({ type: "application.keel.stage", title: "Stage Keel 1.2.6 release tree", risk: "stateful-staging", parameters: { stageId }, recovery: { automaticRollback: true }, createdBy: owner.id });
+
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+
+    expect(validateApplicationJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("application.keel.stage", { stageId }, { timeoutMs: 15 * 60 * 1000 });
+    expect(completed).toMatchObject({ state: "completed", result: { staged: true, version: "1.2.6", boundary: { applicationInstalled: false, serviceChanged: false, listenerChanged: false } } });
     store.close();
   });
 

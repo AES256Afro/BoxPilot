@@ -10,7 +10,7 @@ const status = {
   boundary: { repositoryAllowlist: ["AES256Afro/BoxPilot", "AES256Afro/Keel"], tokenConfigured: false, credentialsAccepted: false, repositoryWrites: false, cloneOrDownload: false, webhookConfigured: false, workflowDispatch: false, installationSupported: false, localDigestVerification: false },
   repositories: [
     { id: "boxpilot", owner: "AES256Afro", repository: "BoxPilot", purpose: "BoxPilot control-plane source", fullName: "AES256Afro/BoxPilot", url: "https://github.com/AES256Afro/BoxPilot", status: "available", visibility: "public", archived: false, defaultBranch: "main", pushedAt: "2026-08-16T02:27:03.000Z", head: commit, latestRelease: null },
-    { id: "keel", owner: "AES256Afro", repository: "Keel", purpose: "Keel Notes application source and releases", fullName: "AES256Afro/Keel", url: "https://github.com/AES256Afro/Keel", status: "available", visibility: "public", archived: false, defaultBranch: "main", pushedAt: "2026-08-14T15:47:50.000Z", head: commit, latestRelease: { tagName: "v1.2.5", name: "Keel 1.2.5", url: "https://github.com/AES256Afro/Keel/releases/tag/v1.2.5", publishedAt: "2026-08-14T13:35:44.000Z", targetCommitish: "main", draft: false, prerelease: false, immutable: false, commit, assets: [{ name: "keel_1.2.5_amd64.deb", sizeBytes: 103546264, contentType: "application/x-debian-package", digest: `sha256:${"a".repeat(64)}` }], assetsWithGithubReportedDigest: 1 } },
+    { id: "keel", owner: "AES256Afro", repository: "Keel", purpose: "Keel Notes application source and releases", fullName: "AES256Afro/Keel", url: "https://github.com/AES256Afro/Keel", status: "available", visibility: "public", archived: false, defaultBranch: "main", pushedAt: "2026-08-16T12:00:00.000Z", head: commit, latestRelease: { tagName: "v1.2.6", name: "Keel 1.2.6", url: "https://github.com/AES256Afro/Keel/releases/tag/v1.2.6", publishedAt: "2026-08-16T12:00:00.000Z", targetCommitish: "main", draft: false, prerelease: false, immutable: false, commit, assets: [{ name: "keel-1.2.6-linux-x64.tar.gz", sizeBytes: 71052143, contentType: "application/gzip", digest: "sha256:696f5e444696d3da876f870fe72b6743e7e15c4fbf25809d02469a14da1f2e00" }], assetsWithGithubReportedDigest: 1 } },
   ],
   limitations: ["GitHub metadata is not local verification.", "No install exists."],
 };
@@ -23,7 +23,7 @@ describe("GitHub Center", () => {
     expect(await screen.findByText("No GitHub token")).toBeTruthy();
     expect(screen.getByText("AES256Afro/BoxPilot")).toBeTruthy();
     expect(screen.getByText("AES256Afro/Keel")).toBeTruthy();
-    expect(screen.getByText("Keel 1.2.5")).toBeTruthy();
+    expect(screen.getByText("Keel 1.2.6")).toBeTruthy();
     expect(screen.getByText("No GitHub release")).toBeTruthy();
     expect(screen.getAllByText("GitHub reports verified").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("Downloads locked")).toBeTruthy();

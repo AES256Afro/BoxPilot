@@ -13,7 +13,7 @@ describe("prerequisite inventory", () => {
             ? ({ installed: true, installedVersion: "0.18.1-1", repairAvailable: false })
           : operation === "prerequisite.apt-metadata.inspect"
               ? ({ available: true, state: "current", updatedAt: "2026-08-16T06:00:00.000Z", ageHours: 1, packageManagerState: "ready", refreshAvailable: false })
-              : ({ verified: true, helperVersion: "0.45.0", mutationPerformed: false })) };
+              : ({ verified: true, helperVersion: "0.46.0", mutationPerformed: false })) };
     const runCommand = vi.fn(async (command) => {
       if (command === "tailscale") return { ok: true, stdout: "SECRET PEER DATA" };
       return { ok: true, stdout: "udp UNCONN 0 0 0.0.0.0:53 0.0.0.0:*" };
