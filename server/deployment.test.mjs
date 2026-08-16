@@ -52,9 +52,23 @@ describe("native systemd network boundaries", () => {
     expect(dockerfile).toContain("BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot");
     expect(dockerfile).toContain("BOXPILOT_COOKIE_SECURE=false");
     expect(dockerfile).toContain("USER node");
-    expect(compose).toContain("image: boxpilot:0.50.0");
+    expect(compose).toContain("image: boxpilot:0.50.1");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("/tmp:size=16m,mode=1777");
+  });
+
+  it("normalizes only the generated web distribution after hardened builds", async () => {
+    const packageDefinition = await readFile("package.json", "utf8");
+    const normalizer = await readFile("scripts/boxpilot-web-dist-permissions.mjs", "utf8");
+    const metadata = await stat("scripts/boxpilot-web-dist-permissions.mjs");
+    expect(metadata.mode & 0o111).not.toBe(0);
+    expect(packageDefinition).toContain("vite build && node scripts/boxpilot-web-dist-permissions.mjs");
+    expect(await readFile("Dockerfile", "utf8")).toContain("COPY scripts/boxpilot-web-dist-permissions.mjs ./scripts/boxpilot-web-dist-permissions.mjs");
+    expect(normalizer).toContain("process.argv.length !== 2");
+    expect(normalizer).toContain("metadata.isSymbolicLink()");
+    expect(normalizer).toContain("metadata.nlink !== 1");
+    expect(normalizer).toContain("await chmod(target, 0o755)");
+    expect(normalizer).toContain("await chmod(target, 0o644)");
   });
 
   it("ships an executable interactive setup utility without embedding a repository password", async () => {
