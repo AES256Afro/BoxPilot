@@ -1,12 +1,46 @@
 # Router checkpoint center
 
-BoxPilot `0.23.0` adds recovery-checkpoint metadata for the three devices already represented in its topology catalog:
+BoxPilot `0.27.0` combines credential-free router-readiness guidance with the recovery-checkpoint metadata introduced in `0.23.0` for three fixed devices:
 
 - GL.iNet Flint 2
 - Omada ER707-M2
 - TP-Link Archer BE400
 
 This is the first router integration gate. It does not log in to a router, accept credentials, call a vendor API, upload a configuration, discover firmware, change a setting, advertise DNS, or perform a restore.
+
+## Recommended topology
+
+The default recommendation for this home network is:
+
+1. **GL.iNet Flint 2** in Router mode as the only edge router, NAT authority, DHCP authority, and optional AdGuard Home host.
+2. **TP-Link Archer BE400/BE6500** in Access Point mode for Wi-Fi only.
+3. **Omada ER707-M2** disconnected from the production forwarding path as a cold spare or isolated lab gateway.
+
+This avoids double NAT and competing DHCP servers while keeping Flint 2's built-in AdGuard Home feature available. The supported alternative is an explicitly planned migration to the ER707-M2 as the only edge router, with both wireless routers acting only as access points or bridges. GL.iNet documents that AdGuard Home, DHCP, DNS, VPN, and Tailscale features are unavailable when Flint 2 is in a non-router mode, so the alternate topology needs a different reviewed DNS host.
+
+## Live correlation and operator checks
+
+Authenticated `GET /api/v1/network/router-readiness` runs the same fixed route, address, resolver, DNS-listener, and Tailscale collectors used by Network Center. It can state that Bigbox observes a gateway address and interface. It cannot prove which physical device owns that address.
+
+The response therefore keeps these as explicit operator checks:
+
+- Compare the observed gateway address with the Flint 2 LAN address.
+- Confirm Flint 2 is the only production NAT and DHCP authority.
+- Confirm the TP-Link interface reports Access Point mode.
+- Confirm the ER707-M2 is outside the production forwarding path.
+- Preserve console access and the existing Tailscale recovery path during physical changes.
+
+No ARP or neighbor table is read, no MAC address or vendor fingerprint is returned, no arbitrary target is probed, and no router page or session is opened. “Address observed” never means “model verified.”
+
+## Vendor-grounded handoff
+
+The built-in checklists point to current official documentation reviewed on 2026-08-15:
+
+- [Flint 2 user guide](https://docs.gl-inet.com/router/en/4/user_guide/gl-mt6000/), [GL.iNet network modes](https://docs.gl-inet.com/router/en/4/interface_guide/network_mode/), and [GL.iNet AdGuard Home](https://docs.gl-inet.com/router/en/4/interface_guide/adguardhome/)
+- [Archer BE400 user guide](https://static.tp-link.com/upload/manual/2025/202505/20250514/1910013703_Archer%20BE400_UG_REV1.0.0.pdf) and [TP-Link access-point mode guide](https://www.tp-link.com/us/support/faq/3774/)
+- [ER707-M2 support](https://support.omadanetworks.com/en/product/er707-m2/v1/) and [ER707-M2 installation guide](https://static.tp-link.com/upload/manual/2025/202509/20250905/7100001295_ER707-M2_IG_REV1.30.0.pdf)
+
+Firmware menus can change. The guide tells the operator what to verify and links to the vendor rather than automating a login or treating a menu label as live evidence.
 
 ## Record a checkpoint
 

@@ -4,11 +4,11 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.26.0` adds an authenticated, read-only disaster recovery kit to Repair Center. It evaluates current application and VM restore evidence, router checkpoint coverage, migration source preservation, independent DNS proof, and scoped host prerequisites, then exports structured JSON and an ordered Markdown runbook. The kit contains no credential, password hash, session, owner name, agent key or signature, application data, backup payload, router configuration, artifact path, arbitrary log, or environment value. It performs no backup and no host mutation.
+Version `0.27.0` adds credential-free router-readiness guidance for the GL.iNet Flint 2, TP-Link Archer BE400/BE6500, and Omada ER707-M2. It correlates Bigbox's live default-gateway address with the recommended single-router topology, but explicitly leaves device identity, cabling, operating mode, and DHCP authority as operator checks. Model-specific steps and vendor sources explain the recommended Flint 2 edge, TP-Link access-point, and disconnected Omada standby roles. No router login, neighbor discovery, arbitrary probe, configuration upload, DHCP or DNS change, router write, or Tailscale change exists.
 
 ### What works now
 
-| Area | Status in `0.26.0` | Capability |
+| Area | Status in `0.27.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
@@ -18,7 +18,7 @@ Version `0.26.0` adds an authenticated, read-only disaster recovery kit to Repai
 | Restricted helper | Live typed operations | Uses a versioned, allowlisted protocol over a local Unix socket for the canary, bounded inventory and logs, Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, guarded VM creation and lifecycle, read-only libvirt inventory, offline snapshots, stopped-VM exports, mounted-restic VM copies, isolated restore drills, stopped no-network recovery clones, and exact no-prune retention. It accepts no command strings, binary selection, libvirt URI, argument arrays, operator paths, Compose source path, migration destination, SSH credential, repository password, backup mount, repository path, export destination, restore destination, recovery directory, prune flag, selector such as `latest`, or arbitrary root paths from the browser. |
 | Host and Docker inventory | Live | Reports authenticated host identity, CPU, memory, root storage, uptime, selected service state, LAN addresses, Tailscale self-state, and sanitized Docker containers, images, networks, volumes, and Compose projects. |
 | Network and DNS Center | Live planning and guarded fixed tests | Reports validated default gateways, host LAN CIDRs, sanitized systemd-resolved servers, scoped TCP and UDP port 53 listeners, and Tailscale resolver observations. It creates immutable topology assessments and can separately stage four fixed direct Pi-hole DNS checks after exact deployment and restore evidence match. A separately enrolled signed agent can repeat only those fixed checks after a fresh passing Bigbox record. Router writes and DNS cutover have no execution route. |
-| Router checkpoints | Local-hash metadata foundation | Hashes an operator-selected router backup in the browser and stores only fixed-model, firmware, size, SHA-256, attribution, and retention metadata. The configuration is not uploaded. Credentials, live discovery, API sessions, writes, restore claims, and DNS cutover are unavailable. |
+| Router readiness and checkpoints | Live address correlation plus operator checks | Shows Bigbox's observed gateway address without claiming router identity, recommends one routing/DHCP authority, provides fixed vendor-grounded setup and rollback checklists, and correlates browser-local backup-hash evidence. Configuration uploads, credentials, neighbor discovery, live device probes, API sessions, writes, restore claims, and DNS cutover are unavailable. |
 | GitHub provenance | Live fixed public metadata | Reads sanitized commit, verification, latest-release, and asset-digest metadata for BoxPilot and Keel through GitHub's unauthenticated public API. No token, repository input, clone, download, write, webhook, workflow dispatch, local digest verification, or installation route exists. |
 | System logs | Live restricted sources | Returns capped, redacted entries for fixed BoxPilot, Docker, Tailscale, and virtualization unit sets. Credential-like values and URL query strings are redacted. |
 | Application catalog | Live | Publishes integrity-addressed manifests, live installation state, exact image policy, targets, ports, storage, prerequisites, recovery, and adapter risk. |
@@ -164,6 +164,12 @@ This explicitly disclosed `0.22.0` mock shows one-time enrollment, device-owned 
 ![BoxPilot browser-local router configuration checkpoint](docs/screenshots/router-checkpoint-mock.png)
 
 This explicitly disclosed `0.23.0` mock shows supported device declarations, local file hashing, metadata-only persistence, the operator-retention assertion, and the remaining credential, router-write, restore, and DNS-cutover locks. No file was selected, hashed, or uploaded, no checkpoint was recorded, and no router or network setting was read or changed for the capture.
+
+### Router readiness mockup
+
+![BoxPilot credential-free router topology readiness](docs/screenshots/router-readiness-mock.png)
+
+This explicitly disclosed `0.27.0` mock shows the recommended Flint 2 edge, TP-Link access-point, and ER707-M2 standby topology, a live-shaped gateway-address correlation, checkpoint coverage, operator checks, model-specific handholding, and the credential, discovery, probe, upload, DHCP, DNS, Tailscale, and router-write locks. No router was contacted, identified, logged in to, probed, uploaded from, or changed for the capture.
 
 ### GitHub provenance mockup
 

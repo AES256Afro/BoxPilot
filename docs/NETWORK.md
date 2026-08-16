@@ -1,6 +1,6 @@
 # Network and DNS Center
 
-BoxPilot `0.23.0` uses the Network and DNS Center as the authorization boundary for guarded Pi-hole staging and fixed direct DNS acceptance. It provides a local Pi-hole configuration backup and isolated restore drill after staging, followed by a separate password-approved controller-path test and a signed second-device test. The separate Router checkpoint center can retain browser-local SHA-256 metadata for an operator-exported configuration without uploading the file. Together these surfaces establish evidence that must exist before any future Flint 2 AdGuard Home, router DNS advertisement, or forwarding-path change.
+BoxPilot `0.27.0` uses the Network and DNS Center as the authorization boundary for guarded Pi-hole staging and fixed direct DNS acceptance. It provides a local Pi-hole configuration backup and isolated restore drill after staging, followed by a separate password-approved controller-path test and a signed second-device test. Router Center can retain browser-local SHA-256 metadata for an operator-exported configuration without uploading the file, correlate Bigbox's observed gateway address with fixed topology guidance, and expose the remaining physical checks without claiming router identity. Together these surfaces establish evidence that must exist before any future Flint 2 AdGuard Home, router DNS advertisement, or forwarding-path change.
 
 This release can start only the curated Pi-hole Docker stack after a fresh assessment and separate approval. Once exact staging and recovery evidence exist, it can send four fixed DNS queries to the helper-reported managed Pi-hole address. It can also store model, firmware, byte count, digest, retention, owner, and time metadata for a locally hashed router export. It cannot upload the configuration, log in to a router, store a router password, change DHCP, advertise DNS to clients, enable AdGuard Home, reconfigure Tailscale, probe an operator-supplied address, or cut over traffic.
 
@@ -51,7 +51,7 @@ BoxPilot recognizes these declarations:
 - [Omada ER707-M2 product documentation](https://www.omadanetworks.com/us/business-networking/omada-router-wired-router/er707-m2/)
 - [TP-Link Archer BE400 product documentation](https://www.tp-link.com/us/home-networking/wifi-router/archer-be400/)
 
-The links identify the intended devices. BoxPilot does not claim API support for them in `0.23.0`. See [Router checkpoint center](ROUTERS.md) for the metadata-only recovery gate.
+The links identify the intended devices. Version `0.27.0` provides fixed guidance, not a live router API. See [Router readiness and checkpoint center](ROUTERS.md) for the address-correlation, operator-check, and metadata-only recovery boundaries.
 
 ## Change-window assessment
 
@@ -123,6 +123,6 @@ A passing signed result proves only the direct path from that enrolled device to
 
 ## Next gates
 
-Router writes remain blocked until an adapter has exact model and firmware compatibility, secret storage, read-only discovery, a recoverable configuration checkpoint, a bounded diff, password reauthentication, post-change tests from a second device, and an out-of-band recovery path. Version `0.23.0` supplies only an operator-attributable checksum ledger for configuration exports. It does not prove that an export can be restored.
+Router writes remain blocked until an adapter has exact model and firmware compatibility, secret storage, read-only discovery, a recoverable configuration checkpoint, a bounded diff, password reauthentication, post-change tests from a second device, and an out-of-band recovery path. Version `0.27.0` supplies operator-attributable checksum records, an observed gateway address, and fixed role guidance. It does not prove physical router identity, current operating mode, configuration state, or that an export can be restored.
 
-Pi-hole router cutover remains blocked. Version `0.23.0` implements configuration backup, isolated restore, guarded Bigbox direct checks, signed second-device checks, and metadata-only router checkpoint recording. Passing live runs are still operator-triggered. A model-specific read-only adapter, independently tested router restore, bounded advertisement diff, observation window, and approval-based rollback sequence are still required.
+Pi-hole router cutover remains blocked. Version `0.27.0` retains configuration backup, isolated restore, guarded Bigbox direct checks, signed second-device checks, metadata-only router checkpoint recording, and read-only router guidance. Passing live runs are still operator-triggered. A model-specific read-only adapter, independently tested router restore, bounded advertisement diff, observation window, and approval-based rollback sequence are still required.

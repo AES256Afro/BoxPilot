@@ -174,10 +174,11 @@ Acceptance:
 
 ## Phase 9: router integration and DNS cutover
 
-Status: `0.23.0` adds a fixed three-model declaration catalog and browser-local SHA-256 checkpoint ledger. Only model, operator-entered firmware, byte count, digest, retention assertion, attribution, and receipt time reach the server. Configuration upload, credentials, sessions, discovery, writes, restore claims, DHCP, and DNS cutover remain unavailable.
+Status: `0.23.0` added a fixed three-model declaration catalog and browser-local SHA-256 checkpoint ledger. Version `0.27.0` adds model-specific, vendor-grounded operator checklists and correlates the single default-gateway address observed by Bigbox without claiming router identity. Only fixed host collectors and checkpoint metadata reach the server. Configuration upload, credentials, sessions, neighbor discovery, arbitrary probes, live device-state claims, writes, restore claims, DHCP, and DNS cutover remain unavailable.
 
 - Browser-local configuration identity with external-file retention evidence included in `0.23.0`
-- Model and firmware compatibility declarations
+- Fixed intended-role guidance, live gateway-address correlation, explicit operator checks, and vendor handoff included in `0.27.0`
+- Exact model and firmware compatibility declarations for future executable adapters
 - Encrypted least-privilege credential storage only where vendor support permits it
 - Read-only router discovery with bounded redaction
 - Model-specific configuration export and isolated restore validation
