@@ -2840,7 +2840,14 @@ textarea {
 .network-plan-columns li { margin: 6px 0; }
 .network-lock { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 4px; }
 .network-lock > span:last-child { color: var(--muted); font-size: 0.8rem; }
+.dns-acceptance-panel { display: grid; gap: 16px; }
+.dns-acceptance-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.dns-acceptance-summary > div { display: grid; gap: 6px; min-width: 0; padding: 13px; border: 1px solid var(--line); border-radius: 9px; background: #09151f; }
+.dns-acceptance-summary span { color: var(--muted); font-size: 0.78rem; overflow-wrap: anywhere; }
+.dns-acceptance-plan { display: grid; gap: 15px; padding-top: 4px; }
+.dns-acceptance-limitations { margin: 0; padding-left: 20px; color: var(--muted); font-size: 0.8rem; }
+.dns-acceptance-limitations li { margin: 5px 0; }
 
 @media (max-width: 900px) {
-  .network-summary-grid, .network-form-grid, .network-checklist, .network-plan-columns { grid-template-columns: 1fr; }
+  .network-summary-grid, .network-form-grid, .network-checklist, .network-plan-columns, .dns-acceptance-summary { grid-template-columns: 1fr; }
 }

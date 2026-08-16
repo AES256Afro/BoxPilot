@@ -29,7 +29,7 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   },
   network: {
     title: "Network and DNS",
-    description: "Inspect the live gateway, resolver path, and DNS listeners before planning router or DNS changes.",
+    description: "Inspect the live gateway and resolver path, then collect guarded DNS evidence without changing clients or routers.",
   },
   repairs: {
     title: "Prerequisites and Repair Center",
@@ -70,14 +70,14 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     description: "Manifests, host-backed plans, Uptime Kuma, and guarded Pi-hole staging are live. Router and client DNS cutover remain locked.",
   },
   network: {
-    label: "Read-only network intelligence",
+    label: "Network intelligence and guarded direct tests",
     tone: "live",
-    description: "Default routes, systemd-resolved servers, fixed port 53 listener metadata, Bigbox LAN addresses, and Tailscale self-state come from the server. Router credentials, neighbor MAC addresses, router writes, and DNS cutover are not supported.",
+    description: "Live topology remains read-only. A separate password-approved Pi-hole workflow can send four fixed direct DNS queries from Bigbox and record durable evidence. Second-device proof, router credentials, router writes, and DNS cutover remain unavailable.",
   },
   repairs: {
     label: "Live Operations Core",
     tone: "live",
-    description: "Prerequisite checks, durable approvals, the helper canary, Uptime Kuma deployment and backups, and guarded Linux VM creation jobs come from Bigbox. General package and application mutations remain locked.",
+    description: "Prerequisite checks, durable approvals, the helper canary, curated application workflows, fixed DNS acceptance, and guarded Linux VM jobs come from Bigbox. General package and application mutations remain locked.",
   },
   virtualization: {
     label: "Host-backed module",
@@ -87,7 +87,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   backups: {
     label: "Application-aware backup engine",
     tone: "live",
-    description: "Uptime Kuma backup planning, durable evidence, SHA-256 integrity, source restart verification, and isolated restore drills come from Bigbox. Scheduling and off-host destinations remain pending.",
+    description: "Uptime Kuma and Pi-hole backup planning, durable evidence, SHA-256 integrity, source restart verification, and isolated restore drills come from Bigbox. Scheduling and off-host application destinations remain pending.",
   },
   migrations: {
     label: "Guarded local transfer staging",
@@ -157,7 +157,7 @@ function Settings({ apiMode }: { apiMode: string }) {
     ["Private access", "Tailscale Serve recommended", "Keep Funnel disabled"],
     ["Tailscale DNS", "Operator controlled", "BoxPilot does not change DNS"],
     ["DNS resolvers", "Operator controlled", "BoxPilot does not replace a DNS service"],
-    ["Host mutation", "VM-only when unlocked", "Token-protected libvirt allowlist"],
+    ["Host mutation", "Durable typed jobs only", "Plans, password approval, narrow executors"],
     ["API mode", apiMode, "Live host inspection endpoints"],
   ];
 
@@ -228,7 +228,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
         />
       );
     }
-    if (view === "network") return <NetworkCenter csrfToken={authStatus.csrfToken ?? ""} onAssessmentReady={setNetworkAssessmentId} />;
+    if (view === "network") return <NetworkCenter csrfToken={authStatus.csrfToken ?? ""} onAssessmentReady={setNetworkAssessmentId} onOpenRepair={() => setView("repairs")} />;
     if (view === "repairs") return <RepairCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "virtualization") return <VirtualMachines csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "backups") return <BackupCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
@@ -256,7 +256,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.20.0",
+      version: "0.21.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
@@ -298,7 +298,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.20.0 Pi-hole recovery proof<br />Router and DNS cutover locked</div>
+        <div className="prototype-label">v0.21.0 direct DNS evidence<br />Second device and cutover locked</div>
       </aside>
 
       <main>
