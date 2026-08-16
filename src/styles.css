@@ -2618,6 +2618,30 @@ textarea {
   background: var(--surface-muted);
 }
 
+.table-panel details {
+  margin-top: 7px;
+  max-width: 420px;
+  white-space: normal;
+}
+
+.table-panel details summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.table-panel details small,
+.backup-evidence-value {
+  display: block;
+  margin-top: 6px;
+}
+
+.backup-evidence-value {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .backup-plan-columns ol,
 .backup-plan-columns ul {
   display: grid;

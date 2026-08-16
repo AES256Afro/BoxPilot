@@ -42,6 +42,8 @@ Version `0.34.0` adds fixed read-only host-maintenance evidence. It reports syst
 
 Version `0.35.0` adds one separately named executable maintenance repair: refresh configured APT metadata through a static no-argument root unit. It requires a stale or unavailable metadata check, ready dpkg state, an immutable plan, separate staging, owner-password approval, and exact timestamp revalidation. The unit runs only `apt-get update --error-on=any` and verifies `/var/lib/dpkg/status` is unchanged. It cannot install, upgrade, remove, select, or accept a package, repository, command, option, or target from the browser. See [Exact prerequisite repair boundary](PREREQUISITE-REPAIRS.md).
 
+Version `0.38.0` adds a separately approved backup of BoxPilot's fixed live SQLite database. The helper captures committed WAL state with SQLite `VACUUM INTO` without stopping the service, verifies the snapshot and a separate copy, writes a root-only manifest, and accepts only a server-generated UUID. It does not provide download, scheduling, retention, off-host transport, or automatic restore. See [BoxPilot controller database backups](CONTROLLER-BACKUPS.md).
+
 The manual console fallback remains:
 
 ```bash
@@ -105,4 +107,4 @@ sudo cp -a /var/lib/boxpilot/boxpilot.sqlite3* /var/backups/boxpilot/
 sudo systemctl start boxpilot-helper.service boxpilot.service
 ```
 
-This manual copy is a recovery checkpoint, not a verified backup engine. Automated backup status must remain unavailable until integrity checks and an isolated restore drill pass.
+This stopped-service database-family copy remains a manual incident checkpoint. For normal operations, use the `0.38.0` Backups workflow so committed WAL state, integrity, foreign keys, required schema, owner state, artifact checksum, manifest, and an isolated copy-open drill are verified. Neither method is independent protection until the complete result is stored outside Bigbox.

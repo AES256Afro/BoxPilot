@@ -12,6 +12,8 @@ Version `0.36.0` adds a separate Flint 2 direct-gateway DNS acceptance job. The 
 
 Version `0.37.0` adds a second signed agent task contract linked only to fresh passing Flint 2 controller evidence. The Linux or macOS agent re-derives one local IPv4 default gateway and must match the controller target before sending the four fixed queries. Tasks remain owner-password approved, one-shot, delayed only by 0, 5, or 10 minutes, and valid for exactly 10 minutes. No shell, arbitrary command, arbitrary target, recurrence, unattended execution, router write, or model attestation is added.
 
+Version `0.38.0` adds an owner-approved backup of the fixed live controller database. The restricted helper derives every path, takes a consistent standalone SQLite snapshot with `VACUUM INTO`, verifies SHA-256, integrity, foreign keys, required schema, and owner state, repeats those checks on a separate copy, removes the drill workspace, and writes a root-only manifest. BoxPilot remains online and its production database is never replaced or changed. The browser supplies only a server-generated UUID. Scheduling, retention, download, off-host transport, and automatic production restore are not added.
+
 ## Target components
 
 ```text
@@ -55,6 +57,7 @@ BoxPilot web and API process (unprivileged)
           +---- Durable fixed APT metadata-only refresh plan and approval (0.35.0)
           +---- Durable fixed Flint 2 observed-gateway DNS acceptance (0.36.0)
           +---- Signed node-local-gateway Flint 2 second-device evidence (0.37.0)
+          +---- Durable WAL-aware controller snapshot and isolated copy-open evidence (0.38.0)
           |
           +<--- Ed25519 signed polling and fixed Pi-hole or Flint 2 evidence from an enrolled LAN agent
                   Flint 2 target must match the node-local default gateway
@@ -68,6 +71,7 @@ Restricted helper over a local Unix socket (0.4.0 canary foundation)
           +---- typed no-mutation canary (0.4.0)
           +---- fixed smartmontools inspect and exact-version package-unit handoff (0.31.0)
           +---- fixed APT metadata inspect and static update-only unit handoff (0.35.0)
+          +---- fixed controller database inspect, snapshot, manifest, and isolated copy-open drill (0.38.0)
           +---- fixed Uptime Kuma inspect, deploy, health, and rollback (0.5.0)
           +---- fixed Linux VM creation, verification, and exact-domain rollback (0.9.0)
           +---- fixed VM start, graceful shutdown, reboot request, and autostart operations (0.10.0)
@@ -166,7 +170,7 @@ Uptime Kuma is the low-risk canary adapter because it proves fixed Docker argume
 
 ## Data model target
 
-The persistent store is SQLite. Owners, sessions, jobs, job steps, approvals, plans, application backups, Pi-hole and Flint 2 gateway DNS acceptance runs, fleet agents, one-time enrollment token digests, fleet tasks, signed evidence, router checkpoint metadata, VM exports, VM backups, VM recoveries, VM retention runs, imported migration sources, verified migration transfers, and audit events are live. Planned records include:
+The persistent store is SQLite. Owners, sessions, jobs, job steps, approvals, plans, controller and application backups, Pi-hole and Flint 2 gateway DNS acceptance runs, fleet agents, one-time enrollment token digests, fleet tasks, signed evidence, router checkpoint metadata, VM exports, VM backups, VM recoveries, VM retention runs, imported migration sources, verified migration transfers, and audit events are live. Planned records include:
 
 - hosts
 - workloads
@@ -183,7 +187,7 @@ Backup repositories, VM images, database dumps, and application data do not live
 
 ## Backup rule
 
-A successful copy is not a verified backup. BoxPilot reports a workload as protected only when:
+A successful copy is not a verified backup. The controller adapter requires a consistent standalone snapshot plus an isolated checksum, open, integrity, foreign-key, schema, and owner-state drill. Application and VM adapters apply their own stricter recovery contracts. BoxPilot reports a workload as protected only when:
 
 - The adapter knows every required data and secret component
 - The last backup completed without excluded critical paths
@@ -191,7 +195,7 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.32.0 limitations
+## Version 0.38.0 limitations
 
 - The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
@@ -204,11 +208,11 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Operations Core jobs and attribution use SQLite. The older VM JSONL planning log remains a separate bounded log. Tamper evidence remains pending.
 - Public GitHub provenance is held only in a 15-minute memory cache. GitHub-reported signature and asset-digest fields are not local verification. Tokens, private repositories, arbitrary repository paths, downloads, writes, webhooks, workflow dispatch, and installation are unavailable.
 - The Keel Notes adapter is planning-only. It does not discover an existing install, download or hash an asset, validate an archive locally, install Node or Keel, create a service account, write a unit, open a port, start a process, claim an owner, restrict registration, back up or restore data, or activate a migration.
-- The recovery kit is evidence and guidance, not a backup. It cannot prove an independent copy of the BoxPilot database, source archive, router configuration, restic password, application credential, or Tailscale account recovery path. Those remain explicit operator checks outside the controller failure domain.
+- The recovery kit is evidence and guidance, not a backup. It can report a passing same-host controller snapshot, but it cannot prove that the database directory was copied to independent encrypted storage. It also cannot prove an independent source archive, router configuration, restic password, application credential, or Tailscale account recovery path. Those remain explicit operator checks outside the controller failure domain.
 - The Action Center is a transient read-only projection of recovery evidence. It has fixed guidance and view navigation only. It cannot dismiss or persist notices, repair a condition, run a command, install a package, schedule work, request browser notifications, or deliver messages externally. The separately named `smartmontools` workflow exists only in Repair Center.
-- Only the exact `smartmontools` repair, fixed Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune retention batches can execute mutations. Network assessments and router checkpoints cannot execute. Pi-hole and Flint 2 direct DNS acceptance are approved fixed read-only jobs in the unprivileged web process and never cross the root helper. Signed agents can repeat only the four fixed Pi-hole checks or the four fixed Flint 2 checks, with a mandatory node-local default-gateway match for Flint 2. Pi-hole and Flint 2 router cutover, router discovery or writes, client DNS advertisement, DHCP, Tailscale changes, remote migration transport, staged-workload activation, firewall, general package, storage administration, general Docker, general libvirt, console proxy, snapshot revert/delete, restic prune, configurable retention, in-place restore, recovery network attachment, and force-off operations remain unavailable.
+- Only the exact `smartmontools` repair, fixed controller backup, fixed Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune retention batches can execute mutations. Network assessments and router checkpoints cannot execute. Pi-hole and Flint 2 direct DNS acceptance are approved fixed read-only jobs in the unprivileged web process and never cross the root helper. Signed agents can repeat only the four fixed Pi-hole checks or the four fixed Flint 2 checks, with a mandatory node-local default-gateway match for Flint 2. Controller backup scheduling, retention, off-host transport, browser download, and automatic restore remain unavailable. Pi-hole and Flint 2 router cutover, router discovery or writes, client DNS advertisement, DHCP, Tailscale changes, remote migration transport, staged-workload activation, firewall, general package, storage administration, general Docker, general libvirt, console proxy, snapshot revert/delete, restic prune, configurable retention, in-place restore, recovery network attachment, and force-off operations remain unavailable.
 - A VM snapshot is never counted as an independent backup. The snapshot workflow rejects running guests, non-file disks, disks outside the managed image root, non-qcow2 disks, backing chains, symlinks, and changed inventory.
-- Uptime Kuma and Pi-hole application backups remain root-only local artifacts on Bigbox. Their isolated restore health checks are recovery evidence, not independent 3-2-1 protection. VM copies require an operator-provided independent mounted filesystem; no such destination is currently configured on Bigbox.
+- Controller, Uptime Kuma, and Pi-hole backups remain root-only local artifacts on Bigbox. The controller copy-open drill and application restore health checks are recovery evidence, not independent 3-2-1 protection. The controller artifact includes sensitive authentication and audit state, and its drill does not start a service or attempt an owner login. VM copies require an operator-provided independent mounted filesystem; no such destination is currently configured on Bigbox.
 - VM exports are root-only local integrity artifacts. They are unencrypted and are not reported as protected until a later independent copy and isolated restore boot pass.
 - Mounted-restic VM copies begin unprotected. Only the exact backup record whose transient no-network restore and guest-agent health drill passes is promoted to protected.
 - Restore-drill protection proves boot and guest-agent health, not application-level network health. The guest must already contain an enabled QEMU guest agent.

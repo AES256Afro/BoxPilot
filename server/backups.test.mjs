@@ -25,6 +25,22 @@ function fixture({ applicationId = "uptime-kuma", installed = true, healthy = tr
 }
 
 function resultFor(applicationId, backupId = "11111111-1111-4111-8111-111111111111") {
+  if (applicationId === "boxpilot-controller") return {
+    backupId,
+    applicationId,
+    destination: "local-managed",
+    artifactPath: `/managed/backups/boxpilot-controller/${backupId}/boxpilot.sqlite3`,
+    manifestPath: `/managed/backups/boxpilot-controller/${backupId}/manifest.json`,
+    checksumSha256: "a".repeat(64),
+    manifestChecksumSha256: "b".repeat(64),
+    sizeBytes: 8192,
+    downtimeMs: 0,
+    consistentSnapshot: true,
+    snapshotMethod: "sqlite-vacuum-into",
+    sourceServiceStopped: false,
+    restoreDrill: { passed: true, mode: "isolated-copy-open", network: "none", publishedPorts: 0, copyChecksumMatched: true, manifestChecksumSha256: "b".repeat(64), integrityCheck: "ok", foreignKeyIssues: 0, schemaVerified: true, ownerStatePresent: true, workspaceRemoved: true, productionDatabaseReplaced: false, serviceStarted: false },
+    boundary: { databaseContentReturned: false, browserPathAccepted: false, browserCommandAccepted: false, productionDatabaseChanged: false, serviceStopped: false, networkAccessRequired: false, independentCopyCreated: false, retentionPerformed: false },
+  };
   const result = {
     backupId,
     applicationId,
@@ -49,12 +65,13 @@ function resultFor(applicationId, backupId = "11111111-1111-4111-8111-1111111111
 }
 
 describe("application-aware backup service", () => {
-  it("lists Uptime Kuma and Pi-hole coverage independently", async () => {
+  it("lists controller, Uptime Kuma, and Pi-hole coverage independently", async () => {
     const latest = resultFor("pi-hole");
     latest.createdAt = "2026-08-16T00:00:00.000Z";
     const { service, helper } = fixture({ backups: [latest] });
     const inventory = await service.list();
     expect(inventory.coverage).toEqual([
+      expect.objectContaining({ applicationId: "boxpilot-controller", name: "BoxPilot controller", sourceKind: "controller-state", state: "unprotected", protected: false }),
       expect.objectContaining({ applicationId: "uptime-kuma", name: "Uptime Kuma", state: "unprotected", protected: false }),
       expect.objectContaining({ applicationId: "pi-hole", name: "Pi-hole", state: "verified", protected: true, latestBackup: latest }),
     ]);
@@ -75,6 +92,17 @@ describe("application-aware backup service", () => {
     expect(plan.output.recovery).toContain(name);
   });
 
+  it("creates a WAL-aware controller plan without Docker, downtime, or a browser path", async () => {
+    const { service, prerequisites } = fixture({ applicationId: "boxpilot-controller" });
+    const plan = await service.plan("boxpilot-controller", "owner-one");
+    expect(plan).toMatchObject({ subjectId: "boxpilot-controller", output: { executable: true, destination: "local-managed", blockers: [] } });
+    expect(plan.output.changes.join(" ")).toContain("VACUUM INTO");
+    expect(plan.output.changes.join(" ")).toContain("live database and BoxPilot service unchanged");
+    expect(plan.output.warnings.join(" ")).toContain("password hashes");
+    expect(plan.output.warnings.join(" ")).toContain("independent storage");
+    expect(prerequisites.inspect).toHaveBeenCalledOnce();
+  });
+
   it("blocks backup when the application is absent", async () => {
     const { service } = fixture({ applicationId: "pi-hole", installed: false, healthy: false });
     const plan = await service.plan("pi-hole", "owner-one");
@@ -83,6 +111,7 @@ describe("application-aware backup service", () => {
   });
 
   it.each([
+    ["boxpilot-controller", "controller.database.backup", "medium"],
     ["uptime-kuma", "application.uptime-kuma.backup", "medium"],
     ["pi-hole", "application.pi-hole.backup", "network-critical"],
   ])("stages an exact %s revision with a server-generated backup id", async (applicationId, jobType, risk) => {
@@ -94,6 +123,7 @@ describe("application-aware backup service", () => {
   });
 
   it.each([
+    ["boxpilot-controller", "controller.database.backup"],
     ["uptime-kuma", "application.uptime-kuma.backup"],
     ["pi-hole", "application.pi-hole.backup"],
   ])("records only restore-verified %s evidence tied to the job", (applicationId, type) => {
@@ -102,8 +132,18 @@ describe("application-aware backup service", () => {
     const result = resultFor(applicationId, job.parameters.backupId);
     service.recordResult(job, result);
     expect(store.recordBackup).toHaveBeenCalledWith(expect.objectContaining({ id: result.backupId, applicationId, createdBy: "owner-one" }));
-    expect(() => service.recordResult(job, { ...result, sourceRestartVerified: false })).toThrow("evidence validation");
+    if (applicationId === "boxpilot-controller") expect(() => service.recordResult(job, { ...result, consistentSnapshot: false })).toThrow("evidence validation");
+    else expect(() => service.recordResult(job, { ...result, sourceRestartVerified: false })).toThrow("evidence validation");
     expect(() => service.recordResult(job, { ...result, artifactPath: "/tmp/other.tar.gz" })).toThrow("evidence validation");
+  });
+
+  it("rejects controller evidence that widens the helper boundary or omits the isolated drill", () => {
+    const { service } = fixture({ applicationId: "boxpilot-controller" });
+    const job = { type: "controller.database.backup", parameters: { backupId: "11111111-1111-4111-8111-111111111111", applicationId: "boxpilot-controller" }, createdBy: "owner-one" };
+    const result = resultFor("boxpilot-controller", job.parameters.backupId);
+    expect(() => service.recordResult(job, { ...result, boundary: { ...result.boundary, productionDatabaseChanged: true } })).toThrow("evidence validation");
+    expect(() => service.recordResult(job, { ...result, restoreDrill: { ...result.restoreDrill, workspaceRemoved: false } })).toThrow("evidence validation");
+    expect(() => service.recordResult(job, { ...result, snapshotMethod: "raw-copy" })).toThrow("evidence validation");
   });
 
   it("rejects Pi-hole evidence that omits the secret, configuration, or no-cutover proof", () => {

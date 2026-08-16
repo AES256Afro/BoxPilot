@@ -48,10 +48,10 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.uptime-kuma.backup", "application.pi-hole.backup", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
     const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy"].includes(job.type) ? await validateApplicationJob(job) : null;
-    if (["application.uptime-kuma.backup", "application.pi-hole.backup"].includes(job.type)) await validateBackupJob(job);
+    if (["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup"].includes(job.type)) await validateBackupJob(job);
     const validatedDnsAcceptancePlan = job.type === "network.dns.acceptance.run" ? await validateDnsAcceptanceJob(job) : null;
     const validatedFlint2AdguardPlan = job.type === "network.flint2-adguard.acceptance.run" ? await validateFlint2AdguardJob(job) : null;
     const validatedMigrationTransferPlan = job.type === "migration.bundle.transfer" ? await validateMigrationTransferJob(job) : null;
@@ -170,6 +170,38 @@ export function createJobService(store, helper, {
       verified: "Pi-hole container health, exact TCP and UDP DNS bindings, LAN web binding, and no-cutover evidence passed",
       failed: "Pi-hole staging or its binding verification did not complete; router and client DNS remain unchanged",
       validate: (result) => result?.installed && result?.healthy && result?.lanAddress === validatedApplicationPlan.input.lanAddress && result?.port === validatedApplicationPlan.input.hostPort && result?.dnsTcpBound === true && result?.dnsUdpBound === true && result?.dataPreserved === true && result?.secretPreserved === true && result?.routerMutationPerformed === false && result?.dnsCutoverPerformed === false && result?.dhcpEnabled === false,
+    } : job.type === "controller.database.backup" ? {
+      operation: "controller.database.backup.create",
+      parameters: { backupId: job.parameters.backupId },
+      timeoutMs: 10 * 60 * 1000,
+      applying: "Creating one WAL-aware root-only SQLite snapshot and manifest through the restricted helper without stopping BoxPilot",
+      applied: "The consistent local artifact passed SHA-256, integrity, foreign-key, required-schema, and owner-state verification",
+      verified: "A generated isolated copy matched the artifact checksum and passed the same database checks before the drill workspace was removed",
+      failed: "The controller snapshot or isolated copy-open drill failed; the production database was not replaced, stopped, checkpointed, or modified",
+      validate: (result) => result?.backupId === job.parameters.backupId
+        && result?.applicationId === "boxpilot-controller"
+        && result?.consistentSnapshot === true
+        && result?.snapshotMethod === "sqlite-vacuum-into"
+        && result?.sourceServiceStopped === false
+        && result?.downtimeMs === 0
+        && result?.restoreDrill?.passed === true
+        && result?.restoreDrill?.mode === "isolated-copy-open"
+        && result?.restoreDrill?.copyChecksumMatched === true
+        && result?.restoreDrill?.integrityCheck === "ok"
+        && result?.restoreDrill?.foreignKeyIssues === 0
+        && result?.restoreDrill?.schemaVerified === true
+        && result?.restoreDrill?.ownerStatePresent === true
+        && result?.restoreDrill?.workspaceRemoved === true
+        && result?.restoreDrill?.productionDatabaseReplaced === false
+        && result?.restoreDrill?.serviceStarted === false
+        && result?.boundary?.databaseContentReturned === false
+        && result?.boundary?.browserPathAccepted === false
+        && result?.boundary?.browserCommandAccepted === false
+        && result?.boundary?.productionDatabaseChanged === false
+        && result?.boundary?.serviceStopped === false
+        && result?.boundary?.networkAccessRequired === false
+        && result?.boundary?.independentCopyCreated === false
+        && result?.boundary?.retentionPerformed === false,
     } : job.type === "application.uptime-kuma.backup" ? {
       operation: "application.uptime-kuma.backup",
       parameters: { backupId: job.parameters.backupId },
@@ -297,7 +329,7 @@ export function createJobService(store, helper, {
       store.addJobStep(jobId, "apply", "completed", execution.applied);
       if (job.type === "virtualization.export.backup.retention.apply" && result?.applied === true) recordVmRetentionResult(job, result);
       if (!execution.validate(result)) throw new Error(execution.run ? "Operation returned an invalid result" : "Helper returned an invalid operation result");
-      if (["application.uptime-kuma.backup", "application.pi-hole.backup"].includes(job.type)) recordBackupResult(job, result);
+      if (["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup"].includes(job.type)) recordBackupResult(job, result);
       if (job.type === "network.dns.acceptance.run") recordDnsAcceptanceResult(job, result);
       if (job.type === "network.flint2-adguard.acceptance.run") recordFlint2AdguardResult(job, result);
       if (job.type === "migration.bundle.transfer") recordMigrationTransferResult(job, result);
