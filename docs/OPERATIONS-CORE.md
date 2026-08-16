@@ -37,6 +37,8 @@ The storage timer is separate from the web service and helper protocol. If `/usr
 
 Version `0.33.0` optionally reads an already configured local Network UPS Tools service through fixed `/usr/bin/upsc` localhost queries. BoxPilot does not install NUT, configure a driver, select a UPS, issue power commands, or change shutdown policy. If NUT is absent, Overview and Action Center report it as optional setup still required.
 
+Version `0.34.0` adds fixed read-only host-maintenance evidence. It reports system and update readiness without package or unit names and without running APT, dpkg recovery, service control, update-policy mutation, or reboot. Every recommended change remains a separately reviewed Ubuntu console procedure.
+
 The manual console fallback remains:
 
 ```bash

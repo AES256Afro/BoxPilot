@@ -87,4 +87,17 @@ describe("read-only local Action Center", () => {
     expect(serialized).not.toContain("upsdrvctl");
     expect(serialized).not.toContain("shutdown -");
   });
+
+  it("maps bounded host-maintenance evidence to fixed manual guidance", async () => {
+    const recoveryKit = { inspect: vi.fn(async () => ({ checks: [], evidence: { jobs: [] } })) };
+    const storage = { filesystems: { available: true, summary: { healthy: 1, warning: 0, critical: 0, unavailable: 0 }, errors: { healthy: 1, critical: 0, unavailable: 0, unsupported: 0 } }, smart: { available: true, status: "healthy", reason: "fixed-root-scan" } };
+    const maintenance = { system: { available: true, state: "degraded", failedServiceCount: 2 }, reboot: { available: true, required: true }, packageManager: { available: true, state: "interrupted", pendingUpdateFragments: 1 }, aptMetadata: { available: true, state: "stale", ageHours: 240 }, automaticSecurityUpdates: { available: true, state: "disabled" } };
+    const result = await createActionCenterService({ recoveryKit, inventory: { inspect: vi.fn(async () => ({ storage, maintenance })) }, now }).inspect();
+    expect(result.notices.map((notice) => notice.id)).toEqual(["maintenance.package-manager-interrupted", "maintenance.reboot-required", "maintenance.system-degraded", "maintenance.apt-metadata-stale", "maintenance.security-updates"]);
+    expect(result.notices.every((notice) => notice.boundary.automaticFixAvailable === false)).toBe(true);
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("apt-get");
+    expect(serialized).not.toContain("systemctl restart");
+    expect(serialized).not.toContain("shutdown -");
+  });
 });

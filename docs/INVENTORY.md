@@ -1,6 +1,6 @@
 # Sanitized live inventory
 
-BoxPilot `0.7.0` replaced the demonstration overview with authenticated host, service, network, Docker, and log inventory. Version `0.30.1` adds sanitized host-mount and block-device topology, a separate fixed root-only storage evidence timer, and a server-generated support bundle with a final configurable redaction pass. Version `0.31.0` adds a separately named exact `smartmontools` repair. Version `0.32.0` adds mounted ext4 kernel error counters. Version `0.33.0` adds optional bounded local NUT evidence. Every collector remains bounded so discovery does not become arbitrary command execution.
+BoxPilot `0.7.0` replaced the demonstration overview with authenticated host, service, network, Docker, and log inventory. Version `0.30.1` adds sanitized host-mount and block-device topology, a separate fixed root-only storage evidence timer, and a server-generated support bundle with a final configurable redaction pass. Version `0.31.0` adds a separately named exact `smartmontools` repair. Version `0.32.0` adds mounted ext4 kernel error counters. Version `0.33.0` adds optional bounded local NUT evidence. Version `0.34.0` adds bounded host-maintenance readiness. Every collector remains bounded so discovery does not become arbitrary command execution.
 
 ## Host inventory
 
@@ -14,6 +14,7 @@ BoxPilot `0.7.0` replaced the demonstration overview with authenticated host, se
 - Block-device topology without serial numbers, UUIDs, labels, or raw udev properties
 - Bounded SMART health fields from a separate root-only timer when current evidence exists
 - Optional local UPS state, fixed status tokens, battery charge, estimated runtime, and load from a fixed localhost NUT query
+- Derived systemd state and failed-service count, reboot-required presence, dpkg update-fragment count, APT metadata age, and unattended-upgrades unit state
 - Non-loopback IPv4 addresses and interface names
 - Tailscale connection state and the local device DNS name
 - Load, active, substate, and enablement for a fixed service list
@@ -57,6 +58,21 @@ The optional `0.33.0` collector checks only `/usr/bin/upsc`. It first runs the f
 Only `ups.status`, `battery.charge`, `battery.runtime`, and `ups.load` are parsed. Status is reduced to a fixed token set and derived `online`, `on-battery`, `low-battery`, `forced-shutdown`, `bypass`, `offline`, or `unavailable` state. Numeric fields are range checked. Device names, descriptions, manufacturers, models, serials, alarms, raw output, and errors are never returned. Multiple devices fail closed to a count and unavailable state.
 
 Missing NUT, no local configuration, a stopped local NUT service, and invalid or unknown evidence remain distinct non-healthy reasons. The collector does not install or configure NUT, run a driver, switch power, request shutdown, alter NUT policy, or probe a remote device. Bigbox had no NUT client or local configuration before this release, so its expected first live state is `nut-client-not-installed`.
+
+## Host-maintenance evidence
+
+Version `0.34.0` runs only these fixed local reads:
+
+- `/usr/bin/systemctl is-system-running`
+- `/usr/bin/systemctl --failed --type=service --no-legend --plain --no-pager`
+- `/usr/bin/systemctl show unattended-upgrades.service` with four fixed properties
+- Presence of `/run/reboot-required`
+- Numeric dpkg update-fragment count under `/var/lib/dpkg/updates`
+- Modification time of `/var/lib/apt/lists`
+
+The response contains only fixed derived states, bounded counts, one APT timestamp, and age in hours. It never returns a package name, failed unit name, reboot-marker text, unit description, path listing, command output, stderr, or error. More than 256 failed services or dpkg fragments is capped and marked truncated. Unknown system state and future-dated APT metadata fail closed to unavailable.
+
+The collector cannot run `apt`, `apt-get`, `dpkg`, or `unattended-upgrade`; install, remove, or update a package; enable, disable, start, stop, or restart a service; change update policy; or reboot the host. Action Center guidance links only to fixed BoxPilot views and requires a separately reviewed console procedure for any change.
 
 ## Docker inventory
 
