@@ -1,6 +1,6 @@
 # Local Action Center
 
-BoxPilot `0.29.0` adds an authenticated, read-only Action Center inside Repair Center. Versions `0.30.1` through `0.33.0` add storage, SMART, filesystem-error, and local UPS guidance. Version `0.34.0` adds interrupted package-manager, reboot-required, degraded systemd, incomplete maintenance evidence, stale APT metadata, and unattended-upgrades guidance without adding a host control. Version `0.35.0` adds a separate durable metadata-only repair in Repair Center. Version `0.38.0` routes a missing controller snapshot to Backups. Version `0.39.0` keeps the check actionable after a local-only snapshot and clears it only when encrypted independent repository plus exact restored database evidence exists. Action Center itself remains guidance and navigation only.
+BoxPilot `0.29.0` adds an authenticated, read-only Action Center inside Repair Center. Versions `0.30.1` through `0.33.0` add storage, SMART, filesystem-error, and local UPS guidance. Version `0.34.0` adds interrupted package-manager, reboot-required, degraded systemd, incomplete maintenance evidence, stale APT metadata, and unattended-upgrades guidance without adding a host control. Version `0.35.0` adds a separate durable metadata-only repair in Repair Center. Version `0.38.0` routes a missing controller snapshot to Backups. Version `0.39.0` keeps the check actionable after a local-only snapshot and clears it only when encrypted independent repository plus exact restored database evidence exists. Version `0.40.0` exposes only the sanitized count of controller retention runs in the recovery kit; it does not change Action Center guidance or authorize retention. Action Center itself remains guidance and navigation only.
 
 The Action Center is guidance, not an automation system. Opening, refreshing, or navigating from it performs no host, application, VM, router, network, DNS, Tailscale, package, file, or service mutation.
 
@@ -56,7 +56,7 @@ If the recovery collector throws, returns an incomplete object, or introduces an
 
 ## Deliberate exclusions
 
-Version `0.39.0` Action Center has no:
+Version `0.40.0` Action Center has no:
 
 - Automatic repair or remediation execution
 - Arbitrary command, package, service, file, Docker, libvirt, router, DNS, firewall, or Tailscale operation

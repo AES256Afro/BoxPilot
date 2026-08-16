@@ -184,7 +184,25 @@ describe("BoxPilot state store", () => {
     expect(store.getControllerBackupProtectionByBackup(backupId)?.snapshotId).toBe("d".repeat(64));
     expect(store.listControllerBackupProtections()).toEqual([protection]);
     expect(() => store.recordControllerBackupProtection({ ...protection, id: "33333333-3333-4333-8333-333333333333" })).toThrow();
+    const retention = store.recordControllerRetention({
+      id: "44444444-4444-4444-8444-444444444444",
+      repositoryId: protection.repositoryId,
+      beforeSnapshotSetRevision: "e".repeat(64),
+      afterSnapshotSetRevision: "f".repeat(64),
+      beforeCount: 4,
+      afterCount: 3,
+      forgotten: [{ protectionId: protection.id, backupId, snapshotId: protection.snapshotId }],
+      keptSnapshotIds: ["1".repeat(64), "2".repeat(64), "3".repeat(64)],
+      repositoryVerified: true,
+      complete: true,
+      prunePerformed: false,
+      createdBy: owner.id,
+    });
+    expect(retention).toMatchObject({ beforeCount: 4, afterCount: 3, repositoryVerified: true, complete: true, prunePerformed: false });
+    expect(store.getControllerBackupProtection(protection.id)).toMatchObject({ protected: false, retained: false, retention: { runId: retention.id } });
+    expect(store.listControllerRetentionRuns()).toEqual([retention]);
     expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "controller.backup.protected", subjectId: protection.id })]));
+    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "controller.retention.applied", subjectId: retention.id })]));
     store.close();
   });
 

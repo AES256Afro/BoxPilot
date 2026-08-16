@@ -4,12 +4,15 @@ import BackupCenter from "./BackupCenter";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
+const blockedRetention = { executable: false, repositoryId: null, beforeCount: 0, policy: { minimumCopies: 3, minimumAgeDays: 30, requiresProtectedRestoreDrill: true, preserveActiveControllerOperations: true }, candidates: [], kept: [], retentionRuns: [], blockers: ["No eligible controller snapshot"], changes: [], warnings: [], verification: [], recovery: "Keep retained snapshots", prunePerformed: false, spaceReclaimed: false };
+
 describe("Backup Center", () => {
   it("plans and stages a restore-verified backup", async () => {
     const onOpenRepair = vi.fn();
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === "/api/v1/controller-backup-protection" && !init?.method) return new Response(JSON.stringify({ destination: { ready: false, blockers: ["Mount independent storage"], setupCommand: "sudo /opt/boxpilot/scripts/boxpilot-controller-restic-setup.sh" }, protections: [] }), { status: 200 });
+      if (url === "/api/v1/controller-backup-retention" && !init?.method) return new Response(JSON.stringify(blockedRetention), { status: 200 });
       if (url === "/api/v1/backups" && !init?.method) return new Response(JSON.stringify({ coverage: [
         { applicationId: "boxpilot-controller", name: "BoxPilot controller", sourceKind: "controller-state", source: { installed: true, healthy: true, state: "ready", detail: "Live SQLite source is ready" }, state: "unprotected", protected: false, latestBackup: null, requirement: "WAL-aware restore required" },
         { applicationId: "uptime-kuma", name: "Uptime Kuma", sourceKind: "application-state", source: { installed: true, healthy: true, state: "running", detail: "Managed container is running" }, state: "unprotected", protected: false, latestBackup: null, requirement: "Restore required" },
@@ -32,9 +35,11 @@ describe("Backup Center", () => {
   });
 
   it("shows an explicit empty evidence state", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => input.toString() === "/api/v1/controller-backup-protection"
-      ? new Response(JSON.stringify({ destination: { ready: false, blockers: [], setupCommand: "sudo setup" }, protections: [] }), { status: 200 })
-      : new Response(JSON.stringify({ coverage: [], backups: [], limitations: [] }), { status: 200 })));
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (input.toString() === "/api/v1/controller-backup-protection") return new Response(JSON.stringify({ destination: { ready: false, blockers: [], setupCommand: "sudo setup" }, protections: [] }), { status: 200 });
+      if (input.toString() === "/api/v1/controller-backup-retention") return new Response(JSON.stringify(blockedRetention), { status: 200 });
+      return new Response(JSON.stringify({ coverage: [], backups: [], limitations: [] }), { status: 200 });
+    }));
     render(<BackupCenter csrfToken="csrf" onOpenRepair={() => {}} />);
     expect(await screen.findByText(/No backup is listed as successful/)).toBeTruthy();
   });
@@ -45,7 +50,9 @@ describe("Backup Center", () => {
     const artifactPath = "/var/lib/boxpilot-managed/backups/boxpilot-controller/11111111-1111-4111-8111-111111111111/boxpilot.sqlite3";
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => input.toString() === "/api/v1/controller-backup-protection"
       ? new Response(JSON.stringify({ destination: { ready: false, blockers: ["Mount independent storage"], setupCommand: "sudo setup" }, protections: [] }), { status: 200 })
-      : new Response(JSON.stringify({
+      : input.toString() === "/api/v1/controller-backup-retention"
+        ? new Response(JSON.stringify(blockedRetention), { status: 200 })
+        : new Response(JSON.stringify({
       coverage: [{ applicationId: "boxpilot-controller", name: "BoxPilot controller", sourceKind: "controller-state", source: { installed: true, healthy: true, state: "ready", detail: "Live SQLite source is ready" }, state: "locally-verified", protected: false, latestBackup: null, requirement: "WAL-aware restore required" }],
       backups: [{ id: "backup-one", applicationId: "boxpilot-controller", destination: "local-managed", artifactPath, checksumSha256: artifactSha, sizeBytes: 4096, downtimeMs: 0, restoreDrill: { passed: true, mode: "isolated-copy-open", manifestChecksumSha256: manifestSha }, createdAt: "2026-08-16T00:00:00.000Z", verifiedAt: "2026-08-16T00:00:01.000Z" }],
       limitations: [],
@@ -70,6 +77,7 @@ describe("Backup Center", () => {
         limitations: [],
       }), { status: 200 });
       if (url === "/api/v1/controller-backup-protection" && !init?.method) return new Response(JSON.stringify({ destination: { ready: true, encrypted: true, independent: true, resticVersion: "0.18.1", mount: { target: "/mnt/boxpilot-backup", sourceType: "ext4" }, blockers: [], setupCommand: "sudo setup" }, protections: [] }), { status: 200 });
+      if (url === "/api/v1/controller-backup-retention" && !init?.method) return new Response(JSON.stringify(blockedRetention), { status: 200 });
       if (url === "/api/v1/controller-backups/backup-one/protection-plans" && init?.method === "POST") return new Response(JSON.stringify({ plan: { id: "protect-plan", revision: "protect-revision", subjectId: "backup-one", output: { executable: true, destination: "mounted-restic-controller", destinationFreeBytes: 1024 ** 3, blockers: [], changes: ["Encrypt exact backup"], verification: ["Restore exact snapshot"], warnings: ["Keep password outside Bigbox"], recovery: "Preserve all source evidence" } } }), { status: 201 });
       if (url === "/api/v1/controller-protection-plans/protect-plan/stage" && init?.method === "POST") return new Response(JSON.stringify({ job: { id: "protect-job" } }), { status: 201 });
       return new Response("{}", { status: 404 });
@@ -80,6 +88,28 @@ describe("Backup Center", () => {
     expect(await screen.findByRole("region", { name: "Controller protection plan" })).toBeTruthy();
     expect(screen.getByText("Restore exact snapshot")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stage independent protection" }));
+    await waitFor(() => expect(onOpenRepair).toHaveBeenCalled());
+  });
+
+  it("shows and stages the fixed no-prune controller retention plan", async () => {
+    const onOpenRepair = vi.fn();
+    const eligible = { ...blockedRetention, executable: true, repositoryId: "a".repeat(64), beforeCount: 5, blockers: [], candidates: [{ protectionId: "protect-one", backupId: "backup-one", snapshotId: "b".repeat(64), createdAt: "2026-06-01T00:00:00.000Z", ageDays: 76, sizeBytes: 8192 }], kept: [], changes: ["Forget exactly one reviewed snapshot"], warnings: ["No prune"], verification: ["Full repository read"], recovery: "Use another retained snapshot" };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/backups") return new Response(JSON.stringify({ coverage: [], backups: [], limitations: [] }), { status: 200 });
+      if (url === "/api/v1/controller-backup-protection") return new Response(JSON.stringify({ destination: { ready: true, blockers: [], setupCommand: "sudo setup" }, protections: [] }), { status: 200 });
+      if (url === "/api/v1/controller-backup-retention" && !init?.method) return new Response(JSON.stringify(eligible), { status: 200 });
+      if (url === "/api/v1/controller-retention-plans" && init?.method === "POST") return new Response(JSON.stringify({ plan: { id: "retention-plan", revision: "retention-revision", subjectId: eligible.repositoryId, output: eligible } }), { status: 201 });
+      if (url === "/api/v1/controller-retention-plans/retention-plan/stage" && init?.method === "POST") return new Response(JSON.stringify({ job: { id: "retention-job" } }), { status: 201 });
+      return new Response("{}", { status: 404 });
+    }));
+
+    render(<BackupCenter csrfToken="csrf" onOpenRepair={onOpenRepair} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Build fixed retention plan" }));
+    expect(await screen.findByRole("region", { name: "Controller retention plan" })).toBeTruthy();
+    expect(screen.getByText("Full repository read")).toBeTruthy();
+    expect(screen.getByText("No prune")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage exact retention batch" }));
     await waitFor(() => expect(onOpenRepair).toHaveBeenCalled());
   });
 });

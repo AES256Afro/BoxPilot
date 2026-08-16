@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.39.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.40.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -192,6 +192,26 @@ describe("restricted helper protocol", () => {
     };
     await expect(executeHelperOperation(request({ operation: "controller.database.protection.inspect", parameters: {} }), { controllerProtection })).resolves.toMatchObject({ ok: true, result: { ready: false, boundary: { mutationPerformed: false } } });
     await expect(executeHelperOperation(request({ operation: "controller.database.protection.create", parameters }), { controllerProtection })).resolves.toMatchObject({ ok: true, result: { protectionId: parameters.protectionId, backupId: parameters.backupId, created: true, protected: true } });
+  });
+
+  it("accepts only exact controller retention evidence and delegates no selector, path, password, or prune flag", async () => {
+    const parameters = {
+      retentionId: randomUUID(),
+      repositoryId: "a".repeat(64),
+      expectedDestinationRevision: "b".repeat(64),
+      expectedSnapshotSetRevision: "c".repeat(64),
+      forgetSnapshotIds: ["d".repeat(64)],
+    };
+    expect(validateHelperRequest(request({ operation: "controller.database.protection.retention.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "controller.database.protection.retention.inspect", parameters: { repository: "/tmp" } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "controller.database.protection.retention.apply", parameters }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "controller.database.protection.retention.apply", parameters: { ...parameters, prune: true } }))).toContain("fixed typed evidence");
+    const controllerRetention = {
+      inspect: async () => ({ ready: true, snapshots: [] }),
+      apply: async (input) => ({ ...input, applied: true, complete: true, prunePerformed: false }),
+    };
+    await expect(executeHelperOperation(request({ operation: "controller.database.protection.retention.inspect", parameters: {} }), { controllerRetention })).resolves.toMatchObject({ ok: true, result: { ready: true, snapshots: [] } });
+    await expect(executeHelperOperation(request({ operation: "controller.database.protection.retention.apply", parameters }), { controllerRetention })).resolves.toMatchObject({ ok: true, result: { retentionId: parameters.retentionId, applied: true, complete: true, prunePerformed: false } });
   });
 
   it("delegates a typed backup id without accepting a path", async () => {
