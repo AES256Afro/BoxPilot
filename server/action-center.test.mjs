@@ -1,0 +1,51 @@
+import { describe, expect, it, vi } from "vitest";
+import { createActionCenterService } from "./action-center.mjs";
+
+const now = () => new Date("2026-08-16T05:00:00.000Z");
+
+describe("read-only local Action Center", () => {
+  it("prioritizes fixed guidance without exposing mutation controls or sensitive evidence", async () => {
+    const recoveryKit = { inspect: vi.fn(async () => ({
+      checks: [
+        { id: "controller.database", state: "operator-check", title: "Independent BoxPilot database copy", evidence: "No off-host database proof exists.", action: "Create an independent copy." },
+        { id: "router.checkpoint", state: "action-required", title: "Router configuration checkpoint", evidence: "No router backup identity is recorded.", action: "Export and hash the active router configuration." },
+        { id: "virtualization.backup", state: "unavailable", title: "Virtual-machine recovery", evidence: "Libvirt inventory is unavailable.", action: "Restore helper access." },
+        { id: "dns.second-device", state: "not-applicable", title: "Independent DNS proof", evidence: "No direct proof.", action: "Keep DNS unchanged." },
+      ],
+      evidence: { jobs: [{ state: "failed", error: "password=do-not-export", owner: "private-owner" }] },
+    })) };
+    const result = await createActionCenterService({ recoveryKit, now, version: "0.29.0-test" }).inspect();
+    expect(result).toMatchObject({
+      product: { version: "0.29.0-test" },
+      mode: "read-only-local-action-guidance",
+      sourceStatus: "ready",
+      summary: { critical: 1, warning: 2, info: 1, total: 4 },
+      boundary: { mutationPerformed: false, automaticRepair: false, persistence: false, externalDelivery: false },
+    });
+    expect(result.notices.map((item) => item.id)).toEqual([
+      "recovery.virtualization.backup",
+      "jobs.failed",
+      "recovery.router.checkpoint",
+      "recovery.controller.database",
+    ]);
+    expect(result.notices.every((item) => item.boundary.automaticFixAvailable === false)).toBe(true);
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain("do-not-export");
+    expect(serialized).not.toContain("private-owner");
+  });
+
+  it("fails closed to a critical notice when recovery evidence cannot be collected", async () => {
+    const service = createActionCenterService({ recoveryKit: { inspect: vi.fn(async () => { throw new Error("offline secret"); }) }, now });
+    const result = await service.inspect();
+    expect(result.sourceStatus).toBe("unavailable");
+    expect(result.summary).toEqual({ critical: 1, warning: 0, info: 0, total: 1 });
+    expect(result.notices[0]).toMatchObject({ id: "action-center.collector-unavailable", boundary: { mutationPerformed: false, logsIncluded: false } });
+    expect(JSON.stringify(result)).not.toContain("offline secret");
+  });
+
+  it("does not claim all-clear when an unknown actionable check appears", async () => {
+    const recoveryKit = { inspect: vi.fn(async () => ({ checks: [{ id: "future.check", state: "action-required" }], evidence: { jobs: [] } })) };
+    const result = await createActionCenterService({ recoveryKit, now }).inspect();
+    expect(result.notices).toEqual([expect.objectContaining({ id: "action-center.unmapped-evidence", severity: "warning" })]);
+  });
+});

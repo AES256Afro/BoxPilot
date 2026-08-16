@@ -158,13 +158,14 @@ Acceptance:
 
 ## Phase 8: fleet and plugin model
 
-Status: `0.22.0` ships the first narrow node identity and evidence path: password-gated one-time enrollment, device-generated Ed25519 keys, signed requests, timestamp and sequence replay protection, revocation, node-local execution, and one fixed second-device Pi-hole probe. Version `0.24.0` adds credential-free sanitized provenance for the fixed public BoxPilot and Keel repositories. Version `0.25.0` consumes only the fixed Keel release metadata in a non-executable plan. Version `0.26.0` adds an authenticated read-only disaster recovery readiness kit and secret-free JSON and Markdown runbook exports. Version `0.28.0` adds owner-approved immediate, 5-minute, and 10-minute one-shot windows for the single allowlisted proof. Multiple controllers, a general or recurring scheduler, locally verified signed adapter installation, private repository credentials, broader policy templates, notifications, and executable recovery automation remain pending.
+Status: `0.22.0` ships the first narrow node identity and evidence path: password-gated one-time enrollment, device-generated Ed25519 keys, signed requests, timestamp and sequence replay protection, revocation, node-local execution, and one fixed second-device Pi-hole probe. Version `0.24.0` adds credential-free sanitized provenance for the fixed public BoxPilot and Keel repositories. Version `0.25.0` consumes only the fixed Keel release metadata in a non-executable plan. Version `0.26.0` adds an authenticated read-only disaster recovery readiness kit and secret-free JSON and Markdown runbook exports. Version `0.28.0` adds owner-approved immediate, 5-minute, and 10-minute one-shot windows for the single allowlisted proof. Version `0.29.0` adds a fail-closed local Action Center with fixed sanitized evidence, manual guidance, and in-product handoffs. Multiple controllers, a general or recurring scheduler, locally verified signed adapter installation, private repository credentials, broader policy templates, persistent alerts, external notification delivery, and executable recovery automation remain pending.
 
 - Multiple BoxPilot nodes
 - Signed adapter packages with compatibility declarations
 - Central inventory with node-local execution and approval
 - Fixed one-shot signed DNS proof policy included in `0.28.0`; broader policy templates, scheduled maintenance, and notification integrations remain pending
 - Exportable disaster-recovery kit
+- Read-only local Action Center with fixed severity, evidence explanations, manual steps, and navigation included in `0.29.0`
 
 Acceptance:
 
