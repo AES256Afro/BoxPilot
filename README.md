@@ -4,11 +4,11 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.21.0` adds guarded direct Pi-hole DNS acceptance from Bigbox. After exact deployment, live binding, and restore-verified backup evidence match, an immutable password-approved job sends only four fixed queries to the managed resolver: the Pi-hole local name over UDP and TCP, one public A lookup, and one reserved negative lookup. It records protocol, response code, answer count, latency, and the exact evidence links in SQLite. The unprivileged web service performs the fixed network reads; the root helper remains network-isolated. A passing run proves only the Bigbox-to-resolver path. Second-device proof, router writes, DHCP, client DNS, Tailscale DNS, firewall, and traffic-path changes remain locked.
+Version `0.22.0` adds the first signed fleet-agent slice. An owner can create a ten-minute one-time enrollment token after password reauthentication. The second device creates its own Ed25519 keypair, signs every request, and uses a strictly increasing replay sequence. After a fresh passing Bigbox Pi-hole acceptance, BoxPilot can issue only one fixed task: repeat the same four DNS checks from that enrolled LAN device. The controller cannot send a command, hostname, port, or arbitrary target, and the agent private key never leaves the device. Router writes, DHCP, client DNS, Tailscale DNS, firewall changes, plugin installation, and DNS cutover remain locked.
 
 ### What works now
 
-| Area | Status in `0.21.0` | Capability |
+| Area | Status in `0.22.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
@@ -16,11 +16,12 @@ Version `0.21.0` adds guarded direct Pi-hole DNS acceptance from Bigbox. After e
 | Repair Center | Live foundation | Checks Node.js, state storage, the helper, Docker, libvirt, Tailscale, and DNS port availability without returning peer details or raw command output. |
 | Restricted helper | Live typed operations | Uses a versioned, allowlisted protocol over a local Unix socket for the canary, bounded inventory and logs, Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, guarded VM creation and lifecycle, read-only libvirt inventory, offline snapshots, stopped-VM exports, mounted-restic VM copies, isolated restore drills, stopped no-network recovery clones, and exact no-prune retention. It accepts no command strings, binary selection, libvirt URI, argument arrays, operator paths, Compose source path, migration destination, SSH credential, repository password, backup mount, repository path, export destination, restore destination, recovery directory, prune flag, selector such as `latest`, or arbitrary root paths from the browser. |
 | Host and Docker inventory | Live | Reports authenticated host identity, CPU, memory, root storage, uptime, selected service state, LAN addresses, Tailscale self-state, and sanitized Docker containers, images, networks, volumes, and Compose projects. |
-| Network and DNS Center | Live planning and guarded fixed tests | Reports validated default gateways, host LAN CIDRs, sanitized systemd-resolved servers, scoped TCP and UDP port 53 listeners, and Tailscale resolver observations. It creates immutable topology assessments and can separately stage four fixed direct Pi-hole DNS checks after exact deployment and restore evidence match. It records Bigbox-path proof without accepting a target, hostname, command, or router credential. Second-device proof, router writes, and DNS cutover have no execution route. |
+| Network and DNS Center | Live planning and guarded fixed tests | Reports validated default gateways, host LAN CIDRs, sanitized systemd-resolved servers, scoped TCP and UDP port 53 listeners, and Tailscale resolver observations. It creates immutable topology assessments and can separately stage four fixed direct Pi-hole DNS checks after exact deployment and restore evidence match. A separately enrolled signed agent can repeat only those fixed checks after a fresh passing Bigbox record. Router writes and DNS cutover have no execution route. |
 | System logs | Live restricted sources | Returns capped, redacted entries for fixed BoxPilot, Docker, Tailscale, and virtualization unit sets. Credential-like values and URL query strings are redacted. |
 | Application catalog | Live | Publishes integrity-addressed manifests, live installation state, exact image policy, targets, ports, storage, prerequisites, recovery, and adapter risk. |
 | Uptime Kuma adapter | Executable deployment | Uses the official `2.5.0` image pinned by multi-platform digest, a loopback-only port, local persistent storage, Docker health, approval, and data-preserving rollback. The catalog shows whether restore-verified backup evidence exists. |
-| Pi-hole adapter | Guarded staging, recovery, and direct DNS proof | Starts a digest-pinned Docker service only after a fresh Pi-hole-on-Bigbox network assessment and separate approval. A second workflow verifies configuration recovery. A third fixed-query workflow proves local UDP and TCP, public forwarding, and reserved negative resolution directly from Bigbox. DHCP, NTP, router writes, client DNS advertisement, Tailscale changes, second-device attestation, and cutover do not exist. The dedicated-VM target remains planning-only. |
+| Pi-hole adapter | Guarded staging, recovery, and two-origin DNS proof | Starts a digest-pinned Docker service only after a fresh Pi-hole-on-Bigbox network assessment and separate approval. Separate workflows verify configuration recovery, fixed direct queries from Bigbox, and the same fixed queries from an enrolled signed LAN device. DHCP, NTP, router writes, client DNS advertisement, Tailscale changes, and cutover do not exist. The dedicated-VM target remains planning-only. |
+| Fleet agents | Signed narrow foundation | Creates password-gated one-time enrollment tokens, registers device-generated Ed25519 public keys, rejects stale or replayed requests, supports revocation, and records signed second-device Pi-hole evidence. It provides no shell, arbitrary command, arbitrary target, file access, package operation, or general plugin execution. |
 | Backup engine | Two live application adapters | Creates immutable local Uptime Kuma and Pi-hole archives after a clean stop, verifies source restart, records SHA-256 and measured downtime, and runs temporary restore containers with no network or published ports. Pi-hole evidence additionally requires configuration, secret, and no-cutover proof, and a strict startup reconciler recovers interrupted source stops and exact orphan drills. Local artifacts are not independent copies. |
 | Migration Center | Guarded local staging | Exports and imports fingerprinted sanitized source manifests, creates immutable destination compatibility plans, discovers root-only checksummed Compose bundles from one fixed inbox, and executes resumable password-approved copies into isolated managed staging. It records exact durable evidence, supports no-copy reconciliation after a restart edge case, preserves the source, and never activates the workload. Remote SSH transport and cutover remain locked. |
 | QEMU/KVM preflight | Live through the native helper | Checks Linux, KVM support reported by libvirt, QEMU, `virsh`, `virt-install`, `qemu:///system`, the helper boundary, the default NAT network, the default storage pool, and Tailscale access. |
@@ -47,7 +48,7 @@ The repository also includes a read-only Ubuntu deployment doctor and a USB-to-h
 - VM delete, force-off, console proxy, online snapshot, snapshot revert/delete, bridge creation, passthrough, in-place restore, recovered-VM network attachment, application-level restore tests, cloud-init, Windows TPM/Secure Boot creation, or VM migration transfer
 - General Docker mutation, custom Compose deployment, additional application installation beyond the curated adapters, package updates, firewall changes, storage changes, or arbitrary command execution
 - Backup schedules, application-backup independent or offsite destinations, restic prune and space reclamation, configurable retention policies, remote restic/cloud backends, Keel Notes export, SSH source discovery or transport, general application-aware volume/database capture, staged-workload activation, or migration cutover
-- Keel Notes, executable AdGuard Home, Jellyfin, Home Assistant, PostgreSQL, Pi-hole second-device acceptance or router cutover, GitHub, or remote-agent adapters
+- Keel Notes, executable AdGuard Home, Jellyfin, Home Assistant, PostgreSQL, Pi-hole router cutover, GitHub integration, signed adapter installation, or general remote-agent operations
 - WebAuthn, recovery codes, multiple owners, Tailscale identity headers, tamper-evident audit chaining, or general-purpose mutation handlers
 
 ## Screenshots
@@ -148,6 +149,12 @@ This explicitly disclosed `0.20.0` mock shows the clean-stop archive, root-only 
 
 This explicitly disclosed `0.21.0` mock shows the exact managed resolver, linked deployment, assessment, and restore evidence, four fixed queries, durable response evidence, the unprivileged controller boundary, and the separate second-device gate. No DNS query was sent, no job was approved, and no router, DHCP, client, firewall, Tailscale, or traffic-path setting was changed for the capture.
 
+### Signed fleet-agent mockup
+
+![BoxPilot signed agent enrollment and independent DNS evidence](docs/screenshots/signed-fleet-agent-mock.png)
+
+This explicitly disclosed `0.22.0` mock shows one-time enrollment, device-owned Ed25519 identity, the no-shell execution boundary, one fixed Pi-hole task, replay-protected evidence, and the remaining router and cutover locks. No device was enrolled, no key or token was generated, no DNS query was sent, and no network setting was changed for the capture.
+
 ## Safety contract
 
 Every future host change must follow:
@@ -159,7 +166,7 @@ Every future host change must follow:
 5. Apply with streamed logs
 6. Verify or roll back
 
-Pi-hole staging and backup, migration staging, VM creation, lifecycle changes, offline snapshots, stopped-VM exports, encrypted independent VM copies, isolated restore drills, guarded recovery clones, and exact retention batches use the durable job executor and separate typed helper operations. The helper derives its own application, secret, backup, migration inbox, staging, binary, libvirt URI, managed-media, disk, export, restore-workspace, recovery, UEFI NVRAM, mount, repository, cache, and password-file roots, verbs, and argument arrays; the web process cannot supply them. Direct DNS acceptance also uses a durable password approval, but its four fixed network reads run in the unprivileged controller so the root helper keeps `PrivateNetwork=true`. Every supported mutation requires an immutable plan and owner password reauthentication. Higher-impact operations remain locked until each handler has authorization, path confinement, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
+Pi-hole staging and backup, migration staging, VM creation, lifecycle changes, offline snapshots, stopped-VM exports, encrypted independent VM copies, isolated restore drills, guarded recovery clones, and exact retention batches use the durable job executor and separate typed helper operations. The helper derives its own application, secret, backup, migration inbox, staging, binary, libvirt URI, managed-media, disk, export, restore-workspace, recovery, UEFI NVRAM, mount, repository, cache, and password-file roots, verbs, and argument arrays; the web process cannot supply them. Direct DNS acceptance also uses a durable password approval, but its four fixed network reads run in the unprivileged controller so the root helper keeps `PrivateNetwork=true`. The signed fleet agent accepts only the same fixed four-query contract and never exposes a shell or arbitrary target. Every supported mutation requires an immutable plan and owner password reauthentication. Higher-impact operations remain locked until each handler has authorization, path confinement, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
 
 ## Run for development
 
@@ -246,6 +253,7 @@ docker build -t boxpilot:local .
 - [Verified backup and isolated restore workflow](docs/BACKUPS.md)
 - [Sanitized host, Docker, service, and log inventory](docs/INVENTORY.md)
 - [Router, DNS topology, and guarded direct acceptance](docs/NETWORK.md)
+- [Signed fleet agents and independent DNS evidence](docs/FLEET.md)
 - [Guarded migration discovery and local staging](docs/MIGRATIONS.md)
 - [Dependency-ordered roadmap](docs/ROADMAP.md)
 - [QEMU/KVM setup and operation](docs/VIRTUALIZATION.md)
@@ -255,7 +263,7 @@ docker build -t boxpilot:local .
 
 ## Keel Notes roadmap adapter
 
-No Keel-specific adapter ships in `0.21.0`. The generic migration packer can stage an offline Keel Notes Compose project only as opaque verified files; it does not understand Keel databases, managed-secret keys, health, activation, or cutover. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
+No Keel-specific adapter ships in `0.22.0`. The generic migration packer can stage an offline Keel Notes Compose project only as opaque verified files; it does not understand Keel databases, managed-secret keys, health, activation, or cutover. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
 
 - Detect a Keel Docker or service installation
 - Inventory the database dialect and protected data paths without exposing secrets

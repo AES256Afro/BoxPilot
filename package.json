@@ -1,6 +1,6 @@
 {
   "name": "boxpilot",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "private": true,
   "description": "A safety-first local control plane for Ubuntu home servers.",
   "type": "module",
@@ -12,6 +12,7 @@
     "build": "tsc -b && vite build",
     "doctor": "sh scripts/boxpilot-doctor.sh",
     "helper": "node server/helper-server.mjs",
+    "agent": "node scripts/boxpilot-agent.mjs",
     "owner:token": "node scripts/boxpilot-owner.mjs create-bootstrap-token",
     "start": "node server/index.mjs",
     "test": "vitest run",

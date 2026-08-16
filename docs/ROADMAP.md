@@ -25,7 +25,7 @@ Acceptance:
 
 ## Phase 1: real read-only inventory
 
-Status: libvirt VM, network, pool, and Tailscale access discovery is included in `0.2.0`. Version `0.7.0` adds host identity and resources, root storage, LAN addresses, selected systemd services, sanitized Docker resource inventory, and fixed redacted journal sources. Version `0.18.0` adds fixed default-route, systemd-resolved, scoped port 53 listener, and Tailscale resolver observations plus no-change router and DNS assessments. Version `0.21.0` adds exact post-staging Pi-hole listener and recovery-baseline validation plus fixed controller-path DNS evidence. SMART, full mount inventory, second-device evidence, support-bundle redaction policies, and broader hardware collectors remain pending.
+Status: libvirt VM, network, pool, and Tailscale access discovery is included in `0.2.0`. Version `0.7.0` adds host identity and resources, root storage, LAN addresses, selected systemd services, sanitized Docker resource inventory, and fixed redacted journal sources. Version `0.18.0` adds fixed default-route, systemd-resolved, scoped port 53 listener, and Tailscale resolver observations plus no-change router and DNS assessments. Version `0.21.0` adds exact post-staging Pi-hole listener and recovery-baseline validation plus fixed controller-path DNS evidence. Version `0.22.0` adds separately signed second-device evidence for the same fixed Pi-hole checks. SMART, full mount inventory, support-bundle redaction policies, and broader hardware collectors remain pending.
 
 - Host identity, OS, kernel, uptime, CPU, memory, mounts, and disk space
 - SMART and filesystem health
@@ -99,7 +99,7 @@ Acceptance:
 
 ## Phase 5: applications and Compose imports
 
-Status: integrity-addressed manifests, live prerequisite and port planning, immutable revisions, the executable Uptime Kuma adapter, and planning-only Pi-hole Docker and VM targets are included in `0.5.0`. Version `0.18.0` adds the read-only route, resolver, exact listener, router-role, and DNS recovery assessment. Version `0.19.0` enables guarded Docker Pi-hole staging only when a fresh owner-attributable assessment passes again at plan, stage, and approval time. Version `0.20.0` adds the separate application-aware Pi-hole backup and isolated restore workflow, including configuration and administrator-secret evidence without router or DNS cutover. Version `0.21.0` adds approved fixed direct DNS acceptance from Bigbox with durable controller-only evidence. The Pi-hole VM target, second-device DNS acceptance, router advertisement, full Compose parsing, additional adapters, proxy registration, independent application-backup destinations, and update previews remain pending.
+Status: integrity-addressed manifests, live prerequisite and port planning, immutable revisions, the executable Uptime Kuma adapter, and planning-only Pi-hole Docker and VM targets are included in `0.5.0`. Version `0.18.0` adds the read-only route, resolver, exact listener, router-role, and DNS recovery assessment. Version `0.19.0` enables guarded Docker Pi-hole staging only when a fresh owner-attributable assessment passes again at plan, stage, and approval time. Version `0.20.0` adds the separate application-aware Pi-hole backup and isolated restore workflow, including configuration and administrator-secret evidence without router or DNS cutover. Version `0.21.0` adds approved fixed direct DNS acceptance from Bigbox with durable controller-only evidence. Version `0.22.0` adds signed second-device evidence for the same fixed checks. The Pi-hole VM target, router advertisement, full Compose parsing, additional adapters, proxy registration, independent application-backup destinations, and update previews remain pending.
 
 - Full Compose YAML parser and policy engine
 - Port, volume, architecture, secret, health, and backup planning
@@ -157,6 +157,8 @@ Acceptance:
 - Bridge changes require console recovery instructions and a connectivity checkpoint.
 
 ## Phase 8: fleet and plugin model
+
+Status: `0.22.0` ships the first narrow node identity and evidence path: password-gated one-time enrollment, device-generated Ed25519 keys, signed requests, timestamp and sequence replay protection, revocation, node-local execution, and one fixed second-device Pi-hole probe. Multiple controllers, central scheduling, signed adapter installation, policy templates, notifications, disaster-recovery kits, and GitHub-backed provenance remain pending.
 
 - Multiple BoxPilot nodes
 - Signed adapter packages with compatibility declarations

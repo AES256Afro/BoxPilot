@@ -1,6 +1,6 @@
 # Network and DNS Center
 
-BoxPilot `0.21.0` uses the Network and DNS Center as the authorization boundary for guarded Pi-hole staging and fixed direct DNS acceptance. It provides a local Pi-hole configuration backup and isolated restore drill after staging, followed by a separate password-approved controller-path test. It is designed to answer the questions that must be settled before starting Pi-hole, enabling Flint 2 AdGuard Home, changing a router DNS advertisement, or placing another router in the forwarding path.
+BoxPilot `0.22.0` uses the Network and DNS Center as the authorization boundary for guarded Pi-hole staging and fixed direct DNS acceptance. It provides a local Pi-hole configuration backup and isolated restore drill after staging, followed by a separate password-approved controller-path test and a signed second-device test. It is designed to answer the questions that must be settled before starting Pi-hole, enabling Flint 2 AdGuard Home, changing a router DNS advertisement, or placing another router in the forwarding path.
 
 This release can start only the curated Pi-hole Docker stack after a fresh assessment and separate approval. Once exact staging and recovery evidence exist, it can send four fixed DNS queries to the helper-reported managed Pi-hole address. It cannot log in to a router, store a router password, change DHCP, advertise DNS to clients, enable AdGuard Home, reconfigure Tailscale, probe an operator-supplied address, or cut over traffic.
 
@@ -51,7 +51,7 @@ BoxPilot recognizes these declarations:
 - [Omada ER707-M2 product documentation](https://www.omadanetworks.com/us/business-networking/omada-router-wired-router/er707-m2/)
 - [TP-Link Archer BE400 product documentation](https://www.tp-link.com/us/home-networking/wifi-router/archer-be400/)
 
-The links identify the intended devices. BoxPilot does not claim API support for them in `0.21.0`.
+The links identify the intended devices. BoxPilot does not claim API support for them in `0.22.0`.
 
 ## Change-window assessment
 
@@ -113,8 +113,16 @@ The root helper keeps `PrivateNetwork=true` and `RestrictAddressFamilies=AF_UNIX
 
 A passing result proves only that Bigbox can query its managed resolver directly. It does not prove ordinary client routing, DHCP advertisement, router configuration, or another LAN device. Failed probes leave the independent DNS path untouched and create no passing acceptance record.
 
+## Signed second-device acceptance boundary
+
+Version `0.22.0` adds one signed agent task after a passing direct Bigbox result. The operator chooses only an enrolled agent. BoxPilot derives the resolver and the four tests from the fresh controller record, accepts no address, hostname, port, or command, and expires the task after ten minutes.
+
+The device owns an Ed25519 private key and signs each poll and evidence submission with a timestamp and strictly increasing sequence number. BoxPilot rejects stale requests, replayed sequences, forged signatures, changed test contracts, arbitrary capabilities, and revoked devices. The fixed task repeats the four queries above. Evidence records the linked controller acceptance, exact resolver, per-query result, agent identity, signature, and `secondDeviceTested: true` while still recording every network mutation flag as false.
+
+A passing signed result proves only the direct path from that enrolled device to Pi-hole during the task window. It does not prove router advertisement, DHCP behavior, use by every client, or fallback recovery. See [Signed fleet agents](FLEET.md).
+
 ## Next gates
 
 Router writes remain blocked until an adapter has exact model and firmware compatibility, secret storage, read-only discovery, a downloadable configuration checkpoint, a bounded diff, password reauthentication, post-change tests from a second device, and an out-of-band recovery path.
 
-Pi-hole router cutover remains blocked. Version `0.21.0` satisfies the configuration-backup, isolated-container-restore, and guarded Bigbox direct-DNS implementation gates. A passing live run is still operator-triggered, and a separately enrolled second device, a model-specific router checkpoint and advertisement adapter, a bounded diff, an observation window, and an approval-based rollback sequence are still required.
+Pi-hole router cutover remains blocked. Version `0.22.0` implements configuration backup, isolated restore, guarded Bigbox direct checks, and signed second-device checks. Passing live runs are still operator-triggered. A model-specific router checkpoint and advertisement adapter, a bounded diff, an observation window, and an approval-based rollback sequence are still required.

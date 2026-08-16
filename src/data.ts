@@ -6,6 +6,7 @@ export type ViewName =
   | "virtualization"
   | "backups"
   | "migrations"
+  | "fleet"
   | "logs"
   | "settings";
 
@@ -17,6 +18,7 @@ export const navItems: Array<{ id: ViewName; label: string; short: string }> = [
   { id: "virtualization", label: "Virtual Machines", short: "VM" },
   { id: "backups", label: "Backups", short: "BK" },
   { id: "migrations", label: "Migrations", short: "MG" },
+  { id: "fleet", label: "Fleet", short: "FL" },
   { id: "logs", label: "Logs", short: "LG" },
   { id: "settings", label: "Settings", short: "ST" },
 ];

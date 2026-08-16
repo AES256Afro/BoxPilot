@@ -18,5 +18,6 @@ These images include historical local captures and explicitly disclosed release 
 - `pihole-staging-approval-mock.png`: explicitly disclosed `0.19.0` guarded Pi-hole staging mock rendered from `docs/mockups/pihole-staging-approval.html`; no container, router, DNS client, DHCP service, firewall, Tailscale setting, or traffic path was changed
 - `pihole-backup-approval-mock.png`: explicitly disclosed `0.20.0` guarded Pi-hole backup and isolated-restore mock rendered from `docs/mockups/pihole-backup-approval.html`; no container was stopped, archive or secret was read, restore was started, or network setting was changed
 - `pihole-dns-acceptance-mock.png`: explicitly disclosed `0.21.0` fixed direct Pi-hole DNS acceptance mock rendered from `docs/mockups/pihole-dns-acceptance.html`; no DNS query was sent, no job was approved, and no network setting was changed
+- `signed-fleet-agent-mock.png`: explicitly disclosed `0.22.0` signed agent enrollment and second-device DNS evidence mock rendered from `docs/mockups/signed-fleet-agent.html`; no device was enrolled, key or token was generated, DNS query was sent, or network setting was changed
 
 Do not crop out the data-source notice when replacing these screenshots. It is part of the product's capability disclosure.
