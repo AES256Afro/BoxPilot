@@ -8,7 +8,7 @@ import { createStateStore } from "./state.mjs";
 
 const directories = [];
 
-async function setup({ statuses = {}, portInUse = false, dnsTcpInUse = false, dnsUdpInUse = false, assessmentError = null, uptimeState = null, uptimeLifecycle = null, piholeState = null, piholeLifecycle = null, keelProvenanceMatches = true, keelDiscovery = null, keelDiscoveryError = null, keelArtifact = null, keelArchive = null, keelStaging = null, keelInstallation = null, keelLoginProof = null, hostPlatform = "linux", hostArchitecture = "x64" } = {}) {
+async function setup({ statuses = {}, portInUse = false, dnsTcpInUse = false, dnsUdpInUse = false, assessmentError = null, uptimeState = null, uptimeLifecycle = null, uptimePrivateAccess = null, piholeState = null, piholeLifecycle = null, keelProvenanceMatches = true, keelDiscovery = null, keelDiscoveryError = null, keelArtifact = null, keelArchive = null, keelStaging = null, keelInstallation = null, keelLoginProof = null, hostPlatform = "linux", hostArchitecture = "x64" } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-apps-"));
   directories.push(directory);
   const store = createStateStore({ stateDirectory: directory });
@@ -46,6 +46,7 @@ async function setup({ statuses = {}, portInUse = false, dnsTcpInUse = false, dn
   const helperRequest = vi.fn(async (operation) => {
     if (operation === "application.uptime-kuma.inspect") return uptimeState ?? { installed: false, state: "not-installed", detail: "Ready to plan" };
     if (operation === "application.uptime-kuma.lifecycle.inspect") return uptimeLifecycle ?? { installed: false, managed: false, state: "not-installed", running: false, healthy: false, port: null, revision: null, allowedActions: [], detail: "Managed Uptime Kuma container was not found" };
+    if (operation === "application.uptime-kuma.private-access.inspect") return uptimePrivateAccess ?? { connected: false, published: false, tailnetOnly: false, conflict: false, dnsName: null, port: null, url: null, revision: null, allowedActions: [], detail: "Private access unavailable" };
     if (operation === "application.pi-hole.inspect") return piholeState ?? { installed: false, state: "not-installed", detail: "Ready to plan" };
     if (operation === "application.pi-hole.lifecycle.inspect") return piholeLifecycle ?? { installed: false, managed: false, state: "not-installed", running: false, healthy: false, lanAddress: null, port: null, revision: null, allowedActions: [], detail: "Managed Pi-hole container was not found" };
     if (operation === "application.keel.inspect") {
@@ -131,6 +132,7 @@ describe("application manifests and plans", () => {
     const { store, service, helperRequest } = await setup({
       uptimeState: { installed: true, state: "running", healthy: true, port: 3101, detail: "Uptime Kuma is healthy" },
       uptimeLifecycle: lifecycle,
+      uptimePrivateAccess: { connected: true, published: true, tailnetOnly: true, conflict: false, dnsName: "bigbox.example.ts.net", port: 3101, url: "https://bigbox.example.ts.net:3101/", revision: "c".repeat(64), allowedActions: ["unpublish"], detail: "Uptime Kuma is privately available" },
     });
     const catalog = await service.list();
     expect(catalog.applications.find((item) => item.id === "uptime-kuma")?.live).toMatchObject({
@@ -138,9 +140,11 @@ describe("application manifests and plans", () => {
       state: "running",
       backup: { state: "required", verifiedAt: null },
       lifecycle,
+      privateAccess: { connected: true, published: true, tailnetOnly: true, url: "https://bigbox.example.ts.net:3101/", allowedActions: ["unpublish"] },
     });
     expect(helperRequest).toHaveBeenCalledWith("application.uptime-kuma.inspect", {});
     expect(helperRequest).toHaveBeenCalledWith("application.uptime-kuma.lifecycle.inspect", {});
+    expect(helperRequest).toHaveBeenCalledWith("application.uptime-kuma.private-access.inspect", {});
     store.close();
   });
 

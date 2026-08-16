@@ -1,6 +1,6 @@
 # Curated applications
 
-BoxPilot `0.58.0` provides integrity-addressed manifests, executable Uptime Kuma and Pi-hole deployment plus Start, Stop, and Restart management, three application-aware local backup adapters, encrypted independent exact-archive protection for verified Uptime Kuma, Pi-hole, and Keel records, and the guarded Keel recovery lifecycle through operator rollback. Repair Center can install the fixed Ubuntu `docker.io` prerequisite on a clean host and the separate fixed KVM, QEMU, and libvirt bundle needed by Virtual Machines. Virtual Machines can then initialize the canonical default NAT network and storage pool through a separate password-approved workflow. The web process never receives the Docker socket or a general root operation.
+BoxPilot `0.59.0` provides integrity-addressed manifests, executable Uptime Kuma and Pi-hole deployment plus Start, Stop, and Restart management, a guarded tailnet-only Uptime Kuma access route, three application-aware local backup adapters, encrypted independent exact-archive protection for verified Uptime Kuma, Pi-hole, and Keel records, and the guarded Keel recovery lifecycle through operator rollback. Repair Center can install the fixed Ubuntu `docker.io` prerequisite on a clean host and the separate fixed KVM, QEMU, and libvirt bundle needed by Virtual Machines. Virtual Machines can then initialize the canonical default NAT network and storage pool through a separate password-approved workflow. The web process never receives the Docker socket or a general root operation.
 
 ## Install the Docker prerequisite on Ubuntu
 
@@ -42,6 +42,8 @@ Authenticated API routes:
 - `POST /api/v1/application-plans/:id/stage` stages the exact unexpired revision as a durable approval job.
 - `POST /api/v1/applications/:id/action-plans` creates a Start, Stop, or Restart plan for Uptime Kuma or Pi-hole bound to the exact managed-container state revision.
 - `POST /api/v1/application-action-plans/:id/stage` rechecks and stages that exact lifecycle revision.
+- `POST /api/v1/applications/uptime-kuma/private-access-plans` creates a Publish or Unpublish plan derived from the exact managed loopback port and current complete Tailscale Serve state.
+- `POST /api/v1/application-private-access-plans/:id/stage` rechecks the application and every non-application Serve route before creating the approval job.
 - `POST /api/v1/jobs/:id/approve` revalidates host state, reauthenticates the owner, executes the typed helper operation, verifies health, and records the outcome.
 
 All POST routes require the session CSRF token. A plan cannot execute on its first submission.
@@ -74,6 +76,10 @@ Deployment workflow:
 If deployment or health verification fails, BoxPilot stops the managed stack and restores the previous Compose definition when one exists. It does not delete the data directory.
 
 After deployment, the Uptime Kuma card exposes only actions allowed by its live state. Start, Stop, and Restart each require a new immutable plan, a second state check while staging, and owner-password approval in Repair Center. The helper refuses a changed or nonconforming container and verifies persistent data after every action. Removal, image updates, port changes, environment editing, volume changes, and network changes remain separate locked workflows.
+
+Version `0.59.0` adds a separate **Plan private access** action. BoxPilot derives the managed loopback port and Bigbox tailnet DNS name; the browser cannot choose either. Read-only inspection requires connected Tailscale, parses `tailscale serve status --json`, confirms human-readable `(tailnet only)` state, rejects any unmanaged listener on the app port, and revision-locks the complete remaining Serve configuration. After separate password approval, the helper can run only the fixed Tailscale Serve publish or removal command for that one HTTPS port. Publishing must produce `https://<Bigbox tailnet name>:<managed port>/` and remain tailnet only. Funnel, public exposure, BoxPilot's existing HTTPS route, every other Serve route, firewall, DNS, router, application, container, and data must remain unchanged. The verified URL is then shown directly on the application card.
+
+The fixed command shape follows the current official [Tailscale Serve CLI reference](https://tailscale.com/docs/reference/tailscale-cli/serve). Tailscale access-control rules still apply to the published route.
 
 After deployment, the Backups page can record artifact integrity and an isolated restore test for the Uptime Kuma data directory. Version `0.44.0` can then copy that exact verified archive into the separate encrypted application restic repository, read the complete repository, restore the exact snapshot, and match its size and SHA-256 before reporting independent protection. See [Verified application backups](BACKUPS.md).
 
