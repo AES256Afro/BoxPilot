@@ -1,6 +1,6 @@
 # QEMU/KVM setup and operation
 
-BoxPilot `0.55.0` can install the fixed Ubuntu KVM, QEMU, libvirt, virt-install, and OVMF prerequisites on a clean hardware-ready host, inspect the local libvirt system connection through its restricted helper, create supported Linux virtual machines through durable approved jobs, manage a deliberately small set of lifecycle operations, report QEMU guest-agent and snapshot state, create guarded offline internal snapshots, produce integrity-verified local exports for stopped managed VMs, copy those exports into a fixed encrypted restic repository on an independent mounted filesystem, prove one backup bootable through an isolated transient restore drill, create a separately named stopped no-network recovery clone, and apply one fixed exact no-prune retention policy. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
+BoxPilot `0.55.1` can install the fixed Ubuntu KVM, QEMU, libvirt, virt-install, and OVMF prerequisites on a clean hardware-ready host, inspect the local libvirt system connection through its restricted helper, create supported Linux virtual machines through durable approved jobs, manage a deliberately small set of lifecycle operations, report QEMU guest-agent and snapshot state, create guarded offline internal snapshots, produce integrity-verified local exports for stopped managed VMs, copy those exports into a fixed encrypted restic repository on an independent mounted filesystem, prove one backup bootable through an isolated transient restore drill, create a separately named stopped no-network recovery clone, and apply one fixed exact no-prune retention policy. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
 
 ## What works now
 
@@ -32,7 +32,7 @@ The release does not delete VMs, force power off, provide general XML editing, o
 
 ## 1. Prepare Ubuntu for virtualization
 
-First open authenticated **Repair Center**. If hardware virtualization is available at `/dev/kvm`, no partial provider exists, and all configured Ubuntu candidates are available, select **Review virtualization install**. Review all five exact root versions, stage the immutable plan, and re-enter the owner password. The static installer enables and starts `libvirtd.service` and verifies QEMU plus `qemu:///system`. It does not create a network, storage pool, disk, media attachment, or VM.
+First open authenticated **Repair Center**. If the KVM kernel interface is registered, no partial provider exists, and all configured Ubuntu candidates are available, select **Review virtualization install**. The hardened helper reads only fixed `/sys/class/misc/kvm/dev` kernel evidence because its private-device namespace hides the host node. Review all five exact root versions, stage the immutable plan, and re-enter the owner password. The separately sandboxed static installer still requires the actual host `/dev/kvm`, then enables and starts `libvirtd.service` and verifies QEMU plus `qemu:///system`. It does not create a network, storage pool, disk, media attachment, or VM.
 
 The console fallback for Ubuntu 26.04 is:
 

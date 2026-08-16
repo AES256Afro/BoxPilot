@@ -17,7 +17,7 @@ The restic workflow follows the same plan, stage, and reauthentication sequence 
 
 The Docker workflow begins with **Review Docker install** only when fixed inspection proves there is no Docker client at the fixed path, no installed `docker.io` provider, and configured Ubuntu metadata exposes a candidate. An active compatible provider is already ready; a present but inactive or unrecognized provider is left for manual repair rather than replaced. The immutable plan shows the exact package version and daemon boundary. After staging and password reauthentication, the job installs that exact package, enables and starts only `docker.service`, and verifies the local server version. It does not replace an existing Docker CE or other provider, change daemon configuration, add a user to the `docker` group, pull an image, create a container, or deploy an application.
 
-The virtualization workflow begins with **Review virtualization install** only when `/dev/kvm` is a usable character device, neither fixed provider path nor any fixed root package is present, and configured Ubuntu metadata exposes candidates for all five roots. An existing active stack is ready; partial or inactive provider state is left for manual repair. The immutable plan shows each exact root version and discloses that APT may install or update required dependencies. After staging and password reauthentication, the job installs only those fixed roots, enables and starts only `libvirtd.service`, and verifies `/dev/kvm`, QEMU, and `qemu:///system`. Network, pool, media, disk, and VM setup remain separate operations.
+The virtualization workflow begins with **Review virtualization install** only when the KVM kernel interface is registered, neither fixed provider path nor any fixed root package is present, and configured Ubuntu metadata exposes candidates for all five roots. The main helper reads only `/sys/class/misc/kvm/dev` because its private-device namespace deliberately hides `/dev/kvm`. An existing active stack is ready; partial or inactive provider state is left for manual repair. The immutable plan shows each exact root version and discloses that APT may install or update required dependencies. After staging and password reauthentication, the separately sandboxed installer additionally requires the real host `/dev/kvm`, installs only those fixed roots, enables and starts only `libvirtd.service`, and verifies `/dev/kvm`, QEMU, and `qemu:///system`. Network, pool, media, disk, and VM setup remain separate operations.
 
 ## Fixed package unit
 
@@ -75,7 +75,7 @@ The `0.55.0` unit is another static no-argument operation:
 ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-virtualization-install.mjs
 ```
 
-The helper creates `/run/boxpilot/virtualization-approval.json` only after confirming the fixed five candidates, a usable `/dev/kvm`, and provider-free state. The marker contains only the exact five-root version map and approval time. The unit independently repeats every check, installs exact `name=version` roots for `qemu-system-x86`, `libvirt-daemon-system`, `libvirt-clients`, `virtinst`, and `ovmf`, enables and starts only `libvirtd.service`, and requires QEMU plus `qemu:///system` proof. Ubuntu APT resolves required dependencies from already configured repositories; the plan states that dependencies may be installed or updated.
+The helper creates `/run/boxpilot/virtualization-approval.json` only after confirming the fixed five candidates, registered KVM kernel evidence, and provider-free state. The marker contains only the exact five-root version map and approval time. The unit independently requires the actual host `/dev/kvm`, repeats the provider, package, and candidate checks, installs exact `name=version` roots for `qemu-system-x86`, `libvirt-daemon-system`, `libvirt-clients`, `virtinst`, and `ovmf`, enables and starts only `libvirtd.service`, and requires QEMU plus `qemu:///system` proof. Ubuntu APT resolves required dependencies from already configured repositories; the plan states that dependencies may be installed or updated.
 
 The operation never runs `apt-get update`, adds a repository or key, edits an operator user or group, replaces an existing or partial provider, creates or changes a libvirt network or storage pool, downloads or attaches an ISO, allocates a VM disk, defines a domain, starts a VM, or accepts a browser path, URI, command, option, package, or resource name.
 
@@ -120,7 +120,7 @@ Repair interrupted dpkg or APT state from the server console before creating a n
 
 ## Explicit exclusions
 
-Version `0.55.0` cannot:
+Version `0.55.1` cannot:
 
 - Install, update, downgrade, hold, or remove a requested root package other than the separately approved exact `smartmontools`, `restic`, Ubuntu `docker.io`, or fixed five-root virtualization set. APT may resolve dependencies required by an approved root.
 - Select a package name, repository, mirror, key, package file, option, command, or argument from the browser

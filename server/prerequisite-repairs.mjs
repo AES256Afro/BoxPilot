@@ -161,7 +161,7 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
     if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== 0) throw new Error("Virtualization repair planning accepts only an empty object");
     const state = await inspectVirtualization();
     if (state.installed) throw new Error("The KVM, QEMU, and libvirt stack is already active; no installation plan is needed");
-    if (!state.kvmDeviceAvailable) throw new Error("Hardware virtualization is unavailable at /dev/kvm; enable virtualization in firmware or repair the host before planning installation");
+    if (!state.kvmDeviceAvailable) throw new Error("The KVM kernel interface is unavailable; enable virtualization in firmware or repair the host before planning installation");
     if (!state.repairAvailable || !state.candidateSetAvailable || virtualizationPackageNames.some((name) => !packageVersionPattern.test(String(state.candidatePackages?.[name] ?? "")))) throw new Error("No clean fixed virtualization package set is available from configured Ubuntu metadata");
     const expectedPackages = Object.fromEntries(virtualizationPackageNames.map((name) => [name, state.candidatePackages[name]]));
     return store.createPlan({
@@ -171,7 +171,7 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
       output: {
         executable: true,
         packageSet: virtualizationPackageNames.map((name) => ({ name, version: expectedPackages[name] })),
-        currentState: "Hardware virtualization is available and no existing libvirt or QEMU provider was detected",
+        currentState: "The KVM kernel interface is registered and no existing libvirt or QEMU provider was detected",
         action: "Install the fixed Ubuntu QEMU, libvirt, virt-install, and OVMF package set; enable and start libvirtd.service; then verify /dev/kvm, QEMU, and qemu:///system",
         networkAccess: true,
         aptUpdatePerformed: false,
@@ -276,7 +276,7 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
         },
         createdBy: ownerId,
         initialSteps: [
-          { name: "preflight", state: "completed", detail: "The fixed five-package Ubuntu virtualization bundle and every exact candidate version were resolved only from configured APT metadata; /dev/kvm exists and no provider path or package was present" },
+          { name: "preflight", state: "completed", detail: "The fixed five-package Ubuntu virtualization bundle and every exact candidate version were resolved only from configured APT metadata; the KVM kernel interface is registered and no provider path or package was present" },
           { name: "checkpoint", state: "completed", detail: "The operation will not run apt update, add a repository, replace a partial provider, remove packages, change an operator user or group, create a libvirt network or storage pool, create a VM, attach an ISO, or accept a browser command" },
         ],
       });

@@ -166,15 +166,15 @@ export function createPrerequisiteService({ stateDirectory, helper, runCommand =
       virtualization?.installed
         ? "The fixed Ubuntu virtualization package set, /dev/kvm, QEMU, libvirtd.service, and qemu:///system are ready"
         : virtualization?.repairAvailable
-          ? "Hardware virtualization is available and configured Ubuntu metadata offers every fixed package candidate"
+          ? "The KVM kernel interface is registered and configured Ubuntu metadata offers every fixed package candidate"
           : virtualization?.providerPresent
             ? "A partial or inactive virtualization provider is present and will not be replaced automatically"
             : virtualization && !virtualization.kvmDeviceAvailable
-              ? "Hardware virtualization is unavailable at /dev/kvm"
+              ? "The KVM kernel interface is unavailable"
               : "The virtualization package candidates or helper inspection are unavailable",
       virtualization?.installed ? null : virtualization?.repairAvailable
         ? { kind: "approved", description: "Review the exact five-package Ubuntu virtualization plan, reauthenticate, and verify KVM plus qemu:///system" }
-        : { kind: "manual", description: virtualization && !virtualization.kvmDeviceAvailable ? "Enable hardware virtualization in firmware and verify /dev/kvm before planning installation" : "Repair the existing provider or configured Ubuntu package metadata before planning installation" },
+        : { kind: "manual", description: virtualization && !virtualization.kvmDeviceAvailable ? "Enable hardware virtualization in firmware and verify the KVM kernel interface before planning installation" : "Repair the existing provider or configured Ubuntu package metadata before planning installation" },
     ));
 
     const tailscale = await runCommand("tailscale", ["status", "--json"]);
