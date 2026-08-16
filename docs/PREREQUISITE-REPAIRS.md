@@ -1,6 +1,6 @@
 # Exact prerequisite repair boundary
 
-BoxPilot `0.31.0` enables one narrowly scoped executable prerequisite repair: install the fixed Ubuntu `smartmontools` package and verify that the separate storage evidence scanner produces current evidence. Version `0.35.0` adds a separate metadata-only repair that runs the fixed configured-repository refresh without changing installed packages. Version `0.45.0` adds a second fixed package repair for the `restic` binary used by BoxPilot's separately configured encrypted repositories. None of these workflows is a general package manager.
+BoxPilot `0.31.0` enables one narrowly scoped executable prerequisite repair: install the fixed Ubuntu `smartmontools` package and verify that the separate storage evidence scanner produces current evidence. Version `0.35.0` adds a separate metadata-only repair that runs the fixed configured-repository refresh without changing installed packages. Version `0.45.0` adds a second fixed package repair for the `restic` binary used by BoxPilot's separately configured encrypted repositories. Version `0.54.0` adds an Ubuntu `docker.io` installer only when no compatible Docker provider is active. None of these workflows is a general package manager.
 
 ## Operator workflow
 
@@ -14,6 +14,8 @@ BoxPilot `0.31.0` enables one narrowly scoped executable prerequisite repair: in
 8. The job completes only after the exact version is installed and fresh bounded storage evidence exists.
 
 The restic workflow follows the same plan, stage, and reauthentication sequence through **Review restic repair**. Its verification requires the exact package version and a successful fixed `/usr/bin/restic version` probe. It deliberately stops there. Independent storage mounting, recovery-key creation, repository initialization, backup execution, restore drills, retention, and prune are not part of this repair.
+
+The Docker workflow begins with **Review Docker install** only when fixed inspection proves there is no Docker client at the fixed path, no installed `docker.io` provider, and configured Ubuntu metadata exposes a candidate. An active compatible provider is already ready; a present but inactive or unrecognized provider is left for manual repair rather than replaced. The immutable plan shows the exact package version and daemon boundary. After staging and password reauthentication, the job installs that exact package, enables and starts only `docker.service`, and verifies the local server version. It does not replace an existing Docker CE or other provider, change daemon configuration, add a user to the `docker` group, pull an image, create a container, or deploy an application.
 
 ## Fixed package unit
 
@@ -51,6 +53,18 @@ The helper revalidates the timestamp and ready dpkg state, writes a root-only ma
 
 It then refuses new dpkg fragments, requires the package database hash to remain unchanged, and requires current metadata evidence. No install, upgrade, remove, autoremove, service control, update-policy change, or reboot operation is present. The web process and main root helper keep their existing network boundaries; network access exists only in this separately named static oneshot.
 
+## Fixed Docker Engine package unit
+
+The `0.54.0` unit is another static no-argument operation:
+
+```ini
+ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-docker-install.mjs
+```
+
+The helper creates `/run/boxpilot/docker-approval.json` only after confirming that no Docker client path or installed provider is present and that the exact configured Ubuntu `docker.io` candidate matches the immutable plan. The unit independently repeats those checks, refuses an already present binary or package, installs only `docker.io=<approved-version>`, enables and starts only `docker.service`, and requires both active-unit and local server-version proof. `ConditionPathExists=!/usr/bin/docker` also blocks provider replacement at the systemd boundary.
+
+The operation never runs `apt-get update`, adds the Docker repository or a signing key, changes `/etc/docker/daemon.json`, edits users or groups, opens a TCP daemon socket, pulls an image, creates a network or volume, or runs a container. Existing compatible providers are reported ready and cannot produce an installation plan.
+
 ## Durable and helper boundaries
 
 The browser can submit only an empty plan request and later the immutable revision. The helper protocol accepts:
@@ -59,6 +73,8 @@ The browser can submit only an empty plan request and later the immutable revisi
 - `prerequisite.smartmontools.install` with one bounded `expectedVersion`
 - `prerequisite.restic.inspect` with no parameters
 - `prerequisite.restic.install` with one bounded `expectedVersion`
+- `prerequisite.docker.inspect` with no parameters
+- `prerequisite.docker.install` with one bounded `expectedVersion`
 - `prerequisite.apt-metadata.inspect` with no parameters
 - `prerequisite.apt-metadata.refresh` with one exact previous `expectedUpdatedAt` value
 
@@ -68,13 +84,15 @@ The job records preflight, checkpoint, approval, apply, verify, result, failure,
 
 ## Recovery boundary
 
-BoxPilot does not automatically remove `smartmontools` or `restic`. Package removal is not a safe inverse because an administrator or another service may have begun relying on the package. If a unit fails:
+BoxPilot does not automatically remove `smartmontools`, `restic`, or Docker Engine. Package removal is not a safe inverse because an administrator or another service may have begun relying on the package. If a unit fails:
 
 ```bash
 sudo systemctl status boxpilot-smartmontools-install.service boxpilot-storage-scan.service --no-pager
 sudo journalctl -u boxpilot-smartmontools-install.service -u boxpilot-storage-scan.service -n 100 --no-pager
 sudo systemctl status boxpilot-restic-install.service --no-pager
 sudo journalctl -u boxpilot-restic-install.service -n 100 --no-pager
+sudo systemctl status boxpilot-docker-install.service docker.service --no-pager
+sudo journalctl -u boxpilot-docker-install.service -u docker.service -n 100 --no-pager
 sudo dpkg --audit
 sudo apt-get check
 ```
@@ -83,13 +101,14 @@ Repair interrupted dpkg or APT state from the server console before creating a n
 
 ## Explicit exclusions
 
-Version `0.45.0` cannot:
+Version `0.54.0` cannot:
 
-- Install, update, downgrade, hold, or remove any package other than the separately approved exact `smartmontools` or `restic` candidate
+- Install, update, downgrade, hold, or remove any package other than the separately approved exact `smartmontools`, `restic`, or Ubuntu `docker.io` candidate
 - Select a package name, repository, mirror, key, package file, option, command, or argument from the browser
 - Run any APT action except the separately approved fixed metadata-only `apt-get update --error-on=any`; it cannot run upgrade, dist-upgrade, install, remove, purge, autoremove, download, source, or repository-management operations
 - Change a disk, partition, filesystem, mount, SMART setting, router, DNS setting, firewall, Tailscale setting, or reboot state
 - Create or read a restic recovery password, initialize or select a repository, start a backup or restore, change retention, prune data, or claim independent protection
+- Replace an active Docker provider, configure the Docker daemon, add users to the `docker` group, pull an image, or create a container, network, or volume
 - Automatically approve, schedule, retry, roll back, or hide a failed package operation
 - Turn missing or stale scanner evidence into a healthy claim
 

@@ -90,6 +90,66 @@ describe("fixed prerequisite helper", () => {
     expect(clearResticApproval).toHaveBeenCalledTimes(2);
   });
 
+  it("detects an existing compatible Docker provider without offering replacement", async () => {
+    const run = vi.fn(async (binary, args) => {
+      if (binary.endsWith("dpkg-query")) return { ok: false, stdout: "" };
+      if (binary.endsWith("apt-cache")) return { ok: true, stdout: "  Candidate: 28.2.2-0ubuntu1\n token=must-not-leak" };
+      if (binary.endsWith("test")) return { ok: true, stdout: "" };
+      if (binary.endsWith("docker")) return { ok: true, stdout: args[0] === "--version" ? "Docker version 29.1.3, build fixture" : "29.1.3" };
+      if (binary.endsWith("systemctl")) return { ok: true, stdout: "" };
+      throw new Error(`unexpected ${binary} ${args.join(" ")}`);
+    });
+    const result = await createPrerequisiteHelper({ run }).inspectDocker();
+    expect(result).toEqual({
+      package: "docker.io", installed: true, installedPackageVersion: null, candidateVersion: "28.2.2-0ubuntu1", selectedVersion: "28.2.2-0ubuntu1",
+      clientVersion: "29.1.3", engineVersion: "29.1.3", serviceActive: true, providerPresent: true, supported: true, repairAvailable: false, provider: "existing-compatible-engine",
+      mutationPerformed: false, arbitraryPackageAccepted: false, arbitraryRepositoryAccepted: false,
+    });
+    expect(JSON.stringify(result)).not.toContain("must-not-leak");
+  });
+
+  it("does not offer package installation over a present but inactive Docker provider", async () => {
+    const run = vi.fn(async (binary, args) => {
+      if (binary.endsWith("dpkg-query")) return { ok: false, stdout: "" };
+      if (binary.endsWith("apt-cache")) return { ok: true, stdout: "  Candidate: 28.2.2-0ubuntu1" };
+      if (binary.endsWith("test")) return { ok: true, stdout: "" };
+      if (binary.endsWith("docker") && args[0] === "--version") return { ok: true, stdout: "Docker version 29.1.3, build fixture" };
+      return { ok: false, stdout: "" };
+    });
+    await expect(createPrerequisiteHelper({ run }).inspectDocker()).resolves.toMatchObject({ installed: false, providerPresent: true, repairAvailable: false, clientVersion: "29.1.3", engineVersion: null, serviceActive: false });
+  });
+
+  it("does not offer package installation when an unrecognized Docker-compatible shim occupies the fixed client path", async () => {
+    const run = vi.fn(async (binary) => {
+      if (binary.endsWith("dpkg-query")) return { ok: false, stdout: "" };
+      if (binary.endsWith("apt-cache")) return { ok: true, stdout: "  Candidate: 28.2.2-0ubuntu1" };
+      if (binary.endsWith("test")) return { ok: true, stdout: "" };
+      if (binary.endsWith("docker")) return { ok: true, stdout: "podman version 5.4.2" };
+      return { ok: false, stdout: "" };
+    });
+    await expect(createPrerequisiteHelper({ run }).inspectDocker()).resolves.toMatchObject({ installed: false, providerPresent: true, repairAvailable: false, clientVersion: null, provider: "existing-provider" });
+  });
+
+  it("delegates a missing Docker Engine only to the fixed unit and verifies its package and daemon", async () => {
+    let installed = false;
+    const run = vi.fn(async (binary, args) => {
+      if (binary.endsWith("dpkg-query")) return installed ? { ok: true, stdout: "install ok installed\t28.2.2-0ubuntu1" } : { ok: false, stdout: "" };
+      if (binary.endsWith("apt-cache")) return { ok: true, stdout: "  Candidate: 28.2.2-0ubuntu1" };
+      if (binary.endsWith("test")) return installed ? { ok: true, stdout: "" } : { ok: false, stdout: "" };
+      if (binary.endsWith("docker")) return installed ? { ok: true, stdout: args[0] === "--version" ? "Docker version 28.2.2, build fixture" : "28.2.2" } : { ok: false, stdout: "" };
+      if (binary.endsWith("systemctl") && args[0] === "is-active") return installed ? { ok: true, stdout: "" } : { ok: false, stdout: "" };
+      if (binary.endsWith("systemctl")) { expect(args).toEqual(["start", "boxpilot-docker-install.service"]); installed = true; return { ok: true, stdout: "" }; }
+      throw new Error("unexpected binary");
+    });
+    const clearDockerApproval = vi.fn(async () => undefined);
+    const writeDockerApproval = vi.fn(async () => undefined);
+    const helper = createPrerequisiteHelper({ run, clearDockerApproval, writeDockerApproval, now: () => new Date("2026-08-16T12:01:00.000Z") });
+    const result = await helper.installDocker({ expectedVersion: "28.2.2-0ubuntu1" });
+    expect(result).toMatchObject({ package: "docker.io", installed: true, version: "28.2.2-0ubuntu1", engineVersion: "28.2.2", packageChanged: true, serviceActive: true, engineVerified: true, boundary: { fixedPackage: true, arbitraryPackageAccepted: false, arbitraryRepositoryAccepted: false, aptUpdatePerformed: false, packageUpgradePerformed: false, packageRemovalPerformed: false, daemonConfigurationChanged: false, userGroupChanged: false, containerCreated: false, imagePulled: false } });
+    expect(writeDockerApproval).toHaveBeenCalledWith({ expectedVersion: "28.2.2-0ubuntu1", approvedAt: "2026-08-16T12:01:00.000Z" });
+    expect(clearDockerApproval).toHaveBeenCalledTimes(2);
+  });
+
   it("reports bounded APT metadata evidence without mutating the host", async () => {
     const maintenance = { inspect: vi.fn(async () => ({
       aptMetadata: { available: true, state: "stale", updatedAt: "2026-08-01T00:00:00.000Z", ageHours: 360 },

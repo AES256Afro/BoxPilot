@@ -157,4 +157,30 @@ describe("Repair Center", () => {
     fireEvent.click(screen.getByRole("button", { name: "Stage exact repair for password approval" }));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/prerequisite-repair-plans/restic-plan/stage", expect.objectContaining({ method: "POST" })));
   });
+
+  it("reviews and stages only the immutable Ubuntu Docker Engine repair", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/operations/prerequisites") return new Response(JSON.stringify({ checks: [{ id: "containers.docker", group: "Applications", name: "Docker Engine", status: "repairable", summary: "Configured Ubuntu APT metadata offers docker.io 28.2.2-0ubuntu1", repair: { kind: "approved", description: "Review the exact Docker install" } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/v1/prerequisite-repairs/docker/plans") {
+        expect(init).toMatchObject({ method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": "csrf-token" }, body: "{}" });
+        return new Response(JSON.stringify({ plan: { id: "docker-plan", revision: "docker-revision", expiresAt: "2026-08-16T13:00:00.000Z", output: { package: "docker.io", selectedVersion: "28.2.2-0ubuntu1", currentState: "No compatible active Docker Engine detected", action: "Install only docker.io and verify docker.service", networkAccess: true, aptUpdatePerformed: false, arbitraryPackageSelection: false, arbitraryRepositorySelection: false, daemonConfigurationChanged: false, userGroupChanged: false, containerCreated: false, automaticRollback: false, recovery: "Inspect the dedicated unit, Docker service, APT, and dpkg before retrying." } } }), { status: 201, headers: { "Content-Type": "application/json" } });
+      }
+      if (url === "/api/v1/prerequisite-repair-plans/docker-plan/stage") {
+        expect(init).toMatchObject({ method: "POST", body: JSON.stringify({ revision: "docker-revision" }) });
+        return new Response(JSON.stringify({ job: { id: "docker-job" } }), { status: 201, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("action-center")) return new Response(JSON.stringify({ error: "unavailable" }), { status: 503, headers: { "Content-Type": "application/json" } });
+      if (url.includes("recovery-kit")) return new Response(JSON.stringify({ error: "unavailable" }), { status: 503, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ jobs: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RepairCenter csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review Docker install" }));
+    expect(await screen.findByText("Ubuntu docker.io 28.2.2-0ubuntu1")).toBeTruthy();
+    expect(screen.getByText("Untouched")).toBeTruthy();
+    expect(screen.getByText(/Existing compatible Docker providers are never replaced/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage Docker install for password approval" }));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/prerequisite-repair-plans/docker-plan/stage", expect.objectContaining({ method: "POST" })));
+  });
 });

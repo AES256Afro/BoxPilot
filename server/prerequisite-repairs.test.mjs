@@ -102,3 +102,29 @@ describe("restic prerequisite repair planning", () => {
     store.close();
   });
 });
+
+describe("Docker Engine prerequisite repair planning", () => {
+  it("creates, stages, and revalidates an immutable Ubuntu docker.io repair", async () => {
+    const state = { package: "docker.io", installed: false, installedPackageVersion: null, candidateVersion: "28.2.2-0ubuntu1", selectedVersion: "28.2.2-0ubuntu1", supported: true, repairAvailable: true, engineVersion: null, serviceActive: false };
+    const { store, owner, service } = await setup(state);
+    const plan = await service.planDocker(owner.id, {});
+    expect(plan).toMatchObject({ type: "prerequisite.repair", subjectId: "docker", input: { expectedVersion: "28.2.2-0ubuntu1", installedBefore: false }, output: { package: "docker.io", arbitraryPackageSelection: false, arbitraryRepositorySelection: false, aptUpdatePerformed: false, daemonConfigurationChanged: false, userGroupChanged: false, containerCreated: false, automaticRollback: false } });
+    const job = await service.stage(plan.id, plan.revision, owner.id);
+    expect(job).toMatchObject({ type: "prerequisite.docker.install", state: "awaiting_approval", risk: "system-package-service", parameters: { expectedVersion: "28.2.2-0ubuntu1", installedBefore: false }, recovery: { automaticRollback: false } });
+    await expect(service.validateJob(job)).resolves.toMatchObject({ plan: { id: plan.id }, state: { selectedVersion: "28.2.2-0ubuntu1", installed: false } });
+    store.close();
+  });
+
+  it("rejects browser fields, existing engines, and a changed candidate", async () => {
+    const state = { installed: false, candidateVersion: "28.2.2-0ubuntu1", selectedVersion: "28.2.2-0ubuntu1", supported: true, repairAvailable: true };
+    const { store, owner, helper, service } = await setup(state);
+    await expect(service.planDocker(owner.id, { repository: "https://example.test" })).rejects.toThrow("empty object");
+    helper.request.mockResolvedValueOnce({ ...state, installed: true, repairAvailable: false, engineVersion: "29.1.3" });
+    await expect(service.planDocker(owner.id, {})).rejects.toThrow("already active");
+    const plan = await service.planDocker(owner.id, {});
+    helper.request.mockResolvedValueOnce({ ...state, candidateVersion: "28.3.0-0ubuntu1", selectedVersion: "28.3.0-0ubuntu1" });
+    await expect(service.stage(plan.id, plan.revision, owner.id)).rejects.toThrow("Host state changed");
+    expect(store.getPlan(plan.id).status).toBe("draft");
+    store.close();
+  });
+});

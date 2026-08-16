@@ -10,6 +10,7 @@ const defaultSystemctl = "/usr/bin/systemctl";
 const defaultEvidencePath = "/var/lib/boxpilot/storage-health.json";
 const defaultApprovalPath = "/run/boxpilot/smartmontools-approval.json";
 const defaultResticApprovalPath = "/run/boxpilot/restic-approval.json";
+const defaultDockerApprovalPath = "/run/boxpilot/docker-approval.json";
 const defaultAptApprovalPath = "/run/boxpilot/apt-refresh-approval.json";
 const versionPattern = /^[0-9A-Za-z.+:~_-]{1,64}$/;
 
@@ -60,6 +61,18 @@ async function writeResticApprovalFile(approval) {
   await writeFile(defaultResticApprovalPath, `${JSON.stringify(approval)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
 }
 
+async function clearDockerApprovalFile() {
+  try {
+    await unlink(defaultDockerApprovalPath);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+}
+
+async function writeDockerApprovalFile(approval) {
+  await writeFile(defaultDockerApprovalPath, `${JSON.stringify(approval)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+}
+
 async function clearAptApprovalFile() {
   try {
     await unlink(defaultAptApprovalPath);
@@ -83,6 +96,8 @@ export function createPrerequisiteHelper({
   writeApproval = writeApprovalFile,
   clearResticApproval = clearResticApprovalFile,
   writeResticApproval = writeResticApprovalFile,
+  clearDockerApproval = clearDockerApprovalFile,
+  writeDockerApproval = writeDockerApprovalFile,
   maintenance = createMaintenanceService(),
   clearAptApproval = clearAptApprovalFile,
   writeAptApproval = writeAptApprovalFile,
@@ -164,6 +179,40 @@ export function createPrerequisiteHelper({
     };
   }
 
+  async function inspectDocker() {
+    const [packageResult, policyResult, clientPathResult, clientResult, engineResult, serviceResult] = await Promise.all([
+      run(dpkgQueryBinary, ["--show", "--showformat=${Status}\\t${Version}", "docker.io"], { timeout: 10000 }),
+      run(aptCacheBinary, ["policy", "docker.io"], { timeout: 10000 }),
+      run("/usr/bin/test", ["-e", "/usr/bin/docker"], { timeout: 10000 }),
+      run("/usr/bin/docker", ["--version"], { timeout: 10000 }),
+      run("/usr/bin/docker", ["version", "--format", "{{.Server.Version}}"], { timeout: 10000 }),
+      run(systemctlBinary, ["is-active", "--quiet", "docker.service"], { timeout: 10000 }),
+    ]);
+    const packageVersion = packageResult.ok ? installedVersion(packageResult.stdout) : null;
+    const candidate = policyResult.ok ? candidateVersion(policyResult.stdout) : null;
+    const clientVersion = clientResult.ok ? cleanVersion(clientResult.stdout.match(/^Docker version\s+([^,\s]+)/i)?.[1]) : null;
+    const engineVersion = engineResult.ok ? cleanVersion(engineResult.stdout) : null;
+    const providerPresent = packageVersion !== null || clientPathResult.ok;
+    const installed = engineVersion !== null && serviceResult.ok;
+    return {
+      package: "docker.io",
+      installed,
+      installedPackageVersion: packageVersion,
+      candidateVersion: candidate,
+      selectedVersion: packageVersion ?? candidate,
+      clientVersion,
+      engineVersion,
+      serviceActive: serviceResult.ok,
+      providerPresent,
+      supported: providerPresent || candidate !== null,
+      repairAvailable: !providerPresent && candidate !== null,
+      provider: packageVersion ? "ubuntu-docker.io" : installed ? "existing-compatible-engine" : clientPathResult.ok ? "existing-provider" : candidate ? "configured-apt-candidate" : "unavailable",
+      mutationPerformed: false,
+      arbitraryPackageAccepted: false,
+      arbitraryRepositoryAccepted: false,
+    };
+  }
+
   async function installRestic({ expectedVersion }) {
     if (!versionPattern.test(String(expectedVersion ?? ""))) throw new Error("The expected restic version is invalid");
     const before = await inspectRestic();
@@ -196,6 +245,48 @@ export function createPrerequisiteHelper({
         automaticSetupPerformed: false,
       },
       boundary: { fixedPackage: true, arbitraryPackageAccepted: false, aptUpdatePerformed: false, packageUpgradePerformed: false, packageRemovalPerformed: false, mountChanged: false, passwordCreated: false, repositoryInitialized: false, browserCommandAccepted: false },
+    };
+  }
+
+  async function installDocker({ expectedVersion }) {
+    if (!versionPattern.test(String(expectedVersion ?? ""))) throw new Error("The expected docker.io version is invalid");
+    const before = await inspectDocker();
+    if (before.installed) throw new Error("A compatible Docker Engine is already active; BoxPilot will not replace its provider");
+    if (!before.supported || before.selectedVersion !== expectedVersion) throw new Error("Host state changed: the fixed docker.io candidate no longer matches the approved plan");
+    await clearDockerApproval();
+    await writeDockerApproval({ expectedVersion, approvedAt: now().toISOString() });
+    let start;
+    try {
+      start = await run(systemctlBinary, ["start", "boxpilot-docker-install.service"], { timeout: 15 * 60 * 1000 });
+    } finally {
+      await clearDockerApproval();
+    }
+    if (!start.ok) throw new Error("The fixed Docker Engine installation service failed");
+    const after = await inspectDocker();
+    if (!after.installed || after.installedPackageVersion !== expectedVersion || !after.engineVersion || !after.serviceActive) {
+      throw new Error("Docker Engine did not match the approved package and active-service proof after installation");
+    }
+    return {
+      package: "docker.io",
+      installed: true,
+      version: after.installedPackageVersion,
+      engineVersion: after.engineVersion,
+      packageChanged: true,
+      serviceActive: true,
+      engineVerified: true,
+      boundary: {
+        fixedPackage: true,
+        arbitraryPackageAccepted: false,
+        arbitraryRepositoryAccepted: false,
+        aptUpdatePerformed: false,
+        packageUpgradePerformed: false,
+        packageRemovalPerformed: false,
+        daemonConfigurationChanged: false,
+        userGroupChanged: false,
+        containerCreated: false,
+        imagePulled: false,
+        browserCommandAccepted: false,
+      },
     };
   }
 
@@ -249,7 +340,7 @@ export function createPrerequisiteHelper({
     };
   }
 
-  return { inspectSmartmontools, installSmartmontools, inspectRestic, installRestic, inspectAptMetadata, refreshAptMetadata };
+  return { inspectSmartmontools, installSmartmontools, inspectRestic, installRestic, inspectDocker, installDocker, inspectAptMetadata, refreshAptMetadata };
 }
 
-export const prerequisiteHelperInternals = { candidateVersion, cleanVersion, defaultAptCache, defaultAptApprovalPath, defaultApprovalPath, defaultResticApprovalPath, defaultDpkgQuery, defaultEvidencePath, defaultSystemctl, installedVersion, versionPattern };
+export const prerequisiteHelperInternals = { candidateVersion, cleanVersion, defaultAptCache, defaultAptApprovalPath, defaultApprovalPath, defaultResticApprovalPath, defaultDockerApprovalPath, defaultDpkgQuery, defaultEvidencePath, defaultSystemctl, installedVersion, versionPattern };

@@ -150,7 +150,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
 
 server.listen(socketPath, async () => {
   await chmod(socketPath, 0o660);
-  console.log(`BoxPilot helper 0.53.0 listening on ${socketPath}`);
+  console.log(`BoxPilot helper 0.54.0 listening on ${socketPath}`);
 });
 
 async function shutdown() {

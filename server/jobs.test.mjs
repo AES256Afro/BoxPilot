@@ -113,6 +113,23 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("revalidates and executes only the exact Ubuntu Docker Engine repair plan", async () => {
+    const result = {
+      package: "docker.io", installed: true, version: "28.2.2-0ubuntu1", engineVersion: "28.2.2", packageChanged: true, serviceActive: true, engineVerified: true,
+      boundary: { fixedPackage: true, arbitraryPackageAccepted: false, arbitraryRepositoryAccepted: false, aptUpdatePerformed: false, packageUpgradePerformed: false, packageRemovalPerformed: false, daemonConfigurationChanged: false, userGroupChanged: false, containerCreated: false, imagePulled: false },
+    };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const validatePrerequisiteRepairJob = vi.fn(async () => ({ plan: { input: { expectedVersion: "28.2.2-0ubuntu1" } }, state: { installed: false } }));
+    const jobs = createJobService(store, helper, { validatePrerequisiteRepairJob });
+    const job = store.createJob({ type: "prerequisite.docker.install", title: "Install Docker Engine", risk: "system-package-service", parameters: { expectedVersion: "28.2.2-0ubuntu1" }, recovery: { automaticRollback: false }, createdBy: owner.id });
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+    expect(validatePrerequisiteRepairJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("prerequisite.docker.install", { expectedVersion: "28.2.2-0ubuntu1" }, { timeoutMs: 15 * 60 * 1000 });
+    expect(completed).toMatchObject({ state: "completed", result: { package: "docker.io", installed: true, engineVersion: "28.2.2", serviceActive: true, engineVerified: true } });
+    store.close();
+  });
+
   it("revalidates and executes a typed Uptime Kuma deployment job", async () => {
     const helper = { request: vi.fn(async () => ({ installed: true, healthy: true, dataPreserved: true, hostPort: 3101 })) };
     const { store, owner } = await setup(helper);
