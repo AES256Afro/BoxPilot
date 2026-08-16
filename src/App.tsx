@@ -122,7 +122,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   github: {
     label: "Credential-free public provenance",
     tone: "live",
-    description: "Reads only allowlisted public GitHub metadata. Commit verification and asset digests are GitHub-reported, not locally verified. Tokens, writes, downloads, webhooks, workflow dispatch, and installation remain unavailable.",
+    description: "Reads only allowlisted public GitHub metadata. Commit verification and asset digests are GitHub-reported, not locally verified. Tokens, writes, arbitrary downloads, webhooks, and workflow dispatch remain unavailable; Keel uses separate local verification and approval gates.",
   },
   logs: {
     label: "Restricted journal inventory",
@@ -313,7 +313,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.46.0 Keel safe staging<br />exact inert release boundary</div>
+        <div className="prototype-label">v0.47.0 Keel safe staging<br />exact inert release boundary</div>
       </aside>
 
       <main>

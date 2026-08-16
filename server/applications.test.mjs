@@ -8,7 +8,7 @@ import { createStateStore } from "./state.mjs";
 
 const directories = [];
 
-async function setup({ statuses = {}, portInUse = false, assessmentError = null, keelProvenanceMatches = true, keelDiscovery = null, keelDiscoveryError = null, keelArtifact = null, keelArchive = null, keelStaging = null, hostPlatform = "linux", hostArchitecture = "x64" } = {}) {
+async function setup({ statuses = {}, portInUse = false, assessmentError = null, keelProvenanceMatches = true, keelDiscovery = null, keelDiscoveryError = null, keelArtifact = null, keelArchive = null, keelStaging = null, keelInstallation = null, hostPlatform = "linux", hostArchitecture = "x64" } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-apps-"));
   directories.push(directory);
   const store = createStateStore({ stateDirectory: directory });
@@ -51,19 +51,21 @@ async function setup({ statuses = {}, portInUse = false, assessmentError = null,
     if (operation === "application.keel.artifact.inspect") return keelArtifact ?? { state: "absent", readyToAcquire: true, artifactPresent: false, locallyVerified: false, partialPresent: false, acquiredAt: null, detail: "The fixed Keel release archive is not present", boundary: { mutationPerformed: false, extractionPerformed: false, applicationInstalled: false } };
     if (operation === "application.keel.archive.inspect") return keelArchive ?? { state: "artifact-required", safeToExtract: false, artifactLocallyVerified: false, memberCount: 0, risks: ["artifact-required"], detail: "Acquire the fixed archive first", boundary: { mutationPerformed: false, extractionPerformed: false } };
     if (operation === "application.keel.stage.inspect") return keelStaging ?? { state: "absent", staged: false, readyToStage: true, version: null, sourceMemberCount: 0, partialCount: 0, stagedAt: null, detail: "The fixed Keel release has not been staged", boundary: { mutationPerformed: false } };
+    if (operation === "application.keel.install.inspect") return keelInstallation ?? { state: "absent", installed: false, readyToInstall: false, releaseVersion: null, serviceActive: false, serviceEnabled: false, healthy: false, listener: "none", claim: { state: "not-applicable", terminalRequired: true }, detail: "The fixed Keel release must be staged before installation", boundary: { mutationPerformed: false } };
     return { installed: false, state: "not-installed", detail: "Ready to plan" };
   });
+  const inspectPort = vi.fn(async () => portInUse);
   const service = createApplicationService({
     store,
     prerequisites: { inspect: vi.fn(async () => ({ checks })) },
     helper: { request: helperRequest },
     network: { validateAssessment },
     githubProvenance,
-    inspectPort: vi.fn(async () => portInUse),
+    inspectPort,
     hostPlatform,
     hostArchitecture,
   });
-  return { store, owner, service, validateAssessment, githubProvenance, helperRequest };
+  return { store, owner, service, validateAssessment, githubProvenance, helperRequest, inspectPort };
 }
 
 afterEach(async () => {
@@ -76,7 +78,7 @@ describe("application manifests and plans", () => {
     expect(catalog.map((item) => item.id)).toEqual(["uptime-kuma", "pi-hole", "keel"]);
     expect(catalog[0]).toMatchObject({ image: { version: "2.5.0", digestPinned: true }, integrity: expect.stringMatching(/^sha256:[a-f0-9]{64}$/) });
     expect(catalog[1]).toMatchObject({ execution: "enabled", risk: "network-critical", adapterVersion: "0.2.0", image: { version: "2026.07.2", digestPinned: true, reference: expect.stringMatching(/^pihole\/pihole@sha256:/) } });
-    expect(catalog[2]).toMatchObject({ adapterVersion: "0.3.0-stage", execution: "staging-enabled", risk: "stateful", targets: ["native-service"], image: { version: "1.2.6", digestPinned: true }, artifact: { ...keelArtifactSpec, locallyVerifiedByBoxPilot: false } });
+    expect(catalog[2]).toMatchObject({ adapterVersion: "0.4.0-native-install", execution: "staging-enabled", risk: "stateful", targets: ["native-service"], image: { version: "1.2.6", digestPinned: true }, artifact: { ...keelArtifactSpec, locallyVerifiedByBoxPilot: false } });
   });
 
   it("reports fixed read-only Keel host discovery together with release provenance", async () => {
@@ -90,6 +92,7 @@ describe("application manifests and plans", () => {
       artifact: { state: "absent", readyToAcquire: true, locallyVerified: false },
       archive: { state: "artifact-required", safeToExtract: false, risks: ["artifact-required"] },
       staging: { state: "absent", staged: false, readyToStage: true },
+      installation: { state: "absent", installed: false, readyToInstall: false },
       boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false },
     });
     expect(catalog.applications.find((item) => item.id === "keel")?.live.detail).toContain("No supported Keel");
@@ -97,6 +100,7 @@ describe("application manifests and plans", () => {
     expect(helperRequest).toHaveBeenCalledWith("application.keel.artifact.inspect", {});
     expect(helperRequest).toHaveBeenCalledWith("application.keel.archive.inspect", {});
     expect(helperRequest).toHaveBeenCalledWith("application.keel.stage.inspect", {});
+    expect(helperRequest).toHaveBeenCalledWith("application.keel.install.inspect", {});
     expect(githubProvenance.inspect).toHaveBeenCalled();
     store.close();
   });
@@ -164,6 +168,63 @@ describe("application manifests and plans", () => {
     expect(job).toMatchObject({ type: "application.keel.stage", risk: "stateful-staging", parameters: { planId: plan.id, revision: plan.revision, stageId: plan.input.stageId, hostPort: 3000 } });
     await expect(service.validateJob(job)).resolves.toMatchObject({ id: plan.id, status: "staged", input: { stageId: plan.input.stageId } });
     expect(helperRequest).toHaveBeenCalledWith("application.keel.stage.inspect", {});
+    store.close();
+  });
+
+  it("turns an exact staged release into a separately approved private-service install plan", async () => {
+    const installState = {
+      state: "absent", installed: false, readyToInstall: true, releaseVersion: "1.2.6",
+      serviceActive: false, serviceEnabled: false, healthy: false, listener: "none",
+      claim: { state: "not-applicable", terminalRequired: true },
+      detail: "The exact staged release is ready for a private native-service installation",
+      boundary: { mutationPerformed: false, databaseOpened: false, secretRead: false },
+    };
+    const { store, owner, service, helperRequest, inspectPort } = await setup({
+      keelArtifact: { state: "verified", readyToAcquire: false, artifactPresent: true, locallyVerified: true, partialPresent: false, acquiredAt: "2026-08-16T04:00:00.000Z", sha256: keelArtifactSpec.digest, detail: "Exact local bytes verified" },
+      keelArchive: { state: "safe", safeToExtract: true, artifactLocallyVerified: true, memberCount: 2974, risks: [], detail: "The exact archive passed the runtime gate" },
+      keelStaging: { state: "staged", staged: true, readyToStage: false, version: "1.2.6", sourceMemberCount: 2974, partialCount: 0, stagedAt: "2026-08-16T05:00:00.000Z", detail: "The exact release is staged" },
+      keelInstallation: installState,
+    });
+    const plan = await service.plan("keel", { target: "native-service", hostPort: 3000 }, owner.id);
+    expect(plan.output).toMatchObject({
+      executable: true,
+      keelAction: "install",
+      blockers: [],
+      stagingInspection: { state: "staged", staged: true },
+      installationInspection: { state: "absent", readyToInstall: true },
+    });
+    expect(plan.input).toMatchObject({ keelAction: "install", installId: expect.stringMatching(/^[a-f0-9-]{36}$/), hostPort: 3000 });
+    expect(plan.output.changes.join(" ")).toContain("dedicated non-login");
+    expect(plan.output.changes.join(" ")).toContain("127.0.0.1:3000");
+    expect(plan.output.warnings.join(" ")).toContain("does not claim an account");
+    expect(inspectPort).toHaveBeenCalledWith(3000, "127.0.0.1");
+    const job = await service.stage(plan.id, plan.revision, owner.id);
+    expect(job).toMatchObject({
+      type: "application.keel.install",
+      risk: "stateful-install",
+      parameters: { planId: plan.id, revision: plan.revision, installId: plan.input.installId, hostPort: 3000 },
+      recovery: { automaticRollback: true, reason: expect.stringContaining("preserves /var/lib/keel") },
+    });
+    await expect(service.validateJob(job)).resolves.toMatchObject({ id: plan.id, status: "staged", input: { installId: plan.input.installId, keelAction: "install" } });
+    expect(helperRequest).toHaveBeenCalledWith("application.keel.install.inspect", {});
+    store.close();
+  });
+
+  it("blocks the fixed Keel install when loopback port 3000 is occupied", async () => {
+    const { store, owner, service } = await setup({
+      portInUse: true,
+      keelArtifact: { state: "verified", locallyVerified: true, sha256: keelArtifactSpec.digest },
+      keelArchive: { state: "safe", safeToExtract: true, memberCount: 2974, risks: [] },
+      keelStaging: { state: "staged", staged: true, readyToStage: false, version: "1.2.6" },
+      keelInstallation: { state: "absent", installed: false, readyToInstall: true, releaseVersion: "1.2.6", detail: "Ready" },
+    });
+    const plan = await service.plan("keel", { target: "native-service", hostPort: 3000 }, owner.id);
+    expect(plan.output.executable).toBe(false);
+    expect(plan.output.blockers).toEqual(expect.arrayContaining([expect.objectContaining({
+      id: "port.3000",
+      summary: "TCP port 3000 is already in use on 127.0.0.1",
+      repair: { kind: "manual", description: expect.stringContaining("fixed") },
+    })]));
     store.close();
   });
 

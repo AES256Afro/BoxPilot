@@ -30,6 +30,7 @@ sudo install -m 0644 deploy/boxpilot-smartmontools-install.service /etc/systemd/
 sudo install -m 0644 deploy/boxpilot-restic-install.service /etc/systemd/system/boxpilot-restic-install.service
 sudo install -m 0644 deploy/boxpilot-apt-refresh.service /etc/systemd/system/boxpilot-apt-refresh.service
 sudo install -m 0644 deploy/boxpilot-keel-artifact.service /etc/systemd/system/boxpilot-keel-artifact.service
+sudo install -m 0644 deploy/boxpilot-keel-install.service /etc/systemd/system/boxpilot-keel-install.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now boxpilot-helper.service boxpilot.service boxpilot-storage-scan.timer
 ```
@@ -57,6 +58,10 @@ Version `0.44.0` adds parameter-free inspection and one exact typed create opera
 Version `0.45.0` adds a separately named fixed `restic` package repair. The read-only helper inspection accepts no parameters. Its immutable plan captures the hard-coded package's exact installed state and configured APT candidate, then requires staging and owner-password approval. The helper delegates an absent package only to `boxpilot-restic-install.service`, which independently rechecks a short-lived root-only marker, pins the exact version, verifies dpkg state, and probes `/usr/bin/restic version`. It does not run `apt-get update`, accept a package or repository selector, configure a mount or key, initialize a repository, start a backup, change retention, or remove a package. See [Exact prerequisite repair boundary](PREREQUISITE-REPAIRS.md).
 
 Version `0.46.0` adds a distinct Keel inert-staging job. The application plan stores one server-generated stage UUID after exact discovery, artifact, archive, destination, platform, prerequisite, and public-provenance checks. Staging creates a durable `application.keel.stage` job. Approval rechecks those host facts and the owner password before the helper accepts only the UUID. The helper publishes an exact root-only release tree or removes its generated partial/new release on failure. It cannot create application state, a service, account, registration setting, listener, access route, backup, restore, or migration.
+
+Version `0.47.0` adds a second Keel native-install job and a separate static `boxpilot-keel-install.service`. Install that unit but do not enable it. It has no `[Install]` section and starts only after exact staging evidence, a fresh immutable install plan, separate job staging, owner-password approval, host-state revalidation, and a short-lived root-only marker. The helper accepts only a server-generated install UUID. The one-shot creates the fixed non-login account, private state, exact release link, root-owned environment, hardened loopback unit, and health evidence. It requires the exact JSON health identity and private SQLite database. Its automatic rollback removes only generated unit, environment, and activation state, preserving `/var/lib/keel`. Claim tokens, registration, Tailscale exposure, firewall, DNS, DHCP, router changes, backup, restore, import, update, adoption, and removal are outside this operation. See [Keel Notes guarded private installation](KEEL.md).
+
+Claim is a separate terminal-only handoff, not a helper operation or web job. The displayed `boxpilot-keel-claim.mjs` command requires a normal administrator to invoke it through `sudo -k`, verifies only the exact managed installation, drops all supplementary groups and then its GID and UID to `keel`, and invokes the upstream one-use transaction against the fixed SQLite database. It rejects root-login, noninteractive, changed-boundary, and malformed-token calls. The token is never stored by BoxPilot.
 
 The manual console fallback remains:
 
