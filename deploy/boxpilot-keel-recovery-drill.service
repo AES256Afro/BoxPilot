@@ -1,0 +1,38 @@
+[Unit]
+Description=BoxPilot isolated Keel recovery startup drill
+Documentation=https://github.com/AES256Afro/BoxPilot
+After=local-fs.target boxpilot-helper.service
+ConditionPathExists=/usr/local/bin/node
+ConditionPathIsDirectory=/var/lib/boxpilot-managed/apps/keel/releases/1.2.6
+ConditionPathExists=/run/boxpilot/keel-recovery-drill-approval.json
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-recovery-drill.mjs
+TimeoutStartSec=15min
+UMask=0077
+
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateNetwork=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ReadOnlyPaths=/run/boxpilot/keel-recovery-drill-approval.json
+ReadOnlyPaths=/var/lib/boxpilot-managed/keel-recoveries
+ReadOnlyPaths=/var/lib/boxpilot-managed/apps/keel
+ReadOnlyPaths=-/var/lib/keel
+ReadWritePaths=/var/lib/boxpilot-managed/keel-recovery-drills
+IPAddressDeny=any
+IPAddressAllow=localhost
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+SystemCallArchitectures=native

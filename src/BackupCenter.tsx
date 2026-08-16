@@ -155,6 +155,42 @@ type KeelRecoveryPlan = {
   };
 };
 
+type KeelRecoveryDrillRecord = {
+  id: string;
+  recoveryId: string;
+  applicationId: "keel";
+  releaseVersion: "1.2.6";
+  network: "private-loopback-only";
+  healthIdentityVerified: boolean;
+  databaseIntegrity: "ok";
+  foreignKeyIssues: 0;
+  schemaVerified: boolean;
+  processStarted: boolean;
+  processStopped: boolean;
+  workspaceRemoved: boolean;
+  sourceRecoveryUnchanged: boolean;
+  passed: boolean;
+  createdAt: string;
+};
+
+type KeelRecoveryDrillPlan = {
+  id: string;
+  revision: string;
+  subjectId: string;
+  output: {
+    executable: boolean;
+    mode: "isolated-keel-startup-health";
+    releaseVersion: "1.2.6";
+    network: "private-loopback-only";
+    port: 3100;
+    blockers: string[];
+    changes: string[];
+    verification: string[];
+    warnings: string[];
+    recovery: string;
+  };
+};
+
 async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, options);
   const body = await response.json() as T & { error?: string };
@@ -183,6 +219,8 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
   const [retentionPlan, setRetentionPlan] = useState<ControllerRetentionPlan | null>(null);
   const [keelRecoveries, setKeelRecoveries] = useState<KeelRecoveryRecord[]>([]);
   const [keelRecoveryPlan, setKeelRecoveryPlan] = useState<KeelRecoveryPlan | null>(null);
+  const [keelRecoveryDrills, setKeelRecoveryDrills] = useState<KeelRecoveryDrillRecord[]>([]);
+  const [keelRecoveryDrillPlan, setKeelRecoveryDrillPlan] = useState<KeelRecoveryDrillPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -190,12 +228,13 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [body, protection, applicationProtection, retention, recovery] = await Promise.all([
+      const [body, protection, applicationProtection, retention, recovery, recoveryDrills] = await Promise.all([
         requestJson<{ coverage: Coverage[]; backups: BackupRecord[]; limitations: string[] }>("/api/v1/backups"),
         requestJson<{ destination: ControllerDestination; protections: ControllerProtectionRecord[] }>("/api/v1/controller-backup-protection"),
         requestJson<{ destination: ApplicationDestination; protections: ApplicationProtectionRecord[] }>("/api/v1/application-backup-protection"),
         requestJson<ControllerRetentionStatus>("/api/v1/controller-backup-retention"),
         requestJson<{ recoveries: KeelRecoveryRecord[] }>("/api/v1/keel-recoveries").catch(() => ({ recoveries: [] })),
+        requestJson<{ drills: KeelRecoveryDrillRecord[] }>("/api/v1/keel-recovery-drills").catch(() => ({ drills: [] })),
       ]);
       setCoverage(body.coverage ?? []);
       setBackups(body.backups ?? []);
@@ -206,6 +245,7 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
       setApplicationProtections(applicationProtection.protections ?? []);
       setControllerRetention(retention);
       setKeelRecoveries(recovery.recoveries ?? []);
+      setKeelRecoveryDrills(recoveryDrills.drills ?? []);
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Backup inventory is unavailable");
@@ -391,6 +431,41 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
     }
   };
 
+  const createKeelRecoveryDrillPlan = async (recoveryId: string) => {
+    setPending(true);
+    try {
+      const body = await requestJson<{ plan: KeelRecoveryDrillPlan }>(`/api/v1/keel-recoveries/${recoveryId}/drill-plans`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: "{}",
+      });
+      setKeelRecoveryDrillPlan(body.plan);
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Keel recovery drill planning failed");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const stageKeelRecoveryDrill = async () => {
+    if (!keelRecoveryDrillPlan) return;
+    setPending(true);
+    try {
+      await requestJson(`/api/v1/keel-recovery-drill-plans/${keelRecoveryDrillPlan.id}/stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ revision: keelRecoveryDrillPlan.revision }),
+      });
+      setKeelRecoveryDrillPlan(null);
+      onOpenRepair();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Keel recovery drill staging failed");
+    } finally {
+      setPending(false);
+    }
+  };
+
   const verifiedCount = coverage.filter((entry) => entry.latestBackup?.restoreDrill?.passed).length;
   const protectedCount = coverage.filter((entry) => entry.protected).length;
   const plannedSource = coverage.find((entry) => entry.applicationId === plan?.subjectId);
@@ -454,7 +529,10 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
         <p>Materialize a verified Keel backup as a new root-only recovery state without replacing production, starting an application, or attaching a network.</p>
         <div className="backup-plan-columns">
           <div><strong>Eligible local backups</strong>{backups.filter((backup) => backup.applicationId === "keel" && backup.restoreDrill.passed).length ? <ul>{backups.filter((backup) => backup.applicationId === "keel" && backup.restoreDrill.passed).map((backup) => <li key={backup.id}><button className="text-button" type="button" disabled={pending} onClick={() => void createKeelRecoveryPlan(backup.id)}>Plan stopped clone from {new Date(backup.createdAt).toLocaleString()}</button></li>)}</ul> : <p>No restore-verified Keel backup is available.</p>}</div>
-          <div><strong>Published recovery evidence</strong>{keelRecoveries.length ? <ul>{keelRecoveries.map((recovery) => <li key={recovery.id}><details><summary className="good-text">Stopped, no network, {formatBytes(recovery.sizeBytes)}</summary><small>State path</small><code className="backup-evidence-value">{recovery.statePath}</code><small>Source backup</small><code className="backup-evidence-value">{recovery.backupId}</code></details></li>)}</ul> : <p>No stopped clone has been published.</p>}</div>
+          <div><strong>Published recovery evidence</strong>{keelRecoveries.length ? <ul>{keelRecoveries.map((recovery) => {
+            const passingDrill = keelRecoveryDrills.find((drill) => drill.recoveryId === recovery.id && drill.passed);
+            return <li key={recovery.id}><details><summary className="good-text">Stopped, no network, {formatBytes(recovery.sizeBytes)}</summary><small>State path</small><code className="backup-evidence-value">{recovery.statePath}</code><small>Source backup</small><code className="backup-evidence-value">{recovery.backupId}</code>{passingDrill ? <p className="good-text">Startup rehearsal passed {new Date(passingDrill.createdAt).toLocaleString()}: private loopback health, SQLite, clean stop, unchanged source, workspace removed.</p> : <button className="text-button" type="button" disabled={pending} onClick={() => void createKeelRecoveryDrillPlan(recovery.id)}>Plan isolated startup rehearsal</button>}</details></li>;
+          })}</ul> : <p>No stopped clone has been published.</p>}</div>
         </div>
         <div className="notice warning-notice"><strong>Promotion is separate</strong><span>This workflow cannot write to <code>/var/lib/keel</code>. Starting, testing, or promoting a clone requires a later guarded plan.</span></div>
       </section>
@@ -501,6 +579,16 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
           <div className="backup-plan-columns"><div><strong>Exact workflow</strong><ol>{keelRecoveryPlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol><strong>Required evidence</strong><ol>{keelRecoveryPlan.output.verification.map((check) => <li key={check}>{check}</li>)}</ol></div><div><strong>Warnings and recovery</strong><ul>{keelRecoveryPlan.output.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><p>{keelRecoveryPlan.output.recovery}</p></div></div>
           {keelRecoveryPlan.output.blockers.map((blocker) => <div className="notice warning-notice" key={blocker}><strong>Recovery blocker</strong><span>{blocker}</span></div>)}
           <footer className="modal-actions"><button className="text-button" type="button" onClick={() => setKeelRecoveryPlan(null)}>Discard plan</button><button className="primary-button" type="button" disabled={!keelRecoveryPlan.output.executable || pending} onClick={() => void stageKeelRecovery()}>Stage stopped recovery clone</button></footer>
+        </section>
+      )}
+
+      {keelRecoveryDrillPlan && (
+        <section className="panel backup-plan-card" aria-label="Keel recovery drill plan">
+          <div className="section-heading"><div><span className="eyebrow">Immutable startup rehearsal {keelRecoveryDrillPlan.revision}</span><h3>{keelRecoveryDrillPlan.output.executable ? "Isolated Keel startup rehearsal ready" : "Startup rehearsal is blocked"}</h3></div><span className={`status-pill ${keelRecoveryDrillPlan.output.executable ? "status-good" : "status-warning"}`}>high risk</span></div>
+          <p>Keel {keelRecoveryDrillPlan.output.releaseVersion} runs only against a disposable copy on {keelRecoveryDrillPlan.output.network}. Port {keelRecoveryDrillPlan.output.port} exists only inside the private namespace.</p>
+          <div className="backup-plan-columns"><div><strong>Exact workflow</strong><ol>{keelRecoveryDrillPlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol><strong>Required evidence</strong><ol>{keelRecoveryDrillPlan.output.verification.map((check) => <li key={check}>{check}</li>)}</ol></div><div><strong>Warnings and recovery</strong><ul>{keelRecoveryDrillPlan.output.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><p>{keelRecoveryDrillPlan.output.recovery}</p></div></div>
+          {keelRecoveryDrillPlan.output.blockers.map((blocker) => <div className="notice warning-notice" key={blocker}><strong>Drill blocker</strong><span>{blocker}</span></div>)}
+          <footer className="modal-actions"><button className="text-button" type="button" onClick={() => setKeelRecoveryDrillPlan(null)}>Discard plan</button><button className="primary-button" type="button" disabled={!keelRecoveryDrillPlan.output.executable || pending} onClick={() => void stageKeelRecoveryDrill()}>Stage isolated startup rehearsal</button></footer>
         </section>
       )}
 
