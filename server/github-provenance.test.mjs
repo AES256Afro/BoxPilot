@@ -16,12 +16,12 @@ function fixtureRequest() {
     if (path.endsWith("/releases/latest")) {
       if (path.includes("BoxPilot")) return null;
       return {
-        tag_name: "v1.2.5", name: "Keel 1.2.5", target_commitish: "main", published_at: "2026-08-14T13:35:44Z",
+        tag_name: "v1.2.6", name: "Keel 1.2.6", target_commitish: "main", published_at: "2026-08-16T12:00:00Z",
         draft: false, prerelease: false, immutable: false,
-        assets: [{ name: "keel_1.2.5_amd64.deb", size: 103546264, content_type: "application/x-debian-package", digest: `sha256:${"a".repeat(64)}`, browser_download_url: "https://example.invalid/must-not-leak" }],
+        assets: [{ name: "keel-1.2.6-linux-x64.tar.gz", size: 71052143, content_type: "application/gzip", digest: "sha256:696f5e444696d3da876f870fe72b6743e7e15c4fbf25809d02469a14da1f2e00", browser_download_url: "https://example.invalid/must-not-leak" }],
       };
     }
-    if (path.endsWith("/commits/v1.2.5")) return commit("3".repeat(40));
+    if (path.endsWith("/commits/v1.2.6")) return commit("3".repeat(40));
     if (path.includes("/commits/")) return commit(path.includes("BoxPilot") ? "1".repeat(40) : "2".repeat(40));
     return { private: false, archived: false, default_branch: "main", pushed_at: "2026-08-16T02:27:03Z", owner: { email: "must-not-leak@example.com" } };
   });
@@ -37,12 +37,12 @@ describe("GitHub provenance", () => {
     expect(second).toEqual(first);
     expect(calls.map((call) => call.path)).toEqual(expect.arrayContaining([
       "/repos/AES256Afro/BoxPilot", "/repos/AES256Afro/BoxPilot/commits/main", "/repos/AES256Afro/BoxPilot/releases/latest",
-      "/repos/AES256Afro/Keel", "/repos/AES256Afro/Keel/commits/main", "/repos/AES256Afro/Keel/releases/latest", "/repos/AES256Afro/Keel/commits/v1.2.5",
+      "/repos/AES256Afro/Keel", "/repos/AES256Afro/Keel/commits/main", "/repos/AES256Afro/Keel/releases/latest", "/repos/AES256Afro/Keel/commits/v1.2.6",
     ]));
     expect(calls).toHaveLength(7);
     expect(first.boundary).toMatchObject({ tokenConfigured: false, repositoryWrites: false, cloneOrDownload: false, localDigestVerification: false });
     expect(first.repositories[0]).toMatchObject({ fullName: "AES256Afro/BoxPilot", latestRelease: null, head: { sha: "1".repeat(40), verification: { verified: true, reportedBy: "github-api" } } });
-    expect(first.repositories[1]).toMatchObject({ fullName: "AES256Afro/Keel", latestRelease: { tagName: "v1.2.5", assetsWithGithubReportedDigest: 1, commit: { sha: "3".repeat(40) } } });
+    expect(first.repositories[1]).toMatchObject({ fullName: "AES256Afro/Keel", latestRelease: { tagName: "v1.2.6", assetsWithGithubReportedDigest: 1, commit: { sha: "3".repeat(40) } } });
     expect(JSON.stringify(first)).not.toContain("must-not-leak");
     expect(JSON.stringify(first)).not.toContain("example.invalid");
   });

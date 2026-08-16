@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.45.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.46.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -271,6 +271,18 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ operation: "application.keel.archive.inspect", parameters: { path: "/tmp/keel.tar.gz" } }))).toContain("no parameters");
     const keelArchive = { inspect: async () => ({ state: "blocked", safeToExtract: false, memberCount: 2900, risks: ["symbolic-link-member", "absolute-link-target"], boundary: { mutationPerformed: false, extractionPerformed: false } }) };
     await expect(executeHelperOperation(request({ operation: "application.keel.archive.inspect", parameters: {} }), { keelArchive })).resolves.toMatchObject({ ok: true, result: { state: "blocked", safeToExtract: false, memberCount: 2900, boundary: { mutationPerformed: false, extractionPerformed: false } } });
+  });
+
+  it("accepts only parameter-free Keel staging inspection and one server-generated stage UUID", async () => {
+    const stageId = randomUUID();
+    expect(validateHelperRequest(request({ operation: "application.keel.stage.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.keel.stage.inspect", parameters: { path: "/tmp/keel" } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "application.keel.stage", parameters: { stageId } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.keel.stage", parameters: { stageId, archive: "/tmp/keel.tar.gz" } }))).toContain("only one stageId UUID");
+    expect(validateHelperRequest(request({ operation: "application.keel.stage", parameters: { stageId: "changed" } }))).toContain("only one stageId UUID");
+    const keelStage = { inspect: async () => ({ state: "absent", readyToStage: true }), stage: async (parameters) => ({ staged: true, ...parameters, boundary: { applicationInstalled: false } }) };
+    await expect(executeHelperOperation(request({ operation: "application.keel.stage.inspect", parameters: {} }), { keelStage })).resolves.toMatchObject({ ok: true, result: { state: "absent", readyToStage: true } });
+    await expect(executeHelperOperation(request({ operation: "application.keel.stage", parameters: { stageId } }), { keelStage })).resolves.toMatchObject({ ok: true, result: { staged: true, stageId, boundary: { applicationInstalled: false } } });
   });
 
   it("accepts only exact migration bundle evidence and keeps all paths helper-owned", async () => {
