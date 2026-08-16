@@ -82,7 +82,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   applications: {
     label: "Curated application engine",
     tone: "live",
-    description: "Manifests, host-backed plans, Uptime Kuma, guarded Pi-hole staging, Keel discovery, fixed artifact verification, and a runtime archive safety gate are live. Keel 1.2.5 extraction is blocked by its unsafe link; install, router writes, and client DNS cutover remain locked.",
+    description: "Manifests, host-backed plans, Uptime Kuma, guarded Pi-hole staging, and Keel discovery are live. Keel 1.2.6 can be acquired, checked twice, and staged as an inert root-only release tree. Installation, router writes, and client DNS cutover remain locked.",
   },
   network: {
     label: "Network intelligence and guarded direct tests",
@@ -313,7 +313,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.45.0 backup prerequisites<br />exact restic package repair gate</div>
+        <div className="prototype-label">v0.46.0 Keel safe staging<br />exact inert release boundary</div>
       </aside>
 
       <main>
