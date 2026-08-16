@@ -191,6 +191,38 @@ type KeelRecoveryDrillPlan = {
   };
 };
 
+type KeelPromotionRecord = {
+  id: string;
+  recoveryId: string;
+  drillId: string;
+  applicationId: "keel";
+  releaseVersion: "1.2.6";
+  rollbackPath: string;
+  healthIdentityVerified: boolean;
+  databaseIntegrity: "ok";
+  rollbackAvailable: boolean;
+  sourceRecoveryUnchanged: boolean;
+  ownerLoginTested: false;
+  createdAt: string;
+};
+
+type KeelPromotionPlan = {
+  id: string;
+  revision: string;
+  subjectId: string;
+  output: {
+    executable: boolean;
+    releaseVersion: "1.2.6";
+    network: "host-loopback-only";
+    rollbackDestination: "managed-keel-promotion-rollback";
+    blockers: string[];
+    changes: string[];
+    verification: string[];
+    warnings: string[];
+    recovery: string;
+  };
+};
+
 async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, options);
   const body = await response.json() as T & { error?: string };
@@ -221,6 +253,8 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
   const [keelRecoveryPlan, setKeelRecoveryPlan] = useState<KeelRecoveryPlan | null>(null);
   const [keelRecoveryDrills, setKeelRecoveryDrills] = useState<KeelRecoveryDrillRecord[]>([]);
   const [keelRecoveryDrillPlan, setKeelRecoveryDrillPlan] = useState<KeelRecoveryDrillPlan | null>(null);
+  const [keelPromotions, setKeelPromotions] = useState<KeelPromotionRecord[]>([]);
+  const [keelPromotionPlan, setKeelPromotionPlan] = useState<KeelPromotionPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -228,13 +262,14 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [body, protection, applicationProtection, retention, recovery, recoveryDrills] = await Promise.all([
+      const [body, protection, applicationProtection, retention, recovery, recoveryDrills, promotions] = await Promise.all([
         requestJson<{ coverage: Coverage[]; backups: BackupRecord[]; limitations: string[] }>("/api/v1/backups"),
         requestJson<{ destination: ControllerDestination; protections: ControllerProtectionRecord[] }>("/api/v1/controller-backup-protection"),
         requestJson<{ destination: ApplicationDestination; protections: ApplicationProtectionRecord[] }>("/api/v1/application-backup-protection"),
         requestJson<ControllerRetentionStatus>("/api/v1/controller-backup-retention"),
         requestJson<{ recoveries: KeelRecoveryRecord[] }>("/api/v1/keel-recoveries").catch(() => ({ recoveries: [] })),
         requestJson<{ drills: KeelRecoveryDrillRecord[] }>("/api/v1/keel-recovery-drills").catch(() => ({ drills: [] })),
+        requestJson<{ promotions: KeelPromotionRecord[] }>("/api/v1/keel-recovery-promotions").catch(() => ({ promotions: [] })),
       ]);
       setCoverage(body.coverage ?? []);
       setBackups(body.backups ?? []);
@@ -246,6 +281,7 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
       setControllerRetention(retention);
       setKeelRecoveries(recovery.recoveries ?? []);
       setKeelRecoveryDrills(recoveryDrills.drills ?? []);
+      setKeelPromotions(promotions.promotions ?? []);
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Backup inventory is unavailable");
@@ -466,6 +502,41 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
     }
   };
 
+  const createKeelPromotionPlan = async (recoveryId: string) => {
+    setPending(true);
+    try {
+      const body = await requestJson<{ plan: KeelPromotionPlan }>(`/api/v1/keel-recoveries/${recoveryId}/promotion-plans`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: "{}",
+      });
+      setKeelPromotionPlan(body.plan);
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Keel production promotion planning failed");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const stageKeelPromotion = async () => {
+    if (!keelPromotionPlan) return;
+    setPending(true);
+    try {
+      await requestJson(`/api/v1/keel-promotion-plans/${keelPromotionPlan.id}/stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ revision: keelPromotionPlan.revision }),
+      });
+      setKeelPromotionPlan(null);
+      onOpenRepair();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Keel production promotion staging failed");
+    } finally {
+      setPending(false);
+    }
+  };
+
   const verifiedCount = coverage.filter((entry) => entry.latestBackup?.restoreDrill?.passed).length;
   const protectedCount = coverage.filter((entry) => entry.protected).length;
   const plannedSource = coverage.find((entry) => entry.applicationId === plan?.subjectId);
@@ -530,11 +601,13 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
         <div className="backup-plan-columns">
           <div><strong>Eligible local backups</strong>{backups.filter((backup) => backup.applicationId === "keel" && backup.restoreDrill.passed).length ? <ul>{backups.filter((backup) => backup.applicationId === "keel" && backup.restoreDrill.passed).map((backup) => <li key={backup.id}><button className="text-button" type="button" disabled={pending} onClick={() => void createKeelRecoveryPlan(backup.id)}>Plan stopped clone from {new Date(backup.createdAt).toLocaleString()}</button></li>)}</ul> : <p>No restore-verified Keel backup is available.</p>}</div>
           <div><strong>Published recovery evidence</strong>{keelRecoveries.length ? <ul>{keelRecoveries.map((recovery) => {
-            const passingDrill = keelRecoveryDrills.find((drill) => drill.recoveryId === recovery.id && drill.passed);
-            return <li key={recovery.id}><details><summary className="good-text">Stopped, no network, {formatBytes(recovery.sizeBytes)}</summary><small>State path</small><code className="backup-evidence-value">{recovery.statePath}</code><small>Source backup</small><code className="backup-evidence-value">{recovery.backupId}</code>{passingDrill ? <p className="good-text">Startup rehearsal passed {new Date(passingDrill.createdAt).toLocaleString()}: private loopback health, SQLite, clean stop, unchanged source, workspace removed.</p> : <button className="text-button" type="button" disabled={pending} onClick={() => void createKeelRecoveryDrillPlan(recovery.id)}>Plan isolated startup rehearsal</button>}</details></li>;
+            const latestDrill = keelRecoveryDrills.find((drill) => drill.recoveryId === recovery.id);
+            const passingDrill = latestDrill?.passed ? latestDrill : undefined;
+            const promotion = keelPromotions.find((entry) => entry.recoveryId === recovery.id);
+            return <li key={recovery.id}><details><summary className="good-text">Stopped, no network, {formatBytes(recovery.sizeBytes)}</summary><small>State path</small><code className="backup-evidence-value">{recovery.statePath}</code><small>Source backup</small><code className="backup-evidence-value">{recovery.backupId}</code>{passingDrill ? <><p className="good-text">Startup rehearsal passed {new Date(passingDrill.createdAt).toLocaleString()}: private loopback health, SQLite, clean stop, unchanged source, workspace removed.</p>{promotion ? <><p className="good-text">Promoted {new Date(promotion.createdAt).toLocaleString()}; production health passed and previous production remains available for rollback.</p><small>Rollback checkpoint</small><code className="backup-evidence-value">{promotion.rollbackPath}</code></> : <button className="text-button" type="button" disabled={pending} onClick={() => void createKeelPromotionPlan(recovery.id)}>Plan production promotion</button>}</> : <button className="text-button" type="button" disabled={pending} onClick={() => void createKeelRecoveryDrillPlan(recovery.id)}>Plan isolated startup rehearsal</button>}</details></li>;
           })}</ul> : <p>No stopped clone has been published.</p>}</div>
         </div>
-        <div className="notice warning-notice"><strong>Promotion is separate</strong><span>This workflow cannot write to <code>/var/lib/keel</code>. Starting, testing, or promoting a clone requires a later guarded plan.</span></div>
+        <div className="notice warning-notice"><strong>Promotion is a critical separate job</strong><span>Only a clone with matching passing startup evidence can replace <code>/var/lib/keel</code>. The fixed job preserves prior production as a root-only local rollback checkpoint and does not test owner login.</span></div>
       </section>
 
       <section className="panel backup-plan-card" aria-label="Controller retention">
@@ -589,6 +662,16 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
           <div className="backup-plan-columns"><div><strong>Exact workflow</strong><ol>{keelRecoveryDrillPlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol><strong>Required evidence</strong><ol>{keelRecoveryDrillPlan.output.verification.map((check) => <li key={check}>{check}</li>)}</ol></div><div><strong>Warnings and recovery</strong><ul>{keelRecoveryDrillPlan.output.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><p>{keelRecoveryDrillPlan.output.recovery}</p></div></div>
           {keelRecoveryDrillPlan.output.blockers.map((blocker) => <div className="notice warning-notice" key={blocker}><strong>Drill blocker</strong><span>{blocker}</span></div>)}
           <footer className="modal-actions"><button className="text-button" type="button" onClick={() => setKeelRecoveryDrillPlan(null)}>Discard plan</button><button className="primary-button" type="button" disabled={!keelRecoveryDrillPlan.output.executable || pending} onClick={() => void stageKeelRecoveryDrill()}>Stage isolated startup rehearsal</button></footer>
+        </section>
+      )}
+
+      {keelPromotionPlan && (
+        <section className="panel backup-plan-card" aria-label="Keel production promotion plan">
+          <div className="section-heading"><div><span className="eyebrow">Immutable production promotion {keelPromotionPlan.revision}</span><h3>{keelPromotionPlan.output.executable ? "Drilled Keel recovery ready for critical approval" : "Production promotion is blocked"}</h3></div><span className={`status-pill ${keelPromotionPlan.output.executable ? "status-good" : "status-warning"}`}>critical</span></div>
+          <p>Keel {keelPromotionPlan.output.releaseVersion} remains on {keelPromotionPlan.output.network}. This job replaces application state and preserves the entire stopped prior state in {keelPromotionPlan.output.rollbackDestination}.</p>
+          <div className="backup-plan-columns"><div><strong>Exact workflow</strong><ol>{keelPromotionPlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol><strong>Required evidence</strong><ol>{keelPromotionPlan.output.verification.map((check) => <li key={check}>{check}</li>)}</ol></div><div><strong>Warnings and recovery</strong><ul>{keelPromotionPlan.output.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><p>{keelPromotionPlan.output.recovery}</p></div></div>
+          {keelPromotionPlan.output.blockers.map((blocker) => <div className="notice warning-notice" key={blocker}><strong>Promotion blocker</strong><span>{blocker}</span></div>)}
+          <footer className="modal-actions"><button className="text-button" type="button" onClick={() => setKeelPromotionPlan(null)}>Discard plan</button><button className="primary-button" type="button" disabled={!keelPromotionPlan.output.executable || pending} onClick={() => void stageKeelPromotion()}>Stage critical production promotion</button></footer>
         </section>
       )}
 
