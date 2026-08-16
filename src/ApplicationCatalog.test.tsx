@@ -68,12 +68,14 @@ describe("curated application catalog", () => {
     };
     const application = {
       id: "keel", name: "Keel Notes", category: "Knowledge", description: "Self-hosted notebook", execution: "planning-only", risk: "stateful", targets: ["native-service"],
-      image: { version: "1.2.5", digestPinned: false }, artifact, integrity: `sha256:${"c".repeat(64)}`, live: { installed: false, state: "planning-ready", detail: "Exact public release metadata is ready" },
+      image: { version: "1.2.5", digestPinned: false }, artifact, integrity: `sha256:${"c".repeat(64)}`,
+      live: { installed: false, state: "not-installed", healthy: false, kind: null, version: null, listener: "none", healthIdentityVerified: false, risks: [], native: { candidateCount: 0 }, docker: { available: true, candidateCount: 0 }, provenance: { status: "matched", checkedAt: "2026-08-16T04:00:00Z" }, detail: "No supported Keel installation was found", boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false } },
     };
     const plan = {
       id: "keel-plan", subjectId: "keel", revision: "revision789", input: { target: "native-service", hostPort: 3000 }, expiresAt: "2026-08-16T04:00:00Z",
       output: {
         executable: false, artifact: { ...artifact, githubReportedDigestMatched: true }, image: application.image,
+        discovery: { installed: false, state: "not-installed", healthy: false, kind: null, version: null, port: 3000, listener: "none", healthIdentityVerified: false, risks: [], native: { candidateCount: 0 }, docker: { available: true, candidateCount: 0 }, detail: "No supported Keel installation was found", boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false } },
         changes: ["Require a five-minute one-use terminal claim"],
         blockers: [{ id: "keel.execution", summary: "Keel installation remains disabled", repair: { description: "Complete the restricted adapter" } }],
         warnings: ["Keep the managed-secret key with the database"], recovery: { summary: "Preserve workspace data", preservesData: true },
@@ -89,13 +91,15 @@ describe("curated application catalog", () => {
 
     expect(await screen.findByText("Keel Notes")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Plan deployment" }));
-    expect(screen.getByText("Planning only")).toBeTruthy();
+    expect(screen.getByText("Discovery only")).toBeTruthy();
+    expect(screen.getByText(/Native candidates: 0 \| Docker candidates: 0/)).toBeTruthy();
     expect(screen.getByText(/Release asset digest pinned/)).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Deployment target" })).toHaveProperty("value", "native-service");
     fireEvent.click(screen.getByRole("button", { name: "Generate live plan" }));
     expect(await screen.findByText("Planning result")).toBeTruthy();
     expect(screen.getByText(/bcf872e2cee5/)).toBeTruthy();
     expect(screen.getByText(/verified from local bytes: no/)).toBeTruthy();
+    expect(screen.getByText("Plan-time discovery")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Stage for approval" })).toBeNull();
   });
 });

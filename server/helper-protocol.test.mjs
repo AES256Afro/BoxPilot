@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.40.1", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.41.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -219,6 +219,13 @@ describe("restricted helper protocol", () => {
     const applications = { backup: async (parameters) => ({ ...parameters, restoreDrill: { passed: true } }) };
     const result = await executeHelperOperation(request({ operation: "application.uptime-kuma.backup", parameters: { backupId } }), { applications });
     expect(result).toMatchObject({ ok: true, result: { backupId, restoreDrill: { passed: true } } });
+  });
+
+  it("accepts only a parameter-free read-only Keel discovery request", async () => {
+    expect(validateHelperRequest(request({ operation: "application.keel.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.keel.inspect", parameters: { path: "/home/operator/keel" } }))).toContain("no parameters");
+    const keelDiscovery = { inspect: async () => ({ installed: false, state: "not-installed", boundary: { mutationPerformed: false, secretRead: false } }) };
+    await expect(executeHelperOperation(request({ operation: "application.keel.inspect", parameters: {} }), { keelDiscovery })).resolves.toMatchObject({ ok: true, result: { installed: false, state: "not-installed", boundary: { mutationPerformed: false, secretRead: false } } });
   });
 
   it("accepts only exact migration bundle evidence and keeps all paths helper-owned", async () => {

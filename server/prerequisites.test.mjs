@@ -11,7 +11,7 @@ describe("prerequisite inventory", () => {
           ? ({ installed: true, installedVersion: "7.5-2", repairAvailable: false })
           : operation === "prerequisite.apt-metadata.inspect"
             ? ({ available: true, state: "current", updatedAt: "2026-08-16T06:00:00.000Z", ageHours: 1, packageManagerState: "ready", refreshAvailable: false })
-          : ({ verified: true, helperVersion: "0.40.1", mutationPerformed: false })) };
+          : ({ verified: true, helperVersion: "0.41.0", mutationPerformed: false })) };
     const runCommand = vi.fn(async (command) => {
       if (command === "tailscale") return { ok: true, stdout: "SECRET PEER DATA" };
       return { ok: true, stdout: "udp UNCONN 0 0 0.0.0.0:53 0.0.0.0:*" };
@@ -51,7 +51,7 @@ describe("prerequisite inventory", () => {
 
   it("offers only the fixed approved smartmontools repair when configured metadata has a candidate", async () => {
     const helper = { request: vi.fn(async (operation) => {
-      if (operation === "canary.verify") return { verified: true, helperVersion: "0.40.1", mutationPerformed: false };
+      if (operation === "canary.verify") return { verified: true, helperVersion: "0.41.0", mutationPerformed: false };
       if (operation === "prerequisite.smartmontools.inspect") return { installed: false, candidateVersion: "7.5-2", repairAvailable: true };
       if (operation === "prerequisite.apt-metadata.inspect") return { available: true, state: "stale", updatedAt: "2026-08-01T00:00:00.000Z", ageHours: 360, packageManagerState: "ready", refreshAvailable: true };
       if (operation === "container.docker.inspect") return { available: true, version: "29.1.3" };
