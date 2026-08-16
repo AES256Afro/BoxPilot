@@ -4,7 +4,7 @@ BoxPilot provides deliberately narrow recovery-evidence paths: the `0.38.0` WAL-
 
 ## Safety boundary
 
-The browser can request immutable local plans for `boxpilot-controller`, `uptime-kuma`, `pi-hole`, or `keel`. Independent application protection can select only a durable verified local application backup id. Approval requires the owner password. The restricted root helper derives every source, artifact, repository, password-file, and restore path itself.
+The browser can request immutable local plans for `boxpilot-controller`, `uptime-kuma`, `pi-hole`, or `keel`. Independent application protection and stopped Keel recovery can select only a durable verified local application backup id. Approval requires the owner password. The restricted root helper derives every source, artifact, repository, password-file, recovery, and restore path itself.
 
 It never accepts a path, archive command, container name, image name, destination, repository selector, password, restic argument, or shell string from the browser.
 
