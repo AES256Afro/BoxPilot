@@ -4,16 +4,17 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.25.0` adds a planning-only Keel Notes adapter bound to one reviewed Linux x64 release identity. It checks live public GitHub metadata against the fixed `v1.2.5` tag, release commit, asset name, byte count, and SHA-256 value, then produces an immutable plan for loopback service exposure, private state, account claim, backup, restore, and rollback. It rejects undeclared plan fields and always adds an execution blocker. BoxPilot still downloads no Keel bytes, verifies no local asset, installs no service, opens no registration, and changes no Keel data.
+Version `0.26.0` adds an authenticated, read-only disaster recovery kit to Repair Center. It evaluates current application and VM restore evidence, router checkpoint coverage, migration source preservation, independent DNS proof, and scoped host prerequisites, then exports structured JSON and an ordered Markdown runbook. The kit contains no credential, password hash, session, owner name, agent key or signature, application data, backup payload, router configuration, artifact path, arbitrary log, or environment value. It performs no backup and no host mutation.
 
 ### What works now
 
-| Area | Status in `0.25.0` | Capability |
+| Area | Status in `0.26.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
 | Operations Core | Live foundation | Persists plans, steps, approvals, results, recovery guidance, and audit attribution in SQLite. Interrupted applying or verifying jobs fail closed for review after restart. |
-| Repair Center | Live foundation | Checks Node.js, state storage, the helper, Docker, libvirt, Tailscale, and DNS port availability without returning peer details or raw command output. |
+| Repair Center | Live foundation plus recovery kit | Checks Node.js, state storage, the helper, Docker, libvirt, Tailscale, and DNS port availability without returning peer details or raw command output. It also builds a read-only secret-free recovery readiness view and ordered exportable runbook. |
+| Disaster recovery kit | Authenticated read-only export | Correlates sanitized job, application-backup, protected-VM-backup, router-checkpoint, migration, fleet, DNS, and prerequisite evidence. JSON and Markdown downloads remain evidence only: no database, application data, configuration file, backup payload, credential, or mutation is included. |
 | Restricted helper | Live typed operations | Uses a versioned, allowlisted protocol over a local Unix socket for the canary, bounded inventory and logs, Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, guarded VM creation and lifecycle, read-only libvirt inventory, offline snapshots, stopped-VM exports, mounted-restic VM copies, isolated restore drills, stopped no-network recovery clones, and exact no-prune retention. It accepts no command strings, binary selection, libvirt URI, argument arrays, operator paths, Compose source path, migration destination, SSH credential, repository password, backup mount, repository path, export destination, restore destination, recovery directory, prune flag, selector such as `latest`, or arbitrary root paths from the browser. |
 | Host and Docker inventory | Live | Reports authenticated host identity, CPU, memory, root storage, uptime, selected service state, LAN addresses, Tailscale self-state, and sanitized Docker containers, images, networks, volumes, and Compose projects. |
 | Network and DNS Center | Live planning and guarded fixed tests | Reports validated default gateways, host LAN CIDRs, sanitized systemd-resolved servers, scoped TCP and UDP port 53 listeners, and Tailscale resolver observations. It creates immutable topology assessments and can separately stage four fixed direct Pi-hole DNS checks after exact deployment and restore evidence match. A separately enrolled signed agent can repeat only those fixed checks after a fresh passing Bigbox record. Router writes and DNS cutover have no execution route. |
@@ -176,6 +177,12 @@ This explicitly disclosed `0.24.0` mock shows fixed public repository heads, Git
 
 This explicitly disclosed `0.25.0` mock shows the fixed Keel release identity, GitHub metadata match, absent local-byte verification, proposed private service and recovery boundaries, and the permanent planning-only execution blocker. No Keel asset was downloaded by BoxPilot, no local digest was computed by BoxPilot, no application tree or account was created, and no service, port, or data was changed for the capture.
 
+### Disaster recovery kit mockup
+
+![BoxPilot secret-free disaster recovery readiness kit](docs/screenshots/recovery-kit-mock.png)
+
+This explicitly disclosed `0.26.0` mock shows correlated readiness checks, evidence counts, export controls, and the evidence-not-backup boundary. No database, application data, backup payload, router configuration, credential, key, signature, or log was copied, and no host, VM, application, network, or router state was changed for the capture.
+
 ## Safety contract
 
 Every future host change must follow:
@@ -278,6 +285,7 @@ docker build -t boxpilot:local .
 - [Signed fleet agents and independent DNS evidence](docs/FLEET.md)
 - [Credential-free GitHub provenance and installation gates](docs/GITHUB.md)
 - [Keel Notes exact-release planning and execution gates](docs/KEEL.md)
+- [Disaster recovery readiness kit and runbook](docs/RECOVERY.md)
 - [Guarded migration discovery and local staging](docs/MIGRATIONS.md)
 - [Dependency-ordered roadmap](docs/ROADMAP.md)
 - [QEMU/KVM setup and operation](docs/VIRTUALIZATION.md)

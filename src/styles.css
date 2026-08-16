@@ -2056,6 +2056,28 @@ textarea {
   gap: 14px;
 }
 
+.recovery-kit { display: grid; gap: 14px; padding: 18px; }
+.recovery-kit .panel-header > div { display: grid; gap: 3px; }
+.recovery-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.recovery-summary span { display: grid; gap: 3px; padding: 10px 12px; color: var(--muted); background: #09141d; border: 1px solid var(--line); border-radius: 9px; font-size: 8px; }
+.recovery-summary strong { color: var(--text); font-size: 15px; }
+.recovery-check-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.recovery-check { display: grid; gap: 7px; padding: 12px; background: #0a151e; border: 1px solid var(--line); border-left-width: 3px; border-radius: 9px; }
+.recovery-check > div { display: flex; justify-content: space-between; gap: 10px; }
+.recovery-check > div span { color: var(--muted); font-size: 7px; font-weight: 800; text-transform: uppercase; }
+.recovery-check p, .recovery-check small { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.5; }
+.recovery-check small { color: var(--muted-strong); }
+.recovery-verified { border-left-color: var(--mint); }
+.recovery-action-required, .recovery-operator-check { border-left-color: var(--amber); }
+.recovery-unavailable { border-left-color: #d47777; }
+.recovery-not-applicable { border-left-color: #526979; }
+.recovery-evidence-strip { display: flex; flex-wrap: wrap; gap: 6px; }
+.recovery-evidence-strip span { padding: 5px 8px; color: var(--muted-strong); background: #0a151e; border: 1px solid var(--line); border-radius: 999px; font-size: 7px; }
+.recovery-boundary { display: grid; gap: 3px; padding: 11px 12px; color: #d8c38a; background: #2a220e; border: 1px solid #66502e; border-radius: 9px; }
+.recovery-boundary strong { font-size: 9px; }
+.recovery-boundary span { font-size: 8px; line-height: 1.5; }
+.recovery-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
 .repair-readiness {
   display: flex;
   align-items: center;
@@ -2587,6 +2609,8 @@ textarea {
     grid-template-columns: 1fr;
   }
 
+  .recovery-check-grid { grid-template-columns: 1fr; }
+
   .vm-plan-form {
     border-right: 0;
     border-bottom: 1px solid var(--line-soft);
@@ -2683,6 +2707,8 @@ textarea {
     align-items: flex-start;
     flex-direction: column;
   }
+
+  .recovery-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
   .repair-check {
     grid-template-columns: 64px minmax(0, 1fr);
