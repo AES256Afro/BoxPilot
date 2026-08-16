@@ -17,12 +17,12 @@ const status = {
   enrollment: { tokenTtlMinutes: 10, keyType: "Ed25519", tokenStoredAsDigest: true },
   executionBoundary: {
     controllerShellAccess: false, arbitraryCommands: false, arbitraryTargets: false,
-    supportedTasks: ["dns.pi-hole.acceptance.v1"], nodeLocalExecution: true, routerMutationSupported: false, dnsCutoverSupported: false,
+    supportedTasks: ["dns.pi-hole.acceptance.v1", "dns.flint2-adguard.acceptance.v1"], nodeLocalExecution: true, routerMutationSupported: false, dnsCutoverSupported: false,
   },
   schedulingPolicy: {
     mode: "owner-approved-one-shot", allowedDelayMinutes: [0, 5, 10], executionWindowMinutes: 10,
     recurrenceSupported: false, unattendedExecutionSupported: false, cancellationSupported: false,
-    taskType: "dns.pi-hole.acceptance.v1", targetSource: "fresh-passing-controller-acceptance-only", passwordReauthenticationRequired: true,
+    taskTypes: ["dns.pi-hole.acceptance.v1", "dns.flint2-adguard.acceptance.v1"], targetSources: ["fresh-passing-pi-hole-controller-acceptance", "fresh-passing-flint2-gateway-controller-acceptance"], passwordReauthenticationRequired: true,
   },
 };
 
@@ -50,5 +50,24 @@ describe("Fleet Center", () => {
     expect(await screen.findByText(/secret-one-time-token/)).toBeTruthy();
     expect(screen.getByText("npm run agent -- run-once")).toBeTruthy();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+  });
+
+  it("schedules a Flint 2 proof without sending a resolver or query contract", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/api/v1/fleet") && !init?.method) return new Response(JSON.stringify(status), { status: 200, headers: { "Content-Type": "application/json" } });
+      expect(url).toBe("/api/v1/fleet/flint2-dns-probe-tasks");
+      expect(JSON.parse(String(init?.body))).toEqual({ agentId: status.agents[0].id, delayMinutes: 5, password: "correct horse battery" });
+      expect(String(init?.body)).not.toContain("192.168.8.1");
+      return new Response(JSON.stringify({ task: { id: "task-one", agentId: status.agents[0].id, type: "dns.flint2-adguard.acceptance.v1", state: "pending", createdAt: "2026-08-16T02:00:00.000Z", availableAt: "2026-08-16T02:05:00.000Z", expiresAt: "2026-08-16T02:15:00.000Z" } }), { status: 201, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<FleetCenter csrfToken="csrf" />);
+    await screen.findByText("Independent DNS proof");
+    fireEvent.change(screen.getByLabelText("Proof source"), { target: { value: "flint2-adguard" } });
+    fireEvent.change(screen.getByLabelText("Start delay"), { target: { value: "5" } });
+    fireEvent.change(screen.getByLabelText("Owner password for task"), { target: { value: "correct horse battery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Schedule fixed Flint 2 proof" }));
+    expect(await screen.findByText(/One-shot Flint 2 gateway DNS probe task-one/)).toBeTruthy();
   });
 });

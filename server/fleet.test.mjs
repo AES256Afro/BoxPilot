@@ -11,7 +11,7 @@ import { createStateStore } from "./state.mjs";
 const directories = [];
 const current = new Date("2026-08-16T02:00:00.000Z");
 
-async function fixture({ withControllerAcceptance = true } = {}) {
+async function fixture({ withControllerAcceptance = true, withRouterAcceptance = false } = {}) {
   let observedNow = current;
   const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-fleet-"));
   directories.push(directory);
@@ -34,6 +34,15 @@ async function fixture({ withControllerAcceptance = true } = {}) {
       origin: "boxpilot-controller", checks: [], passed: true, secondDeviceTested: false, createdBy: owner.id,
     });
   }
+  if (withRouterAcceptance) {
+    const checkpoint = store.recordRouterCheckpoint({ modelId: "glinet-flint-2", firmwareVersion: "4.8.2", checksumSha256: "b".repeat(64), sizeBytes: 4096, hashOrigin: "browser-webcrypto", configurationUploaded: false, fileRetainedByOperator: true, createdBy: owner.id });
+    const plan = store.createPlan({ type: "network.flint2-adguard.acceptance", subjectId: "glinet-flint-2", input: {}, output: {}, createdBy: owner.id });
+    const job = store.createJob({ type: "network.flint2-adguard.acceptance.run", title: "Flint 2 DNS", createdBy: owner.id });
+    store.recordRouterDnsAcceptance({
+      id: "33333333-3333-4333-8333-333333333333", jobId: job.id, planId: plan.id, checkpointId: checkpoint.id,
+      resolverAddress: "192.168.8.1", origin: "boxpilot-controller", checks: [], assertions: {}, passed: true, createdBy: owner.id,
+    });
+  }
   return { store, owner, password, service: createFleetService({ store, now: () => observedNow }), setNow: (value) => { observedNow = new Date(value); } };
 }
 
@@ -49,8 +58,8 @@ function signedHeaders({ agentId, privateKey, sequence, timestamp = current.toIS
   return { agentId, sequence: String(sequence), timestamp, signature: sign(null, message, { key: privateKey, format: "der", type: "pkcs8" }).toString("base64url") };
 }
 
-function passingChecks() {
-  return dnsAcceptanceInternals.acceptanceChecks.map((check) => ({
+function passingChecks(expectedChecks = dnsAcceptanceInternals.acceptanceChecks) {
+  return expectedChecks.map((check) => ({
     id: check.id, protocol: check.protocol, name: check.name, type: "A", expectedRcode: check.expectedRcode,
     rcode: check.expectedRcode, answers: check.requireAnswers ? 1 : 0, recursionAvailable: true,
     truncated: false, latencyMs: 4, passed: true,
@@ -95,6 +104,27 @@ describe("signed fleet agent", () => {
     expect(() => service.nextTask({ headers: forged })).toThrow("signature verification");
     const stale = signedHeaders({ agentId: agent.id, privateKey: keys.privateKey, sequence: 1, timestamp: "2026-08-16T01:00:00.000Z", method: "GET", requestPath: "/api/v1/agent/tasks/next" });
     expect(() => service.nextTask({ headers: stale })).toThrow("five-minute window");
+  });
+
+  it("dispatches and records a separate signed Flint 2 gateway proof linked to controller evidence", async () => {
+    const { store, owner, password, service } = await fixture({ withControllerAcceptance: false, withRouterAcceptance: true });
+    const enrollment = await service.createEnrollment(owner.id, { password });
+    const keys = keyPair();
+    const agent = service.enroll({ token: enrollment.token, name: "flint2-lan-agent", publicKey: keys.publicKey.toString("base64url"), capabilities: ["dns-probe-v1"] });
+    const task = await service.createFlint2DnsProbeTask(owner.id, { agentId: agent.id, delayMinutes: 0, password });
+    expect(task).toMatchObject({
+      type: "dns.flint2-adguard.acceptance.v1", controllerAcceptanceId: null, routerAcceptanceId: "33333333-3333-4333-8333-333333333333",
+      payload: { resolverAddress: "192.168.8.1", checkpointId: expect.any(String), boundary: { arbitraryCommand: false, arbitraryTarget: false, targetMustEqualNodeDefaultGateway: true, routerMutation: false, dnsCutover: false, dhcpMutation: false, clientSettingsMutation: false, modelAttestation: false } },
+    });
+    expect(task.payload.checks.map((check) => `${check.protocol}:${check.name}`)).toEqual(["udp:example.com", "tcp:example.com", "udp:example.net", "udp:boxpilot.invalid"]);
+    const polled = service.nextTask({ headers: signedHeaders({ agentId: agent.id, privateKey: keys.privateKey, sequence: 1, method: "GET", requestPath: "/api/v1/agent/tasks/next" }) });
+    expect(polled.id).toBe(task.id);
+    const body = { taskId: task.id, observedAt: current.toISOString(), checks: passingChecks(dnsAcceptanceInternals.flint2AdguardChecks), passed: true };
+    const headers = signedHeaders({ agentId: agent.id, privateKey: keys.privateKey, sequence: 2, method: "POST", requestPath: "/api/v1/agent/evidence", body });
+    const evidence = service.submitEvidence({ headers }, body);
+    expect(evidence).toMatchObject({ passed: true, result: { type: "dns.flint2-adguard.acceptance.v1", resolverAddress: "192.168.8.1", routerAcceptanceId: "33333333-3333-4333-8333-333333333333", checkpointId: task.payload.checkpointId, secondDeviceTested: true, modelIdentityVerified: false, gatewayMatchedByAgentContract: true, routerMutationPerformed: false, dnsCutoverPerformed: false, dhcpChanged: false, clientSettingsChanged: false } });
+    expect(store.getFleetTask(task.id)).toMatchObject({ state: "completed", routerAcceptanceId: "33333333-3333-4333-8333-333333333333" });
+    store.close();
   });
 
   it("requires owner reauthentication for enrollment and revocation", async () => {

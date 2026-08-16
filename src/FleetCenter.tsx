@@ -28,7 +28,7 @@ type FleetEvidence = {
   sequence: number;
   passed: boolean;
   receivedAt: string;
-  result: { resolverAddress: string; secondDeviceTested: boolean; checks: Array<{ passed: boolean }> };
+  result: { type: string; resolverAddress: string; controllerAcceptanceId?: string; routerAcceptanceId?: string; secondDeviceTested: boolean; modelIdentityVerified?: boolean; checks: Array<{ passed: boolean }> };
 };
 
 type FleetStatus = {
@@ -52,8 +52,8 @@ type FleetStatus = {
     recurrenceSupported: boolean;
     unattendedExecutionSupported: boolean;
     cancellationSupported: boolean;
-    taskType: string;
-    targetSource: string;
+    taskTypes: string[];
+    targetSources: string[];
     passwordReauthenticationRequired: boolean;
   };
 };
@@ -71,6 +71,7 @@ export default function FleetCenter({ csrfToken }: { csrfToken: string }) {
   const [revocationPassword, setRevocationPassword] = useState("");
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [probePassword, setProbePassword] = useState("");
+  const [probeKind, setProbeKind] = useState<"pi-hole" | "flint2-adguard">("pi-hole");
   const [delayMinutes, setDelayMinutes] = useState(0);
   const [enrollment, setEnrollment] = useState<{ token: string; expiresAt: string } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -120,13 +121,14 @@ export default function FleetCenter({ csrfToken }: { csrfToken: string }) {
     setError(null);
     setMessage(null);
     try {
-      const body = await readJson<{ task: FleetTask }>(await fetch("/api/v1/fleet/dns-probe-tasks", {
+      const endpoint = probeKind === "pi-hole" ? "/api/v1/fleet/dns-probe-tasks" : "/api/v1/fleet/flint2-dns-probe-tasks";
+      const body = await readJson<{ task: FleetTask }>(await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
         body: JSON.stringify({ agentId: selectedAgentId, delayMinutes, password: probePassword }),
       }));
       setProbePassword("");
-      setMessage(`One-shot DNS probe ${body.task.id} is available ${new Date(body.task.availableAt).toLocaleString()} and expires ${new Date(body.task.expiresAt).toLocaleString()}. Run the agent once during that window.`);
+      setMessage(`One-shot ${probeKind === "pi-hole" ? "Pi-hole" : "Flint 2 gateway"} DNS probe ${body.task.id} is available ${new Date(body.task.availableAt).toLocaleString()} and expires ${new Date(body.task.expiresAt).toLocaleString()}. Run the agent once during that window.`);
       await refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to create DNS probe task");
@@ -176,7 +178,7 @@ export default function FleetCenter({ csrfToken }: { csrfToken: string }) {
         <section className="panel fleet-boundary">
           <header className="panel-header"><strong>Execution boundary</strong><span>Controller compromise cannot request a shell</span></header>
           <div className="network-lock"><span className="status-pill status-good">Commands unavailable</span><span className="status-pill status-good">Targets fixed</span><span className="status-pill status-warning">Router writes locked</span></div>
-          <ul><li>The only task contract is four fixed Pi-hole DNS checks.</li><li>The resolver comes from a fresh passing Bigbox acceptance record.</li><li>The device executes locally and keeps functioning without the controller.</li><li>No router, DHCP, client DNS, firewall, or Tailscale setting can be changed.</li></ul>
+          <ul><li>The only task contracts are four fixed Pi-hole checks or four fixed Flint 2 observed-gateway checks.</li><li>The resolver comes from a fresh matching Bigbox controller acceptance record, never this form.</li><li>The device executes locally and keeps functioning without the controller.</li><li>No router, DHCP, client DNS, firewall, or Tailscale setting can be changed.</li></ul>
         </section>
 
         <section className="panel fleet-enrollment">
@@ -191,14 +193,15 @@ export default function FleetCenter({ csrfToken }: { csrfToken: string }) {
       </div>
 
       <section className="panel fleet-probe">
-        <header className="panel-header"><strong>Independent Pi-hole proof</strong><span>Owner-approved one-shot window after fresh passing Bigbox proof</span></header>
+        <header className="panel-header"><strong>Independent DNS proof</strong><span>Owner-approved one-shot window after a fresh matching Bigbox proof</span></header>
         <div className="fleet-schedule-policy"><div><span className="eyebrow">Scheduling policy</span><strong>One-shot only</strong><small>Immediate, 5-minute, or 10-minute delay | 10-minute execution window</small></div><div className="network-lock"><span className="status-pill status-good">Password required</span><span className="status-pill status-good">Fixed task</span><span className="status-pill status-warning">No recurrence</span><span className="status-pill status-warning">No unattended jobs</span></div></div>
         <div className="network-form-grid">
+          <label>Proof source<select aria-label="Proof source" value={probeKind} onChange={(event) => setProbeKind(event.target.value as "pi-hole" | "flint2-adguard")}><option value="pi-hole">Managed Pi-hole</option><option value="flint2-adguard">Flint 2 observed gateway</option></select></label>
           <label>Signed device<select value={selectedAgentId} onChange={(event) => setSelectedAgentId(event.target.value)}><option value="">Choose an active agent</option>{activeAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></label>
           <label>Start delay<select aria-label="Start delay" value={delayMinutes} onChange={(event) => setDelayMinutes(Number(event.target.value))}>{status.schedulingPolicy.allowedDelayMinutes.map((delay) => <option value={delay} key={delay}>{delay === 0 ? "Immediately" : `In ${delay} minutes`}</option>)}</select></label>
           <label>Owner password for task<input type="password" value={probePassword} onChange={(event) => setProbePassword(event.target.value)} autoComplete="current-password" /></label>
         </div>
-        <div className="network-plan-actions"><button className="primary-button" type="button" disabled={!selectedAgentId || probePassword.length < 12 || submitting} onClick={() => void createProbe()}>{submitting ? "Reauthenticating..." : "Schedule one fixed DNS proof"}</button><span>No address, hostname, port, command, recurrence, or arbitrary execution time is accepted from this form.</span></div>
+        <div className="network-plan-actions"><button className="primary-button" type="button" disabled={!selectedAgentId || probePassword.length < 12 || submitting} onClick={() => void createProbe()}>{submitting ? "Reauthenticating..." : `Schedule fixed ${probeKind === "pi-hole" ? "Pi-hole" : "Flint 2"} proof`}</button><span>No address, hostname, port, command, recurrence, or arbitrary execution time is accepted from this form.</span></div>
       </section>
 
       <section className="panel table-panel">
@@ -214,7 +217,7 @@ export default function FleetCenter({ csrfToken }: { csrfToken: string }) {
 
       <section className="panel table-panel">
         <header className="panel-header"><strong>Signed DNS evidence</strong><span>Second-device proof does not unlock router cutover</span></header>
-        <div className="table-scroll"><table><thead><tr><th>Received</th><th>Agent</th><th>Resolver</th><th>Checks</th><th>Result</th></tr></thead><tbody>{status.evidence.length ? status.evidence.map((evidence) => <tr key={evidence.id}><td>{new Date(evidence.receivedAt).toLocaleString()}</td><td>{status.agents.find((agent) => agent.id === evidence.agentId)?.name ?? evidence.agentId}</td><td>{evidence.result.resolverAddress}:53</td><td>{evidence.result.checks.filter((check) => check.passed).length}/4</td><td className={evidence.passed ? "good-text" : "warning-text"}>{evidence.passed ? "Passed" : "Failed"}</td></tr>) : <tr><td colSpan={5}>No independent DNS evidence has been recorded.</td></tr>}</tbody></table></div>
+        <div className="table-scroll"><table><thead><tr><th>Received</th><th>Agent</th><th>Source</th><th>Resolver</th><th>Checks</th><th>Result</th></tr></thead><tbody>{status.evidence.length ? status.evidence.map((evidence) => <tr key={evidence.id}><td>{new Date(evidence.receivedAt).toLocaleString()}</td><td>{status.agents.find((agent) => agent.id === evidence.agentId)?.name ?? evidence.agentId}</td><td>{evidence.result.type === "dns.flint2-adguard.acceptance.v1" ? "Flint 2 gateway" : "Pi-hole"}</td><td>{evidence.result.resolverAddress}:53</td><td>{evidence.result.checks.filter((check) => check.passed).length}/4</td><td className={evidence.passed ? "good-text" : "warning-text"}>{evidence.passed ? "Passed" : "Failed"}</td></tr>) : <tr><td colSpan={6}>No independent DNS evidence has been recorded.</td></tr>}</tbody></table></div>
       </section>
     </div>
   );

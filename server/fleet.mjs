@@ -8,6 +8,14 @@ const allowedCapabilities = Object.freeze(["dns-probe-v1"]);
 const agentRequestWindowMs = 5 * 60 * 1000;
 const controllerEvidenceMaxAgeMs = 30 * 60 * 1000;
 const allowedDelayMinutes = Object.freeze([0, 5, 10]);
+const taskContracts = Object.freeze({
+  "dns.pi-hole.acceptance.v1": dnsAcceptanceInternals.acceptanceChecks,
+  "dns.flint2-adguard.acceptance.v1": dnsAcceptanceInternals.flint2AdguardChecks,
+});
+
+function taskContract(type) {
+  return typeof type === "string" && Object.hasOwn(taskContracts, type) ? taskContracts[type] : null;
+}
 
 export function canonicalJson(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -51,10 +59,10 @@ function normalizeHeaders(headers = {}) {
   return { agentId: headers.agentId, sequence, timestamp: headers.timestamp, signature: headers.signature };
 }
 
-function validateChecks(checks) {
-  if (!Array.isArray(checks) || checks.length !== dnsAcceptanceInternals.acceptanceChecks.length) throw new Error("Agent evidence must contain the four fixed DNS checks");
+function validateChecks(checks, expectedChecks) {
+  if (!Array.isArray(expectedChecks) || !Array.isArray(checks) || checks.length !== expectedChecks.length) throw new Error("Agent evidence must contain the four fixed DNS checks");
   return checks.map((check, index) => {
-    const expected = dnsAcceptanceInternals.acceptanceChecks[index];
+    const expected = expectedChecks[index];
     const allowed = ["answers", "error", "expectedRcode", "id", "latencyMs", "name", "passed", "protocol", "rcode", "recursionAvailable", "truncated", "type"];
     if (!check || typeof check !== "object" || Array.isArray(check) || Object.keys(check).some((key) => !allowed.includes(key))) throw new Error("Agent DNS evidence contains unsupported fields");
     if (check.id !== expected.id || check.protocol !== expected.protocol || check.name !== expected.name || check.type !== "A" || check.expectedRcode !== expected.expectedRcode) throw new Error("Agent DNS evidence does not match the fixed task");
@@ -120,7 +128,7 @@ export function createFleetService({ store, now = () => new Date() }) {
         controllerShellAccess: false,
         arbitraryCommands: false,
         arbitraryTargets: false,
-        supportedTasks: ["dns.pi-hole.acceptance.v1"],
+        supportedTasks: Object.keys(taskContracts),
         nodeLocalExecution: true,
         routerMutationSupported: false,
         dnsCutoverSupported: false,
@@ -132,8 +140,8 @@ export function createFleetService({ store, now = () => new Date() }) {
         recurrenceSupported: false,
         unattendedExecutionSupported: false,
         cancellationSupported: false,
-        taskType: "dns.pi-hole.acceptance.v1",
-        targetSource: "fresh-passing-controller-acceptance-only",
+        taskTypes: Object.keys(taskContracts),
+        targetSources: ["fresh-passing-pi-hole-controller-acceptance", "fresh-passing-flint2-gateway-controller-acceptance"],
         passwordReauthenticationRequired: true,
       },
     };
@@ -145,17 +153,23 @@ export function createFleetService({ store, now = () => new Date() }) {
     return store.revokeFleetAgent(agentId, ownerId);
   }
 
+  function requireFreshAcceptance(acceptance, delayMs, label) {
+    const createdAt = new Date(acceptance.createdAt).getTime();
+    const ageMs = now().getTime() - createdAt;
+    if (!Number.isFinite(createdAt) || ageMs < 0 || ageMs + delayMs > controllerEvidenceMaxAgeMs) throw new Error(`The direct Bigbox ${label} acceptance would be older than 30 minutes when this task becomes available; run it again`);
+  }
+
   async function createDnsProbeTask(ownerId, body) {
     if (!exactKeys(body, ["agentId", "delayMinutes", "password"]) || typeof body.agentId !== "string") throw new Error("DNS probe scheduling accepts only one agent id, one fixed delay, and the owner password");
     if (!allowedDelayMinutes.includes(body.delayMinutes)) throw new Error("DNS probe delay must be immediate, 5 minutes, or 10 minutes");
     await requireOwnerPassword(ownerId, body.password);
     const agent = store.getFleetAgent(body.agentId);
     if (!agent || agent.status !== "active" || !agent.capabilities.includes("dns-probe-v1")) throw new Error("An active DNS probe agent is required");
-    if (store.listFleetTasks(200).some((task) => task.agentId === agent.id && task.type === "dns.pi-hole.acceptance.v1" && task.state === "pending")) throw new Error("This agent already has a pending DNS probe");
+    if (store.listFleetTasks(200).some((task) => task.agentId === agent.id && taskContract(task.type) && task.state === "pending")) throw new Error("This agent already has a pending DNS probe");
     const acceptance = store.listDnsAcceptances(200).find((item) => item.passed && item.origin === "boxpilot-controller" && item.secondDeviceTested === false);
     if (!acceptance) throw new Error("A passing direct Bigbox Pi-hole acceptance is required first");
     const delayMs = body.delayMinutes * 60 * 1000;
-    if (now().getTime() - new Date(acceptance.createdAt).getTime() + delayMs > controllerEvidenceMaxAgeMs) throw new Error("The direct Bigbox Pi-hole acceptance would be older than 30 minutes when this task becomes available; run it again");
+    requireFreshAcceptance(acceptance, delayMs, "Pi-hole");
     if (net.isIP(acceptance.resolverAddress) !== 4) throw new Error("The linked Pi-hole resolver is not an exact IPv4 address");
     return store.createFleetTask({
       agentId: agent.id,
@@ -174,6 +188,36 @@ export function createFleetService({ store, now = () => new Date() }) {
     });
   }
 
+  async function createFlint2DnsProbeTask(ownerId, body) {
+    if (!exactKeys(body, ["agentId", "delayMinutes", "password"]) || typeof body.agentId !== "string") throw new Error("Flint 2 DNS probe scheduling accepts only one agent id, one fixed delay, and the owner password");
+    if (!allowedDelayMinutes.includes(body.delayMinutes)) throw new Error("DNS probe delay must be immediate, 5 minutes, or 10 minutes");
+    await requireOwnerPassword(ownerId, body.password);
+    const agent = store.getFleetAgent(body.agentId);
+    if (!agent || agent.status !== "active" || !agent.capabilities.includes("dns-probe-v1")) throw new Error("An active DNS probe agent is required");
+    if (store.listFleetTasks(200).some((task) => task.agentId === agent.id && taskContract(task.type) && task.state === "pending")) throw new Error("This agent already has a pending DNS probe");
+    const acceptance = store.listRouterDnsAcceptances(200).find((item) => item.passed && item.origin === "boxpilot-controller");
+    if (!acceptance) throw new Error("A passing direct Bigbox Flint 2 gateway acceptance is required first");
+    const delayMs = body.delayMinutes * 60 * 1000;
+    requireFreshAcceptance(acceptance, delayMs, "Flint 2 gateway");
+    if (net.isIP(acceptance.resolverAddress) !== 4) throw new Error("The linked Flint 2 gateway resolver is not an exact IPv4 address");
+    return store.createFleetTask({
+      agentId: agent.id,
+      type: "dns.flint2-adguard.acceptance.v1",
+      routerAcceptanceId: acceptance.id,
+      createdBy: ownerId,
+      delayMs,
+      ttlMs: 10 * 60 * 1000,
+      payload: {
+        schemaVersion: 1,
+        resolverAddress: acceptance.resolverAddress,
+        checkpointId: acceptance.checkpointId,
+        checks: dnsAcceptanceInternals.flint2AdguardChecks.map((check) => ({ id: check.id, protocol: check.protocol, name: check.name, type: "A", expectedRcode: check.expectedRcode, port: 53 })),
+        schedule: { delayMinutes: body.delayMinutes, recurring: false, unattended: false },
+        boundary: { arbitraryCommand: false, arbitraryTarget: false, targetMustEqualNodeDefaultGateway: true, routerMutation: false, dnsCutover: false, dhcpMutation: false, clientSettingsMutation: false, modelAttestation: false },
+      },
+    });
+  }
+
   function nextTask(agentRequest) {
     const authenticated = authenticate({ ...agentRequest, method: "GET", path: "/api/v1/agent/tasks/next", body: null });
     return store.getPendingFleetTask(authenticated.agent.id);
@@ -184,10 +228,16 @@ export function createFleetService({ store, now = () => new Date() }) {
     if (!exactKeys(body, ["checks", "observedAt", "passed", "taskId"])) throw new Error("Agent evidence request has unsupported fields");
     if (typeof body.taskId !== "string" || typeof body.observedAt !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(body.observedAt) || typeof body.passed !== "boolean") throw new Error("Agent evidence request is invalid");
     const task = store.getFleetTask(body.taskId);
-    if (!task || task.agentId !== authenticated.agent.id || task.type !== "dns.pi-hole.acceptance.v1") throw new Error("Agent task is unavailable");
+    const expectedChecks = task ? taskContract(task.type) : null;
+    if (!task || task.agentId !== authenticated.agent.id || !expectedChecks) throw new Error("Agent task is unavailable");
+    if (task.type === "dns.flint2-adguard.acceptance.v1") {
+      const linked = store.getRouterDnsAcceptance(task.routerAcceptanceId);
+      if (!linked || linked.passed !== true || linked.origin !== "boxpilot-controller" || linked.resolverAddress !== task.payload?.resolverAddress || linked.checkpointId !== task.payload?.checkpointId) throw new Error("Linked Flint 2 controller acceptance is unavailable or changed");
+      if (task.payload?.boundary?.arbitraryCommand !== false || task.payload?.boundary?.arbitraryTarget !== false || task.payload?.boundary?.targetMustEqualNodeDefaultGateway !== true || task.payload?.boundary?.routerMutation !== false || task.payload?.boundary?.dnsCutover !== false || task.payload?.boundary?.dhcpMutation !== false || task.payload?.boundary?.clientSettingsMutation !== false || task.payload?.boundary?.modelAttestation !== false) throw new Error("Flint 2 agent task boundary is unavailable or changed");
+    }
     const observedAt = new Date(body.observedAt);
     if (!Number.isFinite(observedAt.getTime()) || observedAt < new Date(task.createdAt) || observedAt > new Date(task.expiresAt)) throw new Error("Agent evidence observation is outside the task window");
-    const checks = validateChecks(body.checks);
+    const checks = validateChecks(body.checks, expectedChecks);
     const passed = checks.every((check) => check.passed === true);
     if (body.passed !== passed) throw new Error("Agent evidence summary does not match the fixed checks");
     return store.recordFleetEvidence({
@@ -199,12 +249,15 @@ export function createFleetService({ store, now = () => new Date() }) {
         schemaVersion: 1,
         type: task.type,
         resolverAddress: task.payload.resolverAddress,
-        controllerAcceptanceId: task.controllerAcceptanceId,
+        ...(task.type === "dns.pi-hole.acceptance.v1"
+          ? { controllerAcceptanceId: task.controllerAcceptanceId }
+          : { routerAcceptanceId: task.routerAcceptanceId, checkpointId: task.payload.checkpointId, modelIdentityVerified: false, gatewayMatchedByAgentContract: true }),
         observedAt: body.observedAt,
         checks,
         secondDeviceTested: true,
         routerMutationPerformed: false,
         dnsCutoverPerformed: false,
+        dhcpChanged: false,
         clientSettingsChanged: false,
       },
       passed,
@@ -212,7 +265,7 @@ export function createFleetService({ store, now = () => new Date() }) {
     });
   }
 
-  return { createEnrollment, enroll, authenticate, inspect, revoke, createDnsProbeTask, nextTask, submitEvidence };
+  return { createEnrollment, enroll, authenticate, inspect, revoke, createDnsProbeTask, createFlint2DnsProbeTask, nextTask, submitEvidence };
 }
 
-export const fleetInternals = { agentNamePattern, allowedCapabilities, allowedDelayMinutes, exactKeys, validateChecks, validatePublicKey };
+export const fleetInternals = { agentNamePattern, allowedCapabilities, allowedDelayMinutes, exactKeys, taskContract, taskContracts, validateChecks, validatePublicKey };
