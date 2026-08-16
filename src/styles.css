@@ -499,6 +499,21 @@ main {
   gap: 14px;
 }
 
+.storage-evidence-panel { display: grid; gap: 0; margin-bottom: 14px; }
+.storage-evidence-panel .panel-header > div { display: grid; gap: 3px; }
+.storage-evidence-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; padding: 13px 15px; }
+.storage-evidence-summary > div { display: grid; gap: 4px; padding: 11px; background: #0a151e; border: 1px solid var(--line-soft); border-radius: 9px; }
+.storage-evidence-summary strong { font-size: 11px; }
+.storage-evidence-summary small { color: var(--muted); font-size: 8px; }
+.mount-grid, .smart-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 0 15px 13px; }
+.mount-grid article, .smart-grid article { display: grid; gap: 5px; min-width: 0; padding: 10px; background: #09141d; border: 1px solid var(--line-soft); border-radius: 8px; }
+.mount-grid article > div, .smart-grid article > div { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.mount-grid strong, .smart-grid strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.mount-grid p, .mount-grid small, .smart-grid article > span { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.45; }
+.storage-boundary { display: grid; gap: 3px; margin: 0 15px 15px; padding: 10px 11px; color: #a9c9c1; background: #102a25; border: 1px solid #28584c; border-radius: 8px; }
+.storage-boundary strong { font-size: 9px; }
+.storage-boundary span { font-size: 8px; line-height: 1.5; }
+
 .panel {
   overflow: hidden;
   border-radius: 13px;
@@ -2708,6 +2723,10 @@ textarea {
   .app-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .storage-evidence-summary,
+  .mount-grid,
+  .smart-grid { grid-template-columns: 1fr; }
 
   .app-card {
     min-height: 210px;

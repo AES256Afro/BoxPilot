@@ -1,0 +1,30 @@
+[Unit]
+Description=BoxPilot fixed read-only SMART evidence scan
+After=local-fs.target boxpilot.service
+ConditionPathIsDirectory=/var/lib/boxpilot
+
+[Service]
+Type=oneshot
+User=root
+Group=boxpilot
+WorkingDirectory=/opt/boxpilot
+Environment=NODE_ENV=production
+Environment=BOXPILOT_STATE_DIRECTORY=/var/lib/boxpilot
+Environment=BOXPILOT_STORAGE_HEALTH_PATH=/var/lib/boxpilot/storage-health.json
+ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-storage-scan.mjs
+UMask=0027
+
+NoNewPrivileges=true
+PrivateNetwork=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/boxpilot
+RestrictAddressFamilies=AF_UNIX
+RestrictRealtime=true
+SystemCallArchitectures=native

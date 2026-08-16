@@ -54,7 +54,7 @@ describe("BoxPilot console", () => {
   });
 
   it("renders fixed redacted system logs", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       const body = url.includes("/auth/status")
         ? { bootstrapRequired: false, authenticated: true, owner: { id: "owner-one", username: "operator" }, csrfToken: "csrf-token", expiresAt: "2026-08-15T20:00:00Z" }
@@ -64,7 +64,11 @@ describe("BoxPilot console", () => {
         ? { source: "boxpilot", entries: [{ timestamp: "2026-08-14T12:00:00Z", unit: "boxpilot.service", priority: 6, message: "BoxPilot listening" }] }
         : { status: "ok", mode: "host-aware" };
       return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
-    }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:boxpilot-support-bundle");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
 
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
@@ -72,5 +76,7 @@ describe("BoxPilot console", () => {
 
     expect(await screen.findByText("BoxPilot listening")).toBeTruthy();
     expect(screen.getByText("boxpilot.service")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Download support bundle" }));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/support-bundle"));
   });
 });

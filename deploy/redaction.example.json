@@ -1,0 +1,8 @@
+{
+  "additionalLiterals": [
+    "replace-with-a-site-specific-literal"
+  ],
+  "additionalPathPrefixes": [
+    "/srv/replace-with-a-sensitive-prefix"
+  ]
+}

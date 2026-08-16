@@ -20,6 +20,7 @@ import { createPrerequisiteService } from "./prerequisites.mjs";
 import { createRouterCheckpointService } from "./router-checkpoints.mjs";
 import { createRecoveryKitService } from "./recovery-kit.mjs";
 import { createStateStore } from "./state.mjs";
+import { createSupportBundleService } from "./support-bundle.mjs";
 import { createVmCreationService } from "./vm-creation.mjs";
 import { createVmExportService } from "./vm-export.mjs";
 import { createVmLifecycleService } from "./vm-lifecycle.mjs";
@@ -62,7 +63,8 @@ const vmProtection = createVmProtectionService({ store: state, helper });
 const vmRecoveries = createVmRecoveryService({ store: state, helper });
 const vmRetention = createVmRetentionService({ store: state, helper });
 const recoveryKit = createRecoveryKitService({ store: state, prerequisites, applications, libvirt });
-const actionCenter = createActionCenterService({ recoveryKit });
+const actionCenter = createActionCenterService({ recoveryKit, inventory });
+const supportBundle = createSupportBundleService({ inventory, prerequisites, actionCenter, audit, helper });
 const vmRestoreDrills = createVmRestoreDrillService({ store: state, helper });
 const jobs = createJobService(state, helper, {
   validateApplicationJob: applications.validateJob,
@@ -109,7 +111,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.29.0",
+    version: "0.30.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -173,10 +175,10 @@ app.use("/api/v1", (request, response, next) => {
 
 app.get("/api/v1/capabilities", (_request, response) => {
   response.json({
-    inventory: "sanitized-host-docker-services-network-and-dns-topology",
+    inventory: "sanitized-host-storage-filesystem-smart-docker-services-network-and-dns-topology",
     composeInspection: "browser-only",
     applications: "curated-uptime-kuma-and-no-cutover-pi-hole-staging-recovery-and-direct-dns-acceptance",
-    supportBundle: "browser-only",
+    supportBundle: "authenticated-server-generated-fixed-source-configurably-redacted",
     backups: "uptime-kuma-local-restore-drill-and-vm-independent-restic-copy-with-isolated-boot-validation-recovery-clones-and-guarded-retention",
     migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
     network: "read-only-topology-and-approved-fixed-pi-hole-direct-dns-acceptance",
@@ -247,6 +249,10 @@ app.get("/api/v1/operations/recovery-kit", async (_request, response) => {
 
 app.get("/api/v1/operations/action-center", async (_request, response) => {
   response.json(await actionCenter.inspect());
+});
+
+app.get("/api/v1/support-bundle", async (_request, response) => {
+  response.json(await supportBundle.inspect());
 });
 
 app.get("/api/v1/inventory", async (_request, response) => {
@@ -697,7 +703,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.29.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.30.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

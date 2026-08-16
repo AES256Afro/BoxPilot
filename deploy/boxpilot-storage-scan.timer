@@ -1,0 +1,12 @@
+[Unit]
+Description=Refresh BoxPilot SMART evidence every six hours
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=6h
+RandomizedDelaySec=5min
+Persistent=true
+Unit=boxpilot-storage-scan.service
+
+[Install]
+WantedBy=timers.target

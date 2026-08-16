@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.29.0` adds a fail-closed local Action Center over the existing secret-free recovery evidence. It maps only fixed recovery checks and failed-job counts into sanitized severity, explanation, manual steps, and fixed in-product destinations. It creates no database state and has no mutation, automatic repair, schedule, command, browser-notification, or external-delivery path.
+Version `0.30.0` adds sanitized real-mount and block topology plus bounded SMART evidence from a separate root-only systemd oneshot and timer. The scanner has no browser or helper-protocol route, discovers only fixed local disk-name patterns, runs fixed `smartctl` arguments, and writes an allowlisted evidence document without serials or raw output. The server also generates a fixed-source support bundle and applies a final built-in plus bounded site-specific redaction pass.
 
 ## Target components
 
@@ -41,6 +41,7 @@ BoxPilot web and API process (unprivileged)
           +---- Fixed-model router guidance and gateway-address correlation (0.27.0)
           +---- Owner-approved one-shot signed DNS proof windows (0.28.0)
           +---- Read-only fail-closed local Action Center (0.29.0)
+          +---- Sanitized storage inventory and fixed-source support bundle (0.30.0)
           |
           +<--- Ed25519 signed polling and fixed evidence from enrolled LAN agent
                   no remote shell, arbitrary command, arbitrary target, or private-key transfer
@@ -174,11 +175,11 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.29.0 limitations
+## Version 0.30.0 limitations
 
 - The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
-- Host, selected systemd services, Docker, libvirt, Tailscale self-state, fixed routes, resolver addresses, scoped port 53 listeners, and fixed journal sources are live. Router readiness correlates only the observed gateway address and checkpoint evidence. Router checkpoint records contain operator-reported local file hashes only. Physical router identity, operating mode, cabling, DHCP authority, neighbor MAC addresses, router sessions, live router state, SMART, and general hardware inspection remain excluded, operator-verified, or pending.
+- Host, sanitized real mounts and block topology, selected systemd services, Docker, libvirt, Tailscale self-state, fixed routes, resolver addresses, scoped port 53 listeners, and fixed journal sources are live. SMART evidence is available only when the fixed root-only timer has a recent successful `smartctl` result; absent or stale evidence fails closed. Serial numbers, UUIDs, raw SMART output, mount option values, private home paths, physical router identity, operating mode, cabling, DHCP authority, neighbor MAC addresses, router sessions, live router state, UPS state, and filesystem-specific error counters remain excluded, operator-verified, or pending.
 - Password owner bootstrap, sessions, CSRF, and approval reauthentication are live. WebAuthn, recovery codes, multiple owners, and trusted proxy identity are not implemented.
 - The web process has no direct libvirt or KVM group access. Read-only libvirt inventory and all shipped VM mutations use the restricted helper.
 - VM actions are limited to durable approved start, graceful shutdown, reboot request, and autostart jobs. Reboot verification does not yet prove guest application health.

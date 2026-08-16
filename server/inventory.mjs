@@ -3,9 +3,11 @@ import os from "node:os";
 import { statfs } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
+import { normalizeSmartEvidence, parseBlockInventory, parseMountInventory } from "./storage-evidence.mjs";
 
 const execFile = promisify(execFileCallback);
 const serviceUnits = ["boxpilot.service", "boxpilot-helper.service", "docker.service", "tailscaled.service", "libvirtd.service", "virtqemud.service"];
+const storageHealthPath = "/var/lib/boxpilot/storage-health.json";
 
 async function fixedCommand(command, args, { timeout = 5000 } = {}) {
   try {
@@ -37,6 +39,8 @@ export function createInventoryService({
   readOsRelease = () => readFile("/etc/os-release", "utf8"),
   getFilesystem = statfs,
   getNetworkInterfaces = os.networkInterfaces,
+  readStorageHealth = () => readFile(process.env.BOXPILOT_STORAGE_HEALTH_PATH ?? storageHealthPath, "utf8"),
+  now = () => new Date(),
 } = {}) {
   async function inspectService(unit) {
     const result = await runCommand("systemctl", ["show", unit, "--property=Id,LoadState,ActiveState,SubState,UnitFileState", "--no-pager"]);
@@ -70,9 +74,22 @@ export function createInventoryService({
 
     let docker = { available: false, containers: [], images: [], networks: [], volumes: [], projects: [] };
     try { docker = await helper.request("container.docker.inventory", {}); } catch { docker = { ...docker, error: "Docker inventory is unavailable through the restricted helper" }; }
-    const [services, tailscale] = await Promise.all([Promise.all(serviceUnits.map(inspectService)), inspectTailscale()]);
+    const [services, tailscale, mountResult, blockResult, smartResult] = await Promise.all([
+      Promise.all(serviceUnits.map(inspectService)),
+      inspectTailscale(),
+      runCommand("findmnt", ["--json", "--bytes", "--real", "--output", "TARGET,SOURCE,FSTYPE,SIZE,USED,AVAIL,USE%,OPTIONS"]),
+      runCommand("lsblk", ["--json", "--bytes", "--paths", "--output", "NAME,TYPE,FSTYPE,SIZE,MOUNTPOINTS,ROTA,RO,TRAN,MODEL"]),
+      readStorageHealth().then((contents) => ({ ok: true, contents })).catch(() => ({ ok: false, contents: "" })),
+    ]);
+    const filesystems = mountResult.ok ? parseMountInventory(mountResult.stdout) : parseMountInventory("");
+    const blockDevices = blockResult.ok ? parseBlockInventory(blockResult.stdout) : parseBlockInventory("");
+    let smartValue = null;
+    if (smartResult.ok) {
+      try { smartValue = JSON.parse(smartResult.contents); } catch { smartValue = null; }
+    }
+    const smart = normalizeSmartEvidence(smartValue, { now });
     return {
-      generatedAt: new Date().toISOString(),
+      generatedAt: now().toISOString(),
       host: {
         hostname: os.hostname(),
         operatingSystem: release.PRETTY_NAME ?? `${os.type()} ${os.release()}`,
@@ -92,7 +109,7 @@ export function createInventoryService({
         usedMemoryBytes: totalMemoryBytes - freeMemoryBytes,
         memoryUsedPercent: totalMemoryBytes ? Math.round(((totalMemoryBytes - freeMemoryBytes) / totalMemoryBytes) * 100) : 0,
       },
-      storage: { root: rootStorage },
+      storage: { root: rootStorage, filesystems, blockDevices, smart },
       network: { addresses, tailscale },
       services,
       docker,
@@ -102,4 +119,4 @@ export function createInventoryService({
   return { inspect };
 }
 
-export const inventoryInternals = { parseKeyValues, filesystemSummary, serviceUnits };
+export const inventoryInternals = { parseKeyValues, filesystemSummary, serviceUnits, storageHealthPath };
