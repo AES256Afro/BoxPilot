@@ -323,7 +323,37 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
     return assessment;
   }
 
-  return { inspect, plan, validateAssessment };
+  async function validateAcceptanceBaseline(planId, ownerId, resolverAddress) {
+    const assessment = store.getPlan(planId);
+    if (!assessment || assessment.createdBy !== ownerId || assessment.type !== "network.dns.assessment") throw new Error("Linked network assessment was not found");
+    if (assessment.input.dnsRole !== "pihole-on-bigbox") throw new Error("Linked network assessment is not for Pi-hole on Bigbox");
+    if (assessment.output.readyForChangeWindow !== true || assessment.output.blockers?.length) throw new Error("Linked network assessment did not pass its original recovery and topology gates");
+    if (assessment.input.serverAddress !== resolverAddress || assessment.input.dnsServiceAddress !== resolverAddress) throw new Error("Managed Pi-hole no longer matches the reviewed resolver address");
+    if (!assessment.input.routerBackupRecorded || !assessment.input.emergencyResolverTested || !assessment.input.secondDeviceReady) throw new Error("Linked network assessment is missing a required recovery declaration");
+    if (assessment.input.dnsServiceAddress === assessment.input.fallbackDnsAddress) throw new Error("The independent emergency resolver must differ from Pi-hole");
+
+    const topology = await inspect();
+    if (!topology.defaultRoutes.some((route) => route.gateway === assessment.input.gatewayAddress)) throw new Error("The reviewed gateway no longer matches a live default route");
+    if (!topology.eligibleLanAddresses.some((address) => address.address === resolverAddress)) throw new Error("The reviewed Pi-hole address is no longer a live eligible Bigbox LAN address");
+    if (!topology.tailscale.connected) throw new Error("Private Tailscale recovery access is unavailable");
+    if (topology.tailscale.defaultDnsObserved !== assessment.input.tailscaleDnsOverride) throw new Error("The observed Tailscale default-DNS boundary changed after staging");
+    const matchingListeners = topology.dnsListeners.filter((listener) => listener.address === resolverAddress && listener.port === 53);
+    if (!matchingListeners.some((listener) => listener.protocol === "tcp") || !matchingListeners.some((listener) => listener.protocol === "udp")) throw new Error("The exact reviewed Pi-hole TCP and UDP DNS listeners are not both present");
+    if (topology.dnsListeners.some((listener) => listener.scope === "wildcard")) throw new Error("A wildcard DNS listener is present; BoxPilot cannot attribute the intended resolver safely");
+
+    return {
+      gatewayAddress: assessment.input.gatewayAddress,
+      resolverAddress,
+      fallbackDnsAddress: assessment.input.fallbackDnsAddress,
+      tailscaleDnsOverride: assessment.input.tailscaleDnsOverride,
+      tailscaleConnected: true,
+      exactTcpListener: true,
+      exactUdpListener: true,
+      assessmentOriginallyReady: true,
+    };
+  }
+
+  return { inspect, plan, validateAssessment, validateAcceptanceBaseline };
 }
 
 export const networkInternals = { eligibleLanAddresses, hostAddresses, ipv4Number, parseDefaultRoutes, parseDnsListeners, parseIpAddresses, parseResolverStatus, sameIpv4Subnet, topologyGuidance };

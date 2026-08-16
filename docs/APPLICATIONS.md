@@ -1,6 +1,6 @@
 # Curated applications
 
-BoxPilot `0.20.0` provides integrity-addressed manifests, two executable deployment adapters, and two application-aware backup adapters. The web process never receives the Docker socket. Docker readiness, application inspection, deployment, backup, and restore-drill execution cross the restricted local helper as typed operations.
+BoxPilot `0.21.0` provides integrity-addressed manifests, two executable deployment adapters, two application-aware backup adapters, and fixed direct DNS acceptance for managed Pi-hole. The web process never receives the Docker socket. Docker readiness, application inspection, deployment, backup, and restore-drill execution cross the restricted local helper as typed operations. Direct DNS checks run as a separate approved read-only job in the unprivileged web process.
 
 ## Install the Docker prerequisite on Ubuntu
 
@@ -74,7 +74,7 @@ After deployment, the Backups page can record artifact integrity and an isolated
 
 ## Pi-hole guarded staging adapter
 
-Version `0.20.0` can stage Pi-hole in Docker on the exact reviewed Bigbox LAN address and can separately create a local configuration backup with isolated restore proof. The dedicated-VM target remains planning-only. These are service staging and recovery-evidence workflows, not router or client cutover workflows.
+Version `0.21.0` can stage Pi-hole in Docker on the exact reviewed Bigbox LAN address, create a local configuration backup with isolated restore proof, and separately collect fixed direct DNS evidence from Bigbox. The dedicated-VM target remains planning-only. These are service staging, recovery-evidence, and controller-path acceptance workflows, not router or client cutover workflows.
 
 The adapter uses:
 
@@ -117,9 +117,11 @@ After staging, open **Backups** and plan the Pi-hole backup. The separate networ
 
 The artifact is mode `0600` beneath `/var/lib/boxpilot-managed/backups/pi-hole`. It contains the administrator secret and must be treated as sensitive. It is recovery-tested but remains on Bigbox, so it is not an independent or offsite copy.
 
+After the backup passes, open **Network** and plan the fixed direct DNS checks. BoxPilot derives the exact managed address and sends only `pi.hole` over UDP and TCP, `example.com` over UDP, and `boxpilot.invalid` over UDP after a separate password approval. The passing record links the deployment, original assessment, and backup, but is labeled as Bigbox-only evidence.
+
 BoxPilot still will not make Pi-hole authoritative until later milestones can prove:
 
-- Direct DNS query tests from Bigbox and a second LAN device
+- A passing live direct DNS run from Bigbox and cryptographically attributable proof from a separately enrolled LAN device
 - A separately reviewed router advertisement plan with model-specific rollback
 - A stable observation window while the current resolver remains available
 

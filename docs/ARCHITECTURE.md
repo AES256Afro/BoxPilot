@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.20.0` adds a second Pi-hole mutation boundary after guarded staging: a server-id-only application backup operation. The web process can select the fixed `pi-hole` adapter but cannot provide a path, archive member, image, container, secret, Docker argument, or restore destination. The helper cleanly coordinates source downtime, stores a root-only local artifact, revalidates the original bindings, and health-checks the restored configuration in a temporary container with no network or ports. No router, DHCP, client DNS, Tailscale, firewall, or traffic-path mutation handler exists.
+Version `0.21.0` adds a non-mutating Pi-hole acceptance boundary after guarded staging and restore proof. The browser supplies no DNS target or query. The server derives the exact managed resolver, links the original assessment, deployment, and backup, revalidates live topology, and requires a separate password-approved durable job. The unprivileged web process sends four fixed direct DNS queries and records structured evidence. The privileged helper remains network-isolated. No router, DHCP, client DNS, Tailscale, firewall, or traffic-path mutation handler exists.
 
 ## Target components
 
@@ -32,6 +32,7 @@ BoxPilot web and API process (unprivileged)
           +---- Immutable no-change router and DNS assessments (0.18.0)
           +---- Durable linked-assessment Pi-hole staging plans and approved jobs (0.19.0)
           +---- Durable Pi-hole configuration backup and isolated restore evidence (0.20.0)
+          +---- Durable fixed-query Pi-hole DNS acceptance from Bigbox (0.21.0)
           |
           +---- Redacted VM audit JSONL in systemd StateDirectory (0.3.0 foundation)
           |
@@ -137,7 +138,7 @@ Uptime Kuma is the low-risk canary adapter because it proves fixed Docker argume
 
 ## Data model target
 
-The persistent store is SQLite. Owners, sessions, jobs, job steps, approvals, plans, application backups, VM exports, VM backups, VM recoveries, VM retention runs, imported migration sources, verified migration transfers, and audit events are live. Planned records include:
+The persistent store is SQLite. Owners, sessions, jobs, job steps, approvals, plans, application backups, DNS acceptance runs, VM exports, VM backups, VM recoveries, VM retention runs, imported migration sources, verified migration transfers, and audit events are live. Planned records include:
 
 - hosts
 - workloads
@@ -162,7 +163,7 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.20.0 limitations
+## Version 0.21.0 limitations
 
 - The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
@@ -173,7 +174,7 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Supported Linux VM creation, stopped-VM internal snapshots, local stopped-VM exports, mounted-restic VM copies, isolated VM restore drills, guarded stopped no-network recovery clones, and exact no-prune retention batches are durable approved helper jobs. Windows TPM/Secure Boot creation, cloud-init, console proxy, online snapshot, snapshot revert/delete, force-off, in-place restore, recovered-VM network attachment, and application-level restore tests are unavailable.
 - Managed media discovery lists regular `.iso` files only and does not upload or download installation media.
 - Operations Core jobs and attribution use SQLite. The older VM JSONL planning log remains a separate bounded log. Tamper evidence remains pending.
-- Only fixed Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune retention batches can execute mutations. Network assessments themselves cannot execute. Pi-hole router cutover, router writes, client DNS advertisement, DHCP, Tailscale changes, remote migration transport, staged-workload activation, firewall, package, storage administration, general Docker, general libvirt, console proxy, snapshot revert/delete, restic prune, configurable retention, in-place restore, recovery network attachment, and force-off operations remain unavailable.
+- Only fixed Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune retention batches can execute mutations. Network assessments cannot execute. Pi-hole direct DNS acceptance is an approved fixed read-only job in the unprivileged web process and never crosses the root helper. Second-device attestation, Pi-hole router cutover, router writes, client DNS advertisement, DHCP, Tailscale changes, remote migration transport, staged-workload activation, firewall, package, storage administration, general Docker, general libvirt, console proxy, snapshot revert/delete, restic prune, configurable retention, in-place restore, recovery network attachment, and force-off operations remain unavailable.
 - A VM snapshot is never counted as an independent backup. The snapshot workflow rejects running guests, non-file disks, disks outside the managed image root, non-qcow2 disks, backing chains, symlinks, and changed inventory.
 - Uptime Kuma and Pi-hole application backups remain root-only local artifacts on Bigbox. Their isolated restore health checks are recovery evidence, not independent 3-2-1 protection. VM copies require an operator-provided independent mounted filesystem; no such destination is currently configured on Bigbox.
 - VM exports are root-only local integrity artifacts. They are unencrypted and are not reported as protected until a later independent copy and isolated restore boot pass.

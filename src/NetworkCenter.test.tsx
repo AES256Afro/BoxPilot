@@ -19,10 +19,19 @@ const topology = {
   mutationSupported: false,
 };
 
+const acceptanceStatus = {
+  source: { installed: false, healthy: false, state: "not-installed", lanAddress: null, detail: "Managed Pi-hole was not found" },
+  linkedDeploymentJobId: null,
+  linkedBackupId: null,
+  acceptances: [],
+  limitations: ["A passing Bigbox test proves only the controller path.", "A second device is required."],
+};
+
 describe("Network Center", () => {
   it("renders live topology and creates a no-change recovery assessment", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (input.toString().endsWith("/api/v1/network/topology")) return new Response(JSON.stringify(topology), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (input.toString().endsWith("/api/v1/network/dns-acceptance")) return new Response(JSON.stringify(acceptanceStatus), { status: 200, headers: { "Content-Type": "application/json" } });
       expect(init?.method).toBe("POST");
       expect(init?.headers).toMatchObject({ "X-BoxPilot-CSRF": "csrf" });
       const submitted = JSON.parse(String(init?.body));
@@ -44,15 +53,16 @@ describe("Network Center", () => {
     expect(screen.getByText("GL.iNet Flint 2")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Generate no-change assessment" }));
     expect(await screen.findByText("Change window blocked")).toBeTruthy();
-    expect(screen.getByText("Router writes locked")).toBeTruthy();
+    expect(screen.getAllByText("Router writes locked")).toHaveLength(2);
     expect(screen.getByText("DNS cutover locked")).toBeTruthy();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
   });
 
   it("hands a ready Pi-hole assessment id to the application workflow", async () => {
     const onAssessmentReady = vi.fn();
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (input.toString().endsWith("/api/v1/network/topology")) return new Response(JSON.stringify(topology), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (input.toString().endsWith("/api/v1/network/dns-acceptance")) return new Response(JSON.stringify(acceptanceStatus), { status: 200, headers: { "Content-Type": "application/json" } });
       const submitted = JSON.parse(String(init?.body));
       expect(submitted).toMatchObject({ dnsRole: "pihole-on-bigbox", dnsServiceAddress: "192.168.8.10", routerBackupRecorded: true, emergencyResolverTested: true, secondDeviceReady: true });
       return new Response(JSON.stringify({ plan: {
@@ -78,5 +88,46 @@ describe("Network Center", () => {
     expect(await screen.findByText("Prerequisites recorded")).toBeTruthy();
     expect(onAssessmentReady).toHaveBeenCalledWith("pihole-assessment");
     expect(screen.getByText(/ready for the Applications staging gate/)).toBeTruthy();
+  });
+
+  it("plans and stages fixed controller-only DNS checks while showing the second-device lock", async () => {
+    const onOpenRepair = vi.fn();
+    const liveAcceptance = {
+      ...acceptanceStatus,
+      source: { installed: true, healthy: true, state: "running", lanAddress: "192.168.8.10", detail: "Managed Pi-hole is healthy" },
+      linkedDeploymentJobId: "deploy-one",
+      linkedBackupId: "backup-one",
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/api/v1/network/topology")) return new Response(JSON.stringify(topology), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url.endsWith("/api/v1/network/dns-acceptance") && !init?.method) return new Response(JSON.stringify(liveAcceptance), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url.endsWith("/api/v1/network/dns-acceptance/plans")) return new Response(JSON.stringify({ plan: {
+        id: "acceptance-plan", revision: "c".repeat(16), expiresAt: "2026-08-16T01:00:00Z",
+        output: {
+          executable: true, resolverAddress: "192.168.8.10", linkedDeploymentJobId: "deploy-one", linkedAssessmentId: "assessment-one", linkedBackupId: "backup-one", blockers: [],
+          tests: [
+            { id: "local-udp", protocol: "udp", name: "pi.hole", type: "A", expectedRcode: 0 },
+            { id: "local-tcp", protocol: "tcp", name: "pi.hole", type: "A", expectedRcode: 0 },
+          ],
+          evidenceBoundary: { provesBigboxPath: true, provesSecondDevicePath: false, routerMutationSupported: false, dnsCutoverSupported: false },
+          changes: ["Send fixed queries"], recovery: "No settings are changed.",
+        },
+      } }), { status: 201, headers: { "Content-Type": "application/json" } });
+      if (url.includes("/api/v1/network/dns-acceptance-plans/")) return new Response(JSON.stringify({ job: { id: "acceptance-job" } }), { status: 201, headers: { "Content-Type": "application/json" } });
+      return new Response("{}", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NetworkCenter csrfToken="csrf" onOpenRepair={onOpenRepair} />);
+
+    expect(await screen.findByText("Prove DNS directly from Bigbox")).toBeTruthy();
+    expect(screen.getByText("Second device not proven")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Plan fixed direct DNS checks" }));
+    expect(await screen.findByText("Exact checks are ready to stage")).toBeTruthy();
+    expect(screen.getByText(/UDP pi\.hole A on port 53/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage fixed checks for approval" }));
+    expect(await screen.findByText(/Direct DNS acceptance is staged/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open Repair Center" }));
+    expect(onOpenRepair).toHaveBeenCalled();
   });
 });

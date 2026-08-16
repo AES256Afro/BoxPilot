@@ -223,6 +223,21 @@ export function createStateStore({
       created_by TEXT NOT NULL REFERENCES owners(id),
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS dns_acceptances (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL UNIQUE REFERENCES jobs(id),
+      application_id TEXT NOT NULL,
+      resolver_address TEXT NOT NULL,
+      assessment_id TEXT NOT NULL REFERENCES plans(id),
+      deployment_job_id TEXT NOT NULL REFERENCES jobs(id),
+      backup_id TEXT NOT NULL REFERENCES backups(id),
+      origin TEXT NOT NULL,
+      checks_json TEXT NOT NULL,
+      passed INTEGER NOT NULL,
+      second_device_tested INTEGER NOT NULL,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS audit_events (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,
@@ -241,6 +256,7 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_vm_retention_runs_created_at ON vm_retention_runs(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_migration_sources_imported_at ON migration_sources(imported_at DESC);
     CREATE INDEX IF NOT EXISTS idx_migration_transfers_created_at ON migration_transfers(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_dns_acceptances_created_at ON dns_acceptances(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_events(created_at DESC);
   `);
 
@@ -779,6 +795,35 @@ export function createStateStore({
     return database.prepare("SELECT * FROM migration_transfers ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapMigrationTransfer);
   }
 
+  function recordDnsAcceptance({ id, jobId, applicationId, resolverAddress, assessmentId, deploymentJobId, backupId, origin, checks, passed, secondDeviceTested, createdBy }) {
+    const at = timestamp();
+    database.prepare(`
+      INSERT INTO dns_acceptances (id, job_id, application_id, resolver_address, assessment_id, deployment_job_id, backup_id, origin, checks_json, passed, second_device_tested, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, jobId, applicationId, resolverAddress, assessmentId, deploymentJobId, backupId, origin, json(checks), passed ? 1 : 0, secondDeviceTested ? 1 : 0, createdBy, at);
+    recordAudit("network.dns.acceptance.verified", { actorId: createdBy, subjectId: id, details: { applicationId, resolverAddress, origin, passed, secondDeviceTested } });
+    return listDnsAcceptances(1)[0];
+  }
+
+  function listDnsAcceptances(limit = 50) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    return database.prepare("SELECT * FROM dns_acceptances ORDER BY created_at DESC LIMIT ?").all(safeLimit).map((row) => ({
+      id: row.id,
+      jobId: row.job_id,
+      applicationId: row.application_id,
+      resolverAddress: row.resolver_address,
+      assessmentId: row.assessment_id,
+      deploymentJobId: row.deployment_job_id,
+      backupId: row.backup_id,
+      origin: row.origin,
+      checks: parseJson(row.checks_json, []),
+      passed: Boolean(row.passed),
+      secondDeviceTested: Boolean(row.second_device_tested),
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+    }));
+  }
+
   function recoverInterruptedJobs() {
     const interrupted = database.prepare("SELECT id FROM jobs WHERE state IN ('applying', 'verifying')").all();
     for (const { id } of interrupted) {
@@ -839,6 +884,8 @@ export function createStateStore({
     recordMigrationTransfer,
     getMigrationTransfer,
     listMigrationTransfers,
+    recordDnsAcceptance,
+    listDnsAcceptances,
     recoverInterruptedJobs,
     close,
   };

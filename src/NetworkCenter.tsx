@@ -30,14 +30,65 @@ type NetworkPlan = {
   expiresAt: string;
 };
 
+type DnsCheck = {
+  id: string;
+  protocol: "udp" | "tcp";
+  name: string;
+  type: "A";
+  expectedRcode: number;
+  rcode?: number;
+  answers?: number;
+  latencyMs?: number;
+  passed?: boolean;
+};
+
+type DnsAcceptance = {
+  id: string;
+  resolverAddress: string;
+  origin: "boxpilot-controller";
+  checks: DnsCheck[];
+  passed: boolean;
+  secondDeviceTested: boolean;
+  createdAt: string;
+};
+
+type DnsAcceptanceStatus = {
+  source: { installed: boolean; healthy: boolean; state: string; lanAddress: string | null; detail: string };
+  linkedDeploymentJobId: string | null;
+  linkedBackupId: string | null;
+  acceptances: DnsAcceptance[];
+  limitations: string[];
+};
+
+type DnsAcceptancePlan = {
+  id: string;
+  revision: string;
+  output: {
+    executable: boolean;
+    resolverAddress: string | null;
+    linkedDeploymentJobId: string | null;
+    linkedAssessmentId: string | null;
+    linkedBackupId: string | null;
+    blockers: Array<{ id: string; summary: string }>;
+    tests: DnsCheck[];
+    evidenceBoundary: { provesBigboxPath: boolean; provesSecondDevicePath: boolean; routerMutationSupported: boolean; dnsCutoverSupported: boolean };
+    changes: string[];
+    recovery: string;
+  };
+  expiresAt: string;
+};
+
 async function readJson<T>(response: Response): Promise<T> {
   const body = await response.json() as T & { error?: string };
   if (!response.ok) throw new Error(body.error ?? `Request failed with status ${response.status}`);
   return body;
 }
 
-export default function NetworkCenter({ csrfToken, onAssessmentReady }: { csrfToken: string; onAssessmentReady?: (planId: string) => void }) {
+export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepair }: { csrfToken: string; onAssessmentReady?: (planId: string) => void; onOpenRepair?: () => void }) {
   const [topology, setTopology] = useState<Topology | null>(null);
+  const [acceptance, setAcceptance] = useState<DnsAcceptanceStatus | null>(null);
+  const [acceptancePlan, setAcceptancePlan] = useState<DnsAcceptancePlan | null>(null);
+  const [acceptanceMessage, setAcceptanceMessage] = useState<string | null>(null);
   const [selectedTopology, setSelectedTopology] = useState("flint2-edge-tplink-ap");
   const [dnsRole, setDnsRole] = useState("current-external");
   const [gatewayAddress, setGatewayAddress] = useState("");
@@ -56,14 +107,20 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady }: { csrfTo
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const next = await readJson<Topology>(await fetch("/api/v1/network/topology"));
+      const [next, acceptanceStatus] = await Promise.all([
+        readJson<Topology>(await fetch("/api/v1/network/topology")),
+        readJson<DnsAcceptanceStatus>(await fetch("/api/v1/network/dns-acceptance")),
+      ]);
       setTopology(next);
+      setAcceptance(acceptanceStatus);
       setGatewayAddress((value) => value || next.defaultRoutes[0]?.gateway || "");
       setServerAddress((value) => value || next.eligibleLanAddresses[0]?.address || "");
       setDnsServiceAddress((value) => value || next.defaultResolvers[0] || "");
       setFallbackDnsAddress((value) => value || next.defaultResolvers[1] || "");
       setTailscaleDnsOverride(next.tailscale.defaultDnsObserved);
       setPlan(null);
+      setAcceptancePlan(null);
+      setAcceptanceMessage(null);
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Network topology is unavailable");
@@ -98,6 +155,43 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady }: { csrfTo
       if (dnsRole === "pihole-on-bigbox" && body.plan.output.readyForChangeWindow) onAssessmentReady?.(body.plan.id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to generate network assessment");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const generateAcceptancePlan = async () => {
+    setSubmitting(true);
+    setError(null);
+    setAcceptanceMessage(null);
+    try {
+      const body = await readJson<{ plan: DnsAcceptancePlan }>(await fetch("/api/v1/network/dns-acceptance/plans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: "{}",
+      }));
+      setAcceptancePlan(body.plan);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to plan direct DNS acceptance");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const stageAcceptancePlan = async () => {
+    if (!acceptancePlan) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await readJson(await fetch(`/api/v1/network/dns-acceptance-plans/${acceptancePlan.id}/stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ revision: acceptancePlan.revision }),
+      }));
+      setAcceptancePlan(null);
+      setAcceptanceMessage("Direct DNS acceptance is staged. Review and approve the exact fixed checks in Repair Center.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to stage direct DNS acceptance");
     } finally {
       setSubmitting(false);
     }
@@ -160,6 +254,31 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady }: { csrfTo
           <div><strong>Recovery order</strong><ol>{plan.output.recovery.map((item) => <li key={item}>{item}</li>)}</ol>{plan.output.blockers.length > 0 && <><strong>Blockers</strong><ul className="warning-text">{plan.output.blockers.map((item) => <li key={item.id}>{item.summary}</li>)}</ul></>}{plan.output.warnings.length > 0 && <><strong>Warnings</strong><ul>{plan.output.warnings.map((item) => <li key={item}>{item}</li>)}</ul></>}</div>
         </div>
         <div className="network-lock"><span className="status-pill status-warning">Router writes locked</span><span className="status-pill status-warning">DNS cutover locked</span><span>{plan.output.readyForChangeWindow && plan.output.dns.role === "pihole-on-bigbox" ? `Assessment ${plan.id} is ready for the Applications staging gate.` : "This assessment never changes the network."}</span></div>
+      </section>}
+
+      {acceptance && <section className="panel dns-acceptance-panel" aria-label="Direct DNS acceptance">
+        <div className="section-heading"><div><span className="eyebrow">Pi-hole acceptance gate</span><h3>Prove DNS directly from Bigbox</h3></div><span className={`status-pill ${acceptance.acceptances[0]?.passed ? "status-good" : "status-warning"}`}>{acceptance.acceptances[0]?.passed ? "Bigbox path passed" : acceptance.source.installed ? "Proof required" : "Pi-hole not installed"}</span></div>
+        <div className="dns-acceptance-summary">
+          <div><strong>{acceptance.source.lanAddress ? `${acceptance.source.lanAddress}:53` : "No managed resolver"}</strong><span>{acceptance.source.detail}</span></div>
+          <div><strong>{acceptance.linkedBackupId ? "Restore evidence linked" : "Restore evidence missing"}</strong><span>{acceptance.linkedBackupId ?? "Run the separate Pi-hole backup and isolated restore drill first"}</span></div>
+          <div><strong>Second device not proven</strong><span>An enrolled independent LAN device is still required before router advertisement.</span></div>
+        </div>
+        <div className="network-lock"><span className="status-pill status-warning">Router writes locked</span><span className="status-pill status-warning">Client DNS locked</span><span>Planning accepts no address, hostname, command, or router credential.</span></div>
+        {!acceptancePlan && !acceptanceMessage && <button className="primary-button" type="button" onClick={() => void generateAcceptancePlan()} disabled={submitting}>{submitting ? "Inspecting exact evidence..." : "Plan fixed direct DNS checks"}</button>}
+        {acceptanceMessage && <div className="notice"><strong>Approval job ready</strong><span>{acceptanceMessage}</span>{onOpenRepair && <button className="text-button" type="button" onClick={onOpenRepair}>Open Repair Center</button>}</div>}
+
+        {acceptancePlan && <div className="dns-acceptance-plan">
+          <div className={`notice ${acceptancePlan.output.executable ? "" : "warning-notice"}`}><strong>{acceptancePlan.output.executable ? "Exact checks are ready to stage" : "Direct DNS acceptance is blocked"}</strong><span>Revision {acceptancePlan.revision} | expires {new Date(acceptancePlan.expiresAt).toLocaleTimeString()}</span></div>
+          <div className="network-plan-columns">
+            <div><strong>Fixed requests</strong><ol>{acceptancePlan.output.tests.map((test) => <li key={test.id}>{test.protocol.toUpperCase()} {test.name} {test.type} on port 53, expect response code {test.expectedRcode}</li>)}</ol></div>
+            <div><strong>Evidence boundary</strong><ul><li>Proves the Bigbox-to-resolver path only</li><li>Does not prove a second LAN device</li><li>Does not change router, DHCP, clients, firewall, or Tailscale</li></ul><p>{acceptancePlan.output.recovery}</p></div>
+          </div>
+          {acceptancePlan.output.blockers.map((blocker) => <div className="notice warning-notice" key={blocker.id}><strong>{blocker.id}</strong><span>{blocker.summary}</span></div>)}
+          <footer className="modal-actions"><button className="text-button" type="button" onClick={() => setAcceptancePlan(null)}>Discard plan</button><button className="primary-button" type="button" disabled={!acceptancePlan.output.executable || submitting} onClick={() => void stageAcceptancePlan()}>Stage fixed checks for approval</button></footer>
+        </div>}
+
+        <div className="table-scroll"><table><thead><tr><th>Origin</th><th>Resolver</th><th>Created</th><th>Checks</th><th>Second device</th></tr></thead><tbody>{acceptance.acceptances.length ? acceptance.acceptances.map((record) => <tr key={record.id}><td>{record.origin === "boxpilot-controller" ? "Bigbox controller" : record.origin}</td><td>{record.resolverAddress}:53</td><td>{new Date(record.createdAt).toLocaleString()}</td><td className={record.passed ? "good-text" : "warning-text"}>{record.checks.filter((check) => check.passed).length}/{record.checks.length} passed</td><td className="warning-text">{record.secondDeviceTested ? "Proven" : "Pending"}</td></tr>) : <tr><td colSpan={5}>No direct DNS acceptance has been recorded.</td></tr>}</tbody></table></div>
+        <ul className="dns-acceptance-limitations">{acceptance.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul>
       </section>}
     </div>
   );

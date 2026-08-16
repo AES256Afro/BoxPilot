@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createAuditLog } from "./audit.mjs";
 import { createApplicationService } from "./applications.mjs";
 import { createBackupService } from "./backups.mjs";
+import { createDnsAcceptanceService } from "./dns-acceptance.mjs";
 import { createAuthService } from "./security.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { buildConsoleGuidanceResponse, createHelperLibvirtService } from "./helper-libvirt.mjs";
@@ -42,6 +43,7 @@ const prerequisites = createPrerequisiteService({
 const network = createNetworkService({ store: state });
 const applications = createApplicationService({ store: state, prerequisites, helper, network });
 const backups = createBackupService({ store: state, prerequisites, helper });
+const dnsAcceptance = createDnsAcceptanceService({ store: state, helper, network });
 const inventory = createInventoryService({ helper });
 const migrations = createMigrationService({ store: state, inventory, helper });
 const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, libvirt });
@@ -56,6 +58,9 @@ const jobs = createJobService(state, helper, {
   validateApplicationJob: applications.validateJob,
   validateBackupJob: backups.validateJob,
   recordBackupResult: backups.recordResult,
+  validateDnsAcceptanceJob: dnsAcceptance.validateJob,
+  executeDnsAcceptanceJob: dnsAcceptance.executeJob,
+  recordDnsAcceptanceResult: dnsAcceptance.recordResult,
   validateMigrationTransferJob: migrations.validateTransferJob,
   recordMigrationTransferResult: migrations.recordTransferResult,
   validateVmCreationJob: vmCreation.validateJob,
@@ -94,7 +99,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.20.0",
+    version: "0.21.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -122,14 +127,14 @@ app.get("/api/v1/capabilities", (_request, response) => {
   response.json({
     inventory: "sanitized-host-docker-services-network-and-dns-topology",
     composeInspection: "browser-only",
-    applications: "curated-uptime-kuma-and-no-cutover-pi-hole-staging-adapters",
+    applications: "curated-uptime-kuma-and-no-cutover-pi-hole-staging-recovery-and-direct-dns-acceptance",
     supportBundle: "browser-only",
     backups: "uptime-kuma-local-restore-drill-and-vm-independent-restic-copy-with-isolated-boot-validation-recovery-clones-and-guarded-retention",
     migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
-    network: "read-only-route-resolver-listener-router-role-and-pi-hole-staging-assessment",
+    network: "read-only-topology-and-approved-fixed-pi-hole-direct-dns-acceptance",
     privilegedHelper: "typed-canary-curated-applications-backups-migration-staging-inventory-logs-vm-creation-lifecycle-snapshots-exports-mounted-restic-isolated-restore-drills-recovery-clones-and-retention",
     identity: "owner-password-foundation",
-    durableJobs: "sqlite-approved-application-backup-migration-transfer-vm-creation-lifecycle-snapshot-export-protection-restore-drill-recovery-and-retention-workflows",
+    durableJobs: "sqlite-approved-application-backup-dns-acceptance-migration-transfer-vm-creation-lifecycle-snapshot-export-protection-restore-drill-recovery-and-retention-workflows",
     virtualization: "live-libvirt-via-restricted-helper",
     vmCreationPlanning: "validated-durable-approved",
     audit: "redacted-jsonl-foundation",
@@ -160,6 +165,30 @@ app.post("/api/v1/network/plans", async (request, response) => {
     response.status(201).json({ plan });
   } catch (error) {
     response.status(400).json({ error: error.message, code: "network_plan_failed" });
+  }
+});
+
+app.get("/api/v1/network/dns-acceptance", async (_request, response) => {
+  response.json(await dnsAcceptance.inspect());
+});
+
+app.post("/api/v1/network/dns-acceptance/plans", async (request, response) => {
+  try {
+    if (!request.body || typeof request.body !== "object" || Array.isArray(request.body) || Object.keys(request.body).length > 0) throw new Error("DNS acceptance planning accepts only an empty object and no operator-selected target or query");
+    const plan = await dnsAcceptance.plan(request.boxpilotSession.owner.id);
+    response.status(201).json({ plan });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "dns_acceptance_plan_failed" });
+  }
+});
+
+app.post("/api/v1/network/dns-acceptance-plans/:id/stage", async (request, response) => {
+  try {
+    if (!request.body || typeof request.body !== "object" || Array.isArray(request.body) || Object.keys(request.body).length !== 1 || typeof request.body.revision !== "string") throw new Error("DNS acceptance staging accepts only the immutable revision");
+    const job = await dnsAcceptance.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
+    response.status(201).json({ job });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "dns_acceptance_stage_failed" });
   }
 });
 
@@ -293,7 +322,7 @@ app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = ["application.pi-hole.deploy", "application.pi-hole.backup", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
+    const background = ["application.pi-hole.deploy", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, request.body?.password)
       : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
@@ -554,7 +583,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.20.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.21.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });
