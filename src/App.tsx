@@ -102,7 +102,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   virtualization: {
     label: "Host-backed module",
     tone: "live",
-    description: "Helper-backed libvirt inventory, immutable VM plans, lifecycle approvals, offline snapshots, verified exports, encrypted restic copies, isolated restore drills, and stopped no-network recovery clones come from the server. In-place restore and recovery network attachment remain locked.",
+    description: "Authenticated ISO staging, separately approved SHA-256-verified media import, helper-backed libvirt inventory, immutable VM plans, lifecycle approvals, offline snapshots, verified exports, encrypted restic copies, isolated restore drills, and stopped no-network recovery clones come from the server. Arbitrary image download, in-place restore, and recovery network attachment remain locked.",
   },
   backups: {
     label: "Controller and application backup engine",
@@ -313,7 +313,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.60.0 working platform<br />apps, repairs, backups, and VMs</div>
+        <div className="prototype-label">v0.61.0 working platform<br />apps, repairs, backups, and VMs</div>
       </aside>
 
       <main>

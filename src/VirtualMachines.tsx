@@ -45,6 +45,7 @@ import {
   type VirtualizationStatus,
 } from "./virtualization";
 import VmPlanner from "./VmPlanner";
+import VmMediaLibrary from "./VmMediaLibrary";
 
 function stateTone(state: string): string {
   if (state === "running") return "good";
@@ -472,6 +473,8 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
           </div>
         </aside>
       </div>
+
+      <VmMediaLibrary csrfToken={csrfToken} onOpenRepair={onOpenRepair} />
 
       <section className="panel vm-resources-panel">
         <header className="panel-header">

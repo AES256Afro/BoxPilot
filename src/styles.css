@@ -1804,6 +1804,67 @@ textarea {
   color: #e5d3b4;
 }
 
+.vm-media-library {
+  margin-top: 1rem;
+}
+
+.vm-media-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.vm-media-grid > div,
+.vm-media-candidates {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-muted);
+}
+
+.vm-media-candidates {
+  margin-top: 1rem;
+}
+
+.vm-media-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--line);
+}
+
+.vm-media-row > span {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.vm-media-row strong,
+.vm-media-row small {
+  overflow-wrap: anywhere;
+}
+
+.vm-media-picker {
+  display: grid;
+  gap: 0.45rem;
+  font-weight: 700;
+}
+
+.vm-media-picker input {
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .vm-media-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .vm-plan-error {
   padding: 10px 12px;
   border: 1px solid #713c3c;

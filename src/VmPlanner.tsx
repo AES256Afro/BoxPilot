@@ -123,9 +123,8 @@ export default function VmPlanner({ onClose, onOpenRepair, csrfToken = "" }: { o
               {!options.isoImages.length && (
                 <div className="vm-media-empty">
                   <strong>No managed ISO images found</strong>
-                  <span>{options.mediaError ?? `Copy readable .iso files into ${options.mediaRoot}`}</span>
-                  <code>sudo install -d -m 0755 {options.mediaRoot}</code>
-                  <code>sudo cp /path/to/installer.iso {options.mediaRoot}/</code>
+                  <span>{options.mediaError ?? "Close this planner, upload an ISO in the VM installation media panel, then approve its separate verified import."}</span>
+                  <code>Managed library: {options.mediaRoot}</code>
                 </div>
               )}
 

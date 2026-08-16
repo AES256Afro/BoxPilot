@@ -1,7 +1,7 @@
 services:
   boxpilot:
     build: .
-    image: boxpilot:0.60.0
+    image: boxpilot:0.61.0
     container_name: boxpilot
     restart: unless-stopped
     environment:

@@ -154,6 +154,7 @@ Acceptance:
 
 - Live libvirt discovery included in `0.2.0`; start, graceful shutdown, reboot, and autostart move to durable helper jobs in `0.10.0`
 - Read-only creation planning, managed ISO discovery, resource guardrails, and detailed guest/network/pool inventory included in `0.3.0`
+- Authenticated streaming ISO upload plus separate SHA-256-pinned, non-overwriting, password-approved import into the fixed libvirt media library included in `0.61.0`
 - Durable approved Linux VM creation through the restricted helper included in `0.9.0`
 - Helper-backed guest-agent and snapshot inventory plus guarded offline internal snapshot creation included in `0.11.0`
 - Read-only Cockpit socket detection and Tailscale-hostname console handoff included in `0.11.0`; BoxPilot does not install or expose Cockpit
@@ -162,7 +163,7 @@ Acceptance:
 - Exact-snapshot isolated restore drill with no-network transient boot, guest-agent health, cleanup evidence, and per-backup protected status included in `0.14.0`
 - Guarded protected-snapshot recovery as a separately named stopped persistent VM with no network interface or autostart included in `0.15.0`
 - Fixed guarded retention of exact old protected snapshot references with a three-copy floor, 30-day floor, recovery-reference preservation, full repository read, and no prune included in `0.16.0`
-- Console proxy, online snapshot, snapshot revert/delete, in-place restore, recovery network attachment, application-level restore tests, restic prune, configurable retention, Windows TPM/Secure Boot creation, and cloud-init remain pending
+- Arbitrary URL download, automatic vendor-image acquisition, managed-media deletion, publisher-signature verification, console proxy, online snapshot, snapshot revert/delete, in-place restore, recovery network attachment, application-level restore tests, restic prune, configurable retention, Windows TPM/Secure Boot creation, and cloud-init remain pending
 - Storage pool management with destructive-operation confirmation
 - Cloud-init templates and bridged-network planning
 - UPS state, shutdown policy, and disk replacement runbooks

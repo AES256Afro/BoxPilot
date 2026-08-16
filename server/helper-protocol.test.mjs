@@ -10,6 +10,10 @@ function vmParameters(overrides = {}) {
   return { name: "ubuntu-lab", osProfile: "ubuntu-24.04", vcpus: 2, memoryMiB: 4096, diskGiB: 40, isoFile: "ubuntu.iso", network: "default", firmware: "uefi", autostart: false, ...overrides };
 }
 
+function vmMediaParameters(overrides = {}) {
+  return { importId: "77777777-7777-4777-8777-777777777777", filename: "ubuntu.iso", expectedSizeBytes: 8192, expectedSha256: "a".repeat(64), expectedRevision: "b".repeat(64), ...overrides };
+}
+
 function lifecycleParameters(overrides = {}) {
   return { name: "ubuntu-lab", action: "shutdown", expectedState: "running", expectedAutostart: false, ...overrides };
 }
@@ -69,7 +73,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.60.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.61.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -504,6 +508,20 @@ describe("restricted helper protocol", () => {
     const virtualization = { create: async (parameters) => ({ created: true, verified: true, domain: parameters.name }) };
     const result = await executeHelperOperation(request({ operation: "virtualization.domain.create", parameters: vmParameters() }), { virtualization });
     expect(result).toMatchObject({ ok: true, result: { created: true, verified: true, domain: "ubuntu-lab" } });
+  });
+
+  it("accepts only fixed VM media evidence and no browser path", async () => {
+    expect(validateHelperRequest(request({ operation: "virtualization.media.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.media.inspect", parameters: { path: "/tmp" } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "virtualization.media.import", parameters: vmMediaParameters() }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.media.import", parameters: vmMediaParameters({ filename: "../ubuntu.iso" }) }))).toContain("filename is invalid");
+    expect(validateHelperRequest(request({ operation: "virtualization.media.import", parameters: vmMediaParameters({ destination: "/etc" }) }))).toContain("only the fixed evidence fields");
+    const vmMedia = {
+      inspect: async () => ({ inbox: { candidates: [] }, boundary: { mutationPerformed: false } }),
+      importMedia: async (parameters) => ({ imported: true, verified: true, filename: parameters.filename, sha256: parameters.expectedSha256 }),
+    };
+    await expect(executeHelperOperation(request({ operation: "virtualization.media.inspect", parameters: {} }), { vmMedia })).resolves.toMatchObject({ ok: true, result: { boundary: { mutationPerformed: false } } });
+    await expect(executeHelperOperation(request({ operation: "virtualization.media.import", parameters: vmMediaParameters() }), { vmMedia })).resolves.toMatchObject({ ok: true, result: { imported: true, filename: "ubuntu.iso" } });
   });
 
   it("accepts only fixed lifecycle state and action fields", async () => {

@@ -39,6 +39,7 @@ import { createSupportBundleService } from "./support-bundle.mjs";
 import { createVmCreationService } from "./vm-creation.mjs";
 import { createVmExportService } from "./vm-export.mjs";
 import { createVmLifecycleService } from "./vm-lifecycle.mjs";
+import { createVmMediaService } from "./vm-media.mjs";
 import { createVmPlanner, validateVmPlanInput } from "./vm-plan.mjs";
 import { createVmProtectionService } from "./vm-protection.mjs";
 import { createVmRecoveryService } from "./vm-recovery.mjs";
@@ -86,6 +87,7 @@ const flint2Adguard = createFlint2AdguardService({ store: state, network, router
 const inventory = createInventoryService({ helper, maintenance });
 const migrations = createMigrationService({ store: state, inventory, helper });
 const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, libvirt });
+const vmMedia = createVmMediaService({ store: state, helper });
 const vmExports = createVmExportService({ store: state, libvirt, helper });
 const vmLifecycle = createVmLifecycleService({ store: state, libvirt });
 const vmSnapshots = createVmSnapshotService({ store: state, libvirt });
@@ -130,6 +132,7 @@ const jobs = createJobService(state, helper, {
   validateMigrationTransferJob: migrations.validateTransferJob,
   recordMigrationTransferResult: migrations.recordTransferResult,
   validateVmCreationJob: vmCreation.validateJob,
+  validateVmMediaImportJob: vmMedia.validateJob,
   validateVmExportJob: vmExports.validateJob,
   recordVmExportResult: vmExports.recordResult,
   validateVmProtectionJob: vmProtection.validateJob,
@@ -165,7 +168,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.60.0",
+    version: "0.61.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -241,7 +244,8 @@ app.get("/api/v1/capabilities", (_request, response) => {
     durableJobs: "sqlite-approved-prerequisite-libvirt-foundation-controller-local-backup-controller-independent-protection-application-backup-keel-artifact-stage-install-backup-stopped-recovery-isolated-recovery-drill-rollback-backed-promotion-and-operator-rollback-dns-migration-and-vm-workflows",
     virtualization: "live-libvirt-via-restricted-helper",
     libvirtFoundation: { inspect: "parameter-free-canonical-default-only", initialize: "durable-approved-static-unit", network: "default-nat-192.168.122.0/24", pool: "default-dir-var-lib-libvirt-images", automaticRollback: "job-changes-only", browserResourceInput: false },
-    vmCreationPlanning: "validated-durable-approved",
+    vmCreationPlanning: "validated-durable-approved-with-authenticated-staged-iso-import",
+    vmMedia: { upload: "authenticated-csrf-fixed-staging-only", import: "durable-approved-sha256-verified-atomic-non-overwrite", maximumIsoBytes: 17179869184, browserPath: false, arbitraryDestination: false, existingOverwrite: false },
     audit: "redacted-jsonl-foundation",
     vmActions: { enabled: true, mode: "durable-approved-helper-jobs" },
     applicationActions: { uptimeKuma: ["start", "stop", "restart"], pihole: ["start", "stop", "restart"], privateAccess: { uptimeKuma: ["publish", "unpublish"], mode: "tailscale-serve-tailnet-only", funnel: false, arbitraryTarget: false }, mode: "durable-approved-exact-managed-container-only", routerCutover: false, remove: false, arbitraryContainer: false },
@@ -921,6 +925,43 @@ app.get("/api/v1/virtualization/planning-options", async (_request, response) =>
   response.json(await vmPlanner.getOptions());
 });
 
+app.get("/api/v1/virtualization/media", async (_request, response) => {
+  try {
+    response.json(await vmMedia.inspect());
+  } catch (error) {
+    response.status(503).json({ error: error.message, code: "vm_media_inspection_failed" });
+  }
+});
+
+app.post("/api/v1/virtualization/media/uploads", async (request, response) => {
+  try {
+    request.setTimeout(12 * 60 * 60 * 1000);
+    response.status(201).json({ upload: await vmMedia.upload(request) });
+  } catch (error) {
+    const status = error.message.includes("already exists") ? 409 : error.message.includes("space") ? 507 : 400;
+    response.status(status).json({ error: error.message, code: "vm_media_upload_failed" });
+  }
+});
+
+app.post("/api/v1/virtualization/media/import-plans", async (request, response) => {
+  try {
+    const plan = await vmMedia.plan(request.body?.filename, request.boxpilotSession.owner.id);
+    response.status(201).json({ plan });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "vm_media_import_plan_failed" });
+  }
+});
+
+app.post("/api/v1/virtualization/media/import-plans/:id/stage", async (request, response) => {
+  try {
+    const job = await vmMedia.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
+    response.status(201).json({ job });
+  } catch (error) {
+    const status = error.message.includes("not found") ? 404 : 409;
+    response.status(status).json({ error: error.message, code: "vm_media_import_stage_failed" });
+  }
+});
+
 app.get("/api/v1/audit", async (request, response) => {
   const result = await audit.list(request.query.limit);
   response.status(result.available ? 200 : 503).json(result);
@@ -1142,7 +1183,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.60.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.61.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

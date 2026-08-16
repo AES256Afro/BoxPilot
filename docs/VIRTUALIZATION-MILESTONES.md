@@ -2,7 +2,7 @@
 
 This plan turns the current QEMU/KVM module into a dependable home-server virtualization control plane. Milestones are dependency ordered. A later milestone cannot ship merely because its interface is complete.
 
-## Current baseline: 0.22.0
+## Current baseline: 0.61.0
 
 Shipped:
 
@@ -22,10 +22,12 @@ Shipped:
 - Exact-snapshot isolated no-network restore drill with repeated guest-agent health, strict cleanup, and evidence-gated protected status
 - Guarded recovery clone from protected evidence into a separately named stopped persistent VM with no network interface or autostart
 - Fixed bounded retention of exact old protected restic snapshot references with a 30-day floor, three-copy floor, recovery-reference preservation, full repository read, and no prune
+- Authenticated streamed ISO upload into a fixed staging directory with complete SHA-256 evidence
+- Separate immutable, password-approved ISO import with source and destination rehashing, atomic non-overwriting publication, and confined rollback
 
 Known boundary:
 
-- AppArmor, Windows TPM/Secure Boot creation, cloud-init, console proxy, online snapshots, snapshot revert/delete, in-place restore, recovered-VM network attachment, application-level restore tests, configurable retention, restic prune, bridge management, passthrough, and fleet placement remain pending.
+- AppArmor, arbitrary URL download, automatic vendor-image acquisition, managed-media deletion, publisher-signature verification, Windows TPM/Secure Boot creation, cloud-init, console proxy, online snapshots, snapshot revert/delete, in-place restore, recovered-VM network attachment, application-level restore tests, configurable retention, restic prune, bridge management, passthrough, and fleet placement remain pending.
 - The safe Docker preview cannot inspect host libvirt.
 
 ## Milestone V1: guided creation planning
@@ -166,13 +168,33 @@ Acceptance:
 - Router adapters use least-privilege credentials and render a reversible diff before applying.
 - Loss of the BoxPilot controller does not stop running guests.
 
+## Milestone V8: guarded installation-media supply
+
+Target: `0.61.0`
+
+Status: the first safe browser-to-libvirt media path is shipped.
+
+- Stream one authenticated `.iso` upload, capped at 16 GiB, into a fixed web-writable staging directory
+- Compute complete SHA-256 while receiving bytes and reject traversal, size mismatch, conflict, and insufficient reserve
+- Expose only complete regular file and metadata pairs through parameter-free helper inspection
+- Build an immutable import plan from the exact filename, byte count, SHA-256, staging revision, and generated import id
+- Require separate staging and fresh owner-password approval
+- Rehash the source, copy into a generated managed-library partial, rehash the copy, publish without overwrite, and verify the final file
+- Remove only generated import state after failure and leave VM, libvirt, networks, pools, firewall, DNS, router, and Tailscale unchanged
+
+Acceptance:
+
+- Upload cannot write outside the fixed staging directory or replace a staged file.
+- The web service cannot write the managed libvirt media library.
+- Import cannot accept a browser path, destination, URL, command, or argument array.
+- Changed bytes, stale revision, insufficient space, symlinks, malformed metadata, destination collision, and copy mismatch fail closed.
+- Arbitrary URL download, automatic vendor-image acquisition, publisher-signature verification, and managed-media deletion remain unavailable.
+
 ## Immediate implementation order
 
-1. Add resumable checksummed migration transfer without source mutation.
-2. Add isolated application-level acceptance adapters before any cutover workflow.
-3. Add capacity-safe restic prune as a separately reviewed high-risk operation.
+1. Add a fixed trusted upstream image catalog with pinned publisher provenance before any automatic download.
+2. Add cloud-init generation with secret-safe review and recovery boundaries.
+3. Add isolated application-level acceptance adapters before any cutover workflow.
 4. Add recovered-VM network attachment only after identity and conflict planning.
-5. Add console grants, bridges, devices, and fleet placement behind their own recovery gates.
-4. Ship VM creation only after V2 and V3 acceptance gates pass.
-5. Add console and snapshot workflows before calling the product a complete VM manager.
-6. Treat backup and restore evidence as a prerequisite for production migration.
+5. Add capacity-safe restic prune as a separately reviewed high-risk operation.
+6. Add console grants, bridges, devices, and fleet placement behind their own recovery gates.

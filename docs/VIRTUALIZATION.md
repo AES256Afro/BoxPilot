@@ -1,6 +1,6 @@
 # QEMU/KVM setup and operation
 
-BoxPilot `0.60.0` can install the fixed Ubuntu KVM, QEMU, libvirt, virt-install, and OVMF prerequisites on a clean hardware-ready host, initialize and verify the canonical default NAT network and storage pool through a separate approved workflow, inspect the local libvirt system connection through its restricted helper, create supported Linux virtual machines through durable approved jobs, manage a deliberately small set of lifecycle operations, report QEMU guest-agent and snapshot state, create guarded offline internal snapshots, produce integrity-verified local exports for stopped managed VMs, copy those exports into a fixed encrypted restic repository on an independent mounted filesystem, prove one backup bootable through an isolated transient restore drill, create a separately named stopped no-network recovery clone, and apply one fixed exact no-prune retention policy. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
+BoxPilot `0.61.0` can install the fixed Ubuntu KVM, QEMU, libvirt, virt-install, and OVMF prerequisites on a clean hardware-ready host, initialize and verify the canonical default NAT network and storage pool through a separate approved workflow, upload and separately import SHA-256-verified ISO installation media, inspect the local libvirt system connection through its restricted helper, create supported Linux virtual machines through durable approved jobs, manage a deliberately small set of lifecycle operations, report QEMU guest-agent and snapshot state, create guarded offline internal snapshots, produce integrity-verified local exports for stopped managed VMs, copy those exports into a fixed encrypted restic repository on an independent mounted filesystem, prove one backup bootable through an isolated transient restore drill, create a separately named stopped no-network recovery clone, and apply one fixed exact no-prune retention policy. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
 
 ## What works now
 
@@ -16,6 +16,9 @@ BoxPilot `0.60.0` can install the fixed Ubuntu KVM, QEMU, libvirt, virt-install,
 - Revalidate lifecycle state before staging, after password approval, and after the fixed helper operation
 - Detect the host's Tailscale name and an existing Tailscale Serve URL
 - Discover managed ISO images, libvirt networks, pools, guest disks, interfaces, and snapshot count
+- Stream an authenticated ISO upload into a fixed staging directory while computing its complete SHA-256
+- Review and stage a separate immutable import plan that never overwrites existing managed media
+- Rehash the staged source, atomic managed copy, and published ISO after owner-password approval
 - Validate and durably store a new VM plan with an exact `virt-install` preview
 - Revalidate the domain name, managed ISO, active default network, active default pool, and reported pool capacity before staging and approval
 - Create supported Linux guests through a typed root helper only after owner password reauthentication
@@ -138,7 +141,17 @@ The systemd unit creates `/var/lib/boxpilot` with mode `0700` for SQLite plans, 
 
 ## 3. Add installation media and create a VM
 
-Copy an installer ISO into the configured managed-media directory:
+The working browser workflow is:
+
+1. Open **Virtual Machines** and find **VM installation media**.
+2. Select one `.iso` file no larger than 16 GiB and choose **Upload to staging**. BoxPilot streams it to the fixed staging directory and computes SHA-256. It is not yet usable for VM creation.
+3. On the completed staged item, select **Review import**. Confirm the exact filename, byte count, complete SHA-256, fixed destination, non-overwrite rule, and rollback boundary.
+4. Select **Stage for password approval**, open **Repair Center**, and re-enter the owner password.
+5. Wait for source, copy, and final managed-library verification to pass. Return to **Virtual Machines** and refresh the media panel.
+
+The upload accepts bytes, not a browser path. The helper accepts only the recorded filename, byte count, SHA-256, staging revision, and generated import id. It derives both fixed directories, keeps a 1 GiB free-space reserve, writes a generated partial, publishes without overwriting, and creates no domain, disk, network, pool, route, or listener. A changed staging file or conflicting managed filename fails closed.
+
+The server-console fallback remains available for an administrator who has separately verified the image:
 
 ```bash
 sudo install -d -m 0755 /var/lib/libvirt/boot
@@ -146,18 +159,17 @@ sudo cp /path/to/installer.iso /var/lib/libvirt/boot/
 sudo chmod 0644 /var/lib/libvirt/boot/installer.iso
 ```
 
-The production helper unit deliberately fixes this directory to `/var/lib/libvirt/boot`. If a different dedicated directory is required, a root administrator must update `BOXPILOT_ISO_DIRECTORY` consistently in both `/etc/boxpilot/boxpilot.env` and `boxpilot-helper.service`, then reload systemd and restart both services. Do not point it at `/`, a home directory, a writable upload directory, or a directory containing secrets.
+The production helper unit deliberately fixes the managed library to `/var/lib/libvirt/boot` and the upload staging directory to `/var/lib/boxpilot-managed/vm-media-inbox`. If a different dedicated library is required, a root administrator must update `BOXPILOT_ISO_DIRECTORY` consistently in both `/etc/boxpilot/boxpilot.env` and `boxpilot-helper.service`, then reload systemd and restart both services. Do not point either boundary at `/`, a home directory, or a directory containing secrets. Do not make the managed library writable by the web service.
 
 In BoxPilot:
 
-1. Open **Virtual Machines**.
-2. Select **Plan new VM**.
-3. Choose the guest name, operating-system profile, vCPU, memory, disk, managed ISO, default NAT network, firmware, and autostart preference.
-4. Select **Generate reviewed plan**.
-5. Review capacity warnings, the immutable plan revision, the structured `virt-install` preview, and the execution guardrails.
-6. Select **Stage for password approval**. This rechecks live host state and creates an awaiting-approval job without creating a disk or domain.
-7. Open **Repair Center**, review the recovery instructions, and approve with the owner password.
-8. Return to **Virtual Machines** and refresh the live inventory.
+1. Select **Plan new VM**.
+2. Choose the guest name, operating-system profile, vCPU, memory, disk, managed ISO, default NAT network, firmware, and autostart preference.
+3. Select **Generate reviewed plan**.
+4. Review capacity warnings, the immutable plan revision, the structured `virt-install` preview, and the execution guardrails.
+5. Select **Stage for password approval**. This rechecks live host state and creates an awaiting-approval job without creating a disk or domain.
+6. Open **Repair Center**, review the recovery instructions, and approve with the owner password.
+7. Return to **Virtual Machines** and refresh the live inventory.
 
 The planning API verifies numeric limits, rejects unsafe ISO names and path traversal, checks that the ISO is a regular discovered file, refuses an existing domain name, and rejects a disk larger than the reported free space in the default pool. Planning and staging never invoke `virt-install`. Approval invokes one typed helper operation. The helper independently derives the binary, libvirt URI, ISO path, storage-pool arguments, network arguments, and rollback target. It does not accept shell text, an executable, an argument array, or a path from the web service.
 
@@ -359,4 +371,4 @@ The first device number must differ from both Bigbox source locations. The passw
 
 Membership in the `libvirt` group is powerful. In `0.26.0`, the native web service has no `libvirt` or `kvm` supplementary groups. Read-only libvirt inventory and all shipped VM mutations cross the typed helper socket. The helper still runs as root, so its exact schema, fixed binaries, fixed URI, path roots, fixed repository/password paths, temporary and persistent QEMU access, systemd confinement, and private exposure remain security-critical. Keep the service loopback-only, keep Funnel off, and do not treat this release as an internet-facing appliance.
 
-Operations Core records typed Unix-socket requests and durable approvals. VM creation, lifecycle actions, offline snapshots, stopped-VM exports, encrypted mounted-restic copies, isolated restore drills, stopped no-network recovery clones, and exact no-prune retention have operation-specific helper handlers. Storage administration, bridges, online snapshots, snapshot revert/delete, in-place restore, recovered-VM network attachment, application-level restore tests, configurable retention, restic prune, migration transfer, console proxy, and delete remain locked until their recovery checkpoints, path rules, and negative tests are complete.
+Operations Core records typed Unix-socket requests and durable approvals. VM media import, VM creation, lifecycle actions, offline snapshots, stopped-VM exports, encrypted mounted-restic copies, isolated restore drills, stopped no-network recovery clones, and exact no-prune retention have operation-specific helper handlers. Authenticated ISO upload is confined to one staging directory and cannot publish media without the separate helper job. Arbitrary URL download, automatic vendor-image acquisition, storage administration, bridges, online snapshots, snapshot revert/delete, in-place restore, recovered-VM network attachment, application-level restore tests, configurable retention, restic prune, migration activation, console proxy, and delete remain locked until their recovery checkpoints, path rules, and negative tests are complete.

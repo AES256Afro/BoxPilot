@@ -13,6 +13,8 @@ describe("native systemd network boundaries", () => {
     expect(helperUnit).toContain("RestrictAddressFamilies=AF_UNIX\n");
     expect(helperUnit).not.toContain("AF_NETLINK");
     expect(helperUnit).toContain("Environment=BOXPILOT_VM_EXPORT_ROOT=/var/lib/boxpilot-managed/vm-exports");
+    expect(helperUnit).toContain("Environment=BOXPILOT_VM_MEDIA_INBOX=/var/lib/boxpilot-managed/vm-media-inbox");
+    expect(helperUnit).toContain("ExecStartPre=/usr/bin/install -d -o boxpilot -g boxpilot -m 0700 /var/lib/boxpilot-managed/vm-media-inbox");
     expect(helperUnit).toContain("Environment=BOXPILOT_MIGRATION_INBOX=/var/lib/boxpilot-migration/inbox");
     expect(helperUnit).toContain("Environment=BOXPILOT_MIGRATION_STAGING_ROOT=/var/lib/boxpilot-managed/migration-staging");
     expect(helperUnit).toContain("Environment=BOXPILOT_CONTROLLER_DATABASE=/var/lib/boxpilot/boxpilot.sqlite3");
@@ -38,7 +40,9 @@ describe("native systemd network boundaries", () => {
     expect(helperUnit).toContain("ReadWritePaths=-/mnt/boxpilot-backup");
     expect(helperUnit).toContain("ReadOnlyPaths=/var/lib/boxpilot");
     expect(helperUnit).toContain("ReadWritePaths=/var/lib/libvirt/images");
+    expect(helperUnit).toContain("ReadWritePaths=-/var/lib/libvirt/boot");
     expect(helperUnit).toContain("ReadWritePaths=/var/lib/libvirt/qemu/nvram");
+    expect(webUnit).toContain("ReadWritePaths=/var/lib/boxpilot-managed/vm-media-inbox");
     expect(helperUnit).toContain("PrivateNetwork=true");
     expect(helperUnit).toContain("UMask=0077");
     expect(serverEntry).toContain("createHelperLibvirtService");
@@ -52,7 +56,7 @@ describe("native systemd network boundaries", () => {
     expect(dockerfile).toContain("BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot");
     expect(dockerfile).toContain("BOXPILOT_COOKIE_SECURE=false");
     expect(dockerfile).toContain("USER node");
-    expect(compose).toContain("image: boxpilot:0.60.0");
+    expect(compose).toContain("image: boxpilot:0.61.0");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("/tmp:size=16m,mode=1777");
   });

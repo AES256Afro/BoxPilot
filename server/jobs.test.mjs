@@ -701,6 +701,21 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("revalidates and executes only the staged VM media evidence", async () => {
+    const input = { importId: "77777777-7777-4777-8777-777777777777", filename: "ubuntu.iso", expectedSizeBytes: 8192, expectedSha256: "a".repeat(64), expectedRevision: "b".repeat(64) };
+    const result = { imported: true, verified: true, importId: input.importId, filename: input.filename, sizeBytes: input.expectedSizeBytes, sha256: input.expectedSha256, boundary: { existingMediaOverwritten: false, arbitraryPathAccepted: false, virtualMachineCreated: false, libvirtChanged: false } };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const validateVmMediaImportJob = vi.fn(async () => ({ input }));
+    const jobs = createJobService(store, helper, { validateVmMediaImportJob });
+    const job = store.createJob({ type: "virtualization.media.import", title: "Import ubuntu.iso", parameters: { input }, recovery: { automaticRollback: true }, createdBy: owner.id });
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+    expect(validateVmMediaImportJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("virtualization.media.import", input, { timeoutMs: 6 * 60 * 60 * 1000 });
+    expect(completed).toMatchObject({ state: "completed", result: { imported: true, verified: true, filename: "ubuntu.iso" } });
+    store.close();
+  });
+
   it("revalidates and executes a typed VM lifecycle plan", async () => {
     const input = { name: "ubuntu-lab", action: "shutdown", expectedState: "running", expectedAutostart: false };
     const helper = { request: vi.fn(async () => ({ verified: true, domain: input.name, action: input.action, current: { state: "stopped", autostart: false } })) };
