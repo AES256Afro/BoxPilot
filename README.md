@@ -4,11 +4,11 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.24.0` adds credential-free GitHub provenance for the fixed public `AES256Afro/BoxPilot` and `AES256Afro/Keel` repositories. It reports sanitized repository heads, GitHub-reported commit verification, latest-release identity, and GitHub-reported asset digests through a bounded 15-minute cache. BoxPilot sends no token, accepts no repository input, discards signatures and payloads, downloads no bytes, writes nothing to GitHub, and cannot install an asset. GitHub-reported metadata is not represented as local signature or digest verification.
+Version `0.25.0` adds a planning-only Keel Notes adapter bound to one reviewed Linux x64 release identity. It checks live public GitHub metadata against the fixed `v1.2.5` tag, release commit, asset name, byte count, and SHA-256 value, then produces an immutable plan for loopback service exposure, private state, account claim, backup, restore, and rollback. It rejects undeclared plan fields and always adds an execution blocker. BoxPilot still downloads no Keel bytes, verifies no local asset, installs no service, opens no registration, and changes no Keel data.
 
 ### What works now
 
-| Area | Status in `0.24.0` | Capability |
+| Area | Status in `0.25.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
@@ -21,6 +21,7 @@ Version `0.24.0` adds credential-free GitHub provenance for the fixed public `AE
 | GitHub provenance | Live fixed public metadata | Reads sanitized commit, verification, latest-release, and asset-digest metadata for BoxPilot and Keel through GitHub's unauthenticated public API. No token, repository input, clone, download, write, webhook, workflow dispatch, local digest verification, or installation route exists. |
 | System logs | Live restricted sources | Returns capped, redacted entries for fixed BoxPilot, Docker, Tailscale, and virtualization unit sets. Credential-like values and URL query strings are redacted. |
 | Application catalog | Live | Publishes integrity-addressed manifests, live installation state, exact image policy, targets, ports, storage, prerequisites, recovery, and adapter risk. |
+| Keel Notes adapter | Immutable planning only | Binds a native-service plan to the fixed Keel `v1.2.5` Linux x64 release metadata and checks platform, architecture, prerequisites, loopback port, public tag commit, asset size, and GitHub-reported digest. Download, local byte verification, extraction, installation, start, claim, backup, restore, exposure, and staging are locked. |
 | Uptime Kuma adapter | Executable deployment | Uses the official `2.5.0` image pinned by multi-platform digest, a loopback-only port, local persistent storage, Docker health, approval, and data-preserving rollback. The catalog shows whether restore-verified backup evidence exists. |
 | Pi-hole adapter | Guarded staging, recovery, and two-origin DNS proof | Starts a digest-pinned Docker service only after a fresh Pi-hole-on-Bigbox network assessment and separate approval. Separate workflows verify configuration recovery, fixed direct queries from Bigbox, and the same fixed queries from an enrolled signed LAN device. DHCP, NTP, router writes, client DNS advertisement, Tailscale changes, and cutover do not exist. The dedicated-VM target remains planning-only. |
 | Fleet agents | Signed narrow foundation | Creates password-gated one-time enrollment tokens, registers device-generated Ed25519 public keys, rejects stale or replayed requests, supports revocation, and records signed second-device Pi-hole evidence. It provides no shell, arbitrary command, arbitrary target, file access, package operation, or general plugin execution. |
@@ -169,6 +170,12 @@ This explicitly disclosed `0.23.0` mock shows supported device declarations, loc
 
 This explicitly disclosed `0.24.0` mock shows fixed public repository heads, GitHub-reported verification, Keel release-asset digest metadata, and the remaining token, write, download, local-verification, and installation locks. No credential was accepted, repository or workflow was changed, asset was downloaded, digest was verified locally, or software was installed for the capture.
 
+### Keel Notes planning mockup
+
+![BoxPilot immutable Keel Notes release plan](docs/screenshots/keel-plan-mock.png)
+
+This explicitly disclosed `0.25.0` mock shows the fixed Keel release identity, GitHub metadata match, absent local-byte verification, proposed private service and recovery boundaries, and the permanent planning-only execution blocker. No Keel asset was downloaded by BoxPilot, no local digest was computed by BoxPilot, no application tree or account was created, and no service, port, or data was changed for the capture.
+
 ## Safety contract
 
 Every future host change must follow:
@@ -270,6 +277,7 @@ docker build -t boxpilot:local .
 - [Router checkpoint evidence and future adapter gates](docs/ROUTERS.md)
 - [Signed fleet agents and independent DNS evidence](docs/FLEET.md)
 - [Credential-free GitHub provenance and installation gates](docs/GITHUB.md)
+- [Keel Notes exact-release planning and execution gates](docs/KEEL.md)
 - [Guarded migration discovery and local staging](docs/MIGRATIONS.md)
 - [Dependency-ordered roadmap](docs/ROADMAP.md)
 - [QEMU/KVM setup and operation](docs/VIRTUALIZATION.md)
@@ -277,18 +285,11 @@ docker build -t boxpilot:local .
 - [QEMU/KVM API and agent contract](docs/VIRTUALIZATION-API.md)
 - [Ubuntu Server installation runbook](UBUNTU-SERVER-INSTALL-RUNBOOK.md)
 
-## Keel Notes roadmap adapter
+## Keel Notes planning adapter
 
-No Keel-specific deployment adapter ships in `0.24.0`. The GitHub provenance view can inspect sanitized public Keel release metadata but cannot download or install it. The generic migration packer can stage an offline Keel Notes Compose project only as opaque verified files; it does not understand Keel databases, managed-secret keys, health, activation, or cutover. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
+Version `0.25.0` ships the first Keel-specific adapter as a non-executable planning boundary. It recognizes one exact [Keel Notes](https://github.com/AES256Afro/Keel) Linux x64 release identity, checks public GitHub metadata, validates the host platform and loopback port, and records the future service, claim, health, state, backup, restore, and rollback requirements. The plan cannot be staged. See [the Keel adapter guide](docs/KEEL.md) for the fixed artifact identity and the acceptance gates required before execution can be enabled.
 
-- Detect a Keel Docker or service installation
-- Inventory the database dialect and protected data paths without exposing secrets
-- Use Keel-aware export and import operations
-- Preserve the managed-secret key companion during migration
-- Coordinate SQLite writes before backup or restore
-- Recognize PostgreSQL deployments
-- Surface Keel, Caddy, Docker, backup, and Litestream health
-- Test restores in an isolated stack before reporting a backup as verified
+The generic migration packer still treats an offline Keel Compose project as opaque verified files. It does not yet coordinate the Keel database, managed-secret key, uploads, service health, account claim, activation, or cutover.
 
 ## License
 

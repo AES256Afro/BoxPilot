@@ -58,4 +58,44 @@ describe("curated application catalog", () => {
     expect(await screen.findByText("Ready to stage")).toBeTruthy();
     expect(screen.getByText(/DNS 192\.168\.8\.10:53 TCP\/UDP/)).toBeTruthy();
   });
+
+  it("shows an exact Keel release plan while keeping every execution step locked", async () => {
+    const artifact = {
+      repository: "AES256Afro/Keel", releaseTag: "v1.2.5", releaseCommitSha: "bcf872e2cee5820bdeb74685f5573cc6beb0a28f",
+      name: "keel-1.2.5-linux-x64.tar.gz", sizeBytes: 47655144,
+      digest: "sha256:4b24067aa219bc00bf4f7c1846f78945e8abda3f5b68353e4967570d5b57e6ee",
+      locallyVerifiedByBoxPilot: false,
+    };
+    const application = {
+      id: "keel", name: "Keel Notes", category: "Knowledge", description: "Self-hosted notebook", execution: "planning-only", risk: "stateful", targets: ["native-service"],
+      image: { version: "1.2.5", digestPinned: false }, artifact, integrity: `sha256:${"c".repeat(64)}`, live: { installed: false, state: "planning-ready", detail: "Exact public release metadata is ready" },
+    };
+    const plan = {
+      id: "keel-plan", subjectId: "keel", revision: "revision789", input: { target: "native-service", hostPort: 3000 }, expiresAt: "2026-08-16T04:00:00Z",
+      output: {
+        executable: false, artifact: { ...artifact, githubReportedDigestMatched: true }, image: application.image,
+        changes: ["Require a five-minute one-use terminal claim"],
+        blockers: [{ id: "keel.execution", summary: "Keel installation remains disabled", repair: { description: "Complete the restricted adapter" } }],
+        warnings: ["Keep the managed-secret key with the database"], recovery: { summary: "Preserve workspace data", preservesData: true },
+      },
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input.toString().endsWith("/api/v1/applications")) return new Response(JSON.stringify({ applications: [application] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      expect(JSON.parse(String(init?.body))).toEqual({ target: "native-service", hostPort: 3000 });
+      return new Response(JSON.stringify({ plan }), { status: 201, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ApplicationCatalog csrfToken="csrf" onInspectCompose={vi.fn()} onOpenRepair={vi.fn()} />);
+
+    expect(await screen.findByText("Keel Notes")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Plan deployment" }));
+    expect(screen.getByText("Planning only")).toBeTruthy();
+    expect(screen.getByText(/Release asset digest pinned/)).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Deployment target" })).toHaveProperty("value", "native-service");
+    fireEvent.click(screen.getByRole("button", { name: "Generate live plan" }));
+    expect(await screen.findByText("Planning result")).toBeTruthy();
+    expect(screen.getByText(/bcf872e2cee5/)).toBeTruthy();
+    expect(screen.getByText(/verified from local bytes: no/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Stage for approval" })).toBeNull();
+  });
 });

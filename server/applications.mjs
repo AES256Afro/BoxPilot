@@ -3,6 +3,18 @@ import net from "node:net";
 
 const uptimeKumaImage = "louislam/uptime-kuma@sha256:a8610b3b4c38077922ba51b036691e06887d7cefd91fe620fd3d6d23d03dc240";
 const piholeImage = "pihole/pihole@sha256:f7d1be836e3bc608b56d82fc9904f5a831cdfbc0dc9c6d58f94e4c985c70038b";
+const keelArtifact = {
+  repository: "AES256Afro/Keel",
+  releaseTag: "v1.2.5",
+  releaseCommitSha: "bcf872e2cee5820bdeb74685f5573cc6beb0a28f",
+  name: "keel-1.2.5-linux-x64.tar.gz",
+  platform: "linux",
+  architecture: "x64",
+  sizeBytes: 47655144,
+  digest: "sha256:4b24067aa219bc00bf4f7c1846f78945e8abda3f5b68353e4967570d5b57e6ee",
+  archiveMembersObservedDuringAdapterReview: 2900,
+  locallyVerifiedByBoxPilot: false,
+};
 
 const manifests = [
   {
@@ -51,6 +63,26 @@ const manifests = [
     rollback: "Stop and remove only the managed Pi-hole stack while preserving its configuration and root-only administrator secret. Router and client DNS remain unchanged.",
     officialSource: "https://github.com/pi-hole/docker-pi-hole",
   },
+  {
+    schemaVersion: 1,
+    adapterVersion: "0.1.0-plan",
+    id: "keel",
+    name: "Keel Notes",
+    category: "Knowledge",
+    description: "Stateful self-hosted notebook planning with exact release, managed-secret, backup, claim, and loopback-access gates.",
+    execution: "planning-only",
+    risk: "stateful",
+    targets: ["native-service"],
+    image: { reference: "not-applicable-native-release", version: "1.2.5", digestPinned: false },
+    artifact: keelArtifact,
+    ports: [{ id: "web", protocol: "tcp", containerPort: null, defaultHostPort: 3000, exposure: "loopback" }],
+    storage: [{ id: "workspace", containerPath: null, hostPath: "/var/lib/keel/.keel", backupRequired: true, localFilesystemRequired: true }],
+    prerequisites: ["runtime.node", "storage.state", "helper.boundary"],
+    targetPrerequisites: { "native-service": ["runtime.node", "storage.state", "helper.boundary"] },
+    health: { kind: "http-json", path: "/api/health", expectedIdentity: { app: "keel", ok: true } },
+    rollback: "Stop the future managed Keel service, restore the previous root-owned application tree, and preserve the private workspace database, uploads, backups, and managed-secret key companion.",
+    officialSource: "https://github.com/AES256Afro/Keel",
+  },
 ];
 
 function canonical(value) {
@@ -76,7 +108,7 @@ export function listApplicationManifests() {
   return manifests.map(publicManifest);
 }
 
-export function createApplicationService({ store, prerequisites, helper, network, inspectPort = defaultPortInspector } = {}) {
+export function createApplicationService({ store, prerequisites, helper, network, githubProvenance, inspectPort = defaultPortInspector, hostPlatform = process.platform, hostArchitecture = process.arch } = {}) {
   function getManifest(id) {
     return manifests.find((manifest) => manifest.id === id) ?? null;
   }
@@ -94,6 +126,18 @@ export function createApplicationService({ store, prerequisites, helper, network
         const latestBackup = verifiedBackups.find((backup) => backup.applicationId === manifest.id) ?? null;
         live.backup = latestBackup ? { state: "verified", verifiedAt: latestBackup.verifiedAt } : { state: live.installed ? "required" : "not-applicable", verifiedAt: null };
       }
+      if (manifest.id === "keel") {
+        try {
+          const provenance = await githubProvenance?.inspect();
+          const repository = provenance?.repositories?.find((item) => item.id === "keel");
+          const release = repository?.latestRelease;
+          const asset = release?.assets?.find((item) => item.name === keelArtifact.name);
+          const matches = repository?.status === "available" && release?.tagName === keelArtifact.releaseTag && release?.commit?.sha === keelArtifact.releaseCommitSha && asset?.digest === keelArtifact.digest && asset?.sizeBytes === keelArtifact.sizeBytes;
+          live = { installed: false, state: matches ? "planning-ready" : "provenance-blocked", detail: matches ? "Exact public release metadata is ready for an immutable planning-only preflight" : "Pinned Keel release provenance is unavailable or changed" };
+        } catch {
+          live = { installed: false, state: "provenance-unavailable", detail: "GitHub release provenance is unavailable; installation discovery is not implemented" };
+        }
+      }
       return { ...publicManifest(manifest), live };
     }));
     return { applications: items };
@@ -102,6 +146,10 @@ export function createApplicationService({ store, prerequisites, helper, network
   async function plan(applicationId, input, ownerId) {
     const manifest = getManifest(applicationId);
     if (!manifest) throw new Error("Application adapter not found");
+    if (input !== undefined && (!input || typeof input !== "object" || Array.isArray(input))) throw new Error("Application plan input must be an object");
+    const allowedInputKeys = new Set(["target", "hostPort", ...(manifest.id === "pi-hole" ? ["networkAssessmentId"] : [])]);
+    const unexpectedInputKeys = Object.keys(input ?? {}).filter((key) => !allowedInputKeys.has(key));
+    if (unexpectedInputKeys.length > 0) throw new Error(`Application plan input contains unsupported fields: ${unexpectedInputKeys.sort().join(", ")}`);
     const target = input?.target ?? manifest.targets[0];
     if (!manifest.targets.includes(target)) throw new Error("Unsupported deployment target");
     const hostPort = target === "virtual-machine" ? null : Number.parseInt(input?.hostPort ?? manifest.ports.find((port) => port.id === "web")?.defaultHostPort, 10);
@@ -130,6 +178,25 @@ export function createApplicationService({ store, prerequisites, helper, network
       if (portInUse === null) blockers.push({ id: `port.${hostPort}`, summary: `BoxPilot could not verify TCP port ${hostPort}`, repair: { kind: "manual", description: "Verify the listener state before approval" } });
     }
 
+    let artifact = manifest.artifact ? { ...manifest.artifact } : null;
+    if (manifest.id === "keel") {
+      if (hostPlatform !== keelArtifact.platform || hostArchitecture !== keelArtifact.architecture) {
+        blockers.push({ id: "keel.platform", summary: `Pinned Keel artifact requires ${keelArtifact.platform}-${keelArtifact.architecture}; this host reports ${hostPlatform}-${hostArchitecture}`, repair: { kind: "manual", description: "Use a separately reviewed artifact for this host architecture" } });
+      }
+      try {
+        const provenance = await githubProvenance?.inspect();
+        const repository = provenance?.repositories?.find((item) => item.id === "keel");
+        const release = repository?.latestRelease;
+        const releaseAsset = release?.assets?.find((item) => item.name === keelArtifact.name);
+        const matches = repository?.status === "available" && release?.tagName === keelArtifact.releaseTag && release?.commit?.sha === keelArtifact.releaseCommitSha && releaseAsset?.digest === keelArtifact.digest && releaseAsset?.sizeBytes === keelArtifact.sizeBytes;
+        if (!matches) throw new Error("Pinned Keel release tag, commit, asset size, or digest does not match live public provenance");
+        artifact = { ...artifact, githubReportedDigestMatched: true, githubCheckedAt: provenance.fetchedAt };
+      } catch (error) {
+        blockers.push({ id: "github.provenance", summary: error instanceof Error ? error.message : "Keel GitHub provenance is unavailable", repair: { kind: "guided", description: "Open GitHub provenance, verify the fixed Keel release, and regenerate this plan" } });
+      }
+      blockers.push({ id: "keel.execution", summary: "Keel release download, local verification, extraction, service installation, ownership claim, backup, and restore execution remain disabled", repair: { kind: "future-adapter", description: "Complete and test the restricted Keel artifact and service helper operations before installation" } });
+    }
+
     const warnings = [];
     if (manifest.id === "pi-hole") {
       warnings.push("This job starts a testable DNS service only. It cannot change router DHCP, advertise DNS, enable Pi-hole DHCP, alter Tailscale DNS, or move any client to Pi-hole.");
@@ -137,6 +204,33 @@ export function createApplicationService({ store, prerequisites, helper, network
       if (target === "virtual-machine") warnings.push("The dedicated VM adapter remains planning-only; use Docker staging or complete the VM application adapter in a later release.");
     }
     if (manifest.id === "uptime-kuma") warnings.push("After deployment, open Backups and complete the integrity and isolated restore workflow before treating this application as protected.");
+    if (manifest.id === "keel") {
+      warnings.push("The published release is source-available under BUSL-1.1. Personal self-hosting and internal organizational use are allowed; managed third-party hosting requires separate license review.");
+      warnings.push("Registration starts open. A future install must stay loopback-only, use the five-minute one-use terminal claim, and close or restrict registration before any broader exposure.");
+      warnings.push("Keel backup and migration must coordinate SQLite writes and keep keel.db with any .keel-server-secrets.key companion. Copying a live database is not an accepted backup.");
+    }
+
+    const changes = manifest.id === "uptime-kuma" ? [
+      "Create the confined Uptime Kuma application and data directories",
+      `Write the curated Compose definition with loopback port ${hostPort}`,
+      `Pull the digest-pinned Uptime Kuma ${manifest.image.version} image`,
+      "Start the managed container and verify its internal HTTP response",
+      "Preserve application data on rollback or uninstall",
+    ] : manifest.id === "pi-hole" ? [
+      "Reserve an isolated DNS address and verify TCP and UDP port 53",
+      "Create persistent Pi-hole configuration storage",
+      "Generate a managed administrator secret without returning it to logs",
+      "Verify DNS and web health before any router cutover",
+      "Keep the current resolver active until second-device tests pass",
+    ] : [
+      `Stage only ${keelArtifact.name} from the fixed ${keelArtifact.releaseTag} release after checking its ${keelArtifact.sizeBytes}-byte identity`,
+      `Compute the complete local ${keelArtifact.digest} digest before any extraction`,
+      "Reject links, devices, path traversal, unexpected archive roots, and changed archive membership before creating an application tree",
+      `Prepare a dedicated unprivileged Keel service with private state and loopback port ${hostPort}`,
+      "Preserve keel.db, uploads, backups, and .keel-server-secrets.key together across rollback or migration",
+      "Require private account registration and a five-minute one-use terminal claim before enabling instance controls",
+      "Prove /api/health identity, then complete an application-aware backup and isolated restore before reporting protection",
+    ];
 
     const output = {
       application: manifest.id,
@@ -148,19 +242,8 @@ export function createApplicationService({ store, prerequisites, helper, network
       fallbackDnsAddress,
       networkAssessmentId: networkAssessment?.id ?? input?.networkAssessmentId ?? null,
       image: manifest.image,
-      changes: manifest.id === "uptime-kuma" ? [
-        "Create the confined Uptime Kuma application and data directories",
-        `Write the curated Compose definition with loopback port ${hostPort}`,
-        `Pull the digest-pinned Uptime Kuma ${manifest.image.version} image`,
-        "Start the managed container and verify its internal HTTP response",
-        "Preserve application data on rollback or uninstall",
-      ] : [
-        "Reserve an isolated DNS address and verify TCP and UDP port 53",
-        "Create persistent Pi-hole configuration storage",
-        "Generate a managed administrator secret without returning it to logs",
-        "Verify DNS and web health before any router cutover",
-        "Keep the current resolver active until second-device tests pass",
-      ],
+      artifact,
+      changes,
       blockers,
       warnings,
       recovery: { summary: manifest.rollback, preservesData: true },
@@ -226,4 +309,4 @@ export function createApplicationService({ store, prerequisites, helper, network
   return { list, plan, stage, validateJob, getManifest };
 }
 
-export const applicationInternals = { canonical, defaultPortInspector, uptimeKumaImage, piholeImage };
+export const applicationInternals = { canonical, defaultPortInspector, keelArtifact, uptimeKumaImage, piholeImage };

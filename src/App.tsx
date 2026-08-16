@@ -289,7 +289,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.24.0",
+      version: "0.25.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
@@ -331,7 +331,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.24.0 public provenance<br />Tokens, writes, installs locked</div>
+        <div className="prototype-label">v0.25.0 Keel preflight<br />Keel download/install locked</div>
       </aside>
 
       <main>

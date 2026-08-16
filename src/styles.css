@@ -2861,6 +2861,9 @@ textarea {
 .github-release { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--line); }
 .github-no-release { display: grid; gap: 5px; padding: 12px; color: var(--muted); background: #09141d; border: 1px solid var(--line); border-radius: 9px; }
 .github-no-release strong { color: var(--text); }
+.keel-artifact-proof { display: grid; gap: 7px; padding: 12px; background: #09141d; border: 1px solid var(--line); border-radius: 9px; }
+.keel-artifact-proof span { color: var(--muted); font-size: 0.8rem; }
+.keel-artifact-proof code { overflow-wrap: anywhere; color: #aee7d6; font: 0.76rem ui-monospace, SFMono-Regular, Menlo, monospace; }
 @media (max-width: 900px) {
   .fleet-revoke { align-items: stretch; flex-direction: column; }
   .fleet-revoke label { min-width: 0; }

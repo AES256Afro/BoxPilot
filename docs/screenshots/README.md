@@ -21,5 +21,6 @@ These images include historical local captures and explicitly disclosed release 
 - `signed-fleet-agent-mock.png`: explicitly disclosed `0.22.0` signed agent enrollment and second-device DNS evidence mock rendered from `docs/mockups/signed-fleet-agent.html`; no device was enrolled, key or token was generated, DNS query was sent, or network setting was changed
 - `router-checkpoint-mock.png`: explicitly disclosed `0.23.0` browser-local router checkpoint mock rendered from `docs/mockups/router-checkpoint.html`; no file was selected, hashed, uploaded, or recorded, and no router or network setting was read or changed
 - `github-provenance-mock.png`: explicitly disclosed `0.24.0` credential-free GitHub provenance mock rendered from `docs/mockups/github-provenance.html`; no credential was accepted, repository or workflow was changed, asset was downloaded, digest was locally verified, or software was installed
+- `keel-plan-mock.png`: explicitly disclosed `0.25.0` Keel exact-release planning mock rendered from `docs/mockups/keel-plan.html`; no Keel asset was downloaded by BoxPilot, no local digest was computed by BoxPilot, and no service, account, state, backup, restore, port, or application installation was changed
 
 Do not crop out the data-source notice when replacing these screenshots. It is part of the product's capability disclosure.
