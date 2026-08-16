@@ -3,7 +3,7 @@ import os from "node:os";
 import { statfs } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
-import { normalizeSmartEvidence, parseBlockInventory, parseMountInventory } from "./storage-evidence.mjs";
+import { normalizeMountEvidence, normalizeSmartEvidence, parseBlockInventory } from "./storage-evidence.mjs";
 
 const execFile = promisify(execFileCallback);
 const serviceUnits = ["boxpilot.service", "boxpilot-helper.service", "docker.service", "tailscaled.service", "libvirtd.service", "virtqemud.service"];
@@ -74,19 +74,18 @@ export function createInventoryService({
 
     let docker = { available: false, containers: [], images: [], networks: [], volumes: [], projects: [] };
     try { docker = await helper.request("container.docker.inventory", {}); } catch { docker = { ...docker, error: "Docker inventory is unavailable through the restricted helper" }; }
-    const [services, tailscale, mountResult, blockResult, smartResult] = await Promise.all([
+    const [services, tailscale, blockResult, smartResult] = await Promise.all([
       Promise.all(serviceUnits.map(inspectService)),
       inspectTailscale(),
-      runCommand("findmnt", ["--json", "--bytes", "--real", "--output", "TARGET,SOURCE,FSTYPE,SIZE,USED,AVAIL,USE%,OPTIONS"]),
       runCommand("lsblk", ["--json", "--bytes", "--paths", "--output", "NAME,TYPE,FSTYPE,SIZE,MOUNTPOINTS,ROTA,RO,TRAN,MODEL"]),
       readStorageHealth().then((contents) => ({ ok: true, contents })).catch(() => ({ ok: false, contents: "" })),
     ]);
-    const filesystems = mountResult.ok ? parseMountInventory(mountResult.stdout) : parseMountInventory("");
     const blockDevices = blockResult.ok ? parseBlockInventory(blockResult.stdout) : parseBlockInventory("");
     let smartValue = null;
     if (smartResult.ok) {
       try { smartValue = JSON.parse(smartResult.contents); } catch { smartValue = null; }
     }
+    const filesystems = normalizeMountEvidence(smartValue?.filesystems, { schemaVersion: smartValue?.schemaVersion, generatedAt: smartValue?.generatedAt, now });
     const smart = normalizeSmartEvidence(smartValue, { now });
     return {
       generatedAt: now().toISOString(),
