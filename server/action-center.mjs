@@ -1,4 +1,4 @@
-const productVersion = "0.48.0";
+const productVersion = "0.49.0";
 
 const guidance = {
   "controller.database": {

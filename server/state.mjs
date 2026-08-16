@@ -131,6 +131,19 @@ export function createStateStore({
       created_at TEXT NOT NULL,
       verified_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS application_recoveries (
+      id TEXT PRIMARY KEY,
+      backup_id TEXT NOT NULL REFERENCES backups(id),
+      application_id TEXT NOT NULL,
+      destination_type TEXT NOT NULL,
+      state_path TEXT NOT NULL UNIQUE,
+      evidence_path TEXT NOT NULL UNIQUE,
+      size_bytes INTEGER NOT NULL,
+      state TEXT NOT NULL,
+      network TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS controller_backup_protections (
       id TEXT PRIMARY KEY,
       backup_id TEXT NOT NULL UNIQUE REFERENCES backups(id),
@@ -379,6 +392,7 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_vm_exports_created_at ON vm_exports(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_vm_backups_created_at ON vm_backups(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_vm_recoveries_created_at ON vm_recoveries(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_application_recoveries_created_at ON application_recoveries(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_vm_retention_runs_created_at ON vm_retention_runs(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_migration_sources_imported_at ON migration_sources(imported_at DESC);
     CREATE INDEX IF NOT EXISTS idx_migration_transfers_created_at ON migration_transfers(created_at DESC);
@@ -637,6 +651,66 @@ export function createStateStore({
       createdAt: row.created_at,
       verifiedAt: row.verified_at,
     }));
+  }
+
+  function getBackup(id) {
+    const row = database.prepare("SELECT * FROM backups WHERE id = ?").get(id);
+    return row ? {
+      id: row.id,
+      applicationId: row.application_id,
+      destination: row.destination_type,
+      artifactPath: row.artifact_path,
+      checksumSha256: row.checksum_sha256,
+      sizeBytes: Number(row.size_bytes),
+      downtimeMs: Number(row.downtime_ms),
+      restoreDrill: parseJson(row.restore_drill_json),
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+      verifiedAt: row.verified_at,
+    } : null;
+  }
+
+  function mapApplicationRecovery(row) {
+    return row ? {
+      id: row.id,
+      backupId: row.backup_id,
+      applicationId: row.application_id,
+      destination: row.destination_type,
+      statePath: row.state_path,
+      evidencePath: row.evidence_path,
+      sizeBytes: Number(row.size_bytes),
+      state: row.state,
+      network: row.network,
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+    } : null;
+  }
+
+  function recordApplicationRecovery({ id, backupId, applicationId, destination, statePath, evidencePath, sizeBytes, state, network, createdBy }) {
+    const at = timestamp();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.prepare(`
+        INSERT INTO application_recoveries (id, backup_id, application_id, destination_type, state_path, evidence_path, size_bytes, state, network, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, backupId, applicationId, destination, statePath, evidencePath, sizeBytes, state, network, createdBy, at);
+      recordAudit("application.recovery.created", { actorId: createdBy, subjectId: id, details: { backupId, applicationId, destination, sizeBytes, state, network } });
+      const recovery = getApplicationRecovery(id);
+      database.exec("COMMIT");
+      return recovery;
+    } catch (error) {
+      try { database.exec("ROLLBACK"); } catch { /* Preserve the original record error. */ }
+      throw error;
+    }
+  }
+
+  function getApplicationRecovery(id) {
+    return mapApplicationRecovery(database.prepare("SELECT * FROM application_recoveries WHERE id = ?").get(id));
+  }
+
+  function listApplicationRecoveries(limit = 50) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    return database.prepare("SELECT * FROM application_recoveries ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapApplicationRecovery);
   }
 
   function recordApplicationBackupProtection({ id, backupId, applicationId, destination, repositoryId, snapshotId, sizeBytes, encrypted, independent, repositoryVerified, protected: protectedState, restoreDrill, createdBy }) {
@@ -1433,7 +1507,11 @@ export function createStateStore({
     listJobs,
     listActiveJobs,
     recordBackup,
+    getBackup,
     listBackups,
+    recordApplicationRecovery,
+    getApplicationRecovery,
+    listApplicationRecoveries,
     recordApplicationBackupProtection,
     getApplicationBackupProtection,
     getApplicationBackupProtectionByBackup,

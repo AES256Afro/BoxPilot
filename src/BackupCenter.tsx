@@ -125,6 +125,36 @@ type BackupPlan = {
   };
 };
 
+type KeelRecoveryRecord = {
+  id: string;
+  backupId: string;
+  applicationId: "keel";
+  destination: "managed-keel-recovery";
+  statePath: string;
+  evidencePath: string;
+  sizeBytes: number;
+  state: "stopped";
+  network: "none";
+  createdAt: string;
+};
+
+type KeelRecoveryPlan = {
+  id: string;
+  revision: string;
+  subjectId: string;
+  output: {
+    executable: boolean;
+    destination: "managed-keel-recovery";
+    initialState: "stopped";
+    network: "none";
+    blockers: string[];
+    changes: string[];
+    verification: string[];
+    warnings: string[];
+    recovery: string;
+  };
+};
+
 async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, options);
   const body = await response.json() as T & { error?: string };
@@ -151,6 +181,8 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
   const [applicationProtectionPlan, setApplicationProtectionPlan] = useState<ControllerProtectionPlan | null>(null);
   const [controllerRetention, setControllerRetention] = useState<ControllerRetentionStatus | null>(null);
   const [retentionPlan, setRetentionPlan] = useState<ControllerRetentionPlan | null>(null);
+  const [keelRecoveries, setKeelRecoveries] = useState<KeelRecoveryRecord[]>([]);
+  const [keelRecoveryPlan, setKeelRecoveryPlan] = useState<KeelRecoveryPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -158,11 +190,12 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [body, protection, applicationProtection, retention] = await Promise.all([
+      const [body, protection, applicationProtection, retention, recovery] = await Promise.all([
         requestJson<{ coverage: Coverage[]; backups: BackupRecord[]; limitations: string[] }>("/api/v1/backups"),
         requestJson<{ destination: ControllerDestination; protections: ControllerProtectionRecord[] }>("/api/v1/controller-backup-protection"),
         requestJson<{ destination: ApplicationDestination; protections: ApplicationProtectionRecord[] }>("/api/v1/application-backup-protection"),
         requestJson<ControllerRetentionStatus>("/api/v1/controller-backup-retention"),
+        requestJson<{ recoveries: KeelRecoveryRecord[] }>("/api/v1/keel-recoveries").catch(() => ({ recoveries: [] })),
       ]);
       setCoverage(body.coverage ?? []);
       setBackups(body.backups ?? []);
@@ -172,6 +205,7 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
       setApplicationDestination(applicationProtection.destination);
       setApplicationProtections(applicationProtection.protections ?? []);
       setControllerRetention(retention);
+      setKeelRecoveries(recovery.recoveries ?? []);
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Backup inventory is unavailable");
@@ -322,6 +356,41 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
     }
   };
 
+  const createKeelRecoveryPlan = async (backupId: string) => {
+    setPending(true);
+    try {
+      const body = await requestJson<{ plan: KeelRecoveryPlan }>(`/api/v1/application-backups/${backupId}/keel-recovery-plans`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: "{}",
+      });
+      setKeelRecoveryPlan(body.plan);
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Keel recovery planning failed");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const stageKeelRecovery = async () => {
+    if (!keelRecoveryPlan) return;
+    setPending(true);
+    try {
+      await requestJson(`/api/v1/keel-recovery-plans/${keelRecoveryPlan.id}/stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ revision: keelRecoveryPlan.revision }),
+      });
+      setKeelRecoveryPlan(null);
+      onOpenRepair();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Keel recovery staging failed");
+    } finally {
+      setPending(false);
+    }
+  };
+
   const verifiedCount = coverage.filter((entry) => entry.latestBackup?.restoreDrill?.passed).length;
   const protectedCount = coverage.filter((entry) => entry.protected).length;
   const plannedSource = coverage.find((entry) => entry.applicationId === plan?.subjectId);
@@ -380,6 +449,16 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
         {applicationDestination?.ready ? <p className="good-text">Mounted at {applicationDestination.mount?.target} on {applicationDestination.mount?.sourceType ?? "independent storage"}. Full repository reads and exact byte-for-byte archive restores are required.</p> : <div className="vm-plan-warnings"><strong>Fail-closed setup</strong>{applicationDestination?.blockers.map((blocker) => <span key={blocker}>{blocker}</span>)}<span>Run from the Bigbox terminal after mounting independent storage: <code>{applicationDestination?.setupCommand ?? "sudo /opt/boxpilot/scripts/boxpilot-application-restic-setup.sh"}</code></span><span>Keep this recovery password separate from the controller and VM repository passwords.</span></div>}
       </section>
 
+      <section className="panel backup-plan-card" aria-label="Keel recovery clones">
+        <div className="section-heading"><div><span className="eyebrow">Application recovery</span><h3>Stopped Keel recovery clones</h3></div><span className={`status-pill ${keelRecoveries.length ? "status-good" : "status-warning"}`}>{keelRecoveries.length} clone(s)</span></div>
+        <p>Materialize a verified Keel backup as a new root-only recovery state without replacing production, starting an application, or attaching a network.</p>
+        <div className="backup-plan-columns">
+          <div><strong>Eligible local backups</strong>{backups.filter((backup) => backup.applicationId === "keel" && backup.restoreDrill.passed).length ? <ul>{backups.filter((backup) => backup.applicationId === "keel" && backup.restoreDrill.passed).map((backup) => <li key={backup.id}><button className="text-button" type="button" disabled={pending} onClick={() => void createKeelRecoveryPlan(backup.id)}>Plan stopped clone from {new Date(backup.createdAt).toLocaleString()}</button></li>)}</ul> : <p>No restore-verified Keel backup is available.</p>}</div>
+          <div><strong>Published recovery evidence</strong>{keelRecoveries.length ? <ul>{keelRecoveries.map((recovery) => <li key={recovery.id}><details><summary className="good-text">Stopped, no network, {formatBytes(recovery.sizeBytes)}</summary><small>State path</small><code className="backup-evidence-value">{recovery.statePath}</code><small>Source backup</small><code className="backup-evidence-value">{recovery.backupId}</code></details></li>)}</ul> : <p>No stopped clone has been published.</p>}</div>
+        </div>
+        <div className="notice warning-notice"><strong>Promotion is separate</strong><span>This workflow cannot write to <code>/var/lib/keel</code>. Starting, testing, or promoting a clone requires a later guarded plan.</span></div>
+      </section>
+
       <section className="panel backup-plan-card" aria-label="Controller retention">
         <div className="section-heading"><div><span className="eyebrow">Independent controller lifecycle</span><h3>Fixed evidence-gated retention</h3></div><span className={`status-pill ${controllerRetention?.executable ? "status-good" : "status-warning"}`}>{controllerRetention?.executable ? `${controllerRetention.candidates.length} eligible` : "no eligible batch"}</span></div>
         <p>BoxPilot keeps at least {controllerRetention?.policy?.minimumCopies ?? 3} retained protected snapshots, keeps every snapshot younger than {controllerRetention?.policy?.minimumAgeDays ?? 30} days, and never runs restic prune.</p>
@@ -413,6 +492,15 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
           {retentionPlan.output.candidates.map((candidate) => <div className="notice" key={candidate.protectionId}><strong>{candidate.ageDays} days old</strong><span>Snapshot <code>{candidate.snapshotId}</code> from controller backup <code>{candidate.backupId}</code></span></div>)}
           {retentionPlan.output.blockers.map((blocker) => <div className="notice warning-notice" key={blocker}><strong>Retention blocker</strong><span>{blocker}</span></div>)}
           <footer className="modal-actions"><button className="text-button" type="button" onClick={() => setRetentionPlan(null)}>Discard plan</button><button className="primary-button" type="button" disabled={!retentionPlan.output.executable || pending} onClick={() => void stageRetention()}>Stage exact retention batch</button></footer>
+        </section>
+      )}
+
+      {keelRecoveryPlan && (
+        <section className="panel backup-plan-card" aria-label="Keel recovery plan">
+          <div className="section-heading"><div><span className="eyebrow">Immutable recovery plan {keelRecoveryPlan.revision}</span><h3>{keelRecoveryPlan.output.executable ? "Stopped clone ready for approval" : "Keel recovery is blocked"}</h3></div><span className={`status-pill ${keelRecoveryPlan.output.executable ? "status-good" : "status-warning"}`}>high risk</span></div>
+          <div className="backup-plan-columns"><div><strong>Exact workflow</strong><ol>{keelRecoveryPlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol><strong>Required evidence</strong><ol>{keelRecoveryPlan.output.verification.map((check) => <li key={check}>{check}</li>)}</ol></div><div><strong>Warnings and recovery</strong><ul>{keelRecoveryPlan.output.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><p>{keelRecoveryPlan.output.recovery}</p></div></div>
+          {keelRecoveryPlan.output.blockers.map((blocker) => <div className="notice warning-notice" key={blocker}><strong>Recovery blocker</strong><span>{blocker}</span></div>)}
+          <footer className="modal-actions"><button className="text-button" type="button" onClick={() => setKeelRecoveryPlan(null)}>Discard plan</button><button className="primary-button" type="button" disabled={!keelRecoveryPlan.output.executable || pending} onClick={() => void stageKeelRecovery()}>Stage stopped recovery clone</button></footer>
         </section>
       )}
 

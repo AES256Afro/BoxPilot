@@ -139,4 +139,30 @@ describe("Backup Center", () => {
     fireEvent.click(screen.getByRole("button", { name: "Stage independent protection" }));
     await waitFor(() => expect(onOpenRepair).toHaveBeenCalled());
   });
+
+  it("plans and stages a stopped no-network Keel recovery clone", async () => {
+    const onOpenRepair = vi.fn();
+    const backupId = "11111111-1111-4111-8111-111111111111";
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/backups") return new Response(JSON.stringify({
+        coverage: [{ applicationId: "keel", name: "Keel Notes", sourceKind: "application-state", source: { installed: true, healthy: true, state: "installed", detail: "Healthy" }, state: "locally-verified", protected: false, latestBackup: { id: backupId, restoreDrill: { passed: true } }, latestProtection: null, requirement: "Isolated SQLite-open restore" }],
+        backups: [{ id: backupId, applicationId: "keel", destination: "local-managed", artifactPath: `/fixed/${backupId}.tar.gz`, checksumSha256: "a".repeat(64), sizeBytes: 8192, downtimeMs: 20, restoreDrill: { passed: true, mode: "isolated-keel-export-open", network: "none", publishedPorts: 0, manifestChecksumSha256: "b".repeat(64) }, createdAt: "2026-08-16T00:00:00.000Z", verifiedAt: "2026-08-16T00:00:01.000Z" }], limitations: [],
+      }), { status: 200 });
+      if (url === "/api/v1/controller-backup-protection") return new Response(JSON.stringify({ destination: { ready: false, blockers: [], setupCommand: "sudo setup" }, protections: [] }), { status: 200 });
+      if (url === "/api/v1/application-backup-protection") return new Response(JSON.stringify(blockedApplicationProtection), { status: 200 });
+      if (url === "/api/v1/controller-backup-retention") return new Response(JSON.stringify(blockedRetention), { status: 200 });
+      if (url === "/api/v1/keel-recoveries" && !init?.method) return new Response(JSON.stringify({ recoveries: [] }), { status: 200 });
+      if (url === `/api/v1/application-backups/${backupId}/keel-recovery-plans` && init?.method === "POST") return new Response(JSON.stringify({ plan: { id: "recovery-plan", revision: "recovery-revision", subjectId: backupId, output: { executable: true, destination: "managed-keel-recovery", initialState: "stopped", network: "none", blockers: [], changes: ["Rehash exact archive"], verification: ["SQLite integrity and schema"], warnings: ["Promotion is separate"], recovery: "Remove only the generated partial before publication" } } }), { status: 201 });
+      if (url === "/api/v1/keel-recovery-plans/recovery-plan/stage" && init?.method === "POST") return new Response(JSON.stringify({ job: { id: "recovery-job" } }), { status: 201 });
+      return new Response("{}", { status: 404 });
+    }));
+    render(<BackupCenter csrfToken="csrf" onOpenRepair={onOpenRepair} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Plan stopped clone from/ }));
+    expect(await screen.findByRole("region", { name: "Keel recovery plan" })).toBeTruthy();
+    expect(screen.getByText("SQLite integrity and schema")).toBeTruthy();
+    expect(screen.getAllByText("Promotion is separate").length).toBeGreaterThanOrEqual(1);
+    fireEvent.click(screen.getByRole("button", { name: "Stage stopped recovery clone" }));
+    await waitFor(() => expect(onOpenRepair).toHaveBeenCalled());
+  });
 });
