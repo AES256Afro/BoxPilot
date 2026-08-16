@@ -131,4 +131,30 @@ describe("Repair Center", () => {
     fireEvent.click(screen.getByRole("button", { name: "Stage metadata refresh for password approval" }));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/prerequisite-repair-plans/apt-plan/stage", expect.objectContaining({ method: "POST" })));
   });
+
+  it("reviews and stages only the immutable restic package repair", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/operations/prerequisites") return new Response(JSON.stringify({ checks: [{ id: "backup.restic", group: "Backups", name: "Restic encryption engine", status: "repairable", summary: "Configured APT metadata offers restic 0.18.1-1", repair: { kind: "approved", description: "Review the exact restic repair" } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/v1/prerequisite-repairs/restic/plans") {
+        expect(init).toMatchObject({ method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": "csrf-token" }, body: "{}" });
+        return new Response(JSON.stringify({ plan: { id: "restic-plan", revision: "restic-revision", expiresAt: "2026-08-16T13:00:00.000Z", output: { package: "restic", selectedVersion: "0.18.1-1", currentState: "Not installed", action: "Install only restic and verify its fixed binary", networkAccess: true, aptUpdatePerformed: false, arbitraryPackageSelection: false, automaticRollback: false, storageSetupPerformed: false, recovery: "Inspect APT and dpkg before retrying." } } }), { status: 201, headers: { "Content-Type": "application/json" } });
+      }
+      if (url === "/api/v1/prerequisite-repair-plans/restic-plan/stage") {
+        expect(init).toMatchObject({ method: "POST", body: JSON.stringify({ revision: "restic-revision" }) });
+        return new Response(JSON.stringify({ job: { id: "restic-job" } }), { status: 201, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("action-center")) return new Response(JSON.stringify({ error: "unavailable" }), { status: 503, headers: { "Content-Type": "application/json" } });
+      if (url.includes("recovery-kit")) return new Response(JSON.stringify({ error: "unavailable" }), { status: 503, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ jobs: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RepairCenter csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review restic repair" }));
+    expect(await screen.findByText("restic 0.18.1-1")).toBeTruthy();
+    expect(screen.getByText("Separate terminal step")).toBeTruthy();
+    expect(screen.getByText(/Installation does not mount a disk, create a recovery key, initialize a repository, or start a backup/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage exact repair for password approval" }));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/prerequisite-repair-plans/restic-plan/stage", expect.objectContaining({ method: "POST" })));
+  });
 });

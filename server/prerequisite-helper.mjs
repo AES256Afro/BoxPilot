@@ -9,6 +9,7 @@ const defaultAptCache = "/usr/bin/apt-cache";
 const defaultSystemctl = "/usr/bin/systemctl";
 const defaultEvidencePath = "/var/lib/boxpilot/storage-health.json";
 const defaultApprovalPath = "/run/boxpilot/smartmontools-approval.json";
+const defaultResticApprovalPath = "/run/boxpilot/restic-approval.json";
 const defaultAptApprovalPath = "/run/boxpilot/apt-refresh-approval.json";
 const versionPattern = /^[0-9A-Za-z.+:~_-]{1,64}$/;
 
@@ -47,6 +48,18 @@ async function writeApprovalFile(approval) {
   await writeFile(defaultApprovalPath, `${JSON.stringify(approval)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
 }
 
+async function clearResticApprovalFile() {
+  try {
+    await unlink(defaultResticApprovalPath);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+}
+
+async function writeResticApprovalFile(approval) {
+  await writeFile(defaultResticApprovalPath, `${JSON.stringify(approval)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+}
+
 async function clearAptApprovalFile() {
   try {
     await unlink(defaultAptApprovalPath);
@@ -68,6 +81,8 @@ export function createPrerequisiteHelper({
   systemctlBinary = defaultSystemctl,
   clearApproval = clearApprovalFile,
   writeApproval = writeApprovalFile,
+  clearResticApproval = clearResticApprovalFile,
+  writeResticApproval = writeResticApprovalFile,
   maintenance = createMaintenanceService(),
   clearAptApproval = clearAptApprovalFile,
   writeAptApproval = writeAptApprovalFile,
@@ -127,6 +142,63 @@ export function createPrerequisiteHelper({
     };
   }
 
+  async function inspectRestic() {
+    const [installedResult, policyResult] = await Promise.all([
+      run(dpkgQueryBinary, ["--show", "--showformat=${Status}\\t${Version}", "restic"], { timeout: 10000 }),
+      run(aptCacheBinary, ["policy", "restic"], { timeout: 10000 }),
+    ]);
+    const installed = installedResult.ok ? installedVersion(installedResult.stdout) : null;
+    const candidate = policyResult.ok ? candidateVersion(policyResult.stdout) : null;
+    const selected = installed ?? candidate;
+    return {
+      package: "restic",
+      installed: installed !== null,
+      installedVersion: installed,
+      candidateVersion: candidate,
+      selectedVersion: selected,
+      supported: selected !== null,
+      repairAvailable: installed === null && candidate !== null,
+      source: candidate ? "configured-apt-candidate" : installed ? "installed-package-database" : "unavailable",
+      mutationPerformed: false,
+      arbitraryPackageAccepted: false,
+    };
+  }
+
+  async function installRestic({ expectedVersion }) {
+    if (!versionPattern.test(String(expectedVersion ?? ""))) throw new Error("The expected restic version is invalid");
+    const before = await inspectRestic();
+    if (!before.supported || before.selectedVersion !== expectedVersion) throw new Error("Host state changed: the fixed restic candidate no longer matches the approved plan");
+    if (!before.installed) {
+      await clearResticApproval();
+      await writeResticApproval({ expectedVersion, approvedAt: now().toISOString() });
+      let start;
+      try {
+        start = await run(systemctlBinary, ["start", "boxpilot-restic-install.service"], { timeout: 15 * 60 * 1000 });
+      } finally {
+        await clearResticApproval();
+      }
+      if (!start.ok) throw new Error("The fixed restic installation service failed");
+    }
+    const after = await inspectRestic();
+    if (!after.installed || after.installedVersion !== expectedVersion) throw new Error("restic did not match the approved version after installation");
+    const binary = await run("/usr/bin/restic", ["version"], { timeout: 10000 });
+    if (!binary.ok || !/^restic\s+\S+/i.test(binary.stdout)) throw new Error("The installed restic binary did not pass its fixed version probe");
+    return {
+      package: "restic",
+      installed: true,
+      version: after.installedVersion,
+      packageChanged: !before.installed,
+      binaryVerified: true,
+      next: {
+        mountConfigured: false,
+        recoveryKeyCreated: false,
+        repositoryInitialized: false,
+        automaticSetupPerformed: false,
+      },
+      boundary: { fixedPackage: true, arbitraryPackageAccepted: false, aptUpdatePerformed: false, packageUpgradePerformed: false, packageRemovalPerformed: false, mountChanged: false, passwordCreated: false, repositoryInitialized: false, browserCommandAccepted: false },
+    };
+  }
+
   async function inspectAptMetadata() {
     const evidence = await maintenance.inspect();
     const packageManagerState = evidence.packageManager.state;
@@ -177,7 +249,7 @@ export function createPrerequisiteHelper({
     };
   }
 
-  return { inspectSmartmontools, installSmartmontools, inspectAptMetadata, refreshAptMetadata };
+  return { inspectSmartmontools, installSmartmontools, inspectRestic, installRestic, inspectAptMetadata, refreshAptMetadata };
 }
 
-export const prerequisiteHelperInternals = { candidateVersion, cleanVersion, defaultAptCache, defaultAptApprovalPath, defaultApprovalPath, defaultDpkgQuery, defaultEvidencePath, defaultSystemctl, installedVersion, versionPattern };
+export const prerequisiteHelperInternals = { candidateVersion, cleanVersion, defaultAptCache, defaultAptApprovalPath, defaultApprovalPath, defaultResticApprovalPath, defaultDpkgQuery, defaultEvidencePath, defaultSystemctl, installedVersion, versionPattern };

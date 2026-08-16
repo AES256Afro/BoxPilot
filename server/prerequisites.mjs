@@ -82,6 +82,27 @@ export function createPrerequisiteService({ stateDirectory, helper, runCommand =
         : { kind: "manual", description: "Repair configured Ubuntu APT metadata before creating an installation plan" },
     ));
 
+    let restic = null;
+    try {
+      restic = await helper.request("prerequisite.restic.inspect", {});
+    } catch {
+      restic = null;
+    }
+    checks.push(check(
+      "backup.restic",
+      "Backups",
+      "Restic encryption engine",
+      restic?.installed ? "ready" : restic?.repairAvailable ? "repairable" : "missing",
+      restic?.installed
+        ? `restic package ${restic.installedVersion} is installed for fixed independent backup repositories`
+        : restic?.repairAvailable
+          ? `Configured APT metadata offers the fixed restic ${restic.candidateVersion} candidate`
+          : "restic is not installed and no fixed configured APT candidate was verified",
+      restic?.installed ? null : restic?.repairAvailable
+        ? { kind: "approved", description: "Review an exact-version durable plan, reauthenticate, install only restic, and verify its fixed binary" }
+        : { kind: "manual", description: "Repair configured Ubuntu APT metadata before creating a restic installation plan" },
+    ));
+
     let aptMetadata = null;
     try {
       aptMetadata = await helper.request("prerequisite.apt-metadata.inspect", {});

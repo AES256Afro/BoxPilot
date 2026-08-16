@@ -1,6 +1,6 @@
 # Exact prerequisite repair boundary
 
-BoxPilot `0.31.0` enables one narrowly scoped executable prerequisite repair: install the fixed Ubuntu `smartmontools` package and verify that the separate storage evidence scanner produces current evidence. Version `0.35.0` adds a separate metadata-only repair that runs the fixed configured-repository refresh without changing installed packages. Neither workflow is a general package manager.
+BoxPilot `0.31.0` enables one narrowly scoped executable prerequisite repair: install the fixed Ubuntu `smartmontools` package and verify that the separate storage evidence scanner produces current evidence. Version `0.35.0` adds a separate metadata-only repair that runs the fixed configured-repository refresh without changing installed packages. Version `0.45.0` adds a second fixed package repair for the `restic` binary used by BoxPilot's separately configured encrypted repositories. None of these workflows is a general package manager.
 
 ## Operator workflow
 
@@ -13,6 +13,8 @@ BoxPilot `0.31.0` enables one narrowly scoped executable prerequisite repair: in
 7. The helper starts only `boxpilot-smartmontools-install.service` when the package is absent. If it is already installed, the helper skips APT and starts only the fixed scanner.
 8. The job completes only after the exact version is installed and fresh bounded storage evidence exists.
 
+The restic workflow follows the same plan, stage, and reauthentication sequence through **Review restic repair**. Its verification requires the exact package version and a successful fixed `/usr/bin/restic version` probe. It deliberately stops there. Independent storage mounting, recovery-key creation, repository initialization, backup execution, restore drills, retention, and prune are not part of this repair.
+
 ## Fixed package unit
 
 The static unit accepts no arguments and runs one repository-owned installer:
@@ -24,6 +26,18 @@ ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-smartmontools-insta
 It is not enabled at boot and has no template instance, environment-supplied package, shell, `%i`, positional argument, repository input, or package-selection field. The helper first rechecks the reviewed version and writes a root-only, short-lived approval marker. The no-argument installer independently rechecks that the configured candidate still matches, pins APT to `smartmontools=<approved-version>`, verifies dpkg state, and starts only the fixed scanner. The helper removes the marker after the unit returns. A negative `ConditionPathExists` prevents the unit from running APT when `/usr/sbin/smartctl` already exists. Network access exists only in this separate oneshot because APT may need to download the already resolved configured candidate. The main helper keeps `PrivateNetwork=true`.
 
 The unit deliberately does not run `apt-get update`. BoxPilot uses currently configured package metadata. If no candidate exists, the plan fails closed and asks the administrator to repair APT metadata from the server console.
+
+## Fixed restic package unit
+
+The `0.45.0` unit is separate from the smartmontools installer and also accepts no arguments:
+
+```ini
+ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-restic-install.mjs
+```
+
+The helper resolves only the hard-coded `restic` package, captures the exact configured candidate, and writes `/run/boxpilot/restic-approval.json` as a short-lived root-only marker. The static installer independently rechecks that marker and candidate, pins APT to `restic=<approved-version>`, verifies the dpkg record, and runs only `/usr/bin/restic version`. `ConditionPathExists=!/usr/bin/restic` prevents the package unit from running once the binary exists; an already installed approved version is verified directly without APT.
+
+The unit has no repository path, password, mount, command, argument, remote, backup, restore, retention, or prune input. It never invokes `restic init`, `restic backup`, `restic restore`, `restic forget`, or `restic prune`. Installing the binary does not make any BoxPilot destination ready and does not satisfy the independent-filesystem or separately retained recovery-key gates.
 
 ## Fixed APT metadata refresh
 
@@ -43,20 +57,24 @@ The browser can submit only an empty plan request and later the immutable revisi
 
 - `prerequisite.smartmontools.inspect` with no parameters
 - `prerequisite.smartmontools.install` with one bounded `expectedVersion`
+- `prerequisite.restic.inspect` with no parameters
+- `prerequisite.restic.install` with one bounded `expectedVersion`
 - `prerequisite.apt-metadata.inspect` with no parameters
 - `prerequisite.apt-metadata.refresh` with one exact previous `expectedUpdatedAt` value
 
-The expected version is immutable approval evidence, not a package-name selector. The helper independently inspects the only fixed package, rejects a changed candidate, and creates the short-lived marker. The fixed installer rejects a stale marker or changed metadata before mutation, then uses the approved value only to pin the hard-coded `smartmontools` package. No browser value becomes an APT option, command, repository, or package name.
+The expected version is immutable approval evidence, not a package-name selector. The helper independently inspects the separately named fixed package, rejects a changed candidate, and creates the matching short-lived marker. Each fixed installer rejects a stale marker or changed metadata before mutation, then uses the approved value only to pin its one hard-coded package. No browser value becomes an APT option, command, repository, or package name.
 
 The job records preflight, checkpoint, approval, apply, verify, result, failure, and actor attribution in the existing SQLite Operations Core. Interrupted applying or verifying jobs fail closed after restart.
 
 ## Recovery boundary
 
-BoxPilot does not automatically remove `smartmontools`. Package removal is not a safe inverse because an administrator or another service may have begun relying on the package. If the unit fails:
+BoxPilot does not automatically remove `smartmontools` or `restic`. Package removal is not a safe inverse because an administrator or another service may have begun relying on the package. If a unit fails:
 
 ```bash
 sudo systemctl status boxpilot-smartmontools-install.service boxpilot-storage-scan.service --no-pager
 sudo journalctl -u boxpilot-smartmontools-install.service -u boxpilot-storage-scan.service -n 100 --no-pager
+sudo systemctl status boxpilot-restic-install.service --no-pager
+sudo journalctl -u boxpilot-restic-install.service -n 100 --no-pager
 sudo dpkg --audit
 sudo apt-get check
 ```
@@ -65,12 +83,13 @@ Repair interrupted dpkg or APT state from the server console before creating a n
 
 ## Explicit exclusions
 
-Version `0.35.0` cannot:
+Version `0.45.0` cannot:
 
-- Install, update, downgrade, hold, or remove any other package
+- Install, update, downgrade, hold, or remove any package other than the separately approved exact `smartmontools` or `restic` candidate
 - Select a package name, repository, mirror, key, package file, option, command, or argument from the browser
 - Run any APT action except the separately approved fixed metadata-only `apt-get update --error-on=any`; it cannot run upgrade, dist-upgrade, install, remove, purge, autoremove, download, source, or repository-management operations
 - Change a disk, partition, filesystem, mount, SMART setting, router, DNS setting, firewall, Tailscale setting, or reboot state
+- Create or read a restic recovery password, initialize or select a repository, start a backup or restore, change retention, prune data, or claim independent protection
 - Automatically approve, schedule, retry, roll back, or hide a failed package operation
 - Turn missing or stale scanner evidence into a healthy claim
 

@@ -136,7 +136,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.44.0",
+    version: "0.45.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -207,7 +207,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     backups: "wal-aware-controller-local-restore-plus-encrypted-independent-restic-copy-and-exact-database-restore-proof-application-local-restore-drills-and-vm-protection",
     migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
     network: "read-only-topology-approved-fixed-pi-hole-and-observed-gateway-direct-dns-acceptance-plus-signed-second-device-evidence",
-    privilegedHelper: "typed-canary-exact-smartmontools-repair-fixed-apt-metadata-refresh-controller-local-backup-independent-restic-protection-curated-applications-fixed-keel-artifact-and-read-only-archive-inspection-migration-inventory-logs-and-vm-workflows",
+    privilegedHelper: "typed-canary-exact-smartmontools-and-restic-repairs-fixed-apt-metadata-refresh-controller-local-backup-independent-restic-protection-curated-applications-fixed-keel-artifact-and-read-only-archive-inspection-migration-inventory-logs-and-vm-workflows",
     identity: "owner-password-foundation",
     durableJobs: "sqlite-approved-prerequisite-controller-local-backup-controller-independent-protection-application-backup-keel-artifact-dns-migration-and-vm-workflows",
     virtualization: "live-libvirt-via-restricted-helper",
@@ -228,7 +228,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     filesystemErrors: { ext4: "mounted-kernel-errors-count-read-only", unsupportedFilesystems: "explicit", filesystemCheck: false, repair: false },
     upsEvidence: { source: "fixed-upsc-localhost-only", devices: "single-locally-enumerated", powerCommands: false, shutdownPolicyMutation: false, remoteTargets: false },
     maintenanceEvidence: { source: "fixed-local-systemd-reboot-dpkg-apt-and-unattended-upgrades-state", namesIncluded: false, aptOperations: "fixed-approved-metadata-update-only", serviceControl: false, reboot: false },
-    prerequisiteRepairs: { smartmontools: "exact-version-durable-approved-fixed-package-service", aptMetadata: "durable-approved-static-update-only-service", arbitraryPackages: false, packageInstall: "smartmontools-only", packageUpgrade: false, packageRemoval: false, browserCommands: false, automaticRemoval: false },
+    prerequisiteRepairs: { smartmontools: "exact-version-durable-approved-fixed-package-service", restic: "exact-version-durable-approved-fixed-package-service-without-repository-setup", aptMetadata: "durable-approved-static-update-only-service", arbitraryPackages: false, packageInstall: "smartmontools-or-restic-only", packageUpgrade: false, packageRemoval: false, browserCommands: false, automaticRemoval: false, repositorySetup: false },
   });
 });
 
@@ -283,6 +283,15 @@ app.post("/api/v1/prerequisite-repairs/smartmontools/plans", async (request, res
     response.status(201).json({ plan });
   } catch (error) {
     response.status(409).json({ error: error.message, code: "smartmontools_repair_plan_failed" });
+  }
+});
+
+app.post("/api/v1/prerequisite-repairs/restic/plans", async (request, response) => {
+  try {
+    const plan = await prerequisiteRepairs.planRestic(request.boxpilotSession.owner.id, request.body);
+    response.status(201).json({ plan });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "restic_repair_plan_failed" });
   }
 });
 
@@ -633,7 +642,7 @@ app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = ["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.pi-hole.deploy", "application.keel.artifact.acquire", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
+    const background = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh", "application.pi-hole.deploy", "application.keel.artifact.acquire", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, request.body?.password)
       : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
@@ -894,7 +903,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.44.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.45.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });
