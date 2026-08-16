@@ -1,6 +1,6 @@
 # Verified application backups
 
-BoxPilot provides deliberately narrow recovery-evidence paths: the `0.38.0` WAL-aware controller database snapshot, `0.39.0` encrypted independent exact-restore stage, and `0.40.0` fixed evidence-gated retention; the restore-verified local Uptime Kuma and Pi-hole adapters plus their `0.44.0` encrypted independent exact-archive restore stage; the `0.48.0` consistent Keel export, guaranteed source restart, and isolated SQLite-open drill using that same independent application protection stage; and the VM export, encrypted independent-copy, isolated restore-drill, guarded recovery-clone, and evidence-gated retention chain completed through `0.16.0`. It does not report a workload as protected merely because a file was copied.
+BoxPilot provides deliberately narrow recovery-evidence paths: the `0.38.0` WAL-aware controller database snapshot, `0.39.0` encrypted independent exact-restore stage, and `0.40.0` fixed evidence-gated retention; the restore-verified local Uptime Kuma and Pi-hole adapters plus their `0.44.0` encrypted independent exact-archive restore stage; the `0.48.0` consistent Keel export, guaranteed source restart, and isolated SQLite-open drill using that same independent application protection stage; the `0.49.0` stopped Keel recovery clone; and the VM export, encrypted independent-copy, isolated restore-drill, guarded recovery-clone, and evidence-gated retention chain completed through `0.16.0`. It does not report a workload as protected merely because a file was copied.
 
 ## Safety boundary
 
@@ -96,6 +96,22 @@ For one approved Keel backup, BoxPilot:
 The script and systemd unit both request source restart after failure. Helper startup can also recover a validated marker left by an interrupted request. It restarts only `keel.service` and removes only generated unrecorded backup paths after restart succeeds. It never deletes or replaces `/var/lib/keel`, changes claim or registration, exposes a listener, modifies Tailscale or a firewall, changes DNS or DHCP, or contacts a router.
 
 The archive may contain private notes, users, sessions, configuration, uploads, credentials, and the managed-secret companion. Keep it mode `0600` and treat it as highly sensitive. Local verification proves that the artifact can be opened and structurally recovered, but not that Bigbox storage failure is covered. Run the separate encrypted independent application protection workflow before marking it protected.
+
+### Stopped Keel recovery clone
+
+Version `0.49.0` can select only a durable local Keel backup whose isolated drill already passed. It creates a new immutable plan containing one server-generated recovery id, the backup id, exact archive and manifest SHA-256 digests, and exact archive size. No browser path, command, environment value, password, claim token, destination, network, or promotion choice is accepted.
+
+After separate staging and owner-password approval, the helper:
+
+1. Revalidates the root-owned mode-0600 source archive and result record, then rehashes the complete archive.
+2. Lists at most 100,000 members and requires every member to remain beneath the single `keel-export` root with no absolute path, parent traversal, backslash path, duplicate, or null byte.
+3. Extracts only beneath `/var/lib/boxpilot-managed/keel-recoveries/.<recovery-id>.partial` in the helper's private network namespace.
+4. Rejects links, special files, multiple hard links, changed top-level layout, invalid managed-secret shape, changed manifest, changed complete tree, or failed SQLite integrity, foreign-key, and required-schema checks.
+5. Copies the database, fixed environment, optional WAL companions, managed-secret companion, and uploads into a new live-layout `state` directory, then repeats tree and SQLite checks.
+6. Hardens every directory to root-owned mode `0700` and every file to mode `0600`, writes `recovery.json`, and atomically renames the partial directory to the recovery id.
+7. Records the clone in controller SQLite only after all evidence passes.
+
+The clone is data at rest. No Keel process is started, no port is bound, and no network is attached. `/var/lib/keel` and the source archive are never replaced, edited, renamed, or removed. Failure before publication removes only the generated partial directory. A published clone is preserved for explicit operator review. Promotion, application startup, login proof, deletion, and production restore are not part of this workflow.
 
 ## Encrypted independent application protection
 
