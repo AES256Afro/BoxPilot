@@ -2056,6 +2056,28 @@ textarea {
   gap: 14px;
 }
 
+.action-center { display: grid; gap: 14px; padding: 18px; }
+.action-center .panel-header > div:first-child { display: grid; gap: 3px; }
+.action-counts { display: flex; flex-wrap: wrap; gap: 6px; }
+.action-counts span { padding: 5px 8px; color: var(--muted-strong); background: #0a151e; border: 1px solid var(--line); border-radius: 999px; font-size: 7px; font-weight: 800; text-transform: uppercase; }
+.action-counts .action-critical { color: #f1b8b8; border-color: #704044; }
+.action-counts .action-warning { color: #e7cd8f; border-color: #66502e; }
+.action-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.action-card { display: grid; gap: 9px; padding: 13px; background: #09141d; border: 1px solid var(--line); border-left: 3px solid #526979; border-radius: 10px; }
+.action-card.action-critical { border-left-color: #d47777; }
+.action-card.action-warning { border-left-color: var(--amber); }
+.action-card.action-info { border-left-color: #66849a; }
+.action-card-heading { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+.action-card-heading > div { display: grid; gap: 3px; }
+.action-card-heading > div > span { color: var(--muted); font-size: 7px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.action-card-heading strong { font-size: 10px; }
+.action-card p, .action-card ol, .action-card footer, .action-evidence { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.5; }
+.action-evidence { display: grid; gap: 2px; padding: 8px 9px; background: #0c1923; border: 1px solid var(--line-soft); border-radius: 7px; }
+.action-evidence strong { color: var(--muted-strong); }
+.action-card ol { display: grid; gap: 3px; padding-left: 17px; }
+.action-card footer { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+.action-card footer > span { max-width: 58%; }
+
 .recovery-kit { display: grid; gap: 14px; padding: 18px; }
 .recovery-kit .panel-header > div { display: grid; gap: 3px; }
 .recovery-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
@@ -2709,6 +2731,12 @@ textarea {
   }
 
   .recovery-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .action-list { grid-template-columns: 1fr; }
+
+  .action-card footer { align-items: flex-start; flex-direction: column; }
+
+  .action-card footer > span { max-width: none; }
 
   .repair-check {
     grid-template-columns: 64px minmax(0, 1fr);

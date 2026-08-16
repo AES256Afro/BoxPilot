@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.28.0` adds a policy-visible one-shot window for the existing signed agent DNS proof. Every task requires owner-password reauthentication and accepts only one enrolled agent plus an exact immediate, 5-minute, or 10-minute delay. The database records the available and expiry times; signed polling returns nothing before the window. The resolver and four checks still derive from fresh controller evidence. Recurrence, unattended jobs, catch-up execution, arbitrary schedules, commands, targets, files, packages, plugins, router operations, and DNS cutover remain unavailable.
+Version `0.29.0` adds a fail-closed local Action Center over the existing secret-free recovery evidence. It maps only fixed recovery checks and failed-job counts into sanitized severity, explanation, manual steps, and fixed in-product destinations. It creates no database state and has no mutation, automatic repair, schedule, command, browser-notification, or external-delivery path.
 
 ## Target components
 
@@ -40,6 +40,7 @@ BoxPilot web and API process (unprivileged)
           +---- Secret-free recovery readiness and ordered runbook export (0.26.0)
           +---- Fixed-model router guidance and gateway-address correlation (0.27.0)
           +---- Owner-approved one-shot signed DNS proof windows (0.28.0)
+          +---- Read-only fail-closed local Action Center (0.29.0)
           |
           +<--- Ed25519 signed polling and fixed evidence from enrolled LAN agent
                   no remote shell, arbitrary command, arbitrary target, or private-key transfer
@@ -173,7 +174,7 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.28.0 limitations
+## Version 0.29.0 limitations
 
 - The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
@@ -187,6 +188,7 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Public GitHub provenance is held only in a 15-minute memory cache. GitHub-reported signature and asset-digest fields are not local verification. Tokens, private repositories, arbitrary repository paths, downloads, writes, webhooks, workflow dispatch, and installation are unavailable.
 - The Keel Notes adapter is planning-only. It does not discover an existing install, download or hash an asset, validate an archive locally, install Node or Keel, create a service account, write a unit, open a port, start a process, claim an owner, restrict registration, back up or restore data, or activate a migration.
 - The recovery kit is evidence and guidance, not a backup. It cannot prove an independent copy of the BoxPilot database, source archive, router configuration, restic password, application credential, or Tailscale account recovery path. Those remain explicit operator checks outside the controller failure domain.
+- The Action Center is a transient read-only projection of recovery evidence. It has fixed guidance and view navigation only. It cannot dismiss or persist notices, repair a condition, run a command, install a package, schedule work, request browser notifications, or deliver messages externally.
 - Only fixed Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune retention batches can execute mutations. Network assessments and router checkpoints cannot execute. Pi-hole direct DNS acceptance is an approved fixed read-only job in the unprivileged web process and never crosses the root helper. Signed agents can only repeat the four fixed Pi-hole checks from a separately enrolled device. Pi-hole router cutover, router discovery or writes, client DNS advertisement, DHCP, Tailscale changes, remote migration transport, staged-workload activation, firewall, package, storage administration, general Docker, general libvirt, console proxy, snapshot revert/delete, restic prune, configurable retention, in-place restore, recovery network attachment, and force-off operations remain unavailable.
 - A VM snapshot is never counted as an independent backup. The snapshot workflow rejects running guests, non-file disks, disks outside the managed image root, non-qcow2 disks, backing chains, symlinks, and changed inventory.
 - Uptime Kuma and Pi-hole application backups remain root-only local artifacts on Bigbox. Their isolated restore health checks are recovery evidence, not independent 3-2-1 protection. VM copies require an operator-provided independent mounted filesystem; no such destination is currently configured on Bigbox.
