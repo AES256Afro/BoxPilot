@@ -2,6 +2,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { chmod, copyFile, mkdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import net from "node:net";
 import path from "node:path";
 import { promisify } from "node:util";
 import { applicationInternals } from "./applications.mjs";
@@ -344,6 +345,239 @@ export function createApplicationHelper({
         detail: "Managed Pi-hole container was not found; router and client DNS are unchanged",
       };
     }
+  }
+
+  async function inspectPiholeLifecycle() {
+    try {
+      const result = await docker(["inspect", "--format", "{{json .}}", piholeContainerName], { timeout: 5000 });
+      const container = JSON.parse(result.stdout);
+      const state = container.State ?? {};
+      const portBindings = container.HostConfig?.PortBindings ?? {};
+      const binding = (containerPort) => {
+        const candidates = portBindings[containerPort] ?? [];
+        return Array.isArray(candidates) && candidates.length === 1 ? candidates[0] : null;
+      };
+      const dnsTcp = binding("53/tcp");
+      const dnsUdp = binding("53/udp");
+      const web = binding("80/tcp");
+      const lanAddress = dnsTcp?.HostIp === dnsUdp?.HostIp && dnsTcp?.HostIp === web?.HostIp && net.isIP(String(dnsTcp?.HostIp ?? "")) === 4
+        ? dnsTcp.HostIp
+        : null;
+      const dnsTcpBound = Boolean(lanAddress) && dnsTcp?.HostPort === "53";
+      const dnsUdpBound = Boolean(lanAddress) && dnsUdp?.HostPort === "53";
+      const webPort = Boolean(lanAddress) && /^\d{1,5}$/.test(String(web?.HostPort ?? "")) ? Number.parseInt(web.HostPort, 10) : null;
+      const privateLanAddress = Boolean(lanAddress) && (() => {
+        const [first, second] = lanAddress.split(".").map(Number);
+        return first === 10 || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168);
+      })();
+      const mounts = Array.isArray(container.Mounts) ? container.Mounts : [];
+      const exactDataMount = mounts.length === 1
+        && mounts[0]?.Type === "bind"
+        && path.resolve(mounts[0]?.Source ?? "/") === piholeDataDirectory
+        && mounts[0]?.Destination === "/etc/pihole"
+        && mounts[0]?.RW === true;
+      const labels = container.Config?.Labels ?? {};
+      const devices = Array.isArray(container.HostConfig?.Devices) ? container.HostConfig.Devices : [];
+      const capAdd = Array.isArray(container.HostConfig?.CapAdd)
+        ? container.HostConfig.CapAdd.map((capability) => String(capability).replace(/^CAP_/, "")).sort()
+        : [];
+      const capDrop = Array.isArray(container.HostConfig?.CapDrop) ? [...container.HostConfig.CapDrop].sort() : [];
+      const securityOptions = Array.isArray(container.HostConfig?.SecurityOpt) ? [...container.HostConfig.SecurityOpt].sort() : [];
+      const expectedCapabilities = [...piholeCapabilities].sort();
+      const dockerSocketMounted = mounts.some((mount) => mount?.Source === "/var/run/docker.sock" || mount?.Destination === "/var/run/docker.sock");
+      let dataDirectoryReady = false;
+      let secretFileReady = false;
+      let secretEvidence = { size: null, modifiedAt: null };
+      try {
+        dataDirectoryReady = (await stat(piholeDataDirectory)).isDirectory();
+        const secretState = await stat(piholeSecretPath);
+        secretFileReady = secretState.isFile() && (secretState.mode & 0o777) === 0o600 && secretState.size > 0;
+        secretEvidence = { size: secretState.size, modifiedAt: secretState.mtimeMs };
+      } catch {
+        dataDirectoryReady = false;
+        secretFileReady = false;
+      }
+      const managed = container.Name === `/${piholeContainerName}`
+        && container.Config?.Image === applicationInternals.piholeImage
+        && labels["com.docker.compose.project"] === piholeContainerName
+        && labels["com.docker.compose.service"] === "pi-hole"
+        && container.HostConfig?.RestartPolicy?.Name === "unless-stopped"
+        && container.HostConfig?.Privileged === false
+        && devices.length === 0
+        && JSON.stringify(capAdd) === JSON.stringify(expectedCapabilities)
+        && capDrop.length === 1
+        && capDrop[0] === "ALL"
+        && securityOptions.includes("no-new-privileges:true")
+        && exactDataMount
+        && dataDirectoryReady
+        && secretFileReady
+        && !dockerSocketMounted
+        && privateLanAddress
+        && dnsTcpBound
+        && dnsUdpBound
+        && Number.isInteger(webPort)
+        && webPort >= 1024
+        && webPort <= 65535;
+      const running = state.Running === true;
+      const healthy = managed && running && !state.Error && state.Health?.Status === "healthy";
+      const revisionEvidence = {
+        id: String(container.Id ?? ""),
+        imageId: String(container.Image ?? ""),
+        configuredImage: String(container.Config?.Image ?? ""),
+        name: String(container.Name ?? ""),
+        state: String(state.Status ?? "unknown"),
+        running,
+        health: String(state.Health?.Status ?? "none"),
+        lanAddress,
+        webPort,
+        dnsTcpBound,
+        dnsUdpBound,
+        restartPolicy: String(container.HostConfig?.RestartPolicy?.Name ?? ""),
+        project: String(labels["com.docker.compose.project"] ?? ""),
+        service: String(labels["com.docker.compose.service"] ?? ""),
+        exactDataMount,
+        dataDirectoryReady,
+        secretFileReady,
+        secretEvidence,
+        privileged: container.HostConfig?.Privileged === true,
+        deviceCount: devices.length,
+        capAdd,
+        capDrop,
+        securityOptions,
+        dockerSocketMounted,
+      };
+      const revision = createHash("sha256").update(applicationInternals.canonical(revisionEvidence)).digest("hex");
+      return {
+        installed: true,
+        managed,
+        state: running ? "running" : "stopped",
+        running,
+        healthy,
+        lanAddress,
+        port: webPort,
+        dnsTcpBound,
+        dnsUdpBound,
+        revision,
+        allowedActions: managed ? running ? ["stop", "restart"] : ["start"] : [],
+        detail: managed
+          ? running
+            ? `Managed Pi-hole is ${healthy ? "healthy" : "running but unhealthy"} on ${lanAddress}; router and client DNS remain unchanged`
+            : `Managed Pi-hole is stopped on ${lanAddress}; keep clients on an independent resolver before an approved Start`
+          : "A container uses the reserved Pi-hole name but failed the fixed managed identity checks",
+        boundary: {
+          exactContainerName: true,
+          digestPinnedImage: container.Config?.Image === applicationInternals.piholeImage,
+          privateLanOnly: privateLanAddress,
+          exactDnsBindings: dnsTcpBound && dnsUdpBound,
+          exactWebBinding: Number.isInteger(webPort),
+          exactDataMount,
+          dataDirectoryReady,
+          secretFileReady,
+          privileged: container.HostConfig?.Privileged === true,
+          deviceCount: devices.length,
+          addedCapabilities: capAdd,
+          droppedCapabilities: capDrop,
+          noNewPrivileges: securityOptions.includes("no-new-privileges:true"),
+          dockerSocketMounted,
+          dhcpEnabled: false,
+          routerMutationPerformed: false,
+          dnsCutoverPerformed: false,
+          arbitraryContainerAccepted: false,
+          arbitraryCommandAccepted: false,
+          mutationPerformed: false,
+        },
+      };
+    } catch {
+      return {
+        installed: false,
+        managed: false,
+        state: "not-installed",
+        running: false,
+        healthy: false,
+        lanAddress: null,
+        port: null,
+        dnsTcpBound: false,
+        dnsUdpBound: false,
+        revision: null,
+        allowedActions: [],
+        detail: "Managed Pi-hole container was not found; router and client DNS are unchanged",
+        boundary: {
+          exactContainerName: true,
+          digestPinnedImage: false,
+          privateLanOnly: false,
+          exactDnsBindings: false,
+          exactWebBinding: false,
+          exactDataMount: false,
+          dataDirectoryReady: false,
+          secretFileReady: false,
+          privileged: false,
+          deviceCount: 0,
+          addedCapabilities: [],
+          droppedCapabilities: [],
+          noNewPrivileges: false,
+          dockerSocketMounted: false,
+          dhcpEnabled: false,
+          routerMutationPerformed: false,
+          dnsCutoverPerformed: false,
+          arbitraryContainerAccepted: false,
+          arbitraryCommandAccepted: false,
+          mutationPerformed: false,
+        },
+      };
+    }
+  }
+
+  async function actionPihole({ action, expectedRevision }) {
+    if (!["start", "stop", "restart"].includes(action) || !/^[a-f0-9]{64}$/.test(String(expectedRevision ?? ""))) {
+      throw new Error("Pi-hole lifecycle accepts only a fixed action and exact state revision");
+    }
+    const before = await inspectPiholeLifecycle();
+    if (!before.installed || !before.managed || before.revision !== expectedRevision) throw new Error("Managed Pi-hole state changed or failed identity validation");
+    if (!before.allowedActions.includes(action)) throw new Error(`Pi-hole ${action} is not valid while the container is ${before.state}`);
+
+    if (action === "start") await docker(["start", piholeContainerName], { timeout: 30000 });
+    if (action === "stop") await docker(["stop", "--time", "30", piholeContainerName], { timeout: 45000 });
+    if (action === "restart") await docker(["restart", "--time", "30", piholeContainerName], { timeout: 60000 });
+    if (action !== "stop") await verifyHealth(piholeContainerName);
+
+    const after = await inspectPiholeLifecycle();
+    if (!after.installed || !after.managed) throw new Error("Managed Pi-hole failed post-action identity validation");
+    if (action === "stop" ? after.running : !after.running || !after.healthy || !after.dnsTcpBound || !after.dnsUdpBound) throw new Error(`Pi-hole ${action} failed post-action state or binding verification`);
+    const dataState = await stat(piholeDataDirectory);
+    const secretState = await stat(piholeSecretPath);
+    if (!dataState.isDirectory() || !secretState.isFile() || (secretState.mode & 0o777) !== 0o600 || secretState.size <= 0) throw new Error("Managed Pi-hole data or administrator secret failed preservation verification");
+    return {
+      applicationId: "pi-hole",
+      action,
+      performed: true,
+      expectedRevision,
+      revisionAfter: after.revision,
+      state: after.state,
+      running: after.running,
+      healthy: after.healthy,
+      lanAddress: after.lanAddress,
+      port: after.port,
+      dnsTcpBound: after.dnsTcpBound,
+      dnsUdpBound: after.dnsUdpBound,
+      dataPreserved: true,
+      secretPreserved: true,
+      dhcpEnabled: false,
+      routerMutationPerformed: false,
+      dnsCutoverPerformed: false,
+      boundary: {
+        exactContainerOnly: true,
+        imageChanged: false,
+        composeChanged: false,
+        dataDeleted: false,
+        secretDeleted: false,
+        networkDeleted: false,
+        routerChanged: false,
+        clientDnsChanged: false,
+        tailscaleChanged: false,
+        arbitraryContainerAccepted: false,
+        arbitraryCommandAccepted: false,
+      },
+    };
   }
 
   async function inspectDocker() {
@@ -748,7 +982,7 @@ export function createApplicationHelper({
     }
   }
 
-  return { appDirectory, composePath, dataDirectory, piholeDirectory, piholeComposePath, piholeSecretPath, piholeBackupMarkerPath, inspectDocker, inventoryDocker, inspectLogs, inspect, inspectUptimeKumaLifecycle, actionUptimeKuma, inspectPihole, deploy, deployPihole, backup, backupPihole, recoverInterruptedPiholeBackup };
+  return { appDirectory, composePath, dataDirectory, piholeDirectory, piholeComposePath, piholeDataDirectory, piholeSecretPath, piholeBackupMarkerPath, inspectDocker, inventoryDocker, inspectLogs, inspect, inspectUptimeKumaLifecycle, actionUptimeKuma, inspectPihole, inspectPiholeLifecycle, actionPihole, deploy, deployPihole, backup, backupPihole, recoverInterruptedPiholeBackup };
 }
 
 export const applicationHelperInternals = { composeDefinition, piholeComposeDefinition, containerName, piholeContainerName, piholeCapabilities, parseJsonLines, sanitizeLogMessage, logSources };
