@@ -4,12 +4,14 @@ import { access, chmod, mkdir, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { parseMountInventory } from "../server/storage-evidence.mjs";
 
 const execFile = promisify(execFileCallback);
 const fixedDevicePattern = /^\/dev\/(?:sd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+)$/;
 const defaultOutputPath = "/var/lib/boxpilot/storage-health.json";
 const defaultSmartctl = "/usr/sbin/smartctl";
 const defaultLsblk = "/usr/bin/lsblk";
+const defaultFindmnt = "/usr/bin/findmnt";
 
 async function fixedRun(binary, args, { timeout = 30000 } = {}) {
   try {
@@ -72,22 +74,26 @@ export function createStorageScanner({
   now = () => new Date(),
   smartctlBinary = defaultSmartctl,
   lsblkBinary = defaultLsblk,
+  findmntBinary = defaultFindmnt,
 } = {}) {
   async function scan() {
+    const mountResult = await run(findmntBinary, ["--json", "--bytes", "--real", "--tab-file", "/proc/1/mountinfo", "--output", "TARGET,SOURCE,FSTYPE,SIZE,USED,AVAIL,USE%,OPTIONS"], { timeout: 10000 });
+    const filesystems = parseMountInventory(mountResult.ok ? mountResult.stdout : "");
+    filesystems.namespace = mountResult.ok ? "host-pid1" : "unavailable";
     try {
       await checkAccess(smartctlBinary);
     } catch {
-      return { schemaVersion: 1, generatedAt: now().toISOString(), available: false, reason: "smartctl-not-installed", disks: [], boundary: { mutationPerformed: false, serialsIncluded: false, rawOutputIncluded: false, browserTriggered: false } };
+      return { schemaVersion: 1, generatedAt: now().toISOString(), available: false, reason: "smartctl-not-installed", filesystems, disks: [], boundary: { mutationPerformed: false, serialsIncluded: false, rawOutputIncluded: false, browserTriggered: false } };
     }
     const deviceResult = await run(lsblkBinary, ["--json", "--paths", "--nodeps", "--output", "NAME,TYPE"], { timeout: 10000 });
     const devices = deviceResult.ok ? parseDisks(deviceResult.stdout) : [];
-    if (devices.length === 0) return { schemaVersion: 1, generatedAt: now().toISOString(), available: false, reason: "no-supported-disks", disks: [], boundary: { mutationPerformed: false, serialsIncluded: false, rawOutputIncluded: false, browserTriggered: false } };
+    if (devices.length === 0) return { schemaVersion: 1, generatedAt: now().toISOString(), available: false, reason: "no-supported-disks", filesystems, disks: [], boundary: { mutationPerformed: false, serialsIncluded: false, rawOutputIncluded: false, browserTriggered: false } };
     const disks = [];
     for (const device of devices) {
       const result = await run(smartctlBinary, ["--json=c", "--all", device], { timeout: 30000 });
       disks.push(parseSmartctlEvidence(device, result.stdout));
     }
-    return { schemaVersion: 1, generatedAt: now().toISOString(), available: disks.some((item) => item.health !== "unavailable"), reason: disks.some((item) => item.health !== "unavailable") ? "fixed-root-scan" : "storage-scan-failed", disks, boundary: { mutationPerformed: false, serialsIncluded: false, rawOutputIncluded: false, browserTriggered: false } };
+    return { schemaVersion: 1, generatedAt: now().toISOString(), available: disks.some((item) => item.health !== "unavailable"), reason: disks.some((item) => item.health !== "unavailable") ? "fixed-root-scan" : "storage-scan-failed", filesystems, disks, boundary: { mutationPerformed: false, serialsIncluded: false, rawOutputIncluded: false, browserTriggered: false } };
   }
   return { scan };
 }
@@ -115,4 +121,4 @@ if (invokedPath === import.meta.url) {
   });
 }
 
-export const storageScanInternals = { defaultLsblk, defaultOutputPath, defaultSmartctl, fixedDevicePattern, parseDisks, safeNumber };
+export const storageScanInternals = { defaultFindmnt, defaultLsblk, defaultOutputPath, defaultSmartctl, fixedDevicePattern, parseDisks, safeNumber };
