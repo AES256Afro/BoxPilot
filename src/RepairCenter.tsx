@@ -34,7 +34,7 @@ interface RecoveryKit {
   product: { name: string; version: string };
   summary: { status: string; verified: number; actionRequired: number; operatorChecks: number; notApplicable: number; total: number };
   checks: Array<{ id: string; state: "verified" | "action-required" | "operator-check" | "not-applicable" | "unavailable"; title: string; evidence: string; action: string }>;
-  evidence: { jobs: unknown[]; controllerBackups: unknown[]; controllerProtections?: unknown[]; controllerRetentionRuns?: unknown[]; applicationBackups: unknown[]; vmBackups: unknown[]; routerCheckpoints: unknown[]; migrationTransfers: unknown[]; fleet: { activeAgents: number; revokedAgents: number } };
+  evidence: { jobs: unknown[]; controllerBackups: unknown[]; controllerProtections?: unknown[]; controllerRetentionRuns?: unknown[]; applicationBackups: unknown[]; applicationProtections?: unknown[]; vmBackups: unknown[]; routerCheckpoints: unknown[]; migrationTransfers: unknown[]; fleet: { activeAgents: number; revokedAgents: number } };
   boundary: { mutationsPerformed: boolean; databaseCopied: boolean; backupDataIncluded: boolean; configurationFilesIncluded: boolean; credentialsIncluded: boolean; excluded: string[] };
   runbookMarkdown: string;
 }
@@ -361,6 +361,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
             <span>{recoveryKit.evidence.controllerProtections?.length ?? 0} independently protected</span>
             <span>{recoveryKit.evidence.controllerRetentionRuns?.length ?? 0} controller retention runs</span>
             <span>{recoveryKit.evidence.applicationBackups.length} app backups</span>
+            <span>{recoveryKit.evidence.applicationProtections?.length ?? 0} protected app snapshots</span>
             <span>{recoveryKit.evidence.vmBackups.length} VM backups</span>
             <span>{recoveryKit.evidence.routerCheckpoints.length} router checkpoints</span>
             <span>{recoveryKit.evidence.migrationTransfers.length} staged migrations</span>
@@ -394,7 +395,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
               <strong>Approval required</strong>
               <span>Re-enter your owner password. It is verified in memory and never stored in the job.</span>
               <input aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
-              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? (["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.keel.artifact.acquire", "controller.database.backup", "controller.database.backup.protect", "network.dns.acceptance.run", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(awaitingApproval.type) ? "Starting..." : "Running...") : "Approve and run"}</button>
+              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? (["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.keel.artifact.acquire", "controller.database.backup", "controller.database.backup.protect", "application.backup.protect", "network.dns.acceptance.run", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(awaitingApproval.type) ? "Starting..." : "Running...") : "Approve and run"}</button>
             </div>
           )}
         </aside>

@@ -253,6 +253,25 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("runs independent application protection in the background and records exact restored archive evidence", async () => {
+    const input = { protectionId: "44444444-4444-4444-8444-444444444444", backupId: "33333333-3333-4333-8333-333333333333", applicationId: "pi-hole", expectedArtifactChecksumSha256: "a".repeat(64), expectedSizeBytes: 8192, expectedDestinationRevision: "c".repeat(64) };
+    let finish;
+    const helper = { request: vi.fn(() => new Promise((resolve) => { finish = resolve; })) };
+    const { store, owner } = await setup(helper);
+    const validateApplicationProtectionJob = vi.fn(async () => ({ input }));
+    const recordApplicationProtectionResult = vi.fn();
+    const jobs = createJobService(store, helper, { validateApplicationProtectionJob, recordApplicationProtectionResult });
+    const job = store.createJob({ type: "application.backup.protect", title: "Protect Pi-hole", parameters: { input }, recovery: {}, createdBy: owner.id });
+    const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
+    expect(started.state).toBe("applying");
+    expect(helper.request).toHaveBeenCalledWith("application.backup.protection.create", input, { timeoutMs: 12 * 60 * 60 * 1000 });
+    const result = { created: true, protectionId: input.protectionId, backupId: input.backupId, applicationId: input.applicationId, encrypted: true, independent: true, repositoryVerified: true, protected: true, restoreDrill: { passed: true, mode: "exact-snapshot-artifact-restore", network: "none", artifactChecksumMatched: true, applicationStarted: false, productionStateReplaced: false } };
+    finish(result);
+    await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
+    expect(recordApplicationProtectionResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
+    store.close();
+  });
+
   it("runs a Pi-hole backup as a typed long-running job and records only isolated no-cutover evidence", async () => {
     const backupId = "22222222-2222-4222-8222-222222222222";
     const result = {

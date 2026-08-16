@@ -1,6 +1,6 @@
 # Curated applications
 
-BoxPilot `0.43.0` provides integrity-addressed manifests, two executable deployment adapters, two application-aware backup adapters, and a Keel Notes adapter with read-only discovery, a separately approved inert artifact acquisition, and parameter-free runtime archive membership inspection. The exact Keel 1.2.5 archive is blocked because it contains an absolute build-workspace symbolic link. BoxPilot cannot extract, execute, install, adopt, start, claim, back up, restore, import, or expose Keel. The web process never receives the Docker socket. Docker readiness, executable application inspection, deployment, backup, restore-drill execution, and the three Keel read-only inspections cross the restricted local helper as typed operations. The main helper remains network-isolated and delegates the fixed Keel download to a static sandboxed one-shot.
+BoxPilot `0.44.0` provides integrity-addressed manifests, two executable deployment adapters, two application-aware local backup adapters, and encrypted independent exact-archive protection for verified Uptime Kuma and Pi-hole records. It also includes a Keel Notes adapter with read-only discovery, a separately approved inert artifact acquisition, and parameter-free runtime archive membership inspection. The exact Keel 1.2.5 archive is blocked because it contains an absolute build-workspace symbolic link. BoxPilot cannot extract, execute, install, adopt, start, claim, back up, restore, import, or expose Keel. The web process never receives the Docker socket. Docker readiness, executable application inspection, deployment, backup, restore-drill execution, independent application protection, and the three Keel read-only inspections cross the restricted local helper as typed operations. The main helper remains network-isolated and delegates only the fixed Keel download to a static sandboxed one-shot.
 
 ## Install the Docker prerequisite on Ubuntu
 
@@ -70,7 +70,7 @@ Deployment workflow:
 
 If deployment or health verification fails, BoxPilot stops the managed stack and restores the previous Compose definition when one exists. It does not delete the data directory.
 
-After deployment, the Backups page can record artifact integrity and an isolated restore test for the Uptime Kuma data directory. A local-only verified artifact still needs an independent destination before it qualifies as resilient 3-2-1 protection.
+After deployment, the Backups page can record artifact integrity and an isolated restore test for the Uptime Kuma data directory. Version `0.44.0` can then copy that exact verified archive into the separate encrypted application restic repository, read the complete repository, restore the exact snapshot, and match its size and SHA-256 before reporting independent protection. See [Verified application backups](BACKUPS.md).
 
 ## Keel Notes discovery and exact-release planning adapter
 
@@ -127,7 +127,7 @@ After staging, open **Backups** and plan the Pi-hole backup. The separate networ
 6. Starts the same digest-pinned image with `--network none`, no published ports, `cap_drop: ALL`, the same narrow capability set, and `no-new-privileges:true`.
 7. Requires restore health, removes the temporary container and workspace, and records configuration, secret, isolation, and no-cutover evidence.
 
-The artifact is mode `0600` beneath `/var/lib/boxpilot-managed/backups/pi-hole`. It contains the administrator secret and must be treated as sensitive. It is recovery-tested but remains on Bigbox, so it is not an independent or offsite copy.
+The artifact is mode `0600` beneath `/var/lib/boxpilot-managed/backups/pi-hole`. It contains the administrator secret and must be treated as sensitive. Its local no-network boot drill is required before the `0.44.0` independent application-protection plan can encrypt it in `restic-applications`, read the complete repository, and prove an exact restored hash. Until that second workflow passes, it remains locally verified only.
 
 After the backup passes, open **Network** and plan the fixed direct DNS checks. BoxPilot derives the exact managed address and sends only `pi.hole` over UDP and TCP, `example.com` over UDP, and `boxpilot.invalid` over UDP after a separate password approval. The passing record links the deployment, original assessment, and backup, but is labeled as Bigbox-only evidence.
 

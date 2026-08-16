@@ -146,6 +146,22 @@ export function createStateStore({
       created_by TEXT NOT NULL REFERENCES owners(id),
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS application_backup_protections (
+      id TEXT PRIMARY KEY,
+      backup_id TEXT NOT NULL UNIQUE REFERENCES backups(id),
+      application_id TEXT NOT NULL,
+      destination_type TEXT NOT NULL,
+      repository_id TEXT NOT NULL,
+      snapshot_id TEXT NOT NULL UNIQUE,
+      size_bytes INTEGER NOT NULL,
+      encrypted INTEGER NOT NULL,
+      independent INTEGER NOT NULL,
+      repository_verified INTEGER NOT NULL,
+      protected INTEGER NOT NULL,
+      restore_drill_json TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS controller_retention_runs (
       id TEXT PRIMARY KEY,
       repository_id TEXT NOT NULL,
@@ -621,6 +637,48 @@ export function createStateStore({
       createdAt: row.created_at,
       verifiedAt: row.verified_at,
     }));
+  }
+
+  function recordApplicationBackupProtection({ id, backupId, applicationId, destination, repositoryId, snapshotId, sizeBytes, encrypted, independent, repositoryVerified, protected: protectedState, restoreDrill, createdBy }) {
+    const at = timestamp();
+    database.prepare(`
+      INSERT INTO application_backup_protections (id, backup_id, application_id, destination_type, repository_id, snapshot_id, size_bytes, encrypted, independent, repository_verified, protected, restore_drill_json, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, backupId, applicationId, destination, repositoryId, snapshotId, sizeBytes, encrypted ? 1 : 0, independent ? 1 : 0, repositoryVerified ? 1 : 0, protectedState ? 1 : 0, json(restoreDrill), createdBy, at);
+    recordAudit("application.backup.protected", { actorId: createdBy, subjectId: id, details: { backupId, applicationId, destination, repositoryId, snapshotId, sizeBytes, protected: protectedState } });
+    return getApplicationBackupProtection(id);
+  }
+
+  function mapApplicationBackupProtection(row) {
+    return row ? {
+      id: row.id,
+      backupId: row.backup_id,
+      applicationId: row.application_id,
+      destination: row.destination_type,
+      repositoryId: row.repository_id,
+      snapshotId: row.snapshot_id,
+      sizeBytes: Number(row.size_bytes),
+      encrypted: Boolean(row.encrypted),
+      independent: Boolean(row.independent),
+      repositoryVerified: Boolean(row.repository_verified),
+      protected: Boolean(row.protected),
+      restoreDrill: parseJson(row.restore_drill_json),
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+    } : null;
+  }
+
+  function getApplicationBackupProtection(id) {
+    return mapApplicationBackupProtection(database.prepare("SELECT * FROM application_backup_protections WHERE id = ?").get(id));
+  }
+
+  function getApplicationBackupProtectionByBackup(backupId) {
+    return mapApplicationBackupProtection(database.prepare("SELECT * FROM application_backup_protections WHERE backup_id = ?").get(backupId));
+  }
+
+  function listApplicationBackupProtections(limit = 50) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    return database.prepare("SELECT * FROM application_backup_protections ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapApplicationBackupProtection);
   }
 
   function recordControllerBackupProtection({ id, backupId, destination, repositoryId, snapshotId, sizeBytes, encrypted, independent, repositoryVerified, protected: protectedState, restoreDrill, createdBy }) {
@@ -1376,6 +1434,10 @@ export function createStateStore({
     listActiveJobs,
     recordBackup,
     listBackups,
+    recordApplicationBackupProtection,
+    getApplicationBackupProtection,
+    getApplicationBackupProtectionByBackup,
+    listApplicationBackupProtections,
     recordControllerBackupProtection,
     getControllerBackupProtection,
     getControllerBackupProtectionByBackup,

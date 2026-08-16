@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BoxPilot application protection mock</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #07100f; color: #f4f7f6; }
+    * { box-sizing: border-box; } body { margin: 0; min-width: 1180px; background: radial-gradient(circle at 74% 0, #16392f 0, #07100f 38%, #050a09 100%); }
+    .disclosure { padding: 12px 34px; color: #ffe3ad; background: #5a3c08; border-bottom: 1px solid #9b6913; font-size: 14px; font-weight: 750; }
+    .shell { display: grid; grid-template-columns: 230px 1fr; min-height: 900px; } aside { border-right: 1px solid #1d302d; padding: 26px 18px; background: rgba(5,12,11,.94); }
+    .brand { font-size: 24px; font-weight: 800; margin: 0 10px 30px; }.brand b { display: inline-grid; place-items: center; width: 35px; height: 35px; margin-right: 10px; border-radius: 10px; background: #4de1b0; color: #06100e; }
+    nav { display: grid; gap: 7px; color: #90a8a2; font-size: 14px; } nav div { padding: 11px 13px; border-radius: 9px; } nav .active { color: #effbf7; background: #16322d; border: 1px solid #275047; }
+    .private { margin-top: 225px; border: 1px solid #214139; border-radius: 12px; padding: 13px; color: #96aaa5; font-size: 12px; line-height: 1.55; }.private strong,.eyebrow { color: #59dfb6; }
+    main { padding: 26px 34px 40px; }.top { display: flex; justify-content: space-between; }.eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; } h1 { margin: 7px 0; font-size: 34px; }.top p { color: #9bb0aa; }.pill { height: fit-content; border: 1px solid #6a5225; border-radius: 999px; padding: 8px 13px; color: #f3cb82; background: #2b220f; font-size: 12px; }
+    .truth { margin: 20px 0 16px; padding: 12px 15px; border: 1px solid #6a5225; border-radius: 11px; background: #2b220f; color: #c8b995; font-size: 13px; }.truth strong { color: #f3cb82; }
+    .grid { display: grid; grid-template-columns: 1fr 1.05fr; gap: 15px; }.panel { border: 1px solid #203a35; border-radius: 14px; padding: 17px; background: rgba(12,25,22,.93); }.panel h2 { margin: 5px 0; font-size: 19px; }.panel p { margin: 0; color: #98aba6; font-size: 13px; line-height: 1.5; }
+    .items { display: grid; gap: 8px; margin-top: 13px; }.item { padding: 9px 11px; border: 1px solid #29433e; border-radius: 9px; font-size: 12px; }.blocked { border-color: #6a3b30; color: #ffb8a7; background: #2b1b16; }.fixed { color: #afe5d5; background: #0b1d19; font-family: ui-monospace, monospace; }
+    .workflow { margin-top: 15px; }.workflow-grid { display: grid; grid-template-columns: 1.45fr .7fr; gap: 18px; }.workflow ol { color: #b8cac5; font-size: 12px; line-height: 1.55; }.proof { border: 1px solid #24604f; border-radius: 9px; padding: 12px; background: #102b24; color: #b6eadb; font: 12px ui-monospace, monospace; line-height: 1.65; }.warning { margin-top: 9px; border: 1px solid #6a5225; border-radius: 9px; padding: 11px; background: #2b220f; color: #efd59f; font-size: 12px; line-height: 1.45; }
+    .footer { margin-top: 15px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #3f4d48; border-radius: 14px; padding: 15px; background: #191b19; }.footer span { color: #97aaa5; font-size: 12px; }.disabled { padding: 11px 15px; border: 1px solid #475b55; border-radius: 9px; background: #26302d; color: #9ca9a6; font-weight: 800; }
+  </style>
+</head>
+<body>
+  <div class="disclosure">MOCKED 0.44.0 PRODUCT STATE. No password, repository, archive copy, snapshot, restore, application start, DNS query, or host change occurred.</div>
+  <div class="shell"><aside><div class="brand"><b>B</b>BoxPilot</div><nav><div>OV Overview</div><div>AP Applications</div><div>NW Network</div><div>RT Routers</div><div>RX Repair Center</div><div>VM Virtual Machines</div><div class="active">BK Backups</div><div>MG Migrations</div><div>FL Fleet</div><div>GH GitHub</div><div>LG Logs</div></nav><div class="private"><strong>Private administration</strong><br>Tailscale HTTPS<br>Funnel off<br><br>v0.44.0 application protection</div></aside>
+    <main><div class="top"><div><span class="eyebrow">BoxPilot</span><h1>Backups and recovery</h1><p>Application boot proof and independent encrypted recovery are separate evidence.</p></div><span class="pill">Setup required</span></div>
+      <div class="truth"><strong>Honest Bigbox state:</strong> No independent mount is configured, so staging is disabled and Uptime Kuma or Pi-hole remains locally verified only.</div>
+      <div class="grid"><section class="panel"><span class="eyebrow">Independent application destination</span><h2>Setup required on Bigbox</h2><p>Read-only inspection fails closed with one fixed terminal action.</p><div class="items"><div class="item blocked">Mount a writable independent filesystem at /mnt/boxpilot-backup.</div><div class="item blocked">Keep it separate from application state and local archives.</div><div class="item fixed">sudo /opt/boxpilot/scripts/boxpilot-application-restic-setup.sh</div></div></section>
+        <section class="panel"><span class="eyebrow">Fixed protection contract</span><h2>Separate repository and recovery key</h2><p>No browser path, password, repository selector, or restic option exists.</p><div class="items"><div class="item fixed">repository: restic-applications</div><div class="item fixed">key: separate root:root 0600 file</div><div class="item">Input: application id, two UUIDs, artifact hash, size, and destination revision.</div></div></section></div>
+      <section class="panel workflow"><span class="eyebrow">Guarded workflow preview</span><h2>Local boot drill plus exact independent archive restore</h2><div class="workflow-grid"><ol><li>Require an existing adapter-aware no-network restore drill.</li><li>Rehash the exact approved mode-0600 Uptime Kuma or Pi-hole archive.</li><li>Write only that archive to the encrypted application repository.</li><li>Read every repository data pack and confirm exact path and tags.</li><li>Restore the exact snapshot into a generated no-network workspace.</li><li>Require identical size and SHA-256, remove the successful workspace, then record protection.</li></ol><div><div class="proof">encrypted: required<br>independent: required<br>repository read: complete<br>archive hash: exact match</div><div class="warning"><strong>Permanent boundary</strong><br>No application start, local archive change, router mutation, DNS cutover, retention, prune, or automatic restore.</div></div></div></section>
+      <div class="footer"><div><strong>Staging stays disabled until every destination blocker clears</strong><br><span>The application key remains separate from controller and VM recovery keys and never enters BoxPilot.</span></div><span class="disabled">Protection blocked</span></div>
+    </main>
+  </div>
+</body>
+</html>

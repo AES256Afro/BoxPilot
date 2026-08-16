@@ -20,6 +20,11 @@ Environment=BOXPILOT_CONTROLLER_PROTECTION_DRILL_ROOT=/var/lib/boxpilot-managed/
 Environment=BOXPILOT_CONTROLLER_BACKUP_MOUNT=/mnt/boxpilot-backup
 Environment=BOXPILOT_CONTROLLER_RESTIC_PASSWORD_FILE=/etc/boxpilot/secrets/controller-backup-restic-password
 Environment=BOXPILOT_CONTROLLER_RESTIC_CACHE_DIRECTORY=/var/cache/boxpilot-controller-restic
+Environment=BOXPILOT_APPLICATION_BACKUP_ROOT=/var/lib/boxpilot-managed/backups
+Environment=BOXPILOT_APPLICATION_PROTECTION_DRILL_ROOT=/var/lib/boxpilot-managed/application-independent-restore-drills
+Environment=BOXPILOT_APPLICATION_BACKUP_MOUNT=/mnt/boxpilot-backup
+Environment=BOXPILOT_APPLICATION_RESTIC_PASSWORD_FILE=/etc/boxpilot/secrets/application-backup-restic-password
+Environment=BOXPILOT_APPLICATION_RESTIC_CACHE_DIRECTORY=/var/cache/boxpilot-application-restic
 Environment=BOXPILOT_DOCKER_BINARY=/usr/bin/docker
 Environment=BOXPILOT_TAR_BINARY=/usr/bin/tar
 Environment=BOXPILOT_JOURNALCTL_BINARY=/usr/bin/journalctl
@@ -45,7 +50,7 @@ RuntimeDirectory=boxpilot
 RuntimeDirectoryMode=0750
 StateDirectory=boxpilot-managed boxpilot-migration
 StateDirectoryMode=0700
-CacheDirectory=boxpilot-restic boxpilot-controller-restic
+CacheDirectory=boxpilot-restic boxpilot-controller-restic boxpilot-application-restic
 CacheDirectoryMode=0700
 ExecStart=/usr/local/bin/node /opt/boxpilot/server/helper-server.mjs
 Restart=on-failure

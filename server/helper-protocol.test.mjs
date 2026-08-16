@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.43.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.44.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -212,6 +212,18 @@ describe("restricted helper protocol", () => {
     };
     await expect(executeHelperOperation(request({ operation: "controller.database.protection.retention.inspect", parameters: {} }), { controllerRetention })).resolves.toMatchObject({ ok: true, result: { ready: true, snapshots: [] } });
     await expect(executeHelperOperation(request({ operation: "controller.database.protection.retention.apply", parameters }), { controllerRetention })).resolves.toMatchObject({ ok: true, result: { retentionId: parameters.retentionId, applied: true, complete: true, prunePerformed: false } });
+  });
+
+  it("accepts only exact application protection evidence and never a path, password, or repository selector", async () => {
+    const parameters = { protectionId: randomUUID(), backupId: randomUUID(), applicationId: "pi-hole", expectedArtifactChecksumSha256: "a".repeat(64), expectedSizeBytes: 8192, expectedDestinationRevision: "c".repeat(64) };
+    expect(validateHelperRequest(request({ operation: "application.backup.protection.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.backup.protection.inspect", parameters: { repository: "/tmp" } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "application.backup.protection.create", parameters }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.backup.protection.create", parameters: { ...parameters, path: "/tmp" } }))).toContain("fixed typed evidence");
+    expect(validateHelperRequest(request({ operation: "application.backup.protection.create", parameters: { ...parameters, applicationId: "../../etc" } }))).toContain("Application id");
+    const applicationProtection = { inspect: async () => ({ ready: false, boundary: { mutationPerformed: false } }), protect: async (input) => ({ ...input, created: true, protected: true }) };
+    await expect(executeHelperOperation(request({ operation: "application.backup.protection.inspect", parameters: {} }), { applicationProtection })).resolves.toMatchObject({ ok: true, result: { ready: false } });
+    await expect(executeHelperOperation(request({ operation: "application.backup.protection.create", parameters }), { applicationProtection })).resolves.toMatchObject({ ok: true, result: { applicationId: "pi-hole", backupId: parameters.backupId, created: true, protected: true } });
   });
 
   it("delegates a typed backup id without accepting a path", async () => {

@@ -1,4 +1,4 @@
-const productVersion = "0.43.0";
+const productVersion = "0.44.0";
 
 function latestBy(items, key) {
   const result = new Map();
@@ -33,7 +33,7 @@ function renderRunbook(kit) {
   }
   lines.push("## Recovery order", "");
   for (const item of kit.recoveryOrder) lines.push(`${item.order}. ${item.title}: ${item.instruction}`);
-  lines.push("", "## Evidence inventory", "", `Recent jobs: ${kit.evidence.jobs.length}`, `Controller backups: ${kit.evidence.controllerBackups.length}`, `Protected controller snapshots: ${kit.evidence.controllerProtections.length}`, `Controller retention runs: ${kit.evidence.controllerRetentionRuns.length}`, `Application backups: ${kit.evidence.applicationBackups.length}`, `Retained VM backups: ${kit.evidence.vmBackups.length}`, `Router checkpoints: ${kit.evidence.routerCheckpoints.length}`, `Verified migration transfers: ${kit.evidence.migrationTransfers.length}`, `Fleet agents: ${kit.evidence.fleet.activeAgents} active, ${kit.evidence.fleet.revokedAgents} revoked`, "", "## External items BoxPilot cannot prove", "");
+  lines.push("", "## Evidence inventory", "", `Recent jobs: ${kit.evidence.jobs.length}`, `Controller backups: ${kit.evidence.controllerBackups.length}`, `Protected controller snapshots: ${kit.evidence.controllerProtections.length}`, `Controller retention runs: ${kit.evidence.controllerRetentionRuns.length}`, `Application backups: ${kit.evidence.applicationBackups.length}`, `Protected application snapshots: ${kit.evidence.applicationProtections.length}`, `Retained VM backups: ${kit.evidence.vmBackups.length}`, `Router checkpoints: ${kit.evidence.routerCheckpoints.length}`, `Verified migration transfers: ${kit.evidence.migrationTransfers.length}`, `Fleet agents: ${kit.evidence.fleet.activeAgents} active, ${kit.evidence.fleet.revokedAgents} revoked`, "", "## External items BoxPilot cannot prove", "");
   for (const item of kit.externalItems) lines.push(`- ${item}`);
   lines.push("", "## Export boundary", "");
   for (const item of kit.boundary.excluded) lines.push(`- Excluded: ${item}`);
@@ -60,6 +60,7 @@ export function createRecoveryKitService({ store, prerequisites, applications, l
     const controllerRetentionRuns = store.listControllerRetentionRuns?.(200) ?? [];
     const protectedControllerBackup = controllerBackups.find((backup) => controllerProtections.some((protection) => protection.backupId === backup.id)) ?? null;
     const applicationBackups = allBackups.filter((item) => item.applicationId !== "boxpilot-controller");
+    const applicationProtections = (store.listApplicationBackupProtections?.(200) ?? []).filter((item) => item.protected && item.encrypted && item.independent && item.repositoryVerified && item.restoreDrill?.passed && item.restoreDrill?.artifactChecksumMatched);
     const vmBackups = store.listVmBackups(200).filter((item) => item.retained !== false);
     const routerCheckpoints = store.listRouterCheckpoints(200);
     const migrationTransfers = store.listMigrationTransfers(200);
@@ -69,7 +70,11 @@ export function createRecoveryKitService({ store, prerequisites, applications, l
 
     const installedApplications = applicationInventory.applications.filter((item) => item.live?.installed === true);
     const latestApplicationBackup = latestBy(applicationBackups, "applicationId");
-    const unprotectedApplications = installedApplications.filter((item) => latestApplicationBackup.get(item.id)?.restoreDrill?.passed !== true);
+    const locallyUnverifiedApplications = installedApplications.filter((item) => latestApplicationBackup.get(item.id)?.restoreDrill?.passed !== true);
+    const independentlyUnprotectedApplications = installedApplications.filter((item) => {
+      const latest = latestApplicationBackup.get(item.id);
+      return !latest || !applicationProtections.some((protection) => protection.backupId === latest.id && protection.applicationId === item.id);
+    });
     const domains = domainInventory.connected === true ? domainInventory.domains : [];
     const protectedDomainNames = new Set(vmBackups.filter((item) => item.protected && item.encrypted && item.independent && item.repositoryVerified && item.restoreDrill?.passed).map((item) => item.domainName));
     const unprotectedDomains = domains.filter((item) => !protectedDomainNames.has(item.name));
@@ -91,9 +96,11 @@ export function createRecoveryKitService({ store, prerequisites, applications, l
         ? check("applications.backup", "unavailable", "Managed application recovery", "Application inventory is unavailable, so managed workload backup coverage cannot be evaluated.", "Restore application inventory and regenerate the kit.")
         : installedApplications.length === 0
         ? check("applications.backup", "not-applicable", "Managed application recovery", "No executable BoxPilot-managed application is currently detected.", "Re-run this kit after deploying an application.")
-        : unprotectedApplications.length === 0
-          ? check("applications.backup", "verified", "Managed application recovery", `${installedApplications.length} managed application(s) have latest local restore-drill evidence.`, "Copy verified artifacts to independent storage; local artifacts alone do not survive Bigbox loss.")
-          : check("applications.backup", "action-required", "Managed application recovery", `${unprotectedApplications.length} of ${installedApplications.length} installed managed application(s) lack latest restore-drill evidence.`, "Open Backups and complete the application-aware backup and isolated restore workflow for each listed application."),
+        : locallyUnverifiedApplications.length > 0
+          ? check("applications.backup", "action-required", "Managed application recovery", `${locallyUnverifiedApplications.length} of ${installedApplications.length} installed managed application(s) lack latest local application-aware restore evidence.`, "Open Backups and complete the local application-aware backup and isolated no-network boot drill for each listed application.")
+          : independentlyUnprotectedApplications.length === 0
+            ? check("applications.backup", "verified", "Managed application recovery", `${installedApplications.length} managed application(s) have latest local no-network restore evidence plus encrypted independent snapshots with exact restored archive hashes.`, "Keep the application restic repository and its separate password in different failure domains. Repeat local backup and protection after material application changes.")
+            : check("applications.backup", "action-required", "Managed application recovery", `${independentlyUnprotectedApplications.length} of ${installedApplications.length} installed managed application(s) have local restore evidence but lack encrypted independent exact-restore protection.`, "Open Backups and protect each latest verified application archive in the fixed application restic repository."),
       domainInventory.connected !== true
         ? check("virtualization.backup", "unavailable", "Virtual-machine recovery", "Libvirt domain inventory is unavailable, so VM coverage cannot be evaluated.", "Restore restricted-helper libvirt access and regenerate the kit.")
         : domains.length === 0
@@ -149,6 +156,7 @@ export function createRecoveryKitService({ store, prerequisites, applications, l
       ],
       externalItems: [
         "Controller restic repository media and a separately stored repository password",
+        "Application restic repository media and its separately stored application repository password",
         "Exact BoxPilot source archive and file manifest",
         "Router configuration files matching recorded hashes",
         "Restic repository password and recovery media stored separately from the repository",
@@ -162,6 +170,7 @@ export function createRecoveryKitService({ store, prerequisites, applications, l
         controllerRetentionRuns: controllerRetentionRuns.map((item) => ({ id: item.id, repositoryId: item.repositoryId, beforeCount: item.beforeCount, afterCount: item.afterCount, forgottenCount: item.forgotten?.length ?? 0, repositoryVerified: item.repositoryVerified, complete: item.complete, prunePerformed: item.prunePerformed, createdAt: item.createdAt })),
         applications: applicationInventory.applications.map((item) => ({ id: item.id, name: item.name, execution: item.execution, installed: item.live?.installed === true, state: item.live?.state ?? "unknown", backupState: item.live?.backup?.state ?? null })),
         applicationBackups: applicationBackups.map((item) => ({ id: item.id, applicationId: item.applicationId, destination: item.destination, checksumSha256: item.checksumSha256, sizeBytes: item.sizeBytes, downtimeMs: item.downtimeMs, restorePassed: item.restoreDrill?.passed === true, createdAt: item.createdAt, verifiedAt: item.verifiedAt })),
+        applicationProtections: applicationProtections.map((item) => ({ id: item.id, backupId: item.backupId, applicationId: item.applicationId, destination: item.destination, repositoryId: item.repositoryId, snapshotId: item.snapshotId, sizeBytes: item.sizeBytes, encrypted: item.encrypted, independent: item.independent, repositoryVerified: item.repositoryVerified, protected: item.protected, restorePassed: item.restoreDrill?.passed === true, restoreMode: item.restoreDrill?.mode ?? null, artifactChecksumMatched: item.restoreDrill?.artifactChecksumMatched === true, createdAt: item.createdAt })),
         virtualMachines: { inventoryAvailable: domainInventory.connected === true, domains: domains.map((item) => ({ name: item.name, state: item.state, autostart: item.autostart === true })) },
         vmBackups: vmBackups.map((item) => ({ id: item.id, domainName: item.domainName, repositoryId: item.repositoryId, snapshotId: item.snapshotId, sizeBytes: item.sizeBytes, encrypted: item.encrypted, independent: item.independent, repositoryVerified: item.repositoryVerified, protected: item.protected, restorePassed: item.restoreDrill?.passed === true, retained: item.retained !== false, createdAt: item.createdAt })),
         routerCheckpoints: routerCheckpoints.map((item) => ({ id: item.id, modelId: item.modelId, firmwareVersion: item.firmwareVersion, checksumSha256: item.checksumSha256, sizeBytes: item.sizeBytes, fileRetainedByOperator: item.fileRetainedByOperator, createdAt: item.createdAt })),

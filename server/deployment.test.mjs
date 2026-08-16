@@ -22,6 +22,9 @@ describe("native systemd network boundaries", () => {
     expect(helperUnit).toContain("Environment=BOXPILOT_CONTROLLER_BACKUP_MOUNT=/mnt/boxpilot-backup");
     expect(helperUnit).toContain("Environment=BOXPILOT_CONTROLLER_RESTIC_PASSWORD_FILE=/etc/boxpilot/secrets/controller-backup-restic-password");
     expect(helperUnit).toContain("Environment=BOXPILOT_CONTROLLER_RESTIC_CACHE_DIRECTORY=/var/cache/boxpilot-controller-restic");
+    expect(helperUnit).toContain("Environment=BOXPILOT_APPLICATION_BACKUP_ROOT=/var/lib/boxpilot-managed/backups");
+    expect(helperUnit).toContain("Environment=BOXPILOT_APPLICATION_PROTECTION_DRILL_ROOT=/var/lib/boxpilot-managed/application-independent-restore-drills");
+    expect(helperUnit).toContain("Environment=BOXPILOT_APPLICATION_RESTIC_PASSWORD_FILE=/etc/boxpilot/secrets/application-backup-restic-password");
     expect(helperUnit).toContain("StateDirectory=boxpilot-managed boxpilot-migration");
     expect(helperUnit).toContain("Environment=BOXPILOT_RESTIC_BINARY=/usr/bin/restic");
     expect(helperUnit).toContain("Environment=BOXPILOT_VM_BACKUP_MOUNT=/mnt/boxpilot-backup");
@@ -30,7 +33,7 @@ describe("native systemd network boundaries", () => {
     expect(helperUnit).toContain("Environment=BOXPILOT_LIBVIRT_QEMU_GROUP=libvirt-qemu");
     expect(helperUnit).toContain("Environment=BOXPILOT_LIBVIRT_NVRAM_ROOT=/var/lib/libvirt/qemu/nvram");
     expect(helperUnit).toContain("Environment=BOXPILOT_RESTIC_PASSWORD_FILE=/etc/boxpilot/secrets/vm-backup-restic-password");
-    expect(helperUnit).toContain("CacheDirectory=boxpilot-restic boxpilot-controller-restic");
+    expect(helperUnit).toContain("CacheDirectory=boxpilot-restic boxpilot-controller-restic boxpilot-application-restic");
     expect(helperUnit).toContain("CacheDirectoryMode=0700");
     expect(helperUnit).toContain("ReadWritePaths=-/mnt/boxpilot-backup");
     expect(helperUnit).toContain("ReadOnlyPaths=/var/lib/boxpilot");
@@ -49,7 +52,7 @@ describe("native systemd network boundaries", () => {
     expect(dockerfile).toContain("BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot");
     expect(dockerfile).toContain("BOXPILOT_COOKIE_SECURE=false");
     expect(dockerfile).toContain("USER node");
-    expect(compose).toContain("image: boxpilot:0.43.0");
+    expect(compose).toContain("image: boxpilot:0.44.0");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("/tmp:size=16m,mode=1777");
   });
@@ -74,6 +77,19 @@ describe("native systemd network boundaries", () => {
     expect(setup).toContain("stty -echo");
     expect(setup).toContain("/var/lib/boxpilot-managed");
     expect(setup).toContain("/var/lib/boxpilot");
+    expect(setup).not.toContain("$1");
+    expect(setup).not.toMatch(/RESTIC_PASSWORD=/);
+  });
+
+  it("ships a separate terminal-only application restic setup and repository key", async () => {
+    const setup = await readFile("scripts/boxpilot-application-restic-setup.sh", "utf8");
+    const metadata = await stat("scripts/boxpilot-application-restic-setup.sh");
+    expect(metadata.mode & 0o111).not.toBe(0);
+    expect(setup).toContain("restic-applications");
+    expect(setup).toContain("application-backup-restic-password");
+    expect(setup).toContain("stty -echo");
+    expect(setup).toContain("/var/lib/boxpilot-managed/apps");
+    expect(setup).toContain("/var/lib/boxpilot-managed/backups");
     expect(setup).not.toContain("$1");
     expect(setup).not.toMatch(/RESTIC_PASSWORD=/);
   });
