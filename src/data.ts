@@ -8,6 +8,7 @@ export type ViewName =
   | "backups"
   | "migrations"
   | "fleet"
+  | "github"
   | "logs"
   | "settings";
 
@@ -21,6 +22,7 @@ export const navItems: Array<{ id: ViewName; label: string; short: string }> = [
   { id: "backups", label: "Backups", short: "BK" },
   { id: "migrations", label: "Migrations", short: "MG" },
   { id: "fleet", label: "Fleet", short: "FL" },
+  { id: "github", label: "GitHub", short: "GH" },
   { id: "logs", label: "Logs", short: "LG" },
   { id: "settings", label: "Settings", short: "ST" },
 ];

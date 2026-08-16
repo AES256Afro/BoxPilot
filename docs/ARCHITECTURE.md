@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.23.0` adds a browser-local router configuration checkpoint foundation after the signed node-local evidence path. An operator can hash a configuration export for one of the three declared devices and persist only its fixed model, entered firmware version, size, SHA-256 digest, retention assertion, owner attribution, and receipt time. The configuration and filename remain on the browser device. This is attributable metadata rather than remote attestation or a restore test. No remote shell, arbitrary command, arbitrary target, router credential, router session, router discovery, DHCP, client DNS, Tailscale, firewall, or traffic-path mutation handler exists.
+Version `0.24.0` adds a credential-free GitHub provenance view after the router checkpoint foundation. The unprivileged web service makes bounded reads against fixed public BoxPilot and Keel API paths, sanitizes the response, and caches it for 15 minutes. GitHub-reported commit verification and release-asset digests remain metadata until a future adapter verifies signatures or bytes locally. No GitHub token, operator-supplied repository, clone, download, write, webhook, workflow dispatch, or installation handler exists.
 
 ## Target components
 
@@ -35,6 +35,7 @@ BoxPilot web and API process (unprivileged)
           +---- Durable fixed-query Pi-hole DNS acceptance from Bigbox (0.21.0)
           +---- Signed replay-protected second-device Pi-hole evidence (0.22.0)
           +---- Browser-local router backup hashes and metadata ledger (0.23.0)
+          +---- Fixed public GitHub repository and release provenance (0.24.0)
           |
           +<--- Ed25519 signed polling and fixed evidence from enrolled LAN agent
                   no remote shell, arbitrary command, arbitrary target, or private-key transfer
@@ -168,7 +169,7 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.23.0 limitations
+## Version 0.24.0 limitations
 
 - The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
@@ -179,6 +180,7 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Supported Linux VM creation, stopped-VM internal snapshots, local stopped-VM exports, mounted-restic VM copies, isolated VM restore drills, guarded stopped no-network recovery clones, and exact no-prune retention batches are durable approved helper jobs. Windows TPM/Secure Boot creation, cloud-init, console proxy, online snapshot, snapshot revert/delete, force-off, in-place restore, recovered-VM network attachment, and application-level restore tests are unavailable.
 - Managed media discovery lists regular `.iso` files only and does not upload or download installation media.
 - Operations Core jobs and attribution use SQLite. The older VM JSONL planning log remains a separate bounded log. Tamper evidence remains pending.
+- Public GitHub provenance is held only in a 15-minute memory cache. GitHub-reported signature and asset-digest fields are not local verification. Tokens, private repositories, arbitrary repository paths, downloads, writes, webhooks, workflow dispatch, and installation are unavailable.
 - Only fixed Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune retention batches can execute mutations. Network assessments and router checkpoints cannot execute. Pi-hole direct DNS acceptance is an approved fixed read-only job in the unprivileged web process and never crosses the root helper. Signed agents can only repeat the four fixed Pi-hole checks from a separately enrolled device. Pi-hole router cutover, router discovery or writes, client DNS advertisement, DHCP, Tailscale changes, remote migration transport, staged-workload activation, firewall, package, storage administration, general Docker, general libvirt, console proxy, snapshot revert/delete, restic prune, configurable retention, in-place restore, recovery network attachment, and force-off operations remain unavailable.
 - A VM snapshot is never counted as an independent backup. The snapshot workflow rejects running guests, non-file disks, disks outside the managed image root, non-qcow2 disks, backing chains, symlinks, and changed inventory.
 - Uptime Kuma and Pi-hole application backups remain root-only local artifacts on Bigbox. Their isolated restore health checks are recovery evidence, not independent 3-2-1 protection. VM copies require an operator-provided independent mounted filesystem; no such destination is currently configured on Bigbox.

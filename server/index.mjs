@@ -6,6 +6,7 @@ import { createApplicationService } from "./applications.mjs";
 import { createBackupService } from "./backups.mjs";
 import { createDnsAcceptanceService } from "./dns-acceptance.mjs";
 import { createFleetService } from "./fleet.mjs";
+import { createGithubProvenanceService } from "./github-provenance.mjs";
 import { createAuthService } from "./security.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { buildConsoleGuidanceResponse, createHelperLibvirtService } from "./helper-libvirt.mjs";
@@ -47,6 +48,7 @@ const applications = createApplicationService({ store: state, prerequisites, hel
 const backups = createBackupService({ store: state, prerequisites, helper });
 const dnsAcceptance = createDnsAcceptanceService({ store: state, helper, network });
 const fleet = createFleetService({ store: state });
+const githubProvenance = createGithubProvenanceService();
 const routerCheckpoints = createRouterCheckpointService({ store: state });
 const inventory = createInventoryService({ helper });
 const migrations = createMigrationService({ store: state, inventory, helper });
@@ -103,7 +105,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.23.0",
+    version: "0.24.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -188,11 +190,16 @@ app.get("/api/v1/capabilities", (_request, response) => {
     vmConsole: { nativeProxy: false, cockpitHandoff: "detect-existing-only" },
     fleet: { enrollment: "one-time-digest-stored-token", identity: "ed25519-signed-replay-protected", execution: "node-local-allowlisted-dns-probe-only", controllerShellAccess: false },
     routers: { checkpoints: "browser-local-sha256-metadata-only", configurationUpload: false, credentials: false, discovery: false, mutations: false },
+    github: { repositories: "fixed-public-read-only-allowlist", authentication: false, writes: false, cloneOrDownload: false, localDigestVerification: false },
   });
 });
 
 app.get("/api/v1/fleet", (_request, response) => {
   response.json(fleet.inspect());
+});
+
+app.get("/api/v1/integrations/github", async (_request, response) => {
+  response.json(await githubProvenance.inspect());
 });
 
 app.post("/api/v1/fleet/enrollments", async (request, response) => {
@@ -668,7 +675,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.23.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.24.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

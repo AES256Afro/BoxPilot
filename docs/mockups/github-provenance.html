@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BoxPilot GitHub provenance mock</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; width: 1024px; height: 850px; overflow: hidden; color: #eaf3f3; background: #071017; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    .disclosure { height: 32px; display: grid; place-items: center; color: #fde8a8; background: #49370d; border-bottom: 1px solid #8a6a1f; font-size: 9px; font-weight: 800; letter-spacing: .035em; white-space: nowrap; }
+    .shell { display: grid; grid-template-columns: 155px 1fr; min-height: 818px; }
+    aside { padding: 17px 11px; border-right: 1px solid #1d303b; background: #09141d; }
+    .brand { display: flex; align-items: center; gap: 7px; margin-bottom: 18px; font-size: 14px; font-weight: 800; }
+    .brand b { display: grid; place-items: center; width: 26px; height: 26px; color: #071017; background: #6ad0b1; border-radius: 7px; }
+    nav { display: grid; gap: 3px; }
+    nav div { padding: 7px 8px; color: #88a1ae; border-radius: 6px; font-size: 9px; }
+    nav .active { color: #dff9f0; background: #17352f; border: 1px solid #2c5b50; }
+    .private { margin-top: 120px; padding: 8px; color: #9bb0b9; background: #0d1d26; border: 1px solid #243b46; border-radius: 7px; font-size: 8px; line-height: 1.55; }
+    main { padding: 18px 24px 24px; }
+    .top { display: flex; justify-content: space-between; align-items: start; margin-bottom: 11px; }
+    .eyebrow { color: #69cfb0; font-size: 8px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+    h1 { margin: 3px 0; font-size: 22px; }
+    h2 { margin: 2px 0 3px; font-size: 12px; }
+    p { margin: 0; color: #94a9b3; font-size: 9px; line-height: 1.45; }
+    .pill { display: inline-block; padding: 4px 7px; border-radius: 999px; font-size: 7px; font-weight: 800; }
+    .good { color: #9eefd5; background: #133c32; border: 1px solid #286e5b; }
+    .warn { color: #ffe195; background: #463510; border: 1px solid #795d1c; }
+    .notice, .readiness { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 11px; padding: 9px 12px; border: 1px solid #2d6255; border-radius: 8px; background: #10241f; }
+    .notice strong, .readiness strong { display: block; font-size: 10px; }
+    .notice span, .readiness small { color: #91a6af; font-size: 8px; }
+    .panel { padding: 12px; border: 1px solid #213945; border-radius: 8px; background: #0b1821; }
+    .boundary { display: grid; gap: 8px; margin-bottom: 11px; }
+    .panel-head, .repo-head, .release-head { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
+    .locks { display: flex; gap: 5px; flex-wrap: wrap; }
+    .repos { display: grid; gap: 9px; }
+    .repo { display: grid; gap: 8px; }
+    .meta { display: flex; gap: 5px; flex-wrap: wrap; color: #8fa4ae; font-size: 7px; }
+    .meta span { padding: 4px 6px; background: #071118; border: 1px solid #253944; border-radius: 999px; }
+    .commit { display: flex; justify-content: space-between; align-items: center; padding: 7px; background: #071118; border: 1px solid #243945; border-radius: 6px; color: #9aafb8; font-size: 7px; }
+    code { color: #9ce5cf; font: 7px ui-monospace, Menlo, monospace; }
+    .release { display: grid; gap: 7px; padding-top: 8px; border-top: 1px solid #20333d; }
+    table { width: 100%; border-collapse: collapse; font-size: 7px; }
+    th { padding: 4px 5px; color: #758e9b; text-align: left; border-bottom: 1px solid #2b414b; }
+    td { padding: 5px; color: #b7c8cd; border-bottom: 1px solid #192b34; }
+    .muted { color: #8299a4; font-size: 7px; }
+  </style>
+</head>
+<body>
+  <div class="disclosure">MOCKED 0.24.0 PRODUCT STATE. No credential, GitHub write, download, local digest check, or installation occurred.</div>
+  <div class="shell">
+    <aside><div class="brand"><b>B</b>BoxPilot</div><nav><div>OV Overview</div><div>AP Applications</div><div>NW Network</div><div>RT Routers</div><div>RX Repair Center</div><div>VM Virtual Machines</div><div>BK Backups</div><div>MG Migrations</div><div>FL Fleet</div><div class="active">GH GitHub</div><div>LG Logs</div><div>ST Settings</div></nav><div class="private"><strong>Private administration</strong><br>Tailscale HTTPS<br>Funnel off<br><br>v0.24.0 public provenance</div></aside>
+    <main>
+      <div class="top"><div><span class="eyebrow">BoxPilot</span><h1>GitHub provenance</h1><p>Inspect fixed public repository and release metadata without a GitHub token or write access.</p></div><span class="pill warn">Guarded mode</span></div>
+      <div class="notice"><strong>Credential-free public provenance</strong><span>GitHub-reported verification and digests are metadata, not local verification</span></div>
+      <div class="readiness"><div><strong>2 of 2 repositories available</strong><small>Fixed public allowlist, cached for 15 minutes</small></div><span class="pill good">No GitHub token</span></div>
+      <section class="panel boundary"><div class="panel-head"><div><span class="eyebrow">Credential-free provenance boundary</span><h2>GitHub public REST API without authentication</h2></div><span class="muted">Fetched Aug 15, 10:00 PM</span></div><div class="locks"><span class="pill good">Public metadata only</span><span class="pill good">Credentials rejected</span><span class="pill warn">Writes locked</span><span class="pill warn">Downloads locked</span><span class="pill warn">Install locked</span></div><p>Fixed API paths only. No clone, asset download, webhook, workflow dispatch, repository write, or installation route exists.</p></section>
+      <div class="repos">
+        <article class="panel repo"><div class="repo-head"><div><span class="eyebrow">BoxPilot control-plane source</span><h2>AES256Afro/BoxPilot</h2></div><span class="pill good">available</span></div><div class="meta"><span>Public</span><span>Default branch: main</span><span>Active</span><span>No GitHub release</span></div><div class="commit"><span>Default branch head <code>667cc2fc2712</code></span><span><span class="pill good">GitHub reports verified</span> Aug 15, 9:27 PM</span></div><p>Branch metadata is not an installable artifact.</p></article>
+        <article class="panel repo"><div class="repo-head"><div><span class="eyebrow">Keel Notes application source and releases</span><h2>AES256Afro/Keel</h2></div><span class="pill good">available</span></div><div class="meta"><span>Public</span><span>Default branch: main</span><span>Active</span><span>Latest: v1.2.5</span></div><div class="commit"><span>Default branch head <code>3a84b2ec1f51</code></span><span><span class="pill good">GitHub reports verified</span> Aug 14, 10:47 AM</span></div><section class="release"><div class="release-head"><div><span class="eyebrow">Latest GitHub release</span><h2>Keel 1.2.5</h2></div><span class="muted">5/5 assets have GitHub-reported digests</span></div><div class="commit"><span>Release tag commit <code>bcf872e2cee5</code></span><span class="pill good">GitHub reports verified</span></div><table><thead><tr><th>Asset metadata</th><th>Size</th><th>GitHub-reported SHA-256</th><th>Verified locally</th></tr></thead><tbody><tr><td>keel_1.2.5_amd64.deb</td><td>98.7 MiB</td><td><code>sha256:c1c5a59b11fdaf8e...</code></td><td><span class="pill warn">No</span></td></tr><tr><td>keel-1.2.5-linux-x64.tar.gz</td><td>45.4 MiB</td><td><code>sha256:4b24067aa219bc00...</code></td><td><span class="pill warn">No</span></td></tr></tbody></table></section></article>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

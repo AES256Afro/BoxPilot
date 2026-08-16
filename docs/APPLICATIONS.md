@@ -1,6 +1,6 @@
 # Curated applications
 
-BoxPilot `0.23.0` provides integrity-addressed manifests, two executable deployment adapters, two application-aware backup adapters, fixed direct DNS acceptance for managed Pi-hole, and signed repetition of those checks from an enrolled LAN device. Version `0.23.0` does not change application execution behavior. The web process never receives the Docker socket. Docker readiness, application inspection, deployment, backup, and restore-drill execution cross the restricted local helper as typed operations. Direct DNS checks run in the unprivileged controller or the separately enrolled node-local agent.
+BoxPilot `0.24.0` provides integrity-addressed manifests, two executable deployment adapters, two application-aware backup adapters, fixed direct DNS acceptance for managed Pi-hole, and signed repetition of those checks from an enrolled LAN device. Version `0.24.0` adds public GitHub provenance but does not download or install a release and does not change application execution behavior. The web process never receives the Docker socket. Docker readiness, application inspection, deployment, backup, and restore-drill execution cross the restricted local helper as typed operations. Direct DNS checks run in the unprivileged controller or the separately enrolled node-local agent.
 
 ## Install the Docker prerequisite on Ubuntu
 
@@ -74,7 +74,7 @@ After deployment, the Backups page can record artifact integrity and an isolated
 
 ## Pi-hole guarded staging adapter
 
-Version `0.23.0` can stage Pi-hole in Docker on the exact reviewed Bigbox LAN address, create a local configuration backup with isolated restore proof, collect fixed direct DNS evidence from Bigbox, and repeat the same fixed checks through a signed enrolled agent. The separate router checkpoint center records metadata only and does not alter this application boundary. The dedicated-VM target remains planning-only. These are service staging, recovery-evidence, and direct-path acceptance workflows, not router or client cutover workflows.
+Version `0.24.0` can stage Pi-hole in Docker on the exact reviewed Bigbox LAN address, create a local configuration backup with isolated restore proof, collect fixed direct DNS evidence from Bigbox, and repeat the same fixed checks through a signed enrolled agent. The separate router checkpoint and GitHub provenance centers do not alter this application boundary. The dedicated-VM target remains planning-only. These are service staging, recovery-evidence, and direct-path acceptance workflows, not router or client cutover workflows.
 
 The adapter uses:
 

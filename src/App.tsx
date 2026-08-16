@@ -8,6 +8,7 @@ import AuthScreen from "./AuthScreen";
 import ApplicationCatalog from "./ApplicationCatalog";
 import BackupCenter from "./BackupCenter";
 import FleetCenter from "./FleetCenter";
+import GitHubCenter from "./GitHubCenter";
 import HostOverview from "./HostOverview";
 import MigrationCenter from "./MigrationCenter";
 import NetworkCenter from "./NetworkCenter";
@@ -57,6 +58,10 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
     title: "Fleet and agents",
     description: "Enroll signed devices for narrow node-local evidence without granting remote shell access.",
   },
+  github: {
+    title: "GitHub provenance",
+    description: "Inspect fixed public repository, commit, release, and asset-digest metadata without a GitHub token or repository write access.",
+  },
   logs: {
     title: "Logs and events",
     description: "Read fixed, redacted service sources without exposing arbitrary journal queries.",
@@ -82,7 +87,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   network: {
     label: "Network intelligence and guarded direct tests",
     tone: "live",
-    description: "Live topology remains read-only. A separate password-approved Pi-hole workflow can send four fixed direct DNS queries from Bigbox and record durable evidence. Second-device proof, router credentials, router writes, and DNS cutover remain unavailable.",
+    description: "Live topology remains read-only. A password-approved Pi-hole workflow can send four fixed direct DNS queries from Bigbox, and a signed enrolled agent can independently repeat them. Router credentials, router writes, and DNS cutover remain unavailable.",
   },
   routers: {
     label: "Browser-local recovery checkpoint foundation",
@@ -113,6 +118,11 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     label: "Signed node-local agent foundation",
     tone: "live",
     description: "One-time enrollment, Ed25519 requests, replay protection, and a single fixed second-device Pi-hole probe are live. Arbitrary commands, targets, plugins, router writes, and DNS cutover remain unavailable.",
+  },
+  github: {
+    label: "Credential-free public provenance",
+    tone: "live",
+    description: "Reads only allowlisted public GitHub metadata. Commit verification and asset digests are GitHub-reported, not locally verified. Tokens, writes, downloads, webhooks, workflow dispatch, and installation remain unavailable.",
   },
   logs: {
     label: "Restricted journal inventory",
@@ -255,6 +265,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     if (view === "backups") return <BackupCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "migrations") return <MigrationCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "fleet") return <FleetCenter csrfToken={authStatus.csrfToken ?? ""} />;
+    if (view === "github") return <GitHubCenter />;
     if (view === "logs") return <SystemLogs />;
     return <Settings apiMode={apiMode} />;
   }, [apiMode, authStatus.csrfToken, networkAssessmentId, view]);
@@ -278,7 +289,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.23.0",
+      version: "0.24.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
@@ -320,7 +331,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.23.0 router checkpoints<br />Credentials, writes, cutover locked</div>
+        <div className="prototype-label">v0.24.0 public provenance<br />Tokens, writes, installs locked</div>
       </aside>
 
       <main>
