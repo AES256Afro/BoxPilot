@@ -1,5 +1,5 @@
 [Unit]
-Description=BoxPilot fixed read-only SMART evidence scan
+Description=BoxPilot fixed read-only host storage and SMART evidence scan
 After=local-fs.target boxpilot.service
 ConditionPathIsDirectory=/var/lib/boxpilot
 

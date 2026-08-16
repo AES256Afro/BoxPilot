@@ -4,11 +4,11 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.30.0` expands the authenticated host inventory with sanitized real-mount capacity, block-device topology, and bounded SMART evidence from a separate fixed root-only systemd timer. It also replaces the browser-assembled support preview with an authenticated server-generated bundle over fixed inventory, prerequisites, Action Center, audit, and log sources. A final redaction engine always removes built-in secret patterns and can add bounded literal and path-prefix rules from `/etc/boxpilot/redaction.json`. The browser cannot choose a device, run `smartctl`, select arbitrary logs, submit a regex, or trigger the root scanner.
+Version `0.30.1` expands the authenticated host inventory with sanitized host-mount capacity, block-device topology, and bounded SMART evidence from a separate fixed root-only systemd timer. The timer reads the host PID 1 mount table so the hardened web service's private mount namespace cannot be mistaken for host state. It also replaces the browser-assembled support preview with an authenticated server-generated bundle over fixed inventory, prerequisites, Action Center, audit, and log sources. A final redaction engine always removes built-in secret patterns and can add bounded literal and path-prefix rules from `/etc/boxpilot/redaction.json`. The browser cannot choose a device, run `smartctl`, select arbitrary logs, submit a regex, or trigger the root scanner.
 
 ### What works now
 
-| Area | Status in `0.30.0` | Capability |
+| Area | Status in `0.30.1` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |

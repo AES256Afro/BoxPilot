@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.30.0` adds sanitized real-mount and block topology plus bounded SMART evidence from a separate root-only systemd oneshot and timer. The scanner has no browser or helper-protocol route, discovers only fixed local disk-name patterns, runs fixed `smartctl` arguments, and writes an allowlisted evidence document without serials or raw output. The server also generates a fixed-source support bundle and applies a final built-in plus bounded site-specific redaction pass.
+Version `0.30.1` adds sanitized host-mount and block topology plus bounded SMART evidence from a separate root-only systemd oneshot and timer. The scanner reads the host PID 1 mount table through a fixed `findmnt` call, has no browser or helper-protocol route, discovers only fixed local disk-name patterns, runs fixed `smartctl` arguments, and writes an allowlisted evidence document without serials or raw output. The server also generates a fixed-source support bundle and applies a final built-in plus bounded site-specific redaction pass.
 
 ## Target components
 
@@ -41,7 +41,7 @@ BoxPilot web and API process (unprivileged)
           +---- Fixed-model router guidance and gateway-address correlation (0.27.0)
           +---- Owner-approved one-shot signed DNS proof windows (0.28.0)
           +---- Read-only fail-closed local Action Center (0.29.0)
-          +---- Sanitized storage inventory and fixed-source support bundle (0.30.0)
+          +---- Sanitized host storage inventory and fixed-source support bundle (0.30.1)
           |
           +<--- Ed25519 signed polling and fixed evidence from enrolled LAN agent
                   no remote shell, arbitrary command, arbitrary target, or private-key transfer
@@ -175,7 +175,7 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.30.0 limitations
+## Version 0.30.1 limitations
 
 - The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.

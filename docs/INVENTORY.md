@@ -1,6 +1,6 @@
 # Sanitized live inventory
 
-BoxPilot `0.7.0` replaced the demonstration overview with authenticated host, service, network, Docker, and log inventory. Version `0.30.0` adds sanitized real-mount and block-device topology, a separate fixed root-only SMART evidence timer, and a server-generated support bundle with a final configurable redaction pass. Every collector remains bounded so discovery does not become arbitrary command execution.
+BoxPilot `0.7.0` replaced the demonstration overview with authenticated host, service, network, Docker, and log inventory. Version `0.30.1` adds sanitized host-mount and block-device topology, a separate fixed root-only storage evidence timer, and a server-generated support bundle with a final configurable redaction pass. Every collector remains bounded so discovery does not become arbitrary command execution.
 
 ## Host inventory
 
@@ -21,7 +21,7 @@ Tailscale peer records and control-plane secrets are never returned.
 
 ## Storage and filesystem evidence
 
-The web process runs fixed no-input `findmnt` and `lsblk` commands. The caller cannot provide an output field, device, path, filter, executable, or argument. The response contains at most 128 real mounts and 256 topology entries.
+The root-only storage timer runs a fixed no-input `findmnt` command against `/proc/1/mountinfo`. This reports the host mount namespace instead of the hardened web service's private namespace. The web process runs only the fixed `lsblk` topology command and reads the timer's allowlisted evidence file. The caller cannot provide an output field, device, path, filter, executable, or argument. The response contains at most 128 host mounts and 256 topology entries.
 
 Mount sanitization:
 
@@ -45,7 +45,7 @@ Block sanitization includes device name, parent, type, filesystem, size, sanitiz
 
 The evidence excludes serials, UUIDs, firmware, raw output, stderr, arbitrary attributes, and command arguments. The web service treats missing, malformed, more than 24-hour-old, or future-dated evidence as unavailable or stale. It never turns collector failure into a healthy claim.
 
-The timer does not install `smartmontools`. Until the package and timer are present, Overview honestly reports `smartctl not installed` or missing evidence. BoxPilot `0.30.0` does not expose a package-install repair.
+The timer does not install `smartmontools`. Until the package and timer are present, Overview honestly reports `smartctl not installed` or missing evidence. BoxPilot `0.30.1` does not expose a package-install repair.
 
 ## Docker inventory
 
