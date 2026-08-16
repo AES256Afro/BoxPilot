@@ -146,7 +146,7 @@ function buildRouterReadiness(topology, checkpointStatus) {
     checks,
     counts,
     guides: routerGuides.map((guide) => ({ ...guide, checkpoint: checkpointStatus.latestByModel?.[guide.modelId] ?? null })),
-    sourceReviewedAt: "2026-08-15",
+    sourceReviewedAt: "2026-08-16",
     boundary: {
       credentialsAccepted: false,
       routerSessionsOpened: false,

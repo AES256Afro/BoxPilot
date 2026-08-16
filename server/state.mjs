@@ -294,6 +294,19 @@ export function createStateStore({
       created_by TEXT NOT NULL REFERENCES owners(id),
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS router_dns_acceptances (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL UNIQUE REFERENCES jobs(id),
+      plan_id TEXT NOT NULL REFERENCES plans(id),
+      checkpoint_id TEXT NOT NULL REFERENCES router_checkpoints(id),
+      resolver_address TEXT NOT NULL,
+      origin TEXT NOT NULL,
+      checks_json TEXT NOT NULL,
+      assertions_json TEXT NOT NULL,
+      passed INTEGER NOT NULL,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS audit_events (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,
@@ -313,6 +326,7 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_migration_sources_imported_at ON migration_sources(imported_at DESC);
     CREATE INDEX IF NOT EXISTS idx_migration_transfers_created_at ON migration_transfers(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_dns_acceptances_created_at ON dns_acceptances(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_router_dns_acceptances_created_at ON router_dns_acceptances(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_fleet_tasks_agent_state ON fleet_tasks(agent_id, state, created_at);
     CREATE INDEX IF NOT EXISTS idx_fleet_evidence_received_at ON fleet_evidence(received_at DESC);
     CREATE INDEX IF NOT EXISTS idx_router_checkpoints_created_at ON router_checkpoints(created_at DESC);
@@ -1117,6 +1131,33 @@ export function createStateStore({
     return database.prepare("SELECT * FROM router_checkpoints ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapRouterCheckpoint);
   }
 
+  function recordRouterDnsAcceptance({ id, jobId, planId, checkpointId, resolverAddress, origin, checks, assertions, passed, createdBy }) {
+    const at = timestamp();
+    database.prepare(`
+      INSERT INTO router_dns_acceptances (id, job_id, plan_id, checkpoint_id, resolver_address, origin, checks_json, assertions_json, passed, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, jobId, planId, checkpointId, resolverAddress, origin, json(checks), json(assertions), passed ? 1 : 0, createdBy, at);
+    recordAudit("router.dns.acceptance.verified", { actorId: createdBy, subjectId: id, details: { checkpointId, resolverAddress, origin, passed } });
+    return listRouterDnsAcceptances(1)[0];
+  }
+
+  function listRouterDnsAcceptances(limit = 50) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    return database.prepare("SELECT * FROM router_dns_acceptances ORDER BY created_at DESC LIMIT ?").all(safeLimit).map((row) => ({
+      id: row.id,
+      jobId: row.job_id,
+      planId: row.plan_id,
+      checkpointId: row.checkpoint_id,
+      resolverAddress: row.resolver_address,
+      origin: row.origin,
+      checks: parseJson(row.checks_json, []),
+      assertions: parseJson(row.assertions_json, {}),
+      passed: Boolean(row.passed),
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+    }));
+  }
+
   function recoverInterruptedJobs() {
     const interrupted = database.prepare("SELECT id FROM jobs WHERE state IN ('applying', 'verifying')").all();
     for (const { id } of interrupted) {
@@ -1195,6 +1236,8 @@ export function createStateStore({
     recordRouterCheckpoint,
     getRouterCheckpoint,
     listRouterCheckpoints,
+    recordRouterDnsAcceptance,
+    listRouterDnsAcceptances,
     recoverInterruptedJobs,
     close,
   };

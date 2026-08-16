@@ -1,12 +1,12 @@
 # Router checkpoint center
 
-BoxPilot `0.27.0` combines credential-free router-readiness guidance with the recovery-checkpoint metadata introduced in `0.23.0` for three fixed devices:
+BoxPilot `0.36.0` combines credential-free router-readiness guidance, the recovery-checkpoint metadata introduced in `0.23.0`, and a separately approved fixed-query Flint 2 direct DNS acceptance workflow for three fixed devices:
 
 - GL.iNet Flint 2
 - Omada ER707-M2
 - TP-Link Archer BE400
 
-This is the first router integration gate. It does not log in to a router, accept credentials, call a vendor API, upload a configuration, discover firmware, change a setting, advertise DNS, or perform a restore.
+This remains a bounded router integration gate. It does not log in to a router, accept credentials, call a vendor API, upload a configuration, discover firmware, change a setting, advertise DNS, or perform a restore. Version `0.36.0` can query only the one gateway already observed by Bigbox after a separate immutable plan and password approval.
 
 ## Recommended topology
 
@@ -34,7 +34,7 @@ No ARP or neighbor table is read, no MAC address or vendor fingerprint is return
 
 ## Vendor-grounded handoff
 
-The built-in checklists point to current official documentation reviewed on 2026-08-15:
+The built-in checklists point to current official documentation reviewed on 2026-08-16:
 
 - [Flint 2 user guide](https://docs.gl-inet.com/router/en/4/user_guide/gl-mt6000/), [GL.iNet network modes](https://docs.gl-inet.com/router/en/4/interface_guide/network_mode/), and [GL.iNet AdGuard Home](https://docs.gl-inet.com/router/en/4/interface_guide/adguardhome/)
 - [Archer BE400 user guide](https://static.tp-link.com/upload/manual/2025/202505/20250514/1910013703_Archer%20BE400_UG_REV1.0.0.pdf) and [TP-Link access-point mode guide](https://www.tp-link.com/us/support/faq/3774/)
@@ -77,16 +77,40 @@ It also does not prove:
 
 Keep the original file and vendor recovery instructions together. A future router-write adapter must require a fresh checkpoint and separately test restore or rollback behavior.
 
+## Flint 2 AdGuard Home direct DNS acceptance
+
+Version `0.36.0` adds a guided acceptance workflow after the checkpoint exists. BoxPilot accepts only six boolean declarations. The operator must confirm that:
+
+1. AdGuard Home is enabled in the Flint 2 interface.
+2. The emergency resolver was tested independently.
+3. The effect of **Handle Client Requests** was reviewed.
+4. Flint 2 remains in Router mode.
+5. Flint 2 is the single production DHCP authority.
+6. Domain-based VPN and parental-control impact was reviewed.
+
+The server then requires exactly one live IPv4 default gateway, connected Tailscale recovery, and the latest retained Flint 2 checkpoint. The browser cannot provide an address, hostname, query, port, command, credential, cookie, or router setting. The immutable plan expires after 15 minutes and must be staged and approved with the BoxPilot owner password.
+
+The unprivileged BoxPilot controller sends exactly four A-record queries to the observed gateway on port 53:
+
+1. `example.com` over UDP with a successful answer required.
+2. `example.com` over TCP with a successful answer required.
+3. `example.net` over UDP with a successful answer required.
+4. `boxpilot.invalid` over UDP with an NXDOMAIN response required.
+
+A passing run stores the checkpoint id, plan id, job id, observed resolver address, fixed declarations, protocol, response code, answer count, recursion flag, truncation flag, latency, owner, and timestamp. It proves only that Bigbox reached a DNS service at the one observed gateway and received the expected fixed responses. It does not prove the gateway is physically a Flint 2, that AdGuard Home produced the response, that **Handle Client Requests** or upstream filtering is configured correctly, that DHCP advertises the gateway, or that another client uses the same path.
+
+The root helper is never invoked. No router, AdGuard Home, DHCP, DNS advertisement, VPN, firewall, client, or Tailscale setting is read or changed. If any query fails, no passing acceptance record is created. Keep or restore the independently tested resolver and inspect Flint 2 locally before creating a new plan.
+
 ## Why configuration files are not uploaded
 
 Router backups may contain wireless credentials, VPN keys, DNS settings, device names, account material, and network topology. Version `0.23.0` deliberately avoids making BoxPilot a vault for that data. Secret storage, encryption-at-rest, export controls, and vendor-specific sanitization must exist before any later release considers ingesting a configuration.
 
-## Future Flint 2 integration gate
+## Future Flint 2 write-integration gate
 
 A safe Flint 2 adapter still needs:
 
 1. Exact model and firmware compatibility declarations
-2. Read-only discovery with a dedicated least-privilege credential if the platform supports one
+2. Model-attested read-only discovery with a dedicated least-privilege credential if the platform supports one
 3. Credential encryption separate from ordinary SQLite job records
 4. A bounded configuration diff that cannot contain a command or arbitrary path
 5. Owner-password approval immediately before apply

@@ -7,6 +7,7 @@ import { createApplicationService } from "./applications.mjs";
 import { createBackupService } from "./backups.mjs";
 import { createDnsAcceptanceService } from "./dns-acceptance.mjs";
 import { createFleetService } from "./fleet.mjs";
+import { createFlint2AdguardService } from "./flint2-adguard.mjs";
 import { createGithubProvenanceService } from "./github-provenance.mjs";
 import { createAuthService } from "./security.mjs";
 import { createHelperClient } from "./helper-client.mjs";
@@ -57,6 +58,7 @@ const backups = createBackupService({ store: state, prerequisites, helper });
 const dnsAcceptance = createDnsAcceptanceService({ store: state, helper, network });
 const fleet = createFleetService({ store: state });
 const routerCheckpoints = createRouterCheckpointService({ store: state });
+const flint2Adguard = createFlint2AdguardService({ store: state, network, routerCheckpoints });
 const inventory = createInventoryService({ helper, maintenance });
 const migrations = createMigrationService({ store: state, inventory, helper });
 const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, libvirt });
@@ -78,6 +80,9 @@ const jobs = createJobService(state, helper, {
   validateDnsAcceptanceJob: dnsAcceptance.validateJob,
   executeDnsAcceptanceJob: dnsAcceptance.executeJob,
   recordDnsAcceptanceResult: dnsAcceptance.recordResult,
+  validateFlint2AdguardJob: flint2Adguard.validateJob,
+  executeFlint2AdguardJob: flint2Adguard.executeJob,
+  recordFlint2AdguardResult: flint2Adguard.recordResult,
   validateMigrationTransferJob: migrations.validateTransferJob,
   recordMigrationTransferResult: migrations.recordTransferResult,
   validateVmCreationJob: vmCreation.validateJob,
@@ -116,7 +121,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.35.0",
+    version: "0.36.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -186,10 +191,10 @@ app.get("/api/v1/capabilities", (_request, response) => {
     supportBundle: "authenticated-server-generated-fixed-source-configurably-redacted",
     backups: "uptime-kuma-local-restore-drill-and-vm-independent-restic-copy-with-isolated-boot-validation-recovery-clones-and-guarded-retention",
     migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
-    network: "read-only-topology-and-approved-fixed-pi-hole-direct-dns-acceptance",
+    network: "read-only-topology-and-approved-fixed-pi-hole-and-observed-gateway-direct-dns-acceptance",
     privilegedHelper: "typed-canary-exact-smartmontools-repair-fixed-apt-metadata-refresh-curated-applications-backups-migration-staging-inventory-logs-vm-creation-lifecycle-snapshots-exports-mounted-restic-isolated-restore-drills-recovery-clones-and-retention",
     identity: "owner-password-foundation",
-    durableJobs: "sqlite-approved-prerequisite-application-backup-dns-acceptance-migration-transfer-vm-creation-lifecycle-snapshot-export-protection-restore-drill-recovery-and-retention-workflows",
+    durableJobs: "sqlite-approved-prerequisite-application-backup-pi-hole-and-flint2-gateway-dns-acceptance-migration-transfer-vm-creation-lifecycle-snapshot-export-protection-restore-drill-recovery-and-retention-workflows",
     virtualization: "live-libvirt-via-restricted-helper",
     vmCreationPlanning: "validated-durable-approved",
     audit: "redacted-jsonl-foundation",
@@ -200,7 +205,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     vmRecovery: { create: "protected-snapshot-to-new-stopped-persistent-domain", network: "none", autostart: false, inPlaceRestore: false, sourceDeletion: false },
     vmConsole: { nativeProxy: false, cockpitHandoff: "detect-existing-only" },
     fleet: { enrollment: "one-time-digest-stored-token", identity: "ed25519-signed-replay-protected", execution: "node-local-allowlisted-dns-probe-only", scheduling: "password-approved-one-shot-fixed-delay-only", recurrence: false, controllerShellAccess: false },
-    routers: { checkpoints: "browser-local-sha256-metadata-only", guidance: "fixed-model-operator-checklists-with-live-gateway-address-correlation", gatewayIdentityVerified: false, configurationUpload: false, credentials: false, discovery: false, mutations: false },
+    routers: { checkpoints: "browser-local-sha256-metadata-only", guidance: "fixed-model-operator-checklists-with-live-gateway-address-correlation", directGatewayDnsAcceptance: "durable-approved-four-fixed-queries", gatewayIdentityVerified: false, adguardConfigurationVerified: false, dhcpAdvertisementVerified: false, configurationUpload: false, credentials: false, discovery: false, mutations: false },
     github: { repositories: "fixed-public-read-only-allowlist", authentication: false, writes: false, cloneOrDownload: false, localDigestVerification: false },
     recoveryKit: { generation: "authenticated-read-only", formats: ["json", "markdown"], mutations: false, secretsIncluded: false, backupPayloadIncluded: false },
     actionCenter: { generation: "authenticated-read-only", guidance: "fixed-local-destinations", automaticRepair: false, persistence: false, externalDelivery: false },
@@ -306,6 +311,27 @@ app.get("/api/v1/network/router-checkpoints", (_request, response) => {
 
 app.get("/api/v1/network/router-readiness", async (_request, response) => {
   response.json(await network.routerReadiness(routerCheckpoints.inspect()));
+});
+
+app.get("/api/v1/network/flint2-adguard-acceptance", async (_request, response) => {
+  response.json(await flint2Adguard.inspect());
+});
+
+app.post("/api/v1/network/flint2-adguard-acceptance/plans", async (request, response) => {
+  try {
+    response.status(201).json({ plan: await flint2Adguard.plan(request.boxpilotSession.owner.id, request.body) });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "flint2_adguard_plan_failed" });
+  }
+});
+
+app.post("/api/v1/network/flint2-adguard-acceptance/plans/:id/stage", async (request, response) => {
+  try {
+    if (!request.body || typeof request.body !== "object" || Array.isArray(request.body) || Object.keys(request.body).length !== 1 || typeof request.body.revision !== "string") throw new Error("Flint 2 acceptance staging accepts only the immutable revision");
+    response.status(201).json({ job: await flint2Adguard.stage(request.params.id, request.body.revision, request.boxpilotSession.owner.id) });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "flint2_adguard_stage_failed" });
+  }
 });
 
 app.post("/api/v1/network/router-checkpoints", (request, response) => {
@@ -740,7 +766,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.35.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.36.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });
