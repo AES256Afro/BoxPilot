@@ -14,6 +14,8 @@ Version `0.37.0` adds a second signed agent task contract linked only to fresh p
 
 Version `0.38.0` adds an owner-approved backup of the fixed live controller database. The restricted helper derives every path, takes a consistent standalone SQLite snapshot with `VACUUM INTO`, verifies SHA-256, integrity, foreign keys, required schema, and owner state, repeats those checks on a separate copy, removes the drill workspace, and writes a root-only manifest. BoxPilot remains online and its production database is never replaced or changed. The browser supplies only a server-generated UUID. Scheduling, retention, download, off-host transport, and automatic production restore are not added.
 
+Version `0.38.1` corrects the Backups data-source disclosure and empty-state language so the controller copy-open drill is not described as an application container health check. It does not change the helper, database, job, or recovery contract.
+
 ## Target components
 
 ```text
@@ -195,7 +197,7 @@ A successful copy is not a verified backup. The controller adapter requires a co
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.38.0 limitations
+## Version 0.38.1 limitations
 
 - The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
