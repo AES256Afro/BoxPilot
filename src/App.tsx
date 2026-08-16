@@ -105,9 +105,9 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     description: "Helper-backed libvirt inventory, immutable VM plans, lifecycle approvals, offline snapshots, verified exports, encrypted restic copies, isolated restore drills, and stopped no-network recovery clones come from the server. In-place restore and recovery network attachment remain locked.",
   },
   backups: {
-    label: "Application-aware backup engine",
+    label: "Controller and application backup engine",
     tone: "live",
-    description: "Uptime Kuma and Pi-hole backup planning, durable evidence, SHA-256 integrity, source restart verification, and isolated restore drills come from Bigbox. Scheduling and off-host application destinations remain pending.",
+    description: "BoxPilot controller, Uptime Kuma, and Pi-hole backup planning and durable SHA-256 evidence come from Bigbox. Controller state uses a WAL-aware snapshot and isolated copy-open drill; applications use source restart and isolated no-network restore checks. Scheduling and independent controller or application destinations remain pending.",
   },
   migrations: {
     label: "Guarded local transfer staging",
@@ -313,7 +313,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.38.0 controller recovery<br />WAL-aware verified backup</div>
+        <div className="prototype-label">v0.38.1 controller recovery<br />WAL-aware verified backup</div>
       </aside>
 
       <main>

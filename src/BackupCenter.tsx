@@ -119,8 +119,8 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
     <>
       <div className="readiness">
         <div>
-          <strong>{loading ? "Inspecting backup coverage" : verifiedCount ? "Restore-verified coverage recorded" : "No workload is restore-verified yet"}</strong>
-          <span>Integrity alone is insufficient. BoxPilot requires an isolated restore health check.</span>
+          <strong>{loading ? "Inspecting backup coverage" : verifiedCount ? "Restore-verified coverage recorded" : "No backup source is restore-verified yet"}</strong>
+          <span>Integrity alone is insufficient. BoxPilot requires the adapter-specific isolated recovery drill.</span>
         </div>
         <span className={`status-pill ${verifiedCount ? "status-good" : "status-warning"}`}>{verifiedCount} of {coverage.length || 1} verified</span>
       </div>
@@ -161,7 +161,7 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
         <div className="section-heading"><div><span className="eyebrow">Durable evidence</span><h3>Verified backup artifacts</h3></div><button className="secondary-button" type="button" onClick={() => void refresh()} disabled={loading}>Refresh</button></div>
         {backups.length ? (
           <div className="table-scroll"><table><thead><tr><th>Source</th><th>Created</th><th>Artifact</th><th>SHA-256</th><th>Downtime</th><th>Restore drill</th></tr></thead><tbody>{backups.map((backup) => <tr key={backup.id}><td>{coverage.find((entry) => entry.applicationId === backup.applicationId)?.name ?? backup.applicationId}</td><td>{new Date(backup.createdAt).toLocaleString()}</td><td>{formatBytes(backup.sizeBytes)} local<details><summary>Verification details</summary><small>Server path</small><code className="backup-evidence-value">{backup.artifactPath}</code><small>Artifact SHA-256</small><code className="backup-evidence-value">{backup.checksumSha256}</code>{backup.restoreDrill.manifestChecksumSha256 && <><small>Manifest SHA-256</small><code className="backup-evidence-value">{backup.restoreDrill.manifestChecksumSha256}</code></>}</details></td><td><code>{backup.checksumSha256.slice(0, 12)}...</code></td><td>{backup.downtimeMs} ms</td><td className={backup.restoreDrill.passed ? "good-text" : "warning-text"}>{backup.restoreDrill.passed ? (backup.applicationId === "boxpilot-controller" ? "Passed, isolated copy-open" : "Passed, network isolated") : "Failed"}</td></tr>)}</tbody></table></div>
-        ) : <p className="empty-state">No backup is listed as successful until its archive checksum and isolated restore health check both pass.</p>}
+        ) : <p className="empty-state">No backup is listed as successful until its artifact checksum and adapter-specific isolated recovery drill both pass.</p>}
       </section>
     </>
   );
