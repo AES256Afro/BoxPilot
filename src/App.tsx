@@ -115,9 +115,9 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     description: "Sanitized source manifests, compatibility plans, root-only checksummed Compose bundles, resumable managed staging, and durable transfer evidence are live. Remote SSH transport, activation, cutover, and source deletion remain unavailable.",
   },
   fleet: {
-    label: "Signed node-local agent foundation",
+    label: "Signed one-shot agent policy",
     tone: "live",
-    description: "One-time enrollment, Ed25519 requests, replay protection, and a single fixed second-device Pi-hole probe are live. Arbitrary commands, targets, plugins, router writes, and DNS cutover remain unavailable.",
+    description: "One-time enrollment, Ed25519 requests, replay protection, and owner-approved one-shot windows for one fixed second-device Pi-hole proof are live. Recurrence, unattended jobs, arbitrary commands, targets, plugins, router writes, and DNS cutover remain unavailable.",
   },
   github: {
     label: "Credential-free public provenance",
@@ -289,7 +289,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.27.0",
+      version: "0.28.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
@@ -331,7 +331,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.27.0 router readiness<br />Private and mutation locked</div>
+        <div className="prototype-label">v0.28.0 one-shot fleet policy<br />No general scheduler</div>
       </aside>
 
       <main>

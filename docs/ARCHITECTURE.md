@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.27.0` adds router-readiness guidance after the secret-free disaster recovery kit. The authenticated unprivileged web service reuses its fixed host collectors and checkpoint metadata to correlate an observed default-gateway address with a recommended three-device topology. It never claims the address proves a physical model. Device identity, operating mode, cabling, and DHCP authority remain explicit operator checks. It reads no neighbor table, MAC address, router page, credential, session, configuration payload, or arbitrary target, and it calls no router or host mutation.
+Version `0.28.0` adds a policy-visible one-shot window for the existing signed agent DNS proof. Every task requires owner-password reauthentication and accepts only one enrolled agent plus an exact immediate, 5-minute, or 10-minute delay. The database records the available and expiry times; signed polling returns nothing before the window. The resolver and four checks still derive from fresh controller evidence. Recurrence, unattended jobs, catch-up execution, arbitrary schedules, commands, targets, files, packages, plugins, router operations, and DNS cutover remain unavailable.
 
 ## Target components
 
@@ -39,6 +39,7 @@ BoxPilot web and API process (unprivileged)
           +---- Exact-release Keel Notes planning with execution locked (0.25.0)
           +---- Secret-free recovery readiness and ordered runbook export (0.26.0)
           +---- Fixed-model router guidance and gateway-address correlation (0.27.0)
+          +---- Owner-approved one-shot signed DNS proof windows (0.28.0)
           |
           +<--- Ed25519 signed polling and fixed evidence from enrolled LAN agent
                   no remote shell, arbitrary command, arbitrary target, or private-key transfer
@@ -172,7 +173,7 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.27.0 limitations
+## Version 0.28.0 limitations
 
 - The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.

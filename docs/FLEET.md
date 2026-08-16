@@ -1,6 +1,6 @@
 # Signed fleet agents
 
-BoxPilot `0.22.0` introduces the first deliberately narrow fleet slice. A separately enrolled LAN device can collect independent Pi-hole DNS evidence without giving the BoxPilot controller a shell, package manager, filesystem browser, or arbitrary network probe.
+BoxPilot `0.22.0` introduced the first deliberately narrow fleet slice. Version `0.28.0` adds an owner-approved one-shot scheduling policy for that same single task. A separately enrolled LAN device can collect independent Pi-hole DNS evidence without giving the BoxPilot controller a shell, package manager, filesystem browser, arbitrary network probe, recurring scheduler, or unattended executor.
 
 ## What ships
 
@@ -10,6 +10,9 @@ BoxPilot `0.22.0` introduces the first deliberately narrow fleet slice. A separa
 - Signed controller requests with a five-minute timestamp window and strictly increasing sequence numbers
 - Agent revocation that rejects future requests and expires pending tasks
 - One task contract: `dns.pi-hole.acceptance.v1`
+- Owner-password reauthentication before every task window
+- Only three dispatch choices: immediate, 5 minutes, or 10 minutes
+- An exact ten-minute execution window with no recurrence or unattended retry
 - Four fixed A-record checks against the exact resolver from a fresh passing Bigbox acceptance record
 - Durable task and signed evidence records in SQLite
 
@@ -36,14 +39,17 @@ The agent creates `~/.config/boxpilot-agent/agent.json` with mode `0600`. That f
 
 ## Collect independent DNS evidence
 
-The Fleet page can queue a task only when all of these are true:
+The Fleet page can schedule a one-shot task only when all of these are true:
 
 - The agent is active and has the fixed `dns-probe-v1` capability.
 - Pi-hole has a passing direct Bigbox acceptance record.
 - That controller record is no more than 30 minutes old.
 - The selected agent has no other pending DNS probe.
+- The owner password is re-entered for this task.
+- The selected delay is exactly 0, 5, or 10 minutes.
+- The controller proof will still be no more than 30 minutes old when the window opens.
 
-Queue the task, then run this on the enrolled device:
+Choose the delay and schedule the task. Then run this on the enrolled device during the displayed ten-minute window:
 
 ```sh
 npm run agent -- run-once
@@ -56,13 +62,13 @@ The agent first authenticates a poll. It rejects any task that changes the schem
 3. `example.com` A over UDP
 4. `boxpilot.invalid` A over UDP, expecting NXDOMAIN
 
-The result is signed and submitted with a new sequence number. Failed checks are recorded as failed evidence instead of being converted into a passing claim. The task expires after ten minutes.
+Before the window opens, signed polls return no task. The result is signed and submitted with a new sequence number. Failed checks are recorded as failed evidence instead of being converted into a passing claim. The task expires at the end of its exact window. There is no recurrence, catch-up execution, automatic retry, user-supplied schedule, or background agent service in `0.28.0`.
 
 ## What a passing result proves
 
 A passing result proves that the enrolled device could directly reach the exact managed Pi-hole resolver and complete the four fixed checks during the task window. It does not prove that DHCP advertises Pi-hole, that every client uses it, that the router is configured correctly, or that a fallback path works.
 
-Version `0.22.0` still has no router mutation or DNS cutover route. The next safe router milestone needs model and firmware discovery, a downloadable configuration checkpoint, a bounded proposed diff, explicit approval, an observation window, and a tested rollback adapter.
+Version `0.28.0` still has no router mutation or DNS cutover route. Router Center provides fixed-model guidance and gateway-address correlation, but physical model identity and device state remain operator checks. A future router mutation still needs exact model and firmware discovery, a restorable configuration checkpoint, a bounded proposed diff, explicit approval, an observation window, and a tested rollback adapter.
 
 ## Recovery and revocation
 
@@ -77,7 +83,7 @@ Version `0.22.0` still has no router mutation or DNS cutover route. The next saf
 - Automated, packaged agent installation and a documented timer or service
 - Multiple BoxPilot controller nodes and central inventory
 - Signed adapter packages with compatibility and privilege declarations
-- Scheduled maintenance and notifications
+- Broader scheduled maintenance and notifications beyond the one fixed proof
 - Exportable disaster-recovery kits
 - GitHub release discovery and verified adapter provenance
 

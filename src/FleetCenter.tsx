@@ -17,6 +17,7 @@ type FleetTask = {
   type: string;
   state: "pending" | "completed" | "expired";
   createdAt: string;
+  availableAt: string;
   expiresAt: string;
 };
 
@@ -44,6 +45,17 @@ type FleetStatus = {
     routerMutationSupported: boolean;
     dnsCutoverSupported: boolean;
   };
+  schedulingPolicy: {
+    mode: string;
+    allowedDelayMinutes: number[];
+    executionWindowMinutes: number;
+    recurrenceSupported: boolean;
+    unattendedExecutionSupported: boolean;
+    cancellationSupported: boolean;
+    taskType: string;
+    targetSource: string;
+    passwordReauthenticationRequired: boolean;
+  };
 };
 
 async function readJson<T>(response: Response): Promise<T> {
@@ -58,6 +70,8 @@ export default function FleetCenter({ csrfToken }: { csrfToken: string }) {
   const [password, setPassword] = useState("");
   const [revocationPassword, setRevocationPassword] = useState("");
   const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [probePassword, setProbePassword] = useState("");
+  const [delayMinutes, setDelayMinutes] = useState(0);
   const [enrollment, setEnrollment] = useState<{ token: string; expiresAt: string } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -109,9 +123,10 @@ export default function FleetCenter({ csrfToken }: { csrfToken: string }) {
       const body = await readJson<{ task: FleetTask }>(await fetch("/api/v1/fleet/dns-probe-tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-        body: JSON.stringify({ agentId: selectedAgentId }),
+        body: JSON.stringify({ agentId: selectedAgentId, delayMinutes, password: probePassword }),
       }));
-      setMessage(`Fixed DNS probe ${body.task.id} is waiting for the selected agent. Run the agent once from that LAN device.`);
+      setProbePassword("");
+      setMessage(`One-shot DNS probe ${body.task.id} is available ${new Date(body.task.availableAt).toLocaleString()} and expires ${new Date(body.task.expiresAt).toLocaleString()}. Run the agent once during that window.`);
       await refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to create DNS probe task");
@@ -176,9 +191,19 @@ export default function FleetCenter({ csrfToken }: { csrfToken: string }) {
       </div>
 
       <section className="panel fleet-probe">
-        <header className="panel-header"><strong>Independent Pi-hole proof</strong><span>Available only after fresh passing Bigbox proof</span></header>
-        <div className="network-form-grid"><label>Signed device<select value={selectedAgentId} onChange={(event) => setSelectedAgentId(event.target.value)}><option value="">Choose an active agent</option>{activeAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></label></div>
-        <div className="network-plan-actions"><button className="primary-button" type="button" disabled={!selectedAgentId || submitting} onClick={() => void createProbe()}>{submitting ? "Checking evidence..." : "Queue four fixed DNS checks"}</button><span>No address, hostname, port, or command is accepted from this form.</span></div>
+        <header className="panel-header"><strong>Independent Pi-hole proof</strong><span>Owner-approved one-shot window after fresh passing Bigbox proof</span></header>
+        <div className="fleet-schedule-policy"><div><span className="eyebrow">Scheduling policy</span><strong>One-shot only</strong><small>Immediate, 5-minute, or 10-minute delay | 10-minute execution window</small></div><div className="network-lock"><span className="status-pill status-good">Password required</span><span className="status-pill status-good">Fixed task</span><span className="status-pill status-warning">No recurrence</span><span className="status-pill status-warning">No unattended jobs</span></div></div>
+        <div className="network-form-grid">
+          <label>Signed device<select value={selectedAgentId} onChange={(event) => setSelectedAgentId(event.target.value)}><option value="">Choose an active agent</option>{activeAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></label>
+          <label>Start delay<select aria-label="Start delay" value={delayMinutes} onChange={(event) => setDelayMinutes(Number(event.target.value))}>{status.schedulingPolicy.allowedDelayMinutes.map((delay) => <option value={delay} key={delay}>{delay === 0 ? "Immediately" : `In ${delay} minutes`}</option>)}</select></label>
+          <label>Owner password for task<input type="password" value={probePassword} onChange={(event) => setProbePassword(event.target.value)} autoComplete="current-password" /></label>
+        </div>
+        <div className="network-plan-actions"><button className="primary-button" type="button" disabled={!selectedAgentId || probePassword.length < 12 || submitting} onClick={() => void createProbe()}>{submitting ? "Reauthenticating..." : "Schedule one fixed DNS proof"}</button><span>No address, hostname, port, command, recurrence, or arbitrary execution time is accepted from this form.</span></div>
+      </section>
+
+      <section className="panel table-panel">
+        <header className="panel-header"><strong>One-shot task windows</strong><span>Pending tasks are dispatchable only inside their exact window</span></header>
+        <div className="table-scroll"><table><thead><tr><th>Created</th><th>Agent</th><th>Available</th><th>Expires</th><th>Type</th><th>State</th></tr></thead><tbody>{status.tasks.length ? status.tasks.map((task) => <tr key={task.id}><td>{new Date(task.createdAt).toLocaleString()}</td><td>{status.agents.find((agent) => agent.id === task.agentId)?.name ?? task.agentId}</td><td>{new Date(task.availableAt).toLocaleString()}</td><td>{new Date(task.expiresAt).toLocaleString()}</td><td><code>{task.type}</code></td><td className={task.state === "completed" ? "good-text" : task.state === "expired" ? "warning-text" : ""}>{task.state === "pending" && new Date(task.availableAt) > new Date() ? "scheduled" : task.state}</td></tr>) : <tr><td colSpan={6}>No one-shot fleet task has been scheduled.</td></tr>}</tbody></table></div>
       </section>
 
       <section className="panel table-panel">

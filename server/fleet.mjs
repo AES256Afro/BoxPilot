@@ -7,6 +7,7 @@ const agentNamePattern = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{2,47}$/;
 const allowedCapabilities = Object.freeze(["dns-probe-v1"]);
 const agentRequestWindowMs = 5 * 60 * 1000;
 const controllerEvidenceMaxAgeMs = 30 * 60 * 1000;
+const allowedDelayMinutes = Object.freeze([0, 5, 10]);
 
 export function canonicalJson(value) {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
@@ -124,6 +125,17 @@ export function createFleetService({ store, now = () => new Date() }) {
         routerMutationSupported: false,
         dnsCutoverSupported: false,
       },
+      schedulingPolicy: {
+        mode: "owner-approved-one-shot",
+        allowedDelayMinutes: [...allowedDelayMinutes],
+        executionWindowMinutes: 10,
+        recurrenceSupported: false,
+        unattendedExecutionSupported: false,
+        cancellationSupported: false,
+        taskType: "dns.pi-hole.acceptance.v1",
+        targetSource: "fresh-passing-controller-acceptance-only",
+        passwordReauthenticationRequired: true,
+      },
     };
   }
 
@@ -133,25 +145,30 @@ export function createFleetService({ store, now = () => new Date() }) {
     return store.revokeFleetAgent(agentId, ownerId);
   }
 
-  function createDnsProbeTask(ownerId, body) {
-    if (!exactKeys(body, ["agentId"]) || typeof body.agentId !== "string") throw new Error("DNS probe task creation accepts only one agent id");
+  async function createDnsProbeTask(ownerId, body) {
+    if (!exactKeys(body, ["agentId", "delayMinutes", "password"]) || typeof body.agentId !== "string") throw new Error("DNS probe scheduling accepts only one agent id, one fixed delay, and the owner password");
+    if (!allowedDelayMinutes.includes(body.delayMinutes)) throw new Error("DNS probe delay must be immediate, 5 minutes, or 10 minutes");
+    await requireOwnerPassword(ownerId, body.password);
     const agent = store.getFleetAgent(body.agentId);
     if (!agent || agent.status !== "active" || !agent.capabilities.includes("dns-probe-v1")) throw new Error("An active DNS probe agent is required");
     if (store.listFleetTasks(200).some((task) => task.agentId === agent.id && task.type === "dns.pi-hole.acceptance.v1" && task.state === "pending")) throw new Error("This agent already has a pending DNS probe");
     const acceptance = store.listDnsAcceptances(200).find((item) => item.passed && item.origin === "boxpilot-controller" && item.secondDeviceTested === false);
     if (!acceptance) throw new Error("A passing direct Bigbox Pi-hole acceptance is required first");
-    if (now().getTime() - new Date(acceptance.createdAt).getTime() > controllerEvidenceMaxAgeMs) throw new Error("The direct Bigbox Pi-hole acceptance is older than 30 minutes; run it again");
+    const delayMs = body.delayMinutes * 60 * 1000;
+    if (now().getTime() - new Date(acceptance.createdAt).getTime() + delayMs > controllerEvidenceMaxAgeMs) throw new Error("The direct Bigbox Pi-hole acceptance would be older than 30 minutes when this task becomes available; run it again");
     if (net.isIP(acceptance.resolverAddress) !== 4) throw new Error("The linked Pi-hole resolver is not an exact IPv4 address");
     return store.createFleetTask({
       agentId: agent.id,
       type: "dns.pi-hole.acceptance.v1",
       controllerAcceptanceId: acceptance.id,
       createdBy: ownerId,
+      delayMs,
       ttlMs: 10 * 60 * 1000,
       payload: {
         schemaVersion: 1,
         resolverAddress: acceptance.resolverAddress,
         checks: dnsAcceptanceInternals.acceptanceChecks.map((check) => ({ id: check.id, protocol: check.protocol, name: check.name, type: "A", expectedRcode: check.expectedRcode, port: 53 })),
+        schedule: { delayMinutes: body.delayMinutes, recurring: false, unattended: false },
         boundary: { arbitraryCommand: false, arbitraryTarget: false, routerMutation: false, dnsCutover: false },
       },
     });
@@ -198,4 +215,4 @@ export function createFleetService({ store, now = () => new Date() }) {
   return { createEnrollment, enroll, authenticate, inspect, revoke, createDnsProbeTask, nextTask, submitEvidence };
 }
 
-export const fleetInternals = { agentNamePattern, allowedCapabilities, exactKeys, validateChecks, validatePublicKey };
+export const fleetInternals = { agentNamePattern, allowedCapabilities, allowedDelayMinutes, exactKeys, validateChecks, validatePublicKey };
