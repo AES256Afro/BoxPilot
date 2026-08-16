@@ -52,7 +52,7 @@ describe("native systemd network boundaries", () => {
     expect(dockerfile).toContain("BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot");
     expect(dockerfile).toContain("BOXPILOT_COOKIE_SECURE=false");
     expect(dockerfile).toContain("USER node");
-    expect(compose).toContain("image: boxpilot:0.50.1");
+    expect(compose).toContain("image: boxpilot:0.51.0");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("/tmp:size=16m,mode=1777");
   });
@@ -310,6 +310,30 @@ describe("native systemd network boundaries", () => {
     expect(drill).toContain("promotionPerformed: false");
     expect(protocol).toContain("application.keel.recovery-drill.create");
     expect(protocol).not.toContain("application.keel.promote");
+  });
+
+  it("ships a static Keel production promotion with exact recovery inputs and automatic rollback", async () => {
+    const service = await readFile("deploy/boxpilot-keel-promotion.service", "utf8");
+    const promotion = await readFile("scripts/boxpilot-keel-promotion.mjs", "utf8");
+    const helper = await readFile("server/keel-promotion-helper.mjs", "utf8");
+    const protocol = await readFile("server/helper-protocol.mjs", "utf8");
+    const metadata = await stat("scripts/boxpilot-keel-promotion.mjs");
+    expect(metadata.mode & 0o111).not.toBe(0);
+    expect(service).toContain("Type=oneshot");
+    expect(service).toContain("ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-promotion.mjs");
+    expect(service).toContain("ReadOnlyPaths=/var/lib/boxpilot-managed/keel-recoveries");
+    expect(service).toContain("ReadWritePaths=/var/lib");
+    expect(service).toContain("IPAddressDeny=any");
+    expect(service).toContain("IPAddressAllow=localhost");
+    expect(service).not.toContain("[Install]");
+    expect(service).not.toContain("%i");
+    expect(promotion).toContain("process.argv.length !== 2");
+    expect(promotion).not.toContain("process.argv[2]");
+    expect(promotion).toContain("automatic rollback restored the previous healthy Keel production state");
+    expect(promotion).toContain("browserPathAccepted: false");
+    expect(helper).toContain("accepts only the fixed promotion, installation, recovery, and drill evidence fields");
+    expect(protocol).toContain("application.keel.promotion.create");
+    expect(protocol).not.toContain("application.keel.restore-path");
   });
 
   it("ships a terminal-only migration packer without a browser-selectable inbox", async () => {
