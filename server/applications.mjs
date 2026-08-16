@@ -147,6 +147,7 @@ export function createApplicationService({ store, prerequisites, helper, network
         let archive;
         let staging;
         let installation;
+        let loginProof;
         try {
           discovery = await helper.request("application.keel.inspect", {});
         } catch {
@@ -177,6 +178,11 @@ export function createApplicationService({ store, prerequisites, helper, network
           installation = { state: "unavailable", installed: false, readyToInstall: false, serviceActive: false, serviceEnabled: false, healthy: false, listener: "unknown", claim: { state: "unavailable", terminalRequired: true }, detail: "Keel installation evidence is unavailable" };
         }
         try {
+          loginProof = await helper.request("application.keel.login-proof.inspect", {});
+        } catch {
+          loginProof = { state: "unavailable", verified: false, verifiedAt: null, credentialsStored: false, sessionStored: false, detail: "Keel owner-login proof evidence is unavailable" };
+        }
+        try {
           const provenance = await githubProvenance?.inspect();
           const repository = provenance?.repositories?.find((item) => item.id === "keel");
           const release = repository?.latestRelease;
@@ -189,11 +195,12 @@ export function createApplicationService({ store, prerequisites, helper, network
             archive,
             staging,
             installation,
+            loginProof,
             provenance: { status: matches ? "matched" : "changed", checkedAt: provenance?.fetchedAt ?? null },
             detail: matches ? `${installation.installed ? installation.detail : discovery.detail}; exact public v1.2.6 release metadata matched` : `${installation.installed ? installation.detail : discovery.detail}; pinned Keel release provenance is unavailable or changed`,
           };
         } catch {
-          live = { ...discovery, ...(installation.installed ? { installed: true, state: installation.state, healthy: installation.healthy, version: installation.releaseVersion, listener: installation.listener, healthIdentityVerified: installation.healthy } : {}), artifact, archive, staging, installation, provenance: { status: "unavailable", checkedAt: null }, detail: `${installation.installed ? installation.detail : discovery.detail}; GitHub release provenance is unavailable` };
+          live = { ...discovery, ...(installation.installed ? { installed: true, state: installation.state, healthy: installation.healthy, version: installation.releaseVersion, listener: installation.listener, healthIdentityVerified: installation.healthy } : {}), artifact, archive, staging, installation, loginProof, provenance: { status: "unavailable", checkedAt: null }, detail: `${installation.installed ? installation.detail : discovery.detail}; GitHub release provenance is unavailable` };
         }
       }
       return { ...publicManifest(manifest), live };

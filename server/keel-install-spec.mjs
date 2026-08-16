@@ -12,6 +12,8 @@ export const keelInstallPaths = Object.freeze({
   managedSecretKey: "/var/lib/keel/.keel-server-secrets.key",
   uploads: "/var/lib/keel/uploads",
   backups: "/var/lib/keel/backups",
+  loginProofDirectory: "/var/lib/boxpilot-managed/keel-owner-login-proofs",
+  loginProof: "/var/lib/boxpilot-managed/keel-owner-login-proofs/latest.json",
   unit: "/etc/systemd/system/keel.service",
 });
 

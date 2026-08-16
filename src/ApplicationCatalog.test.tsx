@@ -69,7 +69,7 @@ describe("curated application catalog", () => {
     const application = {
       id: "keel", name: "Keel Notes", category: "Knowledge", description: "Self-hosted notebook", execution: "staging-enabled", risk: "stateful", targets: ["native-service"],
       image: { version: "1.2.6", digestPinned: true }, artifact, integrity: `sha256:${"c".repeat(64)}`,
-      live: { installed: false, state: "not-installed", healthy: false, kind: null, version: null, listener: "none", healthIdentityVerified: false, risks: [], native: { candidateCount: 0 }, docker: { available: true, candidateCount: 0 }, provenance: { status: "matched", checkedAt: "2026-08-16T04:00:00Z" }, artifact: { state: "verified", readyToAcquire: false, artifactPresent: true, locallyVerified: true, partialPresent: false, detail: "The exact Keel release archive is locally verified" }, archive: { state: "safe", safeToExtract: true, artifactLocallyVerified: true, memberCount: 2974, expectedMemberCount: 2974, risks: [], detail: "The exact archive passed the runtime membership gate" }, staging: { state: "absent", staged: false, readyToStage: true, partialCount: 0, detail: "The fixed Keel release has not been staged" }, detail: "No supported Keel installation was found", boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false } },
+      live: { installed: false, state: "not-installed", healthy: false, kind: null, version: null, listener: "none", healthIdentityVerified: false, risks: [], native: { candidateCount: 0 }, docker: { available: true, candidateCount: 0 }, provenance: { status: "matched", checkedAt: "2026-08-16T04:00:00Z" }, artifact: { state: "verified", readyToAcquire: false, artifactPresent: true, locallyVerified: true, partialPresent: false, detail: "The exact Keel release archive is locally verified" }, archive: { state: "safe", safeToExtract: true, artifactLocallyVerified: true, memberCount: 2974, expectedMemberCount: 2974, risks: [], detail: "The exact archive passed the runtime membership gate" }, staging: { state: "absent", staged: false, readyToStage: true, partialCount: 0, detail: "The fixed Keel release has not been staged" }, loginProof: { state: "not-run", verified: false, credentialsStored: false, sessionStored: false, detail: "No terminal-only Keel instance-owner login proof has been recorded" }, detail: "No supported Keel installation was found", boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false } },
     };
     const plan = {
       id: "keel-plan", subjectId: "keel", revision: "revision789", input: { target: "native-service", hostPort: 3000 }, expiresAt: "2026-08-16T04:00:00Z",
@@ -99,7 +99,9 @@ describe("curated application catalog", () => {
 
     expect(await screen.findByText("Keel Notes")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Plan safe staging" }));
-    expect(screen.getByText("Guarded native install enabled")).toBeTruthy();
+    expect(screen.getByText("Guarded native lifecycle enabled")).toBeTruthy();
+    expect(screen.getByText("Terminal-only instance-owner login proof")).toBeTruthy();
+    expect(screen.getByText(/State: not-run \| current database: not matched \| owner route: not verified/)).toBeTruthy();
     expect(screen.getByText(/Native candidates: 0 \| Docker candidates: 0/)).toBeTruthy();
     expect(screen.getByText(/Release asset digest pinned/)).toBeTruthy();
     expect(screen.getByText(/State: verified \| local bytes verified: yes/)).toBeTruthy();

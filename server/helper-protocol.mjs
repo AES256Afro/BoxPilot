@@ -21,6 +21,7 @@ import { createKeelArtifactHelper } from "./keel-artifact-helper.mjs";
 import { createKeelArchiveHelper } from "./keel-archive-helper.mjs";
 import { createKeelStageHelper } from "./keel-stage-helper.mjs";
 import { createKeelInstallHelper } from "./keel-install-helper.mjs";
+import { createKeelLoginProofHelper } from "./keel-login-proof-helper.mjs";
 import { createKeelBackupHelper } from "./keel-backup-helper.mjs";
 import { createKeelRecoveryHelper, validateKeelRecoveryInput } from "./keel-recovery-helper.mjs";
 import { createKeelRecoveryDrillHelper, validateKeelRecoveryDrillCreateInput, validateKeelRecoveryDrillInspectInput } from "./keel-recovery-drill-helper.mjs";
@@ -29,7 +30,7 @@ import { createKeelRollbackHelper, validateKeelRollbackCreateInput, validateKeel
 import { validUuid } from "./keel-artifact-spec.mjs";
 
 export const helperProtocolVersion = 1;
-export const helperOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.smartmontools.install", "prerequisite.restic.inspect", "prerequisite.restic.install", "prerequisite.apt-metadata.inspect", "prerequisite.apt-metadata.refresh", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.backup.create", "controller.database.protection.inspect", "controller.database.protection.create", "controller.database.protection.retention.inspect", "controller.database.protection.retention.apply", "application.backup.protection.inspect", "application.backup.protection.create", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "application.pi-hole.inspect", "application.pi-hole.deploy", "application.pi-hole.backup", "application.keel.inspect", "application.keel.artifact.inspect", "application.keel.artifact.acquire", "application.keel.archive.inspect", "application.keel.stage.inspect", "application.keel.stage", "application.keel.install.inspect", "application.keel.install", "application.keel.backup", "application.keel.recovery.inspect", "application.keel.recovery.create", "application.keel.recovery-drill.inspect", "application.keel.recovery-drill.create", "application.keel.promotion.inspect", "application.keel.promotion.create", "application.keel.rollback.inspect", "application.keel.rollback.create", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
+export const helperOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.smartmontools.install", "prerequisite.restic.inspect", "prerequisite.restic.install", "prerequisite.apt-metadata.inspect", "prerequisite.apt-metadata.refresh", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.backup.create", "controller.database.protection.inspect", "controller.database.protection.create", "controller.database.protection.retention.inspect", "controller.database.protection.retention.apply", "application.backup.protection.inspect", "application.backup.protection.create", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "application.pi-hole.inspect", "application.pi-hole.deploy", "application.pi-hole.backup", "application.keel.inspect", "application.keel.artifact.inspect", "application.keel.artifact.acquire", "application.keel.archive.inspect", "application.keel.stage.inspect", "application.keel.stage", "application.keel.install.inspect", "application.keel.install", "application.keel.login-proof.inspect", "application.keel.backup", "application.keel.recovery.inspect", "application.keel.recovery.create", "application.keel.recovery-drill.inspect", "application.keel.recovery-drill.create", "application.keel.promotion.inspect", "application.keel.promotion.create", "application.keel.rollback.inspect", "application.keel.rollback.create", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
 const vmCreationKeys = ["autostart", "diskGiB", "firmware", "isoFile", "memoryMiB", "name", "network", "osProfile", "vcpus"];
 const vmLifecycleKeys = ["action", "expectedAutostart", "expectedState", "name"];
 const vmSnapshotKeys = ["expectedDiskRevision", "expectedSnapshotRevision", "expectedState", "expectedUuid", "name", "snapshotName"];
@@ -139,6 +140,7 @@ export function validateHelperRequest(value) {
     if (keys.length !== 1 || keys[0] !== "stageId" || !validUuid(value.parameters.stageId)) return "Keel staging accepts only one stageId UUID";
   }
   if (value.operation === "application.keel.install.inspect" && Object.keys(value.parameters).length !== 0) return "Keel installation inspection accepts no parameters";
+  if (value.operation === "application.keel.login-proof.inspect" && Object.keys(value.parameters).length !== 0) return "Keel owner-login proof inspection accepts no parameters";
   if (value.operation === "application.keel.install") {
     const keys = Object.keys(value.parameters);
     if (keys.length !== 1 || keys[0] !== "installId" || !validUuid(value.parameters.installId)) return "Keel installation accepts only one installId UUID";
@@ -246,7 +248,7 @@ export function validateHelperRequest(value) {
   return null;
 }
 
-export async function executeHelperOperation(request, { applications = createApplicationHelper(), applicationProtection = createApplicationProtectionHelper(), controllerBackups = createControllerBackupHelper(), controllerProtection = createControllerProtectionHelper(), controllerRetention = createControllerRetentionHelper(), keelDiscovery = createKeelDiscoveryHelper(), keelArtifacts = createKeelArtifactHelper(), keelArchive = createKeelArchiveHelper(), keelStage = createKeelStageHelper(), keelInstall = createKeelInstallHelper(), keelBackups = createKeelBackupHelper({ installHelper: keelInstall }), keelRecovery = createKeelRecoveryHelper(), keelRecoveryDrill = createKeelRecoveryDrillHelper(), keelPromotion = createKeelPromotionHelper(), keelRollback = createKeelRollbackHelper(), migrations = createMigrationTransferHelper(), prerequisites = createPrerequisiteHelper(), virtualization = createVmHelper(), vmProtection = createVmProtectionHelper(), vmRetention = createVmRetentionHelper(), vmRestoreDrill = createVmRestoreDrillHelper(), vmRecovery = createVmRecoveryHelper() } = {}) {
+export async function executeHelperOperation(request, { applications = createApplicationHelper(), applicationProtection = createApplicationProtectionHelper(), controllerBackups = createControllerBackupHelper(), controllerProtection = createControllerProtectionHelper(), controllerRetention = createControllerRetentionHelper(), keelDiscovery = createKeelDiscoveryHelper(), keelArtifacts = createKeelArtifactHelper(), keelArchive = createKeelArchiveHelper(), keelStage = createKeelStageHelper(), keelInstall = createKeelInstallHelper(), keelLoginProof = createKeelLoginProofHelper(), keelBackups = createKeelBackupHelper({ installHelper: keelInstall }), keelRecovery = createKeelRecoveryHelper(), keelRecoveryDrill = createKeelRecoveryDrillHelper(), keelPromotion = createKeelPromotionHelper(), keelRollback = createKeelRollbackHelper(), migrations = createMigrationTransferHelper(), prerequisites = createPrerequisiteHelper(), virtualization = createVmHelper(), vmProtection = createVmProtectionHelper(), vmRetention = createVmRetentionHelper(), vmRestoreDrill = createVmRestoreDrillHelper(), vmRecovery = createVmRecoveryHelper() } = {}) {
   const error = validateHelperRequest(request);
   if (error) return { version: helperProtocolVersion, id: request?.id ?? null, ok: false, error, code: "invalid_request" };
   if (request.operation === "canary.verify") {
@@ -254,7 +256,7 @@ export async function executeHelperOperation(request, { applications = createApp
       version: helperProtocolVersion,
       id: request.id,
       ok: true,
-      result: { verified: true, helperVersion: "0.52.0", mutationPerformed: false },
+      result: { verified: true, helperVersion: "0.53.0", mutationPerformed: false },
     };
   }
   if (request.operation === "prerequisite.smartmontools.inspect") {
@@ -349,6 +351,9 @@ export async function executeHelperOperation(request, { applications = createApp
   }
   if (request.operation === "application.keel.install") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await keelInstall.install(request.parameters) };
+  }
+  if (request.operation === "application.keel.login-proof.inspect") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await keelLoginProof.inspect() };
   }
   if (request.operation === "application.keel.backup") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await keelBackups.backup(request.parameters) };

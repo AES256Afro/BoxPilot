@@ -1,8 +1,30 @@
 # Keel Notes guarded native service and recovery evidence
 
-BoxPilot `0.52.0` can acquire, inspect, stage, install, activate, health-check, consistently export, locally restore-verify, materialize a stopped recovery clone, run a disposable isolated startup rehearsal, promote only that exact drilled state, and explicitly roll back a completed promotion for one fixed [Keel Notes](https://github.com/AES256Afro/Keel) release. The corrected upstream `v1.2.6` server archive contains no links or special members. BoxPilot verifies that fact before extraction and again after extraction. Separate password-approved jobs create the guarded native service, create a root-only recovery artifact with an isolated SQLite-open drill, materialize only a stopped no-network recovery state, test only a disposable copy in a private network namespace, atomically exchange production only after the drill passes, and preserve both sides of a later operator-requested rollback.
+BoxPilot `0.53.0` can acquire, inspect, stage, install, activate, health-check, consistently export, locally restore-verify, materialize a stopped recovery clone, run a disposable isolated startup rehearsal, promote only that exact drilled state, explicitly roll back a completed promotion, and record a sanitized terminal-only instance-owner login proof for one fixed [Keel Notes](https://github.com/AES256Afro/Keel) release. The corrected upstream `v1.2.6` server archive contains no links or special members. BoxPilot verifies that fact before extraction and again after extraction. Separate password-approved jobs create the guarded native service, create a root-only recovery artifact with an isolated SQLite-open drill, materialize only a stopped no-network recovery state, test only a disposable copy in a private network namespace, atomically exchange production only after the drill passes, and preserve both sides of a later operator-requested rollback.
 
-Ownership claim remains a terminal-only handoff. Registration changes, owner-login proof, Tailscale exposure, import, migration activation, adoption, update, removal, rollback retention, and retained-state deletion remain unavailable. A locally verified artifact or local rollback checkpoint is not independently protected until its separate encrypted restic copy and exact restored-artifact proof pass.
+Ownership claim and owner-login proof remain separate terminal-only handoffs. Registration changes, WebAuthn terminal proof, Tailscale exposure, import, migration activation, adoption, update, removal, rollback retention, and retained-state deletion remain unavailable. A locally verified artifact or local rollback checkpoint is not independently protected until its separate encrypted restic copy and exact restored-artifact proof pass.
+
+## Terminal-only instance-owner login proof
+
+After installation, registration, and the one-use ownership claim are complete, run this from a normal Bigbox administrator account:
+
+```bash
+sudo -k /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-owner-login-proof.mjs
+```
+
+The command requires a fresh interactive `sudo` session and accepts no arguments. The root parent verifies the exact activation link, environment contents and ownership, private database, install evidence, dedicated account, and active service before any credential prompt. It starts a short-lived child, removes supplemental groups, drops to the `keel` uid and gid, then asks for the owner email and a hidden password through the terminal. Neither value is sent to the BoxPilot web process or restricted helper.
+
+The child fetches only `http://127.0.0.1:3000/login`, extracts exactly one generated Keel Server Action marker, and submits that marker with the credentials in memory. Success requires all of these checks:
+
+1. Keel creates a `keel_session` cookie and redirects to `/`.
+2. `GET /api/admin/server` succeeds, proving the account is Keel's instance owner and the release is exactly `1.2.6`.
+3. The authenticated workspace exposes exactly one `Sign out` Server Action.
+4. That action redirects to `/login`.
+5. Reusing the former session against the owner endpoint returns `401`, proving server-side revocation.
+
+Only then does the root parent atomically publish `/var/lib/boxpilot-managed/keel-owner-login-proofs/latest.json` as root-owned mode `0600`. The exact schema contains no email, username, password, session token, cookie, request header, response body, page content, command input, or application data. It includes only the active database device and inode metadata needed to invalidate the proof automatically after a recovery promotion, rollback, or other state replacement. The parameter-free helper compares only that fixed file metadata and returns the sanitized state, release, timestamp, booleans, and a fixed boundary declaration. It never opens the database.
+
+If Keel redirects to `/2fa`, the command stops without evidence. It reports that the password factor passed but never claims full login, because a terminal worker must not impersonate a WebAuthn security key. Complete that account's login manually in a browser. A wrong password, access-policy refusal, non-owner account, changed action form, failed logout, live former session, or unsafe proof path also fails without publishing evidence.
 
 ## Fixed release identity
 
@@ -170,7 +192,7 @@ Failure or interruption stops the candidate, restores the displaced current prod
 17. Require exact source hashes, confined archive membership, repeated manifest, tree, managed-secret, and SQLite proof, a root-only published state path, `stopped` state, `none` network, and explicit no-production-replacement evidence.
 18. On that stopped clone, choose **Plan isolated startup rehearsal**, stage the exact plan, and approve it in Repair Center. Require private-namespace health, SQLite proof, clean stop, zero published ports, unchanged source evidence, and removed workspace.
 19. Only after the matching rehearsal passes, choose **Plan production promotion**, review the pinned drill and rollback checkpoint, stage the exact plan, and approve it in Repair Center.
-20. Require the final evidence to show the old state retained, the drilled state active, exact health and SQLite checks passing, the source recovery unchanged, and the active marker removed. Verify owner login manually before any future private exposure.
+20. Require the final evidence to show the old state retained, the drilled state active, exact health and SQLite checks passing, the source recovery unchanged, and the active marker removed. Run the terminal-only instance-owner login proof before any future private exposure.
 21. If the promoted state must be reversed, choose **Plan operator rollback**, review the exact original and displaced-state boundaries, stage the critical plan, and approve it in Repair Center.
 22. Require the completed evidence to show the original checkpoint unchanged, current production retained under the generated displaced-state checkpoint, older state active and healthy, SQLite checks passing, and no exposure change.
 
@@ -178,14 +200,14 @@ Neither job asks for a sudo password, shell command, path, service name, listene
 
 ## Operations that remain unavailable
 
-BoxPilot `0.52.0` cannot:
+BoxPilot `0.53.0` cannot:
 
 - Install Node.js or another package through the Keel adapter
 - Accept a different Keel release, account, path, port, unit, command, or environment value
 - Expose Keel through Tailscale Serve, a reverse proxy, LAN binding, firewall, or public route
 - Create an owner, claim an instance, or change registration policy
 - Import, migrate, or delete Keel. Production restore is limited to the exact recovery and matching drill selected by the guarded promotion plan.
-- Start or expose the source recovery clone, test owner login automatically, delete a recovery, repeat rollback for one promotion, delete retained state, or prune a retained rollback checkpoint.
+- Start or expose the source recovery clone, accept login credentials in the web UI or helper, prove WebAuthn in a terminal, delete a recovery, repeat rollback for one promotion, delete retained state, or prune a retained rollback checkpoint.
 - Schedule Keel backups, apply application retention, run restic prune, or select another backup destination from the browser
 - Adopt or overwrite an existing native or Docker installation
 - Change Tailscale Serve, firewall, DNS, DHCP, or router state
@@ -199,7 +221,8 @@ Keel deliberately separates registration from instance ownership. BoxPilot does 
 2. Open `http://127.0.0.1:3000`, register the intended account, and generate Keel's five-minute one-use claim token.
 3. SSH to Bigbox as your normal administrator and run `sudo -k /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-claim.mjs 'PASTE_TOKEN'`.
 4. The fixed terminal handoff rechecks the exact activation, environment, database ownership, install evidence, dedicated account, and active service before it drops permanently to the `keel` identity and calls Keel's claim transaction. `sudo -k` forces a fresh operating-system confirmation. The five-minute token never enters BoxPilot's API, database, job log, or browser storage.
-5. Verify the claimed owner inside Keel, restrict or close registration, and only then plan a future private Tailscale access route.
+5. Run `sudo -k /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-owner-login-proof.mjs`. Require instance-owner authorization, forced logout, revoked-session evidence, and no credential or session storage.
+6. Restrict or close registration, verify that policy manually, and only then plan a future private Tailscale access route.
 
 Tailscale access does not replace Keel authentication. The current BoxPilot Tailscale Serve root remains assigned to BoxPilot and is not changed by the Keel installer.
 
@@ -207,6 +230,6 @@ Tailscale access does not replace Keel authentication. The current BoxPilot Tail
 
 The shipped adapter keeps immutable release bytes separate from writable state. Its coordinated export preserves the database, uploads, environment, and `.keel-server-secrets.key` companion when present. It does not accept a copy of the live SQLite main file as a backup. The source is stopped, exported as the service identity, restarted, health checked, and tested through an isolated no-network SQLite-open drill before BoxPilot records local verification. Version `0.49.0` transforms that exact immutable archive into a new stopped root-only live-layout state under `/var/lib/boxpilot-managed/keel-recoveries`. Version `0.50.0` runs the exact release against a disposable copy inside a private network namespace and records health, SQLite, clean-stop, source-immutability, and cleanup evidence. Version `0.51.0` can then atomically promote only that exact drilled state while retaining and automatically restoring the stopped prior production state on failure. Version `0.52.0` can explicitly restore that retained checkpoint while preserving both the original source checkpoint and displaced current production.
 
-The next adapter milestone needs a separately designed terminal-only owner-login proof that never records a password, safe rollback-checkpoint retention and deletion, import planning, claim-state and registration verification, update rollback, and removal that preserves data by default. A future private Tailscale handoff must use a route that does not replace BoxPilot's existing Serve root and must not happen before login, claim, and registration verification.
+The next adapter milestone needs safe rollback-checkpoint retention and deletion, import planning, independent claim-state and registration verification, update rollback, and removal that preserves data by default. A future private Tailscale handoff must use a route that does not replace BoxPilot's existing Serve root and must not happen before login, claim, and registration verification.
 
 The published source uses BUSL-1.1. Personal self-hosting and internal organizational use are within the repository's stated grant. Third-party managed hosting requires separate license review.
