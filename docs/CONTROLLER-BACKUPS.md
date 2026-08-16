@@ -1,8 +1,8 @@
 # BoxPilot controller database backups
 
-BoxPilot `0.38.0` adds a guarded local backup for its own SQLite controller state. Version `0.39.0` adds a separate encrypted independent protection stage for that verified snapshot. It reads the complete restic repository, restores the exact snapshot, verifies both files and the database again, and only then reports the controller snapshot as protected.
+BoxPilot `0.38.0` adds a guarded local backup for its own SQLite controller state. Version `0.39.0` adds a separate encrypted independent protection stage for that verified snapshot. It reads the complete restic repository, restores the exact snapshot, verifies both files and the database again, and only then reports the controller snapshot as protected. Version `0.40.0` adds one fixed, separately approved retention policy for exact old protected snapshot references.
 
-A local snapshot is recovery evidence, not complete disaster protection. The `0.39.0` stage can make a verified independent copy, but only after an operator mounts storage in a different failure domain and keeps the separate recovery password outside Bigbox.
+A local snapshot is recovery evidence, not complete disaster protection. The `0.39.0` stage can make a verified independent copy, but only after an operator mounts storage in a different failure domain and keeps the separate recovery password outside Bigbox. The `0.40.0` retention workflow can remove exact repository snapshot references, but it never removes the local verified artifacts and never reclaims repository space.
 
 ## What the backup contains
 
@@ -66,6 +66,33 @@ Bigbox does not currently have this independent mount configured. Until it does,
 
 The helper snapshots the complete generated UUID directory, including both `boxpilot.sqlite3` and `manifest.json`. It restores the exact new snapshot with restic verification into a generated root-only workspace. It requires the restored artifact and manifest SHA-256 values, size, backup identity, SQLite integrity, foreign keys, required schema, schema fingerprint, and owner-state presence to match before removing the successful workspace and recording protection.
 
+## Apply the fixed retention policy
+
+The policy has no operator-editable values. It considers active controller protection records in the fixed `restic-controller` repository and keeps:
+
+- The three newest active protected snapshots
+- Every snapshot younger than 30 days
+- Every snapshot without complete passing independent restore evidence
+- Every snapshot referenced by an applying or verifying controller protection or retention job
+- Every repository snapshot that cannot be attributed exactly to an active BoxPilot protection record, by blocking the run for investigation
+
+At most 100 eligible snapshots enter one immutable high-risk plan. Additional eligible snapshots are deferred to another separately approved batch. The plan records the exact repository id, destination revision, complete BoxPilot-tagged snapshot-set revision, protection ids, backup ids, snapshot ids, ages, sizes, and keep reasons.
+
+For an approved batch, BoxPilot:
+
+1. Recomputes the fixed policy and requires the exact candidate list and snapshot-set revision to remain unchanged.
+2. Sends only the server-generated retention UUID, fixed evidence revisions, and a sorted list of one to 100 full snapshot ids to the restricted helper.
+3. Rechecks the exact independent mount, encrypted repository identity, and complete tagged controller snapshot inventory.
+4. Runs `restic forget` only for those exact ids. Moving selectors, tags, paths, keep flags, arbitrary commands, and policy values are rejected.
+5. Never runs `restic prune`.
+6. Reads every remaining repository data pack with `restic check --read-data --quiet`.
+7. Proves every approved id is absent and every reviewed noncandidate id remains.
+8. Atomically records the retention run and marks the exact protection records as forgotten.
+
+Forgotten protection records remain visible as historical evidence but are not reported as retained or protected. If any removal is confirmed and a later repository read or inventory check fails, BoxPilot records every confirmed forgotten id before the durable job fails. This prevents a removed snapshot from being shown as available after partial success. The live database, every local controller backup directory, noncandidate repository snapshots, and repository pack data are not intentionally changed.
+
+Because forgetting a snapshot reference cannot be automatically undone, recovery guidance points to another retained protected snapshot. Pack data may still exist until a separately designed prune workflow, but BoxPilot never claims a forgotten snapshot is recoverable.
+
 ## Why a normal file copy is unsafe
 
 BoxPilot uses SQLite write-ahead logging. A live database can have committed state in `boxpilot.sqlite3-wal` that is not yet present in the main `boxpilot.sqlite3` file. Copying only that main file can therefore produce a stale or incomplete recovery point even when the file opens successfully.
@@ -89,7 +116,7 @@ If any step fails, no successful backup record is created. Cleanup is restricted
 
 ## Restricted-helper contract
 
-The helper exposes four controller-specific typed operations:
+The helper exposes six controller-specific typed operations:
 
 ```text
 controller.database.backup.inspect  parameters: {}
@@ -100,13 +127,18 @@ controller.database.protection.create  parameters: {
   expectedManifestChecksumSha256, expectedSizeBytes,
   expectedDestinationRevision
 }
+controller.database.protection.retention.inspect parameters: {}
+controller.database.protection.retention.apply parameters: {
+  retentionId, repositoryId, expectedDestinationRevision,
+  expectedSnapshotSetRevision, forgetSnapshotIds
+}
 ```
 
-It accepts no database path, destination path, filename, password, repository, restic option, command, argument array, retention rule, selector, service name, download target, or remote endpoint. The helper derives the source, repository, password file, cache, tags, snapshot selector, and restore workspace. It retains `PrivateNetwork=true`; mounted storage I/O requires no process network socket.
+It accepts no database path, destination path, filename, password, browser-supplied repository, restic option, command, argument array, retention rule, moving selector, service name, download target, or remote endpoint. The retention apply operation receives only the fixed repository identity and revisions plus exact sorted snapshot ids selected by the server policy. The helper derives the source, repository path, password file, cache, tags, snapshot selector, and restore workspace. It retains `PrivateNetwork=true`; mounted storage I/O requires no process network socket.
 
 ## Manual recovery runbook
 
-Recovery is intentionally not an in-product mutation in `0.39.0`. Perform it from a physical or SSH console only after selecting an exact protected record and retrieving its separately stored recovery password.
+Recovery is intentionally not an in-product mutation in `0.40.0`. Perform it from a physical or SSH console only after selecting an exact retained protected record and retrieving its separately stored recovery password.
 
 1. Keep a separate copy of the current live database family before replacement.
 2. Stop the web service before changing controller state. The helper may remain stopped during the recovery.
@@ -119,12 +151,12 @@ Recovery is intentionally not an in-product mutation in `0.39.0`. Perform it fro
 
 The exact restore procedure depends on the incident and the BoxPilot version being recovered. Do not overwrite production from the browser, do not restore while the web service is running, and do not use a lone raw main-file copy from a live WAL database.
 
-## What `0.39.0` does not prove
+## What `0.40.0` does not prove
 
 - A local snapshot is not protected until its own independent restic record passes. A mounted USB disk is not offsite merely because it uses a different filesystem.
 - The drill does not start a second BoxPilot service or attempt an owner login.
 - The snapshot does not include the final successful record for itself because that record is written only after artifact verification completes.
-- There is no schedule, recurrence, retention deletion, browser download, remote or cloud adapter, notification, or automatic production restore. The workflow never runs restic forget or prune.
+- There is no schedule, recurrence, configurable retention value, browser download, remote or cloud adapter, notification, or automatic production restore. Retention can forget only exact references selected by the fixed policy and never runs restic prune.
 - BoxPilot does not back up the source checkout, Tailscale account recovery, router configuration payloads, application credentials outside controller state, or the restic password.
 
 Use the Disaster recovery kit and Action Center to track those separate recovery obligations.
