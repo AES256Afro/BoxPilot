@@ -17,6 +17,7 @@ import { getSetupPlan } from "./libvirt.mjs";
 import { createMigrationService } from "./migrations.mjs";
 import { createNetworkService } from "./network.mjs";
 import { createPrerequisiteService } from "./prerequisites.mjs";
+import { createPrerequisiteRepairService } from "./prerequisite-repairs.mjs";
 import { createRouterCheckpointService } from "./router-checkpoints.mjs";
 import { createRecoveryKitService } from "./recovery-kit.mjs";
 import { createStateStore } from "./state.mjs";
@@ -46,6 +47,7 @@ const prerequisites = createPrerequisiteService({
   stateDirectory: process.env.BOXPILOT_STATE_DIRECTORY ?? path.dirname(state.databasePath),
   helper,
 });
+const prerequisiteRepairs = createPrerequisiteRepairService({ store: state, helper });
 const network = createNetworkService({ store: state });
 const githubProvenance = createGithubProvenanceService();
 const applications = createApplicationService({ store: state, prerequisites, helper, network, githubProvenance });
@@ -67,6 +69,7 @@ const actionCenter = createActionCenterService({ recoveryKit, inventory });
 const supportBundle = createSupportBundleService({ inventory, prerequisites, actionCenter, audit, helper });
 const vmRestoreDrills = createVmRestoreDrillService({ store: state, helper });
 const jobs = createJobService(state, helper, {
+  validatePrerequisiteRepairJob: prerequisiteRepairs.validateJob,
   validateApplicationJob: applications.validateJob,
   validateBackupJob: backups.validateJob,
   recordBackupResult: backups.recordResult,
@@ -111,7 +114,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.30.1",
+    version: "0.31.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -182,9 +185,9 @@ app.get("/api/v1/capabilities", (_request, response) => {
     backups: "uptime-kuma-local-restore-drill-and-vm-independent-restic-copy-with-isolated-boot-validation-recovery-clones-and-guarded-retention",
     migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
     network: "read-only-topology-and-approved-fixed-pi-hole-direct-dns-acceptance",
-    privilegedHelper: "typed-canary-curated-applications-backups-migration-staging-inventory-logs-vm-creation-lifecycle-snapshots-exports-mounted-restic-isolated-restore-drills-recovery-clones-and-retention",
+    privilegedHelper: "typed-canary-exact-smartmontools-repair-curated-applications-backups-migration-staging-inventory-logs-vm-creation-lifecycle-snapshots-exports-mounted-restic-isolated-restore-drills-recovery-clones-and-retention",
     identity: "owner-password-foundation",
-    durableJobs: "sqlite-approved-application-backup-dns-acceptance-migration-transfer-vm-creation-lifecycle-snapshot-export-protection-restore-drill-recovery-and-retention-workflows",
+    durableJobs: "sqlite-approved-prerequisite-application-backup-dns-acceptance-migration-transfer-vm-creation-lifecycle-snapshot-export-protection-restore-drill-recovery-and-retention-workflows",
     virtualization: "live-libvirt-via-restricted-helper",
     vmCreationPlanning: "validated-durable-approved",
     audit: "redacted-jsonl-foundation",
@@ -199,6 +202,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     github: { repositories: "fixed-public-read-only-allowlist", authentication: false, writes: false, cloneOrDownload: false, localDigestVerification: false },
     recoveryKit: { generation: "authenticated-read-only", formats: ["json", "markdown"], mutations: false, secretsIncluded: false, backupPayloadIncluded: false },
     actionCenter: { generation: "authenticated-read-only", guidance: "fixed-local-destinations", automaticRepair: false, persistence: false, externalDelivery: false },
+    prerequisiteRepairs: { smartmontools: "exact-version-durable-approved-fixed-package-service", arbitraryPackages: false, aptUpdate: false, automaticRemoval: false },
   });
 });
 
@@ -237,6 +241,25 @@ app.post("/api/v1/fleet/dns-probe-tasks", async (request, response) => {
 
 app.get("/api/v1/operations/prerequisites", async (_request, response) => {
   response.json(await prerequisites.inspect());
+});
+
+app.post("/api/v1/prerequisite-repairs/smartmontools/plans", async (request, response) => {
+  try {
+    const plan = await prerequisiteRepairs.planSmartmontools(request.boxpilotSession.owner.id, request.body);
+    response.status(201).json({ plan });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "smartmontools_repair_plan_failed" });
+  }
+});
+
+app.post("/api/v1/prerequisite-repair-plans/:id/stage", async (request, response) => {
+  try {
+    if (!request.body || typeof request.body !== "object" || Array.isArray(request.body) || Object.keys(request.body).length !== 1 || typeof request.body.revision !== "string") throw new Error("Prerequisite repair staging accepts only the immutable revision");
+    const job = await prerequisiteRepairs.stage(request.params.id, request.body.revision, request.boxpilotSession.owner.id);
+    response.status(201).json({ job });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "smartmontools_repair_stage_failed" });
+  }
 });
 
 app.get("/api/v1/operations/recovery-kit", async (_request, response) => {
@@ -442,7 +465,7 @@ app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = ["application.pi-hole.deploy", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
+    const background = ["prerequisite.smartmontools.install", "application.pi-hole.deploy", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, request.body?.password)
       : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
@@ -703,7 +726,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.30.1 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.31.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

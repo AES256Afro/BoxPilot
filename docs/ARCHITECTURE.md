@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.30.1` adds sanitized host-mount and block topology plus bounded SMART evidence from a separate root-only systemd oneshot and timer. The scanner reads the host PID 1 mount table through a fixed `findmnt` call, has no browser or helper-protocol route, discovers only fixed local disk-name patterns, runs fixed `smartctl` arguments, and writes an allowlisted evidence document without serials or raw output. The server also generates a fixed-source support bundle and applies a final built-in plus bounded site-specific redaction pass.
+Version `0.31.0` adds the first executable prerequisite repair on top of the sanitized storage evidence foundation: an immutable exact-version `smartmontools` plan, separate staging and password approval, typed revalidation, a static root package oneshot, and a verified fresh scan. The general helper retains `PrivateNetwork=true`; only the fixed package oneshot has network access, and it accepts no package, repository, command, or argument from the browser.
 
 ## Target components
 
@@ -42,6 +42,7 @@ BoxPilot web and API process (unprivileged)
           +---- Owner-approved one-shot signed DNS proof windows (0.28.0)
           +---- Read-only fail-closed local Action Center (0.29.0)
           +---- Sanitized host storage inventory and fixed-source support bundle (0.30.1)
+          +---- Durable exact-version smartmontools repair plan and approval (0.31.0)
           |
           +<--- Ed25519 signed polling and fixed evidence from enrolled LAN agent
                   no remote shell, arbitrary command, arbitrary target, or private-key transfer
@@ -52,6 +53,7 @@ BoxPilot web and API process (unprivileged)
 Restricted helper over a local Unix socket (0.4.0 canary foundation)
           |
           +---- typed no-mutation canary (0.4.0)
+          +---- fixed smartmontools inspect and exact-version package-unit handoff (0.31.0)
           +---- fixed Uptime Kuma inspect, deploy, health, and rollback (0.5.0)
           +---- fixed Linux VM creation, verification, and exact-domain rollback (0.9.0)
           +---- fixed VM start, graceful shutdown, reboot request, and autostart operations (0.10.0)
@@ -67,7 +69,7 @@ Restricted helper over a local Unix socket (0.4.0 canary foundation)
           +---- fixed root-only migration bundle inspect, resume, verify, and reconcile (0.17.0)
           +---- fixed digest-pinned exact-LAN Pi-hole deploy, secret, health, and rollback (0.19.0)
           +---- fixed Pi-hole config and secret archive, source restart, no-network restore, and strict interrupted-job reconciliation (0.20.0)
-          +---- typed apt operations (future)
+          +---- other typed package operations (future)
           +---- typed systemd operations
           +---- typed firewall operations
           +---- typed storage and backup operations
@@ -175,7 +177,7 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.30.1 limitations
+## Version 0.31.0 limitations
 
 - The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
@@ -189,8 +191,8 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Public GitHub provenance is held only in a 15-minute memory cache. GitHub-reported signature and asset-digest fields are not local verification. Tokens, private repositories, arbitrary repository paths, downloads, writes, webhooks, workflow dispatch, and installation are unavailable.
 - The Keel Notes adapter is planning-only. It does not discover an existing install, download or hash an asset, validate an archive locally, install Node or Keel, create a service account, write a unit, open a port, start a process, claim an owner, restrict registration, back up or restore data, or activate a migration.
 - The recovery kit is evidence and guidance, not a backup. It cannot prove an independent copy of the BoxPilot database, source archive, router configuration, restic password, application credential, or Tailscale account recovery path. Those remain explicit operator checks outside the controller failure domain.
-- The Action Center is a transient read-only projection of recovery evidence. It has fixed guidance and view navigation only. It cannot dismiss or persist notices, repair a condition, run a command, install a package, schedule work, request browser notifications, or deliver messages externally.
-- Only fixed Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune retention batches can execute mutations. Network assessments and router checkpoints cannot execute. Pi-hole direct DNS acceptance is an approved fixed read-only job in the unprivileged web process and never crosses the root helper. Signed agents can only repeat the four fixed Pi-hole checks from a separately enrolled device. Pi-hole router cutover, router discovery or writes, client DNS advertisement, DHCP, Tailscale changes, remote migration transport, staged-workload activation, firewall, package, storage administration, general Docker, general libvirt, console proxy, snapshot revert/delete, restic prune, configurable retention, in-place restore, recovery network attachment, and force-off operations remain unavailable.
+- The Action Center is a transient read-only projection of recovery evidence. It has fixed guidance and view navigation only. It cannot dismiss or persist notices, repair a condition, run a command, install a package, schedule work, request browser notifications, or deliver messages externally. The separately named `smartmontools` workflow exists only in Repair Center.
+- Only the exact `smartmontools` repair, fixed Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune retention batches can execute mutations. Network assessments and router checkpoints cannot execute. Pi-hole direct DNS acceptance is an approved fixed read-only job in the unprivileged web process and never crosses the root helper. Signed agents can only repeat the four fixed Pi-hole checks from a separately enrolled device. Pi-hole router cutover, router discovery or writes, client DNS advertisement, DHCP, Tailscale changes, remote migration transport, staged-workload activation, firewall, general package, storage administration, general Docker, general libvirt, console proxy, snapshot revert/delete, restic prune, configurable retention, in-place restore, recovery network attachment, and force-off operations remain unavailable.
 - A VM snapshot is never counted as an independent backup. The snapshot workflow rejects running guests, non-file disks, disks outside the managed image root, non-qcow2 disks, backing chains, symlinks, and changed inventory.
 - Uptime Kuma and Pi-hole application backups remain root-only local artifacts on Bigbox. Their isolated restore health checks are recovery evidence, not independent 3-2-1 protection. VM copies require an operator-provided independent mounted filesystem; no such destination is currently configured on Bigbox.
 - VM exports are root-only local integrity artifacts. They are unencrypted and are not reported as protected until a later independent copy and isolated restore boot pass.
