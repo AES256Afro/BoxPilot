@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import http from "node:http";
 import net from "node:net";
 import { keelArtifactSpec } from "./keel-artifact-spec.mjs";
 
@@ -58,11 +59,11 @@ const manifests = [
   },
   {
     schemaVersion: 1,
-    adapterVersion: "0.3.0-stage",
+    adapterVersion: "0.4.0-native-install",
     id: "keel",
     name: "Keel Notes",
     category: "Knowledge",
-    description: "Stateful self-hosted notebook staging with an exact corrected release, two archive gates, a root-only inert release tree, and explicit no-install boundaries.",
+    description: "Stateful self-hosted notebook with an exact corrected release, guarded staging, a dedicated non-login account, hardened loopback service, and terminal-only ownership claim.",
     execution: "staging-enabled",
     risk: "stateful",
     targets: ["native-service"],
@@ -97,11 +98,32 @@ async function defaultPortInspector(port, host = "127.0.0.1") {
   });
 }
 
+async function defaultKeelHealthInspector() {
+  return new Promise((resolve) => {
+    const request = http.get({ hostname: "127.0.0.1", port: 3000, path: "/api/health", timeout: 2500 }, (response) => {
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => {
+        body += chunk;
+        if (body.length > 8192) request.destroy(new Error("Keel health response exceeded the fixed limit"));
+      });
+      response.on("end", () => {
+        try {
+          const value = JSON.parse(body);
+          resolve(response.statusCode === 200 && value?.app === "keel" && value?.ok === true);
+        } catch { resolve(false); }
+      });
+    });
+    request.on("timeout", () => request.destroy());
+    request.on("error", () => resolve(false));
+  });
+}
+
 export function listApplicationManifests() {
   return manifests.map(publicManifest);
 }
 
-export function createApplicationService({ store, prerequisites, helper, network, githubProvenance, inspectPort = defaultPortInspector, hostPlatform = process.platform, hostArchitecture = process.arch } = {}) {
+export function createApplicationService({ store, prerequisites, helper, network, githubProvenance, inspectPort = defaultPortInspector, inspectKeelHealth = defaultKeelHealthInspector, hostPlatform = process.platform, hostArchitecture = process.arch } = {}) {
   function getManifest(id) {
     return manifests.find((manifest) => manifest.id === id) ?? null;
   }
@@ -124,6 +146,7 @@ export function createApplicationService({ store, prerequisites, helper, network
         let artifact;
         let archive;
         let staging;
+        let installation;
         try {
           discovery = await helper.request("application.keel.inspect", {});
         } catch {
@@ -145,6 +168,15 @@ export function createApplicationService({ store, prerequisites, helper, network
           staging = { state: "unavailable", staged: false, readyToStage: false, detail: "Keel staging evidence is unavailable" };
         }
         try {
+          installation = await helper.request("application.keel.install.inspect", {});
+          if (installation.installed) {
+            const healthy = await inspectKeelHealth();
+            installation = { ...installation, healthy, state: healthy ? "installed" : "degraded", listener: "127.0.0.1:3000", detail: healthy ? "Keel 1.2.6 is healthy on loopback under the dedicated keel account; terminal claim and private access handoff remain separate" : "The exact managed Keel installation exists but its live health identity is unavailable" };
+          }
+        } catch {
+          installation = { state: "unavailable", installed: false, readyToInstall: false, serviceActive: false, serviceEnabled: false, healthy: false, listener: "unknown", claim: { state: "unavailable", terminalRequired: true }, detail: "Keel installation evidence is unavailable" };
+        }
+        try {
           const provenance = await githubProvenance?.inspect();
           const repository = provenance?.repositories?.find((item) => item.id === "keel");
           const release = repository?.latestRelease;
@@ -152,14 +184,16 @@ export function createApplicationService({ store, prerequisites, helper, network
           const matches = repository?.status === "available" && release?.tagName === keelArtifact.releaseTag && release?.commit?.sha === keelArtifact.releaseCommitSha && asset?.digest === keelArtifact.digest && asset?.sizeBytes === keelArtifact.sizeBytes;
           live = {
             ...discovery,
+            ...(installation.installed ? { installed: true, state: installation.state, healthy: installation.healthy, version: installation.releaseVersion, listener: installation.listener, healthIdentityVerified: installation.healthy } : {}),
             artifact,
             archive,
             staging,
+            installation,
             provenance: { status: matches ? "matched" : "changed", checkedAt: provenance?.fetchedAt ?? null },
-            detail: matches ? `${discovery.detail}; exact public v1.2.6 release metadata matched` : `${discovery.detail}; pinned Keel release provenance is unavailable or changed`,
+            detail: matches ? `${installation.installed ? installation.detail : discovery.detail}; exact public v1.2.6 release metadata matched` : `${installation.installed ? installation.detail : discovery.detail}; pinned Keel release provenance is unavailable or changed`,
           };
         } catch {
-          live = { ...discovery, artifact, archive, staging, provenance: { status: "unavailable", checkedAt: null }, detail: `${discovery.detail}; GitHub release provenance is unavailable` };
+          live = { ...discovery, ...(installation.installed ? { installed: true, state: installation.state, healthy: installation.healthy, version: installation.releaseVersion, listener: installation.listener, healthIdentityVerified: installation.healthy } : {}), artifact, archive, staging, installation, provenance: { status: "unavailable", checkedAt: null }, detail: `${installation.installed ? installation.detail : discovery.detail}; GitHub release provenance is unavailable` };
         }
       }
       return { ...publicManifest(manifest), live };
@@ -178,6 +212,7 @@ export function createApplicationService({ store, prerequisites, helper, network
     if (!manifest.targets.includes(target)) throw new Error("Unsupported deployment target");
     const hostPort = target === "virtual-machine" ? null : Number.parseInt(input?.hostPort ?? manifest.ports.find((port) => port.id === "web")?.defaultHostPort, 10);
     if (target !== "virtual-machine" && (!Number.isInteger(hostPort) || hostPort < 1024 || hostPort > 65535)) throw new Error("Web port must be between 1024 and 65535");
+    if (manifest.id === "keel" && hostPort !== 3000) throw new Error("The reviewed Keel native-service adapter uses only fixed loopback port 3000");
 
     const inventory = await prerequisites.inspect();
     const required = new Set(manifest.targetPrerequisites?.[target] ?? manifest.prerequisites);
@@ -197,6 +232,8 @@ export function createApplicationService({ store, prerequisites, helper, network
       }
     }
     let keelDiscovery = null;
+    let keelInstallation = null;
+    let keelAction = "stage";
     if (manifest.id === "keel") {
       try {
         keelDiscovery = await helper.request("application.keel.inspect", {});
@@ -212,10 +249,23 @@ export function createApplicationService({ store, prerequisites, helper, network
       } catch {
         blockers.push({ id: "keel.discovery", summary: "The restricted helper could not inspect existing Keel native-service and Docker evidence", repair: { kind: "manual", description: "Restore the helper and regenerate the plan" } });
       }
+      try {
+        keelInstallation = await helper.request("application.keel.install.inspect", {});
+        keelAction = keelInstallation.readyToInstall === true ? "install" : "stage";
+        if (keelInstallation.installed) {
+          blockers.push({ id: "keel.managed-install", summary: keelInstallation.detail, repair: { kind: "guided", description: "Use the managed Keel lifecycle and claim guidance instead of creating another installation" } });
+        } else if (!["absent"].includes(keelInstallation.state)) {
+          blockers.push({ id: "keel.install-boundary", summary: keelInstallation.detail, repair: { kind: "manual", description: "Repair or recover the fixed managed Keel installation signals before another install" } });
+        }
+      } catch {
+        keelInstallation = { state: "unavailable", installed: false, readyToInstall: false, detail: "Keel installation evidence is unavailable" };
+        blockers.push({ id: "keel.install-boundary", summary: "The restricted helper could not inspect the fixed Keel installation boundary", repair: { kind: "manual", description: "Restore the helper and regenerate the plan" } });
+      }
     }
-    if (hostPort !== null && manifest.id !== "keel") {
-      const portInUse = await inspectPort(hostPort, lanAddress ?? "127.0.0.1");
-      if (portInUse === true) blockers.push({ id: `port.${hostPort}`, summary: `TCP port ${hostPort} is already in use`, repair: { kind: "manual", description: `Choose another ${lanAddress ? "LAN" : "loopback"} web port` } });
+    if (hostPort !== null && (manifest.id !== "keel" || keelAction === "install")) {
+      const inspectedHost = manifest.id === "keel" ? "127.0.0.1" : lanAddress ?? "127.0.0.1";
+      const portInUse = await inspectPort(hostPort, inspectedHost);
+      if (portInUse === true) blockers.push({ id: `port.${hostPort}`, summary: `TCP port ${hostPort} is already in use on ${inspectedHost}`, repair: { kind: "manual", description: manifest.id === "keel" ? "Stop or move the conflicting loopback service; the reviewed Keel port is fixed" : `Choose another ${lanAddress ? "LAN" : "loopback"} web port` } });
       if (portInUse === null) blockers.push({ id: `port.${hostPort}`, summary: `BoxPilot could not verify TCP port ${hostPort}`, repair: { kind: "manual", description: "Verify the listener state before approval" } });
     }
 
@@ -254,7 +304,7 @@ export function createApplicationService({ store, prerequisites, helper, network
       try {
         keelStaging = await helper.request("application.keel.stage.inspect", {});
         if (keelStaging.state === "staged") {
-          blockers.push({ id: "keel.stage.exists", summary: "The exact Keel 1.2.6 release is already staged", repair: { kind: "future-adapter", description: "Continue with the later installation and private claim workflow; staging will not overwrite an existing release tree" } });
+          if (keelAction !== "install") blockers.push({ id: "keel.stage.exists", summary: "The exact Keel 1.2.6 release is already staged but is not safely installable", repair: { kind: "manual", description: "Inspect the fixed installation boundary before continuing" } });
         } else if (!keelStaging.readyToStage || !["absent", "partial"].includes(keelStaging.state)) {
           blockers.push({ id: "keel.stage.invalid", summary: keelStaging.detail ?? "The fixed Keel staging location cannot be verified safely", repair: { kind: "manual", description: "Inspect the root-only Keel release tree and helper evidence before creating another plan" } });
         }
@@ -288,9 +338,11 @@ export function createApplicationService({ store, prerequisites, helper, network
     if (manifest.id === "keel") {
       warnings.push("The published release is source-available under BUSL-1.1. Personal self-hosting and internal organizational use are allowed; managed third-party hosting requires separate license review.");
       warnings.push("The upstream Linux installer uses a per-user install tree and systemd user unit. BoxPilot discovery recognizes that supported layout and fixed Docker evidence without reading .env or accepting a path from the browser.");
-      warnings.push("Registration starts open. A future install must stay loopback-only, use the five-minute one-use terminal claim, and close or restrict registration before any broader exposure.");
+      warnings.push("Registration starts open. The managed install stays loopback-only, requires the five-minute one-use terminal claim, and must be closed or restricted before any broader exposure.");
       warnings.push("Keel backup and migration must coordinate SQLite writes and keep keel.db with any .keel-server-secrets.key companion. Copying a live database is not an accepted backup.");
-      warnings.push("This milestone only extracts and verifies a root-only inert release tree. It does not create application state, install a service, start Keel, open a listener, create an account, or change registration.");
+      warnings.push(keelAction === "install"
+        ? "This installation creates the dedicated account, private state, activation link, hardened systemd unit, and loopback listener. It does not claim an account, change registration, configure Tailscale Serve, open the firewall, or change the router."
+        : "Safe staging only extracts and verifies a root-only inert release tree. It does not create application state, install a service, start Keel, open a listener, create an account, or change registration.");
     }
 
     const changes = manifest.id === "uptime-kuma" ? [
@@ -305,6 +357,13 @@ export function createApplicationService({ store, prerequisites, helper, network
       "Generate a managed administrator secret without returning it to logs",
       "Verify DNS and web health before any router cutover",
       "Keep the current resolver active until second-device tests pass",
+    ] : keelAction === "install" ? [
+      "Reverify the exact staged Keel 1.2.6 tree, release evidence, free loopback port, and absence of conflicting installation signals",
+      "Create one dedicated non-login keel system account and private /var/lib/keel recovery unit",
+      "Grant the dedicated group read and execute access to immutable root-owned release bytes without moving writable state into the release",
+      "Atomically activate releases/1.2.6 through the fixed current link and install one exact hardened systemd unit",
+      "Start Keel only on 127.0.0.1:3000 and require its exact JSON health identity and private SQLite file",
+      "Leave account claim, registration policy, Tailscale Serve, firewall, DNS, DHCP, and router state unchanged",
     ] : [
       `Reverify ${keelArtifact.name} from fixed ${keelArtifact.releaseTag} evidence, including its ${keelArtifact.sizeBytes}-byte identity and complete local ${keelArtifact.digest} digest`,
       `Require the runtime archive gate to report exactly ${keelArtifact.archiveMembersObservedDuringAdapterReview} safe members and no links, devices, traversal, extensions, duplicates, or changed roots`,
@@ -314,7 +373,8 @@ export function createApplicationService({ store, prerequisites, helper, network
       "Leave service installation, application state, accounts, registration, listeners, execution, backups, restore, import, and exposure unchanged",
     ];
 
-    const stageId = manifest.id === "keel" ? randomUUID() : null;
+    const stageId = manifest.id === "keel" && keelAction === "stage" ? randomUUID() : null;
+    const installId = manifest.id === "keel" && keelAction === "install" ? randomUUID() : null;
 
     const output = {
       application: manifest.id,
@@ -329,6 +389,8 @@ export function createApplicationService({ store, prerequisites, helper, network
       artifact,
       archiveInspection: manifest.id === "keel" ? keelArchive : undefined,
       stagingInspection: manifest.id === "keel" ? keelStaging : undefined,
+      installationInspection: manifest.id === "keel" ? keelInstallation : undefined,
+      keelAction: manifest.id === "keel" ? keelAction : undefined,
       discovery: manifest.id === "keel" ? keelDiscovery : undefined,
       changes,
       blockers,
@@ -339,7 +401,7 @@ export function createApplicationService({ store, prerequisites, helper, network
     return store.createPlan({
       type: "application.deploy",
       subjectId: manifest.id,
-      input: { target, hostPort, networkAssessmentId: networkAssessment?.id ?? null, lanAddress, fallbackDnsAddress, ...(stageId ? { stageId } : {}) },
+      input: { target, hostPort, networkAssessmentId: networkAssessment?.id ?? null, lanAddress, fallbackDnsAddress, ...(stageId ? { stageId, keelAction: "stage" } : {}), ...(installId ? { installId, keelAction: "install" } : {}) },
       output,
       createdBy: ownerId,
     });
@@ -360,33 +422,35 @@ export function createApplicationService({ store, prerequisites, helper, network
     store.stagePlan(plan.id, ownerId);
     const isPihole = plan.subjectId === "pi-hole";
     const isKeel = plan.subjectId === "keel";
+    const isKeelInstall = isKeel && plan.input.keelAction === "install";
     return store.createJob({
-      type: isKeel ? "application.keel.stage" : isPihole ? "application.pi-hole.deploy" : "application.uptime-kuma.deploy",
-      title: isKeel ? "Stage Keel 1.2.6 release tree" : isPihole ? "Stage Pi-hole on Bigbox" : "Deploy Uptime Kuma",
-      risk: isKeel ? "stateful-staging" : isPihole ? "network-critical" : "low",
-      parameters: { planId: plan.id, revision: plan.revision, hostPort: plan.input.hostPort, ...(isPihole ? { lanAddress: plan.input.lanAddress, networkAssessmentId: plan.input.networkAssessmentId } : {}), ...(isKeel ? { stageId: plan.input.stageId } : {}) },
+      type: isKeelInstall ? "application.keel.install" : isKeel ? "application.keel.stage" : isPihole ? "application.pi-hole.deploy" : "application.uptime-kuma.deploy",
+      title: isKeelInstall ? "Install private Keel 1.2.6 service" : isKeel ? "Stage Keel 1.2.6 release tree" : isPihole ? "Stage Pi-hole on Bigbox" : "Deploy Uptime Kuma",
+      risk: isKeelInstall ? "stateful-install" : isKeel ? "stateful-staging" : isPihole ? "network-critical" : "low",
+      parameters: { planId: plan.id, revision: plan.revision, hostPort: plan.input.hostPort, ...(isPihole ? { lanAddress: plan.input.lanAddress, networkAssessmentId: plan.input.networkAssessmentId } : {}), ...(isKeelInstall ? { installId: plan.input.installId } : isKeel ? { stageId: plan.input.stageId } : {}) },
       recovery: {
         automaticRollback: true,
-        reason: isKeel ? "A failed helper operation removes only its generated partial or newly published inert 1.2.6 release tree; no application state or service exists." : isPihole ? "The managed stack can be removed or its prior Compose definition restored without changing router or client DNS." : "The curated stack can be stopped and its previous Compose definition restored without deleting application data.",
-        manual: isKeel ? "If automatic cleanup cannot complete, inspect only /var/lib/boxpilot-managed/apps/keel/releases and the fixed 1.2.6 stage evidence. Do not delete any future /var/lib/keel application state." : isPihole ? "If automated rollback fails, remove only boxpilot-pi-hole and preserve /var/lib/boxpilot-managed/apps/pi-hole before repair. Router and client DNS were not changed." : "If automated rollback fails, stop boxpilot-uptime-kuma and preserve /var/lib/boxpilot-managed/apps/uptime-kuma/data before repair.",
+        reason: isKeelInstall ? "A failed activation stops and disables the new service, removes only its generated unit, environment file, and activation link, and preserves /var/lib/keel for recovery." : isKeel ? "A failed helper operation removes only its generated partial or newly published inert 1.2.6 release tree; no application state or service exists." : isPihole ? "The managed stack can be removed or its prior Compose definition restored without changing router or client DNS." : "The curated stack can be stopped and its previous Compose definition restored without deleting application data.",
+        manual: isKeelInstall ? "If automatic rollback is incomplete, keep /var/lib/keel, stop keel.service, and inspect only the fixed unit, activation link, and install evidence. Do not delete the database or managed-secret key." : isKeel ? "If automatic cleanup cannot complete, inspect only /var/lib/boxpilot-managed/apps/keel/releases and the fixed 1.2.6 stage evidence. Do not delete any future /var/lib/keel application state." : isPihole ? "If automated rollback fails, remove only boxpilot-pi-hole and preserve /var/lib/boxpilot-managed/apps/pi-hole before repair. Router and client DNS were not changed." : "If automated rollback fails, stop boxpilot-uptime-kuma and preserve /var/lib/boxpilot-managed/apps/uptime-kuma/data before repair.",
       },
       createdBy: ownerId,
       initialSteps: [
-        { name: "preflight", state: "completed", detail: isKeel ? "Manifest integrity, platform, public provenance, exact local artifact, runtime archive membership, storage, helper, and empty fixed release destination validated" : isPihole ? "Manifest integrity, Docker, exact LAN address, TCP and UDP DNS binding, web port, Tailscale, and recovery assessment validated" : "Manifest integrity, Docker availability, storage, helper, and loopback port validated" },
-        { name: "checkpoint", state: "completed", detail: isKeel ? "Only a helper-generated partial and fixed inert release tree may be created; application state, services, listeners, accounts, and registration stay unchanged" : "Existing Compose definition will be copied before replacement and application data will not be deleted" },
+        { name: "preflight", state: "completed", detail: isKeelInstall ? "Exact staged release, dedicated-account namespace, private state path, fixed port 3000, helper, systemd, and absence of conflicting install signals validated" : isKeel ? "Manifest integrity, platform, public provenance, exact local artifact, runtime archive membership, storage, helper, and empty fixed release destination validated" : isPihole ? "Manifest integrity, Docker, exact LAN address, TCP and UDP DNS binding, web port, Tailscale, and recovery assessment validated" : "Manifest integrity, Docker availability, storage, helper, and loopback port validated" },
+        { name: "checkpoint", state: "completed", detail: isKeelInstall ? "Writable state is the preserved recovery unit; service, environment, and activation changes have exact rollback targets" : isKeel ? "Only a helper-generated partial and fixed inert release tree may be created; application state, services, listeners, accounts, and registration stay unchanged" : "Existing Compose definition will be copied before replacement and application data will not be deleted" },
       ],
     });
   }
 
   async function validateJob(job) {
-    if (!["application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.stage"].includes(job.type)) throw new Error("Unsupported application job");
+    if (!["application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.stage", "application.keel.install"].includes(job.type)) throw new Error("Unsupported application job");
     const plan = store.getPlan(job.parameters.planId);
     if (!plan || plan.status !== "staged" || plan.revision !== job.parameters.revision) throw new Error("The staged application plan is unavailable or changed");
-    const expectedSubject = job.type === "application.keel.stage" ? "keel" : job.type === "application.pi-hole.deploy" ? "pi-hole" : "uptime-kuma";
+    const expectedSubject = ["application.keel.stage", "application.keel.install"].includes(job.type) ? "keel" : job.type === "application.pi-hole.deploy" ? "pi-hole" : "uptime-kuma";
     if (plan.subjectId !== expectedSubject || plan.input.hostPort !== job.parameters.hostPort) throw new Error("The staged application plan does not match the requested adapter or port");
     if (job.type === "application.keel.stage" && (plan.input.stageId !== job.parameters.stageId || !/^[a-f0-9-]{36}$/.test(job.parameters.stageId))) throw new Error("The staged Keel plan does not match its fixed stage identifier");
+    if (job.type === "application.keel.install" && (plan.input.installId !== job.parameters.installId || plan.input.keelAction !== "install" || !/^[a-f0-9-]{36}$/.test(job.parameters.installId))) throw new Error("The staged Keel install plan does not match its fixed install identifier");
     const inventory = await prerequisites.inspect();
-    const required = new Set(job.type === "application.keel.stage" ? ["runtime.node", "storage.state", "helper.boundary"] : ["storage.state", "helper.boundary", "containers.docker"]);
+    const required = new Set(["application.keel.stage", "application.keel.install"].includes(job.type) ? ["runtime.node", "storage.state", "helper.boundary"] : ["storage.state", "helper.boundary", "containers.docker"]);
     const blocker = inventory.checks.find((item) => required.has(item.id) && item.status !== "ready");
     if (blocker) throw new Error(`Host state changed: ${blocker.summary}`);
     if (job.type === "application.pi-hole.deploy") {
@@ -407,6 +471,17 @@ export function createApplicationService({ store, prerequisites, helper, network
       const release = repository?.latestRelease;
       const asset = release?.assets?.find((item) => item.name === keelArtifact.name);
       if (repository?.status !== "available" || release?.tagName !== keelArtifact.releaseTag || release?.commit?.sha !== keelArtifact.releaseCommitSha || asset?.digest !== keelArtifact.digest || asset?.sizeBytes !== keelArtifact.sizeBytes) throw new Error("Host state changed: the fixed Keel public release provenance no longer matches");
+    } else if (job.type === "application.keel.install") {
+      const [discoveryState, stageState, installState] = await Promise.all([
+        helper.request("application.keel.inspect", {}),
+        helper.request("application.keel.stage.inspect", {}),
+        helper.request("application.keel.install.inspect", {}),
+      ]);
+      if (discoveryState.installed || discoveryState.state === "ambiguous" || discoveryState.risks?.length) throw new Error("Host state changed: conflicting Keel installation evidence appeared");
+      if (stageState.state !== "staged" || stageState.staged !== true || stageState.version !== keelArtifact.releaseTag.slice(1)) throw new Error("Host state changed: the exact Keel release is no longer safely staged");
+      if (installState.state !== "absent" || installState.readyToInstall !== true) throw new Error("Host state changed: the fixed Keel installation boundary is no longer empty");
+      const portInUse = await inspectPort(plan.input.hostPort, "127.0.0.1");
+      if (portInUse !== false) throw new Error("Host state changed: fixed loopback TCP port 3000 is no longer verified free");
     } else if (await inspectPort(job.parameters.hostPort, plan.input.lanAddress ?? "127.0.0.1") !== false) throw new Error("Host state changed: the planned port is no longer verified free");
     return plan;
   }
@@ -414,4 +489,4 @@ export function createApplicationService({ store, prerequisites, helper, network
   return { list, plan, stage, validateJob, getManifest };
 }
 
-export const applicationInternals = { canonical, defaultPortInspector, keelArtifact, uptimeKumaImage, piholeImage };
+export const applicationInternals = { canonical, defaultKeelHealthInspector, defaultPortInspector, keelArtifact, uptimeKumaImage, piholeImage };

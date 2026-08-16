@@ -56,9 +56,9 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
-    const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.stage"].includes(job.type) ? await validateApplicationJob(job) : null;
+    const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.stage", "application.keel.install"].includes(job.type) ? await validateApplicationJob(job) : null;
     const validatedKeelArtifactPlan = job.type === "application.keel.artifact.acquire" ? await validateKeelArtifactJob(job) : null;
     if (["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup"].includes(job.type)) await validateBackupJob(job);
     const validatedControllerProtectionPlan = job.type === "controller.database.backup.protect" ? await validateControllerProtectionJob(job) : null;
@@ -90,6 +90,7 @@ export function createJobService(store, helper, {
     if (job.type === "virtualization.domain.snapshot.create" && !validatedVmSnapshotPlan?.input) throw new Error("The staged VM snapshot plan is unavailable or changed");
     if (job.type === "application.pi-hole.deploy" && !validatedApplicationPlan?.input) throw new Error("The staged Pi-hole plan is unavailable or changed");
     if (job.type === "application.keel.stage" && !validatedApplicationPlan?.input) throw new Error("The staged Keel release plan is unavailable or changed");
+    if (job.type === "application.keel.install" && !validatedApplicationPlan?.input) throw new Error("The staged Keel install plan is unavailable or changed");
     if (job.type === "application.keel.artifact.acquire" && !validatedKeelArtifactPlan?.input) throw new Error("The staged Keel artifact plan is unavailable or changed");
     if (job.type === "network.dns.acceptance.run" && !validatedDnsAcceptancePlan?.input) throw new Error("The staged DNS acceptance plan is unavailable or changed");
     if (job.type === "network.flint2-adguard.acceptance.run" && !validatedFlint2AdguardPlan?.input) throw new Error("The staged Flint 2 AdGuard Home acceptance plan is unavailable or changed");
@@ -223,6 +224,39 @@ export function createJobService(store, helper, {
         && result?.boundary?.browserArchiveAccepted === false
         && result?.boundary?.memberNamesReturned === false
         && result?.boundary?.memberContentsReturned === false,
+    } : job.type === "application.keel.install" ? {
+      operation: "application.keel.install",
+      parameters: { installId: validatedApplicationPlan.input.installId },
+      timeoutMs: 15 * 60 * 1000,
+      applying: "Creating the fixed non-login account and private state, activating the exact release, and starting one hardened loopback-only systemd service",
+      applied: "Keel 1.2.6 started under its dedicated account with immutable release bytes and separate writable state",
+      verified: "Keel returned its exact health identity on 127.0.0.1:3000; terminal claim, registration policy, and private access handoff remain separate",
+      failed: "Keel installation failed; the fixed service, unit, environment, and activation changes were rolled back while /var/lib/keel was preserved",
+      validate: (result) => result?.installed === true
+        && result?.installId === validatedApplicationPlan.input.installId
+        && result?.healthy === true
+        && result?.releaseVersion === keelArtifactSpec.releaseTag.slice(1)
+        && result?.serviceActive === true
+        && result?.serviceEnabled === true
+        && result?.listener === "127.0.0.1:3000"
+        && result?.statePreserved === true
+        && result?.claimRequired === true
+        && result?.privateAccessConfigured === false
+        && result?.boundary?.releaseExecuted === true
+        && result?.boundary?.serviceChanged === true
+        && result?.boundary?.accountChanged === true
+        && result?.boundary?.applicationStateCreated === true
+        && result?.boundary?.listenerChanged === true
+        && result?.boundary?.registrationChanged === false
+        && result?.boundary?.claimChanged === false
+        && result?.boundary?.tailscaleChanged === false
+        && result?.boundary?.firewallChanged === false
+        && result?.boundary?.routerChanged === false
+        && result?.boundary?.databaseOpened === false
+        && result?.boundary?.secretRead === false
+        && result?.boundary?.arbitraryPathAccepted === false
+        && result?.boundary?.arbitraryCommandAccepted === false
+        && result?.boundary?.browserEnvironmentAccepted === false,
     } : job.type === "network.dns.acceptance.run" ? {
       run: () => executeDnsAcceptanceJob(job, validatedDnsAcceptancePlan),
       applying: "Sending four fixed direct DNS queries from the unprivileged BoxPilot controller to the exact reviewed Pi-hole address",

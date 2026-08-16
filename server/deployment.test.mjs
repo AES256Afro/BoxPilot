@@ -52,7 +52,7 @@ describe("native systemd network boundaries", () => {
     expect(dockerfile).toContain("BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot");
     expect(dockerfile).toContain("BOXPILOT_COOKIE_SECURE=false");
     expect(dockerfile).toContain("USER node");
-    expect(compose).toContain("image: boxpilot:0.46.0");
+    expect(compose).toContain("image: boxpilot:0.47.0");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("/tmp:size=16m,mode=1777");
   });
@@ -198,6 +198,52 @@ describe("native systemd network boundaries", () => {
     expect(downloader).not.toContain("process.argv[2]");
     expect(protocol).toContain("application.keel.artifact.acquire");
     expect(protocol).not.toContain("artifact.download");
+  });
+
+  it("ships a fixed Keel installer with a dedicated account, loopback unit, and preserved state rollback", async () => {
+    const service = await readFile("deploy/boxpilot-keel-install.service", "utf8");
+    const installer = await readFile("scripts/boxpilot-keel-install.mjs", "utf8");
+    const installSpec = await readFile("server/keel-install-spec.mjs", "utf8");
+    const helperUnit = await readFile("deploy/boxpilot-helper.service", "utf8");
+    const protocol = await readFile("server/helper-protocol.mjs", "utf8");
+    const metadata = await stat("scripts/boxpilot-keel-install.mjs");
+    expect(metadata.mode & 0o111).not.toBe(0);
+    expect(service).toContain("Type=oneshot");
+    expect(service).toContain("StateDirectory=keel");
+    expect(service).toContain("ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-install.mjs");
+    expect(service).toContain("ConditionPathExists=/run/boxpilot/keel-install-approval.json");
+    expect(service).toContain("ProtectSystem=strict");
+    expect(service).toContain("ReadWritePaths=/var/lib/keel");
+    expect(service).toContain("ReadWritePaths=/etc/systemd/system");
+    expect(service).not.toContain("ReadWritePaths=/etc\n");
+    expect(service).not.toContain("%i");
+    expect(service).not.toContain("[Install]");
+    expect(helperUnit).toContain("PrivateNetwork=true");
+    expect(installer).toContain("process.argv.length !== 2");
+    expect(installer).not.toContain("process.argv[2]");
+    expect(installer).toContain("if (environmentPublished) await unlink(paths.environment)");
+    expect(installer).not.toContain("rm(paths.state");
+    expect(installSpec).toContain("User=keel");
+    expect(installSpec).toContain("Group=keel");
+    expect(installSpec).toContain("HOST=127.0.0.1");
+    expect(installSpec).toContain("ExecStart=/usr/local/bin/node /var/lib/boxpilot-managed/apps/keel/current/bin/keel.mjs start --foreground --port 3000");
+    expect(installSpec).toContain("CapabilityBoundingSet=");
+    expect(installSpec).toContain("ProtectSystem=strict");
+    expect(protocol).toContain("application.keel.install");
+    expect(protocol).not.toContain("service.install");
+  });
+
+  it("ships a terminal-only Keel claim handoff that drops root before opening SQLite", async () => {
+    const claim = await readFile("scripts/boxpilot-keel-claim.mjs", "utf8");
+    const metadata = await stat("scripts/boxpilot-keel-claim.mjs");
+    expect(metadata.mode & 0o111).not.toBe(0);
+    expect(claim).toContain("process.argv.length !== 3");
+    expect(claim).toContain("sudo -k /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-claim.mjs");
+    expect(claim).toContain("setGroups([account.gid])");
+    expect(claim).toContain("setGid(account.gid)");
+    expect(claim).toContain("setUid(account.uid)");
+    expect(claim).toContain('authorize: async () => "boxpilot-terminal-sudo"');
+    expect(claim).not.toContain("application.keel.claim");
   });
 
   it("ships a terminal-only migration packer without a browser-selectable inbox", async () => {

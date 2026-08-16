@@ -20,10 +20,11 @@ import { createKeelDiscoveryHelper } from "./keel-discovery-helper.mjs";
 import { createKeelArtifactHelper } from "./keel-artifact-helper.mjs";
 import { createKeelArchiveHelper } from "./keel-archive-helper.mjs";
 import { createKeelStageHelper } from "./keel-stage-helper.mjs";
+import { createKeelInstallHelper } from "./keel-install-helper.mjs";
 import { validUuid } from "./keel-artifact-spec.mjs";
 
 export const helperProtocolVersion = 1;
-export const helperOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.smartmontools.install", "prerequisite.restic.inspect", "prerequisite.restic.install", "prerequisite.apt-metadata.inspect", "prerequisite.apt-metadata.refresh", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.backup.create", "controller.database.protection.inspect", "controller.database.protection.create", "controller.database.protection.retention.inspect", "controller.database.protection.retention.apply", "application.backup.protection.inspect", "application.backup.protection.create", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "application.pi-hole.inspect", "application.pi-hole.deploy", "application.pi-hole.backup", "application.keel.inspect", "application.keel.artifact.inspect", "application.keel.artifact.acquire", "application.keel.archive.inspect", "application.keel.stage.inspect", "application.keel.stage", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
+export const helperOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.smartmontools.install", "prerequisite.restic.inspect", "prerequisite.restic.install", "prerequisite.apt-metadata.inspect", "prerequisite.apt-metadata.refresh", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.backup.create", "controller.database.protection.inspect", "controller.database.protection.create", "controller.database.protection.retention.inspect", "controller.database.protection.retention.apply", "application.backup.protection.inspect", "application.backup.protection.create", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "application.pi-hole.inspect", "application.pi-hole.deploy", "application.pi-hole.backup", "application.keel.inspect", "application.keel.artifact.inspect", "application.keel.artifact.acquire", "application.keel.archive.inspect", "application.keel.stage.inspect", "application.keel.stage", "application.keel.install.inspect", "application.keel.install", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
 const vmCreationKeys = ["autostart", "diskGiB", "firmware", "isoFile", "memoryMiB", "name", "network", "osProfile", "vcpus"];
 const vmLifecycleKeys = ["action", "expectedAutostart", "expectedState", "name"];
 const vmSnapshotKeys = ["expectedDiskRevision", "expectedSnapshotRevision", "expectedState", "expectedUuid", "name", "snapshotName"];
@@ -132,6 +133,11 @@ export function validateHelperRequest(value) {
     const keys = Object.keys(value.parameters);
     if (keys.length !== 1 || keys[0] !== "stageId" || !validUuid(value.parameters.stageId)) return "Keel staging accepts only one stageId UUID";
   }
+  if (value.operation === "application.keel.install.inspect" && Object.keys(value.parameters).length !== 0) return "Keel installation inspection accepts no parameters";
+  if (value.operation === "application.keel.install") {
+    const keys = Object.keys(value.parameters);
+    if (keys.length !== 1 || keys[0] !== "installId" || !validUuid(value.parameters.installId)) return "Keel installation accepts only one installId UUID";
+  }
   if (value.operation === "migration.bundle.inspect" && Object.keys(value.parameters).length !== 0) return "Migration bundle inspection accepts no parameters";
   if (value.operation === "migration.bundle.transfer") {
     const errors = validateMigrationTransferInput(value.parameters);
@@ -203,7 +209,7 @@ export function validateHelperRequest(value) {
   return null;
 }
 
-export async function executeHelperOperation(request, { applications = createApplicationHelper(), applicationProtection = createApplicationProtectionHelper(), controllerBackups = createControllerBackupHelper(), controllerProtection = createControllerProtectionHelper(), controllerRetention = createControllerRetentionHelper(), keelDiscovery = createKeelDiscoveryHelper(), keelArtifacts = createKeelArtifactHelper(), keelArchive = createKeelArchiveHelper(), keelStage = createKeelStageHelper(), migrations = createMigrationTransferHelper(), prerequisites = createPrerequisiteHelper(), virtualization = createVmHelper(), vmProtection = createVmProtectionHelper(), vmRetention = createVmRetentionHelper(), vmRestoreDrill = createVmRestoreDrillHelper(), vmRecovery = createVmRecoveryHelper() } = {}) {
+export async function executeHelperOperation(request, { applications = createApplicationHelper(), applicationProtection = createApplicationProtectionHelper(), controllerBackups = createControllerBackupHelper(), controllerProtection = createControllerProtectionHelper(), controllerRetention = createControllerRetentionHelper(), keelDiscovery = createKeelDiscoveryHelper(), keelArtifacts = createKeelArtifactHelper(), keelArchive = createKeelArchiveHelper(), keelStage = createKeelStageHelper(), keelInstall = createKeelInstallHelper(), migrations = createMigrationTransferHelper(), prerequisites = createPrerequisiteHelper(), virtualization = createVmHelper(), vmProtection = createVmProtectionHelper(), vmRetention = createVmRetentionHelper(), vmRestoreDrill = createVmRestoreDrillHelper(), vmRecovery = createVmRecoveryHelper() } = {}) {
   const error = validateHelperRequest(request);
   if (error) return { version: helperProtocolVersion, id: request?.id ?? null, ok: false, error, code: "invalid_request" };
   if (request.operation === "canary.verify") {
@@ -211,7 +217,7 @@ export async function executeHelperOperation(request, { applications = createApp
       version: helperProtocolVersion,
       id: request.id,
       ok: true,
-      result: { verified: true, helperVersion: "0.46.0", mutationPerformed: false },
+      result: { verified: true, helperVersion: "0.47.0", mutationPerformed: false },
     };
   }
   if (request.operation === "prerequisite.smartmontools.inspect") {
@@ -300,6 +306,12 @@ export async function executeHelperOperation(request, { applications = createApp
   }
   if (request.operation === "application.keel.stage") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await keelStage.stage(request.parameters) };
+  }
+  if (request.operation === "application.keel.install.inspect") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await keelInstall.inspect() };
+  }
+  if (request.operation === "application.keel.install") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await keelInstall.install(request.parameters) };
   }
   if (request.operation === "migration.bundle.inspect") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await migrations.inspect() };

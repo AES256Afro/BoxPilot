@@ -18,6 +18,7 @@ interface ApplicationManifest {
     artifact?: { state: string; readyToAcquire: boolean; artifactPresent: boolean; locallyVerified: boolean; partialPresent: boolean; acquiredAt?: string | null; detail: string };
     archive?: { state: string; safeToExtract: boolean; artifactLocallyVerified: boolean; memberCount: number; expectedMemberCount?: number; counts?: { regular: number; directory: number; symbolicLink: number; hardLink: number; blockDevice: number; characterDevice: number; fifo: number; extension: number; unknown: number }; risks: string[]; detail: string };
     staging?: { state: string; staged: boolean; readyToStage: boolean; version?: string | null; sourceMemberCount?: number; partialCount?: number; stagedAt?: string | null; detail: string };
+    installation?: { state: string; installed: boolean; readyToInstall: boolean; releaseVersion?: string | null; serviceActive: boolean; serviceEnabled: boolean; healthy: boolean; listener: string; installedAt?: string | null; databasePresent?: boolean; managedSecretKeyPresent?: boolean; claim: { state: string; terminalRequired: boolean }; detail: string };
     provenance?: { status: string; checkedAt: string | null };
     boundary?: { mutationPerformed: boolean; environmentRead: boolean; databaseOpened: boolean; secretRead: boolean; arbitraryPathAccepted?: boolean };
     webUrl?: string | null; secretRetrievalCommand?: string; backup?: { state: string; verifiedAt: string | null };
@@ -52,7 +53,7 @@ interface ApplicationPlan {
   id: string;
   subjectId: string;
   revision: string;
-  input: { target: string; hostPort: number; networkAssessmentId?: string | null; lanAddress?: string | null };
+  input: { target: string; hostPort: number; networkAssessmentId?: string | null; lanAddress?: string | null; keelAction?: "stage" | "install"; stageId?: string; installId?: string };
   output: {
     executable: boolean;
     changes: string[];
@@ -66,6 +67,8 @@ interface ApplicationPlan {
     discovery?: KeelDiscovery | null;
     archiveInspection?: ApplicationManifest["live"]["archive"];
     stagingInspection?: ApplicationManifest["live"]["staging"];
+    installationInspection?: ApplicationManifest["live"]["installation"];
+    keelAction?: "stage" | "install";
   };
   expiresAt: string;
 }
@@ -175,7 +178,11 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
         headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
         body: JSON.stringify({ revision: plan.revision }),
       }));
-      setMessage(selected?.id === "keel" ? "Keel 1.2.6 inert staging job created. Open Repair Center to review the no-install boundary, reauthenticate, extract, and verify it." : "Deployment job staged. Open Repair Center to review, reauthenticate, apply, and verify it.");
+      setMessage(selected?.id === "keel"
+        ? plan.output.keelAction === "install"
+          ? "Keel 1.2.6 private install job created. Open Repair Center to review the state-preserving rollback, reauthenticate, activate, and health-check it."
+          : "Keel 1.2.6 inert staging job created. Open Repair Center to review the no-install boundary, reauthenticate, extract, and verify it."
+        : "Deployment job staged. Open Repair Center to review, reauthenticate, apply, and verify it.");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to stage deployment");
     } finally {
@@ -193,7 +200,7 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
           <article className="app-card" key={application.id}>
             <div className="app-card-top">
               <span className="app-initials">{application.name.slice(0, 2).toUpperCase()}</span>
-              <span className={`status-pill status-${application.live.installed ? application.live.healthy ? "good" : "warning" : application.execution === "planning-only" ? "warning" : "neutral"}`}>{application.live.installed ? application.live.state : application.execution === "staging-enabled" ? application.live.staging?.staged ? "Staged" : "Staging available" : application.execution === "enabled" ? "Available" : "Plan only"}</span>
+              <span className={`status-pill status-${application.live.installed ? application.live.healthy ? "good" : "warning" : application.execution === "planning-only" ? "warning" : "neutral"}`}>{application.live.installed ? application.live.state : application.execution === "staging-enabled" ? application.live.installation?.readyToInstall ? "Install available" : application.live.staging?.staged ? "Staged" : "Staging available" : application.execution === "enabled" ? "Available" : "Plan only"}</span>
             </div>
             <span className="app-category">{application.category} | adapter {application.image.version}</span>
             <h3>{application.name}</h3>
@@ -202,7 +209,7 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
             {application.live.webUrl && <a className="app-live-detail" href={application.live.webUrl} target="_blank" rel="noreferrer">Open LAN interface</a>}
             {application.live.secretRetrievalCommand && application.live.installed && <span className="app-live-detail">Password from Bigbox terminal: <code>{application.live.secretRetrievalCommand}</code></span>}
             {application.live.backup && <span className={`app-live-detail ${application.live.backup.state === "verified" ? "good-text" : application.live.backup.state === "required" ? "warning-text" : ""}`}>Backup: {application.live.backup.state === "verified" ? `restore verified ${new Date(application.live.backup.verifiedAt ?? "").toLocaleDateString()}` : application.live.backup.state}</span>}
-            <button type="button" className="secondary-button" onClick={() => openPlanner(application)}>{application.live.installed ? "Review deployment" : application.execution === "staging-enabled" ? "Plan safe staging" : "Plan deployment"}</button>
+            <button type="button" className="secondary-button" onClick={() => openPlanner(application)}>{application.live.installed ? "Review deployment" : application.execution === "staging-enabled" ? application.live.installation?.readyToInstall ? "Plan private install" : "Plan safe staging" : "Plan deployment"}</button>
           </article>
         ))}
         <article className="app-card">
@@ -221,7 +228,7 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
             <div className="manifest-proof"><span>Manifest integrity</span><code>{selected.integrity}</code><span>{selected.artifact ? selected.live.artifact?.locallyVerified ? "Release asset digest pinned and verified from complete local bytes" : "Release asset digest pinned; approved local verification available" : selected.image.digestPinned ? "Image digest pinned" : "Version tag pinned; digest resolution pending"}</span></div>
             {selected.id === "pi-hole" && <div className={`notice ${networkAssessmentId ? "" : "warning-notice"}`}><strong>{networkAssessmentId ? "Network assessment linked" : "Network assessment required"}</strong><span>{networkAssessmentId ?? "Generate a ready Pi-hole on Bigbox assessment in Network Center before staging."}</span>{!networkAssessmentId && onOpenNetwork && <button className="text-button" type="button" onClick={onOpenNetwork}>Open Network Center</button>}</div>}
             {selected.id === "keel" && <>
-              <div className="notice"><strong>Corrected release staging enabled</strong><span>Keel 1.2.6 is pinned to its public release commit, asset size, and digest. BoxPilot can extract it only after two archive checks and will publish only an inert root-only release tree. Installation, state, service startup, accounts, claim, registration, listeners, backups, restore, import, adoption, and exposure remain locked.</span></div>
+              <div className="notice"><strong>Guarded native install enabled</strong><span>Keel 1.2.6 is pinned to its public release commit, size, and digest. BoxPilot stages it only after two archive checks, then uses a separate approval to create a non-login account, private state, atomic activation, and a hardened service on 127.0.0.1:3000. Claim, registration changes, Tailscale exposure, backups, restore, import, adoption, and updates remain separate.</span></div>
               <div className="keel-discovery-proof">
                 <strong>Current Bigbox evidence</strong>
                 <span>State: {selected.live.state} | type: {selected.live.kind ?? "none"} | version: {selected.live.version ?? "not detected"}</span>
@@ -244,6 +251,14 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
                 {selected.live.staging?.stagedAt && <span className="good-text">Verified {new Date(selected.live.staging.stagedAt).toLocaleString()}</span>}
               </div>
               <div className="keel-artifact-proof">
+                <strong>Private native service</strong>
+                <span>State: {selected.live.installation?.state ?? "unknown"} | installed: {selected.live.installation?.installed ? "yes" : "no"} | ready to install: {selected.live.installation?.readyToInstall ? "yes" : "no"}</span>
+                <span>Service: {selected.live.installation?.serviceActive ? "active" : "inactive"} | enabled at boot: {selected.live.installation?.serviceEnabled ? "yes" : "no"} | health: {selected.live.installation?.healthy ? "verified" : "not verified"}</span>
+                <span>{selected.live.installation?.detail ?? "Installation evidence is unavailable"}</span>
+                {selected.live.installation?.installedAt && <span className="good-text">Installed {new Date(selected.live.installation.installedAt).toLocaleString()}</span>}
+                {selected.live.installation?.installed && <><span className="good-text">Private access: from your computer run <code>ssh -N -L 3000:127.0.0.1:3000 bigbox@bigbox</code>, then open <code>http://127.0.0.1:3000</code>.</span><span>After registering, copy Keel's one-use claim token, SSH to Bigbox as your normal administrator, and run <code>sudo -k /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-claim.mjs 'PASTE_TOKEN'</code>. The fixed handoff rechecks the install, asks for fresh sudo, drops to the keel account, and never sends the token to BoxPilot.</span></>}
+              </div>
+              <div className="keel-artifact-proof">
                 <strong>Root-only artifact gate</strong>
                 <span>State: {selected.live.artifact?.state ?? "unknown"} | local bytes verified: {selected.live.artifact?.locallyVerified ? "yes" : "no"} | interrupted partial: {selected.live.artifact?.partialPresent ? "yes" : "no"}</span>
                 <span>{selected.live.artifact?.detail ?? "Artifact evidence is unavailable"}</span>
@@ -261,22 +276,23 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
             </>}
             <div className="app-plan-fields">
               <label>Deployment target<select value={target} onChange={(event) => { setTarget(event.target.value); setPlan(null); }}>{selected.targets.map((item) => <option key={item} value={item}>{item === "virtual-machine" ? "Dedicated virtual machine" : item === "native-service" ? "Native service on Bigbox" : "Docker on Bigbox"}</option>)}</select></label>
-              {target !== "virtual-machine" && <label>{selected.id === "pi-hole" ? "LAN web port" : "Loopback web port"}<input type="number" min="1024" max="65535" value={hostPort} onChange={(event) => { setHostPort(Number(event.target.value)); setPlan(null); }} /></label>}
+              {target !== "virtual-machine" && <label>{selected.id === "pi-hole" ? "LAN web port" : "Loopback web port"}<input type="number" min="1024" max="65535" value={hostPort} disabled={selected.id === "keel"} onChange={(event) => { setHostPort(Number(event.target.value)); setPlan(null); }} /></label>}
             </div>
             <button className="primary-button" type="button" onClick={() => void generatePlan()} disabled={submitting}>{submitting ? "Inspecting host..." : "Generate live plan"}</button>
 
             {plan && <div className="application-plan-result">
-              <div className={`notice ${plan.output.executable ? "" : "warning-notice"}`}><strong>{plan.output.executable ? "Ready to stage" : "Planning result"}</strong><span>Revision {plan.revision} | expires {new Date(plan.expiresAt).toLocaleTimeString()}</span></div>
+              <div className={`notice ${plan.output.executable ? "" : "warning-notice"}`}><strong>{plan.output.executable ? plan.output.keelAction === "install" ? "Ready for install approval" : "Ready to stage" : "Planning result"}</strong><span>Revision {plan.revision} | expires {new Date(plan.expiresAt).toLocaleTimeString()}</span></div>
               <div><strong>Proposed changes</strong><ol>{plan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol></div>
               {plan.output.artifact && <div className="keel-artifact-proof"><strong>Pinned release artifact</strong><span>{plan.output.artifact.repository} {plan.output.artifact.releaseTag} at <code>{plan.output.artifact.releaseCommitSha.slice(0, 12)}</code></span><span>{plan.output.artifact.name} | {(plan.output.artifact.sizeBytes / (1024 * 1024)).toFixed(1)} MiB</span><code>{plan.output.artifact.digest}</code><span className={plan.output.artifact.locallyVerifiedByBoxPilot ? "good-text" : "warning-text"}>GitHub metadata matched: {plan.output.artifact.githubReportedDigestMatched ? "yes" : "no"} | verified from local bytes: {plan.output.artifact.locallyVerifiedByBoxPilot ? "yes" : "no"}</span></div>}
               {plan.output.discovery && <div className="keel-discovery-proof"><strong>Plan-time discovery</strong><span>{plan.output.discovery.detail}</span><span>Listener: {plan.output.discovery.listener} | health identity: {plan.output.discovery.healthIdentityVerified ? "verified" : "not verified"}</span><span>Native candidates: {plan.output.discovery.native.candidateCount} | Docker candidates: {plan.output.discovery.docker.candidateCount}</span>{plan.output.discovery.risks.length > 0 && <span className="warning-text">Review: {plan.output.discovery.risks.join(", ")}</span>}</div>}
               {plan.output.archiveInspection && <div className="keel-artifact-proof"><strong>Plan-time archive gate</strong><span>State: {plan.output.archiveInspection.state} | safe to extract: {plan.output.archiveInspection.safeToExtract ? "yes" : "no"} | members: {plan.output.archiveInspection.memberCount}</span><span>{plan.output.archiveInspection.detail}</span>{plan.output.archiveInspection.risks.length > 0 && <span className="warning-text">Blocked risks: {plan.output.archiveInspection.risks.join(", ")}</span>}</div>}
-              {plan.output.stagingInspection && <div className="keel-artifact-proof"><strong>Plan-time staging boundary</strong><span>State: {plan.output.stagingInspection.state} | ready to stage: {plan.output.stagingInspection.readyToStage ? "yes" : "no"} | existing partials: {plan.output.stagingInspection.partialCount ?? 0}</span><span>{plan.output.stagingInspection.detail}</span><span className="good-text">No service, state, account, registration, listener, or application process is created</span></div>}
+              {plan.output.stagingInspection && <div className="keel-artifact-proof"><strong>Plan-time staging boundary</strong><span>State: {plan.output.stagingInspection.state} | ready to stage: {plan.output.stagingInspection.readyToStage ? "yes" : "no"} | existing partials: {plan.output.stagingInspection.partialCount ?? 0}</span><span>{plan.output.stagingInspection.detail}</span><span className="good-text">{plan.output.keelAction === "install" ? "The exact staged tree is the only release that can be activated" : "No service, state, account, registration, listener, or application process is created"}</span></div>}
+              {plan.output.installationInspection && <div className="keel-artifact-proof"><strong>Plan-time install boundary</strong><span>State: {plan.output.installationInspection.state} | ready: {plan.output.installationInspection.readyToInstall ? "yes" : "no"} | fixed listener: 127.0.0.1:3000</span><span>{plan.output.installationInspection.detail}</span><span className="good-text">Claim, registration, Tailscale Serve, firewall, DNS, DHCP, and router state remain unchanged</span></div>}
               {plan.output.blockers.length > 0 && <div className="plan-blockers"><strong>Blockers</strong>{plan.output.blockers.map((blocker) => <span key={blocker.id}>{blocker.summary}{blocker.repair?.description ? `: ${blocker.repair.description}` : ""}</span>)}</div>}
               {plan.output.warnings.length > 0 && <div className="plan-warnings"><strong>Warnings</strong>{plan.output.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div>}
               <p className="plan-recovery"><strong>Recovery:</strong> {plan.output.recovery.summary}</p>
               {selected.id === "pi-hole" && plan.output.lanAddress && <div className="notice"><strong>Staging address</strong><span>DNS {plan.output.lanAddress}:53 TCP/UDP | web http://{plan.output.lanAddress}:{plan.input.hostPort}/admin/</span><span>Router, client, DHCP, and Tailscale DNS changes remain locked. Backup status will be required after staging.</span></div>}
-              {plan.output.executable && !message && <button className="primary-button" type="button" onClick={() => void stagePlan()} disabled={submitting}>{selected.id === "keel" ? "Stage inert release for approval" : "Stage for approval"}</button>}
+              {plan.output.executable && !message && <button className="primary-button" type="button" onClick={() => void stagePlan()} disabled={submitting}>{selected.id === "keel" ? plan.output.keelAction === "install" ? "Stage private install for approval" : "Stage inert release for approval" : "Stage for approval"}</button>}
             </div>}
             {error && <div className="auth-error" role="alert">{error}</div>}
             {message && <div className="notice"><strong>Job ready</strong><span>{message}</span><button className="text-button" type="button" onClick={onOpenRepair}>Open Repair Center</button></div>}

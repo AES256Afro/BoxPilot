@@ -99,7 +99,7 @@ describe("curated application catalog", () => {
 
     expect(await screen.findByText("Keel Notes")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Plan safe staging" }));
-    expect(screen.getByText("Corrected release staging enabled")).toBeTruthy();
+    expect(screen.getByText("Guarded native install enabled")).toBeTruthy();
     expect(screen.getByText(/Native candidates: 0 \| Docker candidates: 0/)).toBeTruthy();
     expect(screen.getByText(/Release asset digest pinned/)).toBeTruthy();
     expect(screen.getByText(/State: verified \| local bytes verified: yes/)).toBeTruthy();
