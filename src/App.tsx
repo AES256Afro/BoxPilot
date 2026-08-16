@@ -313,7 +313,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.49.0 Keel recovery clone<br />stopped production-safe state</div>
+        <div className="prototype-label">v0.50.0 Keel recovery drill<br />private startup rehearsal</div>
       </aside>
 
       <main>

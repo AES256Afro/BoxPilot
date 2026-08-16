@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { executeHelperOperation, validateHelperRequest } from "./helper-protocol.mjs";
 
 function request(overrides = {}) {
@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.49.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.50.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -178,6 +178,21 @@ describe("restricted helper protocol", () => {
     };
     await expect(executeHelperOperation(request({ operation: "application.keel.recovery.inspect", parameters }), { keelRecovery })).resolves.toMatchObject({ ok: true, result: { ready: true, recoveryId: parameters.recoveryId, backupId: parameters.backupId, initialState: "stopped" } });
     await expect(executeHelperOperation(request({ operation: "application.keel.recovery.create", parameters }), { keelRecovery })).resolves.toMatchObject({ ok: true, result: { created: true, recoveryId: parameters.recoveryId, productionStateReplaced: false } });
+  });
+
+  it("accepts only a recovery UUID for drill inspection and exact pinned evidence for execution", async () => {
+    const recoveryId = "11111111-1111-4111-8111-111111111111";
+    const parameters = { drillId: "22222222-2222-4222-8222-222222222222", recoveryId, expectedEvidenceChecksumSha256: "a".repeat(64), expectedStateTreeDigestSha256: "b".repeat(64) };
+    expect(validateHelperRequest(request({ operation: "application.keel.recovery-drill.inspect", parameters: { recoveryId } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.keel.recovery-drill.inspect", parameters: { recoveryId, path: "/tmp" } }))).toContain("only one recoveryId");
+    expect(validateHelperRequest(request({ operation: "application.keel.recovery-drill.create", parameters }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.keel.recovery-drill.create", parameters: { ...parameters, command: "sh" } }))).toContain("only the fixed typed recovery evidence fields");
+    const keelRecoveryDrill = {
+      inspect: vi.fn(async () => ({ ready: true, recoveryId, drillNetwork: "private-loopback-only" })),
+      create: vi.fn(async () => ({ passed: true, drillId: parameters.drillId, recoveryId, workspaceRemoved: true })),
+    };
+    await expect(executeHelperOperation(request({ operation: "application.keel.recovery-drill.inspect", parameters: { recoveryId } }), { keelRecoveryDrill })).resolves.toMatchObject({ ok: true, result: { ready: true, drillNetwork: "private-loopback-only" } });
+    await expect(executeHelperOperation(request({ operation: "application.keel.recovery-drill.create", parameters }), { keelRecoveryDrill })).resolves.toMatchObject({ ok: true, result: { passed: true, workspaceRemoved: true } });
   });
 
   it("delegates only a typed Pi-hole backup id to the curated helper", async () => {
