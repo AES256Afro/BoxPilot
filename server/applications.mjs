@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import net from "node:net";
 
 const uptimeKumaImage = "louislam/uptime-kuma@sha256:a8610b3b4c38077922ba51b036691e06887d7cefd91fe620fd3d6d23d03dc240";
-const piholeImage = "pihole/pihole:2026.07.2";
+const piholeImage = "pihole/pihole@sha256:f7d1be836e3bc608b56d82fc9904f5a831cdfbc0dc9c6d58f94e4c985c70038b";
 
 const manifests = [
   {
@@ -26,29 +26,29 @@ const manifests = [
   },
   {
     schemaVersion: 1,
-    adapterVersion: "0.1.0",
+    adapterVersion: "0.2.0",
     id: "pi-hole",
     name: "Pi-hole",
     category: "DNS",
     description: "Network DNS filtering with explicit DNS-role, port-conflict, router, backup, and outage-recovery gates.",
-    execution: "planning-only",
+    execution: "enabled",
     risk: "network-critical",
     targets: ["docker", "virtual-machine"],
-    image: { reference: piholeImage, version: "2026.07.2", digestPinned: false },
+    image: { reference: piholeImage, version: "2026.07.2", digestPinned: true },
     ports: [
       { id: "dns-tcp", protocol: "tcp", containerPort: 53, defaultHostPort: 53, exposure: "lan" },
       { id: "dns-udp", protocol: "udp", containerPort: 53, defaultHostPort: 53, exposure: "lan" },
-      { id: "web", protocol: "tcp", containerPort: 80, defaultHostPort: 8080, exposure: "loopback" },
+      { id: "web", protocol: "tcp", containerPort: 80, defaultHostPort: 8080, exposure: "lan" },
     ],
     storage: [{ id: "configuration", containerPath: "/etc/pihole", hostPath: "/var/lib/boxpilot-managed/apps/pi-hole/etc-pihole", backupRequired: true, localFilesystemRequired: true }],
     prerequisites: ["runtime.node", "storage.state", "helper.boundary", "containers.docker", "dns.port53"],
     targetPrerequisites: {
-      docker: ["runtime.node", "storage.state", "helper.boundary", "containers.docker", "dns.port53"],
+      docker: ["runtime.node", "storage.state", "helper.boundary", "containers.docker"],
       "virtual-machine": ["runtime.node", "storage.state", "helper.boundary", "virtualization.libvirt", "dns.port53"],
     },
     conflicts: ["adguard-home-primary", "existing-dns-listener", "router-dns-cutover-without-recovery"],
     health: { kind: "dns-and-http", expectedDnsResult: true },
-    rollback: "Restore the router DNS advertisement before stopping Pi-hole, then verify ordinary resolution from a second device.",
+    rollback: "Stop and remove only the managed Pi-hole stack while preserving its configuration and root-only administrator secret. Router and client DNS remain unchanged.",
     officialSource: "https://github.com/pi-hole/docker-pi-hole",
   },
 ];
@@ -63,12 +63,12 @@ function publicManifest(manifest) {
   return { ...manifest, integrity: `sha256:${createHash("sha256").update(canonical(manifest)).digest("hex")}` };
 }
 
-async function defaultPortInspector(port) {
+async function defaultPortInspector(port, host = "127.0.0.1") {
   return new Promise((resolve) => {
     const server = net.createServer();
     server.unref();
     server.once("error", (error) => resolve(error.code === "EADDRINUSE" ? true : null));
-    server.listen({ host: "127.0.0.1", port, exclusive: true }, () => server.close(() => resolve(false)));
+    server.listen({ host, port, exclusive: true }, () => server.close(() => resolve(false)));
   });
 }
 
@@ -76,7 +76,7 @@ export function listApplicationManifests() {
   return manifests.map(publicManifest);
 }
 
-export function createApplicationService({ store, prerequisites, helper, inspectPort = defaultPortInspector } = {}) {
+export function createApplicationService({ store, prerequisites, helper, network, inspectPort = defaultPortInspector } = {}) {
   function getManifest(id) {
     return manifests.find((manifest) => manifest.id === id) ?? null;
   }
@@ -85,9 +85,9 @@ export function createApplicationService({ store, prerequisites, helper, inspect
     const verifiedBackups = store.listBackups?.() ?? [];
     const items = await Promise.all(manifests.map(async (manifest) => {
       let live = { installed: false, state: "not-installed", detail: manifest.execution === "planning-only" ? "Planning adapter available" : "Ready to plan" };
-      if (manifest.id === "uptime-kuma") {
+      if (["uptime-kuma", "pi-hole"].includes(manifest.id)) {
         try {
-          live = await helper.request("application.uptime-kuma.inspect", {});
+          live = await helper.request(`application.${manifest.id}.inspect`, {});
         } catch {
           live = { installed: false, state: "unavailable", detail: "Docker inventory is unavailable" };
         }
@@ -111,16 +111,30 @@ export function createApplicationService({ store, prerequisites, helper, inspect
     const required = new Set(manifest.targetPrerequisites?.[target] ?? manifest.prerequisites);
     const relevantChecks = inventory.checks.filter((item) => required.has(item.id));
     const blockers = relevantChecks.filter((item) => item.status !== "ready").map((item) => ({ id: item.id, summary: item.summary, repair: item.repair }));
+    let networkAssessment = null;
+    let lanAddress = null;
+    let fallbackDnsAddress = null;
+    if (manifest.id === "pi-hole" && target === "docker") {
+      try {
+        if (typeof input?.networkAssessmentId !== "string") throw new Error("Create a Pi-hole on Bigbox assessment in Network Center first");
+        networkAssessment = await network.validateAssessment(input.networkAssessmentId, ownerId, "pihole-on-bigbox");
+        lanAddress = networkAssessment.input.serverAddress;
+        fallbackDnsAddress = networkAssessment.input.fallbackDnsAddress;
+      } catch (error) {
+        blockers.push({ id: "network.assessment", summary: error.message, repair: { kind: "guided", description: "Open Network Center, select Pi-hole on Bigbox, complete the recovery checklist, and generate a fresh assessment" } });
+      }
+    }
     if (hostPort !== null) {
-      const portInUse = await inspectPort(hostPort);
-      if (portInUse === true) blockers.push({ id: `port.${hostPort}`, summary: `TCP port ${hostPort} is already in use`, repair: { kind: "manual", description: "Choose another loopback web port" } });
+      const portInUse = await inspectPort(hostPort, lanAddress ?? "127.0.0.1");
+      if (portInUse === true) blockers.push({ id: `port.${hostPort}`, summary: `TCP port ${hostPort} is already in use`, repair: { kind: "manual", description: `Choose another ${lanAddress ? "LAN" : "loopback"} web port` } });
       if (portInUse === null) blockers.push({ id: `port.${hostPort}`, summary: `BoxPilot could not verify TCP port ${hostPort}`, repair: { kind: "manual", description: "Verify the listener state before approval" } });
     }
 
     const warnings = [];
     if (manifest.id === "pi-hole") {
-      warnings.push("Pi-hole cannot be staged until the DNS role, Flint 2 AdGuard Home state, router rollback, and a second-device resolution test are recorded.");
-      if (target === "docker") warnings.push("A Docker deployment ties DNS availability to Bigbox uptime; a dedicated VM or separate appliance provides a stronger failure boundary.");
+      warnings.push("This job starts a testable DNS service only. It cannot change router DHCP, advertise DNS, enable Pi-hole DHCP, alter Tailscale DNS, or move any client to Pi-hole.");
+      if (target === "docker") warnings.push("Docker on Bigbox ties this DNS service to Bigbox uptime. Keep the recorded emergency resolver working and complete a protected backup before any later cutover.");
+      if (target === "virtual-machine") warnings.push("The dedicated VM adapter remains planning-only; use Docker staging or complete the VM application adapter in a later release.");
     }
     if (manifest.id === "uptime-kuma") warnings.push("After deployment, open Backups and complete the integrity and isolated restore workflow before treating this application as protected.");
 
@@ -130,6 +144,9 @@ export function createApplicationService({ store, prerequisites, helper, inspect
       manifestIntegrity: publicManifest(manifest).integrity,
       target,
       hostPort,
+      lanAddress,
+      fallbackDnsAddress,
+      networkAssessmentId: networkAssessment?.id ?? input?.networkAssessmentId ?? null,
       image: manifest.image,
       changes: manifest.id === "uptime-kuma" ? [
         "Create the confined Uptime Kuma application and data directories",
@@ -147,9 +164,15 @@ export function createApplicationService({ store, prerequisites, helper, inspect
       blockers,
       warnings,
       recovery: { summary: manifest.rollback, preservesData: true },
-      executable: manifest.execution === "enabled" && blockers.length === 0,
+      executable: manifest.execution === "enabled" && target === "docker" && blockers.length === 0,
     };
-    return store.createPlan({ type: "application.deploy", subjectId: manifest.id, input: { target, hostPort }, output, createdBy: ownerId });
+    return store.createPlan({
+      type: "application.deploy",
+      subjectId: manifest.id,
+      input: { target, hostPort, networkAssessmentId: networkAssessment?.id ?? null, lanAddress, fallbackDnsAddress },
+      output,
+      createdBy: ownerId,
+    });
   }
 
   async function stage(planId, revision, ownerId) {
@@ -157,38 +180,46 @@ export function createApplicationService({ store, prerequisites, helper, inspect
     if (!plan || plan.createdBy !== ownerId || plan.type !== "application.deploy") throw new Error("Plan not found");
     if (plan.revision !== revision) throw new Error("Plan revision does not match");
     if (!plan.output.executable || plan.output.blockers?.length) throw new Error("Plan has unresolved blockers or is planning-only");
-    if (plan.subjectId !== "uptime-kuma") throw new Error("Application execution is not enabled for this adapter");
+    if (!["uptime-kuma", "pi-hole"].includes(plan.subjectId)) throw new Error("Application execution is not enabled for this adapter");
 
-    const portInUse = await inspectPort(plan.input.hostPort);
+    if (plan.subjectId === "pi-hole") await network.validateAssessment(plan.input.networkAssessmentId, ownerId, "pihole-on-bigbox");
+    const portInUse = await inspectPort(plan.input.hostPort, plan.input.lanAddress ?? "127.0.0.1");
     if (portInUse !== false) throw new Error("Host state changed: the planned port is no longer verified free");
     store.stagePlan(plan.id, ownerId);
+    const isPihole = plan.subjectId === "pi-hole";
     return store.createJob({
-      type: "application.uptime-kuma.deploy",
-      title: "Deploy Uptime Kuma",
-      risk: "low",
-      parameters: { planId: plan.id, revision: plan.revision, hostPort: plan.input.hostPort },
+      type: isPihole ? "application.pi-hole.deploy" : "application.uptime-kuma.deploy",
+      title: isPihole ? "Stage Pi-hole on Bigbox" : "Deploy Uptime Kuma",
+      risk: isPihole ? "network-critical" : "low",
+      parameters: { planId: plan.id, revision: plan.revision, hostPort: plan.input.hostPort, ...(isPihole ? { lanAddress: plan.input.lanAddress, networkAssessmentId: plan.input.networkAssessmentId } : {}) },
       recovery: {
         automaticRollback: true,
-        reason: "The curated stack can be stopped and its previous Compose definition restored without deleting application data.",
-        manual: "If automated rollback fails, stop boxpilot-uptime-kuma and preserve /var/lib/boxpilot-managed/apps/uptime-kuma/data before repair.",
+        reason: isPihole ? "The managed stack can be removed or its prior Compose definition restored without changing router or client DNS." : "The curated stack can be stopped and its previous Compose definition restored without deleting application data.",
+        manual: isPihole ? "If automated rollback fails, remove only boxpilot-pi-hole and preserve /var/lib/boxpilot-managed/apps/pi-hole before repair. Router and client DNS were not changed." : "If automated rollback fails, stop boxpilot-uptime-kuma and preserve /var/lib/boxpilot-managed/apps/uptime-kuma/data before repair.",
       },
       createdBy: ownerId,
       initialSteps: [
-        { name: "preflight", state: "completed", detail: "Manifest integrity, Docker availability, storage, helper, and loopback port validated" },
+        { name: "preflight", state: "completed", detail: isPihole ? "Manifest integrity, Docker, exact LAN address, TCP and UDP DNS binding, web port, Tailscale, and recovery assessment validated" : "Manifest integrity, Docker availability, storage, helper, and loopback port validated" },
         { name: "checkpoint", state: "completed", detail: "Existing Compose definition will be copied before replacement and application data will not be deleted" },
       ],
     });
   }
 
   async function validateJob(job) {
-    if (job.type !== "application.uptime-kuma.deploy") throw new Error("Unsupported application job");
+    if (!["application.uptime-kuma.deploy", "application.pi-hole.deploy"].includes(job.type)) throw new Error("Unsupported application job");
     const plan = store.getPlan(job.parameters.planId);
     if (!plan || plan.status !== "staged" || plan.revision !== job.parameters.revision) throw new Error("The staged application plan is unavailable or changed");
+    const expectedSubject = job.type === "application.pi-hole.deploy" ? "pi-hole" : "uptime-kuma";
+    if (plan.subjectId !== expectedSubject || plan.input.hostPort !== job.parameters.hostPort) throw new Error("The staged application plan does not match the requested adapter or port");
     const inventory = await prerequisites.inspect();
     const required = new Set(["storage.state", "helper.boundary", "containers.docker"]);
     const blocker = inventory.checks.find((item) => required.has(item.id) && item.status !== "ready");
     if (blocker) throw new Error(`Host state changed: ${blocker.summary}`);
-    if (await inspectPort(job.parameters.hostPort) !== false) throw new Error("Host state changed: the planned port is no longer verified free");
+    if (job.type === "application.pi-hole.deploy") {
+      const assessment = await network.validateAssessment(plan.input.networkAssessmentId, job.createdBy, "pihole-on-bigbox");
+      if (assessment.input.serverAddress !== plan.input.lanAddress || job.parameters.lanAddress !== plan.input.lanAddress) throw new Error("Host state changed: the reviewed Pi-hole LAN address no longer matches");
+    }
+    if (await inspectPort(job.parameters.hostPort, plan.input.lanAddress ?? "127.0.0.1") !== false) throw new Error("Host state changed: the planned port is no longer verified free");
     return plan;
   }
 

@@ -79,6 +79,33 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("revalidates and stages Pi-hole without granting router, DHCP, or DNS cutover authority", async () => {
+    const input = { target: "docker", hostPort: 8080, lanAddress: "192.168.8.10", networkAssessmentId: "network-plan-one", fallbackDnsAddress: "94.140.14.59" };
+    const result = {
+      installed: true, healthy: true, lanAddress: input.lanAddress, port: input.hostPort,
+      dnsTcpBound: true, dnsUdpBound: true, dataPreserved: true, secretPreserved: true,
+      routerMutationPerformed: false, dnsCutoverPerformed: false, dhcpEnabled: false,
+    };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const validateApplicationJob = vi.fn(async () => ({ input }));
+    const jobs = createJobService(store, helper, { validateApplicationJob });
+    const job = store.createJob({
+      type: "application.pi-hole.deploy",
+      title: "Stage Pi-hole on Bigbox",
+      parameters: { hostPort: 8080, lanAddress: "192.168.8.10", networkAssessmentId: "network-plan-one" },
+      recovery: { automaticRollback: true },
+      createdBy: owner.id,
+    });
+
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+
+    expect(validateApplicationJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("application.pi-hole.deploy", { lanAddress: "192.168.8.10", webPort: 8080 }, { timeoutMs: 10 * 60 * 1000 });
+    expect(completed).toMatchObject({ state: "completed", result: { healthy: true, routerMutationPerformed: false, dnsCutoverPerformed: false, dhcpEnabled: false } });
+    store.close();
+  });
+
   it("records a backup only after the isolated restore evidence passes", async () => {
     const backupId = "11111111-1111-4111-8111-111111111111";
     const result = { backupId, applicationId: "uptime-kuma", sourceRestartVerified: true, restoreDrill: { passed: true } };

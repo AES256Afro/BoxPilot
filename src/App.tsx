@@ -67,7 +67,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   applications: {
     label: "Curated application engine",
     tone: "live",
-    description: "Manifests, host-backed plans, and Uptime Kuma staging are live. Pi-hole remains planning-only until DNS recovery gates pass.",
+    description: "Manifests, host-backed plans, Uptime Kuma, and guarded Pi-hole staging are live. Router and client DNS cutover remain locked.",
   },
   network: {
     label: "Read-only network intelligence",
@@ -196,6 +196,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
   const [apiMode, setApiMode] = useState("browser preview");
   const [composeSource, setComposeSource] = useState(sampleCompose);
   const [inspection, setInspection] = useState<ComposeInspection | null>(null);
+  const [networkAssessmentId, setNetworkAssessmentId] = useState<string | null>(null);
 
   const copy = viewCopy[view];
 
@@ -222,17 +223,19 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           csrfToken={authStatus.csrfToken ?? ""}
           onInspectCompose={() => setDialog("compose")}
           onOpenRepair={() => setView("repairs")}
+          networkAssessmentId={networkAssessmentId}
+          onOpenNetwork={() => setView("network")}
         />
       );
     }
-    if (view === "network") return <NetworkCenter csrfToken={authStatus.csrfToken ?? ""} />;
+    if (view === "network") return <NetworkCenter csrfToken={authStatus.csrfToken ?? ""} onAssessmentReady={setNetworkAssessmentId} />;
     if (view === "repairs") return <RepairCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "virtualization") return <VirtualMachines csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "backups") return <BackupCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "migrations") return <MigrationCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "logs") return <SystemLogs />;
     return <Settings apiMode={apiMode} />;
-  }, [apiMode, authStatus.csrfToken, view]);
+  }, [apiMode, authStatus.csrfToken, networkAssessmentId, view]);
 
   const downloadSupportBundle = async () => {
     let virtualizationAudit: Array<Record<string, unknown>> = [];
@@ -253,7 +256,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.18.0",
+      version: "0.19.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
@@ -295,7 +298,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.18.0 network intelligence<br />Read-only topology and recovery plans</div>
+        <div className="prototype-label">v0.19.0 Pi-hole staging<br />Router and DNS cutover locked</div>
       </aside>
 
       <main>

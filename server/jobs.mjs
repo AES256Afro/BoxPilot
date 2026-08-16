@@ -41,8 +41,8 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
-    if (job.type === "application.uptime-kuma.deploy") await validateApplicationJob(job);
+    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.uptime-kuma.backup", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy"].includes(job.type) ? await validateApplicationJob(job) : null;
     if (job.type === "application.uptime-kuma.backup") await validateBackupJob(job);
     const validatedMigrationTransferPlan = job.type === "migration.bundle.transfer" ? await validateMigrationTransferJob(job) : null;
     const validatedVmPlan = job.type === "virtualization.domain.create" ? await validateVmCreationJob(job) : null;
@@ -62,6 +62,7 @@ export function createJobService(store, helper, {
     if (job.type === "virtualization.backup.recovery.create" && !validatedVmRecoveryPlan?.input) throw new Error("The staged VM recovery plan is unavailable or changed");
     if (job.type === "virtualization.domain.action" && !validatedVmLifecyclePlan?.input) throw new Error("The staged VM lifecycle plan is unavailable or changed");
     if (job.type === "virtualization.domain.snapshot.create" && !validatedVmSnapshotPlan?.input) throw new Error("The staged VM snapshot plan is unavailable or changed");
+    if (job.type === "application.pi-hole.deploy" && !validatedApplicationPlan?.input) throw new Error("The staged Pi-hole plan is unavailable or changed");
     const migrationHelperInput = validatedMigrationTransferPlan?.input ? {
       transferId: validatedMigrationTransferPlan.input.transferId,
       bundleId: validatedMigrationTransferPlan.input.bundleId,
@@ -86,6 +87,15 @@ export function createJobService(store, helper, {
       verified: "Uptime Kuma container and internal HTTP health check passed",
       failed: "Uptime Kuma did not pass deployment and health verification",
       validate: (result) => result?.installed && result?.healthy && result?.dataPreserved,
+    } : job.type === "application.pi-hole.deploy" ? {
+      operation: "application.pi-hole.deploy",
+      parameters: { lanAddress: validatedApplicationPlan.input.lanAddress, webPort: validatedApplicationPlan.input.hostPort },
+      timeoutMs: 10 * 60 * 1000,
+      applying: "Starting the digest-pinned Pi-hole stack on the exact reviewed Bigbox LAN binding through the restricted helper",
+      applied: "Restricted helper started Pi-hole without DHCP, router writes, client DNS changes, Tailscale changes, NET_ADMIN, or wildcard host ports",
+      verified: "Pi-hole container health, exact TCP and UDP DNS bindings, LAN web binding, and no-cutover evidence passed",
+      failed: "Pi-hole staging or its binding verification did not complete; router and client DNS remain unchanged",
+      validate: (result) => result?.installed && result?.healthy && result?.lanAddress === validatedApplicationPlan.input.lanAddress && result?.port === validatedApplicationPlan.input.hostPort && result?.dnsTcpBound === true && result?.dnsUdpBound === true && result?.dataPreserved === true && result?.secretPreserved === true && result?.routerMutationPerformed === false && result?.dnsCutoverPerformed === false && result?.dhcpEnabled === false,
     } : job.type === "application.uptime-kuma.backup" ? {
       operation: "application.uptime-kuma.backup",
       parameters: { backupId: job.parameters.backupId },
@@ -207,6 +217,9 @@ export function createJobService(store, helper, {
         store.addJobStep(jobId, "verify", "failed", execution.failed);
         if (job.type === "application.uptime-kuma.deploy" && error.message.includes("Automated rollback completed")) {
           store.addJobStep(jobId, "rollback", "completed", "Managed container and network were removed or the previous Compose definition was restored; data was preserved");
+        }
+        if (job.type === "application.pi-hole.deploy" && error.message.includes("Automated rollback completed")) {
+          store.addJobStep(jobId, "rollback", "completed", "Managed Pi-hole was removed or its previous Compose definition was restored; configuration and the administrator secret were preserved; router and client DNS were unchanged");
         }
         if (job.type === "virtualization.domain.create" && error.message.includes("Automated rollback completed")) {
           store.addJobStep(jobId, "rollback", "completed", "The newly created exact-name domain and its allocated storage were removed");

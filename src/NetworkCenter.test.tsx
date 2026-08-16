@@ -48,4 +48,35 @@ describe("Network Center", () => {
     expect(screen.getByText("DNS cutover locked")).toBeTruthy();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
   });
+
+  it("hands a ready Pi-hole assessment id to the application workflow", async () => {
+    const onAssessmentReady = vi.fn();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input.toString().endsWith("/api/v1/network/topology")) return new Response(JSON.stringify(topology), { status: 200, headers: { "Content-Type": "application/json" } });
+      const submitted = JSON.parse(String(init?.body));
+      expect(submitted).toMatchObject({ dnsRole: "pihole-on-bigbox", dnsServiceAddress: "192.168.8.10", routerBackupRecorded: true, emergencyResolverTested: true, secondDeviceReady: true });
+      return new Response(JSON.stringify({ plan: {
+        id: "pihole-assessment", revision: "b".repeat(64), expiresAt: "2026-08-16T01:00:00Z",
+        output: {
+          executable: false, readyForChangeWindow: true, topology: { summary: "Keep Flint 2 as the only edge router.", devices: ["Flint 2: edge router"] },
+          dns: { role: "pihole-on-bigbox", primary: "192.168.8.10", emergency: "94.140.14.59" }, blockers: [], warnings: [],
+          changes: ["No network setting will be changed"], recovery: ["Restore external DNS"], routerMutationSupported: false, dnsCutoverSupported: false,
+        },
+      } }), { status: 201, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NetworkCenter csrfToken="csrf" onAssessmentReady={onAssessmentReady} />);
+
+    await screen.findByText("192.168.8.1");
+    fireEvent.change(screen.getByLabelText("DNS role"), { target: { value: "pihole-on-bigbox" } });
+    fireEvent.change(screen.getByLabelText("Proposed primary DNS IPv4"), { target: { value: "192.168.8.10" } });
+    fireEvent.click(screen.getByLabelText(/Router configuration backup/));
+    fireEvent.click(screen.getByLabelText(/Emergency resolver tested/));
+    fireEvent.click(screen.getByLabelText(/Second LAN device ready/));
+    fireEvent.click(screen.getByRole("button", { name: "Generate no-change assessment" }));
+
+    expect(await screen.findByText("Prerequisites recorded")).toBeTruthy();
+    expect(onAssessmentReady).toHaveBeenCalledWith("pihole-assessment");
+    expect(screen.getByText(/ready for the Applications staging gate/)).toBeTruthy();
+  });
 });

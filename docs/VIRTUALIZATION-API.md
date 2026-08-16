@@ -1,6 +1,6 @@
 # Virtualization API
 
-The BoxPilot `v1` virtualization API is loopback-only by default. Tailscale Serve may proxy it privately, but it is not an internet API. Version `0.18.0` requires an authenticated owner session for virtualization routes and a CSRF token for POST requests. Network privacy remains mandatory. Version `0.18.0` does not change the virtualization route contract.
+The BoxPilot `v1` virtualization API is loopback-only by default. Tailscale Serve may proxy it privately, but it is not an internet API. Version `0.19.0` requires an authenticated owner session for virtualization routes and a CSRF token for POST requests. Network privacy remains mandatory. Version `0.19.0` does not change the virtualization route contract.
 
 All API responses use JSON and send `Cache-Control: no-store`.
 
