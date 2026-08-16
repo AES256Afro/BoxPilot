@@ -6,6 +6,8 @@ export function createJobService(store, helper, {
   validateBackupJob = async () => {},
   validateDnsAcceptanceJob = async () => {},
   executeDnsAcceptanceJob = async () => {},
+  validateFlint2AdguardJob = async () => {},
+  executeFlint2AdguardJob = async () => {},
   validateMigrationTransferJob = async () => {},
   validateVmCreationJob = async () => {},
   validateVmExportJob = async () => {},
@@ -17,6 +19,7 @@ export function createJobService(store, helper, {
   validateVmSnapshotJob = async () => {},
   recordBackupResult = () => {},
   recordDnsAcceptanceResult = () => {},
+  recordFlint2AdguardResult = () => {},
   recordMigrationTransferResult = () => {},
   recordVmExportResult = () => {},
   recordVmProtectionResult = () => {},
@@ -45,11 +48,12 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.uptime-kuma.backup", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.uptime-kuma.backup", "application.pi-hole.backup", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
     const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy"].includes(job.type) ? await validateApplicationJob(job) : null;
     if (["application.uptime-kuma.backup", "application.pi-hole.backup"].includes(job.type)) await validateBackupJob(job);
     const validatedDnsAcceptancePlan = job.type === "network.dns.acceptance.run" ? await validateDnsAcceptanceJob(job) : null;
+    const validatedFlint2AdguardPlan = job.type === "network.flint2-adguard.acceptance.run" ? await validateFlint2AdguardJob(job) : null;
     const validatedMigrationTransferPlan = job.type === "migration.bundle.transfer" ? await validateMigrationTransferJob(job) : null;
     const validatedVmPlan = job.type === "virtualization.domain.create" ? await validateVmCreationJob(job) : null;
     const validatedVmExportPlan = job.type === "virtualization.domain.export.create" ? await validateVmExportJob(job) : null;
@@ -71,6 +75,7 @@ export function createJobService(store, helper, {
     if (job.type === "virtualization.domain.snapshot.create" && !validatedVmSnapshotPlan?.input) throw new Error("The staged VM snapshot plan is unavailable or changed");
     if (job.type === "application.pi-hole.deploy" && !validatedApplicationPlan?.input) throw new Error("The staged Pi-hole plan is unavailable or changed");
     if (job.type === "network.dns.acceptance.run" && !validatedDnsAcceptancePlan?.input) throw new Error("The staged DNS acceptance plan is unavailable or changed");
+    if (job.type === "network.flint2-adguard.acceptance.run" && !validatedFlint2AdguardPlan?.input) throw new Error("The staged Flint 2 AdGuard Home acceptance plan is unavailable or changed");
     const migrationHelperInput = validatedMigrationTransferPlan?.input ? {
       transferId: validatedMigrationTransferPlan.input.transferId,
       bundleId: validatedMigrationTransferPlan.input.bundleId,
@@ -134,6 +139,19 @@ export function createJobService(store, helper, {
         && result?.secondDeviceTested === false
         && result?.routerMutationPerformed === false
         && result?.dnsCutoverPerformed === false
+        && result?.clientSettingsChanged === false,
+    } : job.type === "network.flint2-adguard.acceptance.run" ? {
+      run: () => executeFlint2AdguardJob(job, validatedFlint2AdguardPlan),
+      applying: "Sending four fixed direct DNS queries from Bigbox to the one live observed gateway after immutable Flint 2 recovery declarations",
+      applied: "The observed gateway answered the fixed TCP, UDP, public, and reserved-negative queries without opening a router session",
+      verified: "Direct gateway DNS evidence passed; physical model identity, AdGuard settings, DHCP advertisement, and second-device paths remain operator or future acceptance checks",
+      failed: "Direct gateway DNS acceptance failed; no router, DNS advertisement, DHCP, VPN, client, or Tailscale setting was changed",
+      validate: (result) => result?.passed === true
+        && result?.origin === "boxpilot-controller"
+        && result?.modelIdentityVerified === false
+        && result?.routerMutationPerformed === false
+        && result?.dnsCutoverPerformed === false
+        && result?.dhcpChanged === false
         && result?.clientSettingsChanged === false,
     } : job.type === "application.uptime-kuma.deploy" ? {
       operation: "application.uptime-kuma.deploy",
@@ -281,6 +299,7 @@ export function createJobService(store, helper, {
       if (!execution.validate(result)) throw new Error(execution.run ? "Operation returned an invalid result" : "Helper returned an invalid operation result");
       if (["application.uptime-kuma.backup", "application.pi-hole.backup"].includes(job.type)) recordBackupResult(job, result);
       if (job.type === "network.dns.acceptance.run") recordDnsAcceptanceResult(job, result);
+      if (job.type === "network.flint2-adguard.acceptance.run") recordFlint2AdguardResult(job, result);
       if (job.type === "migration.bundle.transfer") recordMigrationTransferResult(job, result);
       if (job.type === "virtualization.domain.export.create") recordVmExportResult(job, result);
       if (job.type === "virtualization.export.backup.create") recordVmProtectionResult(job, result);

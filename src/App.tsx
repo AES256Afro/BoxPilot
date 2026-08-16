@@ -90,9 +90,9 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     description: "Live topology remains read-only. A password-approved Pi-hole workflow can send four fixed direct DNS queries from Bigbox, and a signed enrolled agent can independently repeat them. Router credentials, router writes, and DNS cutover remain unavailable.",
   },
   routers: {
-    label: "Live router-readiness guidance",
+    label: "Guided router recovery and direct DNS evidence",
     tone: "live",
-    description: "BoxPilot correlates Bigbox's observed gateway address with a fixed Flint 2, TP-Link BE400, and ER707-M2 operator checklist. The browser can record local backup hashes, but model identity, operating modes, and cabling remain operator checks. Credentials, sessions, probes, writes, and DNS cutover remain unavailable.",
+    description: "BoxPilot correlates Bigbox's observed gateway address with fixed router guidance, records browser-local backup hashes, and can run four approved DNS queries to the observed gateway after Flint 2 recovery declarations. Model identity, AdGuard configuration, DHCP advertisement, operating modes, and cabling remain operator checks. Credentials, sessions, writes, and DNS cutover remain unavailable.",
   },
   repairs: {
     label: "Live Operations Core",
@@ -313,7 +313,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.35.0 exact APT metadata refresh<br />Approved update, no package changes</div>
+        <div className="prototype-label">v0.36.0 Flint 2 DNS acceptance<br />Fixed probes, no router write</div>
       </aside>
 
       <main>

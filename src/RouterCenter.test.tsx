@@ -25,12 +25,18 @@ const readiness = {
   ],
   counts: { verified: 1, "action-required": 1, "operator-check": 1, unavailable: 0 },
   guides: [{ modelId: "glinet-flint-2", intendedRole: "Only edge router", mode: "Router mode", officialSources: [{ label: "Flint guide", url: "https://docs.gl-inet.com/" }], steps: ["Export the configuration."], verify: ["Confirm one DHCP server."], rollback: "Restore the prior edge.", checkpoint: null }],
-  sourceReviewedAt: "2026-08-15",
+  sourceReviewedAt: "2026-08-16",
   boundary: { credentialsAccepted: false, routerSessionsOpened: false, neighborDiscoveryPerformed: false, arbitraryTargetsProbed: false, configurationUploaded: false, routerMutationSupported: false, dhcpMutationSupported: false, dnsCutoverSupported: false, tailscaleMutationSupported: false },
+};
+const flint2Status = {
+  observedGateway: { gateway: "192.168.8.1", interface: "eno1", protocol: "static" }, checkpoint: null, acceptances: [], sourceReviewedAt: "2026-08-16",
+  officialSources: ["https://docs.gl-inet.com/router/en/4/interface_guide/adguardhome/", "https://docs.gl-inet.com/router/en/4/interface_guide/network_mode/"],
+  boundary: { credentialsAccepted: false, routerSessionOpened: false, arbitraryTargetAccepted: false, routerMutationSupported: false, dnsCutoverSupported: false },
 };
 
 function responseFor(input: RequestInfo | URL) {
-  return new Response(JSON.stringify(String(input).endsWith("router-readiness") ? readiness : status), { status: 200, headers: { "Content-Type": "application/json" } });
+  const url = String(input);
+  return new Response(JSON.stringify(url.endsWith("router-readiness") ? readiness : url.endsWith("flint2-adguard-acceptance") ? flint2Status : status), { status: 200, headers: { "Content-Type": "application/json" } });
 }
 
 describe("Router Center", () => {
@@ -54,7 +60,10 @@ describe("Router Center", () => {
     expect(screen.getByText("Gateway model identity")).toBeTruthy();
     expect(screen.getByText("Operator steps")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Hash locally and record metadata" }).hasAttribute("disabled")).toBe(true);
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("Flint 2 AdGuard Home direct acceptance")).toBeTruthy();
+    expect(screen.getByText(/BoxPilot does not accept an address or claim the physical model/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "AdGuard Home guide" }).getAttribute("href")).toContain("adguardhome");
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
   });
 
   it("sends only locally derived metadata and never the selected file", async () => {
@@ -76,6 +85,31 @@ describe("Router Center", () => {
     fireEvent.click(screen.getByLabelText(/I retained the original configuration/));
     fireEvent.click(screen.getByRole("button", { name: "Hash locally and record metadata" }));
     expect(await screen.findByText(/configuration file never left this browser/)).toBeTruthy();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(7));
+  });
+
+  it("submits only six fixed declarations and stages the immutable gateway-derived plan", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (!init?.method) return responseFor(input);
+      if (url.endsWith("/flint2-adguard-acceptance/plans")) {
+        const submitted = JSON.parse(String(init.body));
+        expect(Object.keys(submitted).sort()).toEqual(["adguardHomeEnabled", "emergencyResolverTested", "handleClientRequestsReviewed", "routerModeConfirmed", "singleDhcpAuthorityConfirmed", "vpnPolicyImpactReviewed"]);
+        expect(Object.values(submitted).every((value) => value === true)).toBe(true);
+        expect(String(init.body)).not.toContain("192.168.8.1");
+        return new Response(JSON.stringify({ plan: { id: "flint-plan", revision: "rev-one", expiresAt: "2026-08-16T08:00:00.000Z", output: { executable: true, routerModel: "GL.iNet Flint 2 (GL-MT6000)", resolverAddress: "192.168.8.1", checkpointId: "checkpoint-one", checkpointFirmware: "4.8.2", blockers: [], tests: [{ id: "gateway-public-udp", protocol: "udp", name: "example.com", port: 53 }], vendorWarnings: ["Model identity remains unverified."], changes: ["Four fixed queries"], recovery: "No router setting changes." } } }), { status: 201, headers: { "Content-Type": "application/json" } });
+      }
+      expect(url).toBe("/api/v1/network/flint2-adguard-acceptance/plans/flint-plan/stage");
+      expect(JSON.parse(String(init.body))).toEqual({ revision: "rev-one" });
+      return new Response(JSON.stringify({ job: { id: "job-one" } }), { status: 201, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RouterCenter csrfToken="csrf" />);
+    await screen.findByText("Flint 2 AdGuard Home direct acceptance");
+    for (const label of ["Flint 2 shows Router mode", "only production NAT", "APPLICATIONS > AdGuard Home", "Handle Client Requests", "VPN and upstream-DNS", "independent emergency resolver"]) fireEvent.click(screen.getByLabelText(new RegExp(label)));
+    fireEvent.click(screen.getByRole("button", { name: "Review fixed DNS acceptance" }));
+    expect(await screen.findByText(/GL.iNet Flint 2 \(GL-MT6000\) at 192.168.8.1/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage for password approval" }));
+    expect(await screen.findByText(/Open Repair Center to review the job/)).toBeTruthy();
   });
 });

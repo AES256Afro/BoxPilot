@@ -8,6 +8,8 @@ Version `0.34.0` adds unprivileged host-maintenance collectors for fixed systemd
 
 Version `0.35.0` adds a separately named durable APT metadata refresh. The browser can request only an empty plan and immutable revision. The root helper accepts only the exact previous metadata timestamp, writes a short-lived marker, and starts a static networked oneshot. That unit runs only `apt-get update --error-on=any`, proves `/var/lib/dpkg/status` is unchanged, and returns current bounded evidence. The main helper remains `PrivateNetwork=true`; no general package, repository, command, option, target, install, upgrade, removal, service control, or reboot operation is added.
 
+Version `0.36.0` adds a separate Flint 2 direct-gateway DNS acceptance job. The target is derived only from one live default route, and the immutable plan requires a retained Flint 2 checkpoint, connected Tailscale recovery, and six exact operator declarations. The unprivileged controller sends four fixed DNS queries and records bounded response evidence. The helper is not called. No router credential, session, arbitrary target, model attestation, configuration read, setting write, DHCP change, DNS advertisement, VPN change, client change, or cutover is added.
+
 ## Target components
 
 ```text
@@ -49,6 +51,7 @@ BoxPilot web and API process (unprivileged)
           +---- Fixed-localhost read-only UPS evidence (0.33.0)
           +---- Bounded host-maintenance readiness evidence (0.34.0)
           +---- Durable fixed APT metadata-only refresh plan and approval (0.35.0)
+          +---- Durable fixed Flint 2 observed-gateway DNS acceptance (0.36.0)
           |
           +<--- Ed25519 signed polling and fixed evidence from enrolled LAN agent
                   no remote shell, arbitrary command, arbitrary target, or private-key transfer
@@ -159,7 +162,7 @@ Uptime Kuma is the low-risk canary adapter because it proves fixed Docker argume
 
 ## Data model target
 
-The persistent store is SQLite. Owners, sessions, jobs, job steps, approvals, plans, application backups, DNS acceptance runs, fleet agents, one-time enrollment token digests, fleet tasks, signed evidence, router checkpoint metadata, VM exports, VM backups, VM recoveries, VM retention runs, imported migration sources, verified migration transfers, and audit events are live. Planned records include:
+The persistent store is SQLite. Owners, sessions, jobs, job steps, approvals, plans, application backups, Pi-hole and Flint 2 gateway DNS acceptance runs, fleet agents, one-time enrollment token digests, fleet tasks, signed evidence, router checkpoint metadata, VM exports, VM backups, VM recoveries, VM retention runs, imported migration sources, verified migration transfers, and audit events are live. Planned records include:
 
 - hosts
 - workloads
