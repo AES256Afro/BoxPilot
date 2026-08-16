@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -54,6 +54,9 @@ async function fixture() {
     claimRequired: true,
     privateAccessConfigured: false,
   })}\n`, { mode: 0o640 });
+  await chmod(paths.environment, 0o640);
+  await chmod(paths.database, 0o600);
+  await chmod(paths.evidence, 0o640);
   return { paths, uid, gid };
 }
 
