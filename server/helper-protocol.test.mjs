@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.58.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.59.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -159,6 +159,11 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.action", parameters: { action: "restart", expectedRevision: "a".repeat(64) } }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.action", parameters: { action: "remove", expectedRevision: "a".repeat(64) } }))).toContain("fixed action");
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.action", parameters: { action: "restart", expectedRevision: "a".repeat(64), command: "sh" } }))).toContain("fixed action");
+    expect(validateHelperRequest(request({ operation: "application.uptime-kuma.private-access.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.uptime-kuma.private-access.inspect", parameters: { port: 3101 } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "application.uptime-kuma.private-access.configure", parameters: { action: "publish", expectedRevision: "a".repeat(64) } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.uptime-kuma.private-access.configure", parameters: { action: "funnel", expectedRevision: "a".repeat(64) } }))).toContain("fixed action");
+    expect(validateHelperRequest(request({ operation: "application.uptime-kuma.private-access.configure", parameters: { action: "publish", expectedRevision: "a".repeat(64), target: "evil" } }))).toContain("fixed action");
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.deploy", parameters: { hostPort: 3001 } }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.deploy", parameters: { hostPort: 53 } }))).toContain("hostPort");
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.deploy", parameters: { hostPort: 3001, image: "evil" } }))).toContain("only a hostPort");
@@ -180,6 +185,16 @@ describe("restricted helper protocol", () => {
     };
     await expect(executeHelperOperation(request({ operation: "application.uptime-kuma.lifecycle.inspect", parameters: {} }), { applications })).resolves.toMatchObject({ ok: true, result: { installed: true, managed: true, mutationPerformed: false } });
     await expect(executeHelperOperation(request({ operation: "application.uptime-kuma.action", parameters: { action: "restart", expectedRevision } }), { applications })).resolves.toMatchObject({ ok: true, result: { applicationId: "uptime-kuma", action: "restart", expectedRevision, performed: true, dataPreserved: true } });
+  });
+
+  it("delegates only fixed Uptime Kuma private access inspection and configuration", async () => {
+    const expectedRevision = "c".repeat(64);
+    const applications = {
+      inspectUptimeKumaPrivateAccess: vi.fn(async () => ({ connected: true, published: false, revision: expectedRevision, allowedActions: ["publish"], boundary: { mutationPerformed: false } })),
+      configureUptimeKumaPrivateAccess: vi.fn(async (parameters) => ({ applicationId: "uptime-kuma", ...parameters, performed: true, published: true, tailnetOnly: true, boundary: { publicExposure: false, arbitraryTargetAccepted: false } })),
+    };
+    await expect(executeHelperOperation(request({ operation: "application.uptime-kuma.private-access.inspect", parameters: {} }), { applications })).resolves.toMatchObject({ ok: true, result: { connected: true, published: false, boundary: { mutationPerformed: false } } });
+    await expect(executeHelperOperation(request({ operation: "application.uptime-kuma.private-access.configure", parameters: { action: "publish", expectedRevision } }), { applications })).resolves.toMatchObject({ ok: true, result: { applicationId: "uptime-kuma", action: "publish", expectedRevision, performed: true, published: true, tailnetOnly: true, boundary: { publicExposure: false, arbitraryTargetAccepted: false } } });
   });
 
   it("accepts only a private Pi-hole LAN binding and high web port", () => {

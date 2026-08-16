@@ -4,6 +4,7 @@ import { keelArtifactSpec } from "./keel-artifact-spec.mjs";
 export function createJobService(store, helper, {
   validateApplicationJob = async () => {},
   validateApplicationLifecycleJob = async () => {},
+  validateApplicationPrivateAccessJob = async () => {},
   validateKeelArtifactJob = async () => {},
   validatePrerequisiteRepairJob = async () => {},
   validateLibvirtFoundationJob = async () => {},
@@ -66,11 +67,12 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.uptime-kuma.deploy", "application.uptime-kuma.action", "application.pi-hole.deploy", "application.pi-hole.action", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.uptime-kuma.deploy", "application.uptime-kuma.action", "application.uptime-kuma.private-access", "application.pi-hole.deploy", "application.pi-hole.action", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
     const validatedLibvirtFoundation = job.type === "virtualization.foundation.initialize" ? await validateLibvirtFoundationJob(job) : null;
     const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.stage", "application.keel.install"].includes(job.type) ? await validateApplicationJob(job) : null;
     const validatedApplicationLifecyclePlan = ["application.uptime-kuma.action", "application.pi-hole.action"].includes(job.type) ? await validateApplicationLifecycleJob(job) : null;
+    const validatedApplicationPrivateAccessPlan = job.type === "application.uptime-kuma.private-access" ? await validateApplicationPrivateAccessJob(job) : null;
     const validatedKeelArtifactPlan = job.type === "application.keel.artifact.acquire" ? await validateKeelArtifactJob(job) : null;
     if (["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup"].includes(job.type)) await validateBackupJob(job);
     const validatedControllerProtectionPlan = job.type === "controller.database.backup.protect" ? await validateControllerProtectionJob(job) : null;
@@ -111,6 +113,7 @@ export function createJobService(store, helper, {
     if (job.type === "virtualization.domain.snapshot.create" && !validatedVmSnapshotPlan?.input) throw new Error("The staged VM snapshot plan is unavailable or changed");
     if (job.type === "application.pi-hole.deploy" && !validatedApplicationPlan?.input) throw new Error("The staged Pi-hole plan is unavailable or changed");
     if (["application.uptime-kuma.action", "application.pi-hole.action"].includes(job.type) && !validatedApplicationLifecyclePlan?.input) throw new Error("The staged application lifecycle plan is unavailable or changed");
+    if (job.type === "application.uptime-kuma.private-access" && !validatedApplicationPrivateAccessPlan?.input) throw new Error("The staged private access plan is unavailable or changed");
     if (job.type === "application.keel.stage" && !validatedApplicationPlan?.input) throw new Error("The staged Keel release plan is unavailable or changed");
     if (job.type === "application.keel.install" && !validatedApplicationPlan?.input) throw new Error("The staged Keel install plan is unavailable or changed");
     if (job.type === "application.keel.artifact.acquire" && !validatedKeelArtifactPlan?.input) throw new Error("The staged Keel artifact plan is unavailable or changed");
@@ -376,6 +379,31 @@ export function createJobService(store, helper, {
         && result?.dnsCutoverPerformed === false
         && result?.dhcpChanged === false
         && result?.clientSettingsChanged === false,
+    } : job.type === "application.uptime-kuma.private-access" ? {
+      operation: "application.uptime-kuma.private-access.configure",
+      parameters: validatedApplicationPrivateAccessPlan.input,
+      applying: `${validatedApplicationPrivateAccessPlan.input.action === "publish" ? "Publishing" : "Removing"} only the exact private Uptime Kuma Tailscale Serve route`,
+      applied: "Restricted helper changed only the fixed application HTTPS listener while preserving the complete remaining Serve configuration",
+      verified: validatedApplicationPrivateAccessPlan.input.action === "publish" ? "Uptime Kuma private tailnet URL is active with Funnel and public exposure off" : "Uptime Kuma private tailnet URL is absent while the loopback application remains unchanged",
+      failed: "Private access configuration or exact post-action verification failed; inspect Tailscale Serve while keeping the application on loopback",
+      validate: (result) => result?.applicationId === "uptime-kuma"
+        && result?.action === validatedApplicationPrivateAccessPlan.input.action
+        && result?.expectedRevision === validatedApplicationPrivateAccessPlan.input.expectedRevision
+        && result?.performed === true
+        && result?.published === (validatedApplicationPrivateAccessPlan.input.action === "publish")
+        && result?.tailnetOnly === (validatedApplicationPrivateAccessPlan.input.action === "publish")
+        && result?.url === validatedApplicationPrivateAccessPlan.output.desired.url
+        && result?.port === validatedApplicationPrivateAccessPlan.output.desired.port
+        && result?.boundary?.exactApplicationRouteOnly === true
+        && result?.boundary?.otherServeConfigurationChanged === false
+        && result?.boundary?.funnelEnabled === false
+        && result?.boundary?.publicExposure === false
+        && result?.boundary?.firewallChanged === false
+        && result?.boundary?.routerChanged === false
+        && result?.boundary?.dnsChanged === false
+        && result?.boundary?.containerChanged === false
+        && result?.boundary?.arbitraryTargetAccepted === false
+        && result?.boundary?.arbitraryPortAccepted === false,
     } : job.type === "application.uptime-kuma.action" ? {
       operation: "application.uptime-kuma.action",
       parameters: validatedApplicationLifecyclePlan.input,

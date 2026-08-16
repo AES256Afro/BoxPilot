@@ -147,6 +147,43 @@ describe("curated Uptime Kuma helper", () => {
     await expect(helper.actionUptimeKuma({ action: "start", expectedRevision: before.revision })).rejects.toThrow("state changed");
   });
 
+  it("publishes only the exact managed Uptime Kuma loopback port through tailnet-only Tailscale Serve", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-uptime-private-access-"));
+    directories.push(directory);
+    const dataDirectory = path.join(directory, "uptime-kuma", "data");
+    await mkdir(dataDirectory, { recursive: true });
+    const container = {
+      Id: "a".repeat(64), Image: `sha256:${"b".repeat(64)}`, Name: "/boxpilot-uptime-kuma",
+      State: { Running: true, Status: "running", Error: "", Health: { Status: "healthy" } },
+      Config: { Image: applicationInternals.uptimeKumaImage, Labels: { "com.docker.compose.project": "boxpilot-uptime-kuma", "com.docker.compose.service": "uptime-kuma" } },
+      HostConfig: { PortBindings: { "3001/tcp": [{ HostIp: "127.0.0.1", HostPort: "3101" }] }, RestartPolicy: { Name: "unless-stopped" }, Privileged: false, Devices: null, CapAdd: null },
+      Mounts: [{ Type: "bind", Source: dataDirectory, Destination: "/app/data", RW: true }],
+    };
+    let published = false;
+    const calls = [];
+    const runDocker = vi.fn(async () => ({ stdout: JSON.stringify(container), stderr: "" }));
+    const runTailscale = vi.fn(async (_binary, args) => {
+      calls.push(args);
+      if (args[0] === "status") return { stdout: JSON.stringify({ BackendState: "Running", Self: { DNSName: "bigbox.example.ts.net." } }), stderr: "" };
+      if (args[0] === "serve" && args[1] === "status" && args[2] === "--json") return { stdout: JSON.stringify({ TCP: { "443": { HTTPS: true }, ...(published ? { "3101": { HTTPS: true } } : {}) }, Web: { "bigbox.example.ts.net:443": { Handlers: { "/": { Proxy: "http://127.0.0.1:8787" } } }, ...(published ? { "bigbox.example.ts.net:3101": { Handlers: { "/": { Proxy: "http://127.0.0.1:3101" } } } } : {}) } }), stderr: "" };
+      if (args[0] === "serve" && args[1] === "status") return { stdout: `https://bigbox.example.ts.net (tailnet only)\n|-- / proxy http://127.0.0.1:8787${published ? "\nhttps://bigbox.example.ts.net:3101 (tailnet only)\n|-- / proxy http://127.0.0.1:3101" : ""}`, stderr: "" };
+      if (args[0] === "serve" && args.includes("--https=3101")) { published = args.at(-1) !== "off"; return { stdout: published ? "Available within your tailnet" : "Serve listener removed", stderr: "" }; }
+      throw new Error(`Unexpected Tailscale call: ${args.join(" ")}`);
+    });
+    const helper = createApplicationHelper({ appRoot: directory, runDocker, runTailscale });
+    const before = await helper.inspectUptimeKumaPrivateAccess();
+
+    expect(before).toMatchObject({ connected: true, published: false, tailnetOnly: false, conflict: false, dnsName: "bigbox.example.ts.net", port: 3101, allowedActions: ["publish"], boundary: { funnelEnabled: false, publicExposure: false, mutationPerformed: false } });
+    const result = await helper.configureUptimeKumaPrivateAccess({ action: "publish", expectedRevision: before.revision });
+
+    expect(result).toMatchObject({ applicationId: "uptime-kuma", action: "publish", performed: true, published: true, tailnetOnly: true, url: "https://bigbox.example.ts.net:3101/", port: 3101, boundary: { exactApplicationRouteOnly: true, otherServeConfigurationChanged: false, funnelEnabled: false, publicExposure: false, firewallChanged: false, routerChanged: false, dnsChanged: false, containerChanged: false, arbitraryTargetAccepted: false, arbitraryPortAccepted: false } });
+    expect(calls).toContainEqual(["serve", "--bg", "--yes", "--https=3101", "http://127.0.0.1:3101"]);
+    const publishedState = await helper.inspectUptimeKumaPrivateAccess();
+    const removed = await helper.configureUptimeKumaPrivateAccess({ action: "unpublish", expectedRevision: publishedState.revision });
+    expect(removed).toMatchObject({ action: "unpublish", performed: true, published: false, tailnetOnly: false, url: null, port: 3101 });
+    expect(calls).toContainEqual(["serve", "--yes", "--https=3101", "off"]);
+  });
+
   it("derives Pi-hole lifecycle actions only for the exact network-critical managed identity", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-pihole-lifecycle-"));
     directories.push(directory);

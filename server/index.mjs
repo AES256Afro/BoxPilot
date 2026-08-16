@@ -5,6 +5,7 @@ import { createActionCenterService } from "./action-center.mjs";
 import { createAuditLog } from "./audit.mjs";
 import { createApplicationService } from "./applications.mjs";
 import { createApplicationLifecycleService } from "./application-lifecycle.mjs";
+import { createApplicationPrivateAccessService } from "./application-private-access.mjs";
 import { createApplicationProtectionService } from "./application-protection.mjs";
 import { createBackupService } from "./backups.mjs";
 import { createControllerProtectionService } from "./controller-protection.mjs";
@@ -66,6 +67,7 @@ const network = createNetworkService({ store: state });
 const githubProvenance = createGithubProvenanceService();
 const applications = createApplicationService({ store: state, prerequisites, helper, network, githubProvenance });
 const applicationLifecycle = createApplicationLifecycleService({ store: state, helper });
+const applicationPrivateAccess = createApplicationPrivateAccessService({ store: state, helper });
 const keelArtifacts = createKeelArtifactService({ store: state, prerequisites, helper, githubProvenance });
 const keelRecoveries = createKeelRecoveryService({ store: state, helper });
 const keelRecoveryDrills = createKeelRecoveryDrillService({ store: state, helper });
@@ -97,6 +99,7 @@ const jobs = createJobService(state, helper, {
   validateLibvirtFoundationJob: libvirtFoundation.validateJob,
   validateApplicationJob: applications.validateJob,
   validateApplicationLifecycleJob: applicationLifecycle.validateJob,
+  validateApplicationPrivateAccessJob: applicationPrivateAccess.validateJob,
   validateKeelArtifactJob: keelArtifacts.validateJob,
   validateKeelRecoveryJob: keelRecoveries.validateJob,
   recordKeelRecoveryResult: keelRecoveries.recordResult,
@@ -158,7 +161,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.58.0",
+    version: "0.59.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -224,7 +227,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
   response.json({
     inventory: "sanitized-host-maintenance-storage-ext4-error-counters-filesystem-smart-local-ups-docker-services-network-and-dns-topology",
     composeInspection: "browser-only",
-    applications: "curated-uptime-kuma-and-no-cutover-pi-hole-deploy-start-stop-restart-and-backup-plus-fixed-keel-artifact-stage-native-install-terminal-claim-consistent-backup-stopped-recovery-clone-isolated-startup-rehearsal-rollback-backed-promotion-and-operator-rollback",
+    applications: "curated-uptime-kuma-deploy-start-stop-restart-backup-and-tailnet-only-private-access-plus-no-cutover-pi-hole-deploy-start-stop-restart-and-backup-plus-fixed-keel-artifact-stage-native-install-terminal-claim-consistent-backup-stopped-recovery-clone-isolated-startup-rehearsal-rollback-backed-promotion-and-operator-rollback",
     supportBundle: "authenticated-server-generated-fixed-source-configurably-redacted",
     backups: "wal-aware-controller-local-restore-plus-encrypted-independent-restic-copy-uptime-kuma-pi-hole-and-keel-local-restore-drills-stopped-keel-recovery-clones-isolated-keel-startup-rehearsals-rollback-backed-keel-promotion-operator-rollback-and-vm-protection",
     migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
@@ -237,7 +240,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     vmCreationPlanning: "validated-durable-approved",
     audit: "redacted-jsonl-foundation",
     vmActions: { enabled: true, mode: "durable-approved-helper-jobs" },
-    applicationActions: { uptimeKuma: ["start", "stop", "restart"], pihole: ["start", "stop", "restart"], mode: "durable-approved-exact-managed-container-only", routerCutover: false, remove: false, arbitraryContainer: false },
+    applicationActions: { uptimeKuma: ["start", "stop", "restart"], pihole: ["start", "stop", "restart"], privateAccess: { uptimeKuma: ["publish", "unpublish"], mode: "tailscale-serve-tailnet-only", funnel: false, arbitraryTarget: false }, mode: "durable-approved-exact-managed-container-only", routerCutover: false, remove: false, arbitraryContainer: false },
     vmSnapshots: { create: "offline-stopped-managed-qcow2-only", revert: false, delete: false, countsAsBackup: false },
     vmExports: { create: "offline-stopped-managed-qcow2-only", destination: "local-managed", integrityVerified: true, encrypted: false, protectedBackup: false, restoreDrill: false },
     vmProtection: { destination: "fixed-independent-mounted-restic", encrypted: true, repositoryReadVerified: true, isolatedRestoreDrill: "transient-no-network-guest-agent", protectedBackup: "after-passing-restore-drill", retentionMutation: "exact-protected-old-snapshot-forget-without-prune" },
@@ -597,6 +600,27 @@ app.post("/api/v1/application-action-plans/:id/stage", async (request, response)
     response.status(201).json({ job });
   } catch (error) {
     response.status(409).json({ error: error.message, code: "application_lifecycle_stage_failed" });
+  }
+});
+
+app.post("/api/v1/applications/:id/private-access-plans", async (request, response) => {
+  try {
+    if (!request.body || typeof request.body !== "object" || Array.isArray(request.body) || Object.keys(request.body).length !== 1 || typeof request.body.action !== "string") throw new Error("Private access planning accepts only one fixed action");
+    const plan = await applicationPrivateAccess.plan(request.params.id, request.body.action, request.boxpilotSession.owner.id);
+    response.status(201).json({ plan });
+  } catch (error) {
+    const status = error.message === "Private access adapter not found" ? 404 : 409;
+    response.status(status).json({ error: error.message, code: "application_private_access_plan_failed" });
+  }
+});
+
+app.post("/api/v1/application-private-access-plans/:id/stage", async (request, response) => {
+  try {
+    if (!request.body || typeof request.body !== "object" || Array.isArray(request.body) || Object.keys(request.body).length !== 1 || typeof request.body.revision !== "string") throw new Error("Private access staging accepts only the immutable revision");
+    const job = await applicationPrivateAccess.stage(request.params.id, request.body.revision, request.boxpilotSession.owner.id);
+    response.status(201).json({ job });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "application_private_access_stage_failed" });
   }
 });
 
@@ -1087,7 +1111,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.58.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.59.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

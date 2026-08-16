@@ -24,6 +24,7 @@ interface ApplicationManifest {
     boundary?: { mutationPerformed: boolean; environmentRead: boolean; databaseOpened: boolean; secretRead: boolean; arbitraryPathAccepted?: boolean };
     webUrl?: string | null; secretRetrievalCommand?: string; backup?: { state: string; verifiedAt: string | null };
     lifecycle?: { installed: boolean; managed: boolean; state: string; running: boolean; healthy: boolean; lanAddress?: string | null; port: number | null; dnsTcpBound?: boolean; dnsUdpBound?: boolean; revision: string | null; allowedActions: Array<"start" | "stop" | "restart">; detail: string };
+    privateAccess?: { connected: boolean; published: boolean; tailnetOnly: boolean; conflict: boolean; dnsName: string | null; port: number | null; url: string | null; revision: string | null; allowedActions: Array<"publish" | "unpublish">; detail: string };
   };
 }
 
@@ -38,6 +39,23 @@ interface ApplicationLifecyclePlan {
     label: string;
     current: { state: string; healthy: boolean; port: number; lanAddress: string | null; dnsTcpBound: boolean; dnsUdpBound: boolean };
     desired: { state: string; healthy: boolean; port: number; lanAddress: string | null; dnsTcpBound: boolean; dnsUdpBound: boolean };
+    changes: string[];
+    recovery: string;
+    boundaries: string[];
+  };
+}
+
+interface ApplicationPrivateAccessPlan {
+  id: string;
+  revision: string;
+  input: { applicationId: "uptime-kuma"; action: "publish" | "unpublish"; expectedRevision: string };
+  output: {
+    executable: true;
+    applicationId: "uptime-kuma";
+    applicationName: string;
+    action: "publish" | "unpublish";
+    current: { published: boolean; tailnetOnly: boolean; url: string | null; port: number };
+    desired: { published: boolean; tailnetOnly: boolean; url: string | null; port: number };
     changes: string[];
     recovery: string;
     boundaries: string[];
@@ -106,6 +124,7 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
   const [plan, setPlan] = useState<ApplicationPlan | null>(null);
   const [artifactPlan, setArtifactPlan] = useState<KeelArtifactPlan | null>(null);
   const [lifecyclePlan, setLifecyclePlan] = useState<ApplicationLifecyclePlan | null>(null);
+  const [privateAccessPlan, setPrivateAccessPlan] = useState<ApplicationPrivateAccessPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -132,6 +151,7 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
     setPlan(null);
     setArtifactPlan(null);
     setLifecyclePlan(null);
+    setPrivateAccessPlan(null);
     setError(null);
     setMessage(null);
   };
@@ -168,6 +188,43 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
       setMessage(`${lifecyclePlan.output.label} job staged. Open Repair Center to review, reauthenticate, and execute the exact managed-container action.`);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to stage application lifecycle action");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const generatePrivateAccessPlan = async (application: ApplicationManifest, action: "publish" | "unpublish") => {
+    setSubmitting(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const body = await readJson<{ plan: ApplicationPrivateAccessPlan }>(await fetch(`/api/v1/applications/${application.id}/private-access-plans`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ action }),
+      }));
+      setSelected(application);
+      setPrivateAccessPlan(body.plan);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to generate private access plan");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const stagePrivateAccessPlan = async () => {
+    if (!privateAccessPlan) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await readJson(await fetch(`/api/v1/application-private-access-plans/${privateAccessPlan.id}/stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ revision: privateAccessPlan.revision }),
+      }));
+      setMessage("Private access job staged. Open Repair Center to review the exact tailnet-only route, reauthenticate, and apply it.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to stage private access action");
     } finally {
       setSubmitting(false);
     }
@@ -265,6 +322,8 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
             <p>{application.description}</p>
             <span className="app-live-detail">{application.live.detail}</span>
             {application.live.webUrl && <a className="app-live-detail" href={application.live.webUrl} target="_blank" rel="noreferrer">Open LAN interface</a>}
+            {application.live.privateAccess?.published && application.live.privateAccess.url && <a className="app-live-detail good-text" href={application.live.privateAccess.url} target="_blank" rel="noreferrer">Open private Tailscale interface</a>}
+            {application.id === "uptime-kuma" && application.live.installed && application.live.privateAccess && <span className={`app-live-detail ${application.live.privateAccess.published ? "good-text" : application.live.privateAccess.conflict ? "warning-text" : ""}`}>{application.live.privateAccess.detail}</span>}
             {application.live.secretRetrievalCommand && application.live.installed && <span className="app-live-detail">Password from Bigbox terminal: <code>{application.live.secretRetrievalCommand}</code></span>}
             {application.live.backup && <span className={`app-live-detail ${application.live.backup.state === "verified" ? "good-text" : application.live.backup.state === "required" ? "warning-text" : ""}`}>Backup: {application.live.backup.state === "verified" ? `restore verified ${new Date(application.live.backup.verifiedAt ?? "").toLocaleDateString()}` : application.live.backup.state}</span>}
             {application.id === "keel" && application.live.loginProof?.verified && <span className="app-live-detail good-text">Owner login and logout proved {new Date(application.live.loginProof.verifiedAt ?? "").toLocaleDateString()}</span>}
@@ -275,6 +334,12 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
                   : <span className="warning-text">Lifecycle actions locked: {application.live.lifecycle?.detail ?? "exact managed identity unavailable"}</span>}
               </div>
             ) : <button type="button" className="secondary-button" onClick={() => openPlanner(application)}>{application.live.installed ? "Review deployment" : application.execution === "staging-enabled" ? application.live.installation?.readyToInstall ? "Plan private install" : "Plan safe staging" : "Plan deployment"}</button>}
+            {application.id === "uptime-kuma" && application.live.installed && application.live.privateAccess && (
+              <div className="app-lifecycle-actions">
+                {application.live.privateAccess.allowedActions.map((action) => <button type="button" className="secondary-button" key={action} onClick={() => void generatePrivateAccessPlan(application, action)} disabled={submitting}>{action === "publish" ? "Plan private access" : "Plan remove private access"}</button>)}
+                {application.live.privateAccess.conflict && <span className="warning-text">Private access locked because this HTTPS port has an unmanaged Tailscale route.</span>}
+              </div>
+            )}
           </article>
         ))}
         <article className="app-card">
@@ -286,7 +351,7 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
         </article>
       </div>
 
-      {selected && !lifecyclePlan && (
+      {selected && !lifecyclePlan && !privateAccessPlan && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setSelected(null)}>
           <section className="modal app-plan-dialog" role="dialog" aria-modal="true" aria-labelledby="app-plan-title" onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Curated adapter</span><h2 id="app-plan-title">Plan {selected.name}</h2></div><button className="icon-button" type="button" onClick={() => setSelected(null)} aria-label="Close application planner">X</button></header>
@@ -389,6 +454,27 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
             {message
               ? <div className="notice"><strong>Job ready</strong><span>{message}</span><button className="text-button" type="button" onClick={onOpenRepair}>Open Repair Center</button></div>
               : <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => { setLifecyclePlan(null); setSelected(null); }}>Cancel</button><button type="button" className="primary-button" onClick={() => void stageLifecyclePlan()} disabled={submitting}>{submitting ? "Revalidating..." : "Stage for password approval"}</button></div>}
+          </section>
+        </div>
+      )}
+      {selected && privateAccessPlan && (
+        <div className="modal-backdrop" role="presentation">
+          <section className="modal app-plan-dialog" role="dialog" aria-modal="true" aria-labelledby="application-private-access-title">
+            <header className="modal-header"><div><span className="eyebrow">Private Tailscale route</span><h2 id="application-private-access-title">{privateAccessPlan.input.action === "publish" ? "Publish" : "Remove"} {privateAccessPlan.output.applicationName} access</h2></div><button className="icon-button" type="button" onClick={() => { setPrivateAccessPlan(null); setSelected(null); setMessage(null); setError(null); }} aria-label="Close private access plan">X</button></header>
+            <dl className="vm-plan-summary">
+              <div><dt>Current route</dt><dd>{privateAccessPlan.output.current.published ? "Tailnet only" : "Not published"}</dd></div>
+              <div><dt>Desired route</dt><dd>{privateAccessPlan.output.desired.published ? "Tailnet only" : "Not published"}</dd></div>
+              <div><dt>HTTPS port</dt><dd>{privateAccessPlan.output.desired.port}</dd></div>
+              <div><dt>Private URL</dt><dd>{privateAccessPlan.output.desired.url ?? "Removed"}</dd></div>
+            </dl>
+            <div className="application-plan-result"><div><strong>Exact changes</strong><ol>{privateAccessPlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol></div></div>
+            <div className="plan-warnings"><strong>Locked boundaries</strong>{privateAccessPlan.output.boundaries.map((boundary) => <span key={boundary}>{boundary}</span>)}</div>
+            <p className="plan-recovery"><strong>Recovery:</strong> {privateAccessPlan.output.recovery}</p>
+            <p className="vm-action-revision">Plan revision <code>{privateAccessPlan.revision}</code>. The managed application and complete non-application Serve configuration are checked again before staging and after approval.</p>
+            {error && <div className="auth-error" role="alert">{error}</div>}
+            {message
+              ? <div className="notice"><strong>Job ready</strong><span>{message}</span><button className="text-button" type="button" onClick={onOpenRepair}>Open Repair Center</button></div>
+              : <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => { setPrivateAccessPlan(null); setSelected(null); }}>Cancel</button><button type="button" className="primary-button" onClick={() => void stagePrivateAccessPlan()} disabled={submitting}>{submitting ? "Revalidating..." : "Stage for password approval"}</button></div>}
           </section>
         </div>
       )}
