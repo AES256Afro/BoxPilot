@@ -1,6 +1,6 @@
 # GitHub provenance
 
-BoxPilot `0.24.0` adds a credential-free read-only view of these fixed public repositories:
+BoxPilot `0.24.0` introduced, and `0.25.0` retains, a credential-free read-only view of these fixed public repositories:
 
 - `AES256Afro/BoxPilot`
 - `AES256Afro/Keel`
@@ -27,7 +27,7 @@ Commit author email, committer email, raw signature, signed payload, release bod
 
 GitHub's `verified` field means GitHub reports that commit verification succeeded. It does not mean BoxPilot independently verified the signature. A GitHub-reported asset digest is also metadata only. BoxPilot has not verified that digest until a future adapter downloads the exact bytes to a confined staging path and computes SHA-256 locally.
 
-Version `0.24.0` does not:
+Version `0.25.0` does not:
 
 - Accept or store a GitHub token
 - Query an operator-supplied owner, repository, ref, URL, or API path

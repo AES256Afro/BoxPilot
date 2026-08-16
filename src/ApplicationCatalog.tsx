@@ -9,6 +9,7 @@ interface ApplicationManifest {
   risk: string;
   targets: string[];
   image: { version: string; digestPinned: boolean };
+  artifact?: { repository: string; releaseTag: string; releaseCommitSha: string; name: string; sizeBytes: number; digest: string; locallyVerifiedByBoxPilot: boolean };
   integrity: string;
   live: { installed: boolean; state: string; detail: string; port?: number | null; webUrl?: string | null; secretRetrievalCommand?: string; backup?: { state: string; verifiedAt: string | null } };
 }
@@ -25,6 +26,7 @@ interface ApplicationPlan {
     warnings: string[];
     recovery: { summary: string; preservesData: boolean };
     image: { version: string; digestPinned: boolean };
+    artifact?: { repository: string; releaseTag: string; releaseCommitSha: string; name: string; sizeBytes: number; digest: string; githubReportedDigestMatched?: boolean; locallyVerifiedByBoxPilot: boolean } | null;
     lanAddress?: string | null;
     networkAssessmentId?: string | null;
   };
@@ -65,7 +67,7 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
   const openPlanner = (application: ApplicationManifest) => {
     setSelected(application);
     setTarget(application.targets[0]);
-    setHostPort(application.id === "pi-hole" ? 8080 : application.live.port ?? 3001);
+    setHostPort(application.id === "pi-hole" ? 8080 : application.id === "keel" ? 3000 : application.live.port ?? 3001);
     setPlan(null);
     setError(null);
     setMessage(null);
@@ -142,17 +144,19 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setSelected(null)}>
           <section className="modal app-plan-dialog" role="dialog" aria-modal="true" aria-labelledby="app-plan-title" onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Curated adapter</span><h2 id="app-plan-title">Plan {selected.name}</h2></div><button className="icon-button" type="button" onClick={() => setSelected(null)} aria-label="Close application planner">X</button></header>
-            <div className="manifest-proof"><span>Manifest integrity</span><code>{selected.integrity}</code><span>{selected.image.digestPinned ? "Image digest pinned" : "Version tag pinned; digest resolution pending"}</span></div>
+            <div className="manifest-proof"><span>Manifest integrity</span><code>{selected.integrity}</code><span>{selected.artifact ? "Release asset digest pinned; local verification not implemented" : selected.image.digestPinned ? "Image digest pinned" : "Version tag pinned; digest resolution pending"}</span></div>
             {selected.id === "pi-hole" && <div className={`notice ${networkAssessmentId ? "" : "warning-notice"}`}><strong>{networkAssessmentId ? "Network assessment linked" : "Network assessment required"}</strong><span>{networkAssessmentId ?? "Generate a ready Pi-hole on Bigbox assessment in Network Center before staging."}</span>{!networkAssessmentId && onOpenNetwork && <button className="text-button" type="button" onClick={onOpenNetwork}>Open Network Center</button>}</div>}
+            {selected.id === "keel" && <div className="notice warning-notice"><strong>Planning only</strong><span>BoxPilot can bind an immutable plan to the reviewed Keel 1.2.5 Linux x64 release metadata. It cannot download, extract, install, start, claim, back up, restore, or expose Keel in this release.</span></div>}
             <div className="app-plan-fields">
-              <label>Deployment target<select value={target} onChange={(event) => { setTarget(event.target.value); setPlan(null); }}>{selected.targets.map((item) => <option key={item} value={item}>{item === "virtual-machine" ? "Dedicated virtual machine" : "Docker on Bigbox"}</option>)}</select></label>
-              {target === "docker" && <label>{selected.id === "pi-hole" ? "LAN web port" : "Loopback web port"}<input type="number" min="1024" max="65535" value={hostPort} onChange={(event) => { setHostPort(Number(event.target.value)); setPlan(null); }} /></label>}
+              <label>Deployment target<select value={target} onChange={(event) => { setTarget(event.target.value); setPlan(null); }}>{selected.targets.map((item) => <option key={item} value={item}>{item === "virtual-machine" ? "Dedicated virtual machine" : item === "native-service" ? "Native service on Bigbox" : "Docker on Bigbox"}</option>)}</select></label>
+              {target !== "virtual-machine" && <label>{selected.id === "pi-hole" ? "LAN web port" : "Loopback web port"}<input type="number" min="1024" max="65535" value={hostPort} onChange={(event) => { setHostPort(Number(event.target.value)); setPlan(null); }} /></label>}
             </div>
             <button className="primary-button" type="button" onClick={() => void generatePlan()} disabled={submitting}>{submitting ? "Inspecting host..." : "Generate live plan"}</button>
 
             {plan && <div className="application-plan-result">
               <div className={`notice ${plan.output.executable ? "" : "warning-notice"}`}><strong>{plan.output.executable ? "Ready to stage" : "Planning result"}</strong><span>Revision {plan.revision} | expires {new Date(plan.expiresAt).toLocaleTimeString()}</span></div>
               <div><strong>Proposed changes</strong><ol>{plan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol></div>
+              {plan.output.artifact && <div className="keel-artifact-proof"><strong>Pinned release artifact</strong><span>{plan.output.artifact.repository} {plan.output.artifact.releaseTag} at <code>{plan.output.artifact.releaseCommitSha.slice(0, 12)}</code></span><span>{plan.output.artifact.name} | {(plan.output.artifact.sizeBytes / (1024 * 1024)).toFixed(1)} MiB</span><code>{plan.output.artifact.digest}</code><span className="warning-text">GitHub metadata matched: {plan.output.artifact.githubReportedDigestMatched ? "yes" : "no"} | verified from local bytes: no</span></div>}
               {plan.output.blockers.length > 0 && <div className="plan-blockers"><strong>Blockers</strong>{plan.output.blockers.map((blocker) => <span key={blocker.id}>{blocker.summary}{blocker.repair?.description ? `: ${blocker.repair.description}` : ""}</span>)}</div>}
               {plan.output.warnings.length > 0 && <div className="plan-warnings"><strong>Warnings</strong>{plan.output.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div>}
               <p className="plan-recovery"><strong>Recovery:</strong> {plan.output.recovery.summary}</p>

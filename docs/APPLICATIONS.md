@@ -1,6 +1,6 @@
 # Curated applications
 
-BoxPilot `0.24.0` provides integrity-addressed manifests, two executable deployment adapters, two application-aware backup adapters, fixed direct DNS acceptance for managed Pi-hole, and signed repetition of those checks from an enrolled LAN device. Version `0.24.0` adds public GitHub provenance but does not download or install a release and does not change application execution behavior. The web process never receives the Docker socket. Docker readiness, application inspection, deployment, backup, and restore-drill execution cross the restricted local helper as typed operations. Direct DNS checks run in the unprivileged controller or the separately enrolled node-local agent.
+BoxPilot `0.25.0` provides integrity-addressed manifests, two executable deployment adapters, two application-aware backup adapters, one planning-only Keel Notes adapter, fixed direct DNS acceptance for managed Pi-hole, and signed repetition of those checks from an enrolled LAN device. The Keel adapter binds an immutable plan to exact public release metadata but cannot download, locally verify, extract, install, start, claim, back up, restore, or expose Keel. The web process never receives the Docker socket. Docker readiness, executable application inspection, deployment, backup, and restore-drill execution cross the restricted local helper as typed operations. Direct DNS checks run in the unprivileged controller or the separately enrolled node-local agent.
 
 ## Install the Docker prerequisite on Ubuntu
 
@@ -72,9 +72,15 @@ If deployment or health verification fails, BoxPilot stops the managed stack and
 
 After deployment, the Backups page can record artifact integrity and an isolated restore test for the Uptime Kuma data directory. A local-only verified artifact still needs an independent destination before it qualifies as resilient 3-2-1 protection.
 
+## Keel Notes exact-release planning adapter
+
+The Keel Notes entry is deliberately non-executable in `0.25.0`. It accepts only the declared `native-service` target and loopback web port, rejects undeclared fields, checks the Linux x64 host identity and prerequisite state, and compares the fixed release tag, commit, asset name, byte count, and GitHub-reported SHA-256 value with the live fixed public GitHub metadata view. Every generated plan includes `keel.execution` as an unresolved blocker, so no stage or approval route can be created.
+
+This is not local artifact verification. BoxPilot does not download the asset or hash its bytes. The exact identity and the full set of remaining execution gates are documented in [Keel Notes planning](KEEL.md).
+
 ## Pi-hole guarded staging adapter
 
-Version `0.24.0` can stage Pi-hole in Docker on the exact reviewed Bigbox LAN address, create a local configuration backup with isolated restore proof, collect fixed direct DNS evidence from Bigbox, and repeat the same fixed checks through a signed enrolled agent. The separate router checkpoint and GitHub provenance centers do not alter this application boundary. The dedicated-VM target remains planning-only. These are service staging, recovery-evidence, and direct-path acceptance workflows, not router or client cutover workflows.
+Version `0.25.0` can stage Pi-hole in Docker on the exact reviewed Bigbox LAN address, create a local configuration backup with isolated restore proof, collect fixed direct DNS evidence from Bigbox, and repeat the same fixed checks through a signed enrolled agent. The separate router checkpoint, GitHub provenance, and Keel planning centers do not alter this application boundary. The dedicated-VM target remains planning-only. These are service staging, recovery-evidence, and direct-path acceptance workflows, not router or client cutover workflows.
 
 The adapter uses:
 
