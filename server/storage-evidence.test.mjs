@@ -16,10 +16,14 @@ describe("sanitized storage evidence", () => {
 
   it("accepts only re-sanitized host PID 1 mount evidence", () => {
     const collected = parseMountInventory(JSON.stringify({ filesystems: [{ target: "/", source: "/dev/sda2", fstype: "ext4", size: 1000, used: 500, avail: 500, "use%": "50%", options: "rw,relatime,password=secret" }] }));
-    const metadata = { schemaVersion: 1, generatedAt: "2026-08-16T05:00:00.000Z", now: () => new Date("2026-08-16T05:01:00.000Z") };
-    expect(normalizeMountEvidence({ ...collected, namespace: "host-pid1" }, metadata)).toMatchObject({ available: true, namespace: "host-pid1", mounts: [{ target: "/", readOnly: false, optionNames: ["relatime", "rw"] }] });
-    expect(normalizeMountEvidence({ ...collected, namespace: "collector" }, metadata)).toMatchObject({ available: false, namespace: "unavailable", mounts: [] });
-    expect(normalizeMountEvidence({ ...collected, namespace: "host-pid1" }, { ...metadata, generatedAt: "2026-08-14T05:00:00.000Z" })).toMatchObject({ available: false, namespace: "unavailable", mounts: [] });
+    const metadata = { schemaVersion: 2, generatedAt: "2026-08-16T05:00:00.000Z", now: () => new Date("2026-08-16T05:01:00.000Z") };
+    const evidence = { ...collected, namespace: "host-pid1", mounts: collected.mounts.map((mount) => ({ ...mount, errorEvidence: { supported: true, state: "healthy", errorsCount: 0, source: "ext4-sysfs-errors-count", reason: "ok" } })) };
+    expect(normalizeMountEvidence(evidence, metadata)).toMatchObject({ available: true, namespace: "host-pid1", mounts: [{ target: "/", readOnly: false, optionNames: ["relatime", "rw"], errorEvidence: { state: "healthy", errorsCount: 0 } }], errors: { healthy: 1, critical: 0, unavailable: 0, unsupported: 0 } });
+    expect(normalizeMountEvidence({ ...evidence, namespace: "collector" }, metadata)).toMatchObject({ available: false, namespace: "unavailable", mounts: [] });
+    expect(normalizeMountEvidence(evidence, { ...metadata, generatedAt: "2026-08-14T05:00:00.000Z" })).toMatchObject({ available: false, namespace: "unavailable", mounts: [] });
+    expect(normalizeMountEvidence(evidence, { ...metadata, schemaVersion: 1 })).toMatchObject({ available: false, namespace: "unavailable" });
+    const unsafeCounter = { ...evidence, mounts: evidence.mounts.map((mount) => ({ ...mount, errorEvidence: { ...mount.errorEvidence, errorsCount: Number.MAX_SAFE_INTEGER + 1 } })) };
+    expect(normalizeMountEvidence(unsafeCounter, metadata)).toMatchObject({ mounts: [{ errorEvidence: { state: "unavailable", errorsCount: null } }], errors: { unavailable: 1 } });
   });
 
   it("returns block topology without serials, UUIDs, or unsafe device values", () => {
@@ -33,7 +37,8 @@ describe("sanitized storage evidence", () => {
     const current = normalizeSmartEvidence({ schemaVersion: 1, generatedAt: "2026-08-16T04:00:00.000Z", available: true, reason: "fixed-root-scan", disks: [{ device: "/dev/nvme0n1", health: "healthy", passed: true, temperatureCelsius: 40, percentageUsed: 4, reason: "ok", serial: "never-export" }] }, { now: () => new Date("2026-08-16T05:00:00.000Z") });
     expect(current).toMatchObject({ available: true, status: "healthy", stale: false, summary: { healthy: 1 } });
     expect(JSON.stringify(current)).not.toContain("never-export");
-    expect(normalizeSmartEvidence({ ...current, schemaVersion: 2 }).status).toBe("unavailable");
+    expect(normalizeSmartEvidence({ ...current, schemaVersion: 2 }).status).toBe("healthy");
+    expect(normalizeSmartEvidence({ ...current, schemaVersion: 3 }).status).toBe("unavailable");
     expect(normalizeSmartEvidence({ schemaVersion: 1, generatedAt: "2026-08-17T05:00:00.000Z", available: true, disks: [] }, { now: () => new Date("2026-08-16T05:00:00.000Z") }).stale).toBe(true);
   });
 });
