@@ -73,6 +73,27 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("revalidates and executes only the fixed APT metadata refresh", async () => {
+    const updatedAt = "2026-08-01T00:00:00.000Z";
+    const result = {
+      refreshed: true,
+      updatedAt: "2026-08-16T07:00:00.000Z",
+      state: "current",
+      packageManagerState: "ready",
+      boundary: { fixedAptUpdateOnly: true, packageInstallPerformed: false, packageUpgradePerformed: false, packageRemovalPerformed: false, serviceMutationPerformed: false, rebootPerformed: false, arbitraryCommandAccepted: false, browserArgumentAccepted: false },
+    };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const validatePrerequisiteRepairJob = vi.fn(async () => ({ plan: { input: { expectedUpdatedAt: updatedAt, expectedState: "stale" } }, state: { state: "stale", packageManagerState: "ready" } }));
+    const jobs = createJobService(store, helper, { validatePrerequisiteRepairJob });
+    const job = store.createJob({ type: "prerequisite.apt-metadata.refresh", title: "Refresh APT package metadata", risk: "system-package-metadata", parameters: { expectedUpdatedAt: updatedAt }, recovery: { automaticRollback: false }, createdBy: owner.id });
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+    expect(validatePrerequisiteRepairJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("prerequisite.apt-metadata.refresh", { expectedUpdatedAt: updatedAt }, { timeoutMs: 15 * 60 * 1000 });
+    expect(completed).toMatchObject({ state: "completed", result: { refreshed: true, state: "current", boundary: { packageInstallPerformed: false, packageUpgradePerformed: false, packageRemovalPerformed: false } } });
+    store.close();
+  });
+
   it("revalidates and executes a typed Uptime Kuma deployment job", async () => {
     const helper = { request: vi.fn(async () => ({ installed: true, healthy: true, dataPreserved: true, hostPort: 3101 })) };
     const { store, owner } = await setup(helper);

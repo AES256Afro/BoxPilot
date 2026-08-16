@@ -1,6 +1,6 @@
 # Local Action Center
 
-BoxPilot `0.29.0` adds an authenticated, read-only Action Center inside Repair Center. Versions `0.30.1` through `0.33.0` add storage, SMART, filesystem-error, and local UPS guidance. Version `0.34.0` adds interrupted package-manager, reboot-required, degraded systemd, incomplete maintenance evidence, stale APT metadata, and unattended-upgrades guidance without adding a host control. Action Center converts fixed evidence into prioritized notices, explains why each notice exists, and links the operator to a fixed BoxPilot destination with a short manual checklist.
+BoxPilot `0.29.0` adds an authenticated, read-only Action Center inside Repair Center. Versions `0.30.1` through `0.33.0` add storage, SMART, filesystem-error, and local UPS guidance. Version `0.34.0` adds interrupted package-manager, reboot-required, degraded systemd, incomplete maintenance evidence, stale APT metadata, and unattended-upgrades guidance without adding a host control. Version `0.35.0` adds a separate durable metadata-only repair in Repair Center, but Action Center itself remains guidance and navigation only. Action Center converts fixed evidence into prioritized notices, explains why each notice exists, and links the operator to a fixed BoxPilot destination with a short manual checklist.
 
 The Action Center is guidance, not an automation system. Opening, refreshing, or navigating from it performs no host, application, VM, router, network, DNS, Tailscale, package, file, or service mutation.
 
@@ -56,7 +56,7 @@ If the recovery collector throws, returns an incomplete object, or introduces an
 
 ## Deliberate exclusions
 
-Version `0.34.0` Action Center has no:
+Version `0.35.0` Action Center has no:
 
 - Automatic repair or remediation execution
 - Arbitrary command, package, service, file, Docker, libvirt, router, DNS, firewall, or Tailscale operation
@@ -65,7 +65,7 @@ Version `0.34.0` Action Center has no:
 - Email, webhook, SMS, push, Slack, or other external delivery
 - User-provided rule, destination, command, target, template, or plugin
 - UPS power command, remote target, device selection, driver control, or shutdown-policy change
-- APT or dpkg operation, package mutation, service control, automatic-update policy change, or host reboot
+- Direct APT or dpkg operation, package mutation, service control, automatic-update policy change, or host reboot. The separately named Repair Center metadata refresh requires its own immutable plan and approval.
 - Credential, agent key, router configuration, backup payload, application data, database content, or arbitrary log inclusion
 
 Future executable remediation must be implemented as a separately named, typed, narrowly scoped workflow. The Action Center itself should remain a read-only correlation and navigation layer.
