@@ -2829,9 +2829,24 @@ textarea {
 .fleet-revoke label { display: grid; gap: 6px; min-width: 280px; color: var(--muted); font-size: 0.78rem; }
 .fleet-revoke input { padding: 9px 10px; border: 1px solid #34495c; border-radius: 8px; color: var(--text); background: #09131d; font: inherit; }
 .fleet-revoke span { max-width: 520px; color: var(--muted); font-size: 0.78rem; line-height: 1.45; }
+.router-center { display: grid; gap: 18px; }
+.router-boundary, .router-checkpoint-form { display: grid; gap: 16px; }
+.router-boundary p { margin: 0; color: var(--muted); line-height: 1.55; }
+.router-model-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.router-model { display: grid; gap: 8px; min-width: 0; }
+.router-model > strong { font-size: 1rem; }
+.router-model > span:not(.eyebrow) { color: var(--muted); font-size: 0.8rem; line-height: 1.45; }
+.router-model a { color: var(--mint); font-size: 0.8rem; }
+.router-file { grid-column: 1 / -1; }
+.router-file input { padding: 8px; }
+.router-file span { color: var(--muted); font-size: 0.75rem; }
+.router-retention { display: flex; gap: 9px; align-items: flex-start; color: var(--text); font-size: 0.84rem; }
+.router-retention input { margin-top: 2px; accent-color: var(--mint); }
+.router-center table code { color: #aee7d6; font: 0.78rem ui-monospace, SFMono-Regular, Menlo, monospace; }
 @media (max-width: 900px) {
   .fleet-revoke { align-items: stretch; flex-direction: column; }
   .fleet-revoke label { min-width: 0; }
+  .router-model-grid { grid-template-columns: 1fr; }
 }
 .router-entry { display: flex; justify-content: space-between; gap: 18px; padding: 14px 0; border-bottom: 1px solid var(--line); }
 .router-entry:last-child { border-bottom: 0; }

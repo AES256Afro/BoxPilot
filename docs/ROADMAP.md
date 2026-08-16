@@ -171,3 +171,23 @@ Acceptance:
 - Compromise of the controller does not provide unrestricted shell access to nodes.
 - Adapter signatures and requested privileges are visible before installation.
 - Nodes keep functioning safely when the controller is unavailable.
+
+## Phase 9: router integration and DNS cutover
+
+Status: `0.23.0` adds a fixed three-model declaration catalog and browser-local SHA-256 checkpoint ledger. Only model, operator-entered firmware, byte count, digest, retention assertion, attribution, and receipt time reach the server. Configuration upload, credentials, sessions, discovery, writes, restore claims, DHCP, and DNS cutover remain unavailable.
+
+- Browser-local configuration identity with external-file retention evidence included in `0.23.0`
+- Model and firmware compatibility declarations
+- Encrypted least-privilege credential storage only where vendor support permits it
+- Read-only router discovery with bounded redaction
+- Model-specific configuration export and isolated restore validation
+- Exact proposed DNS or DHCP diff with no arbitrary settings
+- Password-approved apply, second-device observation window, and one-step rollback
+
+Acceptance:
+
+- A checkpoint is never described as restorable until an isolated or vendor-supported restore test passes.
+- Router credentials never enter ordinary job, audit, log, support-bundle, or browser response data.
+- Every change is tied to exact model, firmware, pre-change evidence, bounded fields, and a tested rollback.
+- Bigbox and signed second-device checks pass before cutover and throughout the observation window.
+- Loss of BoxPilot or Tailscale cannot prevent console-based recovery.

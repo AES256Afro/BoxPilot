@@ -15,6 +15,7 @@ import { getSetupPlan } from "./libvirt.mjs";
 import { createMigrationService } from "./migrations.mjs";
 import { createNetworkService } from "./network.mjs";
 import { createPrerequisiteService } from "./prerequisites.mjs";
+import { createRouterCheckpointService } from "./router-checkpoints.mjs";
 import { createStateStore } from "./state.mjs";
 import { createVmCreationService } from "./vm-creation.mjs";
 import { createVmExportService } from "./vm-export.mjs";
@@ -46,6 +47,7 @@ const applications = createApplicationService({ store: state, prerequisites, hel
 const backups = createBackupService({ store: state, prerequisites, helper });
 const dnsAcceptance = createDnsAcceptanceService({ store: state, helper, network });
 const fleet = createFleetService({ store: state });
+const routerCheckpoints = createRouterCheckpointService({ store: state });
 const inventory = createInventoryService({ helper });
 const migrations = createMigrationService({ store: state, inventory, helper });
 const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, libvirt });
@@ -101,7 +103,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.22.0",
+    version: "0.23.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -185,6 +187,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     vmRecovery: { create: "protected-snapshot-to-new-stopped-persistent-domain", network: "none", autostart: false, inPlaceRestore: false, sourceDeletion: false },
     vmConsole: { nativeProxy: false, cockpitHandoff: "detect-existing-only" },
     fleet: { enrollment: "one-time-digest-stored-token", identity: "ed25519-signed-replay-protected", execution: "node-local-allowlisted-dns-probe-only", controllerShellAccess: false },
+    routers: { checkpoints: "browser-local-sha256-metadata-only", configurationUpload: false, credentials: false, discovery: false, mutations: false },
   });
 });
 
@@ -227,6 +230,18 @@ app.get("/api/v1/inventory", async (_request, response) => {
 
 app.get("/api/v1/network/topology", async (_request, response) => {
   response.json(await network.inspect());
+});
+
+app.get("/api/v1/network/router-checkpoints", (_request, response) => {
+  response.json(routerCheckpoints.inspect());
+});
+
+app.post("/api/v1/network/router-checkpoints", (request, response) => {
+  try {
+    response.status(201).json({ checkpoint: routerCheckpoints.record(request.body, request.boxpilotSession.owner.id) });
+  } catch (error) {
+    response.status(400).json({ error: error.message, code: "router_checkpoint_rejected" });
+  }
 });
 
 app.post("/api/v1/network/plans", async (request, response) => {
@@ -653,7 +668,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.22.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.23.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

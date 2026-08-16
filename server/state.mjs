@@ -281,6 +281,18 @@ export function createStateStore({
       received_at TEXT NOT NULL,
       UNIQUE(agent_id, sequence)
     );
+    CREATE TABLE IF NOT EXISTS router_checkpoints (
+      id TEXT PRIMARY KEY,
+      model_id TEXT NOT NULL,
+      firmware_version TEXT NOT NULL,
+      checksum_sha256 TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      hash_origin TEXT NOT NULL,
+      configuration_uploaded INTEGER NOT NULL,
+      file_retained_by_operator INTEGER NOT NULL,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS audit_events (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,
@@ -302,6 +314,7 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_dns_acceptances_created_at ON dns_acceptances(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_fleet_tasks_agent_state ON fleet_tasks(agent_id, state, created_at);
     CREATE INDEX IF NOT EXISTS idx_fleet_evidence_received_at ON fleet_evidence(received_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_router_checkpoints_created_at ON router_checkpoints(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_events(created_at DESC);
   `);
 
@@ -1061,6 +1074,40 @@ export function createStateStore({
     return database.prepare("SELECT * FROM fleet_evidence ORDER BY received_at DESC LIMIT ?").all(safeLimit).map(mapFleetEvidence);
   }
 
+  function recordRouterCheckpoint({ id = randomUUID(), modelId, firmwareVersion, checksumSha256, sizeBytes, hashOrigin, configurationUploaded, fileRetainedByOperator, createdBy }) {
+    const at = timestamp();
+    database.prepare(`
+      INSERT INTO router_checkpoints (id, model_id, firmware_version, checksum_sha256, size_bytes, hash_origin, configuration_uploaded, file_retained_by_operator, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, modelId, firmwareVersion, checksumSha256, sizeBytes, hashOrigin, configurationUploaded ? 1 : 0, fileRetainedByOperator ? 1 : 0, createdBy, at);
+    recordAudit("router.checkpoint.recorded", { actorId: createdBy, subjectId: id, details: { modelId, firmwareVersion, checksumSha256, sizeBytes, hashOrigin, configurationUploaded, fileRetainedByOperator } });
+    return getRouterCheckpoint(id);
+  }
+
+  function mapRouterCheckpoint(row) {
+    return row ? {
+      id: row.id,
+      modelId: row.model_id,
+      firmwareVersion: row.firmware_version,
+      checksumSha256: row.checksum_sha256,
+      sizeBytes: Number(row.size_bytes),
+      hashOrigin: row.hash_origin,
+      configurationUploaded: Boolean(row.configuration_uploaded),
+      fileRetainedByOperator: Boolean(row.file_retained_by_operator),
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+    } : null;
+  }
+
+  function getRouterCheckpoint(id) {
+    return mapRouterCheckpoint(database.prepare("SELECT * FROM router_checkpoints WHERE id = ?").get(id));
+  }
+
+  function listRouterCheckpoints(limit = 100) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 200);
+    return database.prepare("SELECT * FROM router_checkpoints ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapRouterCheckpoint);
+  }
+
   function recoverInterruptedJobs() {
     const interrupted = database.prepare("SELECT id FROM jobs WHERE state IN ('applying', 'verifying')").all();
     for (const { id } of interrupted) {
@@ -1136,6 +1183,9 @@ export function createStateStore({
     recordFleetEvidence,
     getFleetEvidence,
     listFleetEvidence,
+    recordRouterCheckpoint,
+    getRouterCheckpoint,
+    listRouterCheckpoints,
     recoverInterruptedJobs,
     close,
   };

@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BoxPilot router checkpoint mock</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; width: 1024px; min-height: 711px; color: #eaf3f3; background: #071017; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    .disclosure { height: 32px; display: grid; place-items: center; color: #fde8a8; background: #49370d; border-bottom: 1px solid #8a6a1f; font-size: 9px; font-weight: 800; letter-spacing: .04em; white-space: nowrap; }
+    .shell { display: grid; grid-template-columns: 155px 1fr; min-height: 679px; }
+    aside { padding: 17px 11px; border-right: 1px solid #1d303b; background: #09141d; }
+    .brand { display: flex; align-items: center; gap: 7px; margin-bottom: 18px; font-size: 14px; font-weight: 800; }
+    .brand b { display: grid; place-items: center; width: 26px; height: 26px; color: #071017; background: #6ad0b1; border-radius: 7px; }
+    nav { display: grid; gap: 3px; }
+    nav div { padding: 7px 8px; color: #88a1ae; border-radius: 6px; font-size: 9px; }
+    nav .active { color: #dff9f0; background: #17352f; border: 1px solid #2c5b50; }
+    .private { margin-top: 145px; padding: 8px; color: #9bb0b9; background: #0d1d26; border: 1px solid #243b46; border-radius: 7px; font-size: 8px; line-height: 1.55; }
+    main { padding: 18px 24px 24px; }
+    .top { display: flex; justify-content: space-between; align-items: start; margin-bottom: 11px; }
+    .eyebrow { color: #69cfb0; font-size: 8px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+    h1 { margin: 3px 0; font-size: 22px; }
+    h2 { margin: 2px 0 3px; font-size: 12px; }
+    p { margin: 0; color: #94a9b3; font-size: 10px; line-height: 1.5; }
+    .pill { display: inline-block; padding: 4px 7px; border-radius: 999px; font-size: 7px; font-weight: 800; }
+    .good { color: #9eefd5; background: #133c32; border: 1px solid #286e5b; }
+    .warn { color: #ffe195; background: #463510; border: 1px solid #795d1c; }
+    .notice, .readiness { display: flex; justify-content: space-between; align-items: center; gap: 14px; margin-bottom: 11px; padding: 9px 12px; border: 1px solid #2d6255; border-radius: 8px; background: #10241f; }
+    .notice strong, .readiness strong { display: block; font-size: 10px; }
+    .notice span, .readiness small { color: #91a6af; font-size: 8px; }
+    .panel { padding: 13px; border: 1px solid #213945; border-radius: 8px; background: #0b1821; }
+    .boundary { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 11px; }
+    .locks { display: flex; gap: 5px; flex-wrap: wrap; }
+    .models { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-bottom: 11px; }
+    .model { display: grid; gap: 5px; }
+    .model strong { font-size: 10px; }
+    .model span { color: #8fa4ae; font-size: 7px; }
+    .form { display: grid; gap: 10px; margin-bottom: 11px; }
+    .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    label { color: #849ba6; font-size: 7px; }
+    .input { margin-top: 4px; padding: 7px; color: #d9e8e9; background: #071118; border: 1px solid #304955; border-radius: 5px; font-size: 8px; }
+    .file { grid-column: 1/-1; }
+    .check { color: #c9d8da; font-size: 8px; }
+    .actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+    button { padding: 8px 10px; color: #06110e; background: #68cfaf; border: 0; border-radius: 6px; font-size: 8px; font-weight: 800; }
+    .actions span { color: #7f95a0; font-size: 7px; }
+    table { width: 100%; margin-top: 6px; border-collapse: collapse; font-size: 8px; }
+    th { padding: 5px 6px; color: #758e9b; text-align: left; border-bottom: 1px solid #2b414b; }
+    td { padding: 7px 6px; color: #b7c8cd; border-bottom: 1px solid #192b34; }
+    code { color: #9ce5cf; font: 7px ui-monospace, Menlo, monospace; }
+  </style>
+</head>
+<body>
+  <div class="disclosure">MOCKED 0.23.0 PRODUCT STATE. No file selected, hashed, uploaded, or recorded, and no router or network setting changed.</div>
+  <div class="shell">
+    <aside><div class="brand"><b>B</b>BoxPilot</div><nav><div>OV Overview</div><div>AP Applications</div><div>NW Network</div><div class="active">RT Routers</div><div>RX Repair Center</div><div>VM Virtual Machines</div><div>BK Backups</div><div>MG Migrations</div><div>FL Fleet</div><div>LG Logs</div><div>ST Settings</div></nav><div class="private"><strong>Private administration</strong><br>Tailscale HTTPS<br>Funnel off<br><br>v0.23.0 checkpoint evidence</div></aside>
+    <main>
+      <div class="top"><div><span class="eyebrow">BoxPilot</span><h1>Router checkpoints</h1><p>Record configuration-backup identity before any future router integration or DNS change.</p></div><span class="pill warn">Guarded mode</span></div>
+      <div class="notice"><strong>Browser-local recovery checkpoint foundation</strong><span>Configuration uploads, credentials, router sessions, discovery, writes, and DNS cutover remain unavailable</span></div>
+      <div class="readiness"><div><strong>1 router checkpoint</strong><small>Only SHA-256, size, model, firmware, attribution, and time are stored</small></div><span class="pill good">No file upload</span></div>
+      <section class="panel boundary"><div><span class="eyebrow">Router integration boundary</span><h2>Recovery evidence before API access</h2><p>Operator-attributable checksum metadata, not remote attestation or a restore test.</p></div><div class="locks"><span class="pill good">Local SHA-256</span><span class="pill good">Credentials rejected</span><span class="pill warn">Writes locked</span><span class="pill warn">Cutover locked</span></div></section>
+      <div class="models"><article class="panel model"><span>EDGE ROUTER · ADGUARD HOME</span><strong>GL.iNet Flint 2</strong><span>Checkpoint today · firmware 4.8.2</span></article><article class="panel model"><span>EDGE ROUTER · VPN</span><strong>Omada ER707-M2</strong><span>No checkpoint recorded</span></article><article class="panel model"><span>WIRELESS ACCESS POINT</span><strong>TP-Link Archer BE400</strong><span>No checkpoint recorded</span></article></div>
+      <section class="panel form"><div><span class="eyebrow">Record configuration checkpoint</span><h2>Hash locally and persist metadata only</h2></div><div class="fields"><label>Router model<div class="input">GL.iNet Flint 2</div></label><label>Firmware version<div class="input">4.8.2</div></label><label class="file">Router backup file<div class="input">flint2-backup.tar · 18.4 KiB · local only</div></label></div><div class="check">☑ Original backup retained outside BoxPilot. Checksum is not a restore test.</div><div class="actions"><button>Hash locally and record metadata</button><span>No filename, content, password, address, cookie, or router setting is sent.</span></div></section>
+      <section class="panel"><span class="eyebrow">Checkpoint ledger</span><h2>Attributable metadata</h2><table><thead><tr><th>Created</th><th>Model</th><th>Firmware</th><th>Size</th><th>SHA-256</th><th>File uploaded</th></tr></thead><tbody><tr><td>Aug 15, 9:18 PM</td><td>Flint 2</td><td>4.8.2</td><td>18.4 KiB</td><td><code>52bf8a1c7d3e940a...</code></td><td><span class="pill good">No</span></td></tr></tbody></table></section>
+    </main>
+  </div>
+</body>
+</html>

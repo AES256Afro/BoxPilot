@@ -4,11 +4,11 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.22.0` adds the first signed fleet-agent slice. An owner can create a ten-minute one-time enrollment token after password reauthentication. The second device creates its own Ed25519 keypair, signs every request, and uses a strictly increasing replay sequence. After a fresh passing Bigbox Pi-hole acceptance, BoxPilot can issue only one fixed task: repeat the same four DNS checks from that enrolled LAN device. The controller cannot send a command, hostname, port, or arbitrary target, and the agent private key never leaves the device. Router writes, DHCP, client DNS, Tailscale DNS, firewall changes, plugin installation, and DNS cutover remain locked.
+Version `0.23.0` adds a router checkpoint center for the Flint 2, ER707-M2, and Archer BE400 declarations. The browser hashes a selected router backup with SHA-256 and submits only model, operator-entered firmware, byte count, digest, and file-retention evidence. The filename and configuration bytes never leave the browser. This is attributable operator evidence, not remote attestation or a restore test. BoxPilot still accepts no router credential, opens no router session, performs no discovery or write, and cannot change DHCP or DNS.
 
 ### What works now
 
-| Area | Status in `0.22.0` | Capability |
+| Area | Status in `0.23.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
@@ -17,6 +17,7 @@ Version `0.22.0` adds the first signed fleet-agent slice. An owner can create a 
 | Restricted helper | Live typed operations | Uses a versioned, allowlisted protocol over a local Unix socket for the canary, bounded inventory and logs, Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, guarded VM creation and lifecycle, read-only libvirt inventory, offline snapshots, stopped-VM exports, mounted-restic VM copies, isolated restore drills, stopped no-network recovery clones, and exact no-prune retention. It accepts no command strings, binary selection, libvirt URI, argument arrays, operator paths, Compose source path, migration destination, SSH credential, repository password, backup mount, repository path, export destination, restore destination, recovery directory, prune flag, selector such as `latest`, or arbitrary root paths from the browser. |
 | Host and Docker inventory | Live | Reports authenticated host identity, CPU, memory, root storage, uptime, selected service state, LAN addresses, Tailscale self-state, and sanitized Docker containers, images, networks, volumes, and Compose projects. |
 | Network and DNS Center | Live planning and guarded fixed tests | Reports validated default gateways, host LAN CIDRs, sanitized systemd-resolved servers, scoped TCP and UDP port 53 listeners, and Tailscale resolver observations. It creates immutable topology assessments and can separately stage four fixed direct Pi-hole DNS checks after exact deployment and restore evidence match. A separately enrolled signed agent can repeat only those fixed checks after a fresh passing Bigbox record. Router writes and DNS cutover have no execution route. |
+| Router checkpoints | Local-hash metadata foundation | Hashes an operator-selected router backup in the browser and stores only fixed-model, firmware, size, SHA-256, attribution, and retention metadata. The configuration is not uploaded. Credentials, live discovery, API sessions, writes, restore claims, and DNS cutover are unavailable. |
 | System logs | Live restricted sources | Returns capped, redacted entries for fixed BoxPilot, Docker, Tailscale, and virtualization unit sets. Credential-like values and URL query strings are redacted. |
 | Application catalog | Live | Publishes integrity-addressed manifests, live installation state, exact image policy, targets, ports, storage, prerequisites, recovery, and adapter risk. |
 | Uptime Kuma adapter | Executable deployment | Uses the official `2.5.0` image pinned by multi-platform digest, a loopback-only port, local persistent storage, Docker health, approval, and data-preserving rollback. The catalog shows whether restore-verified backup evidence exists. |
@@ -155,6 +156,12 @@ This explicitly disclosed `0.21.0` mock shows the exact managed resolver, linked
 
 This explicitly disclosed `0.22.0` mock shows one-time enrollment, device-owned Ed25519 identity, the no-shell execution boundary, one fixed Pi-hole task, replay-protected evidence, and the remaining router and cutover locks. No device was enrolled, no key or token was generated, no DNS query was sent, and no network setting was changed for the capture.
 
+### Router checkpoint mockup
+
+![BoxPilot browser-local router configuration checkpoint](docs/screenshots/router-checkpoint-mock.png)
+
+This explicitly disclosed `0.23.0` mock shows supported device declarations, local file hashing, metadata-only persistence, the operator-retention assertion, and the remaining credential, router-write, restore, and DNS-cutover locks. No file was selected, hashed, or uploaded, no checkpoint was recorded, and no router or network setting was read or changed for the capture.
+
 ## Safety contract
 
 Every future host change must follow:
@@ -253,6 +260,7 @@ docker build -t boxpilot:local .
 - [Verified backup and isolated restore workflow](docs/BACKUPS.md)
 - [Sanitized host, Docker, service, and log inventory](docs/INVENTORY.md)
 - [Router, DNS topology, and guarded direct acceptance](docs/NETWORK.md)
+- [Router checkpoint evidence and future adapter gates](docs/ROUTERS.md)
 - [Signed fleet agents and independent DNS evidence](docs/FLEET.md)
 - [Guarded migration discovery and local staging](docs/MIGRATIONS.md)
 - [Dependency-ordered roadmap](docs/ROADMAP.md)
@@ -263,7 +271,7 @@ docker build -t boxpilot:local .
 
 ## Keel Notes roadmap adapter
 
-No Keel-specific adapter ships in `0.22.0`. The generic migration packer can stage an offline Keel Notes Compose project only as opaque verified files; it does not understand Keel databases, managed-secret keys, health, activation, or cutover. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
+No Keel-specific adapter ships in `0.23.0`. The generic migration packer can stage an offline Keel Notes Compose project only as opaque verified files; it does not understand Keel databases, managed-secret keys, health, activation, or cutover. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
 
 - Detect a Keel Docker or service installation
 - Inventory the database dialect and protected data paths without exposing secrets
