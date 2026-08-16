@@ -121,7 +121,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.36.0",
+    version: "0.37.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -191,7 +191,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     supportBundle: "authenticated-server-generated-fixed-source-configurably-redacted",
     backups: "uptime-kuma-local-restore-drill-and-vm-independent-restic-copy-with-isolated-boot-validation-recovery-clones-and-guarded-retention",
     migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
-    network: "read-only-topology-and-approved-fixed-pi-hole-and-observed-gateway-direct-dns-acceptance",
+    network: "read-only-topology-approved-fixed-pi-hole-and-observed-gateway-direct-dns-acceptance-plus-signed-second-device-evidence",
     privilegedHelper: "typed-canary-exact-smartmontools-repair-fixed-apt-metadata-refresh-curated-applications-backups-migration-staging-inventory-logs-vm-creation-lifecycle-snapshots-exports-mounted-restic-isolated-restore-drills-recovery-clones-and-retention",
     identity: "owner-password-foundation",
     durableJobs: "sqlite-approved-prerequisite-application-backup-pi-hole-and-flint2-gateway-dns-acceptance-migration-transfer-vm-creation-lifecycle-snapshot-export-protection-restore-drill-recovery-and-retention-workflows",
@@ -204,8 +204,8 @@ app.get("/api/v1/capabilities", (_request, response) => {
     vmProtection: { destination: "fixed-independent-mounted-restic", encrypted: true, repositoryReadVerified: true, isolatedRestoreDrill: "transient-no-network-guest-agent", protectedBackup: "after-passing-restore-drill", retentionMutation: "exact-protected-old-snapshot-forget-without-prune" },
     vmRecovery: { create: "protected-snapshot-to-new-stopped-persistent-domain", network: "none", autostart: false, inPlaceRestore: false, sourceDeletion: false },
     vmConsole: { nativeProxy: false, cockpitHandoff: "detect-existing-only" },
-    fleet: { enrollment: "one-time-digest-stored-token", identity: "ed25519-signed-replay-protected", execution: "node-local-allowlisted-dns-probe-only", scheduling: "password-approved-one-shot-fixed-delay-only", recurrence: false, controllerShellAccess: false },
-    routers: { checkpoints: "browser-local-sha256-metadata-only", guidance: "fixed-model-operator-checklists-with-live-gateway-address-correlation", directGatewayDnsAcceptance: "durable-approved-four-fixed-queries", gatewayIdentityVerified: false, adguardConfigurationVerified: false, dhcpAdvertisementVerified: false, configurationUpload: false, credentials: false, discovery: false, mutations: false },
+    fleet: { enrollment: "one-time-digest-stored-token", identity: "ed25519-signed-replay-protected", execution: "node-local-allowlisted-pi-hole-or-default-gateway-dns-probe-only", scheduling: "password-approved-one-shot-fixed-delay-only", recurrence: false, controllerShellAccess: false, arbitraryTarget: false },
+    routers: { checkpoints: "browser-local-sha256-metadata-only", guidance: "fixed-model-operator-checklists-with-live-gateway-address-correlation", directGatewayDnsAcceptance: "durable-approved-four-fixed-queries", signedSecondDeviceDnsAcceptance: "owner-approved-one-shot-agent-with-local-default-gateway-match", gatewayIdentityVerified: false, adguardConfigurationVerified: false, dhcpAdvertisementVerified: false, configurationUpload: false, credentials: false, discovery: false, mutations: false },
     github: { repositories: "fixed-public-read-only-allowlist", authentication: false, writes: false, cloneOrDownload: false, localDigestVerification: false },
     recoveryKit: { generation: "authenticated-read-only", formats: ["json", "markdown"], mutations: false, secretsIncluded: false, backupPayloadIncluded: false },
     actionCenter: { generation: "authenticated-read-only", guidance: "fixed-local-destinations", automaticRepair: false, persistence: false, externalDelivery: false },
@@ -246,6 +246,14 @@ app.post("/api/v1/fleet/dns-probe-tasks", async (request, response) => {
     response.status(201).json({ task: await fleet.createDnsProbeTask(request.boxpilotSession.owner.id, request.body) });
   } catch (error) {
     response.status(409).json({ error: error.message, code: "fleet_dns_probe_task_rejected" });
+  }
+});
+
+app.post("/api/v1/fleet/flint2-dns-probe-tasks", async (request, response) => {
+  try {
+    response.status(201).json({ task: await fleet.createFlint2DnsProbeTask(request.boxpilotSession.owner.id, request.body) });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "fleet_flint2_dns_probe_task_rejected" });
   }
 });
 
@@ -766,7 +774,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.36.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.37.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

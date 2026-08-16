@@ -50,10 +50,20 @@ export function createFlint2AdguardService({ store, network, routerCheckpoints, 
   async function inspect() {
     const topology = await network.inspect();
     const checkpoints = routerCheckpoints.inspect();
+    const secondDeviceEvidence = store.listFleetEvidence(200).filter((item) => item.passed === true
+      && item.result?.type === "dns.flint2-adguard.acceptance.v1"
+      && item.result?.secondDeviceTested === true
+      && item.result?.modelIdentityVerified === false
+      && item.result?.gatewayMatchedByAgentContract === true
+      && item.result?.routerMutationPerformed === false
+      && item.result?.dnsCutoverPerformed === false
+      && item.result?.dhcpChanged === false
+      && item.result?.clientSettingsChanged === false);
     return {
       observedGateway: topology.defaultRoutes?.length === 1 ? topology.defaultRoutes[0] : null,
       checkpoint: checkpoints.latestByModel?.["glinet-flint-2"] ?? null,
       acceptances: store.listRouterDnsAcceptances(),
+      secondDeviceEvidence,
       sourceReviewedAt: "2026-08-16",
       officialSources: [
         "https://docs.gl-inet.com/router/en/4/interface_guide/adguardhome/",

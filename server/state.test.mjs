@@ -38,7 +38,12 @@ describe("BoxPilot state store", () => {
     legacy.close();
 
     const store = createStateStore({ databasePath, stateDirectory: directory, now: () => new Date("2026-08-16T02:00:00.000Z") });
-    expect(store.listFleetTasks()).toEqual([expect.objectContaining({ availableAt: "2026-08-16T01:00:00.000Z", createdAt: "2026-08-16T01:00:00.000Z", state: "expired" })]);
+    expect(store.listFleetTasks()).toEqual([expect.objectContaining({
+      availableAt: "2026-08-16T01:00:00.000Z",
+      createdAt: "2026-08-16T01:00:00.000Z",
+      routerAcceptanceId: null,
+      state: "expired",
+    })]);
     expect(store.listAudit()).toEqual([]);
     store.close();
   });

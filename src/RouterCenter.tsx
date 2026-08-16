@@ -46,6 +46,7 @@ type Flint2AcceptanceStatus = {
   observedGateway: { gateway: string; interface: string; protocol: string } | null;
   checkpoint: RouterCheckpoint | null;
   acceptances: Array<{ id: string; resolverAddress: string; checkpointId: string; checks: Array<{ protocol: string; name: string; latencyMs?: number }>; passed: boolean; createdAt: string }>;
+  secondDeviceEvidence: Array<{ id: string; agentId: string; passed: boolean; receivedAt: string; result: { resolverAddress: string; routerAcceptanceId: string; checks: Array<{ passed: boolean }>; secondDeviceTested: boolean; modelIdentityVerified: boolean; gatewayMatchedByAgentContract: boolean } }>;
   sourceReviewedAt: string;
   officialSources: string[];
   boundary: { credentialsAccepted: boolean; routerSessionOpened: boolean; arbitraryTargetAccepted: boolean; routerMutationSupported: boolean; dnsCutoverSupported: boolean };
@@ -210,6 +211,7 @@ export default function RouterCenter({ csrfToken }: { csrfToken: string }) {
           <div className="network-plan-actions"><button className="secondary-button" type="button" onClick={() => setFlint2Plan(null)} disabled={submitting}>Discard plan</button><button className="primary-button" type="button" onClick={() => void stageFlint2Plan()} disabled={submitting || !flint2Plan.output.executable}>{submitting ? "Staging..." : "Stage for password approval"}</button></div>
         </div>}
         <div className="flint2-evidence"><strong>{flint2Status.acceptances.length} passing direct gateway acceptance record{flint2Status.acceptances.length === 1 ? "" : "s"}</strong>{flint2Status.acceptances.slice(0, 5).map((item) => <span key={item.id}>{new Date(item.createdAt).toLocaleString()} | {item.resolverAddress} | {item.checks.length} fixed checks | model not remotely attested</span>)}</div>
+        <div className="flint2-evidence"><strong>{flint2Status.secondDeviceEvidence.length} passing signed second-device record{flint2Status.secondDeviceEvidence.length === 1 ? "" : "s"}</strong>{flint2Status.secondDeviceEvidence.slice(0, 5).map((item) => <span key={item.id}>{new Date(item.receivedAt).toLocaleString()} | {item.result.resolverAddress} | linked acceptance {item.result.routerAcceptanceId} | model not remotely attested</span>)}</div>
         <div className="router-sources"><span>GL.iNet sources reviewed {flint2Status.sourceReviewedAt}</span>{flint2Status.officialSources.map((source, index) => <a href={source} target="_blank" rel="noreferrer" key={source}>{index === 0 ? "AdGuard Home guide" : "Network mode guide"}</a>)}</div>
       </section>
 
