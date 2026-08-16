@@ -10,14 +10,14 @@ interface ApplicationManifest {
   targets: string[];
   image: { version: string; digestPinned: boolean };
   integrity: string;
-  live: { installed: boolean; state: string; detail: string; port?: number | null; backup?: { state: string; verifiedAt: string | null } };
+  live: { installed: boolean; state: string; detail: string; port?: number | null; webUrl?: string | null; secretRetrievalCommand?: string; backup?: { state: string; verifiedAt: string | null } };
 }
 
 interface ApplicationPlan {
   id: string;
   subjectId: string;
   revision: string;
-  input: { target: string; hostPort: number };
+  input: { target: string; hostPort: number; networkAssessmentId?: string | null; lanAddress?: string | null };
   output: {
     executable: boolean;
     changes: string[];
@@ -25,6 +25,8 @@ interface ApplicationPlan {
     warnings: string[];
     recovery: { summary: string; preservesData: boolean };
     image: { version: string; digestPinned: boolean };
+    lanAddress?: string | null;
+    networkAssessmentId?: string | null;
   };
   expiresAt: string;
 }
@@ -35,7 +37,7 @@ async function readJson<T>(response: Response): Promise<T> {
   return body;
 }
 
-export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpenRepair }: { csrfToken: string; onInspectCompose: () => void; onOpenRepair: () => void }) {
+export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpenRepair, networkAssessmentId, onOpenNetwork }: { csrfToken: string; onInspectCompose: () => void; onOpenRepair: () => void; networkAssessmentId?: string | null; onOpenNetwork?: () => void }) {
   const [applications, setApplications] = useState<ApplicationManifest[]>([]);
   const [selected, setSelected] = useState<ApplicationManifest | null>(null);
   const [target, setTarget] = useState("docker");
@@ -77,7 +79,7 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
       const body = await readJson<{ plan: ApplicationPlan }>(await fetch(`/api/v1/applications/${selected.id}/plans`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-        body: JSON.stringify({ target, hostPort }),
+        body: JSON.stringify({ target, hostPort, ...(selected.id === "pi-hole" ? { networkAssessmentId } : {}) }),
       }));
       setPlan(body.plan);
     } catch (requestError) {
@@ -121,7 +123,9 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
             <h3>{application.name}</h3>
             <p>{application.description}</p>
             <span className="app-live-detail">{application.live.detail}</span>
-            {application.live.backup && <span className={`app-live-detail ${application.live.backup.state === "verified" ? "good-text" : "warning-text"}`}>Backup: {application.live.backup.state === "verified" ? `restore verified ${new Date(application.live.backup.verifiedAt ?? "").toLocaleDateString()}` : application.live.backup.state}</span>}
+            {application.live.webUrl && <a className="app-live-detail" href={application.live.webUrl} target="_blank" rel="noreferrer">Open LAN interface</a>}
+            {application.live.secretRetrievalCommand && application.live.installed && <span className="app-live-detail">Password from Bigbox terminal: <code>{application.live.secretRetrievalCommand}</code></span>}
+            {application.live.backup && <span className={`app-live-detail ${application.live.backup.state === "verified" ? "good-text" : application.live.backup.state === "required" ? "warning-text" : ""}`}>Backup: {application.live.backup.state === "verified" ? `restore verified ${new Date(application.live.backup.verifiedAt ?? "").toLocaleDateString()}` : application.live.backup.state}</span>}
             <button type="button" className="secondary-button" onClick={() => openPlanner(application)}>{application.live.installed ? "Review deployment" : "Plan deployment"}</button>
           </article>
         ))}
@@ -139,9 +143,10 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
           <section className="modal app-plan-dialog" role="dialog" aria-modal="true" aria-labelledby="app-plan-title" onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Curated adapter</span><h2 id="app-plan-title">Plan {selected.name}</h2></div><button className="icon-button" type="button" onClick={() => setSelected(null)} aria-label="Close application planner">X</button></header>
             <div className="manifest-proof"><span>Manifest integrity</span><code>{selected.integrity}</code><span>{selected.image.digestPinned ? "Image digest pinned" : "Version tag pinned; digest resolution pending"}</span></div>
+            {selected.id === "pi-hole" && <div className={`notice ${networkAssessmentId ? "" : "warning-notice"}`}><strong>{networkAssessmentId ? "Network assessment linked" : "Network assessment required"}</strong><span>{networkAssessmentId ?? "Generate a ready Pi-hole on Bigbox assessment in Network Center before staging."}</span>{!networkAssessmentId && onOpenNetwork && <button className="text-button" type="button" onClick={onOpenNetwork}>Open Network Center</button>}</div>}
             <div className="app-plan-fields">
               <label>Deployment target<select value={target} onChange={(event) => { setTarget(event.target.value); setPlan(null); }}>{selected.targets.map((item) => <option key={item} value={item}>{item === "virtual-machine" ? "Dedicated virtual machine" : "Docker on Bigbox"}</option>)}</select></label>
-              {target === "docker" && <label>Loopback web port<input type="number" min="1024" max="65535" value={hostPort} onChange={(event) => { setHostPort(Number(event.target.value)); setPlan(null); }} /></label>}
+              {target === "docker" && <label>{selected.id === "pi-hole" ? "LAN web port" : "Loopback web port"}<input type="number" min="1024" max="65535" value={hostPort} onChange={(event) => { setHostPort(Number(event.target.value)); setPlan(null); }} /></label>}
             </div>
             <button className="primary-button" type="button" onClick={() => void generatePlan()} disabled={submitting}>{submitting ? "Inspecting host..." : "Generate live plan"}</button>
 
@@ -151,6 +156,7 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
               {plan.output.blockers.length > 0 && <div className="plan-blockers"><strong>Blockers</strong>{plan.output.blockers.map((blocker) => <span key={blocker.id}>{blocker.summary}{blocker.repair?.description ? `: ${blocker.repair.description}` : ""}</span>)}</div>}
               {plan.output.warnings.length > 0 && <div className="plan-warnings"><strong>Warnings</strong>{plan.output.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div>}
               <p className="plan-recovery"><strong>Recovery:</strong> {plan.output.recovery.summary}</p>
+              {selected.id === "pi-hole" && plan.output.lanAddress && <div className="notice"><strong>Staging address</strong><span>DNS {plan.output.lanAddress}:53 TCP/UDP | web http://{plan.output.lanAddress}:{plan.input.hostPort}/admin/</span><span>Router, client, DHCP, and Tailscale DNS changes remain locked. Backup status will be required after staging.</span></div>}
               {plan.output.executable && !message && <button className="primary-button" type="button" onClick={() => void stagePlan()} disabled={submitting}>Stage for approval</button>}
             </div>}
             {error && <div className="auth-error" role="alert">{error}</div>}

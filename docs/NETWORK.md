@@ -1,8 +1,8 @@
 # Network and DNS Center
 
-BoxPilot `0.18.0` adds a read-only network intelligence and planning surface. It is designed to answer the questions that must be settled before deploying Pi-hole, enabling Flint 2 AdGuard Home, changing a router DNS advertisement, or placing another router in the forwarding path.
+BoxPilot `0.19.0` uses the read-only Network and DNS Center as the authorization boundary for guarded Pi-hole staging. It is designed to answer the questions that must be settled before starting Pi-hole, enabling Flint 2 AdGuard Home, changing a router DNS advertisement, or placing another router in the forwarding path.
 
-This release cannot log in to a router, store a router password, change DHCP, change DNS, enable AdGuard Home, reconfigure Tailscale, probe an operator-supplied address, or cut over traffic.
+This release can start only the curated Pi-hole Docker stack after a fresh assessment and separate approval. It cannot log in to a router, store a router password, change DHCP, advertise DNS to clients, enable AdGuard Home, reconfigure Tailscale, probe an operator-supplied address, or cut over traffic.
 
 ## Live collectors
 
@@ -51,7 +51,7 @@ BoxPilot recognizes these declarations:
 - [Omada ER707-M2 product documentation](https://www.omadanetworks.com/us/business-networking/omada-router-wired-router/er707-m2/)
 - [TP-Link Archer BE400 product documentation](https://www.tp-link.com/us/home-networking/wifi-router/archer-be400/)
 
-The links identify the intended devices. BoxPilot does not claim API support for them in `0.18.0`.
+The links identify the intended devices. BoxPilot does not claim API support for them in `0.19.0`.
 
 ## Change-window assessment
 
@@ -68,9 +68,9 @@ An authenticated operator can create an immutable assessment with only these typ
 
 The service re-reads live topology before it creates the plan. It blocks readiness when the declared gateway or Bigbox address does not match live state, recovery checks are missing, DNS addresses collide, a dedicated VM address is outside the LAN subnet, or a planned Bigbox port 53 binding is occupied.
 
-Loopback and libvirt DNS listeners are shown separately. They do not automatically prove that a specific LAN address is unavailable. A future Pi-hole adapter must bind only the exact reviewed LAN address and must never assume that wildcard port 53 is safe.
+Loopback and libvirt DNS listeners are shown separately. They do not automatically prove that a specific LAN address is unavailable. The Pi-hole adapter binds only the exact reviewed Bigbox LAN address and never treats a wildcard or same-address port 53 listener as safe.
 
-The saved plan is attributable and revisioned in Operations Core, but it is deliberately not executable. There is no stage route, approval job, router mutation, or DNS cutover handler.
+The saved assessment remains non-executable and makes no change. When it is ready, the Applications page can reference its id in a separate immutable Pi-hole plan. Planning, staging, and approval rebuild the live assessment and require exact evidence equality. The resulting application job can start Pi-hole only. There is still no router mutation or DNS cutover handler.
 
 ## Tailscale DNS boundary
 
@@ -85,8 +85,14 @@ Before making a network-critical resolver authoritative:
 5. Keep the old DNS service available through the rollback window.
 6. If Tailscale DNS override is enabled, document the control-plane change needed when the DNS appliance is unavailable.
 
+## Pi-hole staging boundary
+
+The restricted helper accepts only a private RFC1918 LAN address and a high web port from the server-validated plan. It owns the image digest, paths, Compose source, capabilities, secret generation, Docker arguments, health checks, and rollback. See [Curated applications](APPLICATIONS.md).
+
+Starting Pi-hole does not make it authoritative. Keep current external AdGuard DNS or Flint 2 AdGuard Home active. BoxPilot reports the staged application as backup-required and does not tell any client or router to use it.
+
 ## Next gates
 
 Router writes remain blocked until an adapter has exact model and firmware compatibility, secret storage, read-only discovery, a downloadable configuration checkpoint, a bounded diff, password reauthentication, post-change tests from a second device, and an out-of-band recovery path.
 
-Pi-hole execution remains blocked until BoxPilot also has an exact-address deployment adapter, managed secret handling, configuration backup, isolated restore validation, DNS query tests, router checkpoint evidence, and an approval-based cutover with rollback.
+Pi-hole router cutover remains blocked until BoxPilot has configuration backup and isolated restore validation, direct DNS tests from Bigbox and a second device, a model-specific router checkpoint and advertisement adapter, a bounded diff, an observation window, and an approval-based rollback sequence.

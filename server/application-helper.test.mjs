@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -58,6 +58,18 @@ describe("curated Uptime Kuma helper", () => {
     expect(compose).not.toContain("docker.sock");
   });
 
+  it("generates an exact-address digest-pinned Pi-hole stack without DHCP or broad capabilities", () => {
+    const compose = applicationHelperInternals.piholeComposeDefinition("192.168.8.10", 8080);
+    expect(compose).toContain("pihole/pihole@sha256:f7d1be");
+    expect(compose).toContain('"192.168.8.10:53:53/tcp"');
+    expect(compose).toContain('"192.168.8.10:53:53/udp"');
+    expect(compose).toContain('"192.168.8.10:8080:80/tcp"');
+    expect(compose).toContain("cap_drop:\n      - ALL");
+    expect(compose).toContain("no-new-privileges:true");
+    expect(applicationHelperInternals.piholeCapabilities).toEqual(["CHOWN", "DAC_OVERRIDE", "FOWNER", "NET_BIND_SERVICE", "SETFCAP", "SETGID", "SETUID"]);
+    expect(compose).not.toMatch(/NET_ADMIN|SYS_TIME|:67:|:123:|0\.0\.0\.0|docker\.sock|privileged:/);
+  });
+
   it("deploys only the fixed adapter and verifies health inside the container", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-app-helper-"));
     directories.push(directory);
@@ -89,6 +101,39 @@ describe("curated Uptime Kuma helper", () => {
 
     await expect(helper.deploy({ hostPort: 3001 })).rejects.toThrow("Automated rollback completed");
     await expect(readFile(helper.composePath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("stages Pi-hole with a root-only generated secret and verifies exact DNS and web bindings", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-pihole-helper-"));
+    directories.push(directory);
+    const calls = [];
+    const runDocker = vi.fn(async (_binary, args) => {
+      calls.push(args);
+      if (args[0] === "inspect" && args[2] === "{{.State.Health.Status}}") return { stdout: "healthy", stderr: "" };
+      if (args[0] === "inspect") return { stdout: JSON.stringify({ Running: true, Status: "running", Error: "", Health: { Status: "healthy" } }), stderr: "" };
+      if (args[0] === "port" && args[2] === "53/tcp") return { stdout: "192.168.8.10:53", stderr: "" };
+      if (args[0] === "port" && args[2] === "53/udp") return { stdout: "192.168.8.10:53", stderr: "" };
+      if (args[0] === "port" && args[2] === "80/tcp") return { stdout: "192.168.8.10:8080", stderr: "" };
+      return { stdout: "ok", stderr: "" };
+    });
+    const helper = createApplicationHelper({ appRoot: directory, dockerBinary: "/fixed/docker", runDocker, wait: vi.fn() });
+
+    const result = await helper.deployPihole({ lanAddress: "192.168.8.10", webPort: 8080 });
+
+    expect(result).toMatchObject({
+      installed: true, healthy: true, lanAddress: "192.168.8.10", port: 8080,
+      dnsTcpBound: true, dnsUdpBound: true, dhcpEnabled: false,
+      routerMutationPerformed: false, dnsCutoverPerformed: false,
+      dataPreserved: true, secretPreserved: true, backupProtected: false,
+    });
+    const secret = await readFile(helper.piholeSecretPath, "utf8");
+    const password = secret.trim().split("=")[1];
+    expect(JSON.stringify(result)).not.toContain(password);
+    expect(await readFile(helper.piholeComposePath, "utf8")).toContain("192.168.8.10:53:53/udp");
+    expect(secret).toMatch(/^PIHOLE_PASSWORD=[A-Za-z0-9_-]{43}\n$/);
+    expect((await stat(helper.piholeSecretPath)).mode & 0o777).toBe(0o600);
+    const composeUp = calls.find((args) => args[0] === "compose" && args.includes("up"));
+    expect(composeUp).toEqual(expect.arrayContaining(["--env-file", helper.piholeSecretPath, "--file", helper.piholeComposePath]));
   });
 
   it("creates an integrity-addressed artifact and verifies an isolated no-network restore", async () => {
