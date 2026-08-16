@@ -60,4 +60,43 @@ describe("fixed prerequisite helper", () => {
     expect(writeApproval).toHaveBeenCalledWith({ expectedVersion: "7.5-2", approvedAt: "2026-08-16T05:01:00.000Z" });
     expect(clearApproval).toHaveBeenCalledTimes(2);
   });
+
+  it("reports bounded APT metadata evidence without mutating the host", async () => {
+    const maintenance = { inspect: vi.fn(async () => ({
+      aptMetadata: { available: true, state: "stale", updatedAt: "2026-08-01T00:00:00.000Z", ageHours: 360 },
+      packageManager: { state: "ready" },
+    })) };
+    const result = await createPrerequisiteHelper({ maintenance }).inspectAptMetadata();
+    expect(result).toEqual({ available: true, state: "stale", updatedAt: "2026-08-01T00:00:00.000Z", ageHours: 360, packageManagerState: "ready", refreshAvailable: true, source: "fixed-local-apt-metadata", mutationPerformed: false, arbitraryCommandAccepted: false });
+  });
+
+  it("delegates an approved stale timestamp only to the fixed APT refresh unit", async () => {
+    const states = [
+      { aptMetadata: { available: true, state: "stale", updatedAt: "2026-08-01T00:00:00.000Z", ageHours: 360 }, packageManager: { state: "ready" } },
+      { aptMetadata: { available: true, state: "current", updatedAt: "2026-08-16T06:30:00.000Z", ageHours: 0 }, packageManager: { state: "ready" } },
+    ];
+    const run = vi.fn(async () => ({ ok: true, stdout: "" }));
+    const clearAptApproval = vi.fn(async () => undefined);
+    const writeAptApproval = vi.fn(async () => undefined);
+    const helper = createPrerequisiteHelper({
+      run,
+      maintenance: { inspect: vi.fn(async () => states.shift()) },
+      clearAptApproval,
+      writeAptApproval,
+      now: () => new Date("2026-08-16T06:29:00.000Z"),
+    });
+    const result = await helper.refreshAptMetadata({ expectedUpdatedAt: "2026-08-01T00:00:00.000Z" });
+    expect(run).toHaveBeenCalledWith("/usr/bin/systemctl", ["start", "boxpilot-apt-refresh.service"], { timeout: 15 * 60 * 1000 });
+    expect(writeAptApproval).toHaveBeenCalledWith({ approvedAt: "2026-08-16T06:29:00.000Z", expectedUpdatedAt: "2026-08-01T00:00:00.000Z" });
+    expect(clearAptApproval).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ refreshed: true, state: "current", boundary: { fixedAptUpdateOnly: true, packageInstallPerformed: false, packageUpgradePerformed: false, packageRemovalPerformed: false, arbitraryCommandAccepted: false, browserArgumentAccepted: false } });
+  });
+
+  it("refuses an APT refresh when the package manager or approved timestamp changed", async () => {
+    const interrupted = createPrerequisiteHelper({ maintenance: { inspect: async () => ({ aptMetadata: { available: true, state: "stale", updatedAt: "2026-08-01T00:00:00.000Z", ageHours: 360 }, packageManager: { state: "interrupted" } }) } });
+    await expect(interrupted.refreshAptMetadata({ expectedUpdatedAt: "2026-08-01T00:00:00.000Z" })).rejects.toThrow("package manager is not ready");
+    const changed = createPrerequisiteHelper({ maintenance: { inspect: async () => ({ aptMetadata: { available: true, state: "stale", updatedAt: "2026-08-02T00:00:00.000Z", ageHours: 336 }, packageManager: { state: "ready" } }) } });
+    await expect(changed.refreshAptMetadata({ expectedUpdatedAt: "2026-08-01T00:00:00.000Z" })).rejects.toThrow("no longer matches");
+    await expect(changed.refreshAptMetadata({ expectedUpdatedAt: "not-a-time" })).rejects.toThrow("timestamp is invalid");
+  });
 });

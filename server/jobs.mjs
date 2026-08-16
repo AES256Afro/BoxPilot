@@ -45,8 +45,8 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.uptime-kuma.backup", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
-    const validatedPrerequisiteRepair = job.type === "prerequisite.smartmontools.install" ? await validatePrerequisiteRepairJob(job) : null;
+    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.uptime-kuma.backup", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
     const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy"].includes(job.type) ? await validateApplicationJob(job) : null;
     if (["application.uptime-kuma.backup", "application.pi-hole.backup"].includes(job.type)) await validateBackupJob(job);
     const validatedDnsAcceptancePlan = job.type === "network.dns.acceptance.run" ? await validateDnsAcceptanceJob(job) : null;
@@ -60,7 +60,7 @@ export function createJobService(store, helper, {
     const validatedVmLifecyclePlan = job.type === "virtualization.domain.action" ? await validateVmLifecycleJob(job) : null;
     const validatedVmSnapshotPlan = job.type === "virtualization.domain.snapshot.create" ? await validateVmSnapshotJob(job) : null;
     if (job.type === "virtualization.domain.create" && !validatedVmPlan?.input) throw new Error("The staged VM creation plan is unavailable or changed");
-    if (job.type === "prerequisite.smartmontools.install" && !validatedPrerequisiteRepair?.plan?.input) throw new Error("The staged smartmontools repair plan is unavailable or changed");
+    if (["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh"].includes(job.type) && !validatedPrerequisiteRepair?.plan?.input) throw new Error("The staged prerequisite repair plan is unavailable or changed");
     if (job.type === "migration.bundle.transfer" && !validatedMigrationTransferPlan?.input) throw new Error("The staged migration transfer plan is unavailable or changed");
     if (job.type === "virtualization.domain.export.create" && !validatedVmExportPlan?.input) throw new Error("The staged VM export plan is unavailable or changed");
     if (job.type === "virtualization.export.backup.create" && !validatedVmProtectionPlan?.input) throw new Error("The staged VM protection plan is unavailable or changed");
@@ -104,6 +104,25 @@ export function createJobService(store, helper, {
         && result?.boundary?.arbitraryPackageAccepted === false
         && result?.boundary?.aptUpdatePerformed === false
         && result?.boundary?.packageRemovalPerformed === false,
+    } : job.type === "prerequisite.apt-metadata.refresh" ? {
+      operation: "prerequisite.apt-metadata.refresh",
+      parameters: { expectedUpdatedAt: validatedPrerequisiteRepair.plan.input.expectedUpdatedAt },
+      timeoutMs: 15 * 60 * 1000,
+      applying: "Starting the fixed root-only APT metadata unit with the exact approved previous timestamp and no browser-selected package, repository, command, option, or target",
+      applied: "The fixed APT metadata refresh completed and the installed package database was verified unchanged",
+      verified: "APT metadata is current, dpkg is ready, and no package install, upgrade, removal, service mutation, or reboot occurred",
+      failed: "The fixed APT metadata refresh or immutable package-state verification failed; inspect the dedicated unit and repository availability before creating a new plan",
+      validate: (result) => result?.refreshed === true
+        && result?.state === "current"
+        && result?.packageManagerState === "ready"
+        && result?.boundary?.fixedAptUpdateOnly === true
+        && result?.boundary?.packageInstallPerformed === false
+        && result?.boundary?.packageUpgradePerformed === false
+        && result?.boundary?.packageRemovalPerformed === false
+        && result?.boundary?.serviceMutationPerformed === false
+        && result?.boundary?.rebootPerformed === false
+        && result?.boundary?.arbitraryCommandAccepted === false
+        && result?.boundary?.browserArgumentAccepted === false,
     } : job.type === "network.dns.acceptance.run" ? {
       run: () => executeDnsAcceptanceJob(job, validatedDnsAcceptancePlan),
       applying: "Sending four fixed direct DNS queries from the unprivileged BoxPilot controller to the exact reviewed Pi-hole address",

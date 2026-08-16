@@ -11,7 +11,7 @@ import { createPrerequisiteHelper } from "./prerequisite-helper.mjs";
 
 const socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock";
 const maxRequestBytes = 8192;
-const readOnlyOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.pi-hole.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
+const readOnlyOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.apt-metadata.inspect", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.pi-hole.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
 let operationQueue = Promise.resolve();
 const vmRestoreDrill = createVmRestoreDrillHelper();
 const vmRecovery = createVmRecoveryHelper({ restoreEngine: vmRestoreDrill });
@@ -62,6 +62,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       if (request.operation === "application.pi-hole.deploy") connection.setTimeout(10 * 60 * 1000);
       if (request.operation === "application.pi-hole.backup") connection.setTimeout(10 * 60 * 1000);
       if (request.operation === "prerequisite.smartmontools.install") connection.setTimeout(15 * 60 * 1000);
+      if (request.operation === "prerequisite.apt-metadata.refresh") connection.setTimeout(15 * 60 * 1000);
       const execution = readOnlyOperations.has(request.operation)
         ? executeHelperOperation(request, helperDependencies)
         : operationQueue.then(() => executeHelperOperation(request, helperDependencies));

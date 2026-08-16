@@ -27,6 +27,7 @@ sudo install -m 0644 deploy/boxpilot.service /etc/systemd/system/boxpilot.servic
 sudo install -m 0644 deploy/boxpilot-storage-scan.service /etc/systemd/system/boxpilot-storage-scan.service
 sudo install -m 0644 deploy/boxpilot-storage-scan.timer /etc/systemd/system/boxpilot-storage-scan.timer
 sudo install -m 0644 deploy/boxpilot-smartmontools-install.service /etc/systemd/system/boxpilot-smartmontools-install.service
+sudo install -m 0644 deploy/boxpilot-apt-refresh.service /etc/systemd/system/boxpilot-apt-refresh.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now boxpilot-helper.service boxpilot.service boxpilot-storage-scan.timer
 ```
@@ -38,6 +39,8 @@ The storage timer is separate from the web service and helper protocol. If `/usr
 Version `0.33.0` optionally reads an already configured local Network UPS Tools service through fixed `/usr/bin/upsc` localhost queries. BoxPilot does not install NUT, configure a driver, select a UPS, issue power commands, or change shutdown policy. If NUT is absent, Overview and Action Center report it as optional setup still required.
 
 Version `0.34.0` adds fixed read-only host-maintenance evidence. It reports system and update readiness without package or unit names and without running APT, dpkg recovery, service control, update-policy mutation, or reboot. Every recommended change remains a separately reviewed Ubuntu console procedure.
+
+Version `0.35.0` adds one separately named executable maintenance repair: refresh configured APT metadata through a static no-argument root unit. It requires a stale or unavailable metadata check, ready dpkg state, an immutable plan, separate staging, owner-password approval, and exact timestamp revalidation. The unit runs only `apt-get update --error-on=any` and verifies `/var/lib/dpkg/status` is unchanged. It cannot install, upgrade, remove, select, or accept a package, repository, command, option, or target from the browser. See [Exact prerequisite repair boundary](PREREQUISITE-REPAIRS.md).
 
 The manual console fallback remains:
 

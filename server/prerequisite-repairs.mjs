@@ -1,15 +1,26 @@
 export function createPrerequisiteRepairService({ store, helper } = {}) {
-  async function inspect() {
+  async function inspectSmartmontools() {
     return helper.request("prerequisite.smartmontools.inspect", {});
   }
 
-  function matchingState(plan, state) {
+  async function inspectAptMetadata() {
+    return helper.request("prerequisite.apt-metadata.inspect", {});
+  }
+
+  function matchingSmartmontoolsState(plan, state) {
     return plan.input.expectedVersion === state.selectedVersion && plan.input.installedBefore === state.installed;
+  }
+
+  function matchingAptMetadataState(plan, state) {
+    return plan.input.expectedUpdatedAt === state.updatedAt
+      && plan.input.expectedState === state.state
+      && state.packageManagerState === "ready"
+      && state.refreshAvailable === true;
   }
 
   async function planSmartmontools(ownerId, input = {}) {
     if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== 0) throw new Error("Smartmontools repair planning accepts only an empty object");
-    const state = await inspect();
+    const state = await inspectSmartmontools();
     if (!state.supported || !state.selectedVersion) throw new Error("No fixed smartmontools candidate is available from the configured package metadata");
     return store.createPlan({
       type: "prerequisite.repair",
@@ -31,40 +42,99 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
     });
   }
 
+  async function planAptMetadata(ownerId, input = {}) {
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== 0) throw new Error("APT metadata refresh planning accepts only an empty object");
+    const state = await inspectAptMetadata();
+    if (state.packageManagerState !== "ready") throw new Error("The package manager is not ready; repair interrupted dpkg state from the server console before refreshing metadata");
+    if (!state.refreshAvailable || state.state === "current") throw new Error("APT metadata is already current or no fixed refresh is available");
+    return store.createPlan({
+      type: "prerequisite.repair",
+      subjectId: "apt-metadata",
+      input: { expectedUpdatedAt: state.updatedAt, expectedState: state.state },
+      output: {
+        executable: true,
+        currentState: state.state,
+        currentUpdatedAt: state.updatedAt,
+        currentAgeHours: state.ageHours,
+        action: "Run only the fixed APT metadata update and verify that installed package state is unchanged",
+        networkAccess: true,
+        aptUpdatePerformed: true,
+        packageInstallPerformed: false,
+        packageUpgradePerformed: false,
+        packageRemovalPerformed: false,
+        arbitraryPackageSelection: false,
+        arbitraryCommandAccepted: false,
+        automaticRollback: false,
+        recovery: "If repository metadata refresh fails, installed packages remain unchanged. Inspect the fixed service and repository availability before creating a new plan.",
+      },
+      createdBy: ownerId,
+    });
+  }
+
   async function stage(planId, revision, ownerId) {
     const plan = store.getPlan(planId);
-    if (!plan || plan.createdBy !== ownerId || plan.type !== "prerequisite.repair" || plan.subjectId !== "smartmontools") throw new Error("Prerequisite repair plan not found");
+    if (!plan || plan.createdBy !== ownerId || plan.type !== "prerequisite.repair" || !["smartmontools", "apt-metadata"].includes(plan.subjectId)) throw new Error("Prerequisite repair plan not found");
     if (plan.revision !== revision) throw new Error("Prerequisite repair plan revision does not match");
-    const state = await inspect();
-    if (!matchingState(plan, state)) throw new Error("Host state changed: create a new smartmontools repair plan");
+
+    if (plan.subjectId === "smartmontools") {
+      const state = await inspectSmartmontools();
+      if (!matchingSmartmontoolsState(plan, state)) throw new Error("Host state changed: create a new smartmontools repair plan");
+      store.stagePlan(plan.id, ownerId);
+      return store.createJob({
+        type: "prerequisite.smartmontools.install",
+        title: state.installed ? "Verify smartmontools and refresh storage evidence" : "Install smartmontools and verify storage evidence",
+        risk: "system-package",
+        parameters: { planId: plan.id, revision: plan.revision, expectedVersion: plan.input.expectedVersion, installedBefore: plan.input.installedBefore },
+        recovery: {
+          automaticRollback: false,
+          reason: "Package installation is intentionally not reversed automatically because removal could disable operator tooling or alter administrator-managed package state.",
+          manual: "If the job fails, inspect boxpilot-smartmontools-install.service, dpkg, and APT state from the server console. Repair interrupted package configuration before creating a fresh plan. Do not remove smartmontools merely to match the old state.",
+        },
+        createdBy: ownerId,
+        initialSteps: [
+          { name: "preflight", state: "completed", detail: `The fixed smartmontools package and exact version ${plan.input.expectedVersion} were resolved without accepting a package name, repository, command, or argument from the browser` },
+          { name: "checkpoint", state: "completed", detail: "The operation will not run apt update, remove a package, change a disk, mount a filesystem, or alter a SMART setting; package removal is never automatic" },
+        ],
+      });
+    }
+
+    const state = await inspectAptMetadata();
+    if (!matchingAptMetadataState(plan, state)) throw new Error("Host state changed: create a new APT metadata refresh plan");
     store.stagePlan(plan.id, ownerId);
     return store.createJob({
-      type: "prerequisite.smartmontools.install",
-      title: state.installed ? "Verify smartmontools and refresh storage evidence" : "Install smartmontools and verify storage evidence",
-      risk: "system-package",
-      parameters: { planId: plan.id, revision: plan.revision, expectedVersion: plan.input.expectedVersion, installedBefore: plan.input.installedBefore },
+      type: "prerequisite.apt-metadata.refresh",
+      title: "Refresh APT package metadata",
+      risk: "system-package-metadata",
+      parameters: { planId: plan.id, revision: plan.revision, expectedUpdatedAt: plan.input.expectedUpdatedAt, expectedState: plan.input.expectedState },
       recovery: {
         automaticRollback: false,
-        reason: "Package installation is intentionally not reversed automatically because removal could disable operator tooling or alter administrator-managed package state.",
-        manual: "If the job fails, inspect boxpilot-smartmontools-install.service, dpkg, and APT state from the server console. Repair interrupted package configuration before creating a fresh plan. Do not remove smartmontools merely to match the old state.",
+        reason: "The operation changes only repository metadata and verifies the installed package database is unchanged, so package rollback is neither needed nor attempted.",
+        manual: "If the job fails, inspect boxpilot-apt-refresh.service and configured Ubuntu repositories. Resolve interrupted dpkg state before creating a fresh plan.",
       },
       createdBy: ownerId,
       initialSteps: [
-        { name: "preflight", state: "completed", detail: `The fixed smartmontools package and exact version ${plan.input.expectedVersion} were resolved without accepting a package name, repository, command, or argument from the browser` },
-        { name: "checkpoint", state: "completed", detail: "The operation will not run apt update, remove a package, change a disk, mount a filesystem, or alter a SMART setting; package removal is never automatic" },
+        { name: "preflight", state: "completed", detail: "The exact previous APT metadata timestamp and ready dpkg state were captured without accepting a package, repository, command, option, or target from the browser" },
+        { name: "checkpoint", state: "completed", detail: "The fixed unit will run only apt-get update --error-on=any, verify installed package state is unchanged, and perform no install, upgrade, removal, service control, or reboot" },
       ],
     });
   }
 
   async function validateJob(job) {
-    if (job.type !== "prerequisite.smartmontools.install") throw new Error("Unsupported prerequisite repair job");
+    if (!["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh"].includes(job.type)) throw new Error("Unsupported prerequisite repair job");
+    const subjectId = job.type === "prerequisite.smartmontools.install" ? "smartmontools" : "apt-metadata";
     const plan = store.getPlan(job.parameters.planId);
-    if (!plan || plan.status !== "staged" || plan.type !== "prerequisite.repair" || plan.subjectId !== "smartmontools" || plan.revision !== job.parameters.revision) throw new Error("The staged smartmontools repair plan is unavailable or changed");
-    if (plan.input.expectedVersion !== job.parameters.expectedVersion || plan.input.installedBefore !== job.parameters.installedBefore) throw new Error("The staged smartmontools repair plan does not match the job");
-    const state = await inspect();
-    if (!matchingState(plan, state)) throw new Error("Host state changed: the smartmontools package state or candidate changed");
+    if (!plan || plan.status !== "staged" || plan.type !== "prerequisite.repair" || plan.subjectId !== subjectId || plan.revision !== job.parameters.revision) throw new Error("The staged prerequisite repair plan is unavailable or changed");
+    if (subjectId === "smartmontools") {
+      if (plan.input.expectedVersion !== job.parameters.expectedVersion || plan.input.installedBefore !== job.parameters.installedBefore) throw new Error("The staged smartmontools repair plan does not match the job");
+      const state = await inspectSmartmontools();
+      if (!matchingSmartmontoolsState(plan, state)) throw new Error("Host state changed: the smartmontools package state or candidate changed");
+      return { plan, state };
+    }
+    if (plan.input.expectedUpdatedAt !== job.parameters.expectedUpdatedAt || plan.input.expectedState !== job.parameters.expectedState) throw new Error("The staged APT metadata refresh plan does not match the job");
+    const state = await inspectAptMetadata();
+    if (!matchingAptMetadataState(plan, state)) throw new Error("Host state changed: APT metadata or package manager state changed");
     return { plan, state };
   }
 
-  return { inspect, planSmartmontools, stage, validateJob };
+  return { inspect: inspectSmartmontools, inspectAptMetadata, planSmartmontools, planAptMetadata, stage, validateJob };
 }

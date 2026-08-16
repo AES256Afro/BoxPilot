@@ -105,4 +105,30 @@ describe("Repair Center", () => {
     fireEvent.click(screen.getByRole("button", { name: "Stage exact repair for password approval" }));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/prerequisite-repair-plans/plan-one/stage", expect.objectContaining({ method: "POST" })));
   });
+
+  it("reviews and stages only the immutable metadata-only APT refresh", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/operations/prerequisites") return new Response(JSON.stringify({ checks: [{ id: "host.apt-metadata", group: "Host maintenance", name: "APT package metadata", status: "repairable", summary: "APT metadata is stale", repair: { kind: "approved", description: "Review a fixed metadata refresh" } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url === "/api/v1/prerequisite-repairs/apt-metadata/plans") {
+        expect(init).toMatchObject({ method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": "csrf-token" }, body: "{}" });
+        return new Response(JSON.stringify({ plan: { id: "apt-plan", revision: "apt-revision", expiresAt: "2026-08-16T08:00:00.000Z", output: { currentState: "stale", currentUpdatedAt: "2026-08-01T00:00:00.000Z", currentAgeHours: 360, action: "Run only the fixed APT metadata update", networkAccess: true, aptUpdatePerformed: true, packageInstallPerformed: false, packageUpgradePerformed: false, packageRemovalPerformed: false, arbitraryCommandAccepted: false, automaticRollback: false, recovery: "Inspect repository availability before retrying." } } }), { status: 201, headers: { "Content-Type": "application/json" } });
+      }
+      if (url === "/api/v1/prerequisite-repair-plans/apt-plan/stage") {
+        expect(init).toMatchObject({ method: "POST", body: JSON.stringify({ revision: "apt-revision" }) });
+        return new Response(JSON.stringify({ job: { id: "apt-job" } }), { status: 201, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.includes("action-center")) return new Response(JSON.stringify({ error: "unavailable" }), { status: 503, headers: { "Content-Type": "application/json" } });
+      if (url.includes("recovery-kit")) return new Response(JSON.stringify({ error: "unavailable" }), { status: 503, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ jobs: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RepairCenter csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review metadata refresh" }));
+    expect(await screen.findByText("APT metadata refresh")).toBeTruthy();
+    expect(screen.getByText("None permitted")).toBeTruthy();
+    expect(screen.getByText(/browser supplies no package, repository, command, option, or target/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage metadata refresh for password approval" }));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/prerequisite-repair-plans/apt-plan/stage", expect.objectContaining({ method: "POST" })));
+  });
 });
