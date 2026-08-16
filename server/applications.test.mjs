@@ -47,6 +47,7 @@ async function setup({ statuses = {}, portInUse = false, assessmentError = null,
       if (keelDiscoveryError) throw new Error(keelDiscoveryError);
       return defaultKeelDiscovery;
     }
+    if (operation === "application.keel.artifact.inspect") return { state: "absent", readyToAcquire: true, artifactPresent: false, locallyVerified: false, partialPresent: false, acquiredAt: null, detail: "The fixed Keel release archive is not present", boundary: { mutationPerformed: false, extractionPerformed: false, applicationInstalled: false } };
     return { installed: false, state: "not-installed", detail: "Ready to plan" };
   });
   const service = createApplicationService({
@@ -83,10 +84,12 @@ describe("application manifests and plans", () => {
       state: "not-installed",
       listener: "none",
       provenance: { status: "matched", checkedAt: "2026-08-16T03:00:00.000Z" },
+      artifact: { state: "absent", readyToAcquire: true, locallyVerified: false },
       boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false },
     });
     expect(catalog.applications.find((item) => item.id === "keel")?.live.detail).toContain("No supported Keel");
     expect(helperRequest).toHaveBeenCalledWith("application.keel.inspect", {});
+    expect(helperRequest).toHaveBeenCalledWith("application.keel.artifact.inspect", {});
     expect(githubProvenance.inspect).toHaveBeenCalled();
     store.close();
   });

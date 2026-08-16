@@ -49,7 +49,7 @@ describe("native systemd network boundaries", () => {
     expect(dockerfile).toContain("BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot");
     expect(dockerfile).toContain("BOXPILOT_COOKIE_SECURE=false");
     expect(dockerfile).toContain("USER node");
-    expect(compose).toContain("image: boxpilot:0.41.0");
+    expect(compose).toContain("image: boxpilot:0.42.0");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("/tmp:size=16m,mode=1777");
   });
@@ -135,6 +135,29 @@ describe("native systemd network boundaries", () => {
     expect(refresher).not.toMatch(/(?:install|upgrade|remove|autoremove|dist-upgrade)["']/);
     expect(protocol).toContain("prerequisite.apt-metadata.refresh");
     expect(protocol).not.toContain("package.update");
+  });
+
+  it("ships a static fixed Keel artifact downloader without weakening the main helper network sandbox", async () => {
+    const service = await readFile("deploy/boxpilot-keel-artifact.service", "utf8");
+    const downloader = await readFile("scripts/boxpilot-keel-artifact.mjs", "utf8");
+    const helperUnit = await readFile("deploy/boxpilot-helper.service", "utf8");
+    const protocol = await readFile("server/helper-protocol.mjs", "utf8");
+    const metadata = await stat("scripts/boxpilot-keel-artifact.mjs");
+    expect(metadata.mode & 0o111).not.toBe(0);
+    expect(service).toContain("Type=oneshot");
+    expect(service).toContain("ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-artifact.mjs");
+    expect(service).toContain("ConditionPathExists=/run/boxpilot/keel-artifact-approval.json");
+    expect(service).toContain("ReadWritePaths=/var/lib/boxpilot-managed/artifacts/keel");
+    expect(service).toContain("RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6");
+    expect(service).not.toContain("%i");
+    expect(service).not.toContain("[Install]");
+    expect(helperUnit).toContain("PrivateNetwork=true");
+    expect(helperUnit).toContain("RestrictAddressFamilies=AF_UNIX\n");
+    expect(downloader).toContain("process.argv.length !== 2");
+    expect(downloader).toContain('new Set(["github.com", "release-assets.githubusercontent.com"])');
+    expect(downloader).not.toContain("process.argv[2]");
+    expect(protocol).toContain("application.keel.artifact.acquire");
+    expect(protocol).not.toContain("artifact.download");
   });
 
   it("ships a terminal-only migration packer without a browser-selectable inbox", async () => {

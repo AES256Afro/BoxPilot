@@ -16,6 +16,7 @@ import { createHelperClient } from "./helper-client.mjs";
 import { buildConsoleGuidanceResponse, createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
 import { createJobService } from "./jobs.mjs";
+import { createKeelArtifactService } from "./keel-artifacts.mjs";
 import { getSetupPlan } from "./libvirt.mjs";
 import { createMigrationService } from "./migrations.mjs";
 import { createMaintenanceService } from "./maintenance.mjs";
@@ -56,6 +57,7 @@ const prerequisiteRepairs = createPrerequisiteRepairService({ store: state, help
 const network = createNetworkService({ store: state });
 const githubProvenance = createGithubProvenanceService();
 const applications = createApplicationService({ store: state, prerequisites, helper, network, githubProvenance });
+const keelArtifacts = createKeelArtifactService({ store: state, prerequisites, helper, githubProvenance });
 const backups = createBackupService({ store: state, prerequisites, helper });
 const controllerProtection = createControllerProtectionService({ store: state, helper });
 const controllerRetention = createControllerRetentionService({ store: state, helper });
@@ -79,6 +81,7 @@ const vmRestoreDrills = createVmRestoreDrillService({ store: state, helper });
 const jobs = createJobService(state, helper, {
   validatePrerequisiteRepairJob: prerequisiteRepairs.validateJob,
   validateApplicationJob: applications.validateJob,
+  validateKeelArtifactJob: keelArtifacts.validateJob,
   validateBackupJob: backups.validateJob,
   recordBackupResult: backups.recordResult,
   validateControllerProtectionJob: controllerProtection.validateJob,
@@ -129,7 +132,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.41.0",
+    version: "0.42.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -195,14 +198,14 @@ app.get("/api/v1/capabilities", (_request, response) => {
   response.json({
     inventory: "sanitized-host-maintenance-storage-ext4-error-counters-filesystem-smart-local-ups-docker-services-network-and-dns-topology",
     composeInspection: "browser-only",
-    applications: "curated-uptime-kuma-and-no-cutover-pi-hole-staging-recovery-and-direct-dns-acceptance",
+    applications: "curated-uptime-kuma-no-cutover-pi-hole-and-fixed-inert-keel-artifact-acquisition",
     supportBundle: "authenticated-server-generated-fixed-source-configurably-redacted",
     backups: "wal-aware-controller-local-restore-plus-encrypted-independent-restic-copy-and-exact-database-restore-proof-application-local-restore-drills-and-vm-protection",
     migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
     network: "read-only-topology-approved-fixed-pi-hole-and-observed-gateway-direct-dns-acceptance-plus-signed-second-device-evidence",
-    privilegedHelper: "typed-canary-exact-smartmontools-repair-fixed-apt-metadata-refresh-controller-local-backup-independent-restic-protection-curated-applications-migration-inventory-logs-and-vm-workflows",
+    privilegedHelper: "typed-canary-exact-smartmontools-repair-fixed-apt-metadata-refresh-controller-local-backup-independent-restic-protection-curated-applications-fixed-keel-artifact-migration-inventory-logs-and-vm-workflows",
     identity: "owner-password-foundation",
-    durableJobs: "sqlite-approved-prerequisite-controller-local-backup-controller-independent-protection-application-backup-dns-migration-and-vm-workflows",
+    durableJobs: "sqlite-approved-prerequisite-controller-local-backup-controller-independent-protection-application-backup-keel-artifact-dns-migration-and-vm-workflows",
     virtualization: "live-libvirt-via-restricted-helper",
     vmCreationPlanning: "validated-durable-approved",
     audit: "redacted-jsonl-foundation",
@@ -215,7 +218,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     controllerBackup: { source: "fixed-live-sqlite", snapshot: "vacuum-into-wal-aware", localDestination: "root-only-local-managed", independentDestination: "fixed-mounted-restic-controller", repositoryReadVerified: true, restoreDrill: "exact-snapshot-isolated-copy-open-integrity-foreign-key-schema", downtime: false, encrypted: true, independent: "after-passing-restic-restore-drill", retention: "exact-protected-old-snapshot-forget-without-prune", prune: false, browserPath: false, browserPassword: false },
     fleet: { enrollment: "one-time-digest-stored-token", identity: "ed25519-signed-replay-protected", execution: "node-local-allowlisted-pi-hole-or-default-gateway-dns-probe-only", scheduling: "password-approved-one-shot-fixed-delay-only", recurrence: false, controllerShellAccess: false, arbitraryTarget: false },
     routers: { checkpoints: "browser-local-sha256-metadata-only", guidance: "fixed-model-operator-checklists-with-live-gateway-address-correlation", directGatewayDnsAcceptance: "durable-approved-four-fixed-queries", signedSecondDeviceDnsAcceptance: "owner-approved-one-shot-agent-with-local-default-gateway-match", gatewayIdentityVerified: false, adguardConfigurationVerified: false, dhcpAdvertisementVerified: false, configurationUpload: false, credentials: false, discovery: false, mutations: false },
-    github: { repositories: "fixed-public-read-only-allowlist", authentication: false, writes: false, cloneOrDownload: false, localDigestVerification: false },
+    github: { repositories: "fixed-public-read-only-allowlist", authentication: false, writes: false, clone: false, arbitraryDownload: false, keelFixedReleaseAcquisition: "approved-root-only-locally-verified-inert-archive", browserDownload: false, extraction: false, installation: false },
     recoveryKit: { generation: "authenticated-read-only", formats: ["json", "markdown"], mutations: false, secretsIncluded: false, backupPayloadIncluded: false },
     actionCenter: { generation: "authenticated-read-only", guidance: "fixed-local-destinations", automaticRepair: false, persistence: false, externalDelivery: false },
     filesystemErrors: { ext4: "mounted-kernel-errors-count-read-only", unsupportedFilesystems: "explicit", filesystemCheck: false, repair: false },
@@ -468,6 +471,31 @@ app.get("/api/v1/applications", async (_request, response) => {
   response.json(await applications.list());
 });
 
+app.get("/api/v1/applications/keel/artifact", async (_request, response) => {
+  try {
+    response.json({ artifact: await keelArtifacts.inspect() });
+  } catch (error) {
+    response.status(503).json({ error: error.message, code: "keel_artifact_inspection_failed" });
+  }
+});
+
+app.post("/api/v1/applications/keel/artifact-plans", async (request, response) => {
+  try {
+    response.status(201).json({ plan: await keelArtifacts.plan(request.boxpilotSession.owner.id, request.body) });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "keel_artifact_plan_failed" });
+  }
+});
+
+app.post("/api/v1/keel-artifact-plans/:id/stage", async (request, response) => {
+  try {
+    if (!request.body || typeof request.body !== "object" || Array.isArray(request.body) || Object.keys(request.body).length !== 1 || typeof request.body.revision !== "string") throw new Error("Keel artifact staging accepts only the immutable revision");
+    response.status(201).json({ job: await keelArtifacts.stage(request.params.id, request.body.revision, request.boxpilotSession.owner.id) });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "keel_artifact_stage_failed" });
+  }
+});
+
 app.post("/api/v1/applications/:id/plans", async (request, response) => {
   try {
     const plan = await applications.plan(request.params.id, request.body, request.boxpilotSession.owner.id);
@@ -571,7 +599,7 @@ app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = ["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.pi-hole.deploy", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
+    const background = ["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.pi-hole.deploy", "application.keel.artifact.acquire", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, request.body?.password)
       : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
@@ -832,7 +860,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.41.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.42.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });
