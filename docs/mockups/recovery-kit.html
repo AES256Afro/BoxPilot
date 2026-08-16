@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BoxPilot recovery kit mock</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; width: 1200px; height: 900px; overflow: hidden; color: #eaf3f3; background: #071017; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    .disclosure { height: 34px; display: grid; place-items: center; color: #fde8a8; background: #49370d; border-bottom: 1px solid #8a6a1f; font-size: 9px; font-weight: 800; letter-spacing: .035em; white-space: nowrap; }
+    .shell { display: grid; grid-template-columns: 180px 1fr; min-height: 866px; }
+    aside { padding: 20px 13px; border-right: 1px solid #1d303b; background: #09141d; }
+    .brand { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; font-size: 16px; font-weight: 800; }
+    .brand b { display: grid; place-items: center; width: 30px; height: 30px; color: #071017; background: #6ad0b1; border-radius: 8px; }
+    nav { display: grid; gap: 4px; }
+    nav div { padding: 8px 9px; color: #88a1ae; border-radius: 7px; font-size: 10px; }
+    nav .active { color: #dff9f0; background: #17352f; border: 1px solid #2c5b50; }
+    .private { margin-top: 150px; padding: 10px; color: #9bb0b9; background: #0d1d26; border: 1px solid #243b46; border-radius: 8px; font-size: 9px; line-height: 1.55; }
+    main { padding: 22px 28px; }
+    .top { display: flex; justify-content: space-between; align-items: start; margin-bottom: 12px; }
+    .eyebrow { color: #69cfb0; font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+    h1 { margin: 4px 0; font-size: 26px; }
+    h2 { margin: 3px 0 5px; font-size: 14px; }
+    p { margin: 0; color: #9bb0b9; font-size: 9px; line-height: 1.45; }
+    .pill { display: inline-block; padding: 5px 8px; border-radius: 999px; font-size: 8px; font-weight: 800; }
+    .warn { color: #ffe195; background: #463510; border: 1px solid #795d1c; }
+    .good { color: #9eefd5; background: #133c32; border: 1px solid #286e5b; }
+    .panel { display: grid; gap: 12px; padding: 14px; border: 1px solid #213945; border-radius: 9px; background: #0b1821; }
+    .panel-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+    .summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .metric { display: grid; gap: 2px; padding: 10px; color: #8fa4ae; background: #071118; border: 1px solid #243945; border-radius: 7px; font-size: 8px; }
+    .metric strong { color: #eaf3f3; font-size: 15px; }
+    .checks { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+    .check { display: grid; gap: 6px; padding: 10px; border: 1px solid #263e49; border-left: 3px solid #6ad0b1; border-radius: 7px; background: #08141c; }
+    .check.action, .check.operator { border-left-color: #d6a83d; }
+    .check.na { border-left-color: #536b79; }
+    .check-head { display: flex; justify-content: space-between; gap: 8px; }
+    .check strong { font-size: 10px; }
+    .check span { color: #8fa4ae; font-size: 7px; font-weight: 800; text-transform: uppercase; }
+    .check small { color: #a9bbc2; font-size: 7px; line-height: 1.4; }
+    .evidence { display: flex; gap: 5px; flex-wrap: wrap; }
+    .evidence span { padding: 5px 7px; color: #a9bbc2; background: #071118; border: 1px solid #263e49; border-radius: 999px; font-size: 7px; }
+    .boundary { display: flex; justify-content: space-between; gap: 16px; padding: 10px; color: #e2c66f; background: #2a220e; border: 1px solid #795d1c; border-radius: 7px; font-size: 8px; }
+    .buttons { display: flex; gap: 8px; }
+    .button { padding: 8px 11px; color: #dff9f0; background: #163a31; border: 1px solid #2d6a59; border-radius: 7px; font-size: 8px; font-weight: 800; }
+  </style>
+</head>
+<body>
+  <div class="disclosure">MOCKED 0.26.0 PRODUCT STATE. No database, backup payload, router file, credential, key, log, application, VM, network, or host state was copied or changed.</div>
+  <div class="shell">
+    <aside><div class="brand"><b>B</b>BoxPilot</div><nav><div>OV Overview</div><div>AP Applications</div><div>NW Network</div><div>RT Routers</div><div class="active">RX Repair Center</div><div>VM Virtual Machines</div><div>BK Backups</div><div>MG Migrations</div><div>FL Fleet</div><div>GH GitHub</div><div>LG Logs</div><div>ST Settings</div></nav><div class="private"><strong>Private administration</strong><br>Tailscale HTTPS<br>Funnel off<br><br>v0.26.0 recovery kit</div></aside>
+    <main>
+      <div class="top"><div><span class="eyebrow">BoxPilot</span><h1>Prerequisites and Repair Center</h1><p>Inspect the host, collect recovery evidence, and keep every mutation behind a separate approval.</p></div><span class="pill warn">Guarded mode</span></div>
+      <section class="panel"><div class="panel-head"><div><span class="eyebrow">Secret-free disaster recovery kit</span><h2>Recovery readiness and ordered runbook</h2><p>Generated Aug 15, 10:20 PM | BoxPilot 0.26.0</p></div><span class="pill warn">Action required</span></div>
+        <div class="summary"><div class="metric"><strong>2</strong>verified</div><div class="metric"><strong>2</strong>action required</div><div class="metric"><strong>3</strong>operator checks</div><div class="metric"><strong>1</strong>not applicable</div></div>
+        <div class="checks">
+          <article class="check operator"><div class="check-head"><strong>Independent BoxPilot database copy</strong><span>operator check</span></div><p>Controller cannot prove an off-host copy of its own SQLite state.</p><small>Stop, checkpoint, integrity-check, copy, hash, then restart and verify.</small></article>
+          <article class="check operator"><div class="check-head"><strong>Exact source and install notes</strong><span>operator check</span></div><p>Version is recorded, but source archive retention is external.</p><small>Keep the exact archive, manifest, units, and access notes off Bigbox.</small></article>
+          <article class="check na"><div class="check-head"><strong>Managed application recovery</strong><span>not applicable</span></div><p>No executable managed application is detected.</p><small>Regenerate after deploying an application.</small></article>
+          <article class="check"><div class="check-head"><strong>Virtual-machine recovery</strong><span>verified</span></div><p>One VM has a retained encrypted independent copy and passing isolated drill.</p><small>Keep the repository password in a separate failure domain.</small></article>
+          <article class="check action"><div class="check-head"><strong>Router configuration checkpoint</strong><span>action required</span></div><p>No router backup identity is recorded.</p><small>Export the active router file, retain it externally, and record its local hash.</small></article>
+          <article class="check"><div class="check-head"><strong>Migration source preservation</strong><span>verified</span></div><p>Staged content remains verified, source-preserved, and not activated.</p><small>Keep the source until isolated destination health passes.</small></article>
+          <article class="check action"><div class="check-head"><strong>Independent DNS proof</strong><span>action required</span></div><p>Bigbox proof exists, but signed second-device evidence is missing.</p><small>Keep current DNS and run the fixed enrolled-agent test.</small></article>
+          <article class="check operator"><div class="check-head"><strong>Host prerequisite review</strong><span>operator check</span></div><p>One feature-specific prerequisite needs review.</p><small>Resolve only the requirement for the intended recovery operation.</small></article>
+        </div>
+        <div class="evidence"><span>0 app backups</span><span>1 VM backup</span><span>0 router checkpoints</span><span>1 staged migration</span><span>1 active agent</span></div>
+        <div class="boundary"><strong>Evidence, not a backup</strong><span>No credential, database, application data, router configuration, backup payload, agent key, signature, arbitrary log, or mutation is included.</span></div>
+        <div class="buttons"><span class="button">Download evidence JSON</span><span class="button">Download recovery runbook</span></div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

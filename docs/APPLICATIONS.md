@@ -1,6 +1,6 @@
 # Curated applications
 
-BoxPilot `0.25.0` provides integrity-addressed manifests, two executable deployment adapters, two application-aware backup adapters, one planning-only Keel Notes adapter, fixed direct DNS acceptance for managed Pi-hole, and signed repetition of those checks from an enrolled LAN device. The Keel adapter binds an immutable plan to exact public release metadata but cannot download, locally verify, extract, install, start, claim, back up, restore, or expose Keel. The web process never receives the Docker socket. Docker readiness, executable application inspection, deployment, backup, and restore-drill execution cross the restricted local helper as typed operations. Direct DNS checks run in the unprivileged controller or the separately enrolled node-local agent.
+BoxPilot `0.26.0` provides integrity-addressed manifests, two executable deployment adapters, two application-aware backup adapters, one planning-only Keel Notes adapter, fixed direct DNS acceptance for managed Pi-hole, and signed repetition of those checks from an enrolled LAN device. The read-only recovery kit summarizes this evidence without copying application data or credentials. The Keel adapter binds an immutable plan to exact public release metadata but cannot download, locally verify, extract, install, start, claim, back up, restore, or expose Keel. The web process never receives the Docker socket. Docker readiness, executable application inspection, deployment, backup, and restore-drill execution cross the restricted local helper as typed operations. Direct DNS checks run in the unprivileged controller or the separately enrolled node-local agent.
 
 ## Install the Docker prerequisite on Ubuntu
 
@@ -80,7 +80,7 @@ This is not local artifact verification. BoxPilot does not download the asset or
 
 ## Pi-hole guarded staging adapter
 
-Version `0.25.0` can stage Pi-hole in Docker on the exact reviewed Bigbox LAN address, create a local configuration backup with isolated restore proof, collect fixed direct DNS evidence from Bigbox, and repeat the same fixed checks through a signed enrolled agent. The separate router checkpoint, GitHub provenance, and Keel planning centers do not alter this application boundary. The dedicated-VM target remains planning-only. These are service staging, recovery-evidence, and direct-path acceptance workflows, not router or client cutover workflows.
+Version `0.26.0` can stage Pi-hole in Docker on the exact reviewed Bigbox LAN address, create a local configuration backup with isolated restore proof, collect fixed direct DNS evidence from Bigbox, and repeat the same fixed checks through a signed enrolled agent. The separate router checkpoint, GitHub provenance, Keel planning, and recovery-kit views do not alter this application boundary. The dedicated-VM target remains planning-only. These are service staging, recovery-evidence, and direct-path acceptance workflows, not router or client cutover workflows.
 
 The adapter uses:
 

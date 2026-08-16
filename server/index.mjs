@@ -17,6 +17,7 @@ import { createMigrationService } from "./migrations.mjs";
 import { createNetworkService } from "./network.mjs";
 import { createPrerequisiteService } from "./prerequisites.mjs";
 import { createRouterCheckpointService } from "./router-checkpoints.mjs";
+import { createRecoveryKitService } from "./recovery-kit.mjs";
 import { createStateStore } from "./state.mjs";
 import { createVmCreationService } from "./vm-creation.mjs";
 import { createVmExportService } from "./vm-export.mjs";
@@ -59,6 +60,7 @@ const vmSnapshots = createVmSnapshotService({ store: state, libvirt });
 const vmProtection = createVmProtectionService({ store: state, helper });
 const vmRecoveries = createVmRecoveryService({ store: state, helper });
 const vmRetention = createVmRetentionService({ store: state, helper });
+const recoveryKit = createRecoveryKitService({ store: state, prerequisites, applications, libvirt });
 const vmRestoreDrills = createVmRestoreDrillService({ store: state, helper });
 const jobs = createJobService(state, helper, {
   validateApplicationJob: applications.validateJob,
@@ -105,7 +107,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.25.0",
+    version: "0.26.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -191,6 +193,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     fleet: { enrollment: "one-time-digest-stored-token", identity: "ed25519-signed-replay-protected", execution: "node-local-allowlisted-dns-probe-only", controllerShellAccess: false },
     routers: { checkpoints: "browser-local-sha256-metadata-only", configurationUpload: false, credentials: false, discovery: false, mutations: false },
     github: { repositories: "fixed-public-read-only-allowlist", authentication: false, writes: false, cloneOrDownload: false, localDigestVerification: false },
+    recoveryKit: { generation: "authenticated-read-only", formats: ["json", "markdown"], mutations: false, secretsIncluded: false, backupPayloadIncluded: false },
   });
 });
 
@@ -229,6 +232,14 @@ app.post("/api/v1/fleet/dns-probe-tasks", (request, response) => {
 
 app.get("/api/v1/operations/prerequisites", async (_request, response) => {
   response.json(await prerequisites.inspect());
+});
+
+app.get("/api/v1/operations/recovery-kit", async (_request, response) => {
+  try {
+    response.json(await recoveryKit.inspect());
+  } catch {
+    response.status(503).json({ error: "Recovery evidence is temporarily unavailable", code: "recovery_kit_unavailable" });
+  }
 });
 
 app.get("/api/v1/inventory", async (_request, response) => {
@@ -675,7 +686,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.25.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.26.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });
