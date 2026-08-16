@@ -268,7 +268,7 @@ describe("native systemd network boundaries", () => {
     expect(metadata.mode & 0o111).not.toBe(0);
     expect(proof).toContain("process.argv.length !== 2");
     expect(proof).toContain("sudo -k /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-owner-login-proof.mjs");
-    expect(proof).toContain("process.setgroups([message.gid])");
+    expect(proof).toContain("process.setgroups([])");
     expect(proof).toContain("process.setgid(message.gid)");
     expect(proof).toContain("process.setuid(message.uid)");
     expect(proof).toContain('`${baseUrl}/api/admin/server`');
