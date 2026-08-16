@@ -26,9 +26,11 @@ Version `0.49.0` adds a separately approved stopped Keel recovery clone. The bro
 
 Version `0.50.0` adds the next separately approved Keel recovery gate: an isolated startup and health rehearsal from a stopped clone. Planning accepts only a recorded recovery id and pins its root-only evidence checksum and complete state-tree digest. The helper writes a short-lived root-only marker and starts one static no-argument unit. That unit copies the state into one generated disposable workspace, runs the exact Keel 1.2.6 release as the dedicated non-login account, and requires the exact health identity plus healthy SQLite before stopping it and removing the workspace. `PrivateNetwork=true`, loopback-only IP policy, read-only source recovery, read-only production state, and zero published ports prevent LAN or Tailscale exposure. Durable evidence proves clean process stop, unchanged source recovery, removed workspace, and no production replacement, claim, registration, login test, or promotion. Production promotion, owner-login proof, import, deletion, update, adoption, removal, and managed exposure remain separate.
 
+Version `0.50.1` makes hardened native builds safe to serve. A `umask 077` preflight correctly protects generated files while building, but Vite inherits that mask and can otherwise leave `dist` unreadable by the unprivileged `boxpilot` web service. The fixed post-build normalizer first rejects links, special files, multiply linked files, and paths outside the generated distribution, then sets only generated directories to `0755` and generated files to `0644`. It accepts no path or command-line input. Release verification now includes the root HTML response in addition to the authenticated health API so an unreadable interface cannot pass deployment acceptance.
+
 ### What works now
 
-| Area | Status in `0.50.0` | Capability |
+| Area | Status in `0.50.1` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
