@@ -1,6 +1,6 @@
 # Local Action Center
 
-BoxPilot `0.29.0` adds an authenticated, read-only Action Center inside Repair Center. Versions `0.30.1` through `0.33.0` add storage, SMART, filesystem-error, and local UPS guidance. Version `0.34.0` adds interrupted package-manager, reboot-required, degraded systemd, incomplete maintenance evidence, stale APT metadata, and unattended-upgrades guidance without adding a host control. Version `0.35.0` adds a separate durable metadata-only repair in Repair Center, but Action Center itself remains guidance and navigation only. Action Center converts fixed evidence into prioritized notices, explains why each notice exists, and links the operator to a fixed BoxPilot destination with a short manual checklist.
+BoxPilot `0.29.0` adds an authenticated, read-only Action Center inside Repair Center. Versions `0.30.1` through `0.33.0` add storage, SMART, filesystem-error, and local UPS guidance. Version `0.34.0` adds interrupted package-manager, reboot-required, degraded systemd, incomplete maintenance evidence, stale APT metadata, and unattended-upgrades guidance without adding a host control. Version `0.35.0` adds a separate durable metadata-only repair in Repair Center. Version `0.38.0` routes a missing controller snapshot to Backups and keeps independent encrypted storage as a separate operator check after a local snapshot passes. Action Center itself remains guidance and navigation only. It converts fixed evidence into prioritized notices, explains why each notice exists, and links the operator to a fixed BoxPilot destination with a short manual checklist.
 
 The Action Center is guidance, not an automation system. Opening, refreshing, or navigating from it performs no host, application, VM, router, network, DNS, Tailscale, package, file, or service mutation.
 
@@ -10,7 +10,7 @@ The Action Center is guidance, not an automation system. Opening, refreshing, or
 
 | Recovery check | Destination |
 | --- | --- |
-| Independent BoxPilot database copy | Repair Center |
+| BoxPilot controller snapshot and independent copy | Backups |
 | Exact BoxPilot source and install notes | GitHub provenance |
 | Managed application recovery | Backups |
 | Virtual-machine recovery | Backups |
@@ -56,7 +56,7 @@ If the recovery collector throws, returns an incomplete object, or introduces an
 
 ## Deliberate exclusions
 
-Version `0.37.0` Action Center has no:
+Version `0.38.0` Action Center has no:
 
 - Automatic repair or remediation execution
 - Arbitrary command, package, service, file, Docker, libvirt, router, DNS, firewall, or Tailscale operation

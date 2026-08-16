@@ -8,7 +8,7 @@ type BackupRecord = {
   checksumSha256: string;
   sizeBytes: number;
   downtimeMs: number;
-  restoreDrill: { passed: boolean; network?: string; publishedPorts?: number };
+  restoreDrill: { passed: boolean; network?: string; publishedPorts?: number; manifestChecksumSha256?: string };
   createdAt: string;
   verifiedAt: string;
 };
@@ -16,6 +16,7 @@ type BackupRecord = {
 type Coverage = {
   applicationId: string;
   name: string;
+  sourceKind: "controller-state" | "application-state";
   source: { installed: boolean; healthy?: boolean; state: string; detail: string };
   state: "not-installed" | "unprotected" | "verified";
   protected: boolean;
@@ -131,7 +132,7 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
         {coverage.map((item) => (
           <section className="panel backup-source-card" key={item.applicationId}>
             <div>
-              <span className="eyebrow">Application-aware source</span>
+              <span className="eyebrow">{item.sourceKind === "controller-state" ? "Controller state source" : "Application-aware source"}</span>
               <h3>{item.name}</h3>
               <p>{item.source.detail}</p>
               <small>{item.requirement}</small>
@@ -159,7 +160,7 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
       <section className="panel table-panel">
         <div className="section-heading"><div><span className="eyebrow">Durable evidence</span><h3>Verified backup artifacts</h3></div><button className="secondary-button" type="button" onClick={() => void refresh()} disabled={loading}>Refresh</button></div>
         {backups.length ? (
-          <div className="table-scroll"><table><thead><tr><th>Application</th><th>Created</th><th>Artifact</th><th>SHA-256</th><th>Downtime</th><th>Restore drill</th></tr></thead><tbody>{backups.map((backup) => <tr key={backup.id}><td>{coverage.find((entry) => entry.applicationId === backup.applicationId)?.name ?? backup.applicationId}</td><td>{new Date(backup.createdAt).toLocaleString()}</td><td>{formatBytes(backup.sizeBytes)} local</td><td><code>{backup.checksumSha256.slice(0, 12)}...</code></td><td>{backup.downtimeMs} ms</td><td className={backup.restoreDrill.passed ? "good-text" : "warning-text"}>{backup.restoreDrill.passed ? "Passed, network isolated" : "Failed"}</td></tr>)}</tbody></table></div>
+          <div className="table-scroll"><table><thead><tr><th>Source</th><th>Created</th><th>Artifact</th><th>SHA-256</th><th>Downtime</th><th>Restore drill</th></tr></thead><tbody>{backups.map((backup) => <tr key={backup.id}><td>{coverage.find((entry) => entry.applicationId === backup.applicationId)?.name ?? backup.applicationId}</td><td>{new Date(backup.createdAt).toLocaleString()}</td><td>{formatBytes(backup.sizeBytes)} local<details><summary>Verification details</summary><small>Server path</small><code className="backup-evidence-value">{backup.artifactPath}</code><small>Artifact SHA-256</small><code className="backup-evidence-value">{backup.checksumSha256}</code>{backup.restoreDrill.manifestChecksumSha256 && <><small>Manifest SHA-256</small><code className="backup-evidence-value">{backup.restoreDrill.manifestChecksumSha256}</code></>}</details></td><td><code>{backup.checksumSha256.slice(0, 12)}...</code></td><td>{backup.downtimeMs} ms</td><td className={backup.restoreDrill.passed ? "good-text" : "warning-text"}>{backup.restoreDrill.passed ? (backup.applicationId === "boxpilot-controller" ? "Passed, isolated copy-open" : "Passed, network isolated") : "Failed"}</td></tr>)}</tbody></table></div>
         ) : <p className="empty-state">No backup is listed as successful until its archive checksum and isolated restore health check both pass.</p>}
       </section>
     </>

@@ -166,6 +166,34 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("runs the controller snapshot through the typed helper and records only no-change restore evidence", async () => {
+    const backupId = "33333333-3333-4333-8333-333333333333";
+    const result = {
+      backupId,
+      applicationId: "boxpilot-controller",
+      consistentSnapshot: true,
+      snapshotMethod: "sqlite-vacuum-into",
+      sourceServiceStopped: false,
+      downtimeMs: 0,
+      restoreDrill: { passed: true, mode: "isolated-copy-open", copyChecksumMatched: true, integrityCheck: "ok", foreignKeyIssues: 0, schemaVerified: true, ownerStatePresent: true, workspaceRemoved: true, productionDatabaseReplaced: false, serviceStarted: false },
+      boundary: { databaseContentReturned: false, browserPathAccepted: false, browserCommandAccepted: false, productionDatabaseChanged: false, serviceStopped: false, networkAccessRequired: false, independentCopyCreated: false, retentionPerformed: false },
+    };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const validateBackupJob = vi.fn(async () => {});
+    const recordBackupResult = vi.fn();
+    const jobs = createJobService(store, helper, { validateBackupJob, recordBackupResult });
+    const job = store.createJob({ type: "controller.database.backup", title: "Back up BoxPilot controller", parameters: { backupId, applicationId: "boxpilot-controller" }, recovery: { automaticRollback: true }, createdBy: owner.id });
+
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+
+    expect(validateBackupJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("controller.database.backup.create", { backupId }, { timeoutMs: 10 * 60 * 1000 });
+    expect(recordBackupResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
+    expect(completed).toMatchObject({ state: "completed", result: { consistentSnapshot: true, sourceServiceStopped: false, downtimeMs: 0 } });
+    store.close();
+  });
+
   it("runs a Pi-hole backup as a typed long-running job and records only isolated no-cutover evidence", async () => {
     const backupId = "22222222-2222-4222-8222-222222222222";
     const result = {

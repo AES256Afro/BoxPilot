@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.16.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.38.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -155,6 +155,21 @@ describe("restricted helper protocol", () => {
       applications: { inspectDocker: async () => ({ available: true, version: "29.1.3" }) },
     });
     expect(result).toMatchObject({ ok: true, result: { available: true, version: "29.1.3" } });
+  });
+
+  it("accepts only a server-generated controller backup id and delegates no path or command", async () => {
+    const backupId = randomUUID();
+    expect(validateHelperRequest(request({ operation: "controller.database.backup.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "controller.database.backup.inspect", parameters: { database: "/tmp/db" } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "controller.database.backup.create", parameters: { backupId } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "controller.database.backup.create", parameters: { backupId: "../../etc" } }))).toContain("backupId UUID");
+    expect(validateHelperRequest(request({ operation: "controller.database.backup.create", parameters: { backupId, destination: "/tmp" } }))).toContain("only one backupId");
+    const controllerBackups = {
+      inspect: async () => ({ healthy: true, boundary: { mutationPerformed: false } }),
+      createBackup: async (parameters) => ({ ...parameters, applicationId: "boxpilot-controller", consistentSnapshot: true, restoreDrill: { passed: true } }),
+    };
+    await expect(executeHelperOperation(request({ operation: "controller.database.backup.inspect", parameters: {} }), { controllerBackups })).resolves.toMatchObject({ ok: true, result: { healthy: true, boundary: { mutationPerformed: false } } });
+    await expect(executeHelperOperation(request({ operation: "controller.database.backup.create", parameters: { backupId } }), { controllerBackups })).resolves.toMatchObject({ ok: true, result: { backupId, applicationId: "boxpilot-controller", consistentSnapshot: true, restoreDrill: { passed: true } } });
   });
 
   it("delegates a typed backup id without accepting a path", async () => {

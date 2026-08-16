@@ -1,14 +1,20 @@
 # Verified application backups
 
-BoxPilot provides three deliberately narrow recovery-evidence paths: the `0.6.0` restore-verified local Uptime Kuma adapter, the `0.20.0` restore-verified local Pi-hole configuration adapter, and the VM export, encrypted independent-copy, isolated restore-drill, guarded recovery-clone, and evidence-gated retention chain completed through `0.16.0`. It does not report a workload as verified merely because a file was copied.
+BoxPilot provides four deliberately narrow recovery-evidence paths: the `0.38.0` WAL-aware controller database snapshot and isolated copy-open drill, the `0.6.0` restore-verified local Uptime Kuma adapter, the `0.20.0` restore-verified local Pi-hole configuration adapter, and the VM export, encrypted independent-copy, isolated restore-drill, guarded recovery-clone, and evidence-gated retention chain completed through `0.16.0`. It does not report a workload as verified merely because a file was copied.
 
 ## Safety boundary
 
-The browser can request only an immutable plan for `uptime-kuma` or `pi-hole` and the fixed `local-managed` destination. Approval requires the owner password. The restricted root helper accepts only a server-generated UUID and derives every source, artifact, and restore path itself.
+The browser can request only an immutable plan for `boxpilot-controller`, `uptime-kuma`, or `pi-hole` and the fixed `local-managed` destination. Approval requires the owner password. The restricted root helper accepts only a server-generated UUID and derives every source, artifact, manifest, and restore path itself.
 
 It never accepts a path, archive command, container name, image name, destination, or shell string from the browser.
 
-The managed application and backup directory is root-only mode `0700`. Artifacts and generated Compose definitions are mode `0600`. The unprivileged web process reaches these operations only through the typed Unix socket and cannot read the files directly.
+The managed application and backup directory is root-only mode `0700`. Artifacts, manifests, and generated Compose definitions are mode `0600`. The unprivileged web process reaches these operations only through the typed Unix socket and cannot read the files directly.
+
+## BoxPilot controller workflow
+
+Version `0.38.0` creates a consistent standalone snapshot of the fixed live SQLite database with `VACUUM INTO`, so committed WAL state is included without stopping the controller. It computes SHA-256, requires integrity, foreign-key, schema, and owner-state checks to pass, copies the artifact into a generated root-only drill workspace, opens and verifies that copy again, removes the drill workspace, and writes a recovery manifest. The production database is never replaced or changed.
+
+The artifact remains on Bigbox and contains sensitive authentication, agent, job, and audit state. It is not an independent or encrypted copy. See [the controller backup and manual recovery runbook](CONTROLLER-BACKUPS.md) before operating or moving it.
 
 ## Uptime Kuma workflow
 
@@ -32,6 +38,8 @@ The helper stores artifacts under:
 ```text
 /var/lib/boxpilot-managed/backups/uptime-kuma/<backup-uuid>.tar.gz
 /var/lib/boxpilot-managed/backups/pi-hole/<backup-uuid>.tar.gz
+/var/lib/boxpilot-managed/backups/boxpilot-controller/<backup-uuid>/boxpilot.sqlite3
+/var/lib/boxpilot-managed/backups/boxpilot-controller/<backup-uuid>/manifest.json
 ```
 
 The BoxPilot database stores the artifact reference, SHA-256 digest, size, measured source downtime, restore isolation settings, operator, and verification time. It does not store the application data itself.
@@ -201,4 +209,4 @@ This release does not reclaim space. A future prune workflow needs a separate ca
 
 ## Current limitations
 
-The Uptime Kuma and Pi-hole application artifacts remain local to Bigbox. Their passing restore containers prove local artifact integrity and basic container startup, not survival of Bigbox loss or direct DNS service from another LAN device. The VM workflow supports only the fixed mounted-restic destination and requires an operator-provided independent filesystem. Bigbox currently has no configured independent backup mount, so its live UI correctly reports setup blockers and no real VM restore drill, recovery clone, or retention mutation has run there. Remote restic backends, offsite copies, schedules, restic prune, configurable policies, notification, in-place restore, recovered-VM network attachment, application-level VM restore tests, Keel Notes export, PostgreSQL, and Litestream-aware adapters remain future milestones.
+The controller, Uptime Kuma, and Pi-hole artifacts remain local to Bigbox. The controller copy-open drill proves SQLite integrity and schema, not service startup or owner login. Application restore containers prove local artifact integrity and basic container startup, not survival of Bigbox loss or direct DNS service from another LAN device. The VM workflow supports only the fixed mounted-restic destination and requires an operator-provided independent filesystem. Bigbox currently has no configured independent backup mount, so its live UI correctly reports setup blockers and no real VM restore drill, recovery clone, or retention mutation has run there. Remote restic backends, offsite copies, schedules, controller browser download or automatic restore, restic prune, configurable policies, notification, in-place restore, recovered-VM network attachment, application-level VM restore tests, Keel Notes export, PostgreSQL, and Litestream-aware adapters remain future milestones.
