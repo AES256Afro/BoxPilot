@@ -4,16 +4,17 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.28.0` adds policy-visible, owner-approved one-shot scheduling for the only supported signed agent task. An operator may choose only immediate, 5-minute, or 10-minute dispatch, and the task remains available for exactly 10 minutes. The target and four DNS checks still derive from fresh passing Bigbox Pi-hole evidence. Recurrence, unattended execution, arbitrary time, hostname, address, port, command, package, file, plugin, router, DHCP, DNS-cutover, firewall, and Tailscale controls remain unavailable.
+Version `0.29.0` adds a local, authenticated, read-only Action Center to Repair Center. It converts the existing secret-free recovery evidence into prioritized critical, warning, and informational notices; explains why each notice exists; provides three fixed operator steps; and navigates only to a fixed BoxPilot view. It fails closed when evidence is unavailable or unmapped. Automatic repair, arbitrary commands, persistence, schedules, browser notifications, external delivery, credentials, and arbitrary logs remain unavailable.
 
 ### What works now
 
-| Area | Status in `0.28.0` | Capability |
+| Area | Status in `0.29.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
 | Operations Core | Live foundation | Persists plans, steps, approvals, results, recovery guidance, and audit attribution in SQLite. Interrupted applying or verifying jobs fail closed for review after restart. |
 | Repair Center | Live foundation plus recovery kit | Checks Node.js, state storage, the helper, Docker, libvirt, Tailscale, and DNS port availability without returning peer details or raw command output. It also builds a read-only secret-free recovery readiness view and ordered exportable runbook. |
+| Local Action Center | Authenticated read-only guidance | Correlates the recovery kit and recent failed-job count into fixed prioritized notices, sanitized evidence, three-step manual guidance, and fixed in-product destinations. It stores no notice state and cannot repair, execute, schedule, send, or mutate anything. |
 | Disaster recovery kit | Authenticated read-only export | Correlates sanitized job, application-backup, protected-VM-backup, router-checkpoint, migration, fleet, DNS, and prerequisite evidence. JSON and Markdown downloads remain evidence only: no database, application data, configuration file, backup payload, credential, or mutation is included. |
 | Restricted helper | Live typed operations | Uses a versioned, allowlisted protocol over a local Unix socket for the canary, bounded inventory and logs, Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, guarded VM creation and lifecycle, read-only libvirt inventory, offline snapshots, stopped-VM exports, mounted-restic VM copies, isolated restore drills, stopped no-network recovery clones, and exact no-prune retention. It accepts no command strings, binary selection, libvirt URI, argument arrays, operator paths, Compose source path, migration destination, SSH credential, repository password, backup mount, repository path, export destination, restore destination, recovery directory, prune flag, selector such as `latest`, or arbitrary root paths from the browser. |
 | Host and Docker inventory | Live | Reports authenticated host identity, CPU, memory, root storage, uptime, selected service state, LAN addresses, Tailscale self-state, and sanitized Docker containers, images, networks, volumes, and Compose projects. |
@@ -52,7 +53,7 @@ The repository also includes a read-only Ubuntu deployment doctor and a USB-to-h
 - VM delete, force-off, console proxy, online snapshot, snapshot revert/delete, bridge creation, passthrough, in-place restore, recovered-VM network attachment, application-level restore tests, cloud-init, Windows TPM/Secure Boot creation, or VM migration transfer
 - General Docker mutation, custom Compose deployment, additional application installation beyond the curated adapters, package updates, firewall changes, storage changes, or arbitrary command execution
 - Backup schedules, application-backup independent or offsite destinations, restic prune and space reclamation, configurable retention policies, remote restic/cloud backends, Keel Notes export, SSH source discovery or transport, general application-aware volume/database capture, staged-workload activation, or migration cutover
-- Keel Notes deployment, executable AdGuard Home, Jellyfin, Home Assistant, PostgreSQL, Pi-hole router cutover, private or write-capable GitHub integration, signed adapter installation, or general remote-agent operations
+- Keel Notes deployment, executable AdGuard Home, Jellyfin, Home Assistant, PostgreSQL, Pi-hole router cutover, private or write-capable GitHub integration, signed adapter installation, general remote-agent operations, automatic remediation, persistent alerts, or external notification delivery
 - WebAuthn, recovery codes, multiple owners, Tailscale identity headers, tamper-evident audit chaining, or general-purpose mutation handlers
 
 ## Screenshots
@@ -194,6 +195,12 @@ This explicitly disclosed `0.25.0` mock shows the fixed Keel release identity, G
 ![BoxPilot secret-free disaster recovery readiness kit](docs/screenshots/recovery-kit-mock.png)
 
 This explicitly disclosed `0.26.0` mock shows correlated readiness checks, evidence counts, export controls, and the evidence-not-backup boundary. No database, application data, backup payload, router configuration, credential, key, signature, or log was copied, and no host, VM, application, network, or router state was changed for the capture.
+
+### Local Action Center mockup
+
+![BoxPilot prioritized local Action Center](docs/screenshots/action-center-mock.png)
+
+This explicitly disclosed `0.29.0` mock shows fixed severity, sanitized evidence, manual three-step guidance, and in-product navigation. No repair, command, package operation, schedule, notification, credential access, log collection, or host, VM, application, network, DNS, Tailscale, or router change occurred for the capture.
 
 ## Safety contract
 

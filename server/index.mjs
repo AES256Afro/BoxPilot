@@ -1,6 +1,7 @@
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createActionCenterService } from "./action-center.mjs";
 import { createAuditLog } from "./audit.mjs";
 import { createApplicationService } from "./applications.mjs";
 import { createBackupService } from "./backups.mjs";
@@ -61,6 +62,7 @@ const vmProtection = createVmProtectionService({ store: state, helper });
 const vmRecoveries = createVmRecoveryService({ store: state, helper });
 const vmRetention = createVmRetentionService({ store: state, helper });
 const recoveryKit = createRecoveryKitService({ store: state, prerequisites, applications, libvirt });
+const actionCenter = createActionCenterService({ recoveryKit });
 const vmRestoreDrills = createVmRestoreDrillService({ store: state, helper });
 const jobs = createJobService(state, helper, {
   validateApplicationJob: applications.validateJob,
@@ -107,7 +109,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.28.0",
+    version: "0.29.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -194,6 +196,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     routers: { checkpoints: "browser-local-sha256-metadata-only", guidance: "fixed-model-operator-checklists-with-live-gateway-address-correlation", gatewayIdentityVerified: false, configurationUpload: false, credentials: false, discovery: false, mutations: false },
     github: { repositories: "fixed-public-read-only-allowlist", authentication: false, writes: false, cloneOrDownload: false, localDigestVerification: false },
     recoveryKit: { generation: "authenticated-read-only", formats: ["json", "markdown"], mutations: false, secretsIncluded: false, backupPayloadIncluded: false },
+    actionCenter: { generation: "authenticated-read-only", guidance: "fixed-local-destinations", automaticRepair: false, persistence: false, externalDelivery: false },
   });
 });
 
@@ -240,6 +243,10 @@ app.get("/api/v1/operations/recovery-kit", async (_request, response) => {
   } catch {
     response.status(503).json({ error: "Recovery evidence is temporarily unavailable", code: "recovery_kit_unavailable" });
   }
+});
+
+app.get("/api/v1/operations/action-center", async (_request, response) => {
+  response.json(await actionCenter.inspect());
 });
 
 app.get("/api/v1/inventory", async (_request, response) => {
@@ -690,7 +697,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.28.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.29.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

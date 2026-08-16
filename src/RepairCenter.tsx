@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ViewName } from "./data";
 
 interface Prerequisite {
   id: string;
@@ -38,19 +39,40 @@ interface RecoveryKit {
   runbookMarkdown: string;
 }
 
+interface ActionNotice {
+  id: string;
+  severity: "critical" | "warning" | "info";
+  category: string;
+  title: string;
+  summary: string;
+  evidence: string[];
+  recommendation: { view: ViewName; title: string; steps: string[] };
+  boundary: { mutationPerformed: boolean; automaticFixAvailable: boolean; commandsIncluded: boolean; secretsIncluded: boolean; logsIncluded: boolean };
+}
+
+interface ActionCenter {
+  generatedAt: string;
+  sourceStatus: "ready" | "unavailable";
+  summary: { critical: number; warning: number; info: number; total: number };
+  notices: ActionNotice[];
+  boundary: { mutationPerformed: boolean; automaticRepair: boolean; persistence: boolean; browserNotifications: boolean; externalDelivery: boolean; credentialsIncluded: boolean; arbitraryLogsIncluded: boolean };
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   const body = await response.json() as T & { error?: string };
   if (!response.ok) throw new Error(body.error ?? `Request failed with status ${response.status}`);
   return body;
 }
 
-export default function RepairCenter({ csrfToken }: { csrfToken: string }) {
+export default function RepairCenter({ csrfToken, onNavigate = () => undefined }: { csrfToken: string; onNavigate?: (view: ViewName) => void }) {
   const [checks, setChecks] = useState<Prerequisite[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [recoveryKit, setRecoveryKit] = useState<RecoveryKit | null>(null);
+  const [actionCenter, setActionCenter] = useState<ActionCenter | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
 
@@ -58,12 +80,19 @@ export default function RepairCenter({ csrfToken }: { csrfToken: string }) {
     setLoading(true);
     setError(null);
     setRecoveryError(null);
+    setActionError(null);
     try {
-      const [prerequisiteResult, jobResult, recoveryResult] = await Promise.allSettled([
+      const [prerequisiteResult, jobResult, recoveryResult, actionResult] = await Promise.allSettled([
         readJson<{ checks: Prerequisite[] }>(await fetch("/api/v1/operations/prerequisites")),
         readJson<{ jobs: Job[] }>(await fetch("/api/v1/jobs?limit=25")),
         readJson<RecoveryKit>(await fetch("/api/v1/operations/recovery-kit")),
+        readJson<ActionCenter>(await fetch("/api/v1/operations/action-center")),
       ]);
+      if (actionResult.status === "fulfilled") setActionCenter(actionResult.value);
+      else {
+        setActionCenter(null);
+        setActionError(actionResult.reason instanceof Error ? actionResult.reason.message : "Action Center unavailable");
+      }
       if (prerequisiteResult.status === "rejected") throw prerequisiteResult.reason;
       if (jobResult.status === "rejected") throw jobResult.reason;
       setChecks(prerequisiteResult.value.checks);
@@ -144,6 +173,28 @@ export default function RepairCenter({ csrfToken }: { csrfToken: string }) {
 
       {error && <div className="auth-error" role="alert">{error}</div>}
       {recoveryError && <div className="notice warning-notice" role="status"><strong>Recovery kit unavailable</strong><span>{recoveryError}. Prerequisite checks and durable jobs remain available.</span></div>}
+      {actionError && <div className="notice warning-notice" role="status"><strong>Action Center unavailable</strong><span>{actionError}. No all-clear state is being claimed.</span></div>}
+
+      {actionCenter && (
+        <section className="panel action-center">
+          <header className="panel-header">
+            <div><span className="eyebrow">Local Action Center</span><strong>Prioritized evidence and guided next steps</strong><span>Generated {new Date(actionCenter.generatedAt).toLocaleString()} | {actionCenter.sourceStatus === "ready" ? "Recovery evidence available" : "Evidence unavailable, failed closed"}</span></div>
+            <div className="action-counts"><span className="action-critical">{actionCenter.summary.critical} critical</span><span className="action-warning">{actionCenter.summary.warning} warning</span><span>{actionCenter.summary.info} info</span></div>
+          </header>
+          <div className="action-list">
+            {actionCenter.notices.map((item) => (
+              <article className={`action-card action-${item.severity}`} key={item.id}>
+                <div className="action-card-heading"><div><span>{item.category}</span><strong>{item.title}</strong></div><span className={`status-pill status-${item.severity === "critical" || item.severity === "warning" ? "warning" : "neutral"}`}>{item.severity}</span></div>
+                <p>{item.summary}</p>
+                <div className="action-evidence"><strong>Why this appears</strong>{item.evidence.map((evidence) => <span key={evidence}>{evidence}</span>)}</div>
+                <ol>{item.recommendation.steps.map((step) => <li key={step}>{step}</li>)}</ol>
+                <footer><span>No automatic fix, command, credential, or log payload.</span><button className="secondary-button" type="button" onClick={() => onNavigate(item.recommendation.view)}>{item.recommendation.title}</button></footer>
+              </article>
+            ))}
+          </div>
+          <div className="recovery-boundary"><strong>Guidance only</strong><span>Action Center is regenerated from sanitized evidence. It stores no notification state, sends nothing externally, and cannot install, repair, schedule, run a command, or mutate the host.</span></div>
+        </section>
+      )}
 
       {recoveryKit && (
         <section className="panel recovery-kit">
