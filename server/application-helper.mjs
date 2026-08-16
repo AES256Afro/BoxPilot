@@ -1,5 +1,5 @@
 import { execFile as execFileCallback } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { chmod, copyFile, mkdir, readFile, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -8,6 +8,8 @@ import { applicationInternals } from "./applications.mjs";
 
 const execFile = promisify(execFileCallback);
 const containerName = "boxpilot-uptime-kuma";
+const piholeContainerName = "boxpilot-pi-hole";
+const piholeCapabilities = ["CHOWN", "DAC_OVERRIDE", "FOWNER", "NET_BIND_SERVICE", "SETFCAP", "SETGID", "SETUID"];
 const logSources = {
   boxpilot: ["boxpilot.service", "boxpilot-helper.service"],
   docker: ["docker.service"],
@@ -25,6 +27,31 @@ function composeDefinition(hostPort) {
       - "127.0.0.1:${hostPort}:3001"
     volumes:
       - ./data:/app/data
+`;
+}
+
+function piholeComposeDefinition(lanAddress, webPort) {
+  return `services:
+  pi-hole:
+    container_name: ${piholeContainerName}
+    image: ${applicationInternals.piholeImage}
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+${piholeCapabilities.map((capability) => `      - ${capability}`).join("\n")}
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: America/Chicago
+      FTLCONF_dns_listeningMode: ALL
+      FTLCONF_webserver_api_password: \${PIHOLE_PASSWORD}
+    ports:
+      - "${lanAddress}:53:53/tcp"
+      - "${lanAddress}:53:53/udp"
+      - "${lanAddress}:${webPort}:80/tcp"
+    volumes:
+      - ./etc-pihole:/etc/pihole
 `;
 }
 
@@ -79,6 +106,11 @@ export function createApplicationHelper({
   const dataDirectory = path.join(appDirectory, "data");
   const composePath = path.join(appDirectory, "compose.yaml");
   const previousPath = path.join(appDirectory, "compose.yaml.previous");
+  const piholeDirectory = path.join(resolvedRoot, "pi-hole");
+  const piholeDataDirectory = path.join(piholeDirectory, "etc-pihole");
+  const piholeComposePath = path.join(piholeDirectory, "compose.yaml");
+  const piholePreviousPath = path.join(piholeDirectory, "compose.yaml.previous");
+  const piholeSecretPath = path.join(piholeDirectory, "admin-password");
 
   async function docker(args, options) {
     return runDocker(dockerBinary, args, options);
@@ -105,6 +137,61 @@ export function createApplicationHelper({
       };
     } catch {
       return { installed: false, state: "not-installed", healthy: false, port: null, detail: "Managed Uptime Kuma container was not found" };
+    }
+  }
+
+  async function inspectPihole() {
+    try {
+      const result = await docker(["inspect", "--format", "{{json .State}}", piholeContainerName], { timeout: 5000 });
+      const state = JSON.parse(result.stdout);
+      let lanAddress = null;
+      let webPort = null;
+      let dnsTcpBound = false;
+      let dnsUdpBound = false;
+      try {
+        const [tcp, udp, web] = await Promise.all([
+          docker(["port", piholeContainerName, "53/tcp"], { timeout: 5000 }),
+          docker(["port", piholeContainerName, "53/udp"], { timeout: 5000 }),
+          docker(["port", piholeContainerName, "80/tcp"], { timeout: 5000 }),
+        ]);
+        const tcpMatch = tcp.stdout.match(/([0-9.]+):53$/m);
+        const udpMatch = udp.stdout.match(/([0-9.]+):53$/m);
+        const webMatch = web.stdout.match(/([0-9.]+):(\d+)$/m);
+        dnsTcpBound = Boolean(tcpMatch);
+        dnsUdpBound = Boolean(udpMatch);
+        if (tcpMatch && udpMatch && webMatch && tcpMatch[1] === udpMatch[1] && tcpMatch[1] === webMatch[1]) {
+          lanAddress = tcpMatch[1];
+          webPort = Number.parseInt(webMatch[2], 10);
+        }
+      } catch {
+        lanAddress = null;
+        webPort = null;
+      }
+      const healthy = state.Running && !state.Error && state.Health?.Status === "healthy" && dnsTcpBound && dnsUdpBound && Boolean(lanAddress) && Boolean(webPort);
+      return {
+        installed: true,
+        state: state.Running ? "running" : state.Status ?? "stopped",
+        healthy,
+        lanAddress,
+        port: webPort,
+        webUrl: lanAddress && webPort ? `http://${lanAddress}:${webPort}/admin/` : null,
+        dnsTcpBound,
+        dnsUdpBound,
+        dhcpEnabled: false,
+        routerMutationPerformed: false,
+        dnsCutoverPerformed: false,
+        backupProtected: false,
+        secretRetrievalCommand: "sudo sed -n 's/^PIHOLE_PASSWORD=//p' /var/lib/boxpilot-managed/apps/pi-hole/admin-password",
+        detail: healthy ? `Managed Pi-hole is healthy on ${lanAddress}; no router or client DNS setting was changed` : "Managed Pi-hole exists but did not pass all DNS and web binding checks",
+      };
+    } catch {
+      return {
+        installed: false, state: "not-installed", healthy: false, lanAddress: null, port: null, webUrl: null,
+        dnsTcpBound: false, dnsUdpBound: false, dhcpEnabled: false, routerMutationPerformed: false,
+        dnsCutoverPerformed: false, backupProtected: false,
+        secretRetrievalCommand: "sudo sed -n 's/^PIHOLE_PASSWORD=//p' /var/lib/boxpilot-managed/apps/pi-hole/admin-password",
+        detail: "Managed Pi-hole container was not found; router and client DNS are unchanged",
+      };
     }
   }
 
@@ -291,7 +378,68 @@ export function createApplicationHelper({
     }
   }
 
-  return { appDirectory, composePath, inspectDocker, inventoryDocker, inspectLogs, inspect, deploy, backup };
+  async function deployPihole({ lanAddress, webPort }) {
+    await docker(["version", "--format", "{{.Server.Version}}"], { timeout: 5000 });
+    await mkdir(piholeDataDirectory, { recursive: true, mode: 0o700 });
+    await chmod(piholeDirectory, 0o700);
+    await chmod(piholeDataDirectory, 0o700);
+    try {
+      await stat(piholeSecretPath);
+      await chmod(piholeSecretPath, 0o600);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      const password = randomBytes(32).toString("base64url");
+      await writeFile(piholeSecretPath, `PIHOLE_PASSWORD=${password}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    }
+
+    let previous = null;
+    try {
+      previous = await readFile(piholeComposePath, "utf8");
+      await copyFile(piholeComposePath, piholePreviousPath);
+      await chmod(piholePreviousPath, 0o600);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+
+    const temporaryPath = path.join(piholeDirectory, `.compose-${process.pid}.tmp`);
+    await writeFile(temporaryPath, piholeComposeDefinition(lanAddress, webPort), { encoding: "utf8", mode: 0o600, flag: "wx" });
+    await rename(temporaryPath, piholeComposePath);
+    const composeArgs = ["compose", "--project-name", piholeContainerName, "--env-file", piholeSecretPath, "--file", piholeComposePath];
+    try {
+      await docker([...composeArgs, "up", "--detach", "--remove-orphans"], { timeout: 180000 });
+      await verifyHealth(piholeContainerName);
+      const live = await inspectPihole();
+      if (!live.healthy || live.lanAddress !== lanAddress || live.port !== webPort) throw new Error("Managed Pi-hole state failed final binding verification");
+      return {
+        ...live,
+        image: applicationInternals.piholeImage,
+        dataPreserved: true,
+        secretPreserved: true,
+        rollbackPerformed: false,
+        routerMutationPerformed: false,
+        dnsCutoverPerformed: false,
+        dhcpEnabled: false,
+      };
+    } catch (error) {
+      let rollbackPerformed = false;
+      try {
+        await docker([...composeArgs, "down"], { timeout: 60000 });
+        if (previous !== null) {
+          await copyFile(piholePreviousPath, piholeComposePath);
+          await docker([...composeArgs, "up", "--detach"], { timeout: 180000 });
+        } else {
+          await unlink(piholeComposePath).catch(() => {});
+        }
+        rollbackPerformed = true;
+      } catch {
+        rollbackPerformed = false;
+      }
+      const suffix = rollbackPerformed ? " Automated rollback completed; configuration and the administrator secret were preserved." : " Automated rollback failed; preserve the managed Pi-hole directory and keep router and client DNS unchanged.";
+      throw new Error(`Pi-hole staging failed.${suffix}`);
+    }
+  }
+
+  return { appDirectory, composePath, piholeDirectory, piholeComposePath, piholeSecretPath, inspectDocker, inventoryDocker, inspectLogs, inspect, inspectPihole, deploy, deployPihole, backup };
 }
 
-export const applicationHelperInternals = { composeDefinition, containerName, parseJsonLines, sanitizeLogMessage, logSources };
+export const applicationHelperInternals = { composeDefinition, piholeComposeDefinition, containerName, piholeContainerName, piholeCapabilities, parseJsonLines, sanitizeLogMessage, logSources };

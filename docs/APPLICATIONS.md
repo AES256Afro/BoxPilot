@@ -1,6 +1,6 @@
 # Curated applications
 
-BoxPilot `0.6.0` provides application manifests, one executable deployment adapter, and one application-aware backup adapter. The web process never receives the Docker socket. Docker readiness, application inspection, deployment, backup, and restore-drill execution cross the restricted local helper as typed operations.
+BoxPilot `0.19.0` provides integrity-addressed manifests, two executable deployment adapters, and one application-aware backup adapter. The web process never receives the Docker socket. Docker readiness, application inspection, deployment, backup, and restore-drill execution cross the restricted local helper as typed operations.
 
 ## Install the Docker prerequisite on Ubuntu
 
@@ -72,23 +72,44 @@ If deployment or health verification fails, BoxPilot stops the managed stack and
 
 After deployment, the Backups page can record artifact integrity and an isolated restore test for the Uptime Kuma data directory. A local-only verified artifact still needs an independent destination before it qualifies as resilient 3-2-1 protection.
 
-## Pi-hole planning adapter
+## Pi-hole guarded staging adapter
 
-Pi-hole is planning-only. The adapter models the official Docker image, persistent `/etc/pihole` configuration, TCP and UDP port 53, web access, and both Docker and dedicated-VM targets.
+Version `0.19.0` can stage Pi-hole in Docker on the exact reviewed Bigbox LAN address. The dedicated-VM target remains planning-only. This is a service-staging workflow, not a router or client cutover workflow.
 
-Version `0.18.0` adds the prerequisite [Network and DNS Center](NETWORK.md). It can distinguish loopback, virtual-network, wildcard, and exact host-address port 53 listeners and can record the router checkpoint, emergency resolver, second-device, address, subnet, and Tailscale DNS recovery gates. The resulting assessment is not executable and does not yet unlock Pi-hole staging.
+The adapter uses:
+
+- Official version `2026.07.2`, pinned to multi-platform digest `sha256:f7d1be836e3bc608b56d82fc9904f5a831cdfbc0dc9c6d58f94e4c985c70038b`
+- Container name `boxpilot-pi-hole`
+- Exact `<reviewed Bigbox LAN>:53` TCP and UDP bindings
+- Exact `<reviewed Bigbox LAN>:<reviewed high port>` web binding
+- Persistent `/var/lib/boxpilot-managed/apps/pi-hole/etc-pihole`
+- A generated administrator password stored only in root-owned mode `0600` file `/var/lib/boxpilot-managed/apps/pi-hole/admin-password`
+- `cap_drop: ALL`, then only `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `NET_BIND_SERVICE`, `SETFCAP`, `SETGID`, and `SETUID`
+- `no-new-privileges:true`
+- The upstream container DNS health check plus exact published-binding verification
+
+The Compose definition publishes no DHCP port 67 or NTP port 123, adds no `NET_ADMIN` or `SYS_TIME`, uses no host network, mounts no Docker socket, and accepts no browser-provided image, path, password, capability, command, binary, or argument array.
 
 Official source: [Docker Pi-hole](https://github.com/pi-hole/docker-pi-hole).
 
-BoxPilot will not stage Pi-hole until later milestones can prove:
+Deployment workflow:
 
-- The active DNS role and port 53 owner
-- Whether Flint 2 AdGuard Home remains primary, becomes fallback, or is being replaced
-- A reserved LAN address or VM address
-- A router configuration checkpoint
-- An emergency resolver path independent of Bigbox
-- DNS tests from Bigbox and a second LAN device
+1. Open **Network** and select **Pi-hole on Bigbox**.
+2. Confirm the live gateway, Bigbox address, proposed primary address, and independent emergency resolver.
+3. Record the external router checkpoint, independently test the emergency resolver, keep a second LAN device ready, and declare the actual Tailscale DNS override state.
+4. Generate a ready no-change assessment. It is owner-attributable and expires.
+5. Open **Applications**, select Pi-hole, choose a high LAN web port, and generate the linked plan.
+6. Stage the exact revision, open **Repair Center**, review the network-critical recovery statement, and re-enter the owner password.
+7. After the background job passes, open the reported LAN URL. Retrieve the administrator password only from a server terminal with the command shown by BoxPilot.
+8. Keep every router and client on the current resolver. The application remains **Backup: required**.
+
+At planning, staging, and approval, BoxPilot revalidates the assessment owner, role, expiry, gateway, Bigbox address, current resolvers, DNS listeners, Tailscale state, recovery declarations, Docker, and web port. If any evidence changes, the job fails closed and requires a new assessment.
+
+BoxPilot still will not make Pi-hole authoritative until later milestones can prove:
+
 - Configuration backup integrity and an isolated restore drill
-- Route cutover and rollback ordering
+- Direct DNS query tests from Bigbox and a second LAN device
+- A separately reviewed router advertisement plan with model-specific rollback
+- A stable observation window while the current resolver remains available
 
-DHCP, NTP, `NET_ADMIN`, `SYS_TIME`, host networking, router mutation, and automatic DNS cutover are not enabled by the `0.6.0` adapter.
+If deployment or health verification fails, BoxPilot removes only the managed stack or restores the previous managed Compose definition. Configuration and the administrator secret are preserved. DHCP, NTP, router mutation, client DNS advertisement, Tailscale mutation, firewall mutation, and automatic DNS cutover remain unavailable.

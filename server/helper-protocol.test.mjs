@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.13.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.14.0", mutationPerformed: false } });
   });
 
   it("rejects arbitrary operation names and parameters", () => {
@@ -92,6 +92,22 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ operation: "system.logs.inspect", parameters: { source: "boxpilot", limit: 50 } }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "system.logs.inspect", parameters: { source: "../../etc", limit: 50 } }))).toContain("fixed source");
     expect(validateHelperRequest(request({ operation: "system.logs.inspect", parameters: { source: "docker", limit: 500 } }))).toContain("1 to 200");
+  });
+
+  it("accepts only a private Pi-hole LAN binding and high web port", () => {
+    expect(validateHelperRequest(request({ operation: "application.pi-hole.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.pi-hole.deploy", parameters: { lanAddress: "192.168.8.10", webPort: 8080 } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.pi-hole.deploy", parameters: { lanAddress: "127.0.0.1", webPort: 8080 } }))).toContain("private lanAddress");
+    expect(validateHelperRequest(request({ operation: "application.pi-hole.deploy", parameters: { lanAddress: "192.168.8.10", webPort: 8080, image: "evil" } }))).toContain("accepts only");
+    expect(validateHelperRequest(request({ operation: "application.pi-hole.deploy", parameters: { lanAddress: "192.168.8.10", webPort: 53 } }))).toContain("webPort");
+  });
+
+  it("delegates only the reviewed Pi-hole binding to the curated helper", async () => {
+    const applications = {
+      deployPihole: async (parameters) => ({ ...parameters, installed: true, healthy: true, routerMutationPerformed: false, dnsCutoverPerformed: false, dhcpEnabled: false }),
+    };
+    const result = await executeHelperOperation(request({ operation: "application.pi-hole.deploy", parameters: { lanAddress: "192.168.8.10", webPort: 8080 } }), { applications });
+    expect(result).toMatchObject({ ok: true, result: { lanAddress: "192.168.8.10", webPort: 8080, routerMutationPerformed: false, dnsCutoverPerformed: false, dhcpEnabled: false } });
   });
 
   it("returns only the Docker server availability and version", async () => {
