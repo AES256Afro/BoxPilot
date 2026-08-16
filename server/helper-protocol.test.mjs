@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.56.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.57.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -154,6 +154,11 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ operation: "container.docker.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "container.docker.inspect", parameters: { socket: "/var/run/docker.sock" } }))).toContain("no parameters");
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.uptime-kuma.lifecycle.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.uptime-kuma.lifecycle.inspect", parameters: { container: "other" } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "application.uptime-kuma.action", parameters: { action: "restart", expectedRevision: "a".repeat(64) } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.uptime-kuma.action", parameters: { action: "remove", expectedRevision: "a".repeat(64) } }))).toContain("fixed action");
+    expect(validateHelperRequest(request({ operation: "application.uptime-kuma.action", parameters: { action: "restart", expectedRevision: "a".repeat(64), command: "sh" } }))).toContain("fixed action");
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.deploy", parameters: { hostPort: 3001 } }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.deploy", parameters: { hostPort: 53 } }))).toContain("hostPort");
     expect(validateHelperRequest(request({ operation: "application.uptime-kuma.deploy", parameters: { hostPort: 3001, image: "evil" } }))).toContain("only a hostPort");
@@ -165,6 +170,16 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ operation: "system.logs.inspect", parameters: { source: "boxpilot", limit: 50 } }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "system.logs.inspect", parameters: { source: "../../etc", limit: 50 } }))).toContain("fixed source");
     expect(validateHelperRequest(request({ operation: "system.logs.inspect", parameters: { source: "docker", limit: 500 } }))).toContain("1 to 200");
+  });
+
+  it("delegates only the exact managed Uptime Kuma lifecycle request", async () => {
+    const expectedRevision = "a".repeat(64);
+    const applications = {
+      inspectUptimeKumaLifecycle: vi.fn(async () => ({ installed: true, managed: true, revision: expectedRevision, allowedActions: ["restart"], mutationPerformed: false })),
+      actionUptimeKuma: vi.fn(async (parameters) => ({ applicationId: "uptime-kuma", ...parameters, performed: true, dataPreserved: true })),
+    };
+    await expect(executeHelperOperation(request({ operation: "application.uptime-kuma.lifecycle.inspect", parameters: {} }), { applications })).resolves.toMatchObject({ ok: true, result: { installed: true, managed: true, mutationPerformed: false } });
+    await expect(executeHelperOperation(request({ operation: "application.uptime-kuma.action", parameters: { action: "restart", expectedRevision } }), { applications })).resolves.toMatchObject({ ok: true, result: { applicationId: "uptime-kuma", action: "restart", expectedRevision, performed: true, dataPreserved: true } });
   });
 
   it("accepts only a private Pi-hole LAN binding and high web port", () => {

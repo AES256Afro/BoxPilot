@@ -8,7 +8,7 @@ import { createStateStore } from "./state.mjs";
 
 const directories = [];
 
-async function setup({ statuses = {}, portInUse = false, assessmentError = null, keelProvenanceMatches = true, keelDiscovery = null, keelDiscoveryError = null, keelArtifact = null, keelArchive = null, keelStaging = null, keelInstallation = null, keelLoginProof = null, hostPlatform = "linux", hostArchitecture = "x64" } = {}) {
+async function setup({ statuses = {}, portInUse = false, assessmentError = null, uptimeState = null, uptimeLifecycle = null, keelProvenanceMatches = true, keelDiscovery = null, keelDiscoveryError = null, keelArtifact = null, keelArchive = null, keelStaging = null, keelInstallation = null, keelLoginProof = null, hostPlatform = "linux", hostArchitecture = "x64" } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-apps-"));
   directories.push(directory);
   const store = createStateStore({ stateDirectory: directory });
@@ -44,6 +44,8 @@ async function setup({ statuses = {}, portInUse = false, assessmentError = null,
     boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false, arbitraryPathAccepted: false },
   };
   const helperRequest = vi.fn(async (operation) => {
+    if (operation === "application.uptime-kuma.inspect") return uptimeState ?? { installed: false, state: "not-installed", detail: "Ready to plan" };
+    if (operation === "application.uptime-kuma.lifecycle.inspect") return uptimeLifecycle ?? { installed: false, managed: false, state: "not-installed", running: false, healthy: false, port: null, revision: null, allowedActions: [], detail: "Managed Uptime Kuma container was not found" };
     if (operation === "application.keel.inspect") {
       if (keelDiscoveryError) throw new Error(keelDiscoveryError);
       return defaultKeelDiscovery;
@@ -114,6 +116,27 @@ describe("application manifests and plans", () => {
     expect(plan.output).toMatchObject({ executable: true, hostPort: 3101, blockers: [] });
     const job = await service.stage(plan.id, plan.revision, owner.id);
     expect(job).toMatchObject({ type: "application.uptime-kuma.deploy", state: "awaiting_approval", parameters: { hostPort: 3101 } });
+    store.close();
+  });
+
+  it("merges strict managed lifecycle evidence into an installed Uptime Kuma catalog entry", async () => {
+    const lifecycle = {
+      installed: true, managed: true, state: "running", running: true, healthy: true, port: 3101,
+      revision: "a".repeat(64), allowedActions: ["stop", "restart"], detail: "Managed Uptime Kuma is healthy on loopback port 3101",
+    };
+    const { store, service, helperRequest } = await setup({
+      uptimeState: { installed: true, state: "running", healthy: true, port: 3101, detail: "Uptime Kuma is healthy" },
+      uptimeLifecycle: lifecycle,
+    });
+    const catalog = await service.list();
+    expect(catalog.applications.find((item) => item.id === "uptime-kuma")?.live).toMatchObject({
+      installed: true,
+      state: "running",
+      backup: { state: "required", verifiedAt: null },
+      lifecycle,
+    });
+    expect(helperRequest).toHaveBeenCalledWith("application.uptime-kuma.inspect", {});
+    expect(helperRequest).toHaveBeenCalledWith("application.uptime-kuma.lifecycle.inspect", {});
     store.close();
   });
 

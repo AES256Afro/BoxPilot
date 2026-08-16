@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BoxPilot Uptime Kuma lifecycle mock</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; width: 1200px; height: 900px; overflow: hidden; color: #eaf3f3; background: #071017; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    .disclosure { height: 34px; display: grid; place-items: center; color: #fde8a8; background: #49370d; border-bottom: 1px solid #8a6a1f; font-size: 10px; font-weight: 800; letter-spacing: .035em; white-space: nowrap; }
+    .shell { display: grid; grid-template-columns: 180px 1fr; min-height: 866px; }
+    aside { padding: 20px 13px; border-right: 1px solid #1d303b; background: #09141d; }
+    .brand { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; font-size: 16px; font-weight: 800; }
+    .brand b { display: grid; place-items: center; width: 30px; height: 30px; color: #071017; background: #6ad0b1; border-radius: 8px; }
+    nav { display: grid; gap: 4px; }
+    nav div { padding: 8px 9px; color: #88a1ae; border-radius: 7px; font-size: 10px; }
+    nav .active { color: #dff9f0; background: #17352f; border: 1px solid #2c5b50; }
+    .private { margin-top: 150px; padding: 10px; color: #9bb0b9; background: #0d1d26; border: 1px solid #243b46; border-radius: 8px; font-size: 9px; line-height: 1.55; }
+    main { position: relative; padding: 20px 28px; }
+    .top { display: flex; justify-content: space-between; align-items: start; margin-bottom: 18px; }
+    .eyebrow { color: #69cfb0; font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+    h1 { margin: 4px 0; font-size: 26px; }
+    h2 { margin: 3px 0 5px; font-size: 16px; }
+    h3 { margin: 14px 0 7px; font-size: 14px; }
+    p, li, dd { color: #9bb0b9; font-size: 10px; line-height: 1.5; }
+    .pill { display: inline-block; padding: 5px 8px; border-radius: 999px; font-size: 8px; font-weight: 800; }
+    .good { color: #9eefd5; background: #133c32; border: 1px solid #286e5b; }
+    .warn { color: #ffe195; background: #463510; border: 1px solid #795d1c; }
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 13px; }
+    .card { min-height: 190px; padding: 16px; border: 1px solid #213945; border-radius: 12px; background: #0b1821; }
+    .cardhead { display: flex; justify-content: space-between; }
+    .initials { display: grid; place-items: center; width: 34px; height: 34px; color: #75d8bb; background: #102a25; border: 1px solid #315348; border-radius: 9px; font-size: 9px; font-weight: 800; }
+    .card small { color: #87a0ac; font-size: 8px; }
+    .actions { display: flex; gap: 7px; margin-top: 18px; }
+    .button { display: inline-block; padding: 8px 11px; color: #dff9f0; background: #123129; border: 1px solid #376c5e; border-radius: 7px; font-size: 9px; font-weight: 800; }
+    .backdrop { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(3, 9, 13, .76); }
+    .modal { width: 720px; padding: 20px; border: 1px solid #315260; border-radius: 13px; background: #0b1821; box-shadow: 0 22px 60px #000a; }
+    .modalhead { display: flex; justify-content: space-between; align-items: start; }
+    .close { display: grid; place-items: center; width: 28px; height: 28px; color: #9bb0b9; border: 1px solid #2b4652; border-radius: 7px; }
+    dl { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 16px 0; }
+    dl div { padding: 10px; background: #071118; border: 1px solid #243e49; border-radius: 8px; }
+    dt { color: #7f99a5; font-size: 8px; text-transform: uppercase; }
+    dd { margin: 5px 0 0; color: #dceaea; font-weight: 700; }
+    .panel { margin-top: 10px; padding: 12px 14px; border: 1px solid #284653; border-radius: 8px; background: #08141b; }
+    ol { margin: 7px 0 0; padding-left: 20px; }
+    li { margin: 5px 0; }
+    .locks { display: grid; gap: 6px; }
+    .locks span { color: #9bb0b9; font-size: 9px; line-height: 1.45; }
+    code { color: #9ce5cf; font: 9px ui-monospace, Menlo, monospace; }
+    .footer { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; }
+    .approve { padding: 9px 13px; color: #062018; background: #69cfb0; border: 1px solid #8be7cb; border-radius: 7px; font-size: 9px; font-weight: 800; }
+  </style>
+</head>
+<body>
+  <div class="disclosure">MOCKED 0.57.0 PRODUCT STATE. No password, approval, container, image, Compose, port, volume, network, data, router, DNS, firewall, Tailscale, or host change occurred.</div>
+  <div class="shell">
+    <aside><div class="brand"><b>B</b>BoxPilot</div><nav><div>OV Overview</div><div class="active">AP Applications</div><div>NW Network</div><div>RT Routers</div><div>RX Repair Center</div><div>VM Virtual Machines</div><div>BK Backups</div><div>MG Migrations</div><div>FL Fleet</div><div>GH GitHub</div><div>LG Logs</div><div>ST Settings</div></nav><div class="private"><strong>Private administration</strong><br>Tailscale HTTPS<br>Funnel off<br><br>v0.57.0 working app lifecycle</div></aside>
+    <main>
+      <div class="top"><div><span class="eyebrow">Curated application catalog</span><h1>Applications</h1><p>Deploy and manage reviewed workloads through immutable plans and password-approved helper jobs.</p></div><span class="pill good">Docker ready</span></div>
+      <div class="cards">
+        <section class="card"><div class="cardhead"><span class="initials">UP</span><span class="pill good">running</span></div><small>Monitoring | adapter 2.5.0</small><h3>Uptime Kuma</h3><p>Managed Uptime Kuma is healthy on loopback port 3101. Backup: restore required.</p><div class="actions"><span class="button">Plan stop</span><span class="button">Plan restart</span></div></section>
+        <section class="card"><div class="cardhead"><span class="initials">PI</span><span class="pill">Available</span></div><small>DNS | adapter 2026.07.2</small><h3>Pi-hole</h3><p>Network-critical staging with a separate assessment and no automatic DNS cutover.</p><div class="actions"><span class="button">Plan deployment</span></div></section>
+        <section class="card"><div class="cardhead"><span class="initials">KE</span><span class="pill">Install available</span></div><small>Knowledge | adapter 1.2.6</small><h3>Keel Notes</h3><p>Exact native release staged for a separate private service install.</p><div class="actions"><span class="button">Plan private install</span></div></section>
+      </div>
+      <div class="backdrop">
+        <section class="modal"><div class="modalhead"><div><span class="eyebrow">Immutable managed-container action</span><h2>Restart Uptime Kuma</h2><p>Review the exact state transition and locked boundaries before creating an approval job.</p></div><span class="close">X</span></div>
+          <dl><div><dt>Current state</dt><dd>running</dd></div><div><dt>Desired state</dt><dd>running</dd></div><div><dt>Loopback port</dt><dd>3101</dd></div><div><dt>Persistent data</dt><dd>Preserved</dd></div></dl>
+          <div class="panel"><strong>Exact changes</strong><ol><li>Restart only the exact <code>boxpilot-uptime-kuma</code> container with a 30-second stop window.</li><li>Wait for the pinned container health check to pass.</li><li>Verify the loopback binding and persistent data mount are unchanged.</li></ol></div>
+          <div class="panel locks"><strong>Locked boundaries</strong><span>Digest-pinned image, Compose labels, loopback binding, data mount, restart policy, and unprivileged device-free identity must match the reviewed revision.</span><span>No image, Compose, environment, port, volume, network, data, Docker socket, other container, router, DNS, firewall, or Tailscale setting can change.</span></div>
+          <div class="panel"><strong>Recovery</strong><p>If restart verification fails, persistent data stays in place. Inspect the Uptime Kuma and Docker logs before creating a fresh Start or Restart plan.</p></div>
+          <div class="footer"><code>Plan revision 26d18d0e... checked again before execution</code><span class="approve">Stage for password approval</span></div>
+        </section>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

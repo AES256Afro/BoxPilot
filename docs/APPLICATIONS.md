@@ -1,6 +1,6 @@
 # Curated applications
 
-BoxPilot `0.56.0` provides integrity-addressed manifests, executable Uptime Kuma and guarded Pi-hole adapters, three application-aware local backup adapters, encrypted independent exact-archive protection for verified Uptime Kuma, Pi-hole, and Keel records, and the guarded Keel recovery lifecycle through operator rollback. Repair Center can install the fixed Ubuntu `docker.io` prerequisite on a clean host and the separate fixed KVM, QEMU, and libvirt bundle needed by Virtual Machines. Virtual Machines can then initialize the canonical default NAT network and storage pool through a separate password-approved workflow. The web process never receives the Docker socket or a general root operation.
+BoxPilot `0.57.0` provides integrity-addressed manifests, executable Uptime Kuma deployment plus Start, Stop, and Restart management, guarded Pi-hole staging, three application-aware local backup adapters, encrypted independent exact-archive protection for verified Uptime Kuma, Pi-hole, and Keel records, and the guarded Keel recovery lifecycle through operator rollback. Repair Center can install the fixed Ubuntu `docker.io` prerequisite on a clean host and the separate fixed KVM, QEMU, and libvirt bundle needed by Virtual Machines. Virtual Machines can then initialize the canonical default NAT network and storage pool through a separate password-approved workflow. The web process never receives the Docker socket or a general root operation.
 
 ## Install the Docker prerequisite on Ubuntu
 
@@ -40,6 +40,8 @@ Authenticated API routes:
 - `GET /api/v1/applications` lists manifests and live adapter state.
 - `POST /api/v1/applications/:id/plans` creates an immutable plan revision after live prerequisite and port checks.
 - `POST /api/v1/application-plans/:id/stage` stages the exact unexpired revision as a durable approval job.
+- `POST /api/v1/applications/uptime-kuma/action-plans` creates a Start, Stop, or Restart plan bound to the exact managed-container state revision.
+- `POST /api/v1/application-action-plans/:id/stage` rechecks and stages that exact lifecycle revision.
 - `POST /api/v1/jobs/:id/approve` revalidates host state, reauthenticates the owner, executes the typed helper operation, verifies health, and records the outcome.
 
 All POST routes require the session CSRF token. A plan cannot execute on its first submission.
@@ -70,6 +72,8 @@ Deployment workflow:
 9. Confirm container health and all recorded steps.
 
 If deployment or health verification fails, BoxPilot stops the managed stack and restores the previous Compose definition when one exists. It does not delete the data directory.
+
+After deployment, the Uptime Kuma card exposes only actions allowed by its live state. Start, Stop, and Restart each require a new immutable plan, a second state check while staging, and owner-password approval in Repair Center. The helper refuses a changed or nonconforming container and verifies persistent data after every action. Removal, image updates, port changes, environment editing, volume changes, and network changes remain separate locked workflows.
 
 After deployment, the Backups page can record artifact integrity and an isolated restore test for the Uptime Kuma data directory. Version `0.44.0` can then copy that exact verified archive into the separate encrypted application restic repository, read the complete repository, restore the exact snapshot, and match its size and SHA-256 before reporting independent protection. See [Verified application backups](BACKUPS.md).
 

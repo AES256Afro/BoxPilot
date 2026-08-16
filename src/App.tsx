@@ -313,7 +313,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.56.0 guided virtualization<br />prerequisites and VM foundation</div>
+        <div className="prototype-label">v0.57.0 working platform<br />apps, repairs, backups, and VMs</div>
       </aside>
 
       <main>

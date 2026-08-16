@@ -135,6 +135,13 @@ export function createApplicationService({ store, prerequisites, helper, network
       if (["uptime-kuma", "pi-hole"].includes(manifest.id)) {
         try {
           live = await helper.request(`application.${manifest.id}.inspect`, {});
+          if (manifest.id === "uptime-kuma" && live.installed) {
+            try {
+              live.lifecycle = await helper.request("application.uptime-kuma.lifecycle.inspect", {});
+            } catch {
+              live.lifecycle = { managed: false, allowedActions: [], revision: null, detail: "Managed lifecycle identity is unavailable" };
+            }
+          }
         } catch {
           live = { installed: false, state: "unavailable", detail: "Docker inventory is unavailable" };
         }
