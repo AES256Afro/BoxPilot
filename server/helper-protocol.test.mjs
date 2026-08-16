@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.51.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.52.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -211,6 +211,29 @@ describe("restricted helper protocol", () => {
     };
     await expect(executeHelperOperation(request({ operation: "application.keel.promotion.inspect", parameters: inspectParameters }), { keelPromotion })).resolves.toMatchObject({ ok: true, result: { ready: true, rollbackDestination: "managed-keel-promotion-rollback" } });
     await expect(executeHelperOperation(request({ operation: "application.keel.promotion.create", parameters }), { keelPromotion })).resolves.toMatchObject({ ok: true, result: { passed: true, rollbackAvailable: true } });
+  });
+
+  it("accepts only exact retained checkpoint and installation evidence for Keel operator rollback", async () => {
+    const inspectParameters = {
+      promotionId: "33333333-3333-4333-8333-333333333333",
+      expectedPreviousStateTreeDigestSha256: "a".repeat(64),
+    };
+    const parameters = {
+      ...inspectParameters,
+      rollbackId: "55555555-5555-4555-8555-555555555555",
+      expectedInstallId: "44444444-4444-4444-8444-444444444444",
+      expectedRollbackEvidenceChecksumSha256: "b".repeat(64),
+    };
+    expect(validateHelperRequest(request({ operation: "application.keel.rollback.inspect", parameters: inspectParameters }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.keel.rollback.inspect", parameters: { ...inspectParameters, path: "/var/lib/keel" } }))).toContain("fixed promotion and state digest fields");
+    expect(validateHelperRequest(request({ operation: "application.keel.rollback.create", parameters }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.keel.rollback.create", parameters: { ...parameters, command: "sh" } }))).toContain("fixed rollback");
+    const keelRollback = {
+      inspect: vi.fn(async () => ({ ready: true, installId: parameters.expectedInstallId, displacedDestination: "managed-keel-rollback-checkpoint", sourceCheckpointPreserved: true })),
+      create: vi.fn(async () => ({ passed: true, rollbackId: parameters.rollbackId, promotionId: parameters.promotionId, displacedStateRetained: true })),
+    };
+    await expect(executeHelperOperation(request({ operation: "application.keel.rollback.inspect", parameters: inspectParameters }), { keelRollback })).resolves.toMatchObject({ ok: true, result: { ready: true, sourceCheckpointPreserved: true } });
+    await expect(executeHelperOperation(request({ operation: "application.keel.rollback.create", parameters }), { keelRollback })).resolves.toMatchObject({ ok: true, result: { passed: true, displacedStateRetained: true } });
   });
 
   it("delegates only a typed Pi-hole backup id to the curated helper", async () => {
