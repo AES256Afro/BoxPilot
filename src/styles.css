@@ -2843,10 +2843,29 @@ textarea {
 .router-retention { display: flex; gap: 9px; align-items: flex-start; color: var(--text); font-size: 0.84rem; }
 .router-retention input { margin-top: 2px; accent-color: var(--mint); }
 .router-center table code { color: #aee7d6; font: 0.78rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.github-center { display: grid; gap: 18px; }
+.github-boundary { display: grid; gap: 14px; }
+.github-boundary p { margin: 0; color: var(--muted); line-height: 1.55; }
+.github-boundary > small { color: var(--muted); }
+.github-repositories { display: grid; gap: 18px; }
+.github-repository { display: grid; gap: 16px; }
+.github-repository > header, .github-release > header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.github-repository h2, .github-release h3 { margin: 4px 0 0; }
+.github-repo-meta, .github-release-meta { display: flex; flex-wrap: wrap; gap: 8px; }
+.github-repo-meta > span, .github-release-meta > span { padding: 5px 8px; color: var(--muted); background: #0a151e; border: 1px solid var(--line); border-radius: 999px; font-size: 0.76rem; }
+.github-repo-meta a, .github-release a { color: var(--mint); font-size: 0.8rem; }
+.github-commit { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px; background: #09141d; border: 1px solid var(--line); border-radius: 9px; }
+.github-commit > div { display: flex; align-items: center; gap: 10px; }
+.github-commit span, .github-commit small { color: var(--muted); font-size: 0.75rem; }
+.github-commit code, .github-center table code { color: #aee7d6; font: 0.78rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.github-release { display: grid; gap: 12px; padding-top: 14px; border-top: 1px solid var(--line); }
+.github-no-release { display: grid; gap: 5px; padding: 12px; color: var(--muted); background: #09141d; border: 1px solid var(--line); border-radius: 9px; }
+.github-no-release strong { color: var(--text); }
 @media (max-width: 900px) {
   .fleet-revoke { align-items: stretch; flex-direction: column; }
   .fleet-revoke label { min-width: 0; }
   .router-model-grid { grid-template-columns: 1fr; }
+  .github-commit { align-items: flex-start; flex-direction: column; }
 }
 .router-entry { display: flex; justify-content: space-between; gap: 18px; padding: 14px 0; border-bottom: 1px solid var(--line); }
 .router-entry:last-child { border-bottom: 0; }
