@@ -81,6 +81,7 @@ sudo install -m 0644 deploy/boxpilot-smartmontools-install.service /etc/systemd/
 sudo install -m 0644 deploy/boxpilot-apt-refresh.service /etc/systemd/system/boxpilot-apt-refresh.service
 sudo install -m 0644 deploy/boxpilot-keel-artifact.service /etc/systemd/system/boxpilot-keel-artifact.service
 sudo install -m 0644 deploy/boxpilot-keel-install.service /etc/systemd/system/boxpilot-keel-install.service
+sudo install -m 0644 deploy/boxpilot-keel-backup.service /etc/systemd/system/boxpilot-keel-backup.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now boxpilot-helper.service boxpilot.service boxpilot-storage-scan.timer
 ```

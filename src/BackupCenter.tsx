@@ -33,7 +33,7 @@ type ControllerProtectionRecord = {
 type ApplicationProtectionRecord = {
   id: string;
   backupId: string;
-  applicationId: "uptime-kuma" | "pi-hole";
+  applicationId: "uptime-kuma" | "pi-hole" | "keel";
   destination: "mounted-restic-applications";
   repositoryId: string;
   snapshotId: string;

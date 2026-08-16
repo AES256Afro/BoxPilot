@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 const execFile = promisify(execFileCallback);
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const shaPattern = /^[a-f0-9]{64}$/;
-const applicationIds = new Set(["uptime-kuma", "pi-hole"]);
+const applicationIds = new Set(["uptime-kuma", "pi-hole", "keel"]);
 
 async function defaultRunner(binary, args, { timeout = 180000 } = {}) {
   const result = await execFile(binary, args, {

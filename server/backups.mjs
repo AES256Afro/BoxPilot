@@ -1,15 +1,37 @@
 import { randomUUID } from "node:crypto";
+import http from "node:http";
 
-export function createBackupService({ store, prerequisites, helper }) {
+async function defaultKeelHealthInspector() {
+  return new Promise((resolve) => {
+    const request = http.get({ hostname: "127.0.0.1", port: 3000, path: "/api/health", timeout: 2500 }, (response) => {
+      let body = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => { body += chunk; if (body.length > 8192) request.destroy(); });
+      response.on("end", () => {
+        try { const value = JSON.parse(body); resolve(response.statusCode === 200 && value?.app === "keel" && value?.ok === true); } catch { resolve(false); }
+      });
+    });
+    request.on("timeout", () => request.destroy());
+    request.on("error", () => resolve(false));
+  });
+}
+
+export function createBackupService({ store, prerequisites, helper, inspectKeelHealth = defaultKeelHealthInspector }) {
   const adapters = {
     "boxpilot-controller": { name: "BoxPilot controller", sourceKind: "controller-state", inspectOperation: "controller.database.backup.inspect", jobType: "controller.database.backup", requiredChecks: ["storage.state", "helper.boundary"] },
     "uptime-kuma": { name: "Uptime Kuma", sourceKind: "application-state", inspectOperation: "application.uptime-kuma.inspect", jobType: "application.uptime-kuma.backup", requiredChecks: ["storage.state", "helper.boundary", "containers.docker"] },
     "pi-hole": { name: "Pi-hole", sourceKind: "application-state", inspectOperation: "application.pi-hole.inspect", jobType: "application.pi-hole.backup", requiredChecks: ["storage.state", "helper.boundary", "containers.docker"] },
+    "keel": { name: "Keel Notes", sourceKind: "application-state", inspectOperation: "application.keel.install.inspect", jobType: "application.keel.backup", requiredChecks: ["storage.state", "helper.boundary", "runtime.node"] },
   };
 
   async function inspectSource(applicationId) {
     try {
-      return await helper.request(adapters[applicationId].inspectOperation, {});
+      const source = await helper.request(adapters[applicationId].inspectOperation, {});
+      if (applicationId === "keel" && source.installed) {
+        const healthy = await inspectKeelHealth();
+        return { ...source, healthy, state: healthy ? "installed" : "degraded", detail: healthy ? "The exact managed Keel service is healthy on loopback and ready for a consistent export" : "The managed Keel service exists but its loopback health identity is unavailable" };
+      }
+      return source;
     } catch {
       return { installed: false, healthy: false, state: "unavailable", detail: `${adapters[applicationId].name} backup inventory is unavailable` };
     }
@@ -59,6 +81,7 @@ export function createBackupService({ store, prerequisites, helper }) {
     else if (!source.healthy) blockers.push({ id: applicationId === "boxpilot-controller" ? "controller.database.health" : `application.${applicationId}.health`, summary: `${adapter.name} is not healthy`, repair: { kind: "manual", description: applicationId === "boxpilot-controller" ? "Resolve database integrity, foreign-key, schema, or owner-state evidence before creating a snapshot" : "Restore application health before creating a backup" } });
 
     const controller = applicationId === "boxpilot-controller";
+    const keel = applicationId === "keel";
     const output = {
       applicationId,
       destination: "local-managed",
@@ -71,6 +94,14 @@ export function createBackupService({ store, prerequisites, helper }) {
         "Copy the artifact into one generated isolated restore workspace and verify the exact checksum, integrity, foreign keys, and schema again",
         "Write a root-only recovery manifest and remove only the generated restore copy after verification",
         "Keep the live database and BoxPilot service unchanged throughout the operation",
+      ] : keel ? [
+        "Reverify the exact managed Keel 1.2.6 installation, dedicated account, active unit, private state, and loopback health identity",
+        "Stop only keel.service cleanly and run the fixed upstream export as the non-login keel account",
+        "Include the consistent SQLite database, WAL companions when present, managed-secret companion when present, uploads, and the fixed environment without returning their contents",
+        "Harden the generated tree to root-only ownership, create one immutable compressed artifact, and record complete SHA-256 and manifest evidence",
+        "Restart keel.service and require the exact loopback health identity before the isolated restore drill",
+        "Extract only into a generated no-network workspace, reject links and changed membership, open the restored SQLite copy, and verify integrity, foreign keys, schema, manifest, and complete tree digest",
+        "Remove the successful drill workspace while keeping the production database, claim, registration, listener, Tailscale, firewall, DNS, DHCP, and router unchanged",
       ] : [
         `Stop ${adapter.name} cleanly so its application state is consistent`,
         "Create a compressed archive in the confined BoxPilot-managed backup directory",
@@ -83,12 +114,18 @@ export function createBackupService({ store, prerequisites, helper }) {
         "This artifact contains password hashes, sessions, agent identities, plans, jobs, and audit state. Keep the root-only mode and treat any copied file as sensitive.",
         "The verified destination remains on Bigbox. Copy the complete backup directory and manifest to encrypted independent storage before treating it as disaster protection.",
         "The isolated drill proves database open, checksum, integrity, foreign keys, and schema. It does not start a second BoxPilot service or test owner login.",
+      ] : keel ? [
+        "Keel has brief measured downtime while the upstream export reads a stopped database. The source is restarted before the restore drill begins.",
+        "The artifact can contain notes, users, sessions, encrypted credentials, the managed-secret companion, uploads, and private configuration. It remains root-only and must be treated as sensitive.",
+        "The isolated drill opens only the restored SQLite copy and starts no application process. A local artifact is not protection from failure of Bigbox itself until its separate encrypted restic copy also passes an exact restore.",
       ] : [
         "The source will have brief measured downtime while its consistent archive is created.",
         "A local-only artifact is verified recovery evidence, but it is not yet protection from failure of Bigbox itself.",
       ],
       recovery: controller
         ? "If snapshot or drill verification fails, the helper removes only the newly generated backup and drill paths. The production database is never replaced, stopped, checkpointed, truncated, or modified."
+        : keel
+          ? "If the Keel Notes export or drill verification fails, the static backup unit and helper request keel.service restart. Only the generated partial, drill, and unrecorded artifact paths may be removed. The production database, managed-secret key, uploads, environment, claim, and registration state are never replaced."
         : `If the archive step fails, BoxPilot restarts ${adapter.name} and verifies source health. It never deletes an existing backup artifact.${applicationId === "pi-hole" ? " Router and client DNS are never changed by this workflow." : ""}`,
     };
     return store.createPlan({ type: "application.backup", subjectId: applicationId, input: { destination: "local-managed" }, output, createdBy: ownerId });
@@ -112,8 +149,8 @@ export function createBackupService({ store, prerequisites, helper }) {
       parameters: { planId: plan.id, revision: plan.revision, backupId, applicationId: plan.subjectId },
       recovery: {
         automaticRollback: true,
-        reason: plan.subjectId === "boxpilot-controller" ? "Only the new helper-owned artifact and restore workspace can be removed; the live database is never changed." : "The source container is restarted and health checked even when archive creation fails.",
-        manual: plan.subjectId === "boxpilot-controller" ? "Keep BoxPilot running. Inspect helper logs and storage, then create a new immutable plan; never copy only the live SQLite main file while WAL mode is active." : plan.subjectId === "pi-hole" ? "If source restart verification fails, keep router and client DNS on the independent resolver, run docker start boxpilot-pi-hole, and inspect health before another backup." : "If source restart verification fails, run docker start boxpilot-uptime-kuma and inspect its health before attempting another backup.",
+        reason: plan.subjectId === "boxpilot-controller" ? "Only the new helper-owned artifact and restore workspace can be removed; the live database is never changed." : plan.subjectId === "keel" ? "The static backup unit and helper recovery request the fixed source service restart and remove only generated unrecorded paths." : "The source container is restarted and health checked even when archive creation fails.",
+        manual: plan.subjectId === "boxpilot-controller" ? "Keep BoxPilot running. Inspect helper logs and storage, then create a new immutable plan; never copy only the live SQLite main file while WAL mode is active." : plan.subjectId === "keel" ? "If source restart verification fails, run sudo systemctl start keel.service, confirm curl http://127.0.0.1:3000/api/health, and preserve all of /var/lib/keel before another backup." : plan.subjectId === "pi-hole" ? "If source restart verification fails, keep router and client DNS on the independent resolver, run docker start boxpilot-pi-hole, and inspect health before another backup." : "If source restart verification fails, run docker start boxpilot-uptime-kuma and inspect its health before attempting another backup.",
       },
       createdBy: ownerId,
       initialSteps: [
@@ -124,10 +161,10 @@ export function createBackupService({ store, prerequisites, helper }) {
   }
 
   async function validateJob(job) {
-    if (!["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup"].includes(job.type)) throw new Error("Unsupported backup job");
+    if (!["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup"].includes(job.type)) throw new Error("Unsupported backup job");
     const plan = store.getPlan(job.parameters.planId);
     if (!plan || plan.status !== "staged" || plan.revision !== job.parameters.revision) throw new Error("The staged backup plan is unavailable or changed");
-    const expectedApplicationId = job.type === "controller.database.backup" ? "boxpilot-controller" : job.type === "application.pi-hole.backup" ? "pi-hole" : "uptime-kuma";
+    const expectedApplicationId = job.type === "controller.database.backup" ? "boxpilot-controller" : job.type === "application.pi-hole.backup" ? "pi-hole" : job.type === "application.keel.backup" ? "keel" : "uptime-kuma";
     if (plan.subjectId !== expectedApplicationId || job.parameters.applicationId !== expectedApplicationId) throw new Error("The staged backup plan does not match the requested adapter");
     const source = await inspectSource(expectedApplicationId);
     if (!source.installed || !source.healthy) throw new Error(`Host state changed: ${adapters[expectedApplicationId].name} is not installed and healthy`);
@@ -135,7 +172,7 @@ export function createBackupService({ store, prerequisites, helper }) {
   }
 
   function recordResult(job, result) {
-    const expectedApplicationId = job.type === "controller.database.backup" ? "boxpilot-controller" : job.type === "application.pi-hole.backup" ? "pi-hole" : "uptime-kuma";
+    const expectedApplicationId = job.type === "controller.database.backup" ? "boxpilot-controller" : job.type === "application.pi-hole.backup" ? "pi-hole" : job.type === "application.keel.backup" ? "keel" : "uptime-kuma";
     const expectedSuffix = expectedApplicationId === "boxpilot-controller" ? `/backups/boxpilot-controller/${job.parameters.backupId}/boxpilot.sqlite3` : `/backups/${expectedApplicationId}/${job.parameters.backupId}.tar.gz`;
     if (
       result.backupId !== job.parameters.backupId
@@ -177,6 +214,38 @@ export function createBackupService({ store, prerequisites, helper }) {
         || result.boundary?.retentionPerformed !== false
       ))
       || (expectedApplicationId === "pi-hole" && (result.restoreDrill.configurationIncluded !== true || result.restoreDrill.administratorSecretIncluded !== true || result.restoreDrill.routerMutationPerformed !== false || result.restoreDrill.dnsCutoverPerformed !== false || result.routerMutationPerformed !== false || result.dnsCutoverPerformed !== false))
+      || (expectedApplicationId === "keel" && (
+        result.releaseVersion !== "1.2.6"
+        || !/^[a-f0-9]{64}$/.test(result.manifestChecksumSha256)
+        || result.restoreDrill.mode !== "isolated-keel-export-open"
+        || result.restoreDrill.databaseIntegrity !== "ok"
+        || result.restoreDrill.foreignKeyIssues !== 0
+        || result.restoreDrill.schemaVerified !== true
+        || result.restoreDrill.environmentIncluded !== true
+        || result.restoreDrill.treeDigestMatched !== true
+        || result.restoreDrill.manifestChecksumSha256 !== result.manifestChecksumSha256
+        || result.restoreDrill.workspaceRemoved !== true
+        || result.restoreDrill.applicationStarted !== false
+        || result.restoreDrill.productionStateReplaced !== false
+        || result.boundary?.browserPathAccepted !== false
+        || result.boundary?.browserCommandAccepted !== false
+        || result.boundary?.browserTokenAccepted !== false
+        || result.boundary?.databaseOpened !== true
+        || result.boundary?.secretContentReturned !== false
+        || result.boundary?.environmentContentReturned !== false
+        || result.boundary?.sourceServiceStopped !== true
+        || result.boundary?.sourceRestarted !== true
+        || result.boundary?.networkAccessRequiredForDrill !== false
+        || result.boundary?.productionStateReplaced !== false
+        || result.boundary?.registrationChanged !== false
+        || result.boundary?.claimChanged !== false
+        || result.boundary?.tailscaleChanged !== false
+        || result.boundary?.firewallChanged !== false
+        || result.boundary?.routerChanged !== false
+        || result.boundary?.independentCopyCreated !== false
+        || result.boundary?.retentionPerformed !== false
+        || result.boundary?.prunePerformed !== false
+      ))
     ) throw new Error("Backup result failed evidence validation");
     return store.recordBackup({
       id: result.backupId,

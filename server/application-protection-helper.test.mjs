@@ -69,6 +69,7 @@ describe("application independent protection helper", () => {
     const input = { protectionId, backupId, applicationId: "uptime-kuma", expectedArtifactChecksumSha256: "a".repeat(64), expectedSizeBytes: 1024, expectedDestinationRevision: "c".repeat(64) };
     expect(validateApplicationProtectionInput(input)).toEqual([]);
     expect(validateApplicationProtectionInput({ ...input, applicationId: "../../etc" })).toContain("Application id is invalid");
+    expect(validateApplicationProtectionInput({ ...input, applicationId: "keel" })).toEqual([]);
     expect(() => applicationProtectionHelperInternals.confinedArchive("/fixed/root", "pi-hole", "../../etc")).toThrow("invalid");
   });
 

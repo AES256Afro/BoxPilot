@@ -10,7 +10,9 @@ function fixture({ ready = true, protectedBackup = null, applicationId = "pi-hol
     artifactPath: `/var/lib/boxpilot-managed/backups/${applicationId}/${backupId}.tar.gz`, checksumSha256: "a".repeat(64), sizeBytes: 8192,
     restoreDrill: applicationId === "pi-hole"
       ? { passed: true, network: "none", publishedPorts: 0, configurationIncluded: true, administratorSecretIncluded: true, routerMutationPerformed: false, dnsCutoverPerformed: false }
-      : { passed: true, network: "none", publishedPorts: 0 },
+      : applicationId === "keel"
+        ? { passed: true, mode: "isolated-keel-export-open", network: "none", publishedPorts: 0, databaseIntegrity: "ok", foreignKeyIssues: 0, schemaVerified: true, environmentIncluded: true, treeDigestMatched: true, applicationStarted: false, productionStateReplaced: false }
+        : { passed: true, network: "none", publishedPorts: 0 },
   };
   const destination = { adapter: "mounted-restic-applications", ready, encrypted: ready, independent: ready, resticVersion: ready ? "0.18.1" : null, repositoryId: ready ? "c".repeat(64) : null, destinationRevision: ready ? "d".repeat(64) : null, destinationFreeBytes: ready ? 1024 ** 3 : null, blockers: ready ? [] : ["Mount independent storage"], setupCommand: "sudo /opt/boxpilot/scripts/boxpilot-application-restic-setup.sh" };
   const store = {
@@ -48,6 +50,22 @@ describe("application backup independent protection service", () => {
     store.getPlan.mockReturnValue(plan);
     const job = await service.stage(plan.id, plan.revision, "owner-one");
     expect(job).toMatchObject({ type: "application.backup.protect", risk: "medium", parameters: { input: plan.input } });
+  });
+
+  it("accepts a fully restore-verified Keel export and labels its independent protection", async () => {
+    const { service, store } = fixture({ applicationId: "keel" });
+    const plan = await service.plan(backupId, "owner-one");
+    expect(plan.output).toMatchObject({ executable: true, applicationId: "keel", destination: "mounted-restic-applications" });
+    expect(plan.output.warnings.join(" ")).toContain("Keel notes");
+    store.getPlan.mockReturnValue(plan);
+    const job = await service.stage(plan.id, plan.revision, "owner-one");
+    expect(job.title).toContain("Keel Notes");
+  });
+
+  it("rejects incomplete Keel local restore evidence before creating a protection plan", async () => {
+    const { service, backup } = fixture({ applicationId: "keel" });
+    backup.restoreDrill.treeDigestMatched = false;
+    await expect(service.plan(backupId, "owner-one")).rejects.toThrow("lacks complete no-network restore verification");
   });
 
   it("records only complete encrypted exact-restore evidence", () => {

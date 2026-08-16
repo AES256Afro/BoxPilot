@@ -136,7 +136,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.47.0",
+    version: "0.48.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -202,14 +202,14 @@ app.get("/api/v1/capabilities", (_request, response) => {
   response.json({
     inventory: "sanitized-host-maintenance-storage-ext4-error-counters-filesystem-smart-local-ups-docker-services-network-and-dns-topology",
     composeInspection: "browser-only",
-    applications: "curated-uptime-kuma-no-cutover-pi-hole-and-fixed-inert-keel-artifact-acquisition-plus-runtime-archive-gate",
+    applications: "curated-uptime-kuma-no-cutover-pi-hole-and-fixed-keel-artifact-stage-native-install-terminal-claim-and-consistent-backup",
     supportBundle: "authenticated-server-generated-fixed-source-configurably-redacted",
-    backups: "wal-aware-controller-local-restore-plus-encrypted-independent-restic-copy-and-exact-database-restore-proof-application-local-restore-drills-and-vm-protection",
+    backups: "wal-aware-controller-local-restore-plus-encrypted-independent-restic-copy-uptime-kuma-pi-hole-and-keel-local-restore-drills-and-vm-protection",
     migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
     network: "read-only-topology-approved-fixed-pi-hole-and-observed-gateway-direct-dns-acceptance-plus-signed-second-device-evidence",
-    privilegedHelper: "typed-canary-exact-smartmontools-and-restic-repairs-fixed-apt-metadata-refresh-controller-local-backup-independent-restic-protection-curated-applications-fixed-keel-artifact-and-read-only-archive-inspection-migration-inventory-logs-and-vm-workflows",
+    privilegedHelper: "typed-canary-exact-smartmontools-and-restic-repairs-fixed-apt-metadata-refresh-controller-local-backup-independent-restic-protection-curated-applications-fixed-keel-artifact-stage-install-and-consistent-backup-migration-inventory-logs-and-vm-workflows",
     identity: "owner-password-foundation",
-    durableJobs: "sqlite-approved-prerequisite-controller-local-backup-controller-independent-protection-application-backup-keel-artifact-dns-migration-and-vm-workflows",
+    durableJobs: "sqlite-approved-prerequisite-controller-local-backup-controller-independent-protection-application-backup-keel-artifact-stage-install-and-backup-dns-migration-and-vm-workflows",
     virtualization: "live-libvirt-via-restricted-helper",
     vmCreationPlanning: "validated-durable-approved",
     audit: "redacted-jsonl-foundation",
@@ -642,7 +642,7 @@ app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
+    const background = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.pi-hole.backup", "application.keel.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, request.body?.password)
       : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
@@ -903,7 +903,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.47.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.48.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });
