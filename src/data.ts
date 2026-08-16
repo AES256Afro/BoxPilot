@@ -2,6 +2,7 @@ export type ViewName =
   | "overview"
   | "applications"
   | "network"
+  | "routers"
   | "repairs"
   | "virtualization"
   | "backups"
@@ -14,6 +15,7 @@ export const navItems: Array<{ id: ViewName; label: string; short: string }> = [
   { id: "overview", label: "Overview", short: "OV" },
   { id: "applications", label: "Applications", short: "AP" },
   { id: "network", label: "Network", short: "NW" },
+  { id: "routers", label: "Routers", short: "RT" },
   { id: "repairs", label: "Repair Center", short: "RX" },
   { id: "virtualization", label: "Virtual Machines", short: "VM" },
   { id: "backups", label: "Backups", short: "BK" },
