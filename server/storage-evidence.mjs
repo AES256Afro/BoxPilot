@@ -6,6 +6,11 @@ function numberOrNull(value) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
+function counterOrNull(value) {
+  const parsed = typeof value === "number" ? value : Number.parseInt(String(value ?? ""), 10);
+  return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
 function percentOrNull(value) {
   const parsed = Number.parseInt(String(value ?? "").replace("%", ""), 10);
   return Number.isInteger(parsed) && parsed >= 0 && parsed <= 100 ? parsed : null;
@@ -33,7 +38,7 @@ function sanitizeMountTarget(value) {
 
 function sanitizeMountSource(value) {
   const source = String(value ?? "");
-  if (/^\/dev\/(?:mapper\/[a-zA-Z0-9+_.-]+|[a-zA-Z0-9+_.-]+)$/.test(source)) return source;
+  if (source.length <= 128 && /^\/dev\/(?:mapper\/[a-zA-Z0-9+_.-]+|[a-zA-Z0-9+_.-]+)$/.test(source)) return source;
   if (["tmpfs", "overlay", "none"].includes(source)) return source;
   return "[remote-or-virtual-source]";
 }
@@ -55,6 +60,22 @@ function mountSummary(mounts) {
     warning: mounts.filter((item) => item.capacityState === "warning").length,
     critical: mounts.filter((item) => item.capacityState === "critical").length,
     unavailable: mounts.filter((item) => item.capacityState === "unavailable").length,
+  };
+}
+
+function normalizeFilesystemErrorEvidence(value, filesystem) {
+  if (filesystem !== "ext4") return { supported: false, state: "unsupported", errorsCount: null, source: null, reason: "unsupported-filesystem" };
+  const errorsCount = counterOrNull(value?.errorsCount);
+  if (value?.supported !== true || value?.source !== "ext4-sysfs-errors-count" || errorsCount === null) return { supported: true, state: "unavailable", errorsCount: null, source: "ext4-sysfs-errors-count", reason: "counter-unavailable" };
+  return { supported: true, state: errorsCount > 0 ? "critical" : "healthy", errorsCount, source: "ext4-sysfs-errors-count", reason: errorsCount > 0 ? "errors-recorded" : "ok" };
+}
+
+function filesystemErrorSummary(mounts) {
+  return {
+    healthy: mounts.filter((item) => item.errorEvidence.state === "healthy").length,
+    critical: mounts.filter((item) => item.errorEvidence.state === "critical").length,
+    unavailable: mounts.filter((item) => item.errorEvidence.state === "unavailable").length,
+    unsupported: mounts.filter((item) => item.errorEvidence.state === "unsupported").length,
   };
 }
 
@@ -88,16 +109,17 @@ export function parseMountInventory(output) {
 export function normalizeMountEvidence(value, { schemaVersion = null, generatedAt = null, now = () => new Date() } = {}) {
   const generatedTime = typeof generatedAt === "string" ? Date.parse(generatedAt) : Number.NaN;
   const stale = !Number.isFinite(generatedTime) || now().getTime() - generatedTime > 24 * 60 * 60 * 1000 || generatedTime - now().getTime() > 5 * 60 * 1000;
-  if (schemaVersion !== 1 || stale || !value || value.namespace !== "host-pid1" || value.available !== true || !Array.isArray(value.mounts)) {
-    return { available: false, namespace: "unavailable", mounts: [], summary: mountSummary([]) };
+  if (schemaVersion !== 2 || stale || !value || value.namespace !== "host-pid1" || value.available !== true || !Array.isArray(value.mounts)) {
+    return { available: false, namespace: "unavailable", mounts: [], summary: mountSummary([]), errors: filesystemErrorSummary([]) };
   }
   const mounts = value.mounts.map((item) => {
     const usedPercent = percentOrNull(item?.usedPercent);
     const optionNames = mountOptionNames(Array.isArray(item?.optionNames) ? item.optionNames.join(",") : "");
+    const filesystem = typeof item?.filesystem === "string" ? item.filesystem.slice(0, 32) : "unknown";
     return {
       target: sanitizeMountTarget(item?.target),
       source: sanitizeMountSource(item?.source),
-      filesystem: typeof item?.filesystem === "string" ? item.filesystem.slice(0, 32) : "unknown",
+      filesystem,
       totalBytes: numberOrNull(item?.totalBytes),
       usedBytes: numberOrNull(item?.usedBytes),
       availableBytes: numberOrNull(item?.availableBytes),
@@ -105,9 +127,10 @@ export function normalizeMountEvidence(value, { schemaVersion = null, generatedA
       capacityState: capacityState(usedPercent),
       readOnly: optionNames.includes("ro") && !optionNames.includes("rw"),
       optionNames,
+      errorEvidence: normalizeFilesystemErrorEvidence(item?.errorEvidence, filesystem),
     };
   }).slice(0, 128);
-  return { available: true, namespace: "host-pid1", mounts, summary: mountSummary(mounts) };
+  return { available: true, namespace: "host-pid1", mounts, summary: mountSummary(mounts), errors: filesystemErrorSummary(mounts) };
 }
 
 export function parseBlockInventory(output) {
@@ -146,7 +169,7 @@ function normalizedSmartDisk(item) {
 }
 
 export function normalizeSmartEvidence(value, { now = () => new Date() } = {}) {
-  if (!value || value.schemaVersion !== 1 || !Array.isArray(value.disks) || typeof value.generatedAt !== "string") {
+  if (!value || ![1, 2].includes(value.schemaVersion) || !Array.isArray(value.disks) || typeof value.generatedAt !== "string") {
     return { available: false, status: "unavailable", reason: "storage-scan-evidence-missing", generatedAt: null, stale: true, disks: [], summary: { healthy: 0, warning: 0, critical: 0, unavailable: 0 } };
   }
   const generatedTime = Date.parse(value.generatedAt);
@@ -171,4 +194,4 @@ export function normalizeSmartEvidence(value, { now = () => new Date() } = {}) {
   };
 }
 
-export const storageEvidenceInternals = { capacityState, fixedDevicePattern, fixedMountOptionNames, mountOptionNames, mountSummary, sanitizeMountSource, sanitizeMountTarget };
+export const storageEvidenceInternals = { capacityState, counterOrNull, filesystemErrorSummary, fixedDevicePattern, fixedMountOptionNames, mountOptionNames, mountSummary, normalizeFilesystemErrorEvidence, sanitizeMountSource, sanitizeMountTarget };

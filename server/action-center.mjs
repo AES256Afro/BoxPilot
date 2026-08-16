@@ -1,4 +1,4 @@
-const productVersion = "0.31.0";
+const productVersion = "0.32.0";
 
 const guidance = {
   "controller.database": {
@@ -187,7 +187,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
     if (inventory) {
       let hostInventory = null;
       try { hostInventory = await inventory.inspect(); } catch { hostInventory = null; }
-      if (!hostInventory?.storage) {
+      if (!hostInventory?.storage?.filesystems?.available) {
         notices.push({
           id: "storage.inventory-unavailable",
           severity: "warning",
@@ -213,6 +213,33 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
             boundary: boundary(),
           });
         }
+        const filesystemErrors = hostInventory.storage.filesystems?.errors;
+        if ((filesystemErrors?.critical ?? 0) > 0 || (filesystemErrors?.unavailable ?? 0) > 0) {
+          const critical = (filesystemErrors?.critical ?? 0) > 0;
+          notices.push({
+            id: "storage.filesystem-errors",
+            severity: critical ? "critical" : "warning",
+            category: "Storage health",
+            title: critical ? "An ext4 filesystem has recorded kernel errors" : "An ext4 error counter is unavailable",
+            summary: critical ? "Preserve current data and inspect the exact filesystem from the server console before storage-producing work." : "BoxPilot cannot make a filesystem-error all-clear claim for every supported ext4 mount.",
+            evidence: [`${filesystemErrors.critical ?? 0} ext4 critical and ${filesystemErrors.unavailable ?? 0} ext4 unavailable error-counter state(s) were reported.`],
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Identify the exact sanitized mount and review its recorded counter state.", "Use local console access to inspect kernel and filesystem evidence without unmounting or repairing automatically.", "Prepare and verify a backup before any separately reviewed fsck, unmount, or repair procedure."] },
+            boundary: boundary(),
+          });
+        } else if ((filesystemErrors?.unsupported ?? 0) > 0) {
+          notices.push({
+            id: "storage.filesystem-errors-unsupported",
+            severity: "info",
+            category: "Storage health",
+            title: "Some filesystems lack error-counter coverage",
+            summary: "BoxPilot reports unsupported filesystem types explicitly and does not convert missing counters into healthy evidence.",
+            evidence: [`${filesystemErrors.unsupported} mounted filesystem(s) have no allowlisted error-counter collector.`],
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Review which sanitized mounts are marked unsupported.", "Use the filesystem vendor's read-only inspection guidance at the server console if that mount matters to recovery.", "Do not run fsck or a repair from Action Center; preserve current data first."] },
+            boundary: boundary(),
+          });
+        }
+      }
+      if (hostInventory?.storage) {
         const smart = hostInventory.storage.smart;
         if (!smart?.available || smart.status === "stale" || ["critical", "warning"].includes(smart.status)) {
           const critical = smart?.status === "critical";

@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.31.0` adds the first executable prerequisite repair on top of the sanitized storage evidence foundation: an immutable exact-version `smartmontools` plan, separate staging and password approval, typed revalidation, a static root package oneshot, and a verified fresh scan. The general helper retains `PrivateNetwork=true`; only the fixed package oneshot has network access, and it accepts no package, repository, command, or argument from the browser.
+Version `0.32.0` extends the fixed root-only storage evidence writer with mounted ext4 kernel error counters. The collector derives a bounded kernel device name from the already fixed host PID 1 mount inventory, reads only `/sys/fs/ext4/<device>/errors_count`, and never invokes a filesystem checker or repair tool. A nonzero counter is critical; missing and unsupported evidence fail closed.
 
 ## Target components
 
@@ -43,6 +43,7 @@ BoxPilot web and API process (unprivileged)
           +---- Read-only fail-closed local Action Center (0.29.0)
           +---- Sanitized host storage inventory and fixed-source support bundle (0.30.1)
           +---- Durable exact-version smartmontools repair plan and approval (0.31.0)
+          +---- Mounted ext4 kernel error-counter evidence (0.32.0)
           |
           +<--- Ed25519 signed polling and fixed evidence from enrolled LAN agent
                   no remote shell, arbitrary command, arbitrary target, or private-key transfer
@@ -177,11 +178,11 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.31.0 limitations
+## Version 0.32.0 limitations
 
 - The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
-- Host, sanitized real mounts and block topology, selected systemd services, Docker, libvirt, Tailscale self-state, fixed routes, resolver addresses, scoped port 53 listeners, and fixed journal sources are live. SMART evidence is available only when the fixed root-only timer has a recent successful `smartctl` result; absent or stale evidence fails closed. Serial numbers, UUIDs, raw SMART output, mount option values, private home paths, physical router identity, operating mode, cabling, DHCP authority, neighbor MAC addresses, router sessions, live router state, UPS state, and filesystem-specific error counters remain excluded, operator-verified, or pending.
+- Host, sanitized real mounts and block topology, mounted ext4 kernel error counters, selected systemd services, Docker, libvirt, Tailscale self-state, fixed routes, resolver addresses, scoped port 53 listeners, and fixed journal sources are live. SMART evidence is available only when the fixed root-only timer has a recent successful `smartctl` result; absent or stale evidence fails closed. Non-ext4 filesystem counters remain unsupported. Serial numbers, UUIDs, raw SMART output, mount option values, private home paths, physical router identity, operating mode, cabling, DHCP authority, neighbor MAC addresses, router sessions, live router state, and UPS state remain excluded, operator-verified, or pending.
 - Password owner bootstrap, sessions, CSRF, and approval reauthentication are live. WebAuthn, recovery codes, multiple owners, and trusted proxy identity are not implemented.
 - The web process has no direct libvirt or KVM group access. Read-only libvirt inventory and all shipped VM mutations use the restricted helper.
 - VM actions are limited to durable approved start, graceful shutdown, reboot request, and autostart jobs. Reboot verification does not yet prove guest application health.
