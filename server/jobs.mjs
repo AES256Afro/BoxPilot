@@ -64,8 +64,8 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
-    const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
+    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
     const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.stage", "application.keel.install"].includes(job.type) ? await validateApplicationJob(job) : null;
     const validatedKeelArtifactPlan = job.type === "application.keel.artifact.acquire" ? await validateKeelArtifactJob(job) : null;
     if (["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup"].includes(job.type)) await validateBackupJob(job);
@@ -91,7 +91,7 @@ export function createJobService(store, helper, {
     if (job.type === "controller.database.backup.protect" && !validatedControllerProtectionPlan?.input) throw new Error("The staged controller protection plan is unavailable or changed");
     if (job.type === "application.backup.protect" && !validatedApplicationProtectionPlan?.input) throw new Error("The staged application protection plan is unavailable or changed");
     if (job.type === "controller.database.backup.retention.apply" && !validatedControllerRetentionPlan?.input) throw new Error("The staged controller retention plan is unavailable or changed");
-    if (["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.apt-metadata.refresh"].includes(job.type) && !validatedPrerequisiteRepair?.plan?.input) throw new Error("The staged prerequisite repair plan is unavailable or changed");
+    if (["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh"].includes(job.type) && !validatedPrerequisiteRepair?.plan?.input) throw new Error("The staged prerequisite repair plan is unavailable or changed");
     if (job.type === "migration.bundle.transfer" && !validatedMigrationTransferPlan?.input) throw new Error("The staged migration transfer plan is unavailable or changed");
     if (job.type === "virtualization.domain.export.create" && !validatedVmExportPlan?.input) throw new Error("The staged VM export plan is unavailable or changed");
     if (job.type === "virtualization.export.backup.create" && !validatedVmProtectionPlan?.input) throw new Error("The staged VM protection plan is unavailable or changed");
@@ -188,6 +188,30 @@ export function createJobService(store, helper, {
         && result?.boundary?.userGroupChanged === false
         && result?.boundary?.containerCreated === false
         && result?.boundary?.imagePulled === false,
+    } : job.type === "prerequisite.virtualization.install" ? {
+      operation: "prerequisite.virtualization.install",
+      parameters: { expectedPackages: validatedPrerequisiteRepair.plan.input.expectedPackages },
+      timeoutMs: 21 * 60 * 1000,
+      applying: "Starting the fixed root-only package unit to install the exact approved Ubuntu KVM, QEMU, libvirt, virt-install, and OVMF bundle, then verifying only the system libvirt service and URI",
+      applied: "The fixed virtualization package installation and libvirtd start completed",
+      verified: "Every approved package version, /dev/kvm, QEMU, libvirtd.service, and qemu:///system was verified without provider replacement, operator group changes, networks, pools, VMs, or browser-selected commands",
+      failed: "The fixed virtualization package, hardware, service, QEMU, or system-URI verification failed; inspect the dedicated installation unit, libvirtd.service, /dev/kvm, APT, and dpkg before creating a new plan",
+      validate: (result) => result?.installed === true
+        && Object.keys(validatedPrerequisiteRepair.plan.input.expectedPackages).every((name) => result?.packages?.[name] === validatedPrerequisiteRepair.plan.input.expectedPackages[name])
+        && result?.serviceActive === true
+        && result?.connectionUri === "qemu:///system"
+        && result?.qemuVerified === true
+        && result?.kvmDeviceVerified === true
+        && result?.boundary?.fixedPackageSet === true
+        && result?.boundary?.arbitraryPackageAccepted === false
+        && result?.boundary?.arbitraryRepositoryAccepted === false
+        && result?.boundary?.aptUpdatePerformed === false
+        && result?.boundary?.packageRemovalPerformed === false
+        && result?.boundary?.existingProviderReplaced === false
+        && result?.boundary?.operatorUserGroupChanged === false
+        && result?.boundary?.networkCreated === false
+        && result?.boundary?.storagePoolCreated === false
+        && result?.boundary?.virtualMachineCreated === false,
     } : job.type === "prerequisite.apt-metadata.refresh" ? {
       operation: "prerequisite.apt-metadata.refresh",
       parameters: { expectedUpdatedAt: validatedPrerequisiteRepair.plan.input.expectedUpdatedAt },

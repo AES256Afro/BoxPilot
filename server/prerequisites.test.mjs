@@ -5,8 +5,8 @@ describe("prerequisite inventory", () => {
   it("reports live readiness without returning raw peer or listener output", async () => {
     const helper = { request: vi.fn(async (operation) => operation === "prerequisite.docker.inspect"
       ? ({ installed: true, engineVersion: "29.1.3", provider: "existing-compatible-engine", installedPackageVersion: null, repairAvailable: false })
-      : operation === "virtualization.inventory.inspect"
-        ? ({ checks: [{ id: "connection", ok: true }, { id: "helper", ok: true }] })
+      : operation === "prerequisite.virtualization.inspect"
+        ? ({ installed: true, kvmDeviceAvailable: true, serviceActive: true, connectionReady: true, connectionUri: "qemu:///system", qemuVerified: true, repairAvailable: false })
         : operation === "prerequisite.smartmontools.inspect"
           ? ({ installed: true, installedVersion: "7.5-2", repairAvailable: false })
           : operation === "prerequisite.restic.inspect"
@@ -59,7 +59,7 @@ describe("prerequisite inventory", () => {
       if (operation === "prerequisite.restic.inspect") return { installed: false, candidateVersion: "0.18.1-1", repairAvailable: true };
       if (operation === "prerequisite.apt-metadata.inspect") return { available: true, state: "stale", updatedAt: "2026-08-01T00:00:00.000Z", ageHours: 360, packageManagerState: "ready", refreshAvailable: true };
       if (operation === "prerequisite.docker.inspect") return { installed: false, candidateVersion: "28.2.2-0ubuntu1", repairAvailable: true };
-      if (operation === "virtualization.inventory.inspect") return { checks: [{ id: "connection", ok: true }, { id: "helper", ok: true }] };
+      if (operation === "prerequisite.virtualization.inspect") return { installed: false, kvmDeviceAvailable: true, candidateSetAvailable: true, repairAvailable: true };
       throw new Error("unexpected operation");
     }) };
     const service = createPrerequisiteService({ stateDirectory: "/state", helper, runCommand: vi.fn(async () => ({ ok: true, stdout: "" })), checkAccess: vi.fn(async () => {}), getFilesystem: vi.fn(async () => ({ bavail: 2_000_000, bsize: 4096 })) });
@@ -67,6 +67,7 @@ describe("prerequisite inventory", () => {
     expect(result.checks.find((item) => item.id === "storage.smartmontools")).toMatchObject({ status: "repairable", repair: { kind: "approved" } });
     expect(result.checks.find((item) => item.id === "backup.restic")).toMatchObject({ status: "repairable", repair: { kind: "approved" } });
     expect(result.checks.find((item) => item.id === "containers.docker")).toMatchObject({ status: "repairable", repair: { kind: "approved" } });
+    expect(result.checks.find((item) => item.id === "virtualization.libvirt")).toMatchObject({ status: "repairable", repair: { kind: "approved" } });
     expect(result.checks.find((item) => item.id === "host.apt-metadata")).toMatchObject({ status: "repairable", repair: { kind: "approved" } });
     expect(JSON.stringify(result)).not.toContain("apt-get");
   });

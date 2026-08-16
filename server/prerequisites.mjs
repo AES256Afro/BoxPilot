@@ -154,19 +154,27 @@ export function createPrerequisiteService({ stateDirectory, helper, runCommand =
 
     let virtualization = null;
     try {
-      virtualization = await helper.request("virtualization.inventory.inspect", { scope: "status" });
+      virtualization = await helper.request("prerequisite.virtualization.inspect", {});
     } catch {
       virtualization = null;
     }
-    const libvirtReady = virtualization?.checks?.some((item) => item.id === "connection" && item.ok)
-      && virtualization?.checks?.some((item) => item.id === "helper" && item.ok);
     checks.push(check(
       "virtualization.libvirt",
       "Virtualization",
-      "libvirt system connection",
-      libvirtReady ? "ready" : "missing",
-      libvirtReady ? "Restricted helper connected to qemu:///system" : "The helper-backed system libvirt connection is unavailable",
-      libvirtReady ? null : { kind: "guided", description: "Repair the helper or run the existing virtualization setup repair" },
+      "KVM, QEMU, and libvirt",
+      virtualization?.installed ? "ready" : virtualization?.repairAvailable ? "repairable" : virtualization && !virtualization.kvmDeviceAvailable ? "conflict" : "missing",
+      virtualization?.installed
+        ? "The fixed Ubuntu virtualization package set, /dev/kvm, QEMU, libvirtd.service, and qemu:///system are ready"
+        : virtualization?.repairAvailable
+          ? "Hardware virtualization is available and configured Ubuntu metadata offers every fixed package candidate"
+          : virtualization?.providerPresent
+            ? "A partial or inactive virtualization provider is present and will not be replaced automatically"
+            : virtualization && !virtualization.kvmDeviceAvailable
+              ? "Hardware virtualization is unavailable at /dev/kvm"
+              : "The virtualization package candidates or helper inspection are unavailable",
+      virtualization?.installed ? null : virtualization?.repairAvailable
+        ? { kind: "approved", description: "Review the exact five-package Ubuntu virtualization plan, reauthenticate, and verify KVM plus qemu:///system" }
+        : { kind: "manual", description: virtualization && !virtualization.kvmDeviceAvailable ? "Enable hardware virtualization in firmware and verify /dev/kvm before planning installation" : "Repair the existing provider or configured Ubuntu package metadata before planning installation" },
     ));
 
     const tailscale = await runCommand("tailscale", ["status", "--json"]);

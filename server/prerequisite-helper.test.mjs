@@ -150,6 +150,63 @@ describe("fixed prerequisite helper", () => {
     expect(clearDockerApproval).toHaveBeenCalledTimes(2);
   });
 
+  it("reports a ready existing KVM, QEMU, and libvirt stack without offering replacement", async () => {
+    const versions = { "qemu-system-x86": "1:10.2.1+ds-1ubuntu3.2", "libvirt-daemon-system": "12.0.0-1ubuntu5.2", "libvirt-clients": "12.0.0-1ubuntu5.2", virtinst: "1:5.1.0-1", ovmf: "2025.11-3ubuntu7" };
+    const run = vi.fn(async (binary, args) => {
+      if (binary.endsWith("dpkg-query")) return { ok: true, stdout: `install ok installed\t${versions[args.at(-1)]}` };
+      if (binary.endsWith("apt-cache")) return { ok: true, stdout: `  Candidate: ${versions[args.at(-1)]}` };
+      if (binary.endsWith("test")) return { ok: true, stdout: "" };
+      if (binary.endsWith("systemctl")) return { ok: true, stdout: "" };
+      if (binary.endsWith("virsh")) return { ok: true, stdout: "qemu:///system" };
+      if (binary.endsWith("qemu-system-x86_64")) return { ok: true, stdout: "QEMU emulator version 10.2.1" };
+      throw new Error(`unexpected ${binary}`);
+    });
+    await expect(createPrerequisiteHelper({ run }).inspectVirtualization()).resolves.toMatchObject({
+      installed: true, installedPackages: versions, candidatePackages: versions, packageSetInstalled: true, candidateSetAvailable: true, providerPresent: true,
+      kvmDeviceAvailable: true, serviceActive: true, connectionReady: true, connectionUri: "qemu:///system", qemuVerified: true, repairAvailable: false,
+      mutationPerformed: false, arbitraryPackageAccepted: false, arbitraryRepositoryAccepted: false,
+    });
+  });
+
+  it("delegates a clean virtualization host only to the fixed unit and verifies the exact package set", async () => {
+    const versions = { "qemu-system-x86": "1:10.2.1+ds-1ubuntu3.2", "libvirt-daemon-system": "12.0.0-1ubuntu5.2", "libvirt-clients": "12.0.0-1ubuntu5.2", virtinst: "1:5.1.0-1", ovmf: "2025.11-3ubuntu7" };
+    let installed = false;
+    const run = vi.fn(async (binary, args) => {
+      if (binary.endsWith("dpkg-query")) return installed ? { ok: true, stdout: `install ok installed\t${versions[args.at(-1)]}` } : { ok: false, stdout: "" };
+      if (binary.endsWith("apt-cache")) return { ok: true, stdout: `  Candidate: ${versions[args.at(-1)]}` };
+      if (binary.endsWith("test")) return { ok: args[0] === "-c" || installed, stdout: "" };
+      if (binary.endsWith("systemctl") && args[0] === "is-active") return { ok: installed, stdout: "" };
+      if (binary.endsWith("systemctl")) { expect(args).toEqual(["start", "boxpilot-virtualization-install.service"]); installed = true; return { ok: true, stdout: "" }; }
+      if (binary.endsWith("virsh")) return installed ? { ok: true, stdout: "qemu:///system" } : { ok: false, stdout: "" };
+      if (binary.endsWith("qemu-system-x86_64")) return installed ? { ok: true, stdout: "QEMU emulator version 10.2.1" } : { ok: false, stdout: "" };
+      throw new Error(`unexpected ${binary}`);
+    });
+    const clearVirtualizationApproval = vi.fn(async () => undefined);
+    const writeVirtualizationApproval = vi.fn(async () => undefined);
+    const helper = createPrerequisiteHelper({ run, clearVirtualizationApproval, writeVirtualizationApproval, now: () => new Date("2026-08-16T12:01:00.000Z") });
+    const result = await helper.installVirtualization({ expectedPackages: versions });
+    expect(result).toMatchObject({ installed: true, packages: versions, serviceActive: true, connectionUri: "qemu:///system", qemuVerified: true, kvmDeviceVerified: true, boundary: { fixedPackageSet: true, aptUpdatePerformed: false, packageRemovalPerformed: false, existingProviderReplaced: false, operatorUserGroupChanged: false, networkCreated: false, storagePoolCreated: false, virtualMachineCreated: false } });
+    expect(writeVirtualizationApproval).toHaveBeenCalledWith({ packages: versions, approvedAt: "2026-08-16T12:01:00.000Z" });
+    expect(clearVirtualizationApproval).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not offer virtualization installation over partial provider state or without /dev/kvm", async () => {
+    const versions = { "qemu-system-x86": "1:10.2.1+ds-1ubuntu3.2", "libvirt-daemon-system": "12.0.0-1ubuntu5.2", "libvirt-clients": "12.0.0-1ubuntu5.2", virtinst: "1:5.1.0-1", ovmf: "2025.11-3ubuntu7" };
+    const partial = vi.fn(async (binary, args) => {
+      if (binary.endsWith("dpkg-query")) return { ok: false, stdout: "" };
+      if (binary.endsWith("apt-cache")) return { ok: true, stdout: `  Candidate: ${versions[args.at(-1)]}` };
+      if (binary.endsWith("test")) return { ok: args.at(-1) === "/usr/bin/virsh" || args[0] === "-c", stdout: "" };
+      return { ok: false, stdout: "" };
+    });
+    await expect(createPrerequisiteHelper({ run: partial }).inspectVirtualization()).resolves.toMatchObject({ installed: false, providerPresent: true, kvmDeviceAvailable: true, repairAvailable: false });
+    const noKvm = vi.fn(async (binary, args) => {
+      if (binary.endsWith("dpkg-query")) return { ok: false, stdout: "" };
+      if (binary.endsWith("apt-cache")) return { ok: true, stdout: `  Candidate: ${versions[args.at(-1)]}` };
+      return { ok: false, stdout: "" };
+    });
+    await expect(createPrerequisiteHelper({ run: noKvm }).inspectVirtualization()).resolves.toMatchObject({ installed: false, providerPresent: false, kvmDeviceAvailable: false, candidateSetAvailable: true, repairAvailable: false });
+  });
+
   it("reports bounded APT metadata evidence without mutating the host", async () => {
     const maintenance = { inspect: vi.fn(async () => ({
       aptMetadata: { available: true, state: "stale", updatedAt: "2026-08-01T00:00:00.000Z", ageHours: 360 },

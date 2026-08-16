@@ -114,6 +114,28 @@ interface DockerRepairPlan {
   };
 }
 
+interface VirtualizationRepairPlan {
+  id: string;
+  revision: string;
+  expiresAt: string;
+  output: {
+    packageSet: Array<{ name: string; version: string }>;
+    currentState: string;
+    action: string;
+    networkAccess: boolean;
+    aptUpdatePerformed: boolean;
+    dependencyChangesPossible: boolean;
+    arbitraryPackageSelection: boolean;
+    arbitraryRepositorySelection: boolean;
+    operatorUserGroupChanged: boolean;
+    networkCreated: boolean;
+    storagePoolCreated: boolean;
+    virtualMachineCreated: boolean;
+    automaticRollback: boolean;
+    recovery: string;
+  };
+}
+
 interface AptRefreshPlan {
   id: string;
   revision: string;
@@ -154,6 +176,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
   const [smartRepairPlan, setSmartRepairPlan] = useState<SmartRepairPlan | null>(null);
   const [resticRepairPlan, setResticRepairPlan] = useState<ResticRepairPlan | null>(null);
   const [dockerRepairPlan, setDockerRepairPlan] = useState<DockerRepairPlan | null>(null);
+  const [virtualizationRepairPlan, setVirtualizationRepairPlan] = useState<VirtualizationRepairPlan | null>(null);
   const [aptRefreshPlan, setAptRefreshPlan] = useState<AptRefreshPlan | null>(null);
 
   const refresh = useCallback(async () => {
@@ -198,6 +221,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
   }, [jobs, refresh]);
 
   const awaitingApproval = useMemo(() => jobs.find((job) => job.state === "awaiting_approval"), [jobs]);
+  const prerequisitePlanOpen = smartRepairPlan !== null || resticRepairPlan !== null || dockerRepairPlan !== null || virtualizationRepairPlan !== null || aptRefreshPlan !== null;
 
   const createCanary = async () => {
     setPending(true);
@@ -315,6 +339,42 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       await refresh();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to stage the Docker Engine repair plan");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const createVirtualizationRepairPlan = async () => {
+    setPending(true);
+    setError(null);
+    try {
+      const result = await readJson<{ plan: VirtualizationRepairPlan }>(await fetch("/api/v1/prerequisite-repairs/virtualization/plans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({}),
+      }));
+      setVirtualizationRepairPlan(result.plan);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to create the virtualization repair plan");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const stageVirtualizationRepairPlan = async () => {
+    if (!virtualizationRepairPlan) return;
+    setPending(true);
+    setError(null);
+    try {
+      await readJson(await fetch(`/api/v1/prerequisite-repair-plans/${virtualizationRepairPlan.id}/stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ revision: virtualizationRepairPlan.revision }),
+      }));
+      setVirtualizationRepairPlan(null);
+      await refresh();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to stage the virtualization repair plan");
     } finally {
       setPending(false);
     }
@@ -438,6 +498,21 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
           <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => setDockerRepairPlan(null)} disabled={pending}>Discard plan</button><button className="primary-button" type="button" onClick={() => void stageDockerRepairPlan()} disabled={pending}>{pending ? "Staging..." : "Stage Docker install for password approval"}</button></footer>
         </section>
       )}
+      {virtualizationRepairPlan && (
+        <section className="panel prerequisite-repair-plan">
+          <header className="panel-header"><div><span className="eyebrow">Exact prerequisite repair plan</span><strong>KVM, QEMU, and libvirt Ubuntu bundle</strong><span>Revision {virtualizationRepairPlan.revision} | expires {new Date(virtualizationRepairPlan.expiresAt).toLocaleString()}</span></div><span className="status-pill status-warning">system packages + service</span></header>
+          <div className="prerequisite-repair-grid">
+            <div><span>Current state</span><strong>{virtualizationRepairPlan.output.currentState}</strong></div>
+            <div><span>Fixed packages</span><strong>{virtualizationRepairPlan.output.packageSet.length} exact Ubuntu candidates</strong></div>
+            <div><span>APT behavior</span><strong>{virtualizationRepairPlan.output.aptUpdatePerformed ? "Metadata refresh planned" : "No metadata refresh; dependencies may change"}</strong></div>
+            <div><span>VM resources</span><strong>{virtualizationRepairPlan.output.networkCreated || virtualizationRepairPlan.output.storagePoolCreated || virtualizationRepairPlan.output.virtualMachineCreated ? "Changes planned" : "No network, pool, or VM creation"}</strong></div>
+          </div>
+          <div className="recovery-evidence-strip">{virtualizationRepairPlan.output.packageSet.map((item) => <span key={item.name}>{item.name} {item.version}</span>)}</div>
+          <p>{virtualizationRepairPlan.output.action}</p>
+          <div className="recovery-boundary"><strong>Fixed boundary</strong><span>No package name, version, repository, command, URI, user, group, network, pool, disk, ISO, or VM value comes from the browser. Existing or partial providers are never replaced. Ubuntu may install or update required dependencies for the fixed package roots. {virtualizationRepairPlan.output.recovery}</span></div>
+          <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => setVirtualizationRepairPlan(null)} disabled={pending}>Discard plan</button><button className="primary-button" type="button" onClick={() => void stageVirtualizationRepairPlan()} disabled={pending}>{pending ? "Staging..." : "Stage virtualization install for password approval"}</button></footer>
+        </section>
+      )}
       {aptRefreshPlan && (
         <section className="panel prerequisite-repair-plan">
           <header className="panel-header"><div><span className="eyebrow">Exact prerequisite repair plan</span><strong>APT metadata refresh</strong><span>Revision {aptRefreshPlan.revision} | expires {new Date(aptRefreshPlan.expiresAt).toLocaleString()}</span></div><span className="status-pill status-warning">package metadata</span></header>
@@ -519,7 +594,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
           {checks.map((item) => (
             <article className="repair-check" key={item.id}>
               <span className={`repair-state repair-${item.status}`}>{item.status}</span>
-              <div><small>{item.group}</small><strong>{item.name}</strong><p>{item.summary}</p>{item.repair && <em>{item.repair.description}</em>}{item.id === "storage.smartmontools" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createSmartRepairPlan()} disabled={pending || smartRepairPlan !== null || resticRepairPlan !== null || dockerRepairPlan !== null || aptRefreshPlan !== null}>Review exact repair</button>}{item.id === "backup.restic" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createResticRepairPlan()} disabled={pending || smartRepairPlan !== null || resticRepairPlan !== null || dockerRepairPlan !== null || aptRefreshPlan !== null}>Review restic repair</button>}{item.id === "containers.docker" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createDockerRepairPlan()} disabled={pending || smartRepairPlan !== null || resticRepairPlan !== null || dockerRepairPlan !== null || aptRefreshPlan !== null}>Review Docker install</button>}{item.id === "host.apt-metadata" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createAptRefreshPlan()} disabled={pending || smartRepairPlan !== null || resticRepairPlan !== null || dockerRepairPlan !== null || aptRefreshPlan !== null}>Review metadata refresh</button>}</div>
+              <div><small>{item.group}</small><strong>{item.name}</strong><p>{item.summary}</p>{item.repair && <em>{item.repair.description}</em>}{item.id === "storage.smartmontools" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createSmartRepairPlan()} disabled={pending || prerequisitePlanOpen}>Review exact repair</button>}{item.id === "backup.restic" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createResticRepairPlan()} disabled={pending || prerequisitePlanOpen}>Review restic repair</button>}{item.id === "containers.docker" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createDockerRepairPlan()} disabled={pending || prerequisitePlanOpen}>Review Docker install</button>}{item.id === "virtualization.libvirt" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createVirtualizationRepairPlan()} disabled={pending || prerequisitePlanOpen}>Review virtualization install</button>}{item.id === "host.apt-metadata" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createAptRefreshPlan()} disabled={pending || prerequisitePlanOpen}>Review metadata refresh</button>}</div>
             </article>
           ))}
         </section>
@@ -536,7 +611,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
               <strong>Approval required</strong>
               <span>Re-enter your owner password. It is verified in memory and never stored in the job.</span>
               <input aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
-              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? (["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.apt-metadata.refresh", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "application.keel.backup", "controller.database.backup", "controller.database.backup.protect", "application.backup.protect", "application.pi-hole.backup", "network.dns.acceptance.run", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(awaitingApproval.type) ? "Starting..." : "Running...") : "Approve and run"}</button>
+              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? (["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "application.keel.backup", "controller.database.backup", "controller.database.backup.protect", "application.backup.protect", "application.pi-hole.backup", "network.dns.acceptance.run", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(awaitingApproval.type) ? "Starting..." : "Running...") : "Approve and run"}</button>
             </div>
           )}
         </aside>

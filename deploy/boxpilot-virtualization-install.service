@@ -1,0 +1,32 @@
+[Unit]
+Description=BoxPilot fixed KVM QEMU libvirt package installation
+Documentation=https://github.com/AES256Afro/BoxPilot
+Wants=network-online.target
+After=network-online.target boxpilot.service
+ConditionPathExists=/usr/bin/apt-get
+ConditionPathExists=/usr/local/bin/node
+ConditionPathExists=/etc/debian_version
+ConditionPathExists=/dev/kvm
+ConditionPathExists=!/usr/bin/virsh
+ConditionPathExists=!/usr/bin/qemu-system-x86_64
+ConditionPathExists=/run/boxpilot/virtualization-approval.json
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-virtualization-install.mjs
+TimeoutStartSec=21min
+UMask=0022
+
+NoNewPrivileges=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=true
+RestrictRealtime=true
+SystemCallArchitectures=native

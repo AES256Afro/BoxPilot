@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.54.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.55.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -112,6 +112,21 @@ describe("restricted helper protocol", () => {
     };
     await expect(executeHelperOperation(request({ operation: "prerequisite.docker.inspect", parameters: {} }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { candidateVersion: "28.2.2-0ubuntu1", mutationPerformed: false } });
     await expect(executeHelperOperation(request({ operation: "prerequisite.docker.install", parameters: { expectedVersion: "28.2.2-0ubuntu1" } }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { installed: true, version: "28.2.2-0ubuntu1", engineVerified: true } });
+  });
+
+  it("accepts only the fixed virtualization package set", async () => {
+    const expectedPackages = { "qemu-system-x86": "1:10.2.1+ds-1ubuntu3.2", "libvirt-daemon-system": "12.0.0-1ubuntu5.2", "libvirt-clients": "12.0.0-1ubuntu5.2", virtinst: "1:5.1.0-1", ovmf: "2025.11-3ubuntu7" };
+    expect(validateHelperRequest(request({ operation: "prerequisite.virtualization.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "prerequisite.virtualization.inspect", parameters: { uri: "qemu:///session" } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "prerequisite.virtualization.install", parameters: { expectedPackages } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "prerequisite.virtualization.install", parameters: { expectedPackages: { ...expectedPackages, curl: "1.0" } } }))).toContain("exact fixed expectedPackages");
+    expect(validateHelperRequest(request({ operation: "prerequisite.virtualization.install", parameters: { expectedPackages: { ...expectedPackages, ovmf: "$(id)" } } }))).toContain("exact fixed expectedPackages");
+    const prerequisites = {
+      inspectVirtualization: async () => ({ installed: false, candidatePackages: expectedPackages, repairAvailable: true, mutationPerformed: false }),
+      installVirtualization: async ({ expectedPackages: packages }) => ({ installed: true, packages, connectionUri: "qemu:///system", kvmDeviceVerified: true, boundary: { arbitraryPackageAccepted: false, virtualMachineCreated: false } }),
+    };
+    await expect(executeHelperOperation(request({ operation: "prerequisite.virtualization.inspect", parameters: {} }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { repairAvailable: true, mutationPerformed: false } });
+    await expect(executeHelperOperation(request({ operation: "prerequisite.virtualization.install", parameters: { expectedPackages } }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { installed: true, packages: expectedPackages, connectionUri: "qemu:///system", kvmDeviceVerified: true } });
   });
 
   it("accepts only exact APT metadata evidence and no package or command input", async () => {

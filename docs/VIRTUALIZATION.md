@@ -1,10 +1,11 @@
 # QEMU/KVM setup and operation
 
-BoxPilot `0.26.0` can inspect a local libvirt system connection through its restricted helper, create supported Linux virtual machines through durable approved jobs, manage a deliberately small set of lifecycle operations, report QEMU guest-agent and snapshot state, create guarded offline internal snapshots, produce integrity-verified local exports for stopped managed VMs, copy those exports into a fixed encrypted restic repository on an independent mounted filesystem, prove one backup bootable through an isolated transient restore drill, create a separately named stopped no-network recovery clone, and apply one fixed exact no-prune retention policy. Versions `0.17.0` through `0.26.0` do not change VM behavior. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
+BoxPilot `0.55.0` can install the fixed Ubuntu KVM, QEMU, libvirt, virt-install, and OVMF prerequisites on a clean hardware-ready host, inspect the local libvirt system connection through its restricted helper, create supported Linux virtual machines through durable approved jobs, manage a deliberately small set of lifecycle operations, report QEMU guest-agent and snapshot state, create guarded offline internal snapshots, produce integrity-verified local exports for stopped managed VMs, copy those exports into a fixed encrypted restic repository on an independent mounted filesystem, prove one backup bootable through an isolated transient restore drill, create a separately named stopped no-network recovery clone, and apply one fixed exact no-prune retention policy. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
 
 ## What works now
 
 - Detect Linux, KVM support through libvirt, QEMU, `virsh`, `virt-install`, and the restricted helper boundary
+- Review and install the exact five-root Ubuntu virtualization package bundle on a clean host after owner-password approval
 - Check the default libvirt NAT network and storage pool
 - List persistent VMs with state, vCPU, maximum memory, autostart, lease- and guest-agent-reported IP addresses, guest-agent status, filesystem-freeze state, and bounded snapshot metadata
 - Start a stopped VM
@@ -31,13 +32,22 @@ The release does not delete VMs, force power off, provide general XML editing, o
 
 ## 1. Prepare Ubuntu for virtualization
 
-Run these commands at the physical console or through an SSH session you can recover if networking changes later:
+First open authenticated **Repair Center**. If hardware virtualization is available at `/dev/kvm`, no partial provider exists, and all configured Ubuntu candidates are available, select **Review virtualization install**. Review all five exact root versions, stage the immutable plan, and re-enter the owner password. The static installer enables and starts `libvirtd.service` and verifies QEMU plus `qemu:///system`. It does not create a network, storage pool, disk, media attachment, or VM.
+
+The console fallback for Ubuntu 26.04 is:
 
 ```bash
 sudo apt update
-sudo apt install -y qemu-kvm libvirt-daemon-system libvirt-clients virtinst cpu-checker
-sudo adduser "$USER" libvirt
-sudo adduser "$USER" kvm
+sudo apt install -y qemu-system-x86 libvirt-daemon-system libvirt-clients virtinst ovmf
+sudo systemctl enable --now libvirtd.service
+test -c /dev/kvm
+sudo virsh --connect qemu:///system uri
+qemu-system-x86_64 --version
+```
+
+Default network and storage-pool initialization are separate from the prerequisite job. Inspect existing state first, then use these console fallbacks only if the resources are missing:
+
+```bash
 sudo install -d -m 0755 /var/lib/libvirt/boot
 sudo virsh net-start default || true
 sudo virsh net-autostart default
@@ -45,17 +55,15 @@ sudo virsh pool-start default || true
 sudo virsh pool-autostart default
 ```
 
-Log out and back in so the new groups apply. Then verify:
+Then verify:
 
 ```bash
-kvm-ok
-id -nG
-virsh --connect qemu:///system list --all
-virsh --connect qemu:///system net-list --all
-virsh --connect qemu:///system pool-list --all
+sudo virsh --connect qemu:///system list --all
+sudo virsh --connect qemu:///system net-list --all
+sudo virsh --connect qemu:///system pool-list --all
 ```
 
-If `kvm-ok` reports that acceleration cannot be used, enable Intel VT-x or AMD-V in the server firmware. If Ubuntu itself is running inside another hypervisor, nested virtualization must also be enabled by that outer hypervisor.
+If `/dev/kvm` is unavailable, enable Intel VT-x or AMD-V in the server firmware. If Ubuntu itself is running inside another hypervisor, nested virtualization must also be enabled by that outer hypervisor. BoxPilot refuses automatic installation over partial provider state; repair that state from the console rather than asking the platform to guess at replacement.
 
 ## 2. Install BoxPilot as a native service
 
@@ -78,6 +86,9 @@ sudo install -m 0644 deploy/boxpilot.service /etc/systemd/system/boxpilot.servic
 sudo install -m 0644 deploy/boxpilot-storage-scan.service /etc/systemd/system/boxpilot-storage-scan.service
 sudo install -m 0644 deploy/boxpilot-storage-scan.timer /etc/systemd/system/boxpilot-storage-scan.timer
 sudo install -m 0644 deploy/boxpilot-smartmontools-install.service /etc/systemd/system/boxpilot-smartmontools-install.service
+sudo install -m 0644 deploy/boxpilot-restic-install.service /etc/systemd/system/boxpilot-restic-install.service
+sudo install -m 0644 deploy/boxpilot-docker-install.service /etc/systemd/system/boxpilot-docker-install.service
+sudo install -m 0644 deploy/boxpilot-virtualization-install.service /etc/systemd/system/boxpilot-virtualization-install.service
 sudo install -m 0644 deploy/boxpilot-apt-refresh.service /etc/systemd/system/boxpilot-apt-refresh.service
 sudo install -m 0644 deploy/boxpilot-keel-artifact.service /etc/systemd/system/boxpilot-keel-artifact.service
 sudo install -m 0644 deploy/boxpilot-keel-install.service /etc/systemd/system/boxpilot-keel-install.service

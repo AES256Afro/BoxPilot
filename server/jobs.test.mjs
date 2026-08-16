@@ -130,6 +130,24 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("revalidates and executes only the exact Ubuntu virtualization repair plan", async () => {
+    const expectedPackages = { "qemu-system-x86": "1:10.2.1+ds-1ubuntu3.2", "libvirt-daemon-system": "12.0.0-1ubuntu5.2", "libvirt-clients": "12.0.0-1ubuntu5.2", virtinst: "1:5.1.0-1", ovmf: "2025.11-3ubuntu7" };
+    const result = {
+      installed: true, packages: expectedPackages, serviceActive: true, connectionUri: "qemu:///system", qemuVerified: true, kvmDeviceVerified: true,
+      boundary: { fixedPackageSet: true, arbitraryPackageAccepted: false, arbitraryRepositoryAccepted: false, aptUpdatePerformed: false, packageRemovalPerformed: false, existingProviderReplaced: false, operatorUserGroupChanged: false, networkCreated: false, storagePoolCreated: false, virtualMachineCreated: false },
+    };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const validatePrerequisiteRepairJob = vi.fn(async () => ({ plan: { input: { expectedPackages } }, state: { installed: false, kvmDeviceAvailable: true } }));
+    const jobs = createJobService(store, helper, { validatePrerequisiteRepairJob });
+    const job = store.createJob({ type: "prerequisite.virtualization.install", title: "Install virtualization", risk: "system-package-service-virtualization", parameters: { expectedPackages }, recovery: { automaticRollback: false }, createdBy: owner.id });
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+    expect(validatePrerequisiteRepairJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("prerequisite.virtualization.install", { expectedPackages }, { timeoutMs: 21 * 60 * 1000 });
+    expect(completed).toMatchObject({ state: "completed", result: { installed: true, packages: expectedPackages, connectionUri: "qemu:///system", kvmDeviceVerified: true } });
+    store.close();
+  });
+
   it("revalidates and executes a typed Uptime Kuma deployment job", async () => {
     const helper = { request: vi.fn(async () => ({ installed: true, healthy: true, dataPreserved: true, hostPort: 3101 })) };
     const { store, owner } = await setup(helper);

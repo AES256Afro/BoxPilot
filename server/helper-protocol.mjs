@@ -30,7 +30,8 @@ import { createKeelRollbackHelper, validateKeelRollbackCreateInput, validateKeel
 import { validUuid } from "./keel-artifact-spec.mjs";
 
 export const helperProtocolVersion = 1;
-export const helperOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.smartmontools.install", "prerequisite.restic.inspect", "prerequisite.restic.install", "prerequisite.docker.inspect", "prerequisite.docker.install", "prerequisite.apt-metadata.inspect", "prerequisite.apt-metadata.refresh", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.backup.create", "controller.database.protection.inspect", "controller.database.protection.create", "controller.database.protection.retention.inspect", "controller.database.protection.retention.apply", "application.backup.protection.inspect", "application.backup.protection.create", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "application.pi-hole.inspect", "application.pi-hole.deploy", "application.pi-hole.backup", "application.keel.inspect", "application.keel.artifact.inspect", "application.keel.artifact.acquire", "application.keel.archive.inspect", "application.keel.stage.inspect", "application.keel.stage", "application.keel.install.inspect", "application.keel.install", "application.keel.login-proof.inspect", "application.keel.backup", "application.keel.recovery.inspect", "application.keel.recovery.create", "application.keel.recovery-drill.inspect", "application.keel.recovery-drill.create", "application.keel.promotion.inspect", "application.keel.promotion.create", "application.keel.rollback.inspect", "application.keel.rollback.create", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
+export const helperOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.smartmontools.install", "prerequisite.restic.inspect", "prerequisite.restic.install", "prerequisite.docker.inspect", "prerequisite.docker.install", "prerequisite.virtualization.inspect", "prerequisite.virtualization.install", "prerequisite.apt-metadata.inspect", "prerequisite.apt-metadata.refresh", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.backup.create", "controller.database.protection.inspect", "controller.database.protection.create", "controller.database.protection.retention.inspect", "controller.database.protection.retention.apply", "application.backup.protection.inspect", "application.backup.protection.create", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "application.pi-hole.inspect", "application.pi-hole.deploy", "application.pi-hole.backup", "application.keel.inspect", "application.keel.artifact.inspect", "application.keel.artifact.acquire", "application.keel.archive.inspect", "application.keel.stage.inspect", "application.keel.stage", "application.keel.install.inspect", "application.keel.install", "application.keel.login-proof.inspect", "application.keel.backup", "application.keel.recovery.inspect", "application.keel.recovery.create", "application.keel.recovery-drill.inspect", "application.keel.recovery-drill.create", "application.keel.promotion.inspect", "application.keel.promotion.create", "application.keel.rollback.inspect", "application.keel.rollback.create", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
+const virtualizationPackageKeys = ["libvirt-clients", "libvirt-daemon-system", "ovmf", "qemu-system-x86", "virtinst"];
 const vmCreationKeys = ["autostart", "diskGiB", "firmware", "isoFile", "memoryMiB", "name", "network", "osProfile", "vcpus"];
 const vmLifecycleKeys = ["action", "expectedAutostart", "expectedState", "name"];
 const vmSnapshotKeys = ["expectedDiskRevision", "expectedSnapshotRevision", "expectedState", "expectedUuid", "name", "snapshotName"];
@@ -67,6 +68,16 @@ export function validateHelperRequest(value) {
   if (value.operation === "prerequisite.docker.install") {
     const keys = Object.keys(value.parameters);
     if (keys.length !== 1 || keys[0] !== "expectedVersion" || typeof value.parameters.expectedVersion !== "string" || !/^[0-9A-Za-z.+:~_-]{1,64}$/.test(value.parameters.expectedVersion)) return "Docker prerequisite installation accepts only one exact expectedVersion";
+  }
+  if (value.operation === "prerequisite.virtualization.inspect" && Object.keys(value.parameters).length !== 0) return "Virtualization prerequisite inspection accepts no parameters";
+  if (value.operation === "prerequisite.virtualization.install") {
+    const keys = Object.keys(value.parameters);
+    const packages = value.parameters.expectedPackages;
+    const packageKeys = packages && typeof packages === "object" && !Array.isArray(packages) ? Object.keys(packages).sort() : [];
+    const validPackages = packageKeys.length === virtualizationPackageKeys.length
+      && packageKeys.every((key, index) => key === virtualizationPackageKeys[index])
+      && packageKeys.every((key) => typeof packages[key] === "string" && /^[0-9A-Za-z.+:~_-]{1,64}$/.test(packages[key]));
+    if (keys.length !== 1 || keys[0] !== "expectedPackages" || !validPackages) return "Virtualization prerequisite installation accepts only the exact fixed expectedPackages set";
   }
   if (value.operation === "prerequisite.apt-metadata.inspect" && Object.keys(value.parameters).length !== 0) return "APT metadata inspection accepts no parameters";
   if (value.operation === "prerequisite.apt-metadata.refresh") {
@@ -261,7 +272,7 @@ export async function executeHelperOperation(request, { applications = createApp
       version: helperProtocolVersion,
       id: request.id,
       ok: true,
-      result: { verified: true, helperVersion: "0.54.0", mutationPerformed: false },
+      result: { verified: true, helperVersion: "0.55.0", mutationPerformed: false },
     };
   }
   if (request.operation === "prerequisite.smartmontools.inspect") {
@@ -281,6 +292,12 @@ export async function executeHelperOperation(request, { applications = createApp
   }
   if (request.operation === "prerequisite.docker.install") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await prerequisites.installDocker(request.parameters) };
+  }
+  if (request.operation === "prerequisite.virtualization.inspect") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await prerequisites.inspectVirtualization() };
+  }
+  if (request.operation === "prerequisite.virtualization.install") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await prerequisites.installVirtualization(request.parameters) };
   }
   if (request.operation === "prerequisite.apt-metadata.inspect") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await prerequisites.inspectAptMetadata() };
