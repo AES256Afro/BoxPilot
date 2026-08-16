@@ -16,6 +16,8 @@ Version `0.38.0` adds an owner-approved backup of the fixed live controller data
 
 Version `0.38.1` corrects the Backups data-source disclosure and empty-state language so the controller copy-open drill is not described as an application container health check. It does not change the helper, database, job, or recovery contract.
 
+Version `0.39.0` adds a second controller protection stage. The web process can bind an immutable plan only to an existing verified local controller backup and fixed destination revision. The helper accepts no paths, passwords, repositories, commands, or restic options. It requires a separate exact mounted filesystem and controller recovery password, snapshots the complete local backup directory into `restic-controller`, reads all repository data, restores the exact snapshot with verification, repeats both hashes and the SQLite safety checks, removes a successful drill workspace, and stores independent protection evidence in a separate table. No retention, prune, automatic restore, or live database mutation is added.
+
 ## Target components
 
 ```text
@@ -60,6 +62,7 @@ BoxPilot web and API process (unprivileged)
           +---- Durable fixed Flint 2 observed-gateway DNS acceptance (0.36.0)
           +---- Signed node-local-gateway Flint 2 second-device evidence (0.37.0)
           +---- Durable WAL-aware controller snapshot and isolated copy-open evidence (0.38.0)
+          +---- Durable encrypted independent controller copy and exact database restore proof (0.39.0)
           |
           +<--- Ed25519 signed polling and fixed Pi-hole or Flint 2 evidence from an enrolled LAN agent
                   Flint 2 target must match the node-local default gateway
@@ -74,6 +77,7 @@ Restricted helper over a local Unix socket (0.4.0 canary foundation)
           +---- fixed smartmontools inspect and exact-version package-unit handoff (0.31.0)
           +---- fixed APT metadata inspect and static update-only unit handoff (0.35.0)
           +---- fixed controller database inspect, snapshot, manifest, and isolated copy-open drill (0.38.0)
+          +---- fixed controller mounted-restic inspect, full read, exact restore, and copy-open drill (0.39.0)
           +---- fixed Uptime Kuma inspect, deploy, health, and rollback (0.5.0)
           +---- fixed Linux VM creation, verification, and exact-domain rollback (0.9.0)
           +---- fixed VM start, graceful shutdown, reboot request, and autostart operations (0.10.0)
@@ -197,7 +201,7 @@ A successful copy is not a verified backup. The controller adapter requires a co
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.38.1 limitations
+## Version 0.39.0 limitations
 
 - The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
@@ -210,11 +214,11 @@ A successful copy is not a verified backup. The controller adapter requires a co
 - Operations Core jobs and attribution use SQLite. The older VM JSONL planning log remains a separate bounded log. Tamper evidence remains pending.
 - Public GitHub provenance is held only in a 15-minute memory cache. GitHub-reported signature and asset-digest fields are not local verification. Tokens, private repositories, arbitrary repository paths, downloads, writes, webhooks, workflow dispatch, and installation are unavailable.
 - The Keel Notes adapter is planning-only. It does not discover an existing install, download or hash an asset, validate an archive locally, install Node or Keel, create a service account, write a unit, open a port, start a process, claim an owner, restrict registration, back up or restore data, or activate a migration.
-- The recovery kit is evidence and guidance, not a backup. It can report a passing same-host controller snapshot, but it cannot prove that the database directory was copied to independent encrypted storage. It also cannot prove an independent source archive, router configuration, restic password, application credential, or Tailscale account recovery path. Those remain explicit operator checks outside the controller failure domain.
+- The recovery kit is evidence and guidance, not a backup. It can now report stored encrypted independent controller evidence only after the exact snapshot restore passes, but it cannot prove that the operator retained the repository password in a separate failure domain. It also cannot prove an independent source archive, router configuration file, application credential, or Tailscale account recovery path.
 - The Action Center is a transient read-only projection of recovery evidence. It has fixed guidance and view navigation only. It cannot dismiss or persist notices, repair a condition, run a command, install a package, schedule work, request browser notifications, or deliver messages externally. The separately named `smartmontools` workflow exists only in Repair Center.
-- Only the exact `smartmontools` repair, fixed controller backup, fixed Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune retention batches can execute mutations. Network assessments and router checkpoints cannot execute. Pi-hole and Flint 2 direct DNS acceptance are approved fixed read-only jobs in the unprivileged web process and never cross the root helper. Signed agents can repeat only the four fixed Pi-hole checks or the four fixed Flint 2 checks, with a mandatory node-local default-gateway match for Flint 2. Controller backup scheduling, retention, off-host transport, browser download, and automatic restore remain unavailable. Pi-hole and Flint 2 router cutover, router discovery or writes, client DNS advertisement, DHCP, Tailscale changes, remote migration transport, staged-workload activation, firewall, general package, storage administration, general Docker, general libvirt, console proxy, snapshot revert/delete, restic prune, configurable retention, in-place restore, recovery network attachment, and force-off operations remain unavailable.
+- Only the exact `smartmontools` repair, fixed local controller backup, fixed mounted-restic controller protection, fixed Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune VM retention batches can execute mutations. Network assessments and router checkpoints cannot execute. Pi-hole and Flint 2 direct DNS acceptance are approved fixed read-only jobs in the unprivileged web process and never cross the root helper. Signed agents can repeat only the four fixed Pi-hole checks or four fixed Flint 2 checks, with a mandatory node-local default-gateway match for Flint 2. Controller scheduling, retention, prune, remote/cloud adapters, browser download, and automatic production restore remain unavailable.
 - A VM snapshot is never counted as an independent backup. The snapshot workflow rejects running guests, non-file disks, disks outside the managed image root, non-qcow2 disks, backing chains, symlinks, and changed inventory.
-- Controller, Uptime Kuma, and Pi-hole backups remain root-only local artifacts on Bigbox. The controller copy-open drill and application restore health checks are recovery evidence, not independent 3-2-1 protection. The controller artifact includes sensitive authentication and audit state, and its drill does not start a service or attempt an owner login. VM copies require an operator-provided independent mounted filesystem; no such destination is currently configured on Bigbox.
+- Controller, Uptime Kuma, and Pi-hole backups begin as root-only local artifacts on Bigbox. Only the exact controller record whose separate encrypted repository copy, complete repository read, and exact database restore drill pass is promoted to protected. Application artifacts remain local-only. The controller drill does not start a service or attempt an owner login. VM and controller protection both require an operator-provided independent mounted filesystem; no such destination is currently configured on Bigbox.
 - VM exports are root-only local integrity artifacts. They are unencrypted and are not reported as protected until a later independent copy and isolated restore boot pass.
 - Mounted-restic VM copies begin unprotected. Only the exact backup record whose transient no-network restore and guest-agent health drill passes is promoted to protected.
 - Restore-drill protection proves boot and guest-agent health, not application-level network health. The guest must already contain an enabled QEMU guest agent.

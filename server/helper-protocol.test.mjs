@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.38.1", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.39.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -170,6 +170,28 @@ describe("restricted helper protocol", () => {
     };
     await expect(executeHelperOperation(request({ operation: "controller.database.backup.inspect", parameters: {} }), { controllerBackups })).resolves.toMatchObject({ ok: true, result: { healthy: true, boundary: { mutationPerformed: false } } });
     await expect(executeHelperOperation(request({ operation: "controller.database.backup.create", parameters: { backupId } }), { controllerBackups })).resolves.toMatchObject({ ok: true, result: { backupId, applicationId: "boxpilot-controller", consistentSnapshot: true, restoreDrill: { passed: true } } });
+  });
+
+  it("accepts only fixed controller protection evidence and never a path, password, repository, or restic argument", async () => {
+    const parameters = {
+      protectionId: randomUUID(),
+      backupId: randomUUID(),
+      expectedArtifactChecksumSha256: "a".repeat(64),
+      expectedManifestChecksumSha256: "b".repeat(64),
+      expectedSizeBytes: 8192,
+      expectedDestinationRevision: "c".repeat(64),
+    };
+    expect(validateHelperRequest(request({ operation: "controller.database.protection.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "controller.database.protection.inspect", parameters: { repository: "/tmp" } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "controller.database.protection.create", parameters }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "controller.database.protection.create", parameters: { ...parameters, path: "/tmp" } }))).toContain("fixed typed evidence");
+    expect(validateHelperRequest(request({ operation: "controller.database.protection.create", parameters: { ...parameters, protectionId: "../../etc" } }))).toContain("Protection id");
+    const controllerProtection = {
+      inspect: async () => ({ ready: false, setupCommand: "sudo setup", boundary: { mutationPerformed: false } }),
+      protect: async (input) => ({ ...input, created: true, protected: true, boundary: { browserPathAccepted: false } }),
+    };
+    await expect(executeHelperOperation(request({ operation: "controller.database.protection.inspect", parameters: {} }), { controllerProtection })).resolves.toMatchObject({ ok: true, result: { ready: false, boundary: { mutationPerformed: false } } });
+    await expect(executeHelperOperation(request({ operation: "controller.database.protection.create", parameters }), { controllerProtection })).resolves.toMatchObject({ ok: true, result: { protectionId: parameters.protectionId, backupId: parameters.backupId, created: true, protected: true } });
   });
 
   it("delegates a typed backup id without accepting a path", async () => {

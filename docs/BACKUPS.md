@@ -1,6 +1,6 @@
 # Verified application backups
 
-BoxPilot provides four deliberately narrow recovery-evidence paths: the `0.38.0` WAL-aware controller database snapshot and isolated copy-open drill, the `0.6.0` restore-verified local Uptime Kuma adapter, the `0.20.0` restore-verified local Pi-hole configuration adapter, and the VM export, encrypted independent-copy, isolated restore-drill, guarded recovery-clone, and evidence-gated retention chain completed through `0.16.0`. It does not report a workload as verified merely because a file was copied.
+BoxPilot provides four deliberately narrow recovery-evidence paths: the `0.38.0` WAL-aware controller database snapshot plus the `0.39.0` encrypted independent exact-restore stage, the `0.6.0` restore-verified local Uptime Kuma adapter, the `0.20.0` restore-verified local Pi-hole configuration adapter, and the VM export, encrypted independent-copy, isolated restore-drill, guarded recovery-clone, and evidence-gated retention chain completed through `0.16.0`. It does not report a workload as verified merely because a file was copied.
 
 ## Safety boundary
 
@@ -14,7 +14,7 @@ The managed application and backup directory is root-only mode `0700`. Artifacts
 
 Version `0.38.0` creates a consistent standalone snapshot of the fixed live SQLite database with `VACUUM INTO`, so committed WAL state is included without stopping the controller. It computes SHA-256, requires integrity, foreign-key, schema, and owner-state checks to pass, copies the artifact into a generated root-only drill workspace, opens and verifies that copy again, removes the drill workspace, and writes a recovery manifest. The production database is never replaced or changed.
 
-The artifact remains on Bigbox and contains sensitive authentication, agent, job, and audit state. It is not an independent or encrypted copy. See [the controller backup and manual recovery runbook](CONTROLLER-BACKUPS.md) before operating or moving it.
+The local artifact remains on Bigbox and contains sensitive authentication, agent, job, and audit state. It is not independently protected. Version `0.39.0` can bind that exact local evidence to the separate fixed `restic-controller` repository, run a complete repository read, restore the exact snapshot, rehash both files, and repeat the isolated database checks. See [the controller backup and manual recovery runbook](CONTROLLER-BACKUPS.md) before configuring or operating it.
 
 ## Uptime Kuma workflow
 

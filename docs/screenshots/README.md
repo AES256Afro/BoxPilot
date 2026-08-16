@@ -4,6 +4,7 @@ These images include historical local captures and explicitly disclosed release 
 
 - `overview-demo.jpg`: workflow mockup with visible sample-data labeling
 - `controller-backup-mock.png`: explicitly disclosed `0.38.0` WAL-aware controller-backup mock rendered from the repository-native SVG and paired with `docs/mockups/controller-backup.html`; no password, snapshot, database read, restore, service stop, file copy, or host state change occurred
+- `controller-protection-mock.png`: explicitly disclosed `0.39.0` independent controller-protection mock rendered from the repository-native SVG and paired with `docs/mockups/controller-protection.html`; it shows Bigbox's honest blocked destination plus the fixed encrypted full-read and exact-restore contract, and no password, repository, copy, snapshot, restore, database open, or host state change occurred
 - `virtualization-preflight.jpg`: host-backed QEMU/KVM and libvirt readiness view captured on a non-Linux development host
 - `vm-planner.jpg`: historical `0.3.0` server-validated, non-executable VM planner captured with a local ISO fixture; `0.9.0` can stage supported Linux plans for guarded approval
 - `vm-creation-approval-mock.png`: explicitly disclosed `0.9.0` mock state rendered from `docs/mockups/vm-creation-approval.html`; no VM was executed
