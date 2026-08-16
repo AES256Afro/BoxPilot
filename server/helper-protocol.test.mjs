@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.42.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.43.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -238,6 +238,13 @@ describe("restricted helper protocol", () => {
     const keelArtifacts = { inspect: async () => ({ state: "absent", locallyVerified: false }), acquire: async (parameters) => ({ acquired: true, ...parameters, locallyVerified: true }) };
     await expect(executeHelperOperation(request({ operation: "application.keel.artifact.inspect", parameters: {} }), { keelArtifacts })).resolves.toMatchObject({ ok: true, result: { state: "absent", locallyVerified: false } });
     await expect(executeHelperOperation(request({ operation: "application.keel.artifact.acquire", parameters: { acquisitionId } }), { keelArtifacts })).resolves.toMatchObject({ ok: true, result: { acquired: true, acquisitionId, locallyVerified: true } });
+  });
+
+  it("accepts only parameter-free read-only Keel archive inspection", async () => {
+    expect(validateHelperRequest(request({ operation: "application.keel.archive.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.keel.archive.inspect", parameters: { path: "/tmp/keel.tar.gz" } }))).toContain("no parameters");
+    const keelArchive = { inspect: async () => ({ state: "blocked", safeToExtract: false, memberCount: 2900, risks: ["symbolic-link-member", "absolute-link-target"], boundary: { mutationPerformed: false, extractionPerformed: false } }) };
+    await expect(executeHelperOperation(request({ operation: "application.keel.archive.inspect", parameters: {} }), { keelArchive })).resolves.toMatchObject({ ok: true, result: { state: "blocked", safeToExtract: false, memberCount: 2900, boundary: { mutationPerformed: false, extractionPerformed: false } } });
   });
 
   it("accepts only exact migration bundle evidence and keeps all paths helper-owned", async () => {

@@ -69,12 +69,12 @@ describe("curated application catalog", () => {
     const application = {
       id: "keel", name: "Keel Notes", category: "Knowledge", description: "Self-hosted notebook", execution: "planning-only", risk: "stateful", targets: ["native-service"],
       image: { version: "1.2.5", digestPinned: false }, artifact, integrity: `sha256:${"c".repeat(64)}`,
-      live: { installed: false, state: "not-installed", healthy: false, kind: null, version: null, listener: "none", healthIdentityVerified: false, risks: [], native: { candidateCount: 0 }, docker: { available: true, candidateCount: 0 }, provenance: { status: "matched", checkedAt: "2026-08-16T04:00:00Z" }, artifact: { state: "absent", readyToAcquire: true, artifactPresent: false, locallyVerified: false, partialPresent: false, detail: "The fixed Keel release archive is not present" }, detail: "No supported Keel installation was found", boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false } },
+      live: { installed: false, state: "not-installed", healthy: false, kind: null, version: null, listener: "none", healthIdentityVerified: false, risks: [], native: { candidateCount: 0 }, docker: { available: true, candidateCount: 0 }, provenance: { status: "matched", checkedAt: "2026-08-16T04:00:00Z" }, artifact: { state: "absent", readyToAcquire: true, artifactPresent: false, locallyVerified: false, partialPresent: false, detail: "The fixed Keel release archive is not present" }, archive: { state: "artifact-required", safeToExtract: false, artifactLocallyVerified: false, memberCount: 0, expectedMemberCount: 2900, risks: ["artifact-required"], detail: "Acquire and verify the archive first" }, detail: "No supported Keel installation was found", boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false } },
     };
     const plan = {
       id: "keel-plan", subjectId: "keel", revision: "revision789", input: { target: "native-service", hostPort: 3000 }, expiresAt: "2026-08-16T04:00:00Z",
       output: {
-        executable: false, artifact: { ...artifact, githubReportedDigestMatched: true }, image: application.image,
+        executable: false, artifact: { ...artifact, githubReportedDigestMatched: true }, image: application.image, archiveInspection: application.live.archive,
         discovery: { installed: false, state: "not-installed", healthy: false, kind: null, version: null, port: 3000, listener: "none", healthIdentityVerified: false, risks: [], native: { candidateCount: 0 }, docker: { available: true, candidateCount: 0 }, detail: "No supported Keel installation was found", boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false } },
         changes: ["Require a five-minute one-use terminal claim"],
         blockers: [{ id: "keel.execution", summary: "Keel installation remains disabled", repair: { description: "Complete the restricted adapter" } }],
@@ -98,10 +98,11 @@ describe("curated application catalog", () => {
 
     expect(await screen.findByText("Keel Notes")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Plan deployment" }));
-    expect(screen.getByText("Artifact gate enabled")).toBeTruthy();
+    expect(screen.getByText("Archive gate enforced")).toBeTruthy();
     expect(screen.getByText(/Native candidates: 0 \| Docker candidates: 0/)).toBeTruthy();
     expect(screen.getByText(/Release asset digest pinned/)).toBeTruthy();
     expect(screen.getByText(/State: absent \| local bytes verified: no/)).toBeTruthy();
+    expect(screen.getByText(/State: artifact-required \| safe to extract: no/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Plan fixed artifact acquisition" }));
     expect(await screen.findByText("Artifact ready to stage")).toBeTruthy();
     expect(screen.getByText("Keep it unextracted and uninstalled")).toBeTruthy();
@@ -113,6 +114,7 @@ describe("curated application catalog", () => {
     expect(screen.getAllByText(/bcf872e2cee5/)).toHaveLength(2);
     expect(screen.getByText(/verified from local bytes: no/)).toBeTruthy();
     expect(screen.getByText("Plan-time discovery")).toBeTruthy();
+    expect(screen.getByText("Plan-time archive gate")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Stage for approval" })).toBeNull();
   });
 });

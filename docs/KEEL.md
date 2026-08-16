@@ -1,6 +1,6 @@
 # Keel Notes discovery and inert artifact adapter
 
-BoxPilot `0.25.0` introduced a non-executable exact-release plan for [Keel Notes](https://github.com/AES256Afro/Keel). Version `0.41.0` adds bounded parameter-free discovery for supported Linux user-service and exact Docker evidence. Version `0.42.0` adds a separate guarded download and complete local digest check for one fixed archive. It still does not extract, execute, install, adopt, import, start, claim, back up, restore, or expose Keel.
+BoxPilot `0.25.0` introduced a non-executable exact-release plan for [Keel Notes](https://github.com/AES256Afro/Keel). Version `0.41.0` adds bounded parameter-free discovery for supported Linux user-service and exact Docker evidence. Version `0.42.0` adds a separate guarded download and complete local digest check for one fixed archive. Version `0.43.0` adds bounded runtime archive membership inspection and correctly blocks the fixed 1.2.5 release. It still does not extract, execute, install, adopt, import, start, claim, back up, restore, or expose Keel.
 
 ## Fixed release identity
 
@@ -22,7 +22,13 @@ The adapter accepts no repository, URL, tag, filename, digest, path, service nam
 | Supported upstream Linux default | `~/keel` with `~/.config/systemd/user/keel.service` |
 | Health identity | JSON from `/api/health` identifying Keel and a healthy result |
 
-During adapter authoring, the exact archive was inspected outside BoxPilot's execution path. It contained 2,900 entries and no absolute paths, parent traversal, symbolic links, hard links, block devices, character devices, or FIFOs. Version `0.42.0` verifies the compressed archive length and full SHA-256 from local bytes. It does not yet inspect or trust archive membership at runtime, and it never extracts or executes the archive.
+The earlier source-level review incorrectly recorded that the archive contained no symbolic links. Runtime review of the exact 47,655,144-byte asset, whose complete SHA-256 still matches the pinned identity, found 2,900 logical entries: 2,398 regular files, 501 directories, and one symbolic link. That link has an absolute target into the GitHub Actions build workspace. Version `0.43.0` records this correction and blocks the release. BoxPilot does not expose the member name or link target in its API, and it will not follow, rewrite, omit, or extract the link.
+
+## Runtime archive membership gate
+
+The browser can request only `application.keel.archive.inspect` with an empty parameter object. The root helper opens only the compiled root-only artifact with no-follow semantics, rechecks its exact compressed byte length and SHA-256, then streams gzip and tar parsing without creating an extraction directory. It applies fixed limits of 10,000 logical members and 2 GiB of declared uncompressed member bytes, validates every tar checksum, understands bounded GNU long-name and long-link metadata, requires the one exact archive root and the expected 2,900 logical entries, and rejects malformed structure, changed bytes, unsupported metadata, duplicates, absolute paths, Windows-style paths, backslashes, parent traversal, symbolic or hard links, devices, FIFOs, contiguous files, and unknown member types.
+
+The result contains only state, fixed risk identifiers, aggregate type counts, total declared regular-member bytes, the expected root label, and the expected member count. It never returns a member name, member body, link target, extracted path, or archive byte. The exact 1.2.5 result is `blocked`, with `symbolic-link-member` and `absolute-link-target` risks. `safeToExtract` is false. This is a read-only inspection result, not an extraction approval.
 
 ## Guarded artifact acquisition
 
@@ -75,14 +81,15 @@ When an authenticated owner generates the Keel plan, BoxPilot:
 6. Runs the fixed read-only Keel discovery and blocks existing, ambiguous, unsafe, or incomplete evidence.
 7. Reads the fixed public Keel GitHub metadata through the credential-free provenance service.
 8. Requires the live tag, release commit, asset filename, byte count, and GitHub-reported digest to match every compiled value.
-9. Stores the resulting plan as an immutable, owner-attributable revision.
-10. Adds the `keel.execution` blocker even when every observation matches.
+9. Runs the fixed runtime archive gate when local verified bytes exist, or reports `artifact-required` when they do not.
+10. Stores the resulting plan as an immutable, owner-attributable revision.
+11. Adds `keel.archive` and `keel.execution` blockers. The exact 1.2.5 release cannot proceed.
 
 The Applications screen shows GitHub metadata matching and local-byte verification as separate facts. A matching GitHub digest is never shown as a local digest check. The deployment plan remains non-executable even after the separate artifact plan succeeds.
 
 ## Operations that remain unavailable
 
-The adapter has parameter-free discovery and artifact inspection plus one UUID-only executable artifact job. It cannot:
+The adapter has parameter-free discovery, artifact inspection, and archive membership inspection plus one UUID-only executable artifact job. It cannot:
 
 - Download an arbitrary asset, clone a repository, or update Keel
 - Extract, copy into an application tree, or execute a release asset
@@ -120,13 +127,13 @@ The Keel plan can become executable only after all of these are implemented and 
 
 1. Completed in `0.41.0`: a parameter-free read-only helper operation that accepts no URL, path, port, command, service, container, or argument array.
 2. Completed in `0.42.0`: a separately sandboxed bounded download to a helper-owned staging file with exact byte-count and full local SHA-256 verification.
-3. Archive validation that rejects path traversal, links, devices, unexpected roots, changed membership, and extraction races.
+3. Completed in `0.43.0`: runtime archive validation that rejects path traversal, links, devices, unexpected roots, changed membership, malformed tar structure, and unbounded input without extracting a member. The fixed 1.2.5 release fails this gate.
 4. A dedicated unprivileged account, root-owned immutable application release tree, private writable state, and hardened loopback-only systemd unit.
 5. Exact `/api/health` identity checks before any access handoff.
 6. A server-local, short-lived claim workflow with registration-state verification.
 7. Application-aware backup that preserves database, uploads, backups, and the managed-secret key together.
 8. An isolated restore drill with no published port and no route to production data.
 9. Upgrade checkpoint and automatic rollback to the previous exact release without deleting state.
-10. Negative tests for archive attacks, interrupted extraction, wrong ownership, port collision, failed claim, failed health, failed restart, and failed restore. Version `0.42.0` covers stale or changed markers, URL and redirect escape, response length and digest mismatch, partial cleanup, extra browser input, mismatched existing artifacts, changed plan state, and no extraction or installation. Discovery already covers stale or changed units, duplicate installs, wildcard exposure, missing Docker persistence, traversal-like user-unit paths, and secret or private-path non-disclosure.
+10. Negative tests for archive attacks, interrupted extraction, wrong ownership, port collision, failed claim, failed health, failed restart, and failed restore. Version `0.42.0` covers stale or changed markers, URL and redirect escape, response length and digest mismatch, partial cleanup, extra browser input, mismatched existing artifacts, changed plan state, and no extraction or installation. Version `0.43.0` covers hostile links and targets, traversal, absolute and Windows-style paths, backslashes, devices, FIFOs, unsupported extensions and types, changed member counts and roots, duplicate paths, invalid checksums, malformed or truncated streams, and member and size ceilings. Discovery already covers stale or changed units, duplicate installs, wildcard exposure, missing Docker persistence, traversal-like user-unit paths, and secret or private-path non-disclosure.
 
 The published source uses BUSL-1.1. Personal self-hosting and internal organizational use are within the repository's stated grant. Anyone offering Keel as a hosted service for third parties should review the license and obtain any required separate permission.
