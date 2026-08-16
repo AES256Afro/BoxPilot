@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.41.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.42.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -226,6 +226,18 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ operation: "application.keel.inspect", parameters: { path: "/home/operator/keel" } }))).toContain("no parameters");
     const keelDiscovery = { inspect: async () => ({ installed: false, state: "not-installed", boundary: { mutationPerformed: false, secretRead: false } }) };
     await expect(executeHelperOperation(request({ operation: "application.keel.inspect", parameters: {} }), { keelDiscovery })).resolves.toMatchObject({ ok: true, result: { installed: false, state: "not-installed", boundary: { mutationPerformed: false, secretRead: false } } });
+  });
+
+  it("accepts only parameter-free Keel artifact inspection and one server-generated acquisition UUID", async () => {
+    const acquisitionId = randomUUID();
+    expect(validateHelperRequest(request({ operation: "application.keel.artifact.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.keel.artifact.inspect", parameters: { path: "/tmp/keel" } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "application.keel.artifact.acquire", parameters: { acquisitionId } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.keel.artifact.acquire", parameters: { acquisitionId, url: "https://example.invalid" } }))).toContain("only one acquisitionId UUID");
+    expect(validateHelperRequest(request({ operation: "application.keel.artifact.acquire", parameters: { acquisitionId: "changed" } }))).toContain("only one acquisitionId UUID");
+    const keelArtifacts = { inspect: async () => ({ state: "absent", locallyVerified: false }), acquire: async (parameters) => ({ acquired: true, ...parameters, locallyVerified: true }) };
+    await expect(executeHelperOperation(request({ operation: "application.keel.artifact.inspect", parameters: {} }), { keelArtifacts })).resolves.toMatchObject({ ok: true, result: { state: "absent", locallyVerified: false } });
+    await expect(executeHelperOperation(request({ operation: "application.keel.artifact.acquire", parameters: { acquisitionId } }), { keelArtifacts })).resolves.toMatchObject({ ok: true, result: { acquired: true, acquisitionId, locallyVerified: true } });
   });
 
   it("accepts only exact migration bundle evidence and keeps all paths helper-owned", async () => {

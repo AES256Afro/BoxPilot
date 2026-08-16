@@ -1,4 +1,4 @@
-const productVersion = "0.41.0";
+const productVersion = "0.42.0";
 
 function latestBy(items, key) {
   const result = new Map();

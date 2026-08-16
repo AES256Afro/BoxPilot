@@ -82,7 +82,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   applications: {
     label: "Curated application engine",
     tone: "live",
-    description: "Manifests, host-backed plans, Uptime Kuma, and guarded Pi-hole staging are live. Router and client DNS cutover remain locked.",
+    description: "Manifests, host-backed plans, Uptime Kuma, guarded Pi-hole staging, Keel discovery, and fixed inert Keel artifact verification are live. Keel extraction and install, router writes, and client DNS cutover remain locked.",
   },
   network: {
     label: "Network intelligence and guarded direct tests",
@@ -97,7 +97,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   repairs: {
     label: "Live Operations Core",
     tone: "live",
-    description: "Prerequisite checks, durable approvals, the helper canary, and a secret-free recovery readiness kit come from Bigbox. General package and application mutations remain locked.",
+    description: "Prerequisite checks, durable approvals, the helper canary, the fixed Keel artifact job, and a secret-free recovery readiness kit come from Bigbox. General package and application mutation remains locked.",
   },
   virtualization: {
     label: "Host-backed module",
@@ -313,7 +313,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.41.0 Keel discovery<br />read-only native and Docker evidence</div>
+        <div className="prototype-label">v0.42.0 Keel artifact gate<br />local SHA-256, no extraction or install</div>
       </aside>
 
       <main>
