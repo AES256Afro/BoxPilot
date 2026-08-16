@@ -48,6 +48,8 @@ describe("sanitized host inventory", () => {
     const fixtures = JSON.parse(await readFile("test/fixtures/ubuntu-lts-inventory.json", "utf8"));
     expect(fixtures.map((fixture) => fixture.release)).toEqual(["22.04", "24.04", "26.04"]);
     for (const fixture of fixtures) {
+      const parsedMounts = parseMountInventory(JSON.stringify(fixture.findmnt));
+      const mountedEvidence = { ...parsedMounts, mounts: parsedMounts.mounts.map((mount) => ({ ...mount, errorEvidence: { supported: mount.filesystem === "ext4", state: mount.filesystem === "ext4" ? "healthy" : "unsupported", errorsCount: mount.filesystem === "ext4" ? 0 : null, source: mount.filesystem === "ext4" ? "ext4-sysfs-errors-count" : null, reason: mount.filesystem === "ext4" ? "ok" : "unsupported-filesystem" } })) };
       const runCommand = vi.fn(async (command) => {
         if (command === "findmnt") return { ok: true, stdout: JSON.stringify(fixture.findmnt) };
         if (command === "lsblk") return { ok: true, stdout: JSON.stringify(fixture.lsblk) };
@@ -62,17 +64,19 @@ describe("sanitized host inventory", () => {
         getNetworkInterfaces: vi.fn(() => ({})),
         now: () => new Date("2026-08-16T05:01:00.000Z"),
         readStorageHealth: vi.fn(async () => JSON.stringify({
-          schemaVersion: 1,
+          schemaVersion: 2,
           generatedAt: "2026-08-16T05:00:00.000Z",
           available: false,
           reason: "no-supported-disks",
           disks: [],
-          filesystems: { ...parseMountInventory(JSON.stringify(fixture.findmnt)), namespace: "host-pid1" },
+          filesystems: { ...mountedEvidence, namespace: "host-pid1" },
         })),
       }).inspect();
       expect(inventory.host.operatingSystem).toContain(`Ubuntu ${fixture.release}`);
       expect(inventory.storage.filesystems.available).toBe(true);
       expect(inventory.storage.filesystems.mounts.length).toBeGreaterThan(0);
+      expect(inventory.storage.filesystems.errors.critical).toBe(0);
+      expect(inventory.storage.filesystems.errors.healthy).toBeGreaterThan(0);
       expect(inventory.storage.blockDevices.available).toBe(true);
       expect(runCommand).not.toHaveBeenCalledWith("findmnt", expect.anything());
       expect(JSON.stringify(inventory)).not.toContain("UUID");

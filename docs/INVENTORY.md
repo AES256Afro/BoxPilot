@@ -1,6 +1,6 @@
 # Sanitized live inventory
 
-BoxPilot `0.7.0` replaced the demonstration overview with authenticated host, service, network, Docker, and log inventory. Version `0.30.1` adds sanitized host-mount and block-device topology, a separate fixed root-only storage evidence timer, and a server-generated support bundle with a final configurable redaction pass. Version `0.31.0` adds a separately named exact `smartmontools` repair without changing the read-only inventory endpoints. Every collector remains bounded so discovery does not become arbitrary command execution.
+BoxPilot `0.7.0` replaced the demonstration overview with authenticated host, service, network, Docker, and log inventory. Version `0.30.1` adds sanitized host-mount and block-device topology, a separate fixed root-only storage evidence timer, and a server-generated support bundle with a final configurable redaction pass. Version `0.31.0` adds a separately named exact `smartmontools` repair. Version `0.32.0` adds mounted ext4 kernel error counters to the same fixed evidence document. Every collector remains bounded so discovery does not become arbitrary command execution.
 
 ## Host inventory
 
@@ -10,7 +10,7 @@ BoxPilot `0.7.0` replaced the demonstration overview with authenticated host, se
 - CPU count, model, load averages, and normalized one-minute load
 - Total, used, and free memory
 - Root-filesystem capacity and usage
-- Real filesystem mounts with capacity state, safe option names, read-only state, and sanitized source and target
+- Real filesystem mounts with capacity state, safe option names, read-only state, sanitized source and target, and fail-closed ext4 error-counter evidence
 - Block-device topology without serial numbers, UUIDs, labels, or raw udev properties
 - Bounded SMART health fields from a separate root-only timer when current evidence exists
 - Non-loopback IPv4 addresses and interface names
@@ -31,6 +31,8 @@ Mount sanitization:
 - Replaces `/root`, `/home/<name>`, and `/run/user/<id>` targets with fixed redacted forms
 - Marks capacity `warning` at 85 percent and `critical` at 95 percent
 
+Filesystem error evidence is separate from capacity. For each mounted ext4 source, the timer runs fixed `lsblk --noheadings --nodeps --output KNAME <derived-local-source>` arguments, accepts only one bounded kernel name, and reads only `/sys/fs/ext4/<kernel-name>/errors_count`. A zero counter is `healthy`; a nonzero counter is `critical`; a missing or invalid counter is `unavailable`. Non-ext4 filesystems are `unsupported`, not healthy. The collector does not run `fsck`, `e2fsck`, `tune2fs`, unmount, remount, or write a kernel or filesystem setting.
+
 Block sanitization includes device name, parent, type, filesystem, size, sanitized mount targets, rotational and read-only state, transport, and model. It does not request or return serial, WWN, UUID, partition UUID, filesystem label, udev property, or raw command output.
 
 ### SMART scanner boundary
@@ -41,7 +43,7 @@ Block sanitization includes device name, parent, type, filesystem, size, sanitiz
 2. Discovers at most 16 whole disks with fixed `/usr/bin/lsblk` arguments.
 3. Accepts only common local disk names such as `/dev/nvme0n1` and `/dev/sda`.
 4. Calls only `smartctl --json=c --all <discovered-device>`.
-5. Writes only passed state, temperature, power-on hours, NVMe life used, critical-warning count, media errors, unsafe shutdowns, and a derived health state.
+5. Writes only passed state, temperature, power-on hours, NVMe life used, critical-warning count, media errors, unsafe shutdowns, a derived health state, and the separately bounded filesystem error evidence described above.
 
 The evidence excludes serials, UUIDs, firmware, raw output, stderr, arbitrary attributes, and command arguments. The web service treats missing, malformed, more than 24-hour-old, or future-dated evidence as unavailable or stale. It never turns collector failure into a healthy claim.
 

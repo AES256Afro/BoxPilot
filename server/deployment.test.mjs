@@ -41,7 +41,7 @@ describe("native systemd network boundaries", () => {
     expect(dockerfile).toContain("BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot");
     expect(dockerfile).toContain("BOXPILOT_COOKIE_SECURE=false");
     expect(dockerfile).toContain("USER node");
-    expect(compose).toContain("image: boxpilot:0.31.0");
+    expect(compose).toContain("image: boxpilot:0.32.0");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("/tmp:size=16m,mode=1777");
   });
@@ -71,6 +71,9 @@ describe("native systemd network boundaries", () => {
     expect(service).not.toContain("StateDirectory=boxpilot");
     expect(timer).toContain("OnUnitActiveSec=6h");
     expect(scanner).toContain('["--json=c", "--all", device]');
+    expect(scanner).toContain('["--noheadings", "--nodeps", "--output", "KNAME", source]');
+    expect(scanner).toContain('`/sys/fs/ext4/${kernelName}/errors_count`');
+    expect(scanner).not.toMatch(/["'](?:fsck|e2fsck|tune2fs)["']/);
     expect(scanner).not.toContain("process.argv[2]");
     expect(protocol).not.toContain("storage.smart.scan");
   });

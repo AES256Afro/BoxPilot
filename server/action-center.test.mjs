@@ -51,7 +51,7 @@ describe("read-only local Action Center", () => {
 
   it("adds fail-closed storage capacity and SMART guidance without a repair route", async () => {
     const recoveryKit = { inspect: vi.fn(async () => ({ checks: [], evidence: { jobs: [] } })) };
-    const inventory = { inspect: vi.fn(async () => ({ storage: { filesystems: { summary: { healthy: 1, warning: 0, critical: 1, unavailable: 0 } }, smart: { available: false, status: "unavailable", reason: "smartctl-not-installed" } } })) };
+    const inventory = { inspect: vi.fn(async () => ({ storage: { filesystems: { available: true, summary: { healthy: 1, warning: 0, critical: 1, unavailable: 0 } }, smart: { available: false, status: "unavailable", reason: "smartctl-not-installed" } } })) };
     const result = await createActionCenterService({ recoveryKit, inventory, now }).inspect();
     expect(result.notices).toEqual([
       expect.objectContaining({ id: "storage.filesystem-capacity", severity: "critical", recommendation: { view: "overview", title: "Open Overview", steps: expect.any(Array) } }),
@@ -59,5 +59,17 @@ describe("read-only local Action Center", () => {
     ]);
     expect(JSON.stringify(result)).not.toContain("apt-get");
     expect(JSON.stringify(result)).not.toContain("rm ");
+  });
+
+  it("surfaces filesystem error counters and unsupported coverage without offering fsck", async () => {
+    const recoveryKit = { inspect: vi.fn(async () => ({ checks: [], evidence: { jobs: [] } })) };
+    const inventory = { inspect: vi.fn(async () => ({ storage: { filesystems: { available: true, summary: { healthy: 2, warning: 0, critical: 0, unavailable: 0 }, errors: { healthy: 1, critical: 1, unavailable: 0, unsupported: 1 } }, smart: { available: true, status: "healthy", reason: "fixed-root-scan" } } })) };
+    const critical = await createActionCenterService({ recoveryKit, inventory, now }).inspect();
+    expect(critical.notices).toEqual([expect.objectContaining({ id: "storage.filesystem-errors", severity: "critical", boundary: expect.objectContaining({ automaticFixAvailable: false }) })]);
+    expect(JSON.stringify(critical)).not.toContain("fsck -");
+
+    inventory.inspect.mockResolvedValueOnce({ storage: { filesystems: { available: true, summary: { healthy: 2, warning: 0, critical: 0, unavailable: 0 }, errors: { healthy: 2, critical: 0, unavailable: 0, unsupported: 1 } }, smart: { available: true, status: "healthy", reason: "fixed-root-scan" } } });
+    const unsupported = await createActionCenterService({ recoveryKit, inventory, now }).inspect();
+    expect(unsupported.notices).toEqual([expect.objectContaining({ id: "storage.filesystem-errors-unsupported", severity: "info" })]);
   });
 });
