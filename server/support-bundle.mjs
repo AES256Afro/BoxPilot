@@ -1,6 +1,6 @@
 import { createRedactor, loadRedactionPolicy } from "./redaction.mjs";
 
-const productVersion = "0.38.1";
+const productVersion = "0.39.0";
 const logSources = ["boxpilot", "docker", "tailscale", "virtualization"];
 
 function settled(result) {

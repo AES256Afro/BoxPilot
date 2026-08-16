@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BoxPilot controller protection mock</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #07100f; color: #f4f7f6; }
+    * { box-sizing: border-box; } body { margin: 0; min-width: 1180px; background: radial-gradient(circle at 74% 0, #16392f 0, #07100f 38%, #050a09 100%); }
+    .disclosure { padding: 12px 34px; color: #ffe3ad; background: #5a3c08; border-bottom: 1px solid #9b6913; font-size: 14px; font-weight: 750; }
+    .shell { display: grid; grid-template-columns: 230px 1fr; min-height: 930px; } aside { border-right: 1px solid #1d302d; padding: 26px 18px; background: rgba(5,12,11,.94); }
+    .brand { font-size: 24px; font-weight: 800; margin: 0 10px 30px; }.brand b { display: inline-grid; place-items: center; width: 35px; height: 35px; margin-right: 10px; border-radius: 10px; background: #4de1b0; color: #06100e; }
+    nav { display: grid; gap: 7px; color: #90a8a2; font-size: 14px; } nav div { padding: 11px 13px; border-radius: 9px; } nav .active { color: #effbf7; background: #16322d; border: 1px solid #275047; }
+    .private { margin-top: 230px; border: 1px solid #214139; border-radius: 12px; padding: 13px; color: #96aaa5; font-size: 12px; line-height: 1.55; }.private strong,.eyebrow { color: #59dfb6; }
+    main { padding: 28px 36px 44px; }.top { display: flex; justify-content: space-between; }.eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; } h1 { margin: 7px 0; font-size: 34px; }.top p,.muted { color: #9bb0aa; }.pill { height: fit-content; border: 1px solid #6a5225; border-radius: 999px; padding: 8px 13px; color: #f3cb82; background: #2b220f; font-size: 12px; }
+    .truth { margin: 24px 0 18px; padding: 13px 16px; border: 1px solid #6a5225; border-radius: 11px; background: #2b220f; color: #c8b995; font-size: 13px; }.truth strong { color: #f3cb82; }
+    .grid { display: grid; grid-template-columns: 1fr 1.05fr; gap: 16px; }.panel { border: 1px solid #203a35; border-radius: 14px; padding: 18px; background: rgba(12,25,22,.93); }.panel h2 { margin: 5px 0; font-size: 19px; }.panel p { margin: 0; color: #98aba6; font-size: 13px; line-height: 1.5; }
+    .items { display: grid; gap: 9px; margin-top: 14px; }.item { padding: 10px 12px; border: 1px solid #29433e; border-radius: 9px; font-size: 12px; }.blocked { border-color: #6a3b30; color: #ffb8a7; background: #2b1b16; }.fixed { color: #afe5d5; background: #0b1d19; font-family: ui-monospace, monospace; }
+    .workflow { margin-top: 16px; }.workflow-grid { display: grid; grid-template-columns: 1.45fr .7fr; gap: 18px; }.workflow ol { color: #b8cac5; font-size: 12px; line-height: 1.6; }.proof { border: 1px solid #24604f; border-radius: 9px; padding: 12px; background: #102b24; color: #b6eadb; font: 12px ui-monospace, monospace; line-height: 1.65; }.warning { margin-top: 10px; border: 1px solid #6a5225; border-radius: 9px; padding: 12px; background: #2b220f; color: #efd59f; font-size: 12px; line-height: 1.5; }
+    .footer { margin-top: 16px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #3f4d48; border-radius: 14px; padding: 16px; background: #191b19; }.footer span { color: #97aaa5; font-size: 12px; }.disabled { padding: 11px 15px; border: 1px solid #475b55; border-radius: 9px; background: #26302d; color: #9ca9a6; font-weight: 800; }
+  </style>
+</head>
+<body>
+  <div class="disclosure">MOCKED 0.39.0 PRODUCT STATE. No password, repository, copy, snapshot, restore, database open, or host change occurred.</div>
+  <div class="shell"><aside><div class="brand"><b>B</b>BoxPilot</div><nav><div>OV Overview</div><div>AP Applications</div><div>NW Network</div><div>RT Routers</div><div>RX Repair Center</div><div>VM Virtual Machines</div><div class="active">BK Backups</div><div>MG Migrations</div><div>FL Fleet</div><div>GH GitHub</div><div>LG Logs</div></nav><div class="private"><strong>Private administration</strong><br>Tailscale HTTPS<br>Funnel off<br><br>v0.39.0 controller protection</div></aside>
+    <main><div class="top"><div><span class="eyebrow">BoxPilot</span><h1>Backups and recovery</h1><p>Local restore evidence and independent disaster protection are separate states.</p></div><span class="pill">Setup required</span></div>
+      <div class="truth"><strong>Honest Bigbox state:</strong> No independent mount is configured, so staging is disabled and no protection claim is made.</div>
+      <div class="grid"><section class="panel"><span class="eyebrow">Independent controller destination</span><h2>Setup required on Bigbox</h2><p>Read-only inspection failed closed with fixed terminal guidance.</p><div class="items"><div class="item blocked">Mount an exact writable filesystem at /mnt/boxpilot-backup.</div><div class="item blocked">Use a different filesystem from state and local backups.</div><div class="item fixed">sudo /opt/boxpilot/scripts/boxpilot-controller-restic-setup.sh</div></div></section>
+        <section class="panel"><span class="eyebrow">Fixed contract after setup</span><h2>Separate repository and recovery key</h2><p>No browser path, password, repository, selector, or restic argument.</p><div class="items"><div class="item fixed">repository: restic-controller</div><div class="item fixed">key: separate root:root 0600 file</div><div class="item">Input is two UUIDs, two hashes, size, and destination revision.</div></div></section></div>
+      <section class="panel workflow"><span class="eyebrow">Guarded workflow preview</span><h2>Exact backup protection evidence required</h2><div class="workflow-grid"><ol><li>Rehash the local artifact and manifest; repeat database checks.</li><li>Snapshot the complete UUID directory into the encrypted repository.</li><li>Read every repository data pack and confirm exact path and tags.</li><li>Restore the exact snapshot with verification into a no-network workspace.</li><li>Rehash both files and reopen SQLite, then remove the successful workspace.</li><li>Record protection only after encryption, independence, full read, and exact restore pass.</li></ol><div><div class="proof">protected: after restore<br>repository read: complete<br>snapshot: exact id<br>database: copy-open</div><div class="warning"><strong>Recovery boundary</strong><br>Live database and local backup remain unchanged. No forget, prune, overwrite, or automatic restore.</div></div></div></section>
+      <div class="footer"><div><strong>Staging stays disabled until every destination blocker clears</strong><br><span>The setup script runs only from the Bigbox terminal and the recovery password never enters BoxPilot.</span></div><span class="disabled">Protection blocked</span></div>
+    </main>
+  </div>
+</body>
+</html>

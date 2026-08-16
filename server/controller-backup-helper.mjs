@@ -10,6 +10,7 @@ const requiredTables = Object.freeze([
   "approvals",
   "audit_events",
   "bootstrap_tokens",
+  "controller_backup_protections",
   "fleet_agents",
   "fleet_evidence",
   "fleet_tasks",

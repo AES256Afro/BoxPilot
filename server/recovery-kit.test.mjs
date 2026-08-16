@@ -93,4 +93,19 @@ describe("secret-free disaster recovery kit", () => {
     expect(kit.evidence.virtualMachines.inventoryAvailable).toBe(false);
     store.close();
   });
+
+  it("reports controller recovery verified only after encrypted independent exact-snapshot restore evidence", async () => {
+    const { owner, service, store } = await setup({ installed: false, domains: [] });
+    const backupId = "55555555-5555-4555-8555-555555555555";
+    store.recordBackup({ id: backupId, applicationId: "boxpilot-controller", destination: "local-managed", artifactPath: "/secret/controller/boxpilot.sqlite3", checksumSha256: "e".repeat(64), sizeBytes: 8192, downtimeMs: 0, restoreDrill: { passed: true, mode: "isolated-copy-open", integrityCheck: "ok", foreignKeyIssues: 0, schemaVerified: true, manifestChecksumSha256: "f".repeat(64) }, createdBy: owner.id });
+    store.recordControllerBackupProtection({ id: "66666666-6666-4666-8666-666666666666", backupId, destination: "mounted-restic-controller", repositoryId: "a".repeat(64), snapshotId: "b".repeat(64), sizeBytes: 8192, encrypted: true, independent: true, repositoryVerified: true, protected: true, restoreDrill: { passed: true, mode: "exact-snapshot-isolated-copy-open", network: "none", workspaceRemoved: true }, createdBy: owner.id });
+
+    const kit = await service.inspect();
+    expect(kit.checks).toEqual(expect.arrayContaining([expect.objectContaining({ id: "controller.database", state: "verified", evidence: expect.stringContaining("complete repository read") })]));
+    expect(kit.evidence.controllerProtections).toEqual([expect.objectContaining({ backupId, encrypted: true, independent: true, repositoryVerified: true, protected: true, restorePassed: true })]);
+    expect(kit.runbookMarkdown).toContain("Protected controller snapshots: 1");
+    const serialized = JSON.stringify(kit);
+    expect(serialized).not.toContain("/secret/controller/boxpilot.sqlite3");
+    store.close();
+  });
 });

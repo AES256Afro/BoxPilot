@@ -1,4 +1,4 @@
-const productVersion = "0.38.1";
+const productVersion = "0.39.0";
 
 function latestBy(items, key) {
   const result = new Map();
@@ -33,7 +33,7 @@ function renderRunbook(kit) {
   }
   lines.push("## Recovery order", "");
   for (const item of kit.recoveryOrder) lines.push(`${item.order}. ${item.title}: ${item.instruction}`);
-  lines.push("", "## Evidence inventory", "", `Recent jobs: ${kit.evidence.jobs.length}`, `Controller backups: ${kit.evidence.controllerBackups.length}`, `Application backups: ${kit.evidence.applicationBackups.length}`, `Retained VM backups: ${kit.evidence.vmBackups.length}`, `Router checkpoints: ${kit.evidence.routerCheckpoints.length}`, `Verified migration transfers: ${kit.evidence.migrationTransfers.length}`, `Fleet agents: ${kit.evidence.fleet.activeAgents} active, ${kit.evidence.fleet.revokedAgents} revoked`, "", "## External items BoxPilot cannot prove", "");
+  lines.push("", "## Evidence inventory", "", `Recent jobs: ${kit.evidence.jobs.length}`, `Controller backups: ${kit.evidence.controllerBackups.length}`, `Protected controller snapshots: ${kit.evidence.controllerProtections.length}`, `Application backups: ${kit.evidence.applicationBackups.length}`, `Retained VM backups: ${kit.evidence.vmBackups.length}`, `Router checkpoints: ${kit.evidence.routerCheckpoints.length}`, `Verified migration transfers: ${kit.evidence.migrationTransfers.length}`, `Fleet agents: ${kit.evidence.fleet.activeAgents} active, ${kit.evidence.fleet.revokedAgents} revoked`, "", "## External items BoxPilot cannot prove", "");
   for (const item of kit.externalItems) lines.push(`- ${item}`);
   lines.push("", "## Export boundary", "");
   for (const item of kit.boundary.excluded) lines.push(`- Excluded: ${item}`);
@@ -56,6 +56,8 @@ export function createRecoveryKitService({ store, prerequisites, applications, l
     const jobs = store.listJobs(100);
     const allBackups = store.listBackups(200);
     const controllerBackups = allBackups.filter((item) => item.applicationId === "boxpilot-controller");
+    const controllerProtections = store.listControllerBackupProtections(200).filter((item) => item.protected && item.encrypted && item.independent && item.repositoryVerified && item.restoreDrill?.passed);
+    const protectedControllerBackup = controllerBackups.find((backup) => controllerProtections.some((protection) => protection.backupId === backup.id)) ?? null;
     const applicationBackups = allBackups.filter((item) => item.applicationId !== "boxpilot-controller");
     const vmBackups = store.listVmBackups(200).filter((item) => item.retained !== false);
     const routerCheckpoints = store.listRouterCheckpoints(200);
@@ -78,7 +80,9 @@ export function createRecoveryKitService({ store, prerequisites, applications, l
     const nonReadyPrerequisites = prerequisiteInventory.checks.filter((item) => item.status !== "ready");
 
     const checks = [
-      controllerBackups[0]?.restoreDrill?.passed === true
+      protectedControllerBackup
+        ? check("controller.database", "verified", "Independent BoxPilot database recovery", `Controller backup ${protectedControllerBackup.id} has an encrypted independent restic snapshot, a complete repository read, and an exact isolated database restore drill.`, "Keep the repository and its separate recovery password in different failure domains. Repeat protection after material controller-state changes.")
+        : controllerBackups[0]?.restoreDrill?.passed === true
         ? check("controller.database", "operator-check", "Independent BoxPilot database copy", `A WAL-aware local controller snapshot passed its isolated copy-open drill at ${controllerBackups[0].verifiedAt}, but it remains on Bigbox.`, "Copy the complete root-only backup directory and manifest to encrypted independent storage, verify both recorded SHA-256 values there, and retain the restore procedure.")
         : check("controller.database", "action-required", "Verified BoxPilot database snapshot", "No WAL-aware local controller snapshot with passing isolated copy-open evidence is recorded.", "Open Backups and run the BoxPilot controller workflow. Then copy the verified directory and manifest to encrypted independent storage."),
       check("controller.source", "operator-check", "Exact BoxPilot source and install notes", `This kit records BoxPilot ${version}, but the running controller does not attest its Git commit or retain an independent source archive.`, "Keep the exact release archive, file manifest, Ubuntu bootstrap notes, systemd units, and Tailscale Serve command outside Bigbox."),
@@ -135,7 +139,7 @@ export function createRecoveryKitService({ store, prerequisites, applications, l
       recoveryOrder: [
         { order: 1, title: "Stabilize the host", instruction: "Use local console access, verify disks and filesystems, and do not change router or DNS settings while server health is uncertain." },
         { order: 2, title: "Restore private access", instruction: "Bring up Tailscale and BoxPilot on loopback with Funnel off; keep owner authentication enabled." },
-        { order: 3, title: "Restore controller state", instruction: "With BoxPilot stopped, integrity-check the independent SQLite copy, restore it with boxpilot ownership and mode 0600, then start and verify health." },
+        { order: 3, title: "Restore controller state", instruction: "Use the recorded controller restic repository and exact snapshot id to restore the complete backup directory. With BoxPilot stopped, recheck both hashes and SQLite integrity, restore the database with boxpilot ownership and mode 0600, then start and verify health." },
         { order: 4, title: "Inspect before mutation", instruction: "Run Repair Center and live inventory. Treat missing feature-specific prerequisites as scoped blockers, not permission for broad repair commands." },
         { order: 5, title: "Restore applications", instruction: "Use adapter-aware artifacts and isolated restore tests. Keep unclaimed services loopback-only and never copy a live SQLite database." },
         { order: 6, title: "Restore virtual machines", instruction: "Restore only exact protected restic snapshots into stopped no-network clones before deciding whether to attach networking." },
@@ -143,7 +147,7 @@ export function createRecoveryKitService({ store, prerequisites, applications, l
         { order: 8, title: "Validate and record", instruction: "Verify application health, backup integrity, access boundaries, and rollback; generate a new kit and store it away from Bigbox." },
       ],
       externalItems: [
-        "Independent BoxPilot database copy with checksum and restore notes",
+        "Controller restic repository media and a separately stored repository password",
         "Exact BoxPilot source archive and file manifest",
         "Router configuration files matching recorded hashes",
         "Restic repository password and recovery media stored separately from the repository",
@@ -153,6 +157,7 @@ export function createRecoveryKitService({ store, prerequisites, applications, l
       evidence: {
         jobs: jobs.map((item) => ({ id: item.id, type: item.type, title: item.title, state: item.state, risk: item.risk, createdAt: item.createdAt })),
         controllerBackups: controllerBackups.map((item) => ({ id: item.id, destination: item.destination, checksumSha256: item.checksumSha256, sizeBytes: item.sizeBytes, downtimeMs: item.downtimeMs, restorePassed: item.restoreDrill?.passed === true, integrityCheck: item.restoreDrill?.integrityCheck ?? null, foreignKeyIssues: item.restoreDrill?.foreignKeyIssues ?? null, schemaVerified: item.restoreDrill?.schemaVerified === true, manifestChecksumSha256: item.restoreDrill?.manifestChecksumSha256 ?? null, createdAt: item.createdAt, verifiedAt: item.verifiedAt })),
+        controllerProtections: controllerProtections.map((item) => ({ id: item.id, backupId: item.backupId, destination: item.destination, repositoryId: item.repositoryId, snapshotId: item.snapshotId, sizeBytes: item.sizeBytes, encrypted: item.encrypted, independent: item.independent, repositoryVerified: item.repositoryVerified, protected: item.protected, restorePassed: item.restoreDrill?.passed === true, restoreMode: item.restoreDrill?.mode ?? null, createdAt: item.createdAt })),
         applications: applicationInventory.applications.map((item) => ({ id: item.id, name: item.name, execution: item.execution, installed: item.live?.installed === true, state: item.live?.state ?? "unknown", backupState: item.live?.backup?.state ?? null })),
         applicationBackups: applicationBackups.map((item) => ({ id: item.id, applicationId: item.applicationId, destination: item.destination, checksumSha256: item.checksumSha256, sizeBytes: item.sizeBytes, downtimeMs: item.downtimeMs, restorePassed: item.restoreDrill?.passed === true, createdAt: item.createdAt, verifiedAt: item.verifiedAt })),
         virtualMachines: { inventoryAvailable: domainInventory.connected === true, domains: domains.map((item) => ({ name: item.name, state: item.state, autostart: item.autostart === true })) },
