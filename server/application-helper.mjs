@@ -111,6 +111,9 @@ export function createApplicationHelper({
   const piholeComposePath = path.join(piholeDirectory, "compose.yaml");
   const piholePreviousPath = path.join(piholeDirectory, "compose.yaml.previous");
   const piholeSecretPath = path.join(piholeDirectory, "admin-password");
+  const piholeBackupDirectory = path.join(managedRoot, "backups", "pi-hole");
+  const piholeBackupMarkerPath = path.join(piholeBackupDirectory, "active-backup.json");
+  const piholeRestoreRoot = path.join(managedRoot, "restore-drills");
 
   async function docker(args, options) {
     return runDocker(dockerBinary, args, options);
@@ -269,6 +272,7 @@ export function createApplicationHelper({
     const drillDirectory = path.join(managedRoot, "restore-drills", backupId);
     const drillData = path.join(drillDirectory, "data");
     await mkdir(backupDirectory, { recursive: true, mode: 0o700 });
+    await chmod(backupDirectory, 0o700);
     await stat(archivePath).then(() => { throw new Error("Backup artifact already exists"); }).catch((error) => {
       if (error.message === "Backup artifact already exists") throw error;
       if (error.code !== "ENOENT") throw error;
@@ -328,6 +332,163 @@ export function createApplicationHelper({
       sourceRestartVerified: true,
       restoreDrill: { passed: true, network: "none", publishedPorts: 0, image: applicationInternals.uptimeKumaImage },
     };
+  }
+
+  async function backupPihole({ backupId }) {
+    if (!/^[a-f0-9-]{36}$/.test(backupId)) throw new Error("Backup id must be a UUID");
+    const live = await inspectPihole();
+    if (!live.installed || !live.healthy) throw new Error("Pi-hole must be installed and healthy before backup");
+
+    const archivePath = path.join(piholeBackupDirectory, `${backupId}.tar.gz`);
+    const partialPath = `${archivePath}.partial`;
+    const drillContainer = "boxpilot-pi-hole-restore-drill";
+    const drillDirectory = path.join(piholeRestoreRoot, `pi-hole-${backupId}`);
+    const drillData = path.join(drillDirectory, "etc-pihole");
+    const drillSecret = path.join(drillDirectory, "drill.env");
+    await mkdir(piholeBackupDirectory, { recursive: true, mode: 0o700 });
+    await chmod(piholeBackupDirectory, 0o700);
+    await stat(archivePath).then(() => { throw new Error("Backup artifact already exists"); }).catch((error) => {
+      if (error.message === "Backup artifact already exists") throw error;
+      if (error.code !== "ENOENT") throw error;
+    });
+    await writeFile(piholeBackupMarkerPath, `${JSON.stringify({ version: 1, backupId })}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" }).catch((error) => {
+      if (error.code === "EEXIST") throw new Error("A previous Pi-hole backup requires helper recovery before another backup can start");
+      throw error;
+    });
+
+    let sourceRestartVerified = false;
+    let drillCleanupVerified = true;
+    try {
+      const stoppedAt = clock();
+      await docker(["stop", "--time", "30", piholeContainerName], { timeout: 45000 });
+      let archiveError = null;
+      try {
+        await runArchive(tarBinary, ["--create", "--gzip", "--file", partialPath, "--directory", piholeDirectory, "etc-pihole", "compose.yaml", "admin-password"], { timeout: 180000 });
+        await chmod(partialPath, 0o600);
+        await rename(partialPath, archivePath);
+      } catch (error) {
+        archiveError = error;
+        await unlink(partialPath).catch(() => {});
+      }
+
+      let restartError = null;
+      try {
+        await docker(["start", piholeContainerName], { timeout: 30000 });
+        await verifyHealth(piholeContainerName);
+        const restarted = await inspectPihole();
+        if (!restarted.healthy) throw new Error("Source binding health did not recover");
+        sourceRestartVerified = true;
+      } catch (error) {
+        restartError = error;
+      }
+      const downtimeMs = clock() - stoppedAt;
+      if (restartError) throw new Error("Backup stopped Pi-hole but its automatic restart verification failed; keep router and client DNS on the independent resolver and follow recovery instructions immediately");
+      if (archiveError) throw new Error("Backup archive creation failed; Pi-hole was restarted and its health and bindings passed");
+
+      const sha256 = await checksum(archivePath);
+      const archiveStat = await stat(archivePath);
+      await rm(drillDirectory, { recursive: true, force: true });
+      await mkdir(drillDirectory, { recursive: true, mode: 0o700 });
+      let restoreVerified = false;
+      drillCleanupVerified = false;
+      try {
+        await runArchive(tarBinary, ["--extract", "--gzip", "--file", archivePath, "--directory", drillDirectory, "--no-same-owner", "--no-same-permissions"], { timeout: 180000 });
+        const restoredData = await stat(drillData);
+        if (!restoredData.isDirectory()) throw new Error("Restored Pi-hole configuration directory failed validation");
+        const restoredCompose = await readFile(path.join(drillDirectory, "compose.yaml"), "utf8");
+        if (!restoredCompose.includes("pi-hole:") || !restoredCompose.includes(applicationInternals.piholeImage)) throw new Error("Restored Pi-hole Compose definition failed validation");
+        const secret = (await readFile(path.join(drillDirectory, "admin-password"), "utf8")).trim();
+        if (!/^PIHOLE_PASSWORD=[A-Za-z0-9_-]{43}$/.test(secret)) throw new Error("Restored Pi-hole administrator secret failed validation");
+        await writeFile(drillSecret, `FTLCONF_webserver_api_password=${secret.slice("PIHOLE_PASSWORD=".length)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+        await docker(["rm", "--force", drillContainer], { timeout: 30000 }).catch(() => {});
+        await docker([
+          "run", "--detach", "--name", drillContainer, "--network", "none", "--cap-drop", "ALL",
+          ...piholeCapabilities.flatMap((capability) => ["--cap-add", capability]),
+          "--security-opt", "no-new-privileges:true", "--env-file", drillSecret,
+          "--env", "TZ=America/Chicago", "--env", "FTLCONF_dns_listeningMode=LOCAL",
+          "--volume", `${drillData}:/etc/pihole`, applicationInternals.piholeImage,
+        ], { timeout: 180000 });
+        await verifyHealth(drillContainer);
+        restoreVerified = true;
+      } finally {
+        await docker(["rm", "--force", drillContainer], { timeout: 30000 }).catch((error) => {
+          if (!/No such (object|container)/i.test(error.message)) throw error;
+        });
+        await rm(drillDirectory, { recursive: true, force: true });
+        drillCleanupVerified = true;
+      }
+      if (!restoreVerified) throw new Error("Pi-hole backup artifact was created but its isolated restore drill failed");
+
+      return {
+        backupId,
+        applicationId: "pi-hole",
+        destination: "local-managed",
+        artifactPath: archivePath,
+        checksumSha256: sha256,
+        sizeBytes: archiveStat.size,
+        downtimeMs,
+        sourceRestartVerified: true,
+        routerMutationPerformed: false,
+        dnsCutoverPerformed: false,
+        restoreDrill: {
+          passed: true, network: "none", publishedPorts: 0, image: applicationInternals.piholeImage,
+          configurationIncluded: true, administratorSecretIncluded: true, routerMutationPerformed: false, dnsCutoverPerformed: false,
+        },
+      };
+    } finally {
+      if (sourceRestartVerified && drillCleanupVerified) await unlink(piholeBackupMarkerPath).catch((error) => {
+        if (error.code !== "ENOENT") throw error;
+      });
+    }
+  }
+
+  async function recoverInterruptedPiholeBackup() {
+    let marker;
+    try {
+      marker = JSON.parse(await readFile(piholeBackupMarkerPath, "utf8"));
+    } catch (error) {
+      if (error.code === "ENOENT") return { recovered: false, sourceRestarted: false, drillRemoved: false };
+      throw new Error("Pi-hole backup recovery marker is invalid; inspect it before restarting the helper");
+    }
+    if (marker?.version !== 1 || typeof marker.backupId !== "string" || !/^[a-f0-9-]{36}$/.test(marker.backupId) || Object.keys(marker).sort().join(",") !== "backupId,version") {
+      throw new Error("Pi-hole backup recovery marker failed strict validation; inspect it before restarting the helper");
+    }
+
+    const drillContainer = "boxpilot-pi-hole-restore-drill";
+    const drillDirectory = path.join(piholeRestoreRoot, `pi-hole-${marker.backupId}`);
+    const drillData = path.join(drillDirectory, "etc-pihole");
+    const source = await inspectPihole();
+    if (!source.installed) throw new Error("Interrupted Pi-hole backup source is missing; keep the marker for manual recovery");
+    let sourceRestarted = false;
+    if (!source.healthy) {
+      await docker(["start", piholeContainerName], { timeout: 30000 });
+      await verifyHealth(piholeContainerName);
+      const restarted = await inspectPihole();
+      if (!restarted.healthy) throw new Error("Interrupted Pi-hole backup source did not recover its exact bindings");
+      sourceRestarted = true;
+    }
+
+    let drillRemoved = false;
+    try {
+      const inspected = await docker(["inspect", "--format", "{{json .}}", drillContainer], { timeout: 10000 });
+      const container = JSON.parse(inspected.stdout);
+      const bindings = container.HostConfig?.PortBindings ?? {};
+      const mounts = Array.isArray(container.Mounts) ? container.Mounts : [];
+      const exactDrill = container.Config?.Image === applicationInternals.piholeImage
+        && container.HostConfig?.NetworkMode === "none"
+        && Object.keys(bindings).length === 0
+        && mounts.length === 1
+        && mounts[0].Source === drillData
+        && mounts[0].Destination === "/etc/pihole";
+      if (!exactDrill) throw new Error("Interrupted Pi-hole restore container failed strict identity checks; remove it manually after inspection");
+      await docker(["rm", "--force", drillContainer], { timeout: 30000 });
+      drillRemoved = true;
+    } catch (error) {
+      if (!/No such (object|container)/i.test(error.message)) throw error;
+    }
+    await rm(drillDirectory, { recursive: true, force: true });
+    await unlink(piholeBackupMarkerPath);
+    return { recovered: true, sourceRestarted, drillRemoved };
   }
 
   async function deploy({ hostPort }) {
@@ -439,7 +600,7 @@ export function createApplicationHelper({
     }
   }
 
-  return { appDirectory, composePath, piholeDirectory, piholeComposePath, piholeSecretPath, inspectDocker, inventoryDocker, inspectLogs, inspect, inspectPihole, deploy, deployPihole, backup };
+  return { appDirectory, composePath, piholeDirectory, piholeComposePath, piholeSecretPath, piholeBackupMarkerPath, inspectDocker, inventoryDocker, inspectLogs, inspect, inspectPihole, deploy, deployPihole, backup, backupPihole, recoverInterruptedPiholeBackup };
 }
 
 export const applicationHelperInternals = { composeDefinition, piholeComposeDefinition, containerName, piholeContainerName, piholeCapabilities, parseJsonLines, sanitizeLogMessage, logSources };

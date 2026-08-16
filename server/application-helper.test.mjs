@@ -173,4 +173,132 @@ describe("curated Uptime Kuma helper", () => {
     expect(drillRun.some((value) => String(value).includes("127.0.0.1:"))).toBe(false);
     expect(runArchive).toHaveBeenCalledTimes(2);
   });
+
+  it("backs up Pi-hole configuration and its secret, restarts the source, and restore-tests without network or ports", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-pihole-backup-helper-"));
+    directories.push(directory);
+    const appRoot = path.join(directory, "apps");
+    const appDirectory = path.join(appRoot, "pi-hole");
+    await mkdir(path.join(appDirectory, "etc-pihole"), { recursive: true });
+    await writeFile(path.join(appDirectory, "etc-pihole", "pihole.toml"), "dns.upstreams = [\"94.140.14.49\"]\n");
+    await writeFile(path.join(appDirectory, "compose.yaml"), applicationHelperInternals.piholeComposeDefinition("192.168.8.10", 8080));
+    const password = "A".repeat(43);
+    await writeFile(path.join(appDirectory, "admin-password"), `PIHOLE_PASSWORD=${password}\n`);
+    const dockerCalls = [];
+    const runDocker = vi.fn(async (_binary, args) => {
+      dockerCalls.push(args);
+      if (args[0] === "inspect" && args[2] === "{{json .State}}") return { stdout: JSON.stringify({ Running: true, Status: "running", Error: "", Health: { Status: "healthy" } }), stderr: "" };
+      if (args[0] === "inspect" && args[2] === "{{.State.Health.Status}}") return { stdout: "healthy", stderr: "" };
+      if (args[0] === "port" && args[2] === "53/tcp") return { stdout: "192.168.8.10:53", stderr: "" };
+      if (args[0] === "port" && args[2] === "53/udp") return { stdout: "192.168.8.10:53", stderr: "" };
+      if (args[0] === "port" && args[2] === "80/tcp") return { stdout: "192.168.8.10:8080", stderr: "" };
+      return { stdout: "ok", stderr: "" };
+    });
+    const runArchive = vi.fn(async (_binary, args) => {
+      const filePath = args[args.indexOf("--file") + 1];
+      if (args.includes("--create")) await writeFile(filePath, "verified Pi-hole archive fixture");
+      if (args.includes("--extract")) {
+        const target = args[args.indexOf("--directory") + 1];
+        await mkdir(path.join(target, "etc-pihole"), { recursive: true });
+        await writeFile(path.join(target, "compose.yaml"), applicationHelperInternals.piholeComposeDefinition("192.168.8.10", 8080));
+        await writeFile(path.join(target, "admin-password"), `PIHOLE_PASSWORD=${password}\n`);
+      }
+      return { stdout: "", stderr: "" };
+    });
+    const times = [2000, 2450];
+    const helper = createApplicationHelper({ appRoot, runDocker, runArchive, wait: vi.fn(), clock: () => times.shift() });
+    const backupId = "22222222-2222-4222-8222-222222222222";
+
+    const result = await helper.backupPihole({ backupId });
+
+    expect(result).toMatchObject({
+      backupId, applicationId: "pi-hole", destination: "local-managed", downtimeMs: 450,
+      sourceRestartVerified: true, routerMutationPerformed: false, dnsCutoverPerformed: false,
+      restoreDrill: {
+        passed: true, network: "none", publishedPorts: 0, configurationIncluded: true,
+        administratorSecretIncluded: true, routerMutationPerformed: false, dnsCutoverPerformed: false,
+      },
+    });
+    expect(result.checksumSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(result)).not.toContain(password);
+    expect(dockerCalls).toContainEqual(["stop", "--time", "30", "boxpilot-pi-hole"]);
+    expect(dockerCalls).toContainEqual(["start", "boxpilot-pi-hole"]);
+    const archiveCreate = runArchive.mock.calls.find(([, args]) => args.includes("--create"))[1];
+    expect(archiveCreate).toEqual(expect.arrayContaining(["etc-pihole", "compose.yaml", "admin-password"]));
+    const drillRun = dockerCalls.find((args) => args[0] === "run");
+    expect(drillRun).toEqual(expect.arrayContaining(["--network", "none", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true"]));
+    expect(drillRun).not.toEqual(expect.arrayContaining(["--cap-add", "NET_ADMIN"]));
+    expect(drillRun.some((value) => String(value).includes(":53:") || String(value).includes(":80:"))).toBe(false);
+    const archive = path.join(directory, "backups", "pi-hole", `${backupId}.tar.gz`);
+    expect((await stat(archive)).mode & 0o777).toBe(0o600);
+    await expect(stat(path.join(directory, "restore-drills", `pi-hole-${backupId}`))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(helper.piholeBackupMarkerPath)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("recovers an interrupted Pi-hole backup only after exact source and orphan-drill identity checks", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-pihole-recovery-helper-"));
+    directories.push(directory);
+    const appRoot = path.join(directory, "apps");
+    const backupId = "33333333-3333-4333-8333-333333333333";
+    const drillDirectory = path.join(directory, "restore-drills", `pi-hole-${backupId}`);
+    const drillData = path.join(drillDirectory, "etc-pihole");
+    await mkdir(path.join(directory, "backups", "pi-hole"), { recursive: true });
+    await mkdir(drillData, { recursive: true });
+    let sourceRunning = false;
+    const dockerCalls = [];
+    const runDocker = vi.fn(async (_binary, args) => {
+      dockerCalls.push(args);
+      if (args[0] === "start" && args[1] === "boxpilot-pi-hole") {
+        sourceRunning = true;
+        return { stdout: "boxpilot-pi-hole", stderr: "" };
+      }
+      if (args[0] === "inspect" && args[2] === "{{json .State}}") return { stdout: JSON.stringify({ Running: sourceRunning, Status: sourceRunning ? "running" : "exited", Error: "", Health: { Status: sourceRunning ? "healthy" : "unhealthy" } }), stderr: "" };
+      if (args[0] === "inspect" && args[2] === "{{.State.Health.Status}}") return { stdout: sourceRunning ? "healthy" : "unhealthy", stderr: "" };
+      if (args[0] === "inspect" && args[2] === "{{json .}}") return { stdout: JSON.stringify({
+        Config: { Image: applicationHelperInternals.piholeComposeDefinition("192.168.8.10", 8080).match(/image: (.+)/)[1] },
+        HostConfig: { NetworkMode: "none", PortBindings: {} },
+        Mounts: [{ Source: drillData, Destination: "/etc/pihole" }],
+      }), stderr: "" };
+      if (args[0] === "port" && args[2] === "53/tcp") return { stdout: "192.168.8.10:53", stderr: "" };
+      if (args[0] === "port" && args[2] === "53/udp") return { stdout: "192.168.8.10:53", stderr: "" };
+      if (args[0] === "port" && args[2] === "80/tcp") return { stdout: "192.168.8.10:8080", stderr: "" };
+      return { stdout: "ok", stderr: "" };
+    });
+    const helper = createApplicationHelper({ appRoot, runDocker, wait: vi.fn() });
+    await writeFile(helper.piholeBackupMarkerPath, `${JSON.stringify({ version: 1, backupId })}\n`, { mode: 0o600 });
+
+    const recovery = await helper.recoverInterruptedPiholeBackup();
+
+    expect(recovery).toEqual({ recovered: true, sourceRestarted: true, drillRemoved: true });
+    expect(dockerCalls).toContainEqual(["start", "boxpilot-pi-hole"]);
+    expect(dockerCalls).toContainEqual(["rm", "--force", "boxpilot-pi-hole-restore-drill"]);
+    await expect(stat(helper.piholeBackupMarkerPath)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(stat(drillDirectory)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("fails closed without deleting an ambiguous interrupted Pi-hole restore container", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-pihole-recovery-ambiguous-"));
+    directories.push(directory);
+    const appRoot = path.join(directory, "apps");
+    const backupId = "44444444-4444-4444-8444-444444444444";
+    const drillDirectory = path.join(directory, "restore-drills", `pi-hole-${backupId}`);
+    await mkdir(path.join(directory, "backups", "pi-hole"), { recursive: true });
+    await mkdir(path.join(drillDirectory, "etc-pihole"), { recursive: true });
+    const runDocker = vi.fn(async (_binary, args) => {
+      if (args[0] === "inspect" && args[2] === "{{json .State}}") return { stdout: JSON.stringify({ Running: true, Status: "running", Error: "", Health: { Status: "healthy" } }), stderr: "" };
+      if (args[0] === "inspect" && args[2] === "{{json .}}") return { stdout: JSON.stringify({ Config: { Image: "unreviewed/image:latest" }, HostConfig: { NetworkMode: "bridge", PortBindings: { "80/tcp": [{}] } }, Mounts: [] }), stderr: "" };
+      if (args[0] === "port" && args[2] === "53/tcp") return { stdout: "192.168.8.10:53", stderr: "" };
+      if (args[0] === "port" && args[2] === "53/udp") return { stdout: "192.168.8.10:53", stderr: "" };
+      if (args[0] === "port" && args[2] === "80/tcp") return { stdout: "192.168.8.10:8080", stderr: "" };
+      return { stdout: "ok", stderr: "" };
+    });
+    const helper = createApplicationHelper({ appRoot, runDocker, wait: vi.fn() });
+    await writeFile(helper.piholeBackupMarkerPath, `${JSON.stringify({ version: 1, backupId })}\n`, { mode: 0o600 });
+
+    await expect(helper.recoverInterruptedPiholeBackup()).rejects.toThrow("strict identity checks");
+
+    expect(runDocker).not.toHaveBeenCalledWith(expect.anything(), ["rm", "--force", "boxpilot-pi-hole-restore-drill"], expect.anything());
+    await expect(stat(helper.piholeBackupMarkerPath)).resolves.toBeTruthy();
+    await expect(stat(drillDirectory)).resolves.toBeTruthy();
+  });
 });

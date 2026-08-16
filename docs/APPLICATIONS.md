@@ -1,6 +1,6 @@
 # Curated applications
 
-BoxPilot `0.19.0` provides integrity-addressed manifests, two executable deployment adapters, and one application-aware backup adapter. The web process never receives the Docker socket. Docker readiness, application inspection, deployment, backup, and restore-drill execution cross the restricted local helper as typed operations.
+BoxPilot `0.20.0` provides integrity-addressed manifests, two executable deployment adapters, and two application-aware backup adapters. The web process never receives the Docker socket. Docker readiness, application inspection, deployment, backup, and restore-drill execution cross the restricted local helper as typed operations.
 
 ## Install the Docker prerequisite on Ubuntu
 
@@ -74,7 +74,7 @@ After deployment, the Backups page can record artifact integrity and an isolated
 
 ## Pi-hole guarded staging adapter
 
-Version `0.19.0` can stage Pi-hole in Docker on the exact reviewed Bigbox LAN address. The dedicated-VM target remains planning-only. This is a service-staging workflow, not a router or client cutover workflow.
+Version `0.20.0` can stage Pi-hole in Docker on the exact reviewed Bigbox LAN address and can separately create a local configuration backup with isolated restore proof. The dedicated-VM target remains planning-only. These are service staging and recovery-evidence workflows, not router or client cutover workflows.
 
 The adapter uses:
 
@@ -101,13 +101,24 @@ Deployment workflow:
 5. Open **Applications**, select Pi-hole, choose a high LAN web port, and generate the linked plan.
 6. Stage the exact revision, open **Repair Center**, review the network-critical recovery statement, and re-enter the owner password.
 7. After the background job passes, open the reported LAN URL. Retrieve the administrator password only from a server terminal with the command shown by BoxPilot.
-8. Keep every router and client on the current resolver. The application remains **Backup: required**.
+8. Keep every router and client on the current resolver. The application remains **Backup: required** until the separate backup workflow passes.
 
 At planning, staging, and approval, BoxPilot revalidates the assessment owner, role, expiry, gateway, Bigbox address, current resolvers, DNS listeners, Tailscale state, recovery declarations, Docker, and web port. If any evidence changes, the job fails closed and requires a new assessment.
 
+After staging, open **Backups** and plan the Pi-hole backup. The separate network-critical job:
+
+1. Revalidates Pi-hole health, exact bindings, Docker, helper, and storage readiness.
+2. Stops only `boxpilot-pi-hole` long enough to archive `etc-pihole`, the curated Compose definition, and the root-only administrator secret.
+3. Restarts the source and requires both its health check and original TCP, UDP, and web bindings to pass.
+4. Records artifact SHA-256, byte size, and measured source downtime.
+5. Extracts the artifact beneath the helper-owned temporary restore root.
+6. Starts the same digest-pinned image with `--network none`, no published ports, `cap_drop: ALL`, the same narrow capability set, and `no-new-privileges:true`.
+7. Requires restore health, removes the temporary container and workspace, and records configuration, secret, isolation, and no-cutover evidence.
+
+The artifact is mode `0600` beneath `/var/lib/boxpilot-managed/backups/pi-hole`. It contains the administrator secret and must be treated as sensitive. It is recovery-tested but remains on Bigbox, so it is not an independent or offsite copy.
+
 BoxPilot still will not make Pi-hole authoritative until later milestones can prove:
 
-- Configuration backup integrity and an isolated restore drill
 - Direct DNS query tests from Bigbox and a second LAN device
 - A separately reviewed router advertisement plan with model-specific rollback
 - A stable observation window while the current resolver remains available

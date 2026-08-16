@@ -1,6 +1,7 @@
 import { chmod, mkdir, unlink } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
+import { createApplicationHelper } from "./application-helper.mjs";
 import { executeHelperOperation } from "./helper-protocol.mjs";
 import { createVmRecoveryHelper } from "./vm-recovery-helper.mjs";
 import { createVmRestoreDrillHelper } from "./vm-restore-drill-helper.mjs";
@@ -15,11 +16,16 @@ const vmRestoreDrill = createVmRestoreDrillHelper();
 const vmRecovery = createVmRecoveryHelper({ restoreEngine: vmRestoreDrill });
 const vmRetention = createVmRetentionHelper();
 const migrations = createMigrationTransferHelper();
+const applications = createApplicationHelper();
 await migrations.initialize();
 const recovery = await vmRestoreDrill.recoverOrphans();
-const helperDependencies = { migrations, vmRestoreDrill, vmRecovery, vmRetention };
+const applicationRecovery = await applications.recoverInterruptedPiholeBackup();
+const helperDependencies = { applications, migrations, vmRestoreDrill, vmRecovery, vmRetention };
 if (recovery.stoppedDomains > 0 || recovery.removedNvramFiles > 0 || recovery.normalizedWorkspaces > 0) {
   console.log(`BoxPilot restore drill recovery stopped=${recovery.stoppedDomains} nvram=${recovery.removedNvramFiles} workspaces=${recovery.normalizedWorkspaces}`);
+}
+if (applicationRecovery.recovered) {
+  console.log(`BoxPilot Pi-hole backup recovery sourceRestarted=${applicationRecovery.sourceRestarted} drillRemoved=${applicationRecovery.drillRemoved}`);
 }
 
 await mkdir(path.dirname(socketPath), { recursive: true, mode: 0o750 });
@@ -52,6 +58,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       if (request.operation === "migration.bundle.transfer") connection.setTimeout(12 * 60 * 60 * 1000);
       if (request.operation === "migration.bundle.inspect") connection.setTimeout(12 * 60 * 60 * 1000);
       if (request.operation === "application.pi-hole.deploy") connection.setTimeout(10 * 60 * 1000);
+      if (request.operation === "application.pi-hole.backup") connection.setTimeout(10 * 60 * 1000);
       const execution = readOnlyOperations.has(request.operation)
         ? executeHelperOperation(request, helperDependencies)
         : operationQueue.then(() => executeHelperOperation(request, helperDependencies));
@@ -80,7 +87,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
 
 server.listen(socketPath, async () => {
   await chmod(socketPath, 0o660);
-  console.log(`BoxPilot helper 0.14.0 listening on ${socketPath}`);
+  console.log(`BoxPilot helper 0.15.0 listening on ${socketPath}`);
 });
 
 async function shutdown() {
