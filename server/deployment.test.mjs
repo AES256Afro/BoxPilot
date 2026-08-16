@@ -52,7 +52,7 @@ describe("native systemd network boundaries", () => {
     expect(dockerfile).toContain("BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot");
     expect(dockerfile).toContain("BOXPILOT_COOKIE_SECURE=false");
     expect(dockerfile).toContain("USER node");
-    expect(compose).toContain("image: boxpilot:0.52.0");
+    expect(compose).toContain("image: boxpilot:0.53.0");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("/tmp:size=16m,mode=1777");
   });
@@ -258,6 +258,26 @@ describe("native systemd network boundaries", () => {
     expect(claim).toContain("setUid(account.uid)");
     expect(claim).toContain('authorize: async () => "boxpilot-terminal-sudo"');
     expect(claim).not.toContain("application.keel.claim");
+  });
+
+  it("ships a no-argument Keel owner-login proof with an unprivileged credential worker and sanitized evidence", async () => {
+    const proof = await readFile("scripts/boxpilot-keel-owner-login-proof.mjs", "utf8");
+    const helper = await readFile("server/keel-login-proof-helper.mjs", "utf8");
+    const protocol = await readFile("server/helper-protocol.mjs", "utf8");
+    const metadata = await stat("scripts/boxpilot-keel-owner-login-proof.mjs");
+    expect(metadata.mode & 0o111).not.toBe(0);
+    expect(proof).toContain("process.argv.length !== 2");
+    expect(proof).toContain("sudo -k /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-owner-login-proof.mjs");
+    expect(proof).toContain("process.setgroups([message.gid])");
+    expect(proof).toContain("process.setgid(message.gid)");
+    expect(proof).toContain("process.setuid(message.uid)");
+    expect(proof).toContain('`${baseUrl}/api/admin/server`');
+    expect(proof).toContain("revoked.status === 401");
+    expect(proof).not.toContain("process.argv[3]");
+    expect(helper).toContain("credentialRead: false");
+    expect(helper).toContain("sessionRead: false");
+    expect(protocol).toContain("application.keel.login-proof.inspect");
+    expect(protocol).not.toContain("application.keel.login-proof.create");
   });
 
   it("ships a static Keel backup unit with guaranteed source restart and loopback-only network access", async () => {

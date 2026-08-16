@@ -8,7 +8,7 @@ import { createStateStore } from "./state.mjs";
 
 const directories = [];
 
-async function setup({ statuses = {}, portInUse = false, assessmentError = null, keelProvenanceMatches = true, keelDiscovery = null, keelDiscoveryError = null, keelArtifact = null, keelArchive = null, keelStaging = null, keelInstallation = null, hostPlatform = "linux", hostArchitecture = "x64" } = {}) {
+async function setup({ statuses = {}, portInUse = false, assessmentError = null, keelProvenanceMatches = true, keelDiscovery = null, keelDiscoveryError = null, keelArtifact = null, keelArchive = null, keelStaging = null, keelInstallation = null, keelLoginProof = null, hostPlatform = "linux", hostArchitecture = "x64" } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-apps-"));
   directories.push(directory);
   const store = createStateStore({ stateDirectory: directory });
@@ -52,6 +52,7 @@ async function setup({ statuses = {}, portInUse = false, assessmentError = null,
     if (operation === "application.keel.archive.inspect") return keelArchive ?? { state: "artifact-required", safeToExtract: false, artifactLocallyVerified: false, memberCount: 0, risks: ["artifact-required"], detail: "Acquire the fixed archive first", boundary: { mutationPerformed: false, extractionPerformed: false } };
     if (operation === "application.keel.stage.inspect") return keelStaging ?? { state: "absent", staged: false, readyToStage: true, version: null, sourceMemberCount: 0, partialCount: 0, stagedAt: null, detail: "The fixed Keel release has not been staged", boundary: { mutationPerformed: false } };
     if (operation === "application.keel.install.inspect") return keelInstallation ?? { state: "absent", installed: false, readyToInstall: false, releaseVersion: null, serviceActive: false, serviceEnabled: false, healthy: false, listener: "none", claim: { state: "not-applicable", terminalRequired: true }, detail: "The fixed Keel release must be staged before installation", boundary: { mutationPerformed: false } };
+    if (operation === "application.keel.login-proof.inspect") return keelLoginProof ?? { state: "not-run", verified: false, verifiedAt: null, releaseVersion: null, credentialsStored: false, sessionStored: false, detail: "No terminal-only Keel instance-owner login proof has been recorded", boundary: { credentialRead: false, sessionRead: false } };
     return { installed: false, state: "not-installed", detail: "Ready to plan" };
   });
   const inspectPort = vi.fn(async () => portInUse);
@@ -93,6 +94,7 @@ describe("application manifests and plans", () => {
       archive: { state: "artifact-required", safeToExtract: false, risks: ["artifact-required"] },
       staging: { state: "absent", staged: false, readyToStage: true },
       installation: { state: "absent", installed: false, readyToInstall: false },
+      loginProof: { state: "not-run", verified: false, credentialsStored: false, sessionStored: false },
       boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false },
     });
     expect(catalog.applications.find((item) => item.id === "keel")?.live.detail).toContain("No supported Keel");
@@ -101,6 +103,7 @@ describe("application manifests and plans", () => {
     expect(helperRequest).toHaveBeenCalledWith("application.keel.archive.inspect", {});
     expect(helperRequest).toHaveBeenCalledWith("application.keel.stage.inspect", {});
     expect(helperRequest).toHaveBeenCalledWith("application.keel.install.inspect", {});
+    expect(helperRequest).toHaveBeenCalledWith("application.keel.login-proof.inspect", {});
     expect(githubProvenance.inspect).toHaveBeenCalled();
     store.close();
   });

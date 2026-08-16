@@ -19,6 +19,7 @@ interface ApplicationManifest {
     archive?: { state: string; safeToExtract: boolean; artifactLocallyVerified: boolean; memberCount: number; expectedMemberCount?: number; counts?: { regular: number; directory: number; symbolicLink: number; hardLink: number; blockDevice: number; characterDevice: number; fifo: number; extension: number; unknown: number }; risks: string[]; detail: string };
     staging?: { state: string; staged: boolean; readyToStage: boolean; version?: string | null; sourceMemberCount?: number; partialCount?: number; stagedAt?: string | null; detail: string };
     installation?: { state: string; installed: boolean; readyToInstall: boolean; releaseVersion?: string | null; serviceActive: boolean; serviceEnabled: boolean; healthy: boolean; listener: string; installedAt?: string | null; databasePresent?: boolean; managedSecretKeyPresent?: boolean; claim: { state: string; terminalRequired: boolean }; detail: string };
+    loginProof?: { state: string; verified: boolean; verifiedAt?: string | null; releaseVersion?: string | null; ownerRouteVerified?: boolean; logoutVerified?: boolean; currentStateMatched?: boolean; terminalOnly?: boolean; credentialsStored: boolean; sessionStored: boolean; secondFactorRequired?: boolean; detail: string };
     provenance?: { status: string; checkedAt: string | null };
     boundary?: { mutationPerformed: boolean; environmentRead: boolean; databaseOpened: boolean; secretRead: boolean; arbitraryPathAccepted?: boolean };
     webUrl?: string | null; secretRetrievalCommand?: string; backup?: { state: string; verifiedAt: string | null };
@@ -209,6 +210,7 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
             {application.live.webUrl && <a className="app-live-detail" href={application.live.webUrl} target="_blank" rel="noreferrer">Open LAN interface</a>}
             {application.live.secretRetrievalCommand && application.live.installed && <span className="app-live-detail">Password from Bigbox terminal: <code>{application.live.secretRetrievalCommand}</code></span>}
             {application.live.backup && <span className={`app-live-detail ${application.live.backup.state === "verified" ? "good-text" : application.live.backup.state === "required" ? "warning-text" : ""}`}>Backup: {application.live.backup.state === "verified" ? `restore verified ${new Date(application.live.backup.verifiedAt ?? "").toLocaleDateString()}` : application.live.backup.state}</span>}
+            {application.id === "keel" && application.live.loginProof?.verified && <span className="app-live-detail good-text">Owner login and logout proved {new Date(application.live.loginProof.verifiedAt ?? "").toLocaleDateString()}</span>}
             <button type="button" className="secondary-button" onClick={() => openPlanner(application)}>{application.live.installed ? "Review deployment" : application.execution === "staging-enabled" ? application.live.installation?.readyToInstall ? "Plan private install" : "Plan safe staging" : "Plan deployment"}</button>
           </article>
         ))}
@@ -228,7 +230,7 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
             <div className="manifest-proof"><span>Manifest integrity</span><code>{selected.integrity}</code><span>{selected.artifact ? selected.live.artifact?.locallyVerified ? "Release asset digest pinned and verified from complete local bytes" : "Release asset digest pinned; approved local verification available" : selected.image.digestPinned ? "Image digest pinned" : "Version tag pinned; digest resolution pending"}</span></div>
             {selected.id === "pi-hole" && <div className={`notice ${networkAssessmentId ? "" : "warning-notice"}`}><strong>{networkAssessmentId ? "Network assessment linked" : "Network assessment required"}</strong><span>{networkAssessmentId ?? "Generate a ready Pi-hole on Bigbox assessment in Network Center before staging."}</span>{!networkAssessmentId && onOpenNetwork && <button className="text-button" type="button" onClick={onOpenNetwork}>Open Network Center</button>}</div>}
             {selected.id === "keel" && <>
-              <div className="notice"><strong>Guarded native install enabled</strong><span>Keel 1.2.6 is pinned to its public release commit, size, and digest. BoxPilot stages it only after two archive checks, then uses a separate approval to create a non-login account, private state, atomic activation, and a hardened service on 127.0.0.1:3000. Claim, registration changes, Tailscale exposure, backups, restore, import, adoption, and updates remain separate.</span></div>
+              <div className="notice"><strong>Guarded native lifecycle enabled</strong><span>Keel 1.2.6 is pinned to its public release commit, size, and digest. BoxPilot uses separate approvals for staging, install, backup, recovery rehearsal, promotion, and rollback. Claim and owner-login proof stay in a Bigbox terminal; registration changes, Tailscale exposure, import, adoption, and updates remain separate.</span></div>
               <div className="keel-discovery-proof">
                 <strong>Current Bigbox evidence</strong>
                 <span>State: {selected.live.state} | type: {selected.live.kind ?? "none"} | version: {selected.live.version ?? "not detected"}</span>
@@ -257,6 +259,13 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
                 <span>{selected.live.installation?.detail ?? "Installation evidence is unavailable"}</span>
                 {selected.live.installation?.installedAt && <span className="good-text">Installed {new Date(selected.live.installation.installedAt).toLocaleString()}</span>}
                 {selected.live.installation?.installed && <><span className="good-text">Private access: from your computer run <code>ssh -N -L 3000:127.0.0.1:3000 bigbox@bigbox</code>, then open <code>http://127.0.0.1:3000</code>.</span><span>After registering, copy Keel's one-use claim token, SSH to Bigbox as your normal administrator, and run <code>sudo -k /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-claim.mjs 'PASTE_TOKEN'</code>. The fixed handoff rechecks the install, asks for fresh sudo, drops to the keel account, and never sends the token to BoxPilot.</span></>}
+              </div>
+              <div className="keel-artifact-proof">
+                <strong>Terminal-only instance-owner login proof</strong>
+                <span>State: {selected.live.loginProof?.state ?? "unavailable"} | current database: {selected.live.loginProof?.currentStateMatched ? "matched" : "not matched"} | owner route: {selected.live.loginProof?.ownerRouteVerified ? "verified" : "not verified"} | forced logout: {selected.live.loginProof?.logoutVerified ? "verified" : "not verified"}</span>
+                <span>{selected.live.loginProof?.detail ?? "Owner-login proof evidence is unavailable"}</span>
+                {selected.live.loginProof?.verifiedAt && <span className="good-text">Verified {new Date(selected.live.loginProof.verifiedAt).toLocaleString()} with no BoxPilot credential or session storage</span>}
+                {selected.live.installation?.installed && !selected.live.loginProof?.verified && <span>After claim, run <code>sudo -k /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-owner-login-proof.mjs</code> from your normal Bigbox administrator account. Email and hidden password stay inside a short-lived unprivileged terminal worker. Security-key accounts are reported as incomplete and must be verified in the browser.</span>}
               </div>
               <div className="keel-artifact-proof">
                 <strong>Root-only artifact gate</strong>
