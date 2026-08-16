@@ -158,7 +158,7 @@ Acceptance:
 
 ## Phase 8: fleet and plugin model
 
-Status: `0.22.0` ships the first narrow node identity and evidence path: password-gated one-time enrollment, device-generated Ed25519 keys, signed requests, timestamp and sequence replay protection, revocation, node-local execution, and one fixed second-device Pi-hole probe. Version `0.24.0` adds credential-free sanitized provenance for the fixed public BoxPilot and Keel repositories. Version `0.25.0` consumes only the fixed Keel release metadata in a non-executable plan. Multiple controllers, central scheduling, locally verified signed adapter installation, private repository credentials, policy templates, notifications, and disaster-recovery kits remain pending.
+Status: `0.22.0` ships the first narrow node identity and evidence path: password-gated one-time enrollment, device-generated Ed25519 keys, signed requests, timestamp and sequence replay protection, revocation, node-local execution, and one fixed second-device Pi-hole probe. Version `0.24.0` adds credential-free sanitized provenance for the fixed public BoxPilot and Keel repositories. Version `0.25.0` consumes only the fixed Keel release metadata in a non-executable plan. Version `0.26.0` adds an authenticated read-only disaster recovery readiness kit and secret-free JSON and Markdown runbook exports. Multiple controllers, central scheduling, locally verified signed adapter installation, private repository credentials, policy templates, notifications, and executable recovery automation remain pending.
 
 - Multiple BoxPilot nodes
 - Signed adapter packages with compatibility declarations
