@@ -49,3 +49,7 @@ Redaction reduces accidental disclosure but is not a proof that every possible a
 ## Support bundle
 
 The browser-generated support bundle now includes this sanitized live inventory plus the existing redacted virtualization audit when available. It does not include raw journals, environment variables, Docker labels, commands, mount sources, or Tailscale peers.
+
+## Network and DNS topology
+
+Version `0.18.0` adds a separate authenticated `GET /api/v1/network/topology` response with fixed default-route, systemd-resolved, port 53 listener, LAN-address, and Tailscale self-state collectors. It excludes neighbor tables, MAC addresses, process details, router sessions, and credentials. See [Network and DNS Center](NETWORK.md) for the returned fields and no-change assessment boundary.

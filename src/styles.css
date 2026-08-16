@@ -2798,3 +2798,35 @@ textarea {
     transition: none !important;
   }
 }
+.network-center { display: grid; gap: 18px; }
+.network-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.network-summary { display: grid; gap: 7px; min-width: 0; }
+.network-summary > strong { font-size: 1.05rem; overflow-wrap: anywhere; }
+.network-summary > span:last-child { color: var(--muted); font-size: 0.82rem; }
+.router-entry { display: flex; justify-content: space-between; gap: 18px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+.router-entry:last-child { border-bottom: 0; }
+.router-entry div { display: grid; gap: 4px; }
+.router-entry span, .router-entry p { color: var(--muted); font-size: 0.8rem; margin: 0; }
+.router-entry a { align-self: start; white-space: nowrap; color: var(--mint); font-size: 0.78rem; }
+.network-planner { display: grid; gap: 18px; }
+.network-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.network-form-grid label { display: grid; gap: 7px; color: var(--muted); font-size: 0.8rem; }
+.network-form-grid input, .network-form-grid select { width: 100%; min-width: 0; padding: 10px 11px; border: 1px solid #34495c; border-radius: 8px; color: var(--text); background: #09131d; font: inherit; }
+.network-form-grid input:focus, .network-form-grid select:focus { border-color: #4eaa91; outline: 2px solid rgb(78 170 145 / 16%); }
+.network-checklist { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; }
+.network-checklist label { display: flex; align-items: flex-start; gap: 9px; color: var(--text); font-size: 0.84rem; }
+.network-checklist input { margin-top: 2px; accent-color: var(--mint); }
+.network-plan-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; }
+.network-plan-actions span { color: var(--muted); font-size: 0.8rem; }
+.network-plan-result { display: grid; gap: 16px; }
+.network-plan-result h3 { margin: 0; max-width: 920px; }
+.network-plan-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; }
+.network-plan-columns > div { display: grid; align-content: start; gap: 10px; }
+.network-plan-columns ul, .network-plan-columns ol { margin: 0; padding-left: 20px; color: var(--muted); }
+.network-plan-columns li { margin: 6px 0; }
+.network-lock { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 4px; }
+.network-lock > span:last-child { color: var(--muted); font-size: 0.8rem; }
+
+@media (max-width: 900px) {
+  .network-summary-grid, .network-form-grid, .network-checklist, .network-plan-columns { grid-template-columns: 1fr; }
+}

@@ -11,6 +11,7 @@ import { createInventoryService } from "./inventory.mjs";
 import { createJobService } from "./jobs.mjs";
 import { getSetupPlan } from "./libvirt.mjs";
 import { createMigrationService } from "./migrations.mjs";
+import { createNetworkService } from "./network.mjs";
 import { createPrerequisiteService } from "./prerequisites.mjs";
 import { createStateStore } from "./state.mjs";
 import { createVmCreationService } from "./vm-creation.mjs";
@@ -42,6 +43,7 @@ const applications = createApplicationService({ store: state, prerequisites, hel
 const backups = createBackupService({ store: state, prerequisites, helper });
 const inventory = createInventoryService({ helper });
 const migrations = createMigrationService({ store: state, inventory, helper });
+const network = createNetworkService({ store: state });
 const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, libvirt });
 const vmExports = createVmExportService({ store: state, libvirt, helper });
 const vmLifecycle = createVmLifecycleService({ store: state, libvirt });
@@ -92,7 +94,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.17.0",
+    version: "0.18.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -118,12 +120,13 @@ app.use("/api/v1", (request, response, next) => {
 
 app.get("/api/v1/capabilities", (_request, response) => {
   response.json({
-    inventory: "sanitized-host-docker-services-and-network",
+    inventory: "sanitized-host-docker-services-network-and-dns-topology",
     composeInspection: "browser-only",
     applications: "curated-plans-and-uptime-kuma-adapter",
     supportBundle: "browser-only",
     backups: "uptime-kuma-local-restore-drill-and-vm-independent-restic-copy-with-isolated-boot-validation-recovery-clones-and-guarded-retention",
     migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
+    network: "read-only-route-resolver-listener-and-router-role-assessment",
     privilegedHelper: "typed-canary-applications-backups-migration-staging-inventory-logs-vm-creation-lifecycle-snapshots-exports-mounted-restic-isolated-restore-drills-recovery-clones-and-retention",
     identity: "owner-password-foundation",
     durableJobs: "sqlite-approved-application-backup-migration-transfer-vm-creation-lifecycle-snapshot-export-protection-restore-drill-recovery-and-retention-workflows",
@@ -145,6 +148,19 @@ app.get("/api/v1/operations/prerequisites", async (_request, response) => {
 
 app.get("/api/v1/inventory", async (_request, response) => {
   response.json(await inventory.inspect());
+});
+
+app.get("/api/v1/network/topology", async (_request, response) => {
+  response.json(await network.inspect());
+});
+
+app.post("/api/v1/network/plans", async (request, response) => {
+  try {
+    const plan = await network.plan(request.body, request.boxpilotSession.owner.id);
+    response.status(201).json({ plan });
+  } catch (error) {
+    response.status(400).json({ error: error.message, code: "network_plan_failed" });
+  }
 });
 
 app.get("/api/v1/logs", async (request, response) => {
@@ -538,7 +554,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.17.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.18.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

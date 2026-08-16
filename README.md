@@ -4,11 +4,11 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.17.0` adds the first executable migration-transfer slice. A terminal packer captures one local Compose project into a root-only immutable bundle, rejects unsafe file types and changing sources, and verifies every file with SHA-256. The authenticated UI ties the bundle to an imported sanitized source fingerprint, produces an immutable plan, and stages a password-approved background copy into a fixed managed directory. Interrupted copies resume only exact verified files. Completed-but-unrecorded copies can be reconciled after restart. Activation, cutover, source changes, and source deletion remain unavailable.
+Version `0.18.0` adds a live Network and DNS Center. It reads fixed route, systemd-resolved, port 53 listener, host-address, and Tailscale self-state; models Flint 2, the Omada ER707-M2, and the TP-Link Archer BE400 as operator-declared roles; and creates immutable DNS change-window assessments with router checkpoint, emergency resolver, second-device, address-collision, subnet, and Tailscale DNS gates. It accepts no router credentials and cannot change a router, DNS, DHCP, firewall, Tailscale, or traffic path.
 
 ### What works now
 
-| Area | Status in `0.17.0` | Capability |
+| Area | Status in `0.18.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
@@ -16,6 +16,7 @@ Version `0.17.0` adds the first executable migration-transfer slice. A terminal 
 | Repair Center | Live foundation | Checks Node.js, state storage, the helper, Docker, libvirt, Tailscale, and DNS port availability without returning peer details or raw command output. |
 | Restricted helper | Live typed operations | Uses a versioned, allowlisted protocol over a local Unix socket for the canary, bounded inventory and logs, Uptime Kuma deployment and backup, guarded local migration staging, guarded VM creation and lifecycle, read-only libvirt inventory, offline snapshots, stopped-VM exports, mounted-restic VM copies, isolated restore drills, stopped no-network recovery clones, and exact no-prune retention. It accepts no command strings, binary selection, libvirt URI, argument arrays, operator paths, Compose source path, migration destination, SSH credential, repository password, backup mount, repository path, export destination, restore destination, recovery directory, prune flag, selector such as `latest`, or arbitrary root paths from the browser. |
 | Host and Docker inventory | Live | Reports authenticated host identity, CPU, memory, root storage, uptime, selected service state, LAN addresses, Tailscale self-state, and sanitized Docker containers, images, networks, volumes, and Compose projects. |
+| Network and DNS Center | Live read-only planning | Reports validated default gateways, host LAN CIDRs, sanitized systemd-resolved servers, scoped TCP and UDP port 53 listeners, and Tailscale resolver observations. It creates attributable immutable assessments for Flint 2, ER707-M2, TP-Link BE400, Pi-hole, and external-DNS roles. Router writes and DNS cutover have no execution route. |
 | System logs | Live restricted sources | Returns capped, redacted entries for fixed BoxPilot, Docker, Tailscale, and virtualization unit sets. Credential-like values and URL query strings are redacted. |
 | Application catalog | Live | Publishes integrity-addressed manifests, live installation state, exact image policy, targets, ports, storage, prerequisites, recovery, and adapter risk. |
 | Uptime Kuma adapter | Executable deployment | Uses the official `2.5.0` image pinned by multi-platform digest, a loopback-only port, local persistent storage, Docker health, approval, and data-preserving rollback. The catalog shows whether restore-verified backup evidence exists. |
@@ -46,7 +47,7 @@ The repository also includes a read-only Ubuntu deployment doctor and a USB-to-h
 - VM delete, force-off, console proxy, online snapshot, snapshot revert/delete, bridge creation, passthrough, in-place restore, recovered-VM network attachment, application-level restore tests, cloud-init, Windows TPM/Secure Boot creation, or VM migration transfer
 - General Docker mutation, custom Compose deployment, additional application installation, package updates, firewall changes, storage changes, or arbitrary command execution
 - Backup schedules, restic prune and space reclamation, configurable retention policies, remote restic/cloud backends, Keel Notes export, SSH source discovery or transport, application-aware volume/database capture, staged-workload activation, or migration cutover
-- Keel Notes, AdGuard Home, Jellyfin, Home Assistant, PostgreSQL, router, GitHub, or remote-agent adapters
+- Keel Notes, executable AdGuard Home, Jellyfin, Home Assistant, PostgreSQL, router-write, GitHub, or remote-agent adapters
 - WebAuthn, recovery codes, multiple owners, Tailscale identity headers, tamper-evident audit chaining, or general-purpose mutation handlers
 
 ## Screenshots
@@ -122,6 +123,12 @@ This explicitly disclosed `0.16.0` mock shows the fixed 30-day and three-copy fl
 ![BoxPilot checksummed migration bundle before staging](docs/screenshots/migration-transfer-approval-mock.png)
 
 This explicitly disclosed `0.17.0` mock shows imported-source binding, immutable content revision, file and sensitive-name totals, exact SHA-256 verification, resume behavior, separate password approval, and the no-activation boundary. No source workload or file was changed, no real bundle was copied, and no Compose project was activated for the capture.
+
+### Network and DNS assessment mockup
+
+![BoxPilot read-only router and DNS change-window assessment](docs/screenshots/network-dns-assessment-mock.png)
+
+This explicitly disclosed `0.18.0` mock shows live-shaped gateway, Bigbox address, external AdGuard DNS, Tailscale split-DNS, port 53 scope, device roles, recovery gates, and the router-write and DNS-cutover locks. No router, DNS, DHCP, firewall, Tailscale, or application setting was read from a real browser session or changed for the capture.
 
 ## Safety contract
 
@@ -220,6 +227,7 @@ docker build -t boxpilot:local .
 - [Curated application planning and deployment](docs/APPLICATIONS.md)
 - [Verified backup and isolated restore workflow](docs/BACKUPS.md)
 - [Sanitized host, Docker, service, and log inventory](docs/INVENTORY.md)
+- [Read-only router and DNS topology planning](docs/NETWORK.md)
 - [Guarded migration discovery and local staging](docs/MIGRATIONS.md)
 - [Dependency-ordered roadmap](docs/ROADMAP.md)
 - [QEMU/KVM setup and operation](docs/VIRTUALIZATION.md)
@@ -229,7 +237,7 @@ docker build -t boxpilot:local .
 
 ## Keel Notes roadmap adapter
 
-No Keel-specific adapter ships in `0.17.0`. The generic migration packer can stage an offline Keel Notes Compose project only as opaque verified files; it does not understand Keel databases, managed-secret keys, health, activation, or cutover. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
+No Keel-specific adapter ships in `0.18.0`. The generic migration packer can stage an offline Keel Notes Compose project only as opaque verified files; it does not understand Keel databases, managed-secret keys, health, activation, or cutover. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
 
 - Detect a Keel Docker or service installation
 - Inventory the database dialect and protected data paths without exposing secrets
