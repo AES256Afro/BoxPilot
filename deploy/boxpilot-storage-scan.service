@@ -1,5 +1,5 @@
 [Unit]
-Description=BoxPilot fixed read-only host storage and SMART evidence scan
+Description=BoxPilot fixed read-only host storage, ext4 error, and SMART evidence scan
 After=local-fs.target boxpilot.service
 ConditionPathIsDirectory=/var/lib/boxpilot
 

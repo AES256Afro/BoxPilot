@@ -510,6 +510,10 @@ main {
 .mount-grid article > div, .smart-grid article > div { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .mount-grid strong, .smart-grid strong { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .mount-grid p, .mount-grid small, .smart-grid article > span { margin: 0; color: var(--muted); font-size: 8px; line-height: 1.45; }
+.mount-grid article .filesystem-error { display: block; margin-top: 4px; font-weight: 700; }
+.filesystem-error-healthy { color: var(--good) !important; }
+.filesystem-error-critical, .filesystem-error-unavailable { color: var(--warning) !important; }
+.filesystem-error-unsupported { color: var(--muted) !important; }
 .storage-boundary { display: grid; gap: 3px; margin: 0 15px 15px; padding: 10px 11px; color: #a9c9c1; background: #102a25; border: 1px solid #28584c; border-radius: 8px; }
 .storage-boundary strong { font-size: 9px; }
 .storage-boundary span { font-size: 8px; line-height: 1.5; }

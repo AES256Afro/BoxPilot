@@ -12,7 +12,7 @@ describe("live host overview", () => {
       compute: { cpuCount: 8, cpuModel: "fixture", load1: 1, loadPercent: 13, totalMemoryBytes: 32 * 1024 ** 3, usedMemoryBytes: 8 * 1024 ** 3, memoryUsedPercent: 25 },
       storage: {
         root: { totalBytes: 100 * 1024 ** 3, usedBytes: 20 * 1024 ** 3, freeBytes: 80 * 1024 ** 3, usedPercent: 20 },
-        filesystems: { available: true, mounts: [{ target: "/", source: "/dev/mapper/ubuntu--vg-root", filesystem: "ext4", totalBytes: 100 * 1024 ** 3, usedBytes: 20 * 1024 ** 3, availableBytes: 80 * 1024 ** 3, usedPercent: 20, capacityState: "healthy", readOnly: false, optionNames: ["relatime", "rw"] }], summary: { healthy: 1, warning: 0, critical: 0, unavailable: 0 } },
+        filesystems: { available: true, mounts: [{ target: "/", source: "/dev/mapper/ubuntu--vg-root", filesystem: "ext4", totalBytes: 100 * 1024 ** 3, usedBytes: 20 * 1024 ** 3, availableBytes: 80 * 1024 ** 3, usedPercent: 20, capacityState: "healthy", readOnly: false, optionNames: ["relatime", "rw"], errorEvidence: { supported: true, state: "healthy", errorsCount: 0, source: "ext4-sysfs-errors-count", reason: "ok" } }], summary: { healthy: 1, warning: 0, critical: 0, unavailable: 0 }, errors: { healthy: 1, critical: 0, unavailable: 0, unsupported: 0 } },
         blockDevices: { available: true, devices: [{ name: "/dev/nvme0n1", parent: null, type: "disk", filesystem: null, sizeBytes: 1000, mountTargets: [], rotational: false, readOnly: false, transport: "nvme", model: "Safe SSD" }] },
         smart: { available: true, status: "healthy", reason: "fixed-root-scan", generatedAt: "2026-08-15T18:00:00Z", stale: false, disks: [{ device: "/dev/nvme0n1", health: "healthy", passed: true, temperatureCelsius: 42, powerOnHours: 100, percentageUsed: 4, mediaErrors: 0, unsafeShutdowns: 1 }] },
       },
@@ -29,5 +29,6 @@ describe("live host overview", () => {
     expect(screen.getByText("1 real mounts")).toBeTruthy();
     expect(screen.getByText("1 disk results")).toBeTruthy();
     expect(screen.getByText(/42 C/)).toBeTruthy();
+    expect(screen.getByText("ext4 kernel errors: 0")).toBeTruthy();
   });
 });
