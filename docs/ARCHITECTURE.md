@@ -6,6 +6,8 @@ BoxPilot is a local-first management plane for one Ubuntu server. The normal ope
 
 Version `0.34.0` adds unprivileged host-maintenance collectors for fixed systemd, reboot-marker, dpkg fragment, APT metadata, and unattended-upgrades state. Only derived states, bounded counts, and metadata age are returned. No package name, failed unit name, reboot reason, raw output, APT operation, service control, update-policy mutation, or host reboot is available.
 
+Version `0.35.0` adds a separately named durable APT metadata refresh. The browser can request only an empty plan and immutable revision. The root helper accepts only the exact previous metadata timestamp, writes a short-lived marker, and starts a static networked oneshot. That unit runs only `apt-get update --error-on=any`, proves `/var/lib/dpkg/status` is unchanged, and returns current bounded evidence. The main helper remains `PrivateNetwork=true`; no general package, repository, command, option, target, install, upgrade, removal, service control, or reboot operation is added.
+
 ## Target components
 
 ```text
@@ -46,6 +48,7 @@ BoxPilot web and API process (unprivileged)
           +---- Mounted ext4 kernel error-counter evidence (0.32.0)
           +---- Fixed-localhost read-only UPS evidence (0.33.0)
           +---- Bounded host-maintenance readiness evidence (0.34.0)
+          +---- Durable fixed APT metadata-only refresh plan and approval (0.35.0)
           |
           +<--- Ed25519 signed polling and fixed evidence from enrolled LAN agent
                   no remote shell, arbitrary command, arbitrary target, or private-key transfer
@@ -57,6 +60,7 @@ Restricted helper over a local Unix socket (0.4.0 canary foundation)
           |
           +---- typed no-mutation canary (0.4.0)
           +---- fixed smartmontools inspect and exact-version package-unit handoff (0.31.0)
+          +---- fixed APT metadata inspect and static update-only unit handoff (0.35.0)
           +---- fixed Uptime Kuma inspect, deploy, health, and rollback (0.5.0)
           +---- fixed Linux VM creation, verification, and exact-domain rollback (0.9.0)
           +---- fixed VM start, graceful shutdown, reboot request, and autostart operations (0.10.0)

@@ -15,6 +15,7 @@ import { createInventoryService } from "./inventory.mjs";
 import { createJobService } from "./jobs.mjs";
 import { getSetupPlan } from "./libvirt.mjs";
 import { createMigrationService } from "./migrations.mjs";
+import { createMaintenanceService } from "./maintenance.mjs";
 import { createNetworkService } from "./network.mjs";
 import { createPrerequisiteService } from "./prerequisites.mjs";
 import { createPrerequisiteRepairService } from "./prerequisite-repairs.mjs";
@@ -42,6 +43,7 @@ const audit = createAuditLog();
 const state = createStateStore();
 const auth = createAuthService(state);
 const helper = createHelperClient({ timeoutMs: 180000 });
+const maintenance = createMaintenanceService();
 const libvirt = createHelperLibvirtService({ helper });
 const prerequisites = createPrerequisiteService({
   stateDirectory: process.env.BOXPILOT_STATE_DIRECTORY ?? path.dirname(state.databasePath),
@@ -55,7 +57,7 @@ const backups = createBackupService({ store: state, prerequisites, helper });
 const dnsAcceptance = createDnsAcceptanceService({ store: state, helper, network });
 const fleet = createFleetService({ store: state });
 const routerCheckpoints = createRouterCheckpointService({ store: state });
-const inventory = createInventoryService({ helper });
+const inventory = createInventoryService({ helper, maintenance });
 const migrations = createMigrationService({ store: state, inventory, helper });
 const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, libvirt });
 const vmExports = createVmExportService({ store: state, libvirt, helper });
@@ -114,7 +116,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.34.0",
+    version: "0.35.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -185,7 +187,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     backups: "uptime-kuma-local-restore-drill-and-vm-independent-restic-copy-with-isolated-boot-validation-recovery-clones-and-guarded-retention",
     migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
     network: "read-only-topology-and-approved-fixed-pi-hole-direct-dns-acceptance",
-    privilegedHelper: "typed-canary-exact-smartmontools-repair-curated-applications-backups-migration-staging-inventory-logs-vm-creation-lifecycle-snapshots-exports-mounted-restic-isolated-restore-drills-recovery-clones-and-retention",
+    privilegedHelper: "typed-canary-exact-smartmontools-repair-fixed-apt-metadata-refresh-curated-applications-backups-migration-staging-inventory-logs-vm-creation-lifecycle-snapshots-exports-mounted-restic-isolated-restore-drills-recovery-clones-and-retention",
     identity: "owner-password-foundation",
     durableJobs: "sqlite-approved-prerequisite-application-backup-dns-acceptance-migration-transfer-vm-creation-lifecycle-snapshot-export-protection-restore-drill-recovery-and-retention-workflows",
     virtualization: "live-libvirt-via-restricted-helper",
@@ -204,8 +206,8 @@ app.get("/api/v1/capabilities", (_request, response) => {
     actionCenter: { generation: "authenticated-read-only", guidance: "fixed-local-destinations", automaticRepair: false, persistence: false, externalDelivery: false },
     filesystemErrors: { ext4: "mounted-kernel-errors-count-read-only", unsupportedFilesystems: "explicit", filesystemCheck: false, repair: false },
     upsEvidence: { source: "fixed-upsc-localhost-only", devices: "single-locally-enumerated", powerCommands: false, shutdownPolicyMutation: false, remoteTargets: false },
-    maintenanceEvidence: { source: "fixed-local-systemd-reboot-dpkg-apt-and-unattended-upgrades-state", namesIncluded: false, aptOperations: false, serviceControl: false, reboot: false },
-    prerequisiteRepairs: { smartmontools: "exact-version-durable-approved-fixed-package-service", arbitraryPackages: false, aptUpdate: false, automaticRemoval: false },
+    maintenanceEvidence: { source: "fixed-local-systemd-reboot-dpkg-apt-and-unattended-upgrades-state", namesIncluded: false, aptOperations: "fixed-approved-metadata-update-only", serviceControl: false, reboot: false },
+    prerequisiteRepairs: { smartmontools: "exact-version-durable-approved-fixed-package-service", aptMetadata: "durable-approved-static-update-only-service", arbitraryPackages: false, packageInstall: "smartmontools-only", packageUpgrade: false, packageRemoval: false, browserCommands: false, automaticRemoval: false },
   });
 });
 
@@ -255,13 +257,22 @@ app.post("/api/v1/prerequisite-repairs/smartmontools/plans", async (request, res
   }
 });
 
+app.post("/api/v1/prerequisite-repairs/apt-metadata/plans", async (request, response) => {
+  try {
+    const plan = await prerequisiteRepairs.planAptMetadata(request.boxpilotSession.owner.id, request.body);
+    response.status(201).json({ plan });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "apt_metadata_refresh_plan_failed" });
+  }
+});
+
 app.post("/api/v1/prerequisite-repair-plans/:id/stage", async (request, response) => {
   try {
     if (!request.body || typeof request.body !== "object" || Array.isArray(request.body) || Object.keys(request.body).length !== 1 || typeof request.body.revision !== "string") throw new Error("Prerequisite repair staging accepts only the immutable revision");
     const job = await prerequisiteRepairs.stage(request.params.id, request.body.revision, request.boxpilotSession.owner.id);
     response.status(201).json({ job });
   } catch (error) {
-    response.status(409).json({ error: error.message, code: "smartmontools_repair_stage_failed" });
+    response.status(409).json({ error: error.message, code: "prerequisite_repair_stage_failed" });
   }
 });
 
@@ -468,7 +479,7 @@ app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = ["prerequisite.smartmontools.install", "application.pi-hole.deploy", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
+    const background = ["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.pi-hole.deploy", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, request.body?.password)
       : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
@@ -729,7 +740,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.34.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.35.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

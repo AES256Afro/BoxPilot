@@ -75,6 +75,26 @@ interface SmartRepairPlan {
   };
 }
 
+interface AptRefreshPlan {
+  id: string;
+  revision: string;
+  expiresAt: string;
+  output: {
+    currentState: string;
+    currentUpdatedAt: string | null;
+    currentAgeHours: number | null;
+    action: string;
+    networkAccess: boolean;
+    aptUpdatePerformed: boolean;
+    packageInstallPerformed: boolean;
+    packageUpgradePerformed: boolean;
+    packageRemovalPerformed: boolean;
+    arbitraryCommandAccepted: boolean;
+    automaticRollback: boolean;
+    recovery: string;
+  };
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   const body = await response.json() as T & { error?: string };
   if (!response.ok) throw new Error(body.error ?? `Request failed with status ${response.status}`);
@@ -93,6 +113,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
   const [smartRepairPlan, setSmartRepairPlan] = useState<SmartRepairPlan | null>(null);
+  const [aptRefreshPlan, setAptRefreshPlan] = useState<AptRefreshPlan | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -186,6 +207,42 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
     }
   };
 
+  const createAptRefreshPlan = async () => {
+    setPending(true);
+    setError(null);
+    try {
+      const result = await readJson<{ plan: AptRefreshPlan }>(await fetch("/api/v1/prerequisite-repairs/apt-metadata/plans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({}),
+      }));
+      setAptRefreshPlan(result.plan);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to create the APT metadata refresh plan");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const stageAptRefreshPlan = async () => {
+    if (!aptRefreshPlan) return;
+    setPending(true);
+    setError(null);
+    try {
+      await readJson(await fetch(`/api/v1/prerequisite-repair-plans/${aptRefreshPlan.id}/stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ revision: aptRefreshPlan.revision }),
+      }));
+      setAptRefreshPlan(null);
+      await refresh();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to stage the APT metadata refresh plan");
+    } finally {
+      setPending(false);
+    }
+  };
+
   const approve = async () => {
     if (!awaitingApproval) return;
     setPending(true);
@@ -238,6 +295,20 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
           <p>{smartRepairPlan.output.action}</p>
           <div className="recovery-boundary"><strong>Fixed boundary</strong><span>No package name, repository, command, argument, disk, mount, or SMART setting comes from the browser. {smartRepairPlan.output.recovery}</span></div>
           <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => setSmartRepairPlan(null)} disabled={pending}>Discard plan</button><button className="primary-button" type="button" onClick={() => void stageSmartRepairPlan()} disabled={pending}>{pending ? "Staging..." : "Stage exact repair for password approval"}</button></footer>
+        </section>
+      )}
+      {aptRefreshPlan && (
+        <section className="panel prerequisite-repair-plan">
+          <header className="panel-header"><div><span className="eyebrow">Exact prerequisite repair plan</span><strong>APT metadata refresh</strong><span>Revision {aptRefreshPlan.revision} | expires {new Date(aptRefreshPlan.expiresAt).toLocaleString()}</span></div><span className="status-pill status-warning">package metadata</span></header>
+          <div className="prerequisite-repair-grid">
+            <div><span>Current state</span><strong>{aptRefreshPlan.output.currentState}{aptRefreshPlan.output.currentAgeHours !== null ? ` (${aptRefreshPlan.output.currentAgeHours} hours old)` : ""}</strong></div>
+            <div><span>Previous timestamp</span><strong>{aptRefreshPlan.output.currentUpdatedAt ? new Date(aptRefreshPlan.output.currentUpdatedAt).toLocaleString() : "Unavailable"}</strong></div>
+            <div><span>Fixed APT update</span><strong>{aptRefreshPlan.output.aptUpdatePerformed ? "Required" : "Not planned"}</strong></div>
+            <div><span>Package changes</span><strong>{aptRefreshPlan.output.packageInstallPerformed || aptRefreshPlan.output.packageUpgradePerformed || aptRefreshPlan.output.packageRemovalPerformed ? "Planned" : "None permitted"}</strong></div>
+          </div>
+          <p>{aptRefreshPlan.output.action}</p>
+          <div className="recovery-boundary"><strong>Fixed boundary</strong><span>The browser supplies no package, repository, command, option, or target. The static root unit runs only apt-get update --error-on=any and verifies the installed package database is unchanged. {aptRefreshPlan.output.recovery}</span></div>
+          <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => setAptRefreshPlan(null)} disabled={pending}>Discard plan</button><button className="primary-button" type="button" onClick={() => void stageAptRefreshPlan()} disabled={pending}>{pending ? "Staging..." : "Stage metadata refresh for password approval"}</button></footer>
         </section>
       )}
       {recoveryError && <div className="notice warning-notice" role="status"><strong>Recovery kit unavailable</strong><span>{recoveryError}. Prerequisite checks and durable jobs remain available.</span></div>}
@@ -303,7 +374,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
           {checks.map((item) => (
             <article className="repair-check" key={item.id}>
               <span className={`repair-state repair-${item.status}`}>{item.status}</span>
-              <div><small>{item.group}</small><strong>{item.name}</strong><p>{item.summary}</p>{item.repair && <em>{item.repair.description}</em>}{item.id === "storage.smartmontools" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createSmartRepairPlan()} disabled={pending || smartRepairPlan !== null}>Review exact repair</button>}</div>
+              <div><small>{item.group}</small><strong>{item.name}</strong><p>{item.summary}</p>{item.repair && <em>{item.repair.description}</em>}{item.id === "storage.smartmontools" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createSmartRepairPlan()} disabled={pending || smartRepairPlan !== null || aptRefreshPlan !== null}>Review exact repair</button>}{item.id === "host.apt-metadata" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createAptRefreshPlan()} disabled={pending || smartRepairPlan !== null || aptRefreshPlan !== null}>Review metadata refresh</button>}</div>
             </article>
           ))}
         </section>
@@ -320,7 +391,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
               <strong>Approval required</strong>
               <span>Re-enter your owner password. It is verified in memory and never stored in the job.</span>
               <input aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
-              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? (["prerequisite.smartmontools.install", "network.dns.acceptance.run", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(awaitingApproval.type) ? "Starting..." : "Running...") : "Approve and run"}</button>
+              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? (["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "network.dns.acceptance.run", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(awaitingApproval.type) ? "Starting..." : "Running...") : "Approve and run"}</button>
             </div>
           )}
         </aside>

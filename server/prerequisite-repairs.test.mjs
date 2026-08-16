@@ -45,3 +45,36 @@ describe("smartmontools prerequisite repair planning", () => {
     store.close();
   });
 });
+
+describe("APT metadata prerequisite repair planning", () => {
+  it("creates, stages, and revalidates an immutable metadata-only refresh", async () => {
+    const state = { available: true, state: "stale", updatedAt: "2026-08-01T00:00:00.000Z", ageHours: 360, packageManagerState: "ready", refreshAvailable: true };
+    const { store, owner, service } = await setup(state);
+    const plan = await service.planAptMetadata(owner.id, {});
+    expect(plan).toMatchObject({
+      type: "prerequisite.repair",
+      subjectId: "apt-metadata",
+      input: { expectedUpdatedAt: state.updatedAt, expectedState: "stale" },
+      output: { aptUpdatePerformed: true, packageInstallPerformed: false, packageUpgradePerformed: false, packageRemovalPerformed: false, arbitraryCommandAccepted: false, automaticRollback: false },
+    });
+    const job = await service.stage(plan.id, plan.revision, owner.id);
+    expect(job).toMatchObject({ type: "prerequisite.apt-metadata.refresh", state: "awaiting_approval", risk: "system-package-metadata", parameters: { expectedUpdatedAt: state.updatedAt, expectedState: "stale" } });
+    await expect(service.validateJob(job)).resolves.toMatchObject({ plan: { id: plan.id }, state: { state: "stale", packageManagerState: "ready" } });
+    store.close();
+  });
+
+  it("rejects browser fields, current metadata, interrupted dpkg, and changed state", async () => {
+    const stale = { available: true, state: "stale", updatedAt: "2026-08-01T00:00:00.000Z", ageHours: 360, packageManagerState: "ready", refreshAvailable: true };
+    const { store, owner, helper, service } = await setup(stale);
+    await expect(service.planAptMetadata(owner.id, { package: "curl" })).rejects.toThrow("empty object");
+    helper.request.mockResolvedValueOnce({ ...stale, state: "current", refreshAvailable: false });
+    await expect(service.planAptMetadata(owner.id, {})).rejects.toThrow("already current");
+    helper.request.mockResolvedValueOnce({ ...stale, packageManagerState: "interrupted", refreshAvailable: false });
+    await expect(service.planAptMetadata(owner.id, {})).rejects.toThrow("not ready");
+    const plan = await service.planAptMetadata(owner.id, {});
+    helper.request.mockResolvedValueOnce({ ...stale, updatedAt: "2026-08-02T00:00:00.000Z" });
+    await expect(service.stage(plan.id, plan.revision, owner.id)).rejects.toThrow("Host state changed");
+    expect(store.getPlan(plan.id).status).toBe("draft");
+    store.close();
+  });
+});
