@@ -17,6 +17,7 @@ import { createKeelArtifactHelper } from "./keel-artifact-helper.mjs";
 import { createKeelArchiveHelper } from "./keel-archive-helper.mjs";
 import { createKeelStageHelper } from "./keel-stage-helper.mjs";
 import { createKeelInstallHelper } from "./keel-install-helper.mjs";
+import { createKeelBackupHelper } from "./keel-backup-helper.mjs";
 
 const socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock";
 const maxRequestBytes = 8192;
@@ -37,18 +38,23 @@ const keelArtifacts = createKeelArtifactHelper();
 const keelArchive = createKeelArchiveHelper();
 const keelStage = createKeelStageHelper({ artifactHelper: keelArtifacts, archiveHelper: keelArchive });
 const keelInstall = createKeelInstallHelper({ stageHelper: keelStage });
+const keelBackups = createKeelBackupHelper({ installHelper: keelInstall });
 await controllerBackups.initialize();
 await controllerProtection.initialize();
 await applicationProtection.initialize();
 await migrations.initialize();
 const recovery = await vmRestoreDrill.recoverOrphans();
 const applicationRecovery = await applications.recoverInterruptedPiholeBackup();
-const helperDependencies = { applications, applicationProtection, controllerBackups, controllerProtection, controllerRetention, keelDiscovery, keelArtifacts, keelArchive, keelStage, keelInstall, migrations, prerequisites, vmRestoreDrill, vmRecovery, vmRetention };
+const keelBackupRecovery = await keelBackups.recoverInterrupted();
+const helperDependencies = { applications, applicationProtection, controllerBackups, controllerProtection, controllerRetention, keelDiscovery, keelArtifacts, keelArchive, keelStage, keelInstall, keelBackups, migrations, prerequisites, vmRestoreDrill, vmRecovery, vmRetention };
 if (recovery.stoppedDomains > 0 || recovery.removedNvramFiles > 0 || recovery.normalizedWorkspaces > 0) {
   console.log(`BoxPilot restore drill recovery stopped=${recovery.stoppedDomains} nvram=${recovery.removedNvramFiles} workspaces=${recovery.normalizedWorkspaces}`);
 }
 if (applicationRecovery.recovered) {
   console.log(`BoxPilot Pi-hole backup recovery sourceRestarted=${applicationRecovery.sourceRestarted} drillRemoved=${applicationRecovery.drillRemoved}`);
+}
+if (keelBackupRecovery.recovered || keelBackupRecovery.active) {
+  console.log(`BoxPilot Keel backup recovery active=${keelBackupRecovery.active} restartRequested=${keelBackupRecovery.sourceRestartRequested} pathsRemoved=${keelBackupRecovery.generatedPathsRemoved}`);
 }
 
 await mkdir(path.dirname(socketPath), { recursive: true, mode: 0o750 });
@@ -91,6 +97,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       if (request.operation === "prerequisite.apt-metadata.refresh") connection.setTimeout(15 * 60 * 1000);
       if (request.operation === "application.keel.stage") connection.setTimeout(15 * 60 * 1000);
       if (request.operation === "application.keel.install") connection.setTimeout(15 * 60 * 1000);
+      if (request.operation === "application.keel.backup") connection.setTimeout(20 * 60 * 1000);
       const execution = readOnlyOperations.has(request.operation)
         ? executeHelperOperation(request, helperDependencies)
         : operationQueue.then(() => executeHelperOperation(request, helperDependencies));
@@ -119,7 +126,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
 
 server.listen(socketPath, async () => {
   await chmod(socketPath, 0o660);
-  console.log(`BoxPilot helper 0.47.0 listening on ${socketPath}`);
+  console.log(`BoxPilot helper 0.48.0 listening on ${socketPath}`);
 });
 
 async function shutdown() {

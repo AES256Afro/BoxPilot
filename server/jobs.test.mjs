@@ -398,6 +398,34 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("runs a Keel backup as a typed long-running job and records only restarted isolated export evidence", async () => {
+    const backupId = "22222222-2222-4222-8222-222222222222";
+    const result = {
+      backupId,
+      applicationId: "keel",
+      releaseVersion: "1.2.6",
+      sourceRestartVerified: true,
+      restoreDrill: { passed: true, mode: "isolated-keel-export-open", network: "none", publishedPorts: 0, databaseIntegrity: "ok", foreignKeyIssues: 0, schemaVerified: true, environmentIncluded: true, treeDigestMatched: true, applicationStarted: false, productionStateReplaced: false },
+      boundary: { sourceServiceStopped: true, sourceRestarted: true, secretContentReturned: false, environmentContentReturned: false, registrationChanged: false, claimChanged: false, tailscaleChanged: false, firewallChanged: false, routerChanged: false },
+    };
+    let finish;
+    const helper = { request: vi.fn(() => new Promise((resolve) => { finish = resolve; })) };
+    const { store, owner } = await setup(helper);
+    const validateBackupJob = vi.fn(async () => {});
+    const recordBackupResult = vi.fn();
+    const jobs = createJobService(store, helper, { validateBackupJob, recordBackupResult });
+    const job = store.createJob({ type: "application.keel.backup", title: "Back up and restore-test Keel Notes", risk: "medium", parameters: { backupId, applicationId: "keel" }, recovery: { automaticRollback: true }, createdBy: owner.id });
+
+    const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
+    expect(validateBackupJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("application.keel.backup", { backupId }, { timeoutMs: 20 * 60 * 1000 });
+    expect(started.state).toBe("applying");
+    finish(result);
+    await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
+    expect(recordBackupResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
+    store.close();
+  });
+
   it("runs a migration bundle transfer in the background without sending source records or paths to the helper", async () => {
     const input = {
       transferId: "11111111-1111-4111-8111-111111111111",

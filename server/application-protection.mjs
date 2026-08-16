@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 const shaPattern = /^[a-f0-9]{64}$/;
-const applicationIds = new Set(["uptime-kuma", "pi-hole"]);
+const applicationIds = new Set(["uptime-kuma", "pi-hole", "keel"]);
 
 export function createApplicationProtectionService({ store, helper }) {
   async function destination() {
@@ -48,7 +48,17 @@ export function createApplicationProtectionService({ store, helper }) {
       && candidate.restoreDrill?.routerMutationPerformed === false
       && candidate.restoreDrill?.dnsCutoverPerformed === false
     );
-    if (!commonEvidence || !piholeEvidence) throw new Error("The selected local application backup is unavailable or lacks complete no-network restore verification");
+    const keelEvidence = candidate?.applicationId !== "keel" || (
+      candidate.restoreDrill?.mode === "isolated-keel-export-open"
+      && candidate.restoreDrill?.databaseIntegrity === "ok"
+      && candidate.restoreDrill?.foreignKeyIssues === 0
+      && candidate.restoreDrill?.schemaVerified === true
+      && candidate.restoreDrill?.environmentIncluded === true
+      && candidate.restoreDrill?.treeDigestMatched === true
+      && candidate.restoreDrill?.applicationStarted === false
+      && candidate.restoreDrill?.productionStateReplaced === false
+    );
+    if (!commonEvidence || !piholeEvidence || !keelEvidence) throw new Error("The selected local application backup is unavailable or lacks complete no-network restore verification");
     return candidate;
   }
 
@@ -88,7 +98,11 @@ export function createApplicationProtectionService({ store, helper }) {
       verification: ["Approved local archive SHA-256 and size", "Prior application-aware no-network restore drill", "Full restic repository data read", "Exact snapshot path and tag readback", "Exact restored archive SHA-256 and size"],
       warnings: [
         "The application repository password is a separate recovery key. Keep a copy outside Bigbox and outside the backup filesystem.",
-        source.applicationId === "pi-hole" ? "The encrypted archive contains the Pi-hole administrator secret. Router and client DNS are never changed by this workflow." : "The encrypted archive contains Uptime Kuma state and credentials.",
+        source.applicationId === "pi-hole"
+          ? "The encrypted archive contains the Pi-hole administrator secret. Router and client DNS are never changed by this workflow."
+          : source.applicationId === "keel"
+            ? "The encrypted archive contains Keel notes, users, sessions, configuration, uploads, and the managed-secret companion when present. Treat it as highly sensitive."
+            : "The encrypted archive contains Uptime Kuma state and credentials.",
         "A local USB disk is independent from Bigbox storage but is not offsite protection. A NAS or rotated encrypted disk is stronger.",
         "BoxPilot does not forget, prune, overwrite, or delete application restic snapshots in this workflow.",
       ],
@@ -120,7 +134,7 @@ export function createApplicationProtectionService({ store, helper }) {
     if (!draft.output.executable) throw new Error(draft.output.blockers.join(" | ") || "Application protection plan is not executable");
     await revalidate(draft);
     store.stagePlan(draft.id, ownerId);
-    const label = draft.input.applicationId === "pi-hole" ? "Pi-hole" : "Uptime Kuma";
+    const label = draft.input.applicationId === "pi-hole" ? "Pi-hole" : draft.input.applicationId === "keel" ? "Keel Notes" : "Uptime Kuma";
     return store.createJob({
       type: "application.backup.protect",
       title: `Encrypt, independently copy, and restore-test ${label}`,
