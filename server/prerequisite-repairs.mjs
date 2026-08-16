@@ -11,6 +11,10 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
     return helper.request("prerequisite.restic.inspect", {});
   }
 
+  async function inspectDocker() {
+    return helper.request("prerequisite.docker.inspect", {});
+  }
+
   function matchingSmartmontoolsState(plan, state) {
     return plan.input.expectedVersion === state.selectedVersion && plan.input.installedBefore === state.installed;
   }
@@ -23,6 +27,10 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
   }
 
   function matchingResticState(plan, state) {
+    return plan.input.expectedVersion === state.selectedVersion && plan.input.installedBefore === state.installed;
+  }
+
+  function matchingDockerState(plan, state) {
     return plan.input.expectedVersion === state.selectedVersion && plan.input.installedBefore === state.installed;
   }
 
@@ -104,9 +112,38 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
     });
   }
 
+  async function planDocker(ownerId, input = {}) {
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== 0) throw new Error("Docker Engine repair planning accepts only an empty object");
+    const state = await inspectDocker();
+    if (state.installed) throw new Error("A compatible Docker Engine is already active; no installation plan is needed");
+    if (!state.supported || !state.repairAvailable || !state.selectedVersion) throw new Error("No fixed docker.io candidate is available from the configured package metadata");
+    return store.createPlan({
+      type: "prerequisite.repair",
+      subjectId: "docker",
+      input: { expectedVersion: state.selectedVersion, installedBefore: false },
+      output: {
+        executable: true,
+        package: "docker.io",
+        selectedVersion: state.selectedVersion,
+        currentState: "No compatible active Docker Engine detected",
+        action: "Install only docker.io from the configured Ubuntu APT candidate, enable and start docker.service, then verify the local daemon version",
+        networkAccess: true,
+        aptUpdatePerformed: false,
+        arbitraryPackageSelection: false,
+        arbitraryRepositorySelection: false,
+        daemonConfigurationChanged: false,
+        userGroupChanged: false,
+        containerCreated: false,
+        automaticRollback: false,
+        recovery: "If APT or daemon startup fails, inspect boxpilot-docker-install.service, docker.service, dpkg, and APT state from the server console. BoxPilot never removes Docker automatically, rewrites daemon.json, adds a user to the docker group, or replaces an existing provider.",
+      },
+      createdBy: ownerId,
+    });
+  }
+
   async function stage(planId, revision, ownerId) {
     const plan = store.getPlan(planId);
-    if (!plan || plan.createdBy !== ownerId || plan.type !== "prerequisite.repair" || !["smartmontools", "restic", "apt-metadata"].includes(plan.subjectId)) throw new Error("Prerequisite repair plan not found");
+    if (!plan || plan.createdBy !== ownerId || plan.type !== "prerequisite.repair" || !["smartmontools", "restic", "docker", "apt-metadata"].includes(plan.subjectId)) throw new Error("Prerequisite repair plan not found");
     if (plan.revision !== revision) throw new Error("Prerequisite repair plan revision does not match");
 
     if (plan.subjectId === "smartmontools") {
@@ -153,6 +190,28 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
       });
     }
 
+    if (plan.subjectId === "docker") {
+      const state = await inspectDocker();
+      if (!matchingDockerState(plan, state) || state.installed || !state.repairAvailable) throw new Error("Host state changed: create a new Docker Engine repair plan");
+      store.stagePlan(plan.id, ownerId);
+      return store.createJob({
+        type: "prerequisite.docker.install",
+        title: "Install and verify Docker Engine",
+        risk: "system-package-service",
+        parameters: { planId: plan.id, revision: plan.revision, expectedVersion: plan.input.expectedVersion, installedBefore: false },
+        recovery: {
+          automaticRollback: false,
+          reason: "Package installation and service enablement are not reversed automatically because removal could destroy administrator-managed container tooling or worsen interrupted package state.",
+          manual: "If the job fails, inspect boxpilot-docker-install.service, docker.service, dpkg, and APT state from the server console. Repair package or daemon state before creating a fresh plan. Do not remove Docker merely to match the old state.",
+        },
+        createdBy: ownerId,
+        initialSteps: [
+          { name: "preflight", state: "completed", detail: `The fixed docker.io package and exact version ${plan.input.expectedVersion} were resolved only from configured Ubuntu APT metadata; no compatible active Docker provider was present` },
+          { name: "checkpoint", state: "completed", detail: "The operation will not run apt update, add a repository, upgrade or remove a package, replace an existing Docker provider, change daemon.json, add a user to the docker group, pull an image, create a container, or accept a browser command" },
+        ],
+      });
+    }
+
     const state = await inspectAptMetadata();
     if (!matchingAptMetadataState(plan, state)) throw new Error("Host state changed: create a new APT metadata refresh plan");
     store.stagePlan(plan.id, ownerId);
@@ -175,8 +234,8 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
   }
 
   async function validateJob(job) {
-    if (!["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh"].includes(job.type)) throw new Error("Unsupported prerequisite repair job");
-    const subjectId = job.type === "prerequisite.smartmontools.install" ? "smartmontools" : job.type === "prerequisite.restic.install" ? "restic" : "apt-metadata";
+    if (!["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.apt-metadata.refresh"].includes(job.type)) throw new Error("Unsupported prerequisite repair job");
+    const subjectId = job.type === "prerequisite.smartmontools.install" ? "smartmontools" : job.type === "prerequisite.restic.install" ? "restic" : job.type === "prerequisite.docker.install" ? "docker" : "apt-metadata";
     const plan = store.getPlan(job.parameters.planId);
     if (!plan || plan.status !== "staged" || plan.type !== "prerequisite.repair" || plan.subjectId !== subjectId || plan.revision !== job.parameters.revision) throw new Error("The staged prerequisite repair plan is unavailable or changed");
     if (subjectId === "smartmontools") {
@@ -191,11 +250,17 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
       if (!matchingResticState(plan, state)) throw new Error("Host state changed: the restic package state or candidate changed");
       return { plan, state };
     }
+    if (subjectId === "docker") {
+      if (plan.input.expectedVersion !== job.parameters.expectedVersion || plan.input.installedBefore !== false || job.parameters.installedBefore !== false) throw new Error("The staged Docker Engine repair plan does not match the job");
+      const state = await inspectDocker();
+      if (!matchingDockerState(plan, state) || state.installed || !state.repairAvailable) throw new Error("Host state changed: the Docker Engine or docker.io candidate changed");
+      return { plan, state };
+    }
     if (plan.input.expectedUpdatedAt !== job.parameters.expectedUpdatedAt || plan.input.expectedState !== job.parameters.expectedState) throw new Error("The staged APT metadata refresh plan does not match the job");
     const state = await inspectAptMetadata();
     if (!matchingAptMetadataState(plan, state)) throw new Error("Host state changed: APT metadata or package manager state changed");
     return { plan, state };
   }
 
-  return { inspect: inspectSmartmontools, inspectRestic, inspectAptMetadata, planSmartmontools, planRestic, planAptMetadata, stage, validateJob };
+  return { inspect: inspectSmartmontools, inspectRestic, inspectDocker, inspectAptMetadata, planSmartmontools, planRestic, planDocker, planAptMetadata, stage, validateJob };
 }

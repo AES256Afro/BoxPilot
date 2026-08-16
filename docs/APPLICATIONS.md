@@ -1,20 +1,21 @@
 # Curated applications
 
-BoxPilot `0.49.0` provides integrity-addressed manifests, executable Uptime Kuma and guarded Pi-hole adapters, three application-aware local backup adapters, encrypted independent exact-archive protection for verified Uptime Kuma, Pi-hole, and Keel records, and a stopped Keel recovery clone. Its Keel Notes adapter adds read-only discovery, separately approved fixed artifact acquisition, parameter-free archive, staging, and installation inspection, password-approved extraction of the exact corrected `v1.2.6` release into an inert root-owned tree, a separate password-approved native-service installation, a consistent export with guaranteed source restart and isolated SQLite recovery proof, and a separately approved exact-evidence transformation into a stopped root-only live-layout recovery state. Keel runs under a dedicated non-login account with private state, an immutable release link, a hardened loopback-only systemd unit, and exact health acceptance. Claim remains terminal-only. Registration changes, Tailscale exposure, production promotion, import, adoption, update, and removal remain locked. The web process never receives the Docker socket or a general root operation.
+BoxPilot `0.54.0` provides integrity-addressed manifests, executable Uptime Kuma and guarded Pi-hole adapters, three application-aware local backup adapters, encrypted independent exact-archive protection for verified Uptime Kuma, Pi-hole, and Keel records, and the guarded Keel recovery lifecycle through operator rollback. Its Repair Center can now install the fixed Ubuntu `docker.io` prerequisite when no compatible provider is active. The web process never receives the Docker socket or a general root operation.
 
 ## Install the Docker prerequisite on Ubuntu
 
-Docker package installation remains a server-terminal bootstrap action in this release. On Ubuntu 26.04:
+From authenticated **Repair Center**, select **Review Docker install**, inspect the exact configured Ubuntu `docker.io` candidate, stage the immutable plan, and re-enter the owner password. BoxPilot then uses a static no-argument unit to install the pinned candidate, enable and start `docker.service`, and verify the local daemon. An existing client path or installed provider blocks the install so it can be repaired manually rather than replaced.
+
+The console fallback on Ubuntu is:
 
 ```bash
 sudo apt update
-sudo apt install -y docker.io docker-compose-v2
+sudo apt install -y docker.io
 sudo systemctl enable --now docker.service
 sudo docker version
-sudo docker compose version
 ```
 
-Do not add the `boxpilot` web-service account to the `docker` group. The root helper alone invokes fixed Docker argument arrays. Refresh **Repair Center** after installation.
+Do not add the `boxpilot` web-service account to the `docker` group. The root helper alone invokes fixed Docker argument arrays. The guided repair does not add repositories, configure the daemon, alter groups, pull images, or create containers.
 
 ## Manifest contract
 

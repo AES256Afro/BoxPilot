@@ -93,6 +93,27 @@ interface ResticRepairPlan {
   };
 }
 
+interface DockerRepairPlan {
+  id: string;
+  revision: string;
+  expiresAt: string;
+  output: {
+    package: "docker.io";
+    selectedVersion: string;
+    currentState: string;
+    action: string;
+    networkAccess: boolean;
+    aptUpdatePerformed: boolean;
+    arbitraryPackageSelection: boolean;
+    arbitraryRepositorySelection: boolean;
+    daemonConfigurationChanged: boolean;
+    userGroupChanged: boolean;
+    containerCreated: boolean;
+    automaticRollback: boolean;
+    recovery: string;
+  };
+}
+
 interface AptRefreshPlan {
   id: string;
   revision: string;
@@ -132,6 +153,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
   const [pending, setPending] = useState(false);
   const [smartRepairPlan, setSmartRepairPlan] = useState<SmartRepairPlan | null>(null);
   const [resticRepairPlan, setResticRepairPlan] = useState<ResticRepairPlan | null>(null);
+  const [dockerRepairPlan, setDockerRepairPlan] = useState<DockerRepairPlan | null>(null);
   const [aptRefreshPlan, setAptRefreshPlan] = useState<AptRefreshPlan | null>(null);
 
   const refresh = useCallback(async () => {
@@ -262,6 +284,42 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
     }
   };
 
+  const createDockerRepairPlan = async () => {
+    setPending(true);
+    setError(null);
+    try {
+      const result = await readJson<{ plan: DockerRepairPlan }>(await fetch("/api/v1/prerequisite-repairs/docker/plans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({}),
+      }));
+      setDockerRepairPlan(result.plan);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to create the Docker Engine repair plan");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const stageDockerRepairPlan = async () => {
+    if (!dockerRepairPlan) return;
+    setPending(true);
+    setError(null);
+    try {
+      await readJson(await fetch(`/api/v1/prerequisite-repair-plans/${dockerRepairPlan.id}/stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ revision: dockerRepairPlan.revision }),
+      }));
+      setDockerRepairPlan(null);
+      await refresh();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to stage the Docker Engine repair plan");
+    } finally {
+      setPending(false);
+    }
+  };
+
   const createAptRefreshPlan = async () => {
     setPending(true);
     setError(null);
@@ -366,6 +424,20 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
           <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => setResticRepairPlan(null)} disabled={pending}>Discard plan</button><button className="primary-button" type="button" onClick={() => void stageResticRepairPlan()} disabled={pending}>{pending ? "Staging..." : "Stage exact repair for password approval"}</button></footer>
         </section>
       )}
+      {dockerRepairPlan && (
+        <section className="panel prerequisite-repair-plan">
+          <header className="panel-header"><div><span className="eyebrow">Exact prerequisite repair plan</span><strong>Ubuntu docker.io {dockerRepairPlan.output.selectedVersion}</strong><span>Revision {dockerRepairPlan.revision} | expires {new Date(dockerRepairPlan.expiresAt).toLocaleString()}</span></div><span className="status-pill status-warning">system package + service</span></header>
+          <div className="prerequisite-repair-grid">
+            <div><span>Current state</span><strong>{dockerRepairPlan.output.currentState}</strong></div>
+            <div><span>Network access</span><strong>{dockerRepairPlan.output.networkAccess ? "Required for the fixed APT install" : "Not required"}</strong></div>
+            <div><span>APT update or repository</span><strong>{dockerRepairPlan.output.aptUpdatePerformed || dockerRepairPlan.output.arbitraryRepositorySelection ? "Planned" : "Not permitted"}</strong></div>
+            <div><span>Docker data or config</span><strong>{dockerRepairPlan.output.daemonConfigurationChanged || dockerRepairPlan.output.userGroupChanged || dockerRepairPlan.output.containerCreated ? "Changes planned" : "Untouched"}</strong></div>
+          </div>
+          <p>{dockerRepairPlan.output.action}</p>
+          <div className="recovery-boundary"><strong>Fixed boundary</strong><span>No package name, repository, command, daemon option, user, image, container, socket, or path comes from the browser. Existing compatible Docker providers are never replaced. {dockerRepairPlan.output.recovery}</span></div>
+          <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => setDockerRepairPlan(null)} disabled={pending}>Discard plan</button><button className="primary-button" type="button" onClick={() => void stageDockerRepairPlan()} disabled={pending}>{pending ? "Staging..." : "Stage Docker install for password approval"}</button></footer>
+        </section>
+      )}
       {aptRefreshPlan && (
         <section className="panel prerequisite-repair-plan">
           <header className="panel-header"><div><span className="eyebrow">Exact prerequisite repair plan</span><strong>APT metadata refresh</strong><span>Revision {aptRefreshPlan.revision} | expires {new Date(aptRefreshPlan.expiresAt).toLocaleString()}</span></div><span className="status-pill status-warning">package metadata</span></header>
@@ -447,7 +519,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
           {checks.map((item) => (
             <article className="repair-check" key={item.id}>
               <span className={`repair-state repair-${item.status}`}>{item.status}</span>
-              <div><small>{item.group}</small><strong>{item.name}</strong><p>{item.summary}</p>{item.repair && <em>{item.repair.description}</em>}{item.id === "storage.smartmontools" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createSmartRepairPlan()} disabled={pending || smartRepairPlan !== null || resticRepairPlan !== null || aptRefreshPlan !== null}>Review exact repair</button>}{item.id === "backup.restic" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createResticRepairPlan()} disabled={pending || smartRepairPlan !== null || resticRepairPlan !== null || aptRefreshPlan !== null}>Review restic repair</button>}{item.id === "host.apt-metadata" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createAptRefreshPlan()} disabled={pending || smartRepairPlan !== null || resticRepairPlan !== null || aptRefreshPlan !== null}>Review metadata refresh</button>}</div>
+              <div><small>{item.group}</small><strong>{item.name}</strong><p>{item.summary}</p>{item.repair && <em>{item.repair.description}</em>}{item.id === "storage.smartmontools" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createSmartRepairPlan()} disabled={pending || smartRepairPlan !== null || resticRepairPlan !== null || dockerRepairPlan !== null || aptRefreshPlan !== null}>Review exact repair</button>}{item.id === "backup.restic" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createResticRepairPlan()} disabled={pending || smartRepairPlan !== null || resticRepairPlan !== null || dockerRepairPlan !== null || aptRefreshPlan !== null}>Review restic repair</button>}{item.id === "containers.docker" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createDockerRepairPlan()} disabled={pending || smartRepairPlan !== null || resticRepairPlan !== null || dockerRepairPlan !== null || aptRefreshPlan !== null}>Review Docker install</button>}{item.id === "host.apt-metadata" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createAptRefreshPlan()} disabled={pending || smartRepairPlan !== null || resticRepairPlan !== null || dockerRepairPlan !== null || aptRefreshPlan !== null}>Review metadata refresh</button>}</div>
             </article>
           ))}
         </section>
@@ -464,7 +536,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
               <strong>Approval required</strong>
               <span>Re-enter your owner password. It is verified in memory and never stored in the job.</span>
               <input aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
-              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? (["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "application.keel.backup", "controller.database.backup", "controller.database.backup.protect", "application.backup.protect", "application.pi-hole.backup", "network.dns.acceptance.run", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(awaitingApproval.type) ? "Starting..." : "Running...") : "Approve and run"}</button>
+              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? (["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.apt-metadata.refresh", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "application.keel.backup", "controller.database.backup", "controller.database.backup.protect", "application.backup.protect", "application.pi-hole.backup", "network.dns.acceptance.run", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(awaitingApproval.type) ? "Starting..." : "Running...") : "Approve and run"}</button>
             </div>
           )}
         </aside>
