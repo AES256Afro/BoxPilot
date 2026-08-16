@@ -175,10 +175,11 @@ Acceptance:
 
 ## Phase 9: router integration and DNS cutover
 
-Status: `0.23.0` added a fixed three-model declaration catalog and browser-local SHA-256 checkpoint ledger. Version `0.27.0` adds model-specific, vendor-grounded operator checklists and correlates the single default-gateway address observed by Bigbox without claiming router identity. Only fixed host collectors and checkpoint metadata reach the server. Configuration upload, credentials, sessions, neighbor discovery, arbitrary probes, live device-state claims, writes, restore claims, DHCP, and DNS cutover remain unavailable.
+Status: `0.23.0` added a fixed three-model declaration catalog and browser-local SHA-256 checkpoint ledger. Version `0.27.0` added model-specific, vendor-grounded operator checklists and correlates the single default-gateway address observed by Bigbox without claiming router identity. Version `0.36.0` adds a password-approved four-query DNS acceptance against only that observed gateway after a retained Flint 2 checkpoint, Tailscale recovery, and six fixed operator declarations. The unprivileged controller stores bounded evidence without a router login or helper call. Configuration upload, credentials, sessions, neighbor discovery, arbitrary targets, live device-state claims, writes, restore claims, DHCP, DNS advertisement, and cutover remain unavailable.
 
 - Browser-local configuration identity with external-file retention evidence included in `0.23.0`
 - Fixed intended-role guidance, live gateway-address correlation, explicit operator checks, and vendor handoff included in `0.27.0`
+- Immutable observed-gateway Flint 2 DNS acceptance with four fixed queries and durable no-write evidence included in `0.36.0`
 - Exact model and firmware compatibility declarations for future executable adapters
 - Encrypted least-privilege credential storage only where vendor support permits it
 - Read-only router discovery with bounded redaction

@@ -104,6 +104,8 @@ describe("direct DNS acceptance", () => {
     });
     await expect(dnsAcceptanceInternals.queryDns("192.168.8.10", dnsAcceptanceInternals.acceptanceChecks[0], { udp, clock: () => 10 })).resolves.toMatchObject({ id: "local-udp", passed: true, rcode: 0, answers: 1 });
     await expect(dnsAcceptanceInternals.queryDns("8.8.8.8", { id: "custom", protocol: "udp", name: "secret.local" }, { udp })).rejects.toThrow("not allowlisted");
+    await expect(dnsAcceptanceInternals.queryDns("192.168.8.10", { ...dnsAcceptanceInternals.acceptanceChecks[0], requireAnswers: false }, { udp })).rejects.toThrow("not allowlisted");
+    await expect(dnsAcceptanceInternals.queryDns("192.168.8.10", { ...dnsAcceptanceInternals.acceptanceChecks[0], expectedRcode: 3 }, { udp })).rejects.toThrow("not allowlisted");
   });
 
   it("plans, stages, approves, probes, and records controller-only evidence", async () => {
