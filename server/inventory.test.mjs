@@ -16,12 +16,13 @@ describe("sanitized host inventory", () => {
       readOsRelease: vi.fn(async () => 'PRETTY_NAME="Ubuntu 26.04 LTS"\n'),
       getFilesystem: vi.fn(async () => ({ blocks: 1000, bavail: 250, bsize: 4096 })),
       getNetworkInterfaces: vi.fn(() => ({ eth0: [{ internal: false, family: "IPv4", address: "192.168.8.10", cidr: "192.168.8.10/24" }] })),
+      ups: { inspect: vi.fn(async () => ({ installed: true, configured: true, available: true, state: "online", reason: "ok" })) },
       readStorageHealth: vi.fn(async () => JSON.stringify({ schemaVersion: 1, generatedAt: new Date().toISOString(), available: true, reason: "fixed-root-scan", disks: [{ device: "/dev/nvme0n1", health: "healthy", passed: true, reason: "ok" }] })),
     });
 
     const result = await service.inspect();
 
-    expect(result).toMatchObject({ host: { operatingSystem: "Ubuntu 26.04 LTS" }, storage: { root: { usedPercent: 75 }, smart: { available: true, status: "healthy" } }, network: { tailscale: { connected: true, dnsName: "bigbox.example.ts.net" } }, docker: { available: true, containers: [{ name: "app" }] } });
+    expect(result).toMatchObject({ host: { operatingSystem: "Ubuntu 26.04 LTS" }, storage: { root: { usedPercent: 75 }, smart: { available: true, status: "healthy" } }, power: { ups: { available: true, state: "online" } }, network: { tailscale: { connected: true, dnsName: "bigbox.example.ts.net" } }, docker: { available: true, containers: [{ name: "app" }] } });
     expect(result.services).toHaveLength(6);
     expect(JSON.stringify(result)).not.toContain("peer-secret");
     expect(helper.request).toHaveBeenCalledWith("container.docker.inventory", {});
@@ -34,6 +35,7 @@ describe("sanitized host inventory", () => {
       readOsRelease: vi.fn(async () => { throw new Error("missing"); }),
       getFilesystem: vi.fn(async () => { throw new Error("missing"); }),
       getNetworkInterfaces: vi.fn(() => ({})),
+      ups: { inspect: vi.fn(async () => { throw new Error("ups secret"); }) },
       readStorageHealth: vi.fn(async () => { throw new Error("missing"); }),
     });
     const result = await service.inspect();
@@ -42,6 +44,8 @@ describe("sanitized host inventory", () => {
     expect(result.storage.filesystems.available).toBe(false);
     expect(result.storage.blockDevices.available).toBe(false);
     expect(result.storage.smart).toMatchObject({ available: false, status: "unavailable" });
+    expect(result.power.ups).toMatchObject({ available: false, reason: "ups-collector-unavailable" });
+    expect(JSON.stringify(result)).not.toContain("ups secret");
   });
 
   it("normalizes Ubuntu 22.04, 24.04, and 26.04 LTS storage fixtures", async () => {
@@ -62,6 +66,7 @@ describe("sanitized host inventory", () => {
         readOsRelease: vi.fn(async () => fixture.osRelease),
         getFilesystem: vi.fn(async () => ({ blocks: 1000, bavail: 500, bsize: 4096 })),
         getNetworkInterfaces: vi.fn(() => ({})),
+        ups: { inspect: vi.fn(async () => ({ installed: false, configured: false, available: false, state: "unavailable", reason: "nut-client-not-installed" })) },
         now: () => new Date("2026-08-16T05:01:00.000Z"),
         readStorageHealth: vi.fn(async () => JSON.stringify({
           schemaVersion: 2,

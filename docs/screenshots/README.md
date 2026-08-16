@@ -29,5 +29,6 @@ These images include historical local captures and explicitly disclosed release 
 - `storage-evidence-mock.png`: explicitly disclosed `0.30.0` storage and filesystem evidence mock rendered from `docs/mockups/storage-evidence.html`; no SMART scan, device read, package installation, mount, filesystem, disk, service, or host state was triggered or changed
 - `prerequisite-repair-mock.png`: explicitly disclosed `0.31.0` exact smartmontools repair mock rendered from `docs/mockups/prerequisite-repair.html`; no package metadata query, APT operation, package install or removal, storage scan, service, disk, mount, filesystem, network, or SMART change occurred
 - `filesystem-errors-mock.jpg`: explicitly disclosed `0.32.0` mounted ext4 kernel error-counter mock rendered from `docs/mockups/filesystem-errors.html`; no device check, fsck, unmount, remount, repair, SMART scan, service, disk, mount, filesystem, or host state was triggered or changed
+- `ups-evidence-mock.jpg`: explicitly disclosed `0.33.0` fixed-localhost UPS evidence mock rendered from `docs/mockups/ups-evidence.html`; no UPS was contacted, remote target probed, raw output or device identity collected, power command run, shutdown policy changed, or host state changed
 
 Do not crop out the data-source notice when replacing these screenshots. It is part of the product's capability disclosure.

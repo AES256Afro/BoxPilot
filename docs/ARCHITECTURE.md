@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.32.0` extends the fixed root-only storage evidence writer with mounted ext4 kernel error counters. The collector derives a bounded kernel device name from the already fixed host PID 1 mount inventory, reads only `/sys/fs/ext4/<device>/errors_count`, and never invokes a filesystem checker or repair tool. A nonzero counter is critical; missing and unsupported evidence fail closed.
+Version `0.33.0` adds an optional unprivileged UPS collector. It uses only fixed `upsc` localhost calls, allows one locally enumerated bounded device identity, and emits only a derived state plus allowlisted numeric evidence. It cannot accept a remote target, return the device identity or raw output, issue a power command, or change shutdown policy. Missing NUT remains explicitly not configured.
 
 ## Target components
 
@@ -18,7 +18,7 @@ BoxPilot web and API process (unprivileged)
           +---- Integrity-addressed application catalog and plans (0.5.0)
           |
           +---- Read-only web collectors
-          |       systemd, host interfaces, fixed routes, resolvers, listener scopes, and bounded host state
+          |       systemd, host interfaces, fixed routes, resolvers, listener scopes, local NUT, and bounded host state
           |
           +---- Durable VM creation plans and approved jobs (0.9.0)
           +---- Durable VM lifecycle plans and approved jobs (0.10.0)
@@ -44,6 +44,7 @@ BoxPilot web and API process (unprivileged)
           +---- Sanitized host storage inventory and fixed-source support bundle (0.30.1)
           +---- Durable exact-version smartmontools repair plan and approval (0.31.0)
           +---- Mounted ext4 kernel error-counter evidence (0.32.0)
+          +---- Fixed-localhost read-only UPS evidence (0.33.0)
           |
           +<--- Ed25519 signed polling and fixed evidence from enrolled LAN agent
                   no remote shell, arbitrary command, arbitrary target, or private-key transfer

@@ -1,4 +1,4 @@
-const productVersion = "0.32.0";
+const productVersion = "0.33.0";
 
 const guidance = {
   "controller.database": {
@@ -251,6 +251,43 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
             summary: critical ? "Protect data and inspect the affected physical disk before continuing storage work." : "BoxPilot has no current all-clear SMART evidence for every discovered physical disk.",
             evidence: [`SMART evidence state: ${smart?.status ?? "unavailable"}. Reason: ${smart?.reason ?? "storage-scan-unavailable"}.`],
             recommendation: { view: "overview", title: "Open Overview", steps: ["Review the fixed storage-evidence timestamp and per-disk state.", "Use the server console to verify the timer and separately reviewed smartmontools package.", "Do not replace a disk or delete data from Action Center; prepare a verified backup and hardware recovery plan first."] },
+            boundary: boundary(),
+          });
+        }
+      }
+      const ups = hostInventory?.power?.ups;
+      if (ups) {
+        if (!ups.configured) {
+          notices.push({
+            id: "power.ups-not-configured",
+            severity: "info",
+            category: "Power protection",
+            title: "No local UPS evidence is configured",
+            summary: "BoxPilot has no read-only NUT localhost evidence and will not claim power-loss protection.",
+            evidence: [ups.installed ? "The NUT client is installed, but no single local UPS was enumerated." : "The NUT client is not installed on this server."],
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Decide whether this server needs UPS protection before enabling critical workloads.", "Install and configure NUT separately at the server console if compatible hardware is present.", "Return to Overview and confirm one locally enumerated UPS reports current evidence."] },
+            boundary: boundary(),
+          });
+        } else if (!ups.available || ["on-battery", "bypass", "offline"].includes(ups.state)) {
+          notices.push({
+            id: ups.state === "on-battery" ? "power.ups-on-battery" : "power.ups-unavailable",
+            severity: "warning",
+            category: "Power protection",
+            title: ups.state === "on-battery" ? "The local UPS is on battery" : "Local UPS evidence needs review",
+            summary: ups.state === "on-battery" ? "Preserve service and prepare for a bounded shutdown if utility power does not return." : "BoxPilot cannot make a current UPS protection claim for the configured local device.",
+            evidence: [`Local UPS state: ${ups.state}.`],
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Review the bounded charge, runtime, load, and status evidence.", "Inspect the physical UPS and local NUT service from the server console.", "Preserve active work and follow a separately reviewed shutdown procedure if power protection is not stable."] },
+            boundary: boundary(),
+          });
+        } else if (["low-battery", "forced-shutdown"].includes(ups.state)) {
+          notices.push({
+            id: "power.ups-critical",
+            severity: "critical",
+            category: "Power protection",
+            title: ups.state === "low-battery" ? "The local UPS battery is low" : "The local UPS reports forced shutdown",
+            summary: "Protect current data and use the server's separately configured shutdown policy or local console procedure now.",
+            evidence: [`Local UPS state: ${ups.state}.`],
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Confirm utility power and the physical UPS state immediately.", "Stop storage-producing work and preserve current data.", "Use the separately configured NUT or console shutdown procedure; Action Center cannot issue a power command."] },
             boundary: boundary(),
           });
         }
