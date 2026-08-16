@@ -144,6 +144,27 @@ describe("network topology and DNS assessment", () => {
     store.close();
   });
 
+  it("revalidates a post-staging acceptance baseline with exact managed DNS listeners", async () => {
+    const { store, owner, runCommand, service } = await fixture();
+    const plan = await service.plan(input({ dnsRole: "pihole-on-bigbox", dnsServiceAddress: "192.168.8.10" }), owner.id);
+    runCommand.mockImplementation(async (binary, args) => {
+      if (binary === "ip" && args.includes("address")) return { ok: true, stdout: ipAddresses };
+      if (binary === "ip") return { ok: true, stdout: routes };
+      if (binary === "resolvectl") return { ok: true, stdout: resolvers };
+      if (binary === "ss") return { ok: true, stdout: `${listeners}\nudp UNCONN 0 0 192.168.8.10:53 0.0.0.0:*\ntcp LISTEN 0 4096 192.168.8.10:53 0.0.0.0:*` };
+      return { ok: true, stdout: tailscale };
+    });
+    await expect(service.validateAcceptanceBaseline(plan.id, owner.id, "192.168.8.10")).resolves.toMatchObject({
+      gatewayAddress: "192.168.8.1",
+      resolverAddress: "192.168.8.10",
+      exactTcpListener: true,
+      exactUdpListener: true,
+      assessmentOriginallyReady: true,
+    });
+    await expect(service.validateAcceptanceBaseline(plan.id, owner.id, "192.168.8.11")).rejects.toThrow("no longer matches");
+    store.close();
+  });
+
   it("degrades unavailable collectors without inventing topology", async () => {
     const { store } = await fixture();
     const service = createNetworkService({ store, runCommand: vi.fn(async () => ({ ok: false, stdout: "permission denied" })), getNetworkInterfaces: () => ({}) });

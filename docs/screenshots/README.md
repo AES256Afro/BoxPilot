@@ -1,6 +1,6 @@
 # BoxPilot screenshots
 
-These images are captured from the local `0.3.0` build. Each caption in the repository README identifies whether a surface is connected to host APIs or uses demonstration data.
+These images include historical local captures and explicitly disclosed release mockups. Each caption in the repository README identifies whether a surface is connected to host APIs or uses demonstration data.
 
 - `overview-demo.jpg`: workflow mockup with visible sample-data labeling
 - `virtualization-preflight.jpg`: host-backed QEMU/KVM and libvirt readiness view captured on a non-Linux development host
@@ -17,5 +17,6 @@ These images are captured from the local `0.3.0` build. Each caption in the repo
 - `network-dns-assessment-mock.png`: explicitly disclosed `0.18.0` read-only network and DNS assessment mock rendered from `docs/mockups/network-dns-assessment.html`; no router, DNS, DHCP, firewall, Tailscale, or application setting was read from a real browser session or changed
 - `pihole-staging-approval-mock.png`: explicitly disclosed `0.19.0` guarded Pi-hole staging mock rendered from `docs/mockups/pihole-staging-approval.html`; no container, router, DNS client, DHCP service, firewall, Tailscale setting, or traffic path was changed
 - `pihole-backup-approval-mock.png`: explicitly disclosed `0.20.0` guarded Pi-hole backup and isolated-restore mock rendered from `docs/mockups/pihole-backup-approval.html`; no container was stopped, archive or secret was read, restore was started, or network setting was changed
+- `pihole-dns-acceptance-mock.png`: explicitly disclosed `0.21.0` fixed direct Pi-hole DNS acceptance mock rendered from `docs/mockups/pihole-dns-acceptance.html`; no DNS query was sent, no job was approved, and no network setting was changed
 
 Do not crop out the data-source notice when replacing these screenshots. It is part of the product's capability disclosure.

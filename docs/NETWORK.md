@@ -1,8 +1,8 @@
 # Network and DNS Center
 
-BoxPilot `0.20.0` uses the read-only Network and DNS Center as the authorization boundary for guarded Pi-hole staging. It also provides a separate local Pi-hole configuration backup and isolated restore drill after staging. It is designed to answer the questions that must be settled before starting Pi-hole, enabling Flint 2 AdGuard Home, changing a router DNS advertisement, or placing another router in the forwarding path.
+BoxPilot `0.21.0` uses the Network and DNS Center as the authorization boundary for guarded Pi-hole staging and fixed direct DNS acceptance. It provides a local Pi-hole configuration backup and isolated restore drill after staging, followed by a separate password-approved controller-path test. It is designed to answer the questions that must be settled before starting Pi-hole, enabling Flint 2 AdGuard Home, changing a router DNS advertisement, or placing another router in the forwarding path.
 
-This release can start only the curated Pi-hole Docker stack after a fresh assessment and separate approval. It cannot log in to a router, store a router password, change DHCP, advertise DNS to clients, enable AdGuard Home, reconfigure Tailscale, probe an operator-supplied address, or cut over traffic.
+This release can start only the curated Pi-hole Docker stack after a fresh assessment and separate approval. Once exact staging and recovery evidence exist, it can send four fixed DNS queries to the helper-reported managed Pi-hole address. It cannot log in to a router, store a router password, change DHCP, advertise DNS to clients, enable AdGuard Home, reconfigure Tailscale, probe an operator-supplied address, or cut over traffic.
 
 ## Live collectors
 
@@ -51,7 +51,7 @@ BoxPilot recognizes these declarations:
 - [Omada ER707-M2 product documentation](https://www.omadanetworks.com/us/business-networking/omada-router-wired-router/er707-m2/)
 - [TP-Link Archer BE400 product documentation](https://www.tp-link.com/us/home-networking/wifi-router/archer-be400/)
 
-The links identify the intended devices. BoxPilot does not claim API support for them in `0.20.0`.
+The links identify the intended devices. BoxPilot does not claim API support for them in `0.21.0`.
 
 ## Change-window assessment
 
@@ -91,8 +91,30 @@ The restricted helper accepts only a private RFC1918 LAN address and a high web 
 
 Starting Pi-hole does not make it authoritative. Keep current external AdGuard DNS or Flint 2 AdGuard Home active. BoxPilot reports the staged application as backup-required until the separate local configuration backup and isolated no-network restore pass. Even then, it does not tell any client or router to use Pi-hole, and the artifact is not independent of Bigbox.
 
+## Direct DNS acceptance boundary
+
+Version `0.21.0` adds a separate `network.dns.acceptance` plan and `network.dns.acceptance.run` job. Planning accepts no target address, query name, port, command, or router credential. BoxPilot derives the resolver from the latest completed managed Pi-hole deployment whose exact address and TCP and UDP bindings still match the live helper inventory. It also requires:
+
+- The original owner-attributable Pi-hole network assessment
+- A live matching default gateway and Bigbox LAN address
+- Exact non-wildcard TCP and UDP listeners on the reviewed resolver address
+- A connected Tailscale recovery path with the same declared default-DNS boundary
+- A completed Pi-hole configuration backup with a passing isolated restore drill
+- Password reauthentication after staging an immutable 15-minute plan
+
+The unprivileged web service sends exactly these A-record queries to port 53:
+
+1. `pi.hole` over UDP, requiring a successful answer
+2. `pi.hole` over TCP, requiring a successful answer
+3. `example.com` over UDP, requiring a successful answer
+4. `boxpilot.invalid` over UDP, requiring the reserved negative response code
+
+The root helper keeps `PrivateNetwork=true` and `RestrictAddressFamilies=AF_UNIX`. It performs no DNS probe. A passing controller job stores the exact deployment, assessment, backup, resolver, per-query protocol, response code, answer count, recursion flag, truncation flag, and latency. It explicitly records `secondDeviceTested: false`, `routerMutationPerformed: false`, `dnsCutoverPerformed: false`, and `clientSettingsChanged: false`.
+
+A passing result proves only that Bigbox can query its managed resolver directly. It does not prove ordinary client routing, DHCP advertisement, router configuration, or another LAN device. Failed probes leave the independent DNS path untouched and create no passing acceptance record.
+
 ## Next gates
 
 Router writes remain blocked until an adapter has exact model and firmware compatibility, secret storage, read-only discovery, a downloadable configuration checkpoint, a bounded diff, password reauthentication, post-change tests from a second device, and an out-of-band recovery path.
 
-Pi-hole router cutover remains blocked. Version `0.20.0` satisfies only the configuration-backup and isolated-container-restore gate. Direct DNS tests from Bigbox and a second device, a model-specific router checkpoint and advertisement adapter, a bounded diff, an observation window, and an approval-based rollback sequence are still required.
+Pi-hole router cutover remains blocked. Version `0.21.0` satisfies the configuration-backup, isolated-container-restore, and guarded Bigbox direct-DNS implementation gates. A passing live run is still operator-triggered, and a separately enrolled second device, a model-specific router checkpoint and advertisement adapter, a bounded diff, an observation window, and an approval-based rollback sequence are still required.
