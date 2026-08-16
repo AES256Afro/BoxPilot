@@ -84,6 +84,7 @@ sudo install -m 0644 deploy/boxpilot-keel-install.service /etc/systemd/system/bo
 sudo install -m 0644 deploy/boxpilot-keel-backup.service /etc/systemd/system/boxpilot-keel-backup.service
 sudo install -m 0644 deploy/boxpilot-keel-recovery-drill.service /etc/systemd/system/boxpilot-keel-recovery-drill.service
 sudo install -m 0644 deploy/boxpilot-keel-promotion.service /etc/systemd/system/boxpilot-keel-promotion.service
+sudo install -m 0644 deploy/boxpilot-keel-rollback.service /etc/systemd/system/boxpilot-keel-rollback.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now boxpilot-helper.service boxpilot.service boxpilot-storage-scan.timer
 ```

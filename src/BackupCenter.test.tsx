@@ -235,4 +235,31 @@ describe("Backup Center", () => {
     expect(await screen.findByRole("button", { name: "Plan isolated startup rehearsal" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Plan production promotion" })).toBeNull();
   });
+
+  it("plans and stages an exact operator rollback while showing both retained checkpoints", async () => {
+    const onOpenRepair = vi.fn();
+    const recoveryId = "22222222-2222-4222-8222-222222222222";
+    const promotionId = "44444444-4444-4444-8444-444444444444";
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/backups") return new Response(JSON.stringify({ coverage: [], backups: [], limitations: [] }), { status: 200 });
+      if (url === "/api/v1/controller-backup-protection") return new Response(JSON.stringify({ destination: { ready: false, blockers: [], setupCommand: "sudo setup" }, protections: [] }), { status: 200 });
+      if (url === "/api/v1/application-backup-protection") return new Response(JSON.stringify(blockedApplicationProtection), { status: 200 });
+      if (url === "/api/v1/controller-backup-retention") return new Response(JSON.stringify(blockedRetention), { status: 200 });
+      if (url === "/api/v1/keel-recoveries") return new Response(JSON.stringify({ recoveries: [{ id: recoveryId, backupId: "11111111-1111-4111-8111-111111111111", applicationId: "keel", destination: "managed-keel-recovery", statePath: `/var/lib/boxpilot-managed/keel-recoveries/${recoveryId}/state`, evidencePath: `/var/lib/boxpilot-managed/keel-recoveries/${recoveryId}/recovery.json`, sizeBytes: 4096, state: "stopped", network: "none", createdAt: "2026-08-16T00:00:00.000Z" }] }), { status: 200 });
+      if (url === "/api/v1/keel-recovery-drills") return new Response(JSON.stringify({ drills: [{ id: "33333333-3333-4333-8333-333333333333", recoveryId, applicationId: "keel", releaseVersion: "1.2.6", network: "private-loopback-only", healthIdentityVerified: true, databaseIntegrity: "ok", foreignKeyIssues: 0, schemaVerified: true, processStarted: true, processStopped: true, workspaceRemoved: true, sourceRecoveryUnchanged: true, passed: true, createdAt: "2026-08-16T00:05:00.000Z" }] }), { status: 200 });
+      if (url === "/api/v1/keel-recovery-promotions") return new Response(JSON.stringify({ promotions: [{ id: promotionId, recoveryId, drillId: "33333333-3333-4333-8333-333333333333", applicationId: "keel", releaseVersion: "1.2.6", rollbackPath: `/var/lib/boxpilot-managed/keel-promotion-rollbacks/${promotionId}/state`, healthIdentityVerified: true, databaseIntegrity: "ok", rollbackAvailable: true, sourceRecoveryUnchanged: true, ownerLoginTested: false, createdAt: "2026-08-16T00:10:00.000Z" }] }), { status: 200 });
+      if (url === "/api/v1/keel-rollbacks") return new Response(JSON.stringify({ rollbacks: [] }), { status: 200 });
+      if (url === `/api/v1/keel-promotions/${promotionId}/rollback-plans` && init?.method === "POST") return new Response(JSON.stringify({ plan: { id: "rollback-plan", revision: "rollback-revision", subjectId: promotionId, output: { executable: true, releaseVersion: "1.2.6", network: "host-loopback-only", displacedDestination: "managed-keel-rollback-checkpoint", sourceCheckpointPreserved: true, blockers: [], changes: ["Activate exact retained checkpoint"], verification: ["Original checkpoint remains unchanged"], warnings: ["Owner login is not tested"], recovery: "Restore displaced current production automatically" } } }), { status: 201 });
+      if (url === "/api/v1/keel-rollback-plans/rollback-plan/stage" && init?.method === "POST") return new Response(JSON.stringify({ job: { id: "rollback-job" } }), { status: 201 });
+      return new Response("{}", { status: 404 });
+    }));
+    render(<BackupCenter csrfToken="csrf" onOpenRepair={onOpenRepair} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Plan operator rollback" }));
+    expect(await screen.findByRole("region", { name: "Keel operator rollback plan" })).toBeTruthy();
+    expect(screen.getByText("Original checkpoint remains unchanged")).toBeTruthy();
+    expect(screen.getByText(/managed-keel-rollback-checkpoint/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage critical operator rollback" }));
+    await waitFor(() => expect(onOpenRepair).toHaveBeenCalled());
+  });
 });
