@@ -43,7 +43,10 @@ describe("BoxPilot console", () => {
     fireEvent.click(screen.getByRole("button", { name: /Backups/ }));
     expect(screen.getByRole("heading", { name: "Backups" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("Controller and application backup engine");
-    expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("WAL-aware snapshot and isolated copy-open drill");
+    expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("encrypted independent exact-restore protection");
+    expect(screen.getByRole("region", { name: "Data source" }).textContent).not.toContain("independent controller or application destinations remain pending");
+    expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("WAL-aware snapshot");
+    expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("fixed no-prune retention");
   });
 
   it("opens the browser-only Compose inspector", async () => {
