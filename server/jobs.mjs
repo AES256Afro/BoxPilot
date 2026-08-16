@@ -56,11 +56,11 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
     const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.stage", "application.keel.install"].includes(job.type) ? await validateApplicationJob(job) : null;
     const validatedKeelArtifactPlan = job.type === "application.keel.artifact.acquire" ? await validateKeelArtifactJob(job) : null;
-    if (["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup"].includes(job.type)) await validateBackupJob(job);
+    if (["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup"].includes(job.type)) await validateBackupJob(job);
     const validatedControllerProtectionPlan = job.type === "controller.database.backup.protect" ? await validateControllerProtectionJob(job) : null;
     const validatedApplicationProtectionPlan = job.type === "application.backup.protect" ? await validateApplicationProtectionJob(job) : null;
     const validatedControllerRetentionPlan = job.type === "controller.database.backup.retention.apply" ? await validateControllerRetentionJob(job) : null;
@@ -409,6 +409,38 @@ export function createJobService(store, helper, {
         && result?.restoreDrill?.administratorSecretIncluded === true
         && result?.restoreDrill?.routerMutationPerformed === false
         && result?.restoreDrill?.dnsCutoverPerformed === false,
+    } : job.type === "application.keel.backup" ? {
+      operation: "application.keel.backup",
+      parameters: { backupId: job.parameters.backupId },
+      timeoutMs: 20 * 60 * 1000,
+      applying: "Stopping only Keel, running its fixed export as the dedicated service identity, creating a root-only archive, and restarting the exact loopback service",
+      applied: "Keel health returned and the immutable export artifact, manifest, complete tree digest, and SQLite evidence were recorded",
+      verified: "An isolated no-network restored export passed manifest, tree, SQLite integrity, foreign-key, and schema verification without starting another application",
+      failed: "The Keel backup or isolated restore drill did not pass; the fixed recovery path requested source restart and preserved production state",
+      validate: (result) => result?.backupId === job.parameters.backupId
+        && result?.applicationId === "keel"
+        && result?.releaseVersion === "1.2.6"
+        && result?.sourceRestartVerified === true
+        && result?.restoreDrill?.passed === true
+        && result?.restoreDrill?.mode === "isolated-keel-export-open"
+        && result?.restoreDrill?.network === "none"
+        && result?.restoreDrill?.publishedPorts === 0
+        && result?.restoreDrill?.databaseIntegrity === "ok"
+        && result?.restoreDrill?.foreignKeyIssues === 0
+        && result?.restoreDrill?.schemaVerified === true
+        && result?.restoreDrill?.environmentIncluded === true
+        && result?.restoreDrill?.treeDigestMatched === true
+        && result?.restoreDrill?.applicationStarted === false
+        && result?.restoreDrill?.productionStateReplaced === false
+        && result?.boundary?.sourceServiceStopped === true
+        && result?.boundary?.sourceRestarted === true
+        && result?.boundary?.secretContentReturned === false
+        && result?.boundary?.environmentContentReturned === false
+        && result?.boundary?.registrationChanged === false
+        && result?.boundary?.claimChanged === false
+        && result?.boundary?.tailscaleChanged === false
+        && result?.boundary?.firewallChanged === false
+        && result?.boundary?.routerChanged === false,
     } : job.type === "migration.bundle.transfer" ? {
       operation: "migration.bundle.transfer",
       parameters: migrationHelperInput,
@@ -509,7 +541,7 @@ export function createJobService(store, helper, {
       if (job.type === "virtualization.export.backup.retention.apply" && result?.applied === true) recordVmRetentionResult(job, result);
       if (job.type === "controller.database.backup.retention.apply" && result?.applied === true) recordControllerRetentionResult(job, result);
       if (!execution.validate(result)) throw new Error(execution.run ? "Operation returned an invalid result" : "Helper returned an invalid operation result");
-      if (["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup"].includes(job.type)) recordBackupResult(job, result);
+      if (["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup"].includes(job.type)) recordBackupResult(job, result);
       if (job.type === "controller.database.backup.protect") recordControllerProtectionResult(job, result);
       if (job.type === "application.backup.protect") recordApplicationProtectionResult(job, result);
       if (job.type === "network.dns.acceptance.run") recordDnsAcceptanceResult(job, result);

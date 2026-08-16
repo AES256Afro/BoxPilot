@@ -1,8 +1,8 @@
-# Keel Notes guarded native installation
+# Keel Notes guarded native service and recovery evidence
 
-BoxPilot `0.47.0` can acquire, inspect, stage, install, activate, and health-check one exact [Keel Notes](https://github.com/AES256Afro/Keel) release. The corrected upstream `v1.2.6` server archive contains no links or special members. BoxPilot verifies that fact before extraction and again after extraction. A separate password-approved job can then create a dedicated non-login account, private writable state, an atomic activation link, and one hardened service bound only to `127.0.0.1:3000`.
+BoxPilot `0.48.0` can acquire, inspect, stage, install, activate, health-check, consistently export, and locally restore-verify one exact [Keel Notes](https://github.com/AES256Afro/Keel) release. The corrected upstream `v1.2.6` server archive contains no links or special members. BoxPilot verifies that fact before extraction and again after extraction. Separate password-approved jobs create the guarded native service and later create a root-only recovery artifact with an isolated SQLite-open drill.
 
-Ownership claim, registration changes, Tailscale exposure, backup, restore, import, migration, adoption, update, and removal remain unavailable. An installed Keel service is not claimed, exposed, or protected until those separate workflows are completed.
+Ownership claim remains a terminal-only handoff. Registration changes, Tailscale exposure, production restore, import, migration activation, adoption, update, and removal remain unavailable. A locally verified artifact is not independently protected until its separate encrypted restic copy and exact restored-artifact proof pass.
 
 ## Fixed release identity
 
@@ -33,7 +33,7 @@ The browser cannot supply a repository, URL, tag, filename, digest, archive path
 
 The earlier `v1.2.5` archive had one symbolic link with an absolute build-workspace target and was correctly blocked. BoxPilot does not rewrite or omit unsafe archive members. The upstream release pipeline was corrected, `v1.2.6` was rebuilt, and the published Linux archive independently passed the same no-link membership audit before this adapter was enabled.
 
-## Five separate evidence boundaries
+## Six separate evidence boundaries
 
 ### Read-only host discovery
 
@@ -91,6 +91,22 @@ The result explicitly proves `applicationInstalled`, `applicationStateCreated`, 
 
 On failure, the one-shot stops and disables the new service and removes only the unit, environment file, activation link, and its own partial files. It preserves `/var/lib/keel`, including a database or managed-secret companion that startup may have created. It never claims an account, changes registration, configures Tailscale Serve, opens a firewall, advertises DNS, changes DHCP, or contacts a router.
 
+### Consistent export and isolated recovery drill
+
+`application.keel.backup` accepts only one server-generated backup UUID from a separately staged immutable Backups plan. The restricted helper rechecks the exact managed install and writes a five-minute root-only marker before starting static `boxpilot-keel-backup.service`. The one-shot accepts no arguments and:
+
+1. Rechecks the exact 1.2.6 release, install id, dedicated account, active service, private state, and loopback health identity.
+2. Stops only `keel.service` and confirms it is inactive.
+3. Runs the fixed upstream `keel export` as the non-login `keel` uid and gid into one generated partial directory.
+4. Includes the consistent SQLite database, WAL companions when emitted, managed-secret companion when present, uploads when present, and the fixed environment without returning their contents.
+5. Rejects links, special files, multiple hard links, changed top-level membership, unsafe secret-key shape, any upstream incomplete-uploads warning, more than 100,000 members, or more than 20 GiB of logical data.
+6. Opens the exported SQLite database read-only and requires integrity, zero foreign-key issues, and the `AppSetting`, `Page`, `User`, and `Workspace` tables.
+7. Writes a complete tree digest and root-only manifest, creates a non-overwriting archive, restarts Keel, and requires the exact loopback health identity.
+8. Extracts only into a generated restore-drill workspace while the unit is restricted to loopback network access, starts no application, and requires the restored manifest, complete tree, file hashes, sizes, SQLite integrity, foreign keys, and schema to match.
+9. Removes the successful drill workspace and publishes root-only result evidence. The production database, environment, key, uploads, claim, registration, listener, Tailscale, firewall, DNS, DHCP, and router are unchanged.
+
+The script and static unit both request source restart on failure. Helper-start recovery detects a short-lived marker left by an interrupted request, asks systemd to restart the exact source, and removes only generated unrecorded partial, drill, archive, and result paths. Ambiguous or failed restart recovery preserves the marker for manual intervention.
+
 ## Owner workflow
 
 1. Open **Applications**, choose **Keel Notes**, and review discovery, artifact, archive, staging, and public provenance evidence.
@@ -105,18 +121,22 @@ On failure, the one-shot stops and disables the new service and removes only the
 10. Generate the install plan. BoxPilot rechecks the staged release, fixed port 3000, empty installation boundary, prerequisites, and public provenance.
 11. Stage the install plan, open Repair Center, review the state-preserving rollback, and re-enter the owner password.
 12. Wait for the background job. The completed result must show the exact version, dedicated service, boot enablement, `127.0.0.1:3000`, health identity, preserved state, and still-required terminal claim.
+13. After Keel contains data, open **Backups**, create the Keel Notes plan, stage the exact revision, and approve it in Repair Center.
+14. Require source restart, exact health, manifest and tree digest, SQLite checks, and removed isolated workspace evidence before treating the artifact as locally verified.
+15. Configure the separate application restic destination and run the independent protection plan before treating the local artifact as protected from Bigbox storage failure.
 
 Neither job asks for a sudo password, shell command, path, service name, listener, Keel account, claim token, environment value, or registration choice.
 
 ## Operations that remain unavailable
 
-BoxPilot `0.47.0` cannot:
+BoxPilot `0.48.0` cannot:
 
 - Install Node.js or another package through the Keel adapter
 - Accept a different Keel release, account, path, port, unit, command, or environment value
 - Expose Keel through Tailscale Serve, a reverse proxy, LAN binding, firewall, or public route
 - Create an owner, claim an instance, or change registration policy
-- Read, export, import, back up, restore, migrate, or delete Keel data
+- Import, migrate, delete, or restore Keel into production
+- Schedule Keel backups, apply application retention, run restic prune, or select another backup destination from the browser
 - Adopt or overwrite an existing native or Docker installation
 - Change Tailscale Serve, firewall, DNS, DHCP, or router state
 - Download an arbitrary asset, clone a repository, select another release, or update Keel
@@ -133,10 +153,10 @@ Keel deliberately separates registration from instance ownership. BoxPilot does 
 
 Tailscale access does not replace Keel authentication. The current BoxPilot Tailscale Serve root remains assigned to BoxPilot and is not changed by the Keel installer.
 
-## Stateful data contract for the next milestone
+## Stateful data contract and next milestone
 
-A future installation adapter must keep immutable release bytes separate from the writable recovery unit. At minimum, coordinated recovery must preserve the database, uploads, backups, and `.keel-server-secrets.key` companion together. Copying a live SQLite file is not an accepted backup. The source must be quiesced or exported safely, restarted, health checked, and tested in an isolated no-network restore environment before BoxPilot reports protection.
+The shipped adapter keeps immutable release bytes separate from the writable recovery unit. Its coordinated export preserves the database, uploads, environment, and `.keel-server-secrets.key` companion when present. It does not accept a copy of the live SQLite main file as a backup. The source is stopped, exported as the service identity, restarted, health checked, and tested through an isolated no-network SQLite-open drill before BoxPilot records local verification.
 
-The next adapter milestone needs claim-state guidance, registration verification, application-aware backup, isolated restore, update rollback, removal that preserves data by default, and negative tests for interrupted recovery. A future private Tailscale handoff must use a route that does not replace BoxPilot's existing Serve root and must not happen before claim and registration verification.
+The next adapter milestone needs explicit production restore and import planning, claim-state and registration verification, update rollback, removal that preserves data by default, and an operator-confirmed recovery rehearsal. A future private Tailscale handoff must use a route that does not replace BoxPilot's existing Serve root and must not happen before claim and registration verification.
 
 The published source uses BUSL-1.1. Personal self-hosting and internal organizational use are within the repository's stated grant. Third-party managed hosting requires separate license review.

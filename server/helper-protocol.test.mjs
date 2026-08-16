@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.47.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.48.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -155,6 +155,15 @@ describe("restricted helper protocol", () => {
     };
     const result = await executeHelperOperation(request({ operation: "application.pi-hole.deploy", parameters: { lanAddress: "192.168.8.10", webPort: 8080 } }), { applications });
     expect(result).toMatchObject({ ok: true, result: { lanAddress: "192.168.8.10", webPort: 8080, routerMutationPerformed: false, dnsCutoverPerformed: false, dhcpEnabled: false } });
+  });
+
+  it("accepts and delegates only one server-generated Keel backup UUID", async () => {
+    const backupId = randomUUID();
+    expect(validateHelperRequest(request({ operation: "application.keel.backup", parameters: { backupId } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.keel.backup", parameters: { backupId: "../../etc" } }))).toContain("only one backupId UUID");
+    expect(validateHelperRequest(request({ operation: "application.keel.backup", parameters: { backupId, path: "/tmp/copy" } }))).toContain("only one backupId UUID");
+    const keelBackups = { backup: async (parameters) => ({ ...parameters, applicationId: "keel", sourceRestartVerified: true, restoreDrill: { passed: true, mode: "isolated-keel-export-open" } }) };
+    await expect(executeHelperOperation(request({ operation: "application.keel.backup", parameters: { backupId } }), { keelBackups })).resolves.toMatchObject({ ok: true, result: { backupId, applicationId: "keel", sourceRestartVerified: true } });
   });
 
   it("delegates only a typed Pi-hole backup id to the curated helper", async () => {

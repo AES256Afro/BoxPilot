@@ -52,7 +52,7 @@ describe("native systemd network boundaries", () => {
     expect(dockerfile).toContain("BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot");
     expect(dockerfile).toContain("BOXPILOT_COOKIE_SECURE=false");
     expect(dockerfile).toContain("USER node");
-    expect(compose).toContain("image: boxpilot:0.47.0");
+    expect(compose).toContain("image: boxpilot:0.48.0");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("/tmp:size=16m,mode=1777");
   });
@@ -244,6 +244,30 @@ describe("native systemd network boundaries", () => {
     expect(claim).toContain("setUid(account.uid)");
     expect(claim).toContain('authorize: async () => "boxpilot-terminal-sudo"');
     expect(claim).not.toContain("application.keel.claim");
+  });
+
+  it("ships a static Keel backup unit with guaranteed source restart and loopback-only network access", async () => {
+    const service = await readFile("deploy/boxpilot-keel-backup.service", "utf8");
+    const backup = await readFile("scripts/boxpilot-keel-backup.mjs", "utf8");
+    const protocol = await readFile("server/helper-protocol.mjs", "utf8");
+    const metadata = await stat("scripts/boxpilot-keel-backup.mjs");
+    expect(metadata.mode & 0o111).not.toBe(0);
+    expect(service).toContain("Type=oneshot");
+    expect(service).toContain("ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-backup.mjs");
+    expect(service).toContain("ExecStopPost=/usr/bin/systemctl --no-block start keel.service");
+    expect(service).toContain("ConditionPathExists=/run/boxpilot/keel-backup-approval.json");
+    expect(service).toContain("ReadWritePaths=/var/lib/boxpilot-managed");
+    expect(service).toContain("ReadWritePaths=/var/lib/keel");
+    expect(service).toContain("IPAddressDeny=any");
+    expect(service).toContain("IPAddressAllow=localhost");
+    expect(service).not.toContain("%i");
+    expect(service).not.toContain("[Install]");
+    expect(backup).toContain("process.argv.length !== 2");
+    expect(backup).not.toContain("process.argv[2]");
+    expect(backup).toContain("source restart health verification failed");
+    expect(backup).toContain("networkAccessRequiredForDrill: false");
+    expect(protocol).toContain("application.keel.backup");
+    expect(protocol).not.toContain("application.keel.restore");
   });
 
   it("ships a terminal-only migration packer without a browser-selectable inbox", async () => {
