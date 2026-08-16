@@ -107,7 +107,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.26.0",
+    version: "0.27.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -191,7 +191,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     vmRecovery: { create: "protected-snapshot-to-new-stopped-persistent-domain", network: "none", autostart: false, inPlaceRestore: false, sourceDeletion: false },
     vmConsole: { nativeProxy: false, cockpitHandoff: "detect-existing-only" },
     fleet: { enrollment: "one-time-digest-stored-token", identity: "ed25519-signed-replay-protected", execution: "node-local-allowlisted-dns-probe-only", controllerShellAccess: false },
-    routers: { checkpoints: "browser-local-sha256-metadata-only", configurationUpload: false, credentials: false, discovery: false, mutations: false },
+    routers: { checkpoints: "browser-local-sha256-metadata-only", guidance: "fixed-model-operator-checklists-with-live-gateway-address-correlation", gatewayIdentityVerified: false, configurationUpload: false, credentials: false, discovery: false, mutations: false },
     github: { repositories: "fixed-public-read-only-allowlist", authentication: false, writes: false, cloneOrDownload: false, localDigestVerification: false },
     recoveryKit: { generation: "authenticated-read-only", formats: ["json", "markdown"], mutations: false, secretsIncluded: false, backupPayloadIncluded: false },
   });
@@ -252,6 +252,10 @@ app.get("/api/v1/network/topology", async (_request, response) => {
 
 app.get("/api/v1/network/router-checkpoints", (_request, response) => {
   response.json(routerCheckpoints.inspect());
+});
+
+app.get("/api/v1/network/router-readiness", async (_request, response) => {
+  response.json(await network.routerReadiness(routerCheckpoints.inspect()));
 });
 
 app.post("/api/v1/network/router-checkpoints", (request, response) => {
@@ -686,7 +690,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.26.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.27.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

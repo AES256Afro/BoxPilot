@@ -27,13 +27,139 @@ const routerCatalog = [
   },
   {
     id: "tp-link-archer-be400",
-    name: "TP-Link Archer BE400",
+    name: "TP-Link Archer BE400 (BE6500 class)",
     roles: ["wireless-router", "wireless-access-point"],
     integration: "read-only-declaration",
     note: "BoxPilot records the intended router or access-point role but does not log in to or configure the device.",
     officialSource: "https://www.tp-link.com/us/home-networking/wifi-router/archer-be400/",
   },
 ];
+
+const routerGuides = [
+  {
+    modelId: "glinet-flint-2",
+    intendedRole: "Only edge router, NAT authority, DHCP authority, and optional AdGuard Home host",
+    mode: "Router mode",
+    officialSources: [
+      { label: "Flint 2 user guide", url: "https://docs.gl-inet.com/router/en/4/user_guide/gl-mt6000/" },
+      { label: "GL.iNet network modes", url: "https://docs.gl-inet.com/router/en/4/interface_guide/network_mode/" },
+      { label: "GL.iNet AdGuard Home", url: "https://docs.gl-inet.com/router/en/4/interface_guide/adguardhome/" },
+    ],
+    steps: [
+      "Export the current Flint 2 configuration, retain it away from Bigbox, and record its checksum in BoxPilot before changing the forwarding path.",
+      "Use Router mode only if Flint 2 is the selected edge. Connect its WAN to the modem or upstream handoff and its LAN to the home switch or access points.",
+      "Confirm Flint 2 is the only device providing NAT and DHCP before connecting downstream wireless equipment.",
+      "For the later AdGuard Home change window, open APPLICATIONS > AdGuard Home. Review the vendor warning about Handle Client Requests before enabling anything.",
+    ],
+    verify: [
+      "From the router interface, confirm its LAN address equals the gateway Bigbox observes.",
+      "From two LAN clients, confirm the same default gateway and only one DHCP authority.",
+      "Confirm ordinary internet access and the existing Bigbox Tailscale path before any DNS work.",
+      "Keep the current independent DNS resolvers active until separate Bigbox and second-device DNS acceptance passes.",
+    ],
+    rollback: "Disconnect Flint 2 from the forwarding path or restore its retained configuration using the vendor interface. Restore the previously working edge router and independent resolver before troubleshooting AdGuard Home.",
+  },
+  {
+    modelId: "tp-link-archer-be400",
+    intendedRole: "Wireless access point only",
+    mode: "Access Point mode",
+    officialSources: [
+      { label: "Archer BE400 user guide", url: "https://static.tp-link.com/upload/manual/2025/202505/20250514/1910013703_Archer%20BE400_UG_REV1.0.0.pdf" },
+      { label: "TP-Link access-point mode guide", url: "https://www.tp-link.com/us/support/faq/3774/" },
+    ],
+    steps: [
+      "Export the current TP-Link configuration, retain it away from Bigbox, and record its checksum in BoxPilot.",
+      "While connected locally, open tplinkwifi.net and choose Advanced > System > Operation Mode > Access Point, then save. The router reboots.",
+      "After reboot, connect it by Ethernet to the Flint 2 LAN or the downstream switch, then reopen its management page and complete Advanced > Quick Setup for Wi-Fi.",
+      "Do not configure a second WAN, NAT, DHCP server, DNS advertisement, or port-forwarding boundary on this access point.",
+    ],
+    verify: [
+      "Confirm the TP-Link interface reports Access Point mode.",
+      "Confirm a connected client receives its gateway and DHCP lease from the selected edge router, not the TP-Link.",
+      "Record the TP-Link management address assigned by the edge router so it can be reached after the mode change.",
+      "Confirm Wi-Fi, ordinary DNS, and Bigbox access before removing the prior wireless path.",
+    ],
+    rollback: "Use a wired local connection and the retained vendor instructions or configuration to restore the prior mode. Reconnect the old wireless path before diagnosing coverage or roaming.",
+  },
+  {
+    modelId: "omada-er707-m2",
+    intendedRole: "Disconnected standby or isolated lab gateway",
+    mode: "Outside the production forwarding path",
+    officialSources: [
+      { label: "ER707-M2 support", url: "https://support.omadanetworks.com/en/product/er707-m2/v1/" },
+      { label: "ER707-M2 installation guide", url: "https://static.tp-link.com/upload/manual/2025/202509/20250905/7100001295_ER707-M2_IG_REV1.30.0.pdf" },
+    ],
+    steps: [
+      "Keep the ER707-M2 disconnected from the production WAN and LAN while Flint 2 is the selected edge router.",
+      "If testing it in a lab, use an isolated client and choose either Standalone mode at omadaer.net or Controller mode. Do not mix ownership models.",
+      "Remember that adopting the gateway into an Omada Controller can override its standalone configuration.",
+      "Export and retain a configuration checkpoint before promoting it to the edge in a separate reviewed change window.",
+    ],
+    verify: [
+      "Confirm no production client uses the ER707-M2 as its default gateway or DHCP server.",
+      "Confirm no cable creates a second path between production LAN and WAN.",
+      "If it is later promoted, first replace the topology plan so it is the only edge router and both Wi-Fi routers are access points.",
+    ],
+    rollback: "Disconnect the ER707-M2 from production and restore the previously working single edge router. Do not leave two DHCP or NAT authorities connected.",
+  },
+];
+
+function readinessCheck(id, state, title, evidence, action) {
+  return { id, state, title, evidence, action };
+}
+
+function buildRouterReadiness(topology, checkpointStatus) {
+  const routeCollector = topology.collectors.routes === true;
+  const route = topology.defaultRoutes.length === 1 ? topology.defaultRoutes[0] : null;
+  const flintCheckpoint = checkpointStatus.latestByModel?.["glinet-flint-2"] ?? null;
+  const checks = [
+    routeCollector && route
+      ? readinessCheck("gateway.observed", "verified", "One live default gateway", `${route.gateway} is observed on ${route.interface}. This confirms the address and path only, not the router model.`, "Confirm in the Flint 2 interface that its LAN address is the observed gateway." )
+      : routeCollector
+        ? readinessCheck("gateway.observed", "action-required", "One live default gateway", `${topology.defaultRoutes.length} live default routes were observed.`, "Restore one unambiguous default route before changing router roles.")
+        : readinessCheck("gateway.observed", "unavailable", "One live default gateway", "The fixed default-route collector is unavailable.", "Repair the host route collector and refresh this page."),
+    readinessCheck("gateway.identity", "operator-check", "Gateway model identity", route ? `${route.gateway} is observed, but BoxPilot does not inspect neighbor tables, MAC addresses, router pages, or credentials.` : "No gateway identity can be correlated without a live route.", "Compare the observed address with the LAN address shown in the Flint 2 interface."),
+    flintCheckpoint
+      ? readinessCheck("flint.checkpoint", "verified", "Flint 2 recovery checkpoint", `Checkpoint ${flintCheckpoint.id} records firmware ${flintCheckpoint.firmwareVersion}, ${flintCheckpoint.sizeBytes} bytes, and a browser-reported SHA-256 digest.`, "Keep the original configuration file available away from Bigbox.")
+      : readinessCheck("flint.checkpoint", "action-required", "Flint 2 recovery checkpoint", "No Flint 2 configuration checksum is recorded.", "Export the configuration, retain it externally, then hash and record it below."),
+    readinessCheck("routing.single-authority", "operator-check", "One NAT and DHCP authority", "Host routes cannot prove which downstream devices are running DHCP or NAT.", "Confirm Flint 2 is the only production router and DHCP server."),
+    readinessCheck("tplink.ap-mode", "operator-check", "TP-Link access-point mode", "BoxPilot does not log in to the TP-Link or claim its operating mode.", "Confirm Advanced > System > Operation Mode reports Access Point."),
+    readinessCheck("omada.out-of-path", "operator-check", "ER707-M2 outside production", "BoxPilot performs no discovery or network probe against the Omada gateway.", "Confirm the ER707-M2 is disconnected from the production forwarding path."),
+    topology.tailscale.connected
+      ? readinessCheck("recovery.tailscale", "verified", "Private recovery access", `${topology.tailscale.dnsName ?? "Bigbox"} reports a connected Tailscale state.`, "Keep console access available during physical router changes.")
+      : readinessCheck("recovery.tailscale", "action-required", "Private recovery access", "Bigbox does not report connected Tailscale state.", "Restore Tailscale and confirm console access before changing the edge router."),
+  ];
+  const counts = Object.fromEntries(["verified", "action-required", "operator-check", "unavailable"].map((state) => [state, checks.filter((item) => item.state === state).length]));
+  return {
+    generatedAt: topology.generatedAt,
+    recommendedTopology: {
+      id: "flint2-edge-tplink-ap",
+      summary: topologyGuidance("flint2-edge-tplink-ap").summary,
+      rationale: "This gives AdGuard Home a supported router host while keeping one NAT and DHCP boundary. The ER707-M2 remains useful as a cold spare or isolated lab gateway.",
+    },
+    alternateTopology: {
+      id: "omada-edge-access-points",
+      summary: topologyGuidance("omada-edge-access-points").summary,
+      gate: "Choose this only in a separate migration plan. Flint 2 AdGuard Home is unavailable when Flint 2 runs as an access point, so DNS needs a different reviewed host.",
+    },
+    observedGateway: route ? { address: route.gateway, interface: route.interface, protocol: route.protocol, modelVerified: false, identityClaim: "address-observed-model-unverified" } : null,
+    checks,
+    counts,
+    guides: routerGuides.map((guide) => ({ ...guide, checkpoint: checkpointStatus.latestByModel?.[guide.modelId] ?? null })),
+    sourceReviewedAt: "2026-08-15",
+    boundary: {
+      credentialsAccepted: false,
+      routerSessionsOpened: false,
+      neighborDiscoveryPerformed: false,
+      arbitraryTargetsProbed: false,
+      configurationUploaded: false,
+      routerMutationSupported: false,
+      dhcpMutationSupported: false,
+      dnsCutoverSupported: false,
+      tailscaleMutationSupported: false,
+    },
+  };
+}
 
 async function fixedCommand(command, args, { timeout = 5000 } = {}) {
   try {
@@ -307,6 +433,10 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
     return output;
   }
 
+  async function routerReadiness(checkpointStatus) {
+    return buildRouterReadiness(await inspect(), checkpointStatus);
+  }
+
   async function plan(input, ownerId) {
     const output = await buildAssessment(input);
     return store.createPlan({ type: "network.dns.assessment", subjectId: input.topology, input, output, createdBy: ownerId });
@@ -353,7 +483,7 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
     };
   }
 
-  return { inspect, plan, validateAssessment, validateAcceptanceBaseline };
+  return { inspect, plan, routerReadiness, validateAssessment, validateAcceptanceBaseline };
 }
 
-export const networkInternals = { eligibleLanAddresses, hostAddresses, ipv4Number, parseDefaultRoutes, parseDnsListeners, parseIpAddresses, parseResolverStatus, routerCatalog, sameIpv4Subnet, topologyGuidance };
+export const networkInternals = { buildRouterReadiness, eligibleLanAddresses, hostAddresses, ipv4Number, parseDefaultRoutes, parseDnsListeners, parseIpAddresses, parseResolverStatus, routerCatalog, routerGuides, sameIpv4Subnet, topologyGuidance };

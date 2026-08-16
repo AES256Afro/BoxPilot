@@ -2858,6 +2858,24 @@ textarea {
 .router-center { display: grid; gap: 18px; }
 .router-boundary, .router-checkpoint-form { display: grid; gap: 16px; }
 .router-boundary p { margin: 0; color: var(--muted); line-height: 1.55; }
+.router-topology, .router-readiness-panel { display: grid; gap: 16px; }
+.router-topology-summary { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(230px, .8fr); gap: 14px; }
+.router-topology-summary > div { border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: grid; gap: 8px; }
+.router-topology-summary p, .router-topology details p { margin: 0; line-height: 1.55; }
+.router-topology-summary small, .router-topology details small { color: var(--muted); line-height: 1.5; }
+.router-observed-gateway { background: rgba(77, 225, 176, .05); align-content: center; }
+.router-observed-gateway > span { color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; }
+.router-observed-gateway > strong { font: 1rem ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--mint); }
+.router-topology details { border-top: 1px solid var(--line); padding-top: 13px; }
+.router-topology summary { cursor: pointer; color: var(--text); font-weight: 650; }
+.router-topology details p { margin-top: 10px; }
+.router-readiness-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.router-readiness-check { border: 1px solid var(--line); border-left: 3px solid var(--amber); border-radius: 10px; padding: 13px; display: grid; gap: 7px; }
+.router-readiness-check.router-check-verified { border-left-color: var(--mint); }
+.router-readiness-check.router-check-action-required { border-left-color: var(--danger); }
+.router-readiness-check > div { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.router-readiness-check p { margin: 0; color: var(--muted); font-size: .8rem; line-height: 1.45; }
+.router-readiness-check small { color: var(--text); line-height: 1.4; }
 .router-model-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .router-model { display: grid; gap: 8px; min-width: 0; }
 .router-model > strong { font-size: 1rem; }
@@ -2869,6 +2887,22 @@ textarea {
 .router-retention { display: flex; gap: 9px; align-items: flex-start; color: var(--text); font-size: 0.84rem; }
 .router-retention input { margin-top: 2px; accent-color: var(--mint); }
 .router-center table code { color: #aee7d6; font: 0.78rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.router-guide-list { display: grid; gap: 12px; }
+.router-guide { padding: 0; overflow: hidden; }
+.router-guide > summary { cursor: pointer; list-style: none; padding: 17px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.router-guide > summary::-webkit-details-marker { display: none; }
+.router-guide > summary > span:first-child { display: grid; gap: 4px; }
+.router-guide > summary small { color: var(--muted); }
+.router-guide[open] > summary { border-bottom: 1px solid var(--line); }
+.router-guide-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; padding: 17px; }
+.router-guide-columns > div { display: grid; gap: 8px; align-content: start; }
+.router-guide-columns ol { margin: 0; padding-left: 20px; color: var(--muted); font-size: .82rem; line-height: 1.55; }
+.router-guide-columns li + li { margin-top: 6px; }
+.router-rollback { margin: 0 17px 14px; padding: 12px; border-radius: 9px; background: rgba(255, 190, 92, .07); display: grid; gap: 4px; }
+.router-rollback span { color: var(--muted); font-size: .8rem; line-height: 1.45; }
+.router-sources { border-top: 1px solid var(--line); padding: 12px 17px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; font-size: .75rem; }
+.router-sources span { color: var(--muted); margin-right: auto; }
+.router-sources a { color: var(--mint); }
 .github-center { display: grid; gap: 18px; }
 .github-boundary { display: grid; gap: 14px; }
 .github-boundary p { margin: 0; color: var(--muted); line-height: 1.55; }
@@ -2893,7 +2927,7 @@ textarea {
 @media (max-width: 900px) {
   .fleet-revoke { align-items: stretch; flex-direction: column; }
   .fleet-revoke label { min-width: 0; }
-  .router-model-grid { grid-template-columns: 1fr; }
+  .router-model-grid, .router-readiness-grid, .router-guide-columns, .router-topology-summary { grid-template-columns: 1fr; }
   .github-commit { align-items: flex-start; flex-direction: column; }
 }
 .router-entry { display: flex; justify-content: space-between; gap: 18px; padding: 14px 0; border-bottom: 1px solid var(--line); }
