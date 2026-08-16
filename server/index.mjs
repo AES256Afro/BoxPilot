@@ -132,7 +132,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.42.0",
+    version: "0.43.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -198,12 +198,12 @@ app.get("/api/v1/capabilities", (_request, response) => {
   response.json({
     inventory: "sanitized-host-maintenance-storage-ext4-error-counters-filesystem-smart-local-ups-docker-services-network-and-dns-topology",
     composeInspection: "browser-only",
-    applications: "curated-uptime-kuma-no-cutover-pi-hole-and-fixed-inert-keel-artifact-acquisition",
+    applications: "curated-uptime-kuma-no-cutover-pi-hole-and-fixed-inert-keel-artifact-acquisition-plus-runtime-archive-gate",
     supportBundle: "authenticated-server-generated-fixed-source-configurably-redacted",
     backups: "wal-aware-controller-local-restore-plus-encrypted-independent-restic-copy-and-exact-database-restore-proof-application-local-restore-drills-and-vm-protection",
     migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
     network: "read-only-topology-approved-fixed-pi-hole-and-observed-gateway-direct-dns-acceptance-plus-signed-second-device-evidence",
-    privilegedHelper: "typed-canary-exact-smartmontools-repair-fixed-apt-metadata-refresh-controller-local-backup-independent-restic-protection-curated-applications-fixed-keel-artifact-migration-inventory-logs-and-vm-workflows",
+    privilegedHelper: "typed-canary-exact-smartmontools-repair-fixed-apt-metadata-refresh-controller-local-backup-independent-restic-protection-curated-applications-fixed-keel-artifact-and-read-only-archive-inspection-migration-inventory-logs-and-vm-workflows",
     identity: "owner-password-foundation",
     durableJobs: "sqlite-approved-prerequisite-controller-local-backup-controller-independent-protection-application-backup-keel-artifact-dns-migration-and-vm-workflows",
     virtualization: "live-libvirt-via-restricted-helper",
@@ -218,7 +218,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     controllerBackup: { source: "fixed-live-sqlite", snapshot: "vacuum-into-wal-aware", localDestination: "root-only-local-managed", independentDestination: "fixed-mounted-restic-controller", repositoryReadVerified: true, restoreDrill: "exact-snapshot-isolated-copy-open-integrity-foreign-key-schema", downtime: false, encrypted: true, independent: "after-passing-restic-restore-drill", retention: "exact-protected-old-snapshot-forget-without-prune", prune: false, browserPath: false, browserPassword: false },
     fleet: { enrollment: "one-time-digest-stored-token", identity: "ed25519-signed-replay-protected", execution: "node-local-allowlisted-pi-hole-or-default-gateway-dns-probe-only", scheduling: "password-approved-one-shot-fixed-delay-only", recurrence: false, controllerShellAccess: false, arbitraryTarget: false },
     routers: { checkpoints: "browser-local-sha256-metadata-only", guidance: "fixed-model-operator-checklists-with-live-gateway-address-correlation", directGatewayDnsAcceptance: "durable-approved-four-fixed-queries", signedSecondDeviceDnsAcceptance: "owner-approved-one-shot-agent-with-local-default-gateway-match", gatewayIdentityVerified: false, adguardConfigurationVerified: false, dhcpAdvertisementVerified: false, configurationUpload: false, credentials: false, discovery: false, mutations: false },
-    github: { repositories: "fixed-public-read-only-allowlist", authentication: false, writes: false, clone: false, arbitraryDownload: false, keelFixedReleaseAcquisition: "approved-root-only-locally-verified-inert-archive", browserDownload: false, extraction: false, installation: false },
+    github: { repositories: "fixed-public-read-only-allowlist", authentication: false, writes: false, clone: false, arbitraryDownload: false, keelFixedReleaseAcquisition: "approved-root-only-locally-verified-inert-archive", keelArchiveGate: "read-only-blocked-unsafe-link", browserDownload: false, extraction: false, installation: false },
     recoveryKit: { generation: "authenticated-read-only", formats: ["json", "markdown"], mutations: false, secretsIncluded: false, backupPayloadIncluded: false },
     actionCenter: { generation: "authenticated-read-only", guidance: "fixed-local-destinations", automaticRepair: false, persistence: false, externalDelivery: false },
     filesystemErrors: { ext4: "mounted-kernel-errors-count-read-only", unsupportedFilesystems: "explicit", filesystemCheck: false, repair: false },
@@ -476,6 +476,14 @@ app.get("/api/v1/applications/keel/artifact", async (_request, response) => {
     response.json({ artifact: await keelArtifacts.inspect() });
   } catch (error) {
     response.status(503).json({ error: error.message, code: "keel_artifact_inspection_failed" });
+  }
+});
+
+app.get("/api/v1/applications/keel/archive", async (_request, response) => {
+  try {
+    response.json({ archive: await helper.request("application.keel.archive.inspect", {}) });
+  } catch (error) {
+    response.status(503).json({ error: error.message, code: "keel_archive_inspection_failed" });
   }
 });
 
@@ -860,7 +868,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.42.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.43.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

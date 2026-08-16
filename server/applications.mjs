@@ -58,11 +58,11 @@ const manifests = [
   },
   {
     schemaVersion: 1,
-    adapterVersion: "0.1.0-plan",
+    adapterVersion: "0.2.0-plan",
     id: "keel",
     name: "Keel Notes",
     category: "Knowledge",
-    description: "Stateful self-hosted notebook planning with exact release, managed-secret, backup, claim, and loopback-access gates.",
+    description: "Stateful self-hosted notebook planning with exact release, runtime archive, managed-secret, backup, claim, and loopback-access gates. The pinned 1.2.5 archive is blocked.",
     execution: "planning-only",
     risk: "stateful",
     targets: ["native-service"],
@@ -122,6 +122,7 @@ export function createApplicationService({ store, prerequisites, helper, network
       if (manifest.id === "keel") {
         let discovery;
         let artifact;
+        let archive;
         try {
           discovery = await helper.request("application.keel.inspect", {});
         } catch {
@@ -133,6 +134,11 @@ export function createApplicationService({ store, prerequisites, helper, network
           artifact = { state: "unavailable", readyToAcquire: false, artifactPresent: false, locallyVerified: false, partialPresent: false, detail: "Keel artifact evidence is unavailable" };
         }
         try {
+          archive = await helper.request("application.keel.archive.inspect", {});
+        } catch {
+          archive = { state: "blocked", safeToExtract: false, artifactLocallyVerified: false, memberCount: 0, risks: ["helper-unavailable"], detail: "Keel archive membership inspection is unavailable" };
+        }
+        try {
           const provenance = await githubProvenance?.inspect();
           const repository = provenance?.repositories?.find((item) => item.id === "keel");
           const release = repository?.latestRelease;
@@ -141,11 +147,12 @@ export function createApplicationService({ store, prerequisites, helper, network
           live = {
             ...discovery,
             artifact,
+            archive,
             provenance: { status: matches ? "matched" : "changed", checkedAt: provenance?.fetchedAt ?? null },
             detail: matches ? `${discovery.detail}; exact public v1.2.5 release metadata matched` : `${discovery.detail}; pinned Keel release provenance is unavailable or changed`,
           };
         } catch {
-          live = { ...discovery, artifact, provenance: { status: "unavailable", checkedAt: null }, detail: `${discovery.detail}; GitHub release provenance is unavailable` };
+          live = { ...discovery, artifact, archive, provenance: { status: "unavailable", checkedAt: null }, detail: `${discovery.detail}; GitHub release provenance is unavailable` };
         }
       }
       return { ...publicManifest(manifest), live };
@@ -207,12 +214,31 @@ export function createApplicationService({ store, prerequisites, helper, network
     }
 
     let artifact = manifest.artifact ? { ...manifest.artifact } : null;
+    let keelArchive = null;
     if (manifest.id === "keel") {
       try {
         const localArtifact = await helper.request("application.keel.artifact.inspect", {});
         artifact = { ...artifact, locallyVerifiedByBoxPilot: localArtifact.locallyVerified === true, localState: localArtifact.state, acquiredAt: localArtifact.acquiredAt ?? null };
       } catch {
         artifact = { ...artifact, locallyVerifiedByBoxPilot: false, localState: "unavailable", acquiredAt: null };
+      }
+      try {
+        keelArchive = await helper.request("application.keel.archive.inspect", {});
+        if (keelArchive.safeToExtract !== true) {
+          const artifactRequired = keelArchive.state === "artifact-required";
+          blockers.push({
+            id: "keel.archive",
+            summary: artifactRequired
+              ? "The fixed archive must be locally acquired and verified before runtime membership inspection"
+              : `Keel archive membership is blocked: ${(keelArchive.risks ?? ["unknown-risk"]).join(", ")}`,
+            repair: artifactRequired
+              ? { kind: "guided", description: "Use the separate fixed artifact acquisition workflow, then generate a new deployment plan" }
+              : { kind: "upstream-release", description: "Do not extract this release. Use a newly built release with no links, devices, traversal, extensions, duplicate paths, or changed membership" },
+          });
+        }
+      } catch {
+        keelArchive = { state: "blocked", safeToExtract: false, risks: ["helper-unavailable"], detail: "Keel archive membership inspection is unavailable" };
+        blockers.push({ id: "keel.archive", summary: "The restricted helper could not inspect the fixed Keel archive membership", repair: { kind: "manual", description: "Restore the helper and regenerate the plan" } });
       }
       if (hostPlatform !== keelArtifact.platform || hostArchitecture !== keelArtifact.architecture) {
         blockers.push({ id: "keel.platform", summary: `Pinned Keel artifact requires ${keelArtifact.platform}-${keelArtifact.architecture}; this host reports ${hostPlatform}-${hostArchitecture}`, repair: { kind: "manual", description: "Use a separately reviewed artifact for this host architecture" } });
@@ -228,7 +254,7 @@ export function createApplicationService({ store, prerequisites, helper, network
       } catch (error) {
         blockers.push({ id: "github.provenance", summary: error instanceof Error ? error.message : "Keel GitHub provenance is unavailable", repair: { kind: "guided", description: "Open GitHub provenance, verify the fixed Keel release, and regenerate this plan" } });
       }
-      blockers.push({ id: "keel.execution", summary: "Keel extraction, service installation, ownership claim, backup, restore, import, and exposure remain disabled; artifact acquisition is a separate inert approval workflow", repair: { kind: "future-adapter", description: "Acquire and locally verify the fixed artifact separately, then complete the confined extraction and service helper before installation" } });
+      blockers.push({ id: "keel.execution", summary: "Keel extraction, service installation, ownership claim, backup, restore, import, and exposure remain disabled; the fixed 1.2.5 archive is known to contain an unsafe absolute build-workspace link", repair: { kind: "future-adapter", description: "Publish and pin a corrected upstream release, then pass the runtime archive gate before implementing installation" } });
     }
 
     const warnings = [];
@@ -278,6 +304,7 @@ export function createApplicationService({ store, prerequisites, helper, network
       networkAssessmentId: networkAssessment?.id ?? input?.networkAssessmentId ?? null,
       image: manifest.image,
       artifact,
+      archiveInspection: manifest.id === "keel" ? keelArchive : undefined,
       discovery: manifest.id === "keel" ? keelDiscovery : undefined,
       changes,
       blockers,

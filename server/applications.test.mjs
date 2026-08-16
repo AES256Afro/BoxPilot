@@ -7,7 +7,7 @@ import { createStateStore } from "./state.mjs";
 
 const directories = [];
 
-async function setup({ statuses = {}, portInUse = false, assessmentError = null, keelProvenanceMatches = true, keelDiscovery = null, keelDiscoveryError = null, hostPlatform = "linux", hostArchitecture = "x64" } = {}) {
+async function setup({ statuses = {}, portInUse = false, assessmentError = null, keelProvenanceMatches = true, keelDiscovery = null, keelDiscoveryError = null, keelArchive = null, hostPlatform = "linux", hostArchitecture = "x64" } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-apps-"));
   directories.push(directory);
   const store = createStateStore({ stateDirectory: directory });
@@ -48,6 +48,7 @@ async function setup({ statuses = {}, portInUse = false, assessmentError = null,
       return defaultKeelDiscovery;
     }
     if (operation === "application.keel.artifact.inspect") return { state: "absent", readyToAcquire: true, artifactPresent: false, locallyVerified: false, partialPresent: false, acquiredAt: null, detail: "The fixed Keel release archive is not present", boundary: { mutationPerformed: false, extractionPerformed: false, applicationInstalled: false } };
+    if (operation === "application.keel.archive.inspect") return keelArchive ?? { state: "artifact-required", safeToExtract: false, artifactLocallyVerified: false, memberCount: 0, risks: ["artifact-required"], detail: "Acquire the fixed archive first", boundary: { mutationPerformed: false, extractionPerformed: false } };
     return { installed: false, state: "not-installed", detail: "Ready to plan" };
   });
   const service = createApplicationService({
@@ -73,7 +74,7 @@ describe("application manifests and plans", () => {
     expect(catalog.map((item) => item.id)).toEqual(["uptime-kuma", "pi-hole", "keel"]);
     expect(catalog[0]).toMatchObject({ image: { version: "2.5.0", digestPinned: true }, integrity: expect.stringMatching(/^sha256:[a-f0-9]{64}$/) });
     expect(catalog[1]).toMatchObject({ execution: "enabled", risk: "network-critical", adapterVersion: "0.2.0", image: { version: "2026.07.2", digestPinned: true, reference: expect.stringMatching(/^pihole\/pihole@sha256:/) } });
-    expect(catalog[2]).toMatchObject({ execution: "planning-only", risk: "stateful", targets: ["native-service"], artifact: { releaseTag: "v1.2.5", releaseCommitSha: "bcf872e2cee5820bdeb74685f5573cc6beb0a28f", name: "keel-1.2.5-linux-x64.tar.gz", digest: "sha256:4b24067aa219bc00bf4f7c1846f78945e8abda3f5b68353e4967570d5b57e6ee", locallyVerifiedByBoxPilot: false } });
+    expect(catalog[2]).toMatchObject({ adapterVersion: "0.2.0-plan", execution: "planning-only", risk: "stateful", targets: ["native-service"], artifact: { releaseTag: "v1.2.5", releaseCommitSha: "bcf872e2cee5820bdeb74685f5573cc6beb0a28f", name: "keel-1.2.5-linux-x64.tar.gz", digest: "sha256:4b24067aa219bc00bf4f7c1846f78945e8abda3f5b68353e4967570d5b57e6ee", locallyVerifiedByBoxPilot: false } });
   });
 
   it("reports fixed read-only Keel host discovery together with release provenance", async () => {
@@ -85,11 +86,13 @@ describe("application manifests and plans", () => {
       listener: "none",
       provenance: { status: "matched", checkedAt: "2026-08-16T03:00:00.000Z" },
       artifact: { state: "absent", readyToAcquire: true, locallyVerified: false },
+      archive: { state: "artifact-required", safeToExtract: false, risks: ["artifact-required"] },
       boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false },
     });
     expect(catalog.applications.find((item) => item.id === "keel")?.live.detail).toContain("No supported Keel");
     expect(helperRequest).toHaveBeenCalledWith("application.keel.inspect", {});
     expect(helperRequest).toHaveBeenCalledWith("application.keel.artifact.inspect", {});
+    expect(helperRequest).toHaveBeenCalledWith("application.keel.archive.inspect", {});
     expect(githubProvenance.inspect).toHaveBeenCalled();
     store.close();
   });
@@ -142,13 +145,34 @@ describe("application manifests and plans", () => {
         digest: "sha256:4b24067aa219bc00bf4f7c1846f78945e8abda3f5b68353e4967570d5b57e6ee",
         githubReportedDigestMatched: true, locallyVerifiedByBoxPilot: false,
       },
-      blockers: [expect.objectContaining({ id: "keel.execution" })],
+      archiveInspection: { state: "artifact-required", safeToExtract: false },
+      blockers: expect.arrayContaining([expect.objectContaining({ id: "keel.archive" }), expect.objectContaining({ id: "keel.execution" })]),
       discovery: { installed: false, state: "not-installed", listener: "none", risks: [] },
     });
     expect(plan.output.changes.join(" ")).toContain("five-minute one-use terminal claim");
     expect(plan.output.warnings.join(" ")).toContain(".keel-server-secrets.key");
     expect(githubProvenance.inspect).toHaveBeenCalled();
     await expect(service.stage(plan.id, plan.revision, owner.id)).rejects.toThrow("unresolved blockers");
+    store.close();
+  });
+
+  it("reports the exact blocked archive membership without exposing member names or allowing extraction", async () => {
+    const { store, owner, service } = await setup({
+      keelArchive: {
+        state: "blocked", safeToExtract: false, artifactLocallyVerified: true, memberCount: 2900,
+        counts: { regular: 2398, directory: 501, symbolicLink: 1, hardLink: 0, blockDevice: 0, characterDevice: 0, fifo: 0, contiguous: 0, extension: 0, unknown: 0 },
+        risks: ["absolute-link-target", "symbolic-link-member"],
+        detail: "The exact fixed archive contains blocked membership",
+        boundary: { mutationPerformed: false, extractionPerformed: false, archiveMemberNamesReturned: false, linkTargetsReturned: false },
+      },
+    });
+    const catalog = await service.list();
+    expect(catalog.applications.find((item) => item.id === "keel")?.live.archive).toMatchObject({ state: "blocked", safeToExtract: false, memberCount: 2900, risks: ["absolute-link-target", "symbolic-link-member"] });
+    const plan = await service.plan("keel", { target: "native-service", hostPort: 3000 }, owner.id);
+    expect(plan.output.archiveInspection).toMatchObject({ state: "blocked", safeToExtract: false, memberCount: 2900 });
+    expect(plan.output.blockers).toEqual(expect.arrayContaining([expect.objectContaining({ id: "keel.archive", summary: expect.stringContaining("absolute-link-target") })]));
+    expect(JSON.stringify(plan.output.archiveInspection)).not.toContain("runner/work");
+    expect(plan.output.executable).toBe(false);
     store.close();
   });
 

@@ -8,6 +8,7 @@ export const keelArtifactSpec = Object.freeze({
   sizeBytes: 47655144,
   digest: "sha256:4b24067aa219bc00bf4f7c1846f78945e8abda3f5b68353e4967570d5b57e6ee",
   sourceUrl: "https://github.com/AES256Afro/Keel/releases/download/v1.2.5/keel-1.2.5-linux-x64.tar.gz",
+  archiveRoot: "keel-1.2.5-linux-x64",
   archiveMembersObservedDuringAdapterReview: 2900,
 });
 

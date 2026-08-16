@@ -39,7 +39,7 @@ describe("BoxPilot console", () => {
     fireEvent.click(screen.getByRole("button", { name: /Applications/ }));
     expect(screen.getByRole("heading", { name: "Applications" })).toBeTruthy();
     expect(await screen.findByText("Uptime Kuma")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("fixed inert Keel artifact verification are live");
+    expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("runtime archive safety gate are live");
     fireEvent.click(screen.getByRole("button", { name: /Backups/ }));
     expect(screen.getByRole("heading", { name: "Backups" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("Controller and application backup engine");
