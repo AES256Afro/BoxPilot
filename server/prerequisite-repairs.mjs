@@ -1,3 +1,6 @@
+const virtualizationPackageNames = ["qemu-system-x86", "libvirt-daemon-system", "libvirt-clients", "virtinst", "ovmf"];
+const packageVersionPattern = /^[0-9A-Za-z.+:~_-]{1,64}$/;
+
 export function createPrerequisiteRepairService({ store, helper } = {}) {
   async function inspectSmartmontools() {
     return helper.request("prerequisite.smartmontools.inspect", {});
@@ -13,6 +16,10 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
 
   async function inspectDocker() {
     return helper.request("prerequisite.docker.inspect", {});
+  }
+
+  async function inspectVirtualization() {
+    return helper.request("prerequisite.virtualization.inspect", {});
   }
 
   function matchingSmartmontoolsState(plan, state) {
@@ -32,6 +39,15 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
 
   function matchingDockerState(plan, state) {
     return plan.input.expectedVersion === state.selectedVersion && plan.input.installedBefore === state.installed;
+  }
+
+  function matchingVirtualizationState(plan, state) {
+    const names = Object.keys(plan.input.expectedPackages ?? {}).sort();
+    return plan.input.installedBefore === state.installed
+      && plan.input.expectedKvmDevice === state.kvmDeviceAvailable
+      && names.length === virtualizationPackageNames.length
+      && names.every((name, index) => name === [...virtualizationPackageNames].sort()[index])
+      && names.every((name) => plan.input.expectedPackages[name] === state.candidatePackages?.[name]);
   }
 
   async function planSmartmontools(ownerId, input = {}) {
@@ -141,9 +157,41 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
     });
   }
 
+  async function planVirtualization(ownerId, input = {}) {
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== 0) throw new Error("Virtualization repair planning accepts only an empty object");
+    const state = await inspectVirtualization();
+    if (state.installed) throw new Error("The KVM, QEMU, and libvirt stack is already active; no installation plan is needed");
+    if (!state.kvmDeviceAvailable) throw new Error("Hardware virtualization is unavailable at /dev/kvm; enable virtualization in firmware or repair the host before planning installation");
+    if (!state.repairAvailable || !state.candidateSetAvailable || virtualizationPackageNames.some((name) => !packageVersionPattern.test(String(state.candidatePackages?.[name] ?? "")))) throw new Error("No clean fixed virtualization package set is available from configured Ubuntu metadata");
+    const expectedPackages = Object.fromEntries(virtualizationPackageNames.map((name) => [name, state.candidatePackages[name]]));
+    return store.createPlan({
+      type: "prerequisite.repair",
+      subjectId: "virtualization",
+      input: { expectedPackages, expectedKvmDevice: true, installedBefore: false },
+      output: {
+        executable: true,
+        packageSet: virtualizationPackageNames.map((name) => ({ name, version: expectedPackages[name] })),
+        currentState: "Hardware virtualization is available and no existing libvirt or QEMU provider was detected",
+        action: "Install the fixed Ubuntu QEMU, libvirt, virt-install, and OVMF package set; enable and start libvirtd.service; then verify /dev/kvm, QEMU, and qemu:///system",
+        networkAccess: true,
+        aptUpdatePerformed: false,
+        dependencyChangesPossible: true,
+        arbitraryPackageSelection: false,
+        arbitraryRepositorySelection: false,
+        operatorUserGroupChanged: false,
+        networkCreated: false,
+        storagePoolCreated: false,
+        virtualMachineCreated: false,
+        automaticRollback: false,
+        recovery: "If APT or libvirt startup fails, inspect boxpilot-virtualization-install.service, libvirtd.service, dpkg, APT, /dev/kvm, and firmware virtualization state. BoxPilot never removes the stack automatically, replaces a partial provider, creates a network or pool, changes an operator user, or creates a VM in this prerequisite job.",
+      },
+      createdBy: ownerId,
+    });
+  }
+
   async function stage(planId, revision, ownerId) {
     const plan = store.getPlan(planId);
-    if (!plan || plan.createdBy !== ownerId || plan.type !== "prerequisite.repair" || !["smartmontools", "restic", "docker", "apt-metadata"].includes(plan.subjectId)) throw new Error("Prerequisite repair plan not found");
+    if (!plan || plan.createdBy !== ownerId || plan.type !== "prerequisite.repair" || !["smartmontools", "restic", "docker", "virtualization", "apt-metadata"].includes(plan.subjectId)) throw new Error("Prerequisite repair plan not found");
     if (plan.revision !== revision) throw new Error("Prerequisite repair plan revision does not match");
 
     if (plan.subjectId === "smartmontools") {
@@ -212,6 +260,28 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
       });
     }
 
+    if (plan.subjectId === "virtualization") {
+      const state = await inspectVirtualization();
+      if (!matchingVirtualizationState(plan, state) || state.installed || !state.repairAvailable) throw new Error("Host state changed: create a new virtualization repair plan");
+      store.stagePlan(plan.id, ownerId);
+      return store.createJob({
+        type: "prerequisite.virtualization.install",
+        title: "Install and verify KVM, QEMU, and libvirt",
+        risk: "system-package-service-virtualization",
+        parameters: { planId: plan.id, revision: plan.revision, expectedPackages: plan.input.expectedPackages, expectedKvmDevice: true, installedBefore: false },
+        recovery: {
+          automaticRollback: false,
+          reason: "Package and service installation are not reversed automatically because removal could damage administrator-managed virtualization state or worsen interrupted package configuration.",
+          manual: "If the job fails, inspect boxpilot-virtualization-install.service, libvirtd.service, dpkg, APT, and /dev/kvm from the server console. Repair the host before creating a new plan. Do not remove libvirt or QEMU merely to match the old state.",
+        },
+        createdBy: ownerId,
+        initialSteps: [
+          { name: "preflight", state: "completed", detail: "The fixed five-package Ubuntu virtualization bundle and every exact candidate version were resolved only from configured APT metadata; /dev/kvm exists and no provider path or package was present" },
+          { name: "checkpoint", state: "completed", detail: "The operation will not run apt update, add a repository, replace a partial provider, remove packages, change an operator user or group, create a libvirt network or storage pool, create a VM, attach an ISO, or accept a browser command" },
+        ],
+      });
+    }
+
     const state = await inspectAptMetadata();
     if (!matchingAptMetadataState(plan, state)) throw new Error("Host state changed: create a new APT metadata refresh plan");
     store.stagePlan(plan.id, ownerId);
@@ -234,8 +304,8 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
   }
 
   async function validateJob(job) {
-    if (!["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.apt-metadata.refresh"].includes(job.type)) throw new Error("Unsupported prerequisite repair job");
-    const subjectId = job.type === "prerequisite.smartmontools.install" ? "smartmontools" : job.type === "prerequisite.restic.install" ? "restic" : job.type === "prerequisite.docker.install" ? "docker" : "apt-metadata";
+    if (!["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh"].includes(job.type)) throw new Error("Unsupported prerequisite repair job");
+    const subjectId = job.type === "prerequisite.smartmontools.install" ? "smartmontools" : job.type === "prerequisite.restic.install" ? "restic" : job.type === "prerequisite.docker.install" ? "docker" : job.type === "prerequisite.virtualization.install" ? "virtualization" : "apt-metadata";
     const plan = store.getPlan(job.parameters.planId);
     if (!plan || plan.status !== "staged" || plan.type !== "prerequisite.repair" || plan.subjectId !== subjectId || plan.revision !== job.parameters.revision) throw new Error("The staged prerequisite repair plan is unavailable or changed");
     if (subjectId === "smartmontools") {
@@ -256,11 +326,19 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
       if (!matchingDockerState(plan, state) || state.installed || !state.repairAvailable) throw new Error("Host state changed: the Docker Engine or docker.io candidate changed");
       return { plan, state };
     }
+    if (subjectId === "virtualization") {
+      const parameterNames = Object.keys(job.parameters.expectedPackages ?? {}).sort();
+      const planNames = Object.keys(plan.input.expectedPackages ?? {}).sort();
+      if (plan.input.installedBefore !== false || job.parameters.installedBefore !== false || plan.input.expectedKvmDevice !== true || job.parameters.expectedKvmDevice !== true || parameterNames.length !== planNames.length || parameterNames.some((name, index) => name !== planNames[index] || plan.input.expectedPackages[name] !== job.parameters.expectedPackages[name])) throw new Error("The staged virtualization repair plan does not match the job");
+      const state = await inspectVirtualization();
+      if (!matchingVirtualizationState(plan, state) || state.installed || !state.repairAvailable) throw new Error("Host state changed: the virtualization provider, hardware, or package candidates changed");
+      return { plan, state };
+    }
     if (plan.input.expectedUpdatedAt !== job.parameters.expectedUpdatedAt || plan.input.expectedState !== job.parameters.expectedState) throw new Error("The staged APT metadata refresh plan does not match the job");
     const state = await inspectAptMetadata();
     if (!matchingAptMetadataState(plan, state)) throw new Error("Host state changed: APT metadata or package manager state changed");
     return { plan, state };
   }
 
-  return { inspect: inspectSmartmontools, inspectRestic, inspectDocker, inspectAptMetadata, planSmartmontools, planRestic, planDocker, planAptMetadata, stage, validateJob };
+  return { inspect: inspectSmartmontools, inspectRestic, inspectDocker, inspectVirtualization, inspectAptMetadata, planSmartmontools, planRestic, planDocker, planVirtualization, planAptMetadata, stage, validateJob };
 }
