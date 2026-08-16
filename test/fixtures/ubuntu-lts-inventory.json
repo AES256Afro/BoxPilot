@@ -1,0 +1,20 @@
+[
+  {
+    "release": "22.04",
+    "osRelease": "PRETTY_NAME=\"Ubuntu 22.04.5 LTS\"\nVERSION_ID=\"22.04\"\n",
+    "findmnt": { "filesystems": [{ "target": "/", "source": "/dev/sda2", "fstype": "ext4", "size": 107374182400, "used": 53687091200, "avail": 53687091200, "use%": "50%", "options": "rw,relatime,errors=remount-ro" }] },
+    "lsblk": { "blockdevices": [{ "name": "/dev/sda", "type": "disk", "fstype": null, "size": 128849018880, "mountpoints": [], "rota": false, "ro": false, "tran": "sata", "model": "Fixture SATA", "children": [{ "name": "/dev/sda2", "type": "part", "fstype": "ext4", "size": 107374182400, "mountpoints": ["/"], "rota": false, "ro": false, "tran": "sata", "model": null }] }] }
+  },
+  {
+    "release": "24.04",
+    "osRelease": "PRETTY_NAME=\"Ubuntu 24.04.3 LTS\"\nVERSION_ID=\"24.04\"\n",
+    "findmnt": { "filesystems": [{ "target": "/", "source": "/dev/mapper/ubuntu--vg-ubuntu--lv", "fstype": "ext4", "size": 107374182400, "used": 80530636800, "avail": 26843545600, "use%": "75%", "options": "rw,relatime" }, { "target": "/mnt/boxpilot-backup", "source": "/dev/sdb1", "fstype": "ext4", "size": 1099511627776, "used": 109951162777, "avail": 989560464999, "use%": "10%", "options": "rw,nodev,nosuid" }] },
+    "lsblk": { "blockdevices": [{ "name": "/dev/nvme0n1", "type": "disk", "fstype": null, "size": 1024209543168, "mountpoints": [], "rota": false, "ro": false, "tran": "nvme", "model": "Fixture NVMe" }, { "name": "/dev/sdb", "type": "disk", "fstype": null, "size": 1099511627776, "mountpoints": [], "rota": true, "ro": false, "tran": "usb", "model": "Fixture Backup Disk" }] }
+  },
+  {
+    "release": "26.04",
+    "osRelease": "PRETTY_NAME=\"Ubuntu 26.04 LTS\"\nVERSION_ID=\"26.04\"\n",
+    "findmnt": { "filesystems": [{ "target": "/", "source": "/dev/mapper/ubuntu--vg-ubuntu--lv", "fstype": "ext4", "size": 105089261568, "used": 15620067328, "avail": 84083707904, "use%": "15%", "options": "rw,relatime" }, { "target": "/boot", "source": "/dev/nvme0n1p2", "fstype": "ext4", "size": 2040373248, "used": 72798208, "avail": 1843425280, "use%": "4%", "options": "rw,relatime" }] },
+    "lsblk": { "blockdevices": [{ "name": "/dev/nvme0n1", "type": "disk", "fstype": null, "size": 1024209543168, "mountpoints": [], "rota": false, "ro": false, "tran": "nvme", "model": "Fixture NVMe", "children": [{ "name": "/dev/nvme0n1p2", "type": "part", "fstype": "ext4", "size": 2147483648, "mountpoints": ["/boot"], "rota": false, "ro": false, "tran": "nvme", "model": null }] }] }
+  }
+]

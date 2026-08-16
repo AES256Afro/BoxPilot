@@ -1,6 +1,6 @@
 # Sanitized live inventory
 
-BoxPilot `0.7.0` replaces the demonstration overview with authenticated host, service, network, Docker, and log inventory. Every collector is bounded so discovery does not become arbitrary command execution.
+BoxPilot `0.7.0` replaced the demonstration overview with authenticated host, service, network, Docker, and log inventory. Version `0.30.0` adds sanitized real-mount and block-device topology, a separate fixed root-only SMART evidence timer, and a server-generated support bundle with a final configurable redaction pass. Every collector remains bounded so discovery does not become arbitrary command execution.
 
 ## Host inventory
 
@@ -10,11 +10,42 @@ BoxPilot `0.7.0` replaces the demonstration overview with authenticated host, se
 - CPU count, model, load averages, and normalized one-minute load
 - Total, used, and free memory
 - Root-filesystem capacity and usage
+- Real filesystem mounts with capacity state, safe option names, read-only state, and sanitized source and target
+- Block-device topology without serial numbers, UUIDs, labels, or raw udev properties
+- Bounded SMART health fields from a separate root-only timer when current evidence exists
 - Non-loopback IPv4 addresses and interface names
 - Tailscale connection state and the local device DNS name
 - Load, active, substate, and enablement for a fixed service list
 
 Tailscale peer records and control-plane secrets are never returned.
+
+## Storage and filesystem evidence
+
+The web process runs fixed no-input `findmnt` and `lsblk` commands. The caller cannot provide an output field, device, path, filter, executable, or argument. The response contains at most 128 real mounts and 256 topology entries.
+
+Mount sanitization:
+
+- Allows only capacity numbers, filesystem type, read-only state, and a fixed set of option names
+- Removes every mount option value, including usernames, passwords, and arbitrary values
+- Returns an exact source only for a bounded local `/dev` form; network and unfamiliar sources become `[remote-or-virtual-source]`
+- Replaces `/root`, `/home/<name>`, and `/run/user/<id>` targets with fixed redacted forms
+- Marks capacity `warning` at 85 percent and `critical` at 95 percent
+
+Block sanitization includes device name, parent, type, filesystem, size, sanitized mount targets, rotational and read-only state, transport, and model. It does not request or return serial, WWN, UUID, partition UUID, filesystem label, udev property, or raw command output.
+
+### SMART scanner boundary
+
+`boxpilot-storage-scan.service` is a separate root-only oneshot started by `boxpilot-storage-scan.timer` every six hours. It has no HTTP endpoint, browser action, helper-protocol operation, request body, or user-selected device. It:
+
+1. Checks only the fixed `/usr/sbin/smartctl` binary.
+2. Discovers at most 16 whole disks with fixed `/usr/bin/lsblk` arguments.
+3. Accepts only common local disk names such as `/dev/nvme0n1` and `/dev/sda`.
+4. Calls only `smartctl --json=c --all <discovered-device>`.
+5. Writes only passed state, temperature, power-on hours, NVMe life used, critical-warning count, media errors, unsafe shutdowns, and a derived health state.
+
+The evidence excludes serials, UUIDs, firmware, raw output, stderr, arbitrary attributes, and command arguments. The web service treats missing, malformed, more than 24-hour-old, or future-dated evidence as unavailable or stale. It never turns collector failure into a healthy claim.
+
+The timer does not install `smartmontools`. Until the package and timer are present, Overview honestly reports `smartctl not installed` or missing evidence. BoxPilot `0.30.0` does not expose a package-install repair.
 
 ## Docker inventory
 
@@ -48,7 +79,28 @@ Redaction reduces accidental disclosure but is not a proof that every possible a
 
 ## Support bundle
 
-The browser-generated support bundle now includes this sanitized live inventory plus the existing redacted virtualization audit when available. It does not include raw journals, environment variables, Docker labels, commands, mount sources, or Tailscale peers.
+`GET /api/v1/support-bundle` is authenticated and server-generated. It independently collects only:
+
+- Sanitized live inventory
+- Prerequisite checks
+- Local Action Center evidence
+- Up to 100 existing bounded audit events
+- Up to 50 entries from each fixed BoxPilot, Docker, Tailscale, and virtualization log source
+
+One collector failure does not hide the others. A failed source is recorded only as `unavailable`; thrown error text is not included.
+
+The final recursive redaction pass always removes sensitive field names, secret assignments, bearer values, private-key blocks, URL query strings, control characters, cycles, excessive depth, and oversized collections. It then applies optional site-specific rules from the exact file `/etc/boxpilot/redaction.json`.
+
+Site policy supports only:
+
+- Up to 32 exact literals, each 4 through 128 characters
+- Up to 32 absolute path prefixes, each 2 through 256 characters
+
+It accepts no regex, wildcard, replacement string, command, alternate configuration path, or browser-provided rule. Invalid policy fails closed to the built-in rules. The support response reports only policy status and rule counts, never the configured values.
+
+Start from `deploy/redaction.example.json`, keep the installed file readable only by the BoxPilot administrator and service, and restart BoxPilot after changing its environment path. The shipped native environment fixes the path to `/etc/boxpilot/redaction.json`.
+
+The bundle is support evidence, not a backup. It excludes the SQLite database, backup payloads, configuration files, environments, credentials, Tailscale peers, arbitrary commands, arbitrary journal units, and raw SMART output.
 
 ## Network and DNS topology
 

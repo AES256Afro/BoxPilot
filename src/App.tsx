@@ -127,7 +127,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   logs: {
     label: "Restricted journal inventory",
     tone: "live",
-    description: "BoxPilot, Docker, Tailscale, and virtualization logs use fixed unit sets, capped result sizes, and credential-pattern redaction. Arbitrary units and journal arguments are rejected.",
+    description: "BoxPilot, Docker, Tailscale, and virtualization logs use fixed unit sets, capped result sizes, and credential-pattern redaction. The server-generated support bundle applies a final configurable redaction pass. Arbitrary units and journal arguments are rejected.",
   },
   settings: {
     label: "Deployment guidance",
@@ -227,6 +227,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
   const [composeSource, setComposeSource] = useState(sampleCompose);
   const [inspection, setInspection] = useState<ComposeInspection | null>(null);
   const [networkAssessmentId, setNetworkAssessmentId] = useState<string | null>(null);
+  const [bundleError, setBundleError] = useState<string | null>(null);
 
   const copy = viewCopy[view];
 
@@ -271,39 +272,20 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
   }, [apiMode, authStatus.csrfToken, networkAssessmentId, view]);
 
   const downloadSupportBundle = async () => {
-    let virtualizationAudit: Array<Record<string, unknown>> = [];
-    let sanitizedInventory: Record<string, unknown> | null = null;
+    setBundleError(null);
     try {
-      const response = await fetch("/api/v1/audit?limit=100");
-      const body = await response.json() as { events?: Array<Record<string, unknown>> };
-      if (response.ok) virtualizationAudit = body.events ?? [];
-    } catch {
-      virtualizationAudit = [];
+      const response = await fetch("/api/v1/support-bundle");
+      const bundle = await response.json() as Record<string, unknown> & { error?: string };
+      if (!response.ok) throw new Error(bundle.error ?? "Support bundle is unavailable");
+      const url = URL.createObjectURL(new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "boxpilot-support-bundle.json";
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setBundleError(error instanceof Error ? error.message : "Support bundle is unavailable");
     }
-    try {
-      const response = await fetch("/api/v1/inventory");
-      if (response.ok) sanitizedInventory = await response.json() as Record<string, unknown>;
-    } catch {
-      sanitizedInventory = null;
-    }
-    const bundle = {
-      generatedAt: new Date().toISOString(),
-      product: "BoxPilot",
-      version: "0.29.0",
-      mode: "host-aware",
-      safeMode: true,
-      hostMutationsEnabled: "configuration-dependent-vm-actions-only",
-      inventory: sanitizedInventory,
-      inventorySource: sanitizedInventory ? "sanitized-live-inventory" : "unavailable",
-      events: virtualizationAudit,
-      eventSource: virtualizationAudit.length ? "redacted-virtualization-audit" : "unavailable-or-empty",
-    };
-    const url = URL.createObjectURL(new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" }));
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = "boxpilot-support-bundle.json";
-    anchor.click();
-    URL.revokeObjectURL(url);
   };
 
   const handlePrimaryAction = () => {
@@ -331,7 +313,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.29.0 local Action Center<br />Guidance only, no auto-repair</div>
+        <div className="prototype-label">v0.30.0 storage evidence<br />Fixed sources, redacted support</div>
       </aside>
 
       <main>
@@ -356,6 +338,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
             <strong>{viewStatus[view].label}</strong>
             <span>{viewStatus[view].description}</span>
           </section>
+          {bundleError && <div className="auth-error" role="alert">{bundleError}</div>}
           {pageContent}
         </div>
       </main>

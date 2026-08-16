@@ -4,11 +4,11 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.29.0` adds a local, authenticated, read-only Action Center to Repair Center. It converts the existing secret-free recovery evidence into prioritized critical, warning, and informational notices; explains why each notice exists; provides three fixed operator steps; and navigates only to a fixed BoxPilot view. It fails closed when evidence is unavailable or unmapped. Automatic repair, arbitrary commands, persistence, schedules, browser notifications, external delivery, credentials, and arbitrary logs remain unavailable.
+Version `0.30.0` expands the authenticated host inventory with sanitized real-mount capacity, block-device topology, and bounded SMART evidence from a separate fixed root-only systemd timer. It also replaces the browser-assembled support preview with an authenticated server-generated bundle over fixed inventory, prerequisites, Action Center, audit, and log sources. A final redaction engine always removes built-in secret patterns and can add bounded literal and path-prefix rules from `/etc/boxpilot/redaction.json`. The browser cannot choose a device, run `smartctl`, select arbitrary logs, submit a regex, or trigger the root scanner.
 
 ### What works now
 
-| Area | Status in `0.29.0` | Capability |
+| Area | Status in `0.30.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
@@ -17,11 +17,11 @@ Version `0.29.0` adds a local, authenticated, read-only Action Center to Repair 
 | Local Action Center | Authenticated read-only guidance | Correlates the recovery kit and recent failed-job count into fixed prioritized notices, sanitized evidence, three-step manual guidance, and fixed in-product destinations. It stores no notice state and cannot repair, execute, schedule, send, or mutate anything. |
 | Disaster recovery kit | Authenticated read-only export | Correlates sanitized job, application-backup, protected-VM-backup, router-checkpoint, migration, fleet, DNS, and prerequisite evidence. JSON and Markdown downloads remain evidence only: no database, application data, configuration file, backup payload, credential, or mutation is included. |
 | Restricted helper | Live typed operations | Uses a versioned, allowlisted protocol over a local Unix socket for the canary, bounded inventory and logs, Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, guarded VM creation and lifecycle, read-only libvirt inventory, offline snapshots, stopped-VM exports, mounted-restic VM copies, isolated restore drills, stopped no-network recovery clones, and exact no-prune retention. It accepts no command strings, binary selection, libvirt URI, argument arrays, operator paths, Compose source path, migration destination, SSH credential, repository password, backup mount, repository path, export destination, restore destination, recovery directory, prune flag, selector such as `latest`, or arbitrary root paths from the browser. |
-| Host and Docker inventory | Live | Reports authenticated host identity, CPU, memory, root storage, uptime, selected service state, LAN addresses, Tailscale self-state, and sanitized Docker containers, images, networks, volumes, and Compose projects. |
+| Host, storage, and Docker inventory | Live | Reports authenticated host identity, CPU, memory, root storage, sanitized real mounts and block topology, timer-generated bounded SMART evidence, uptime, selected services, LAN addresses, Tailscale self-state, and sanitized Docker resources. Serial numbers, UUIDs, raw SMART output, mount option values, private home paths, container environments, commands, labels, and host mount sources are excluded. |
 | Network and DNS Center | Live planning and guarded fixed tests | Reports validated default gateways, host LAN CIDRs, sanitized systemd-resolved servers, scoped TCP and UDP port 53 listeners, and Tailscale resolver observations. It creates immutable topology assessments and can separately stage four fixed direct Pi-hole DNS checks after exact deployment and restore evidence match. A separately enrolled signed agent can repeat only those fixed checks after a fresh passing Bigbox record. Router writes and DNS cutover have no execution route. |
 | Router readiness and checkpoints | Live address correlation plus operator checks | Shows Bigbox's observed gateway address without claiming router identity, recommends one routing/DHCP authority, provides fixed vendor-grounded setup and rollback checklists, and correlates browser-local backup-hash evidence. Configuration uploads, credentials, neighbor discovery, live device probes, API sessions, writes, restore claims, and DNS cutover are unavailable. |
 | GitHub provenance | Live fixed public metadata | Reads sanitized commit, verification, latest-release, and asset-digest metadata for BoxPilot and Keel through GitHub's unauthenticated public API. No token, repository input, clone, download, write, webhook, workflow dispatch, local digest verification, or installation route exists. |
-| System logs | Live restricted sources | Returns capped, redacted entries for fixed BoxPilot, Docker, Tailscale, and virtualization unit sets. Credential-like values and URL query strings are redacted. |
+| System logs and support bundle | Live restricted sources | Returns capped entries for four fixed journal source groups. The authenticated server-generated bundle combines only fixed collectors and applies built-in plus bounded site-specific literal and path-prefix redaction. It accepts no unit, command, device, regex, environment, or arbitrary path. |
 | Application catalog | Live | Publishes integrity-addressed manifests, live installation state, exact image policy, targets, ports, storage, prerequisites, recovery, and adapter risk. |
 | Keel Notes adapter | Immutable planning only | Binds a native-service plan to the fixed Keel `v1.2.5` Linux x64 release metadata and checks platform, architecture, prerequisites, loopback port, public tag commit, asset size, and GitHub-reported digest. Download, local byte verification, extraction, installation, start, claim, backup, restore, exposure, and staging are locked. |
 | Uptime Kuma adapter | Executable deployment | Uses the official `2.5.0` image pinned by multi-platform digest, a loopback-only port, local persistent storage, Docker health, approval, and data-preserving rollback. The catalog shows whether restore-verified backup evidence exists. |
@@ -54,7 +54,7 @@ The repository also includes a read-only Ubuntu deployment doctor and a USB-to-h
 - General Docker mutation, custom Compose deployment, additional application installation beyond the curated adapters, package updates, firewall changes, storage changes, or arbitrary command execution
 - Backup schedules, application-backup independent or offsite destinations, restic prune and space reclamation, configurable retention policies, remote restic/cloud backends, Keel Notes export, SSH source discovery or transport, general application-aware volume/database capture, staged-workload activation, or migration cutover
 - Keel Notes deployment, executable AdGuard Home, Jellyfin, Home Assistant, PostgreSQL, Pi-hole router cutover, private or write-capable GitHub integration, signed adapter installation, general remote-agent operations, automatic remediation, persistent alerts, or external notification delivery
-- WebAuthn, recovery codes, multiple owners, Tailscale identity headers, tamper-evident audit chaining, or general-purpose mutation handlers
+- WebAuthn, recovery codes, multiple owners, Tailscale identity headers, tamper-evident audit chaining, automatic `smartmontools` installation, filesystem-specific error counters, or general-purpose mutation handlers
 
 ## Screenshots
 
@@ -201,6 +201,12 @@ This explicitly disclosed `0.26.0` mock shows correlated readiness checks, evide
 ![BoxPilot prioritized local Action Center](docs/screenshots/action-center-mock.png)
 
 This explicitly disclosed `0.29.0` mock shows fixed severity, sanitized evidence, manual three-step guidance, and in-product navigation. No repair, command, package operation, schedule, notification, credential access, log collection, or host, VM, application, network, DNS, Tailscale, or router change occurred for the capture.
+
+### Storage and filesystem evidence mockup
+
+![BoxPilot sanitized storage and filesystem evidence](docs/screenshots/storage-evidence-mock.png)
+
+This explicitly disclosed `0.30.0` mock shows real-mount capacity, sanitized block topology, fail-closed missing SMART evidence, the separate root-only timer boundary, and server-generated support redaction. No SMART scan, device read, package installation, mount, filesystem, disk, service, or host state was triggered or changed for the capture.
 
 ## Safety contract
 

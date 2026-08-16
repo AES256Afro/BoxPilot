@@ -72,10 +72,13 @@ sudo npm run build
 sudo npm prune --omit=dev
 sudo install -d -m 0755 /etc/boxpilot
 sudo install -m 0600 deploy/boxpilot.env.example /etc/boxpilot/boxpilot.env
+sudo install -m 0640 -o root -g boxpilot deploy/redaction.example.json /etc/boxpilot/redaction.json
 sudo install -m 0644 deploy/boxpilot-helper.service /etc/systemd/system/boxpilot-helper.service
 sudo install -m 0644 deploy/boxpilot.service /etc/systemd/system/boxpilot.service
+sudo install -m 0644 deploy/boxpilot-storage-scan.service /etc/systemd/system/boxpilot-storage-scan.service
+sudo install -m 0644 deploy/boxpilot-storage-scan.timer /etc/systemd/system/boxpilot-storage-scan.timer
 sudo systemctl daemon-reload
-sudo systemctl enable --now boxpilot-helper.service boxpilot.service
+sudo systemctl enable --now boxpilot-helper.service boxpilot.service boxpilot-storage-scan.timer
 ```
 
 The units expect Node.js 24 or newer at `/usr/local/bin/node`. Check the installed path and version before enabling them:

@@ -21,13 +21,26 @@ After building BoxPilot under `/opt/boxpilot`:
 ```bash
 sudo install -d -m 0755 /etc/boxpilot
 sudo install -m 0600 deploy/boxpilot.env.example /etc/boxpilot/boxpilot.env
+sudo install -m 0640 -o root -g boxpilot deploy/redaction.example.json /etc/boxpilot/redaction.json
 sudo install -m 0644 deploy/boxpilot-helper.service /etc/systemd/system/boxpilot-helper.service
 sudo install -m 0644 deploy/boxpilot.service /etc/systemd/system/boxpilot.service
+sudo install -m 0644 deploy/boxpilot-storage-scan.service /etc/systemd/system/boxpilot-storage-scan.service
+sudo install -m 0644 deploy/boxpilot-storage-scan.timer /etc/systemd/system/boxpilot-storage-scan.timer
 sudo systemctl daemon-reload
-sudo systemctl enable --now boxpilot-helper.service boxpilot.service
+sudo systemctl enable --now boxpilot-helper.service boxpilot.service boxpilot-storage-scan.timer
 ```
 
 Both units expect the verified Node.js runtime at `/usr/local/bin/node`. Do not weaken the helper socket mode or add the web service to sudoers.
+
+The storage timer is separate from the web service and helper protocol. If `/usr/sbin/smartctl` is absent, its successful evidence file says `smartctl-not-installed`; it does not install a package or invent disk health. After separately reviewing the Ubuntu package, an administrator may install `smartmontools` and start one fixed scan:
+
+```bash
+sudo apt-get install smartmontools
+sudo systemctl start boxpilot-storage-scan.service
+sudo systemctl status boxpilot-storage-scan.service boxpilot-storage-scan.timer --no-pager
+```
+
+The browser cannot trigger this command. Review and customize only the bounded exact literals and path prefixes in `/etc/boxpilot/redaction.json`; regexes, wildcards, alternate paths, and replacement strings are rejected.
 
 ## Create the first owner
 

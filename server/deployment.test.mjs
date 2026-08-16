@@ -41,7 +41,7 @@ describe("native systemd network boundaries", () => {
     expect(dockerfile).toContain("BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot");
     expect(dockerfile).toContain("BOXPILOT_COOKIE_SECURE=false");
     expect(dockerfile).toContain("USER node");
-    expect(compose).toContain("image: boxpilot:0.29.0");
+    expect(compose).toContain("image: boxpilot:0.30.0");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("/tmp:size=16m,mode=1777");
   });
@@ -55,6 +55,24 @@ describe("native systemd network boundaries", () => {
     expect(setup).toContain("same filesystem as Bigbox data");
     expect(setup).toContain("cannot be a symbolic link");
     expect(setup).not.toMatch(/RESTIC_PASSWORD=/);
+  });
+
+  it("ships a fixed timer-only SMART scanner outside the browser and privileged helper protocol", async () => {
+    const service = await readFile("deploy/boxpilot-storage-scan.service", "utf8");
+    const timer = await readFile("deploy/boxpilot-storage-scan.timer", "utf8");
+    const scanner = await readFile("scripts/boxpilot-storage-scan.mjs", "utf8");
+    const protocol = await readFile("server/helper-protocol.mjs", "utf8");
+    const metadata = await stat("scripts/boxpilot-storage-scan.mjs");
+    expect(metadata.mode & 0o111).not.toBe(0);
+    expect(service).toContain("Type=oneshot");
+    expect(service).toContain("PrivateNetwork=true");
+    expect(service).toContain("ReadWritePaths=/var/lib/boxpilot");
+    expect(service).toContain("ConditionPathIsDirectory=/var/lib/boxpilot");
+    expect(service).not.toContain("StateDirectory=boxpilot");
+    expect(timer).toContain("OnUnitActiveSec=6h");
+    expect(scanner).toContain('["--json=c", "--all", device]');
+    expect(scanner).not.toContain("process.argv[2]");
+    expect(protocol).not.toContain("storage.smart.scan");
   });
 
   it("ships a terminal-only migration packer without a browser-selectable inbox", async () => {
