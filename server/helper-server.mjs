@@ -26,7 +26,7 @@ import { createKeelRollbackHelper } from "./keel-rollback-helper.mjs";
 
 const socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock";
 const maxRequestBytes = 8192;
-const readOnlyOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.restic.inspect", "prerequisite.docker.inspect", "prerequisite.virtualization.inspect", "prerequisite.apt-metadata.inspect", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.protection.inspect", "controller.database.protection.retention.inspect", "application.backup.protection.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.lifecycle.inspect", "application.pi-hole.inspect", "application.keel.inspect", "application.keel.artifact.inspect", "application.keel.archive.inspect", "application.keel.stage.inspect", "application.keel.install.inspect", "application.keel.recovery.inspect", "application.keel.recovery-drill.inspect", "application.keel.promotion.inspect", "application.keel.rollback.inspect", "virtualization.foundation.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
+const readOnlyOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.restic.inspect", "prerequisite.docker.inspect", "prerequisite.virtualization.inspect", "prerequisite.apt-metadata.inspect", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.protection.inspect", "controller.database.protection.retention.inspect", "application.backup.protection.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.lifecycle.inspect", "application.pi-hole.inspect", "application.pi-hole.lifecycle.inspect", "application.keel.inspect", "application.keel.artifact.inspect", "application.keel.archive.inspect", "application.keel.stage.inspect", "application.keel.install.inspect", "application.keel.recovery.inspect", "application.keel.recovery-drill.inspect", "application.keel.promotion.inspect", "application.keel.rollback.inspect", "virtualization.foundation.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
 let operationQueue = Promise.resolve();
 const vmRestoreDrill = createVmRestoreDrillHelper();
 const vmRecovery = createVmRecoveryHelper({ restoreEngine: vmRestoreDrill });
@@ -153,7 +153,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
 
 server.listen(socketPath, async () => {
   await chmod(socketPath, 0o660);
-  console.log(`BoxPilot helper 0.57.0 listening on ${socketPath}`);
+  console.log(`BoxPilot helper 0.58.0 listening on ${socketPath}`);
 });
 
 async function shutdown() {

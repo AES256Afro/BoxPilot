@@ -246,7 +246,9 @@ Version `0.50.1` adds a build-output boundary after Vite. The fixed no-argument 
 
 Version `0.57.0` adds a separate application-lifecycle boundary for the Uptime Kuma canary. Read-only inspection hashes the exact reserved container identity, configured and realized image, state, health, Compose labels, loopback binding, fixed writable data mount, restart policy, privilege state, devices, and added capabilities into one revision without returning container ids, image ids, environment values, commands, or labels. Only Start, Stop, and Restart can be planned. Approval sends only the fixed action and exact revision to the helper. Post-action verification requires the same managed identity and preserved data; running results must also be healthy. The helper cannot alter or select images, Compose, environments, ports, mounts, volumes, networks, data, another container, router, DNS, firewall, or Tailscale state.
 
-## Version 0.57.0 limitations
+Version `0.58.0` applies that lifecycle boundary to Pi-hole with network-critical evidence. The revision adds the exact private IPv4 TCP and UDP port 53 bindings, reviewed web binding, fixed configuration mount, root-only secret-file metadata without secret content, exact normalized capability set, `CAP_DROP=ALL`, and `no-new-privileges`. Deployment planning tests TCP and UDP occupancy on the reviewed LAN address rather than accepting or rejecting a global port-53 summary. Start, Stop, and Restart still carry only a fixed action and exact revision; post-action verification preserves configuration and secret state, and running results must restore health plus both DNS bindings. Router, DHCP, client DNS, firewall, Tailscale, image, Compose, ports, storage, secret content, and other containers remain outside the operation.
+
+## Version 0.58.0 limitations
 
 - The current Overview is authenticated live inventory. Repository screenshots are explicitly disclosed mock product state only; live Bigbox captures are not published. Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.

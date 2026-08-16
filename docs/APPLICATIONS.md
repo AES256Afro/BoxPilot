@@ -1,6 +1,6 @@
 # Curated applications
 
-BoxPilot `0.57.0` provides integrity-addressed manifests, executable Uptime Kuma deployment plus Start, Stop, and Restart management, guarded Pi-hole staging, three application-aware local backup adapters, encrypted independent exact-archive protection for verified Uptime Kuma, Pi-hole, and Keel records, and the guarded Keel recovery lifecycle through operator rollback. Repair Center can install the fixed Ubuntu `docker.io` prerequisite on a clean host and the separate fixed KVM, QEMU, and libvirt bundle needed by Virtual Machines. Virtual Machines can then initialize the canonical default NAT network and storage pool through a separate password-approved workflow. The web process never receives the Docker socket or a general root operation.
+BoxPilot `0.58.0` provides integrity-addressed manifests, executable Uptime Kuma and Pi-hole deployment plus Start, Stop, and Restart management, three application-aware local backup adapters, encrypted independent exact-archive protection for verified Uptime Kuma, Pi-hole, and Keel records, and the guarded Keel recovery lifecycle through operator rollback. Repair Center can install the fixed Ubuntu `docker.io` prerequisite on a clean host and the separate fixed KVM, QEMU, and libvirt bundle needed by Virtual Machines. Virtual Machines can then initialize the canonical default NAT network and storage pool through a separate password-approved workflow. The web process never receives the Docker socket or a general root operation.
 
 ## Install the Docker prerequisite on Ubuntu
 
@@ -40,7 +40,7 @@ Authenticated API routes:
 - `GET /api/v1/applications` lists manifests and live adapter state.
 - `POST /api/v1/applications/:id/plans` creates an immutable plan revision after live prerequisite and port checks.
 - `POST /api/v1/application-plans/:id/stage` stages the exact unexpired revision as a durable approval job.
-- `POST /api/v1/applications/uptime-kuma/action-plans` creates a Start, Stop, or Restart plan bound to the exact managed-container state revision.
+- `POST /api/v1/applications/:id/action-plans` creates a Start, Stop, or Restart plan for Uptime Kuma or Pi-hole bound to the exact managed-container state revision.
 - `POST /api/v1/application-action-plans/:id/stage` rechecks and stages that exact lifecycle revision.
 - `POST /api/v1/jobs/:id/approve` revalidates host state, reauthenticates the owner, executes the typed helper operation, verifies health, and records the outcome.
 
@@ -103,7 +103,7 @@ GitHub metadata matching is not local verification. Acquisition must hash all lo
 
 ## Pi-hole guarded staging adapter
 
-Version `0.26.0` can stage Pi-hole in Docker on the exact reviewed Bigbox LAN address, create a local configuration backup with isolated restore proof, collect fixed direct DNS evidence from Bigbox, and repeat the same fixed checks through a signed enrolled agent. The separate router checkpoint, GitHub provenance, Keel planning, and recovery-kit views do not alter this application boundary. The dedicated-VM target remains planning-only. These are service staging, recovery-evidence, and direct-path acceptance workflows, not router or client cutover workflows.
+Version `0.26.0` can stage Pi-hole in Docker on the exact reviewed Bigbox LAN address, create a local configuration backup with isolated restore proof, collect fixed direct DNS evidence from Bigbox, and repeat the same fixed checks through a signed enrolled agent. Version `0.58.0` adds revision-bound Start, Stop, and Restart management for only that exact managed container. The separate router checkpoint, GitHub provenance, Keel planning, and recovery-kit views do not alter this application boundary. The dedicated-VM target remains planning-only. These are service staging, lifecycle, recovery-evidence, and direct-path acceptance workflows, not router or client cutover workflows.
 
 The adapter uses:
 
@@ -132,7 +132,9 @@ Deployment workflow:
 7. After the background job passes, open the reported LAN URL. Retrieve the administrator password only from a server terminal with the command shown by BoxPilot.
 8. Keep every router and client on the current resolver. The application remains **Backup: required** until the separate backup workflow passes.
 
-At planning, staging, and approval, BoxPilot revalidates the assessment owner, role, expiry, gateway, Bigbox address, current resolvers, DNS listeners, Tailscale state, recovery declarations, Docker, and web port. If any evidence changes, the job fails closed and requires a new assessment.
+At planning, staging, and approval, BoxPilot revalidates the assessment owner, role, expiry, gateway, Bigbox address, current resolvers, DNS listeners, Tailscale state, recovery declarations, Docker, and web port. Docker planning tests TCP and UDP port 53 specifically on the reviewed Bigbox LAN address, so Ubuntu's loopback systemd-resolved stub is not treated as a conflicting LAN listener. A real TCP or UDP conflict on that exact address blocks deployment. If any evidence changes, the job fails closed and requires a new assessment.
+
+After deployment, the Pi-hole card exposes only the actions allowed by its live state. Each lifecycle plan pins the complete sanitized identity: reserved name, digest image, Compose labels, private-LAN DNS and web bindings, fixed configuration mount, root-only secret-file metadata, restart policy, exact capability allowlist, `CAP_DROP=ALL`, `no-new-privileges`, privileges, devices, and Docker-socket absence. Start and Restart require healthy DNS and web bindings after the action. Stop verifies the container stopped while configuration and the secret remain present. Every plan requires a tested independent resolver and makes no DHCP, router, client DNS, firewall, Tailscale, image, Compose, port, storage, secret, or other-container change.
 
 After staging, open **Backups** and plan the Pi-hole backup. The separate network-critical job:
 

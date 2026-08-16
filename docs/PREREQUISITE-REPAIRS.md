@@ -120,7 +120,7 @@ Repair interrupted dpkg or APT state from the server console before creating a n
 
 ## Explicit exclusions
 
-Version `0.57.0` cannot:
+Version `0.58.0` cannot:
 
 - Install, update, downgrade, hold, or remove a requested root package other than the separately approved exact `smartmontools`, `restic`, Ubuntu `docker.io`, or fixed five-root virtualization set. APT may resolve dependencies required by an approved root.
 - Select a package name, repository, mirror, key, package file, option, command, or argument from the browser

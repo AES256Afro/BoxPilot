@@ -8,7 +8,7 @@ import { createStateStore } from "./state.mjs";
 
 const directories = [];
 
-async function setup({ statuses = {}, portInUse = false, assessmentError = null, uptimeState = null, uptimeLifecycle = null, keelProvenanceMatches = true, keelDiscovery = null, keelDiscoveryError = null, keelArtifact = null, keelArchive = null, keelStaging = null, keelInstallation = null, keelLoginProof = null, hostPlatform = "linux", hostArchitecture = "x64" } = {}) {
+async function setup({ statuses = {}, portInUse = false, dnsTcpInUse = false, dnsUdpInUse = false, assessmentError = null, uptimeState = null, uptimeLifecycle = null, piholeState = null, piholeLifecycle = null, keelProvenanceMatches = true, keelDiscovery = null, keelDiscoveryError = null, keelArtifact = null, keelArchive = null, keelStaging = null, keelInstallation = null, keelLoginProof = null, hostPlatform = "linux", hostArchitecture = "x64" } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-apps-"));
   directories.push(directory);
   const store = createStateStore({ stateDirectory: directory });
@@ -46,6 +46,8 @@ async function setup({ statuses = {}, portInUse = false, assessmentError = null,
   const helperRequest = vi.fn(async (operation) => {
     if (operation === "application.uptime-kuma.inspect") return uptimeState ?? { installed: false, state: "not-installed", detail: "Ready to plan" };
     if (operation === "application.uptime-kuma.lifecycle.inspect") return uptimeLifecycle ?? { installed: false, managed: false, state: "not-installed", running: false, healthy: false, port: null, revision: null, allowedActions: [], detail: "Managed Uptime Kuma container was not found" };
+    if (operation === "application.pi-hole.inspect") return piholeState ?? { installed: false, state: "not-installed", detail: "Ready to plan" };
+    if (operation === "application.pi-hole.lifecycle.inspect") return piholeLifecycle ?? { installed: false, managed: false, state: "not-installed", running: false, healthy: false, lanAddress: null, port: null, revision: null, allowedActions: [], detail: "Managed Pi-hole container was not found" };
     if (operation === "application.keel.inspect") {
       if (keelDiscoveryError) throw new Error(keelDiscoveryError);
       return defaultKeelDiscovery;
@@ -57,7 +59,8 @@ async function setup({ statuses = {}, portInUse = false, assessmentError = null,
     if (operation === "application.keel.login-proof.inspect") return keelLoginProof ?? { state: "not-run", verified: false, verifiedAt: null, releaseVersion: null, credentialsStored: false, sessionStored: false, detail: "No terminal-only Keel instance-owner login proof has been recorded", boundary: { credentialRead: false, sessionRead: false } };
     return { installed: false, state: "not-installed", detail: "Ready to plan" };
   });
-  const inspectPort = vi.fn(async () => portInUse);
+  const inspectPort = vi.fn(async (port) => port === 53 ? dnsTcpInUse : portInUse);
+  const inspectUdpPort = vi.fn(async () => dnsUdpInUse);
   const service = createApplicationService({
     store,
     prerequisites: { inspect: vi.fn(async () => ({ checks })) },
@@ -65,10 +68,11 @@ async function setup({ statuses = {}, portInUse = false, assessmentError = null,
     network: { validateAssessment },
     githubProvenance,
     inspectPort,
+    inspectUdpPort,
     hostPlatform,
     hostArchitecture,
   });
-  return { store, owner, service, validateAssessment, githubProvenance, helperRequest, inspectPort };
+  return { store, owner, service, validateAssessment, githubProvenance, helperRequest, inspectPort, inspectUdpPort };
 }
 
 afterEach(async () => {
@@ -140,6 +144,27 @@ describe("application manifests and plans", () => {
     store.close();
   });
 
+  it("merges strict network-critical lifecycle evidence into an installed Pi-hole catalog entry", async () => {
+    const lifecycle = {
+      installed: true, managed: true, state: "running", running: true, healthy: true, lanAddress: "192.168.8.10", port: 8080,
+      dnsTcpBound: true, dnsUdpBound: true, revision: "b".repeat(64), allowedActions: ["stop", "restart"], detail: "Managed Pi-hole is healthy",
+    };
+    const { store, service, helperRequest } = await setup({
+      piholeState: { installed: true, state: "running", healthy: true, lanAddress: "192.168.8.10", port: 8080, detail: "Pi-hole is healthy" },
+      piholeLifecycle: lifecycle,
+    });
+    const catalog = await service.list();
+    expect(catalog.applications.find((item) => item.id === "pi-hole")?.live).toMatchObject({
+      installed: true,
+      state: "running",
+      backup: { state: "required", verifiedAt: null },
+      lifecycle,
+    });
+    expect(helperRequest).toHaveBeenCalledWith("application.pi-hole.inspect", {});
+    expect(helperRequest).toHaveBeenCalledWith("application.pi-hole.lifecycle.inspect", {});
+    store.close();
+  });
+
   it("blocks staging when Docker or the selected port is unavailable", async () => {
     const { store, owner, service } = await setup({ statuses: { "containers.docker": "missing" }, portInUse: true });
     const plan = await service.plan("uptime-kuma", { hostPort: 3001 }, owner.id);
@@ -158,6 +183,30 @@ describe("application manifests and plans", () => {
     expect(job).toMatchObject({ type: "application.pi-hole.deploy", risk: "network-critical", parameters: { lanAddress: "192.168.8.10", hostPort: 8080, networkAssessmentId: "network-plan-one" } });
     expect(validateAssessment).toHaveBeenCalledTimes(2);
     store.close();
+  });
+
+  it("uses exact-address TCP and UDP port 53 checks instead of blocking on an unrelated loopback resolver", async () => {
+    const { store, owner, service, inspectPort, inspectUdpPort } = await setup({ statuses: { "dns.port53": "conflict" } });
+    const plan = await service.plan("pi-hole", { target: "docker", hostPort: 8080, networkAssessmentId: "network-plan-one" }, owner.id);
+    expect(plan.output).toMatchObject({ executable: true, blockers: [] });
+    expect(inspectPort).toHaveBeenCalledWith(53, "192.168.8.10");
+    expect(inspectUdpPort).toHaveBeenCalledWith(53, "192.168.8.10");
+    await expect(service.stage(plan.id, plan.revision, owner.id)).resolves.toMatchObject({ type: "application.pi-hole.deploy" });
+    store.close();
+  });
+
+  it("blocks Pi-hole when either exact-address DNS transport is occupied", async () => {
+    const tcp = await setup({ dnsTcpInUse: true });
+    const tcpPlan = await tcp.service.plan("pi-hole", { target: "docker", hostPort: 8080, networkAssessmentId: "network-plan-one" }, tcp.owner.id);
+    expect(tcpPlan.output.blockers).toEqual(expect.arrayContaining([expect.objectContaining({ id: "port.53.tcp" })]));
+    expect(tcpPlan.output.executable).toBe(false);
+    tcp.store.close();
+
+    const udp = await setup({ dnsUdpInUse: true });
+    const udpPlan = await udp.service.plan("pi-hole", { target: "docker", hostPort: 8080, networkAssessmentId: "network-plan-one" }, udp.owner.id);
+    expect(udpPlan.output.blockers).toEqual(expect.arrayContaining([expect.objectContaining({ id: "port.53.udp" })]));
+    expect(udpPlan.output.executable).toBe(false);
+    udp.store.close();
   });
 
   it("fails closed without an owner-attributable live Pi-hole assessment", async () => {

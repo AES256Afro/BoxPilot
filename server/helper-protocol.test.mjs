@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.57.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.58.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -184,6 +184,11 @@ describe("restricted helper protocol", () => {
 
   it("accepts only a private Pi-hole LAN binding and high web port", () => {
     expect(validateHelperRequest(request({ operation: "application.pi-hole.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.pi-hole.lifecycle.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.pi-hole.lifecycle.inspect", parameters: { container: "other" } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "application.pi-hole.action", parameters: { action: "restart", expectedRevision: "b".repeat(64) } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.pi-hole.action", parameters: { action: "remove", expectedRevision: "b".repeat(64) } }))).toContain("fixed action");
+    expect(validateHelperRequest(request({ operation: "application.pi-hole.action", parameters: { action: "restart", expectedRevision: "b".repeat(64), address: "192.168.8.10" } }))).toContain("fixed action");
     expect(validateHelperRequest(request({ operation: "application.pi-hole.deploy", parameters: { lanAddress: "192.168.8.10", webPort: 8080 } }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "application.pi-hole.backup", parameters: { backupId: randomUUID() } }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "application.pi-hole.backup", parameters: { backupId: "../../etc" } }))).toContain("backupId UUID");
@@ -191,6 +196,16 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ operation: "application.pi-hole.deploy", parameters: { lanAddress: "127.0.0.1", webPort: 8080 } }))).toContain("private lanAddress");
     expect(validateHelperRequest(request({ operation: "application.pi-hole.deploy", parameters: { lanAddress: "192.168.8.10", webPort: 8080, image: "evil" } }))).toContain("accepts only");
     expect(validateHelperRequest(request({ operation: "application.pi-hole.deploy", parameters: { lanAddress: "192.168.8.10", webPort: 53 } }))).toContain("webPort");
+  });
+
+  it("delegates only the exact managed Pi-hole lifecycle request", async () => {
+    const expectedRevision = "b".repeat(64);
+    const applications = {
+      inspectPiholeLifecycle: vi.fn(async () => ({ installed: true, managed: true, revision: expectedRevision, allowedActions: ["restart"], boundary: { mutationPerformed: false } })),
+      actionPihole: vi.fn(async (parameters) => ({ applicationId: "pi-hole", ...parameters, performed: true, dataPreserved: true, secretPreserved: true, routerMutationPerformed: false, dnsCutoverPerformed: false })),
+    };
+    await expect(executeHelperOperation(request({ operation: "application.pi-hole.lifecycle.inspect", parameters: {} }), { applications })).resolves.toMatchObject({ ok: true, result: { installed: true, managed: true, boundary: { mutationPerformed: false } } });
+    await expect(executeHelperOperation(request({ operation: "application.pi-hole.action", parameters: { action: "restart", expectedRevision } }), { applications })).resolves.toMatchObject({ ok: true, result: { applicationId: "pi-hole", action: "restart", expectedRevision, performed: true, dataPreserved: true, secretPreserved: true, routerMutationPerformed: false, dnsCutoverPerformed: false } });
   });
 
   it("delegates only the reviewed Pi-hole binding to the curated helper", async () => {

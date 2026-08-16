@@ -28,7 +28,7 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-describe("durable Uptime Kuma lifecycle plans", () => {
+describe("durable managed-application lifecycle plans", () => {
   it("creates and stages an exact revision-bound restart plan", async () => {
     const { store, owner, service } = await setup();
     const plan = await service.plan("uptime-kuma", "restart", owner.id);
@@ -39,9 +39,37 @@ describe("durable Uptime Kuma lifecycle plans", () => {
     store.close();
   });
 
+  it("creates a network-critical Pi-hole lifecycle plan with independent-resolver recovery", async () => {
+    const { store, owner, service, helper } = await setup({
+      port: 8080,
+      lanAddress: "192.168.8.10",
+      dnsTcpBound: true,
+      dnsUdpBound: true,
+      detail: "Managed Pi-hole is healthy",
+    });
+    const plan = await service.plan("pi-hole", "stop", owner.id);
+    expect(plan).toMatchObject({
+      type: "application.action",
+      subjectId: "pi-hole",
+      input: { applicationId: "pi-hole", action: "stop", expectedRevision: "a".repeat(64) },
+      output: {
+        executable: true, applicationName: "Pi-hole", label: "Stop",
+        current: { state: "running", port: 8080, lanAddress: "192.168.8.10", dnsTcpBound: true, dnsUdpBound: true },
+        desired: { state: "stopped", healthy: false, port: 8080, lanAddress: "192.168.8.10" },
+        recovery: expect.stringContaining("independently tested resolver"),
+        boundaries: expect.arrayContaining([expect.stringContaining("interrupt DNS service")]),
+      },
+    });
+    const job = await service.stage(plan.id, plan.revision, owner.id);
+    expect(job).toMatchObject({ type: "application.pi-hole.action", title: "Stop Pi-hole", risk: "network-critical-service-availability", recovery: { automaticRollback: false } });
+    await expect(service.validateJob(job)).resolves.toMatchObject({ id: plan.id, status: "staged" });
+    expect(helper.request).toHaveBeenCalledWith("application.pi-hole.lifecycle.inspect", {});
+    store.close();
+  });
+
   it("rejects unsupported actions, identity failures, and state drift", async () => {
     const invalid = await setup();
-    await expect(invalid.service.plan("pi-hole", "restart", invalid.owner.id)).rejects.toThrow("adapter not found");
+    await expect(invalid.service.plan("unknown", "restart", invalid.owner.id)).rejects.toThrow("adapter not found");
     await expect(invalid.service.plan("uptime-kuma", "remove", invalid.owner.id)).rejects.toThrow("Unsupported");
     invalid.state.managed = false;
     await expect(invalid.service.plan("uptime-kuma", "restart", invalid.owner.id)).rejects.toThrow("Managed Uptime Kuma is healthy");

@@ -158,7 +158,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.57.0",
+    version: "0.58.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -224,7 +224,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
   response.json({
     inventory: "sanitized-host-maintenance-storage-ext4-error-counters-filesystem-smart-local-ups-docker-services-network-and-dns-topology",
     composeInspection: "browser-only",
-    applications: "curated-uptime-kuma-deploy-start-stop-restart-and-backup-no-cutover-pi-hole-and-fixed-keel-artifact-stage-native-install-terminal-claim-consistent-backup-stopped-recovery-clone-isolated-startup-rehearsal-rollback-backed-promotion-and-operator-rollback",
+    applications: "curated-uptime-kuma-and-no-cutover-pi-hole-deploy-start-stop-restart-and-backup-plus-fixed-keel-artifact-stage-native-install-terminal-claim-consistent-backup-stopped-recovery-clone-isolated-startup-rehearsal-rollback-backed-promotion-and-operator-rollback",
     supportBundle: "authenticated-server-generated-fixed-source-configurably-redacted",
     backups: "wal-aware-controller-local-restore-plus-encrypted-independent-restic-copy-uptime-kuma-pi-hole-and-keel-local-restore-drills-stopped-keel-recovery-clones-isolated-keel-startup-rehearsals-rollback-backed-keel-promotion-operator-rollback-and-vm-protection",
     migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
@@ -237,7 +237,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     vmCreationPlanning: "validated-durable-approved",
     audit: "redacted-jsonl-foundation",
     vmActions: { enabled: true, mode: "durable-approved-helper-jobs" },
-    applicationActions: { uptimeKuma: ["start", "stop", "restart"], mode: "durable-approved-exact-managed-container-only", remove: false, arbitraryContainer: false },
+    applicationActions: { uptimeKuma: ["start", "stop", "restart"], pihole: ["start", "stop", "restart"], mode: "durable-approved-exact-managed-container-only", routerCutover: false, remove: false, arbitraryContainer: false },
     vmSnapshots: { create: "offline-stopped-managed-qcow2-only", revert: false, delete: false, countsAsBackup: false },
     vmExports: { create: "offline-stopped-managed-qcow2-only", destination: "local-managed", integrityVerified: true, encrypted: false, protectedBackup: false, restoreDrill: false },
     vmProtection: { destination: "fixed-independent-mounted-restic", encrypted: true, repositoryReadVerified: true, isolatedRestoreDrill: "transient-no-network-guest-agent", protectedBackup: "after-passing-restore-drill", retentionMutation: "exact-protected-old-snapshot-forget-without-prune" },
@@ -1087,7 +1087,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.57.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.58.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

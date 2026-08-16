@@ -23,19 +23,21 @@ interface ApplicationManifest {
     provenance?: { status: string; checkedAt: string | null };
     boundary?: { mutationPerformed: boolean; environmentRead: boolean; databaseOpened: boolean; secretRead: boolean; arbitraryPathAccepted?: boolean };
     webUrl?: string | null; secretRetrievalCommand?: string; backup?: { state: string; verifiedAt: string | null };
-    lifecycle?: { installed: boolean; managed: boolean; state: string; running: boolean; healthy: boolean; port: number | null; revision: string | null; allowedActions: Array<"start" | "stop" | "restart">; detail: string };
+    lifecycle?: { installed: boolean; managed: boolean; state: string; running: boolean; healthy: boolean; lanAddress?: string | null; port: number | null; dnsTcpBound?: boolean; dnsUdpBound?: boolean; revision: string | null; allowedActions: Array<"start" | "stop" | "restart">; detail: string };
   };
 }
 
 interface ApplicationLifecyclePlan {
   id: string;
   revision: string;
-  input: { applicationId: "uptime-kuma"; action: "start" | "stop" | "restart"; expectedRevision: string };
+  input: { applicationId: "uptime-kuma" | "pi-hole"; action: "start" | "stop" | "restart"; expectedRevision: string };
   output: {
     executable: true;
+    applicationId: "uptime-kuma" | "pi-hole";
+    applicationName: string;
     label: string;
-    current: { state: string; healthy: boolean; port: number };
-    desired: { state: string; healthy: boolean; port: number };
+    current: { state: string; healthy: boolean; port: number; lanAddress: string | null; dnsTcpBound: boolean; dnsUdpBound: boolean };
+    desired: { state: string; healthy: boolean; port: number; lanAddress: string | null; dnsTcpBound: boolean; dnsUdpBound: boolean };
     changes: string[];
     recovery: string;
     boundaries: string[];
@@ -266,7 +268,7 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
             {application.live.secretRetrievalCommand && application.live.installed && <span className="app-live-detail">Password from Bigbox terminal: <code>{application.live.secretRetrievalCommand}</code></span>}
             {application.live.backup && <span className={`app-live-detail ${application.live.backup.state === "verified" ? "good-text" : application.live.backup.state === "required" ? "warning-text" : ""}`}>Backup: {application.live.backup.state === "verified" ? `restore verified ${new Date(application.live.backup.verifiedAt ?? "").toLocaleDateString()}` : application.live.backup.state}</span>}
             {application.id === "keel" && application.live.loginProof?.verified && <span className="app-live-detail good-text">Owner login and logout proved {new Date(application.live.loginProof.verifiedAt ?? "").toLocaleDateString()}</span>}
-            {application.id === "uptime-kuma" && application.live.installed ? (
+            {["uptime-kuma", "pi-hole"].includes(application.id) && application.live.installed ? (
               <div className="app-lifecycle-actions">
                 {application.live.lifecycle?.managed
                   ? application.live.lifecycle.allowedActions.map((action) => <button type="button" className="secondary-button" key={action} onClick={() => void generateLifecyclePlan(application, action)} disabled={submitting}>{action === "start" ? "Plan start" : action === "stop" ? "Plan stop" : "Plan restart"}</button>)
@@ -372,12 +374,12 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
       {selected && lifecyclePlan && (
         <div className="modal-backdrop" role="presentation">
           <section className="modal app-plan-dialog" role="dialog" aria-modal="true" aria-labelledby="application-lifecycle-title">
-            <header className="modal-header"><div><span className="eyebrow">Immutable managed-container action</span><h2 id="application-lifecycle-title">{lifecyclePlan.output.label} Uptime Kuma</h2></div><button className="icon-button" type="button" onClick={() => { setLifecyclePlan(null); setSelected(null); setMessage(null); setError(null); }} aria-label="Close application lifecycle plan">X</button></header>
+            <header className="modal-header"><div><span className="eyebrow">Immutable managed-container action</span><h2 id="application-lifecycle-title">{lifecyclePlan.output.label} {lifecyclePlan.output.applicationName}</h2></div><button className="icon-button" type="button" onClick={() => { setLifecyclePlan(null); setSelected(null); setMessage(null); setError(null); }} aria-label="Close application lifecycle plan">X</button></header>
             <dl className="vm-plan-summary">
               <div><dt>Current state</dt><dd>{lifecyclePlan.output.current.state}</dd></div>
               <div><dt>Desired state</dt><dd>{lifecyclePlan.output.desired.state}</dd></div>
-              <div><dt>Loopback port</dt><dd>{lifecyclePlan.output.current.port}</dd></div>
-              <div><dt>Persistent data</dt><dd>Preserved</dd></div>
+              <div><dt>{lifecyclePlan.output.applicationId === "pi-hole" ? "Private LAN" : "Loopback port"}</dt><dd>{lifecyclePlan.output.applicationId === "pi-hole" ? lifecyclePlan.output.current.lanAddress : lifecyclePlan.output.current.port}</dd></div>
+              <div><dt>{lifecyclePlan.output.applicationId === "pi-hole" ? "Web port" : "Persistent data"}</dt><dd>{lifecyclePlan.output.applicationId === "pi-hole" ? lifecyclePlan.output.current.port : "Preserved"}</dd></div>
             </dl>
             <div className="application-plan-result"><div><strong>Exact changes</strong><ol>{lifecyclePlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol></div></div>
             <div className="plan-warnings"><strong>Locked boundaries</strong>{lifecyclePlan.output.boundaries.map((boundary) => <span key={boundary}>{boundary}</span>)}</div>

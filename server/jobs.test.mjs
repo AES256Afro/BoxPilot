@@ -217,6 +217,39 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("revalidates and executes an exact Pi-hole lifecycle plan without router or client DNS authority", async () => {
+    const input = { applicationId: "pi-hole", action: "restart", expectedRevision: "b".repeat(64) };
+    const result = {
+      applicationId: "pi-hole", action: "restart", expectedRevision: input.expectedRevision,
+      performed: true, state: "running", running: true, healthy: true, lanAddress: "192.168.8.10", port: 8080,
+      dnsTcpBound: true, dnsUdpBound: true, dataPreserved: true, secretPreserved: true,
+      dhcpEnabled: false, routerMutationPerformed: false, dnsCutoverPerformed: false,
+      boundary: {
+        exactContainerOnly: true, imageChanged: false, composeChanged: false, dataDeleted: false, secretDeleted: false,
+        networkDeleted: false, routerChanged: false, clientDnsChanged: false, tailscaleChanged: false,
+        arbitraryContainerAccepted: false, arbitraryCommandAccepted: false,
+      },
+    };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const validateApplicationLifecycleJob = vi.fn(async () => ({ input, output: { label: "Restart", desired: { state: "running", lanAddress: "192.168.8.10", port: 8080 } } }));
+    const jobs = createJobService(store, helper, { validateApplicationLifecycleJob });
+    const job = store.createJob({
+      type: "application.pi-hole.action",
+      title: "Restart Pi-hole",
+      parameters: { planId: "plan-two", revision: "revision-two", input },
+      recovery: { automaticRollback: false },
+      createdBy: owner.id,
+    });
+
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+
+    expect(validateApplicationLifecycleJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("application.pi-hole.action", input);
+    expect(completed).toMatchObject({ state: "completed", result: { action: "restart", state: "running", dataPreserved: true, secretPreserved: true, routerMutationPerformed: false, dnsCutoverPerformed: false } });
+    store.close();
+  });
+
   it("revalidates and stages Pi-hole without granting router, DHCP, or DNS cutover authority", async () => {
     const input = { target: "docker", hostPort: 8080, lanAddress: "192.168.8.10", networkAssessmentId: "network-plan-one", fallbackDnsAddress: "94.140.14.59" };
     const result = {

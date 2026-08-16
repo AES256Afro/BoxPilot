@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import dgram from "node:dgram";
 import http from "node:http";
 import net from "node:net";
 import { keelArtifactSpec } from "./keel-artifact-spec.mjs";
@@ -98,6 +99,18 @@ async function defaultPortInspector(port, host = "127.0.0.1") {
   });
 }
 
+async function defaultUdpPortInspector(port, host) {
+  return new Promise((resolve) => {
+    const socket = dgram.createSocket("udp4");
+    socket.unref();
+    socket.once("error", (error) => {
+      socket.close();
+      resolve(error.code === "EADDRINUSE" ? true : null);
+    });
+    socket.bind({ address: host, port, exclusive: true }, () => socket.close(() => resolve(false)));
+  });
+}
+
 async function defaultKeelHealthInspector() {
   return new Promise((resolve) => {
     const request = http.get({ hostname: "127.0.0.1", port: 3000, path: "/api/health", timeout: 2500 }, (response) => {
@@ -123,7 +136,7 @@ export function listApplicationManifests() {
   return manifests.map(publicManifest);
 }
 
-export function createApplicationService({ store, prerequisites, helper, network, githubProvenance, inspectPort = defaultPortInspector, inspectKeelHealth = defaultKeelHealthInspector, hostPlatform = process.platform, hostArchitecture = process.arch } = {}) {
+export function createApplicationService({ store, prerequisites, helper, network, githubProvenance, inspectPort = defaultPortInspector, inspectUdpPort = defaultUdpPortInspector, inspectKeelHealth = defaultKeelHealthInspector, hostPlatform = process.platform, hostArchitecture = process.arch } = {}) {
   function getManifest(id) {
     return manifests.find((manifest) => manifest.id === id) ?? null;
   }
@@ -135,9 +148,9 @@ export function createApplicationService({ store, prerequisites, helper, network
       if (["uptime-kuma", "pi-hole"].includes(manifest.id)) {
         try {
           live = await helper.request(`application.${manifest.id}.inspect`, {});
-          if (manifest.id === "uptime-kuma" && live.installed) {
+          if (["uptime-kuma", "pi-hole"].includes(manifest.id) && live.installed) {
             try {
-              live.lifecycle = await helper.request("application.uptime-kuma.lifecycle.inspect", {});
+              live.lifecycle = await helper.request(`application.${manifest.id}.lifecycle.inspect`, {});
             } catch {
               live.lifecycle = { managed: false, allowedActions: [], revision: null, detail: "Managed lifecycle identity is unavailable" };
             }
@@ -230,6 +243,7 @@ export function createApplicationService({ store, prerequisites, helper, network
 
     const inventory = await prerequisites.inspect();
     const required = new Set(manifest.targetPrerequisites?.[target] ?? manifest.prerequisites);
+    if (manifest.id === "pi-hole" && target === "docker") required.delete("dns.port53");
     const relevantChecks = inventory.checks.filter((item) => required.has(item.id));
     const blockers = relevantChecks.filter((item) => item.status !== "ready").map((item) => ({ id: item.id, summary: item.summary, repair: item.repair }));
     let networkAssessment = null;
@@ -243,6 +257,13 @@ export function createApplicationService({ store, prerequisites, helper, network
         fallbackDnsAddress = networkAssessment.input.fallbackDnsAddress;
       } catch (error) {
         blockers.push({ id: "network.assessment", summary: error.message, repair: { kind: "guided", description: "Open Network Center, select Pi-hole on Bigbox, complete the recovery checklist, and generate a fresh assessment" } });
+      }
+      if (lanAddress) {
+        const [dnsTcpInUse, dnsUdpInUse] = await Promise.all([inspectPort(53, lanAddress), inspectUdpPort(53, lanAddress)]);
+        if (dnsTcpInUse === true) blockers.push({ id: "port.53.tcp", summary: `TCP port 53 is already in use on ${lanAddress}`, repair: { kind: "manual", description: "Identify the exact-address DNS listener or choose a separate reviewed VM address" } });
+        if (dnsUdpInUse === true) blockers.push({ id: "port.53.udp", summary: `UDP port 53 is already in use on ${lanAddress}`, repair: { kind: "manual", description: "Identify the exact-address DNS listener or choose a separate reviewed VM address" } });
+        if (dnsTcpInUse === null) blockers.push({ id: "port.53.tcp", summary: `BoxPilot could not verify TCP port 53 on ${lanAddress}`, repair: { kind: "manual", description: "Verify the exact LAN binding before approval" } });
+        if (dnsUdpInUse === null) blockers.push({ id: "port.53.udp", summary: `BoxPilot could not verify UDP port 53 on ${lanAddress}`, repair: { kind: "manual", description: "Verify the exact LAN binding before approval" } });
       }
     }
     let keelDiscovery = null;
@@ -428,7 +449,11 @@ export function createApplicationService({ store, prerequisites, helper, network
     if (!plan.output.executable || plan.output.blockers?.length) throw new Error("Plan has unresolved blockers or is planning-only");
     if (!["uptime-kuma", "pi-hole", "keel"].includes(plan.subjectId)) throw new Error("Application execution is not enabled for this adapter");
 
-    if (plan.subjectId === "pi-hole") await network.validateAssessment(plan.input.networkAssessmentId, ownerId, "pihole-on-bigbox");
+    if (plan.subjectId === "pi-hole") {
+      await network.validateAssessment(plan.input.networkAssessmentId, ownerId, "pihole-on-bigbox");
+      const [dnsTcpInUse, dnsUdpInUse] = await Promise.all([inspectPort(53, plan.input.lanAddress), inspectUdpPort(53, plan.input.lanAddress)]);
+      if (dnsTcpInUse !== false || dnsUdpInUse !== false) throw new Error("Host state changed: exact-address TCP and UDP port 53 are no longer verified free");
+    }
     if (plan.subjectId !== "keel") {
       const portInUse = await inspectPort(plan.input.hostPort, plan.input.lanAddress ?? "127.0.0.1");
       if (portInUse !== false) throw new Error("Host state changed: the planned port is no longer verified free");
@@ -470,6 +495,8 @@ export function createApplicationService({ store, prerequisites, helper, network
     if (job.type === "application.pi-hole.deploy") {
       const assessment = await network.validateAssessment(plan.input.networkAssessmentId, job.createdBy, "pihole-on-bigbox");
       if (assessment.input.serverAddress !== plan.input.lanAddress || job.parameters.lanAddress !== plan.input.lanAddress) throw new Error("Host state changed: the reviewed Pi-hole LAN address no longer matches");
+      const [dnsTcpInUse, dnsUdpInUse] = await Promise.all([inspectPort(53, plan.input.lanAddress), inspectUdpPort(53, plan.input.lanAddress)]);
+      if (dnsTcpInUse !== false || dnsUdpInUse !== false) throw new Error("Host state changed: exact-address TCP and UDP port 53 are no longer verified free");
     }
     if (job.type === "application.keel.stage") {
       const [artifactState, archiveState, stageState] = await Promise.all([
@@ -503,4 +530,4 @@ export function createApplicationService({ store, prerequisites, helper, network
   return { list, plan, stage, validateJob, getManifest };
 }
 
-export const applicationInternals = { canonical, defaultKeelHealthInspector, defaultPortInspector, keelArtifact, uptimeKumaImage, piholeImage };
+export const applicationInternals = { canonical, defaultKeelHealthInspector, defaultPortInspector, defaultUdpPortInspector, keelArtifact, uptimeKumaImage, piholeImage };
