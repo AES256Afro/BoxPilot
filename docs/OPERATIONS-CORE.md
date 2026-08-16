@@ -27,6 +27,7 @@ sudo install -m 0644 deploy/boxpilot.service /etc/systemd/system/boxpilot.servic
 sudo install -m 0644 deploy/boxpilot-storage-scan.service /etc/systemd/system/boxpilot-storage-scan.service
 sudo install -m 0644 deploy/boxpilot-storage-scan.timer /etc/systemd/system/boxpilot-storage-scan.timer
 sudo install -m 0644 deploy/boxpilot-smartmontools-install.service /etc/systemd/system/boxpilot-smartmontools-install.service
+sudo install -m 0644 deploy/boxpilot-restic-install.service /etc/systemd/system/boxpilot-restic-install.service
 sudo install -m 0644 deploy/boxpilot-apt-refresh.service /etc/systemd/system/boxpilot-apt-refresh.service
 sudo install -m 0644 deploy/boxpilot-keel-artifact.service /etc/systemd/system/boxpilot-keel-artifact.service
 sudo systemctl daemon-reload
@@ -52,6 +53,8 @@ Version `0.42.0` adds a static Keel artifact one-shot. Install its unit, but do 
 Version `0.43.0` adds a parameter-free read-only Keel archive membership operation inside the network-isolated helper. It rechecks the fixed compressed identity and parses the archive in place under hard member and size ceilings. No extraction unit or installation unit exists. The current 1.2.5 result is blocked by one symbolic link with an absolute build-workspace target.
 
 Version `0.44.0` adds parameter-free inspection and one exact typed create operation for independent Uptime Kuma and Pi-hole protection. The helper derives the fixed local archive, separate `restic-applications` repository and password file, cache, and drill path. It accepts only the application id, two UUIDs, approved hash and size, and destination revision. A complete repository data read and exact restored archive hash are mandatory. The application, local artifact, router, DNS, repository retention, and production restore state remain unchanged. Configure the separate terminal-only key with `sudo /opt/boxpilot/scripts/boxpilot-application-restic-setup.sh`; see [Verified application backups](BACKUPS.md).
+
+Version `0.45.0` adds a separately named fixed `restic` package repair. The read-only helper inspection accepts no parameters. Its immutable plan captures the hard-coded package's exact installed state and configured APT candidate, then requires staging and owner-password approval. The helper delegates an absent package only to `boxpilot-restic-install.service`, which independently rechecks a short-lived root-only marker, pins the exact version, verifies dpkg state, and probes `/usr/bin/restic version`. It does not run `apt-get update`, accept a package or repository selector, configure a mount or key, initialize a repository, start a backup, change retention, or remove a package. See [Exact prerequisite repair boundary](PREREQUISITE-REPAIRS.md).
 
 The manual console fallback remains:
 

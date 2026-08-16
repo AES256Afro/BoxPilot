@@ -75,6 +75,24 @@ interface SmartRepairPlan {
   };
 }
 
+interface ResticRepairPlan {
+  id: string;
+  revision: string;
+  expiresAt: string;
+  output: {
+    package: "restic";
+    selectedVersion: string;
+    currentState: string;
+    action: string;
+    networkAccess: boolean;
+    aptUpdatePerformed: boolean;
+    arbitraryPackageSelection: boolean;
+    automaticRollback: boolean;
+    storageSetupPerformed: boolean;
+    recovery: string;
+  };
+}
+
 interface AptRefreshPlan {
   id: string;
   revision: string;
@@ -113,6 +131,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
   const [smartRepairPlan, setSmartRepairPlan] = useState<SmartRepairPlan | null>(null);
+  const [resticRepairPlan, setResticRepairPlan] = useState<ResticRepairPlan | null>(null);
   const [aptRefreshPlan, setAptRefreshPlan] = useState<AptRefreshPlan | null>(null);
 
   const refresh = useCallback(async () => {
@@ -202,6 +221,42 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       await refresh();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to stage the smartmontools repair plan");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const createResticRepairPlan = async () => {
+    setPending(true);
+    setError(null);
+    try {
+      const result = await readJson<{ plan: ResticRepairPlan }>(await fetch("/api/v1/prerequisite-repairs/restic/plans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({}),
+      }));
+      setResticRepairPlan(result.plan);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to create the restic repair plan");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const stageResticRepairPlan = async () => {
+    if (!resticRepairPlan) return;
+    setPending(true);
+    setError(null);
+    try {
+      await readJson(await fetch(`/api/v1/prerequisite-repair-plans/${resticRepairPlan.id}/stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ revision: resticRepairPlan.revision }),
+      }));
+      setResticRepairPlan(null);
+      await refresh();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to stage the restic repair plan");
     } finally {
       setPending(false);
     }
@@ -297,6 +352,20 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
           <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => setSmartRepairPlan(null)} disabled={pending}>Discard plan</button><button className="primary-button" type="button" onClick={() => void stageSmartRepairPlan()} disabled={pending}>{pending ? "Staging..." : "Stage exact repair for password approval"}</button></footer>
         </section>
       )}
+      {resticRepairPlan && (
+        <section className="panel prerequisite-repair-plan">
+          <header className="panel-header"><div><span className="eyebrow">Exact prerequisite repair plan</span><strong>restic {resticRepairPlan.output.selectedVersion}</strong><span>Revision {resticRepairPlan.revision} | expires {new Date(resticRepairPlan.expiresAt).toLocaleString()}</span></div><span className="status-pill status-warning">system package</span></header>
+          <div className="prerequisite-repair-grid">
+            <div><span>Current state</span><strong>{resticRepairPlan.output.currentState}</strong></div>
+            <div><span>Network access</span><strong>{resticRepairPlan.output.networkAccess ? "Required for the fixed APT install" : "Not required"}</strong></div>
+            <div><span>APT update</span><strong>{resticRepairPlan.output.aptUpdatePerformed ? "Planned" : "Not permitted"}</strong></div>
+            <div><span>Storage setup</span><strong>{resticRepairPlan.output.storageSetupPerformed ? "Planned" : "Separate terminal step"}</strong></div>
+          </div>
+          <p>{resticRepairPlan.output.action}</p>
+          <div className="recovery-boundary"><strong>Fixed boundary</strong><span>No package name, repository, password, command, argument, mount, backup target, or retention rule comes from the browser. Installation does not mount a disk, create a recovery key, initialize a repository, or start a backup. {resticRepairPlan.output.recovery}</span></div>
+          <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => setResticRepairPlan(null)} disabled={pending}>Discard plan</button><button className="primary-button" type="button" onClick={() => void stageResticRepairPlan()} disabled={pending}>{pending ? "Staging..." : "Stage exact repair for password approval"}</button></footer>
+        </section>
+      )}
       {aptRefreshPlan && (
         <section className="panel prerequisite-repair-plan">
           <header className="panel-header"><div><span className="eyebrow">Exact prerequisite repair plan</span><strong>APT metadata refresh</strong><span>Revision {aptRefreshPlan.revision} | expires {new Date(aptRefreshPlan.expiresAt).toLocaleString()}</span></div><span className="status-pill status-warning">package metadata</span></header>
@@ -378,7 +447,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
           {checks.map((item) => (
             <article className="repair-check" key={item.id}>
               <span className={`repair-state repair-${item.status}`}>{item.status}</span>
-              <div><small>{item.group}</small><strong>{item.name}</strong><p>{item.summary}</p>{item.repair && <em>{item.repair.description}</em>}{item.id === "storage.smartmontools" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createSmartRepairPlan()} disabled={pending || smartRepairPlan !== null || aptRefreshPlan !== null}>Review exact repair</button>}{item.id === "host.apt-metadata" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createAptRefreshPlan()} disabled={pending || smartRepairPlan !== null || aptRefreshPlan !== null}>Review metadata refresh</button>}</div>
+              <div><small>{item.group}</small><strong>{item.name}</strong><p>{item.summary}</p>{item.repair && <em>{item.repair.description}</em>}{item.id === "storage.smartmontools" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createSmartRepairPlan()} disabled={pending || smartRepairPlan !== null || resticRepairPlan !== null || aptRefreshPlan !== null}>Review exact repair</button>}{item.id === "backup.restic" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createResticRepairPlan()} disabled={pending || smartRepairPlan !== null || resticRepairPlan !== null || aptRefreshPlan !== null}>Review restic repair</button>}{item.id === "host.apt-metadata" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createAptRefreshPlan()} disabled={pending || smartRepairPlan !== null || resticRepairPlan !== null || aptRefreshPlan !== null}>Review metadata refresh</button>}</div>
             </article>
           ))}
         </section>
@@ -395,7 +464,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
               <strong>Approval required</strong>
               <span>Re-enter your owner password. It is verified in memory and never stored in the job.</span>
               <input aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
-              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? (["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.keel.artifact.acquire", "controller.database.backup", "controller.database.backup.protect", "application.backup.protect", "network.dns.acceptance.run", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(awaitingApproval.type) ? "Starting..." : "Running...") : "Approve and run"}</button>
+              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? (["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh", "application.keel.artifact.acquire", "controller.database.backup", "controller.database.backup.protect", "application.backup.protect", "network.dns.acceptance.run", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(awaitingApproval.type) ? "Starting..." : "Running...") : "Approve and run"}</button>
             </div>
           )}
         </aside>

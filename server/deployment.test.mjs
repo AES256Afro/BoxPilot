@@ -52,7 +52,7 @@ describe("native systemd network boundaries", () => {
     expect(dockerfile).toContain("BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot");
     expect(dockerfile).toContain("BOXPILOT_COOKIE_SECURE=false");
     expect(dockerfile).toContain("USER node");
-    expect(compose).toContain("image: boxpilot:0.44.0");
+    expect(compose).toContain("image: boxpilot:0.45.0");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("/tmp:size=16m,mode=1777");
   });
@@ -132,6 +132,30 @@ describe("native systemd network boundaries", () => {
     expect(service).not.toContain("$PACKAGE");
     expect(service).not.toContain("[Install]");
     expect(protocol).toContain("prerequisite.smartmontools.install");
+    expect(protocol).not.toContain("package.install");
+  });
+
+  it("ships a separate static exact-package restic installer without repository setup inputs", async () => {
+    const service = await readFile("deploy/boxpilot-restic-install.service", "utf8");
+    const installer = await readFile("scripts/boxpilot-restic-install.mjs", "utf8");
+    const protocol = await readFile("server/helper-protocol.mjs", "utf8");
+    const metadata = await stat("scripts/boxpilot-restic-install.mjs");
+    expect(metadata.mode & 0o111).not.toBe(0);
+    expect(service).toContain("Type=oneshot");
+    expect(service).toContain("ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-restic-install.mjs");
+    expect(service).toContain("ConditionPathExists=!/usr/bin/restic");
+    expect(service).toContain("ConditionPathExists=/run/boxpilot/restic-approval.json");
+    expect(installer).toContain("`restic=${approval.expectedVersion}`");
+    expect(installer).toContain('["version"]');
+    expect(installer).toContain("process.argv.length !== 2");
+    expect(service).not.toContain("apt-get update");
+    expect(installer).not.toContain("apt-get update");
+    expect(installer).not.toContain("restic init");
+    expect(installer).not.toContain("--repo");
+    expect(service).not.toContain("%i");
+    expect(service).not.toContain("$PACKAGE");
+    expect(service).not.toContain("[Install]");
+    expect(protocol).toContain("prerequisite.restic.install");
     expect(protocol).not.toContain("package.install");
   });
 
