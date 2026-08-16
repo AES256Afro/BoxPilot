@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.50.1", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.51.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -193,6 +193,24 @@ describe("restricted helper protocol", () => {
     };
     await expect(executeHelperOperation(request({ operation: "application.keel.recovery-drill.inspect", parameters: { recoveryId } }), { keelRecoveryDrill })).resolves.toMatchObject({ ok: true, result: { ready: true, drillNetwork: "private-loopback-only" } });
     await expect(executeHelperOperation(request({ operation: "application.keel.recovery-drill.create", parameters }), { keelRecoveryDrill })).resolves.toMatchObject({ ok: true, result: { passed: true, workspaceRemoved: true } });
+  });
+
+  it("accepts only exact drilled recovery and managed-install evidence for Keel promotion", async () => {
+    const inspectParameters = {
+      drillId: "22222222-2222-4222-8222-222222222222", recoveryId: "11111111-1111-4111-8111-111111111111",
+      expectedEvidenceChecksumSha256: "a".repeat(64), expectedStateTreeDigestSha256: "b".repeat(64),
+    };
+    const parameters = { ...inspectParameters, promotionId: "33333333-3333-4333-8333-333333333333", expectedInstallId: "44444444-4444-4444-8444-444444444444" };
+    expect(validateHelperRequest(request({ operation: "application.keel.promotion.inspect", parameters: inspectParameters }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.keel.promotion.inspect", parameters: { ...inspectParameters, path: "/var/lib/keel" } }))).toContain("fixed recovery and drill evidence");
+    expect(validateHelperRequest(request({ operation: "application.keel.promotion.create", parameters }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.keel.promotion.create", parameters: { ...parameters, command: "sh" } }))).toContain("fixed promotion");
+    const keelPromotion = {
+      inspect: vi.fn(async () => ({ ready: true, installId: parameters.expectedInstallId, rollbackDestination: "managed-keel-promotion-rollback" })),
+      create: vi.fn(async () => ({ passed: true, promotionId: parameters.promotionId, recoveryId: parameters.recoveryId, rollbackAvailable: true })),
+    };
+    await expect(executeHelperOperation(request({ operation: "application.keel.promotion.inspect", parameters: inspectParameters }), { keelPromotion })).resolves.toMatchObject({ ok: true, result: { ready: true, rollbackDestination: "managed-keel-promotion-rollback" } });
+    await expect(executeHelperOperation(request({ operation: "application.keel.promotion.create", parameters }), { keelPromotion })).resolves.toMatchObject({ ok: true, result: { passed: true, rollbackAvailable: true } });
   });
 
   it("delegates only a typed Pi-hole backup id to the curated helper", async () => {

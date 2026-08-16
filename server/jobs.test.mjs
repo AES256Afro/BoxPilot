@@ -426,6 +426,38 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("runs only the exact drilled Keel production promotion and records rollback evidence", async () => {
+    const input = {
+      promotionId: "11111111-1111-4111-8111-111111111111", recoveryId: "22222222-2222-4222-8222-222222222222",
+      drillId: "33333333-3333-4333-8333-333333333333", expectedInstallId: "44444444-4444-4444-8444-444444444444",
+      expectedEvidenceChecksumSha256: "a".repeat(64), expectedStateTreeDigestSha256: "b".repeat(64),
+    };
+    const result = {
+      schemaVersion: 1, passed: true, ...input, previousInstallId: input.expectedInstallId,
+      sourceEvidenceChecksumSha256: input.expectedEvidenceChecksumSha256, sourceStateTreeDigestSha256: input.expectedStateTreeDigestSha256,
+      previousStateTreeDigestSha256: "c".repeat(64), promotedStateTreeDigestSha256: input.expectedStateTreeDigestSha256,
+      rollbackAvailable: true, healthIdentityVerified: true, databaseIntegrity: "ok", foreignKeyIssues: 0, schemaVerified: true,
+      productionStateReplaced: true, sourceRecoveryUnchanged: true, ownerLoginTested: false, publishedPortsChanged: false,
+      tailscaleChanged: false, firewallChanged: false, routerChanged: false,
+    };
+    let finish;
+    const helper = { request: vi.fn(() => new Promise((resolve) => { finish = resolve; })) };
+    const { store, owner } = await setup(helper);
+    const validateKeelPromotionJob = vi.fn(async () => ({ input }));
+    const recordKeelPromotionResult = vi.fn();
+    const jobs = createJobService(store, helper, { validateKeelPromotionJob, recordKeelPromotionResult });
+    const job = store.createJob({ type: "application.keel.promotion", title: "Promote Keel recovery", risk: "critical", parameters: { input }, recovery: { automaticRollback: true }, createdBy: owner.id });
+
+    const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
+    expect(started.state).toBe("applying");
+    expect(validateKeelPromotionJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("application.keel.promotion.create", input, { timeoutMs: 20 * 60 * 1000 });
+    finish(result);
+    await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
+    expect(recordKeelPromotionResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
+    store.close();
+  });
+
   it("runs a migration bundle transfer in the background without sending source records or paths to the helper", async () => {
     const input = {
       transferId: "11111111-1111-4111-8111-111111111111",

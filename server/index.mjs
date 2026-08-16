@@ -20,6 +20,7 @@ import { createJobService } from "./jobs.mjs";
 import { createKeelArtifactService } from "./keel-artifacts.mjs";
 import { createKeelRecoveryService } from "./keel-recovery.mjs";
 import { createKeelRecoveryDrillService } from "./keel-recovery-drill.mjs";
+import { createKeelPromotionService } from "./keel-promotion.mjs";
 import { getSetupPlan } from "./libvirt.mjs";
 import { createMigrationService } from "./migrations.mjs";
 import { createMaintenanceService } from "./maintenance.mjs";
@@ -63,6 +64,7 @@ const applications = createApplicationService({ store: state, prerequisites, hel
 const keelArtifacts = createKeelArtifactService({ store: state, prerequisites, helper, githubProvenance });
 const keelRecoveries = createKeelRecoveryService({ store: state, helper });
 const keelRecoveryDrills = createKeelRecoveryDrillService({ store: state, helper });
+const keelPromotions = createKeelPromotionService({ store: state, helper });
 const backups = createBackupService({ store: state, prerequisites, helper });
 const applicationProtection = createApplicationProtectionService({ store: state, helper });
 const controllerProtection = createControllerProtectionService({ store: state, helper });
@@ -92,6 +94,8 @@ const jobs = createJobService(state, helper, {
   recordKeelRecoveryResult: keelRecoveries.recordResult,
   validateKeelRecoveryDrillJob: keelRecoveryDrills.validateJob,
   recordKeelRecoveryDrillResult: keelRecoveryDrills.recordResult,
+  validateKeelPromotionJob: keelPromotions.validateJob,
+  recordKeelPromotionResult: keelPromotions.recordResult,
   validateBackupJob: backups.validateJob,
   recordBackupResult: backups.recordResult,
   validateApplicationProtectionJob: applicationProtection.validateJob,
@@ -144,7 +148,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.50.1",
+    version: "0.51.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -210,14 +214,14 @@ app.get("/api/v1/capabilities", (_request, response) => {
   response.json({
     inventory: "sanitized-host-maintenance-storage-ext4-error-counters-filesystem-smart-local-ups-docker-services-network-and-dns-topology",
     composeInspection: "browser-only",
-    applications: "curated-uptime-kuma-no-cutover-pi-hole-and-fixed-keel-artifact-stage-native-install-terminal-claim-consistent-backup-stopped-recovery-clone-and-isolated-startup-rehearsal",
+    applications: "curated-uptime-kuma-no-cutover-pi-hole-and-fixed-keel-artifact-stage-native-install-terminal-claim-consistent-backup-stopped-recovery-clone-isolated-startup-rehearsal-and-rollback-backed-promotion",
     supportBundle: "authenticated-server-generated-fixed-source-configurably-redacted",
-    backups: "wal-aware-controller-local-restore-plus-encrypted-independent-restic-copy-uptime-kuma-pi-hole-and-keel-local-restore-drills-stopped-keel-recovery-clones-isolated-keel-startup-rehearsals-and-vm-protection",
+    backups: "wal-aware-controller-local-restore-plus-encrypted-independent-restic-copy-uptime-kuma-pi-hole-and-keel-local-restore-drills-stopped-keel-recovery-clones-isolated-keel-startup-rehearsals-rollback-backed-keel-promotion-and-vm-protection",
     migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
     network: "read-only-topology-approved-fixed-pi-hole-and-observed-gateway-direct-dns-acceptance-plus-signed-second-device-evidence",
-    privilegedHelper: "typed-canary-exact-smartmontools-and-restic-repairs-fixed-apt-metadata-refresh-controller-local-backup-independent-restic-protection-curated-applications-fixed-keel-artifact-stage-install-backup-stopped-recovery-and-isolated-recovery-drill-migration-inventory-logs-and-vm-workflows",
+    privilegedHelper: "typed-canary-exact-smartmontools-and-restic-repairs-fixed-apt-metadata-refresh-controller-local-backup-independent-restic-protection-curated-applications-fixed-keel-artifact-stage-install-backup-stopped-recovery-isolated-recovery-drill-and-rollback-backed-promotion-migration-inventory-logs-and-vm-workflows",
     identity: "owner-password-foundation",
-    durableJobs: "sqlite-approved-prerequisite-controller-local-backup-controller-independent-protection-application-backup-keel-artifact-stage-install-backup-stopped-recovery-and-isolated-recovery-drill-dns-migration-and-vm-workflows",
+    durableJobs: "sqlite-approved-prerequisite-controller-local-backup-controller-independent-protection-application-backup-keel-artifact-stage-install-backup-stopped-recovery-isolated-recovery-drill-and-rollback-backed-promotion-dns-migration-and-vm-workflows",
     virtualization: "live-libvirt-via-restricted-helper",
     vmCreationPlanning: "validated-durable-approved",
     audit: "redacted-jsonl-foundation",
@@ -226,7 +230,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     vmExports: { create: "offline-stopped-managed-qcow2-only", destination: "local-managed", integrityVerified: true, encrypted: false, protectedBackup: false, restoreDrill: false },
     vmProtection: { destination: "fixed-independent-mounted-restic", encrypted: true, repositoryReadVerified: true, isolatedRestoreDrill: "transient-no-network-guest-agent", protectedBackup: "after-passing-restore-drill", retentionMutation: "exact-protected-old-snapshot-forget-without-prune" },
     vmRecovery: { create: "protected-snapshot-to-new-stopped-persistent-domain", network: "none", autostart: false, inPlaceRestore: false, sourceDeletion: false },
-    keelRecovery: { create: "verified-local-archive-to-new-root-only-stopped-state", startupDrill: "disposable-copy-private-loopback-health-and-sqlite", network: "none-until-drill-private-namespace", applicationStartedInSource: false, ownerLoginTested: false, productionRestore: false, promotion: false, sourceChanged: false },
+    keelRecovery: { create: "verified-local-archive-to-new-root-only-stopped-state", startupDrill: "disposable-copy-private-loopback-health-and-sqlite", network: "none-until-drill-private-namespace-then-existing-production-loopback", applicationStartedInSource: false, ownerLoginTested: false, productionRestore: "exact-passing-drill-only", promotion: "atomic-old-state-checkpoint-with-automatic-failure-rollback", operatorRequestedRollback: false, rollbackRetention: false, sourceChanged: false },
     vmConsole: { nativeProxy: false, cockpitHandoff: "detect-existing-only" },
     controllerBackup: { source: "fixed-live-sqlite", snapshot: "vacuum-into-wal-aware", localDestination: "root-only-local-managed", independentDestination: "fixed-mounted-restic-controller", repositoryReadVerified: true, restoreDrill: "exact-snapshot-isolated-copy-open-integrity-foreign-key-schema", downtime: false, encrypted: true, independent: "after-passing-restic-restore-drill", retention: "exact-protected-old-snapshot-forget-without-prune", prune: false, browserPath: false, browserPassword: false },
     fleet: { enrollment: "one-time-digest-stored-token", identity: "ed25519-signed-replay-protected", execution: "node-local-allowlisted-pi-hole-or-default-gateway-dns-probe-only", scheduling: "password-approved-one-shot-fixed-delay-only", recurrence: false, controllerShellAccess: false, arbitraryTarget: false },
@@ -638,6 +642,30 @@ app.post("/api/v1/keel-recovery-drill-plans/:id/stage", async (request, response
   }
 });
 
+app.get("/api/v1/keel-recovery-promotions", (_request, response) => {
+  response.json({ promotions: keelPromotions.list() });
+});
+
+app.post("/api/v1/keel-recoveries/:id/promotion-plans", async (request, response) => {
+  try {
+    const plan = await keelPromotions.plan(request.params.id, request.boxpilotSession.owner.id);
+    response.status(201).json({ plan });
+  } catch (error) {
+    const status = error.message === "Stopped Keel recovery clone not found" ? 404 : 400;
+    response.status(status).json({ error: error.message, code: "keel_promotion_plan_failed" });
+  }
+});
+
+app.post("/api/v1/keel-promotion-plans/:id/stage", async (request, response) => {
+  try {
+    const job = await keelPromotions.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
+    response.status(201).json({ job });
+  } catch (error) {
+    const status = error.message === "Keel production promotion plan not found" ? 404 : 409;
+    response.status(status).json({ error: error.message, code: "keel_promotion_stage_failed" });
+  }
+});
+
 app.get("/api/v1/controller-backup-protection", async (_request, response) => {
   response.json(await controllerProtection.list());
 });
@@ -699,7 +727,7 @@ app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
+    const background = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, request.body?.password)
       : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
@@ -960,7 +988,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.50.1 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.51.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });
