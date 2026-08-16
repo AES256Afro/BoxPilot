@@ -93,9 +93,11 @@ function sanitizeLogMessage(value) {
 export function createApplicationHelper({
   appRoot = process.env.BOXPILOT_APP_ROOT ?? "/var/lib/boxpilot-managed/apps",
   dockerBinary = process.env.BOXPILOT_DOCKER_BINARY ?? "/usr/bin/docker",
+  tailscaleBinary = process.env.BOXPILOT_TAILSCALE_BINARY ?? "/usr/bin/tailscale",
   tarBinary = process.env.BOXPILOT_TAR_BINARY ?? "/usr/bin/tar",
   journalctlBinary = process.env.BOXPILOT_JOURNALCTL_BINARY ?? "/usr/bin/journalctl",
   runDocker = defaultDockerRunner,
+  runTailscale = defaultDockerRunner,
   runArchive = defaultArchiveRunner,
   runJournal = defaultArchiveRunner,
   wait = delay,
@@ -118,6 +120,10 @@ export function createApplicationHelper({
 
   async function docker(args, options) {
     return runDocker(dockerBinary, args, options);
+  }
+
+  async function tailscale(args, options) {
+    return runTailscale(tailscaleBinary, args, options);
   }
 
   async function inspect() {
@@ -580,6 +586,130 @@ export function createApplicationHelper({
     };
   }
 
+  async function inspectUptimeKumaPrivateAccess() {
+    const application = await inspectUptimeKumaLifecycle();
+    if (!application.installed || !application.managed || !Number.isInteger(application.port)) {
+      return {
+        installed: application.installed,
+        managedApplication: application.managed,
+        connected: false,
+        published: false,
+        tailnetOnly: false,
+        conflict: false,
+        dnsName: null,
+        port: application.port,
+        url: null,
+        revision: null,
+        applicationRevision: application.revision ?? null,
+        configurationBoundaryRevision: null,
+        allowedActions: [],
+        detail: "Exact managed Uptime Kuma identity is required before private access can be configured",
+        boundary: { fixedApplication: true, fixedLoopbackTarget: true, funnelEnabled: false, publicExposure: false, firewallChanged: false, routerChanged: false, dnsChanged: false, containerChanged: false, arbitraryTargetAccepted: false, arbitraryPortAccepted: false, mutationPerformed: false },
+      };
+    }
+
+    try {
+      const [statusResult, serveResult, serveTextResult] = await Promise.all([
+        tailscale(["status", "--json"], { timeout: 8000 }),
+        tailscale(["serve", "status", "--json"], { timeout: 8000 }),
+        tailscale(["serve", "status"], { timeout: 8000 }),
+      ]);
+      const status = JSON.parse(statusResult.stdout);
+      const serve = JSON.parse(serveResult.stdout);
+      const dnsName = typeof status.Self?.DNSName === "string" ? status.Self.DNSName.replace(/\.$/, "") : null;
+      if (status.BackendState !== "Running" || !/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?\.ts\.net$/i.test(String(dnsName ?? ""))) throw new Error("Tailscale is not connected with a valid tailnet DNS name");
+      const port = application.port;
+      const target = `http://127.0.0.1:${port}`;
+      const url = `https://${dnsName}:${port}/`;
+      const webKey = `${dnsName}:${port}`;
+      const tcp = serve?.TCP && typeof serve.TCP === "object" ? serve.TCP : {};
+      const web = serve?.Web && typeof serve.Web === "object" ? serve.Web : {};
+      const tcpEntry = tcp[String(port)] ?? null;
+      const webEntry = web[webKey] ?? null;
+      const handlers = webEntry?.Handlers && typeof webEntry.Handlers === "object" ? webEntry.Handlers : {};
+      const published = tcpEntry?.HTTPS === true
+        && Object.keys(tcpEntry).length === 1
+        && handlers["/"]?.Proxy === target
+        && Object.keys(handlers).length === 1;
+      const portConfigured = tcpEntry !== null || webEntry !== null || Object.keys(web).some((key) => key.endsWith(`:${port}`));
+      const conflict = portConfigured && !published;
+      const tailnetOnly = published && serveTextResult.stdout.split("\n").some((line) => line.includes(url.slice(0, -1)) && line.includes("(tailnet only)"));
+      const otherConfiguration = JSON.parse(JSON.stringify(serve));
+      if (otherConfiguration.TCP) delete otherConfiguration.TCP[String(port)];
+      if (otherConfiguration.Web) delete otherConfiguration.Web[webKey];
+      if (otherConfiguration.TCP && Object.keys(otherConfiguration.TCP).length === 0) delete otherConfiguration.TCP;
+      if (otherConfiguration.Web && Object.keys(otherConfiguration.Web).length === 0) delete otherConfiguration.Web;
+      const configurationBoundaryRevision = createHash("sha256").update(applicationInternals.canonical(otherConfiguration)).digest("hex");
+      const revision = createHash("sha256").update(applicationInternals.canonical({ applicationRevision: application.revision, connected: true, dnsName, port, published, tailnetOnly, conflict, configurationBoundaryRevision })).digest("hex");
+      const safePublished = published && tailnetOnly && !conflict;
+      return {
+        installed: true,
+        managedApplication: true,
+        connected: true,
+        published: safePublished,
+        tailnetOnly: safePublished,
+        conflict,
+        dnsName,
+        port,
+        url: safePublished ? url : null,
+        revision,
+        applicationRevision: application.revision,
+        configurationBoundaryRevision,
+        allowedActions: conflict ? [] : safePublished ? ["unpublish"] : application.running && application.healthy ? ["publish"] : [],
+        detail: conflict
+          ? `Tailscale HTTPS port ${port} has a configuration BoxPilot does not manage`
+          : safePublished
+            ? `Uptime Kuma is privately available to permitted tailnet users at ${url}`
+            : application.running && application.healthy
+              ? `Uptime Kuma is healthy but has no private Tailscale route on HTTPS port ${port}`
+              : "Uptime Kuma must be running and healthy before private access can be published",
+        boundary: { fixedApplication: true, fixedLoopbackTarget: true, funnelEnabled: published && !tailnetOnly, publicExposure: published && !tailnetOnly, firewallChanged: false, routerChanged: false, dnsChanged: false, containerChanged: false, arbitraryTargetAccepted: false, arbitraryPortAccepted: false, mutationPerformed: false },
+      };
+    } catch (error) {
+      return {
+        installed: true,
+        managedApplication: true,
+        connected: false,
+        published: false,
+        tailnetOnly: false,
+        conflict: false,
+        dnsName: null,
+        port: application.port,
+        url: null,
+        revision: null,
+        applicationRevision: application.revision,
+        configurationBoundaryRevision: null,
+        allowedActions: [],
+        detail: `Private Tailscale access inspection is unavailable: ${sanitizeLogMessage(error.message)}`,
+        boundary: { fixedApplication: true, fixedLoopbackTarget: true, funnelEnabled: false, publicExposure: false, firewallChanged: false, routerChanged: false, dnsChanged: false, containerChanged: false, arbitraryTargetAccepted: false, arbitraryPortAccepted: false, mutationPerformed: false },
+      };
+    }
+  }
+
+  async function configureUptimeKumaPrivateAccess({ action, expectedRevision }) {
+    if (!["publish", "unpublish"].includes(action) || !/^[a-f0-9]{64}$/.test(String(expectedRevision ?? ""))) throw new Error("Private access accepts only a fixed action and exact state revision");
+    const before = await inspectUptimeKumaPrivateAccess();
+    if (!before.connected || before.conflict || before.revision !== expectedRevision || !before.allowedActions.includes(action)) throw new Error("Private access state changed or failed exact identity validation");
+    if (action === "publish") await tailscale(["serve", "--bg", "--yes", `--https=${before.port}`, `http://127.0.0.1:${before.port}`], { timeout: 30000 });
+    if (action === "unpublish") await tailscale(["serve", "--yes", `--https=${before.port}`, "off"], { timeout: 30000 });
+    const after = await inspectUptimeKumaPrivateAccess();
+    if (!after.connected || after.conflict || after.applicationRevision !== before.applicationRevision || after.configurationBoundaryRevision !== before.configurationBoundaryRevision) throw new Error("Private access changed outside the exact Uptime Kuma route boundary");
+    if (action === "publish" ? !after.published || !after.tailnetOnly || after.url !== `https://${after.dnsName}:${after.port}/` : after.published) throw new Error(`Private access ${action} failed exact post-action verification`);
+    return {
+      applicationId: "uptime-kuma",
+      action,
+      performed: true,
+      expectedRevision,
+      revisionAfter: after.revision,
+      published: after.published,
+      tailnetOnly: after.tailnetOnly,
+      url: after.url,
+      dnsName: after.dnsName,
+      port: after.port,
+      boundary: { exactApplicationRouteOnly: true, otherServeConfigurationChanged: false, funnelEnabled: false, publicExposure: false, firewallChanged: false, routerChanged: false, dnsChanged: false, containerChanged: false, arbitraryTargetAccepted: false, arbitraryPortAccepted: false },
+    };
+  }
+
   async function inspectDocker() {
     const result = await docker(["version", "--format", "{{.Server.Version}}"], { timeout: 5000 });
     return { available: true, version: result.stdout || "available" };
@@ -982,7 +1112,7 @@ export function createApplicationHelper({
     }
   }
 
-  return { appDirectory, composePath, dataDirectory, piholeDirectory, piholeComposePath, piholeDataDirectory, piholeSecretPath, piholeBackupMarkerPath, inspectDocker, inventoryDocker, inspectLogs, inspect, inspectUptimeKumaLifecycle, actionUptimeKuma, inspectPihole, inspectPiholeLifecycle, actionPihole, deploy, deployPihole, backup, backupPihole, recoverInterruptedPiholeBackup };
+  return { appDirectory, composePath, dataDirectory, piholeDirectory, piholeComposePath, piholeDataDirectory, piholeSecretPath, piholeBackupMarkerPath, inspectDocker, inventoryDocker, inspectLogs, inspect, inspectUptimeKumaLifecycle, actionUptimeKuma, inspectUptimeKumaPrivateAccess, configureUptimeKumaPrivateAccess, inspectPihole, inspectPiholeLifecycle, actionPihole, deploy, deployPihole, backup, backupPihole, recoverInterruptedPiholeBackup };
 }
 
 export const applicationHelperInternals = { composeDefinition, piholeComposeDefinition, containerName, piholeContainerName, piholeCapabilities, parseJsonLines, sanitizeLogMessage, logSources };

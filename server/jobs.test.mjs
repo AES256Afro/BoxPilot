@@ -217,6 +217,33 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("revalidates and publishes only the exact private Uptime Kuma tailnet route", async () => {
+    const input = { applicationId: "uptime-kuma", action: "publish", expectedRevision: "c".repeat(64) };
+    const result = {
+      applicationId: "uptime-kuma", action: "publish", expectedRevision: input.expectedRevision,
+      performed: true, published: true, tailnetOnly: true, url: "https://bigbox.example.ts.net:3101/", dnsName: "bigbox.example.ts.net", port: 3101,
+      boundary: { exactApplicationRouteOnly: true, otherServeConfigurationChanged: false, funnelEnabled: false, publicExposure: false, firewallChanged: false, routerChanged: false, dnsChanged: false, containerChanged: false, arbitraryTargetAccepted: false, arbitraryPortAccepted: false },
+    };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const validateApplicationPrivateAccessJob = vi.fn(async () => ({ input, output: { desired: { published: true, tailnetOnly: true, url: result.url, port: 3101 } } }));
+    const jobs = createJobService(store, helper, { validateApplicationPrivateAccessJob });
+    const job = store.createJob({
+      type: "application.uptime-kuma.private-access",
+      title: "Publish private Uptime Kuma access",
+      parameters: { planId: "plan-private", revision: "revision-private", input },
+      recovery: { automaticRollback: false },
+      createdBy: owner.id,
+    });
+
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+
+    expect(validateApplicationPrivateAccessJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("application.uptime-kuma.private-access.configure", input);
+    expect(completed).toMatchObject({ state: "completed", result: { published: true, tailnetOnly: true, url: result.url, boundary: { publicExposure: false, otherServeConfigurationChanged: false } } });
+    store.close();
+  });
+
   it("revalidates and executes an exact Pi-hole lifecycle plan without router or client DNS authority", async () => {
     const input = { applicationId: "pi-hole", action: "restart", expectedRevision: "b".repeat(64) };
     const result = {

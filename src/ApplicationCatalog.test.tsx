@@ -69,6 +69,42 @@ describe("curated application catalog", () => {
     expect(onOpenRepair).toHaveBeenCalledOnce();
   });
 
+  it("creates and stages a tailnet-only Uptime Kuma private access plan", async () => {
+    const application = {
+      id: "uptime-kuma", name: "Uptime Kuma", category: "Monitoring", description: "Monitor services", execution: "enabled", risk: "low", targets: ["docker"],
+      image: { version: "2.5.0", digestPinned: true }, integrity: `sha256:${"a".repeat(64)}`,
+      live: {
+        installed: true, state: "running", healthy: true, port: 3101, detail: "Managed container is running", backup: { state: "verified", verifiedAt: "2026-08-16T19:41:19Z" },
+        lifecycle: { installed: true, managed: true, state: "running", running: true, healthy: true, port: 3101, revision: "b".repeat(64), allowedActions: ["stop", "restart"], detail: "Managed Uptime Kuma is healthy" },
+        privateAccess: { connected: true, published: false, tailnetOnly: false, conflict: false, dnsName: "bigbox.example.ts.net", port: 3101, url: null, revision: "c".repeat(64), allowedActions: ["publish"], detail: "Uptime Kuma is healthy but has no private Tailscale route" },
+      },
+    };
+    const plan = {
+      id: "private-plan", revision: "private-revision", input: { applicationId: "uptime-kuma", action: "publish", expectedRevision: "c".repeat(64) },
+      output: { executable: true, applicationId: "uptime-kuma", applicationName: "Uptime Kuma", action: "publish", current: { published: false, tailnetOnly: false, url: null, port: 3101 }, desired: { published: true, tailnetOnly: true, url: "https://bigbox.example.ts.net:3101/", port: 3101 }, changes: ["Create one persistent Tailscale Serve HTTPS listener on port 3101"], recovery: "Remove only that exact Serve listener", boundaries: ["Funnel and public exposure must remain off"] },
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/api/v1/applications")) return new Response(JSON.stringify({ applications: [application] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url.endsWith("/api/v1/applications/uptime-kuma/private-access-plans")) {
+        expect(JSON.parse(String(init?.body))).toEqual({ action: "publish" });
+        return new Response(JSON.stringify({ plan }), { status: 201, headers: { "Content-Type": "application/json" } });
+      }
+      expect(url).toContain("/api/v1/application-private-access-plans/private-plan/stage");
+      return new Response(JSON.stringify({ job: { id: "private-job", state: "awaiting_approval" } }), { status: 201, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ApplicationCatalog csrfToken="csrf" onInspectCompose={vi.fn()} onOpenRepair={vi.fn()} />);
+
+    expect(await screen.findByRole("button", { name: "Plan private access" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Plan private access" }));
+    expect(await screen.findByRole("heading", { name: "Publish Uptime Kuma access" })).toBeTruthy();
+    expect(screen.getByText("https://bigbox.example.ts.net:3101/")).toBeTruthy();
+    expect(screen.getByText("Funnel and public exposure must remain off")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage for password approval" }));
+    expect(await screen.findByText(/Private access job staged/)).toBeTruthy();
+  });
+
   it("carries the linked network assessment into an exact-address Pi-hole plan", async () => {
     const application = {
       id: "pi-hole", name: "Pi-hole", category: "DNS", description: "Filter DNS", execution: "enabled", risk: "network-critical", targets: ["docker", "virtual-machine"],

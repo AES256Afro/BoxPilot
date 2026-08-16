@@ -154,6 +154,13 @@ export function createApplicationService({ store, prerequisites, helper, network
             } catch {
               live.lifecycle = { managed: false, allowedActions: [], revision: null, detail: "Managed lifecycle identity is unavailable" };
             }
+            if (manifest.id === "uptime-kuma") {
+              try {
+                live.privateAccess = await helper.request("application.uptime-kuma.private-access.inspect", {});
+              } catch {
+                live.privateAccess = { connected: false, published: false, tailnetOnly: false, conflict: false, url: null, allowedActions: [], detail: "Private access inspection is unavailable" };
+              }
+            }
           }
         } catch {
           live = { installed: false, state: "unavailable", detail: "Docker inventory is unavailable" };

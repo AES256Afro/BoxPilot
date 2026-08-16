@@ -52,23 +52,23 @@
   </style>
 </head>
 <body>
-  <div class="disclosure">MOCKED 0.57.0 PRODUCT STATE. No password, approval, container, image, Compose, port, volume, network, data, router, DNS, firewall, Tailscale, or host change occurred.</div>
+  <div class="disclosure">MOCKED 0.59.0 PRODUCT STATE. No password, approval, container, image, Compose, port, volume, network, data, router, DNS, firewall, Tailscale, Serve, or host change occurred.</div>
   <div class="shell">
-    <aside><div class="brand"><b>B</b>BoxPilot</div><nav><div>OV Overview</div><div class="active">AP Applications</div><div>NW Network</div><div>RT Routers</div><div>RX Repair Center</div><div>VM Virtual Machines</div><div>BK Backups</div><div>MG Migrations</div><div>FL Fleet</div><div>GH GitHub</div><div>LG Logs</div><div>ST Settings</div></nav><div class="private"><strong>Private administration</strong><br>Tailscale HTTPS<br>Funnel off<br><br>v0.57.0 working app lifecycle</div></aside>
+    <aside><div class="brand"><b>B</b>BoxPilot</div><nav><div>OV Overview</div><div class="active">AP Applications</div><div>NW Network</div><div>RT Routers</div><div>RX Repair Center</div><div>VM Virtual Machines</div><div>BK Backups</div><div>MG Migrations</div><div>FL Fleet</div><div>GH GitHub</div><div>LG Logs</div><div>ST Settings</div></nav><div class="private"><strong>Private administration</strong><br>Tailscale HTTPS<br>Funnel off<br><br>v0.59.0 working private access</div></aside>
     <main>
       <div class="top"><div><span class="eyebrow">Curated application catalog</span><h1>Applications</h1><p>Deploy and manage reviewed workloads through immutable plans and password-approved helper jobs.</p></div><span class="pill good">Docker ready</span></div>
       <div class="cards">
-        <section class="card"><div class="cardhead"><span class="initials">UP</span><span class="pill good">running</span></div><small>Monitoring | adapter 2.5.0</small><h3>Uptime Kuma</h3><p>Managed Uptime Kuma is healthy on loopback port 3101. Backup: restore required.</p><div class="actions"><span class="button">Plan stop</span><span class="button">Plan restart</span></div></section>
+        <section class="card"><div class="cardhead"><span class="initials">UP</span><span class="pill good">running</span></div><small>Monitoring | adapter 2.5.0</small><h3>Uptime Kuma</h3><p>Managed Uptime Kuma is healthy on loopback port 3101. Backup: restore verified. Private route: ready to publish.</p><div class="actions"><span class="button">Plan restart</span><span class="button">Plan private access</span></div></section>
         <section class="card"><div class="cardhead"><span class="initials">PI</span><span class="pill">Available</span></div><small>DNS | adapter 2026.07.2</small><h3>Pi-hole</h3><p>Network-critical staging with a separate assessment and no automatic DNS cutover.</p><div class="actions"><span class="button">Plan deployment</span></div></section>
         <section class="card"><div class="cardhead"><span class="initials">KE</span><span class="pill">Install available</span></div><small>Knowledge | adapter 1.2.6</small><h3>Keel Notes</h3><p>Exact native release staged for a separate private service install.</p><div class="actions"><span class="button">Plan private install</span></div></section>
       </div>
       <div class="backdrop">
-        <section class="modal"><div class="modalhead"><div><span class="eyebrow">Immutable managed-container action</span><h2>Restart Uptime Kuma</h2><p>Review the exact state transition and locked boundaries before creating an approval job.</p></div><span class="close">X</span></div>
-          <dl><div><dt>Current state</dt><dd>running</dd></div><div><dt>Desired state</dt><dd>running</dd></div><div><dt>Loopback port</dt><dd>3101</dd></div><div><dt>Persistent data</dt><dd>Preserved</dd></div></dl>
-          <div class="panel"><strong>Exact changes</strong><ol><li>Restart only the exact <code>boxpilot-uptime-kuma</code> container with a 30-second stop window.</li><li>Wait for the pinned container health check to pass.</li><li>Verify the loopback binding and persistent data mount are unchanged.</li></ol></div>
-          <div class="panel locks"><strong>Locked boundaries</strong><span>Digest-pinned image, Compose labels, loopback binding, data mount, restart policy, and unprivileged device-free identity must match the reviewed revision.</span><span>No image, Compose, environment, port, volume, network, data, Docker socket, other container, router, DNS, firewall, or Tailscale setting can change.</span></div>
-          <div class="panel"><strong>Recovery</strong><p>If restart verification fails, persistent data stays in place. Inspect the Uptime Kuma and Docker logs before creating a fresh Start or Restart plan.</p></div>
-          <div class="footer"><code>Plan revision 26d18d0e... checked again before execution</code><span class="approve">Stage for password approval</span></div>
+        <section class="modal"><div class="modalhead"><div><span class="eyebrow">Private Tailscale route</span><h2>Publish Uptime Kuma access</h2><p>Review the derived tailnet-only URL and locked Serve boundary before creating an approval job.</p></div><span class="close">X</span></div>
+          <dl><div><dt>Current route</dt><dd>Not published</dd></div><div><dt>Desired route</dt><dd>Tailnet only</dd></div><div><dt>HTTPS port</dt><dd>3101</dd></div><div><dt>Private URL</dt><dd>bigbox.tailnet.ts.net:3101</dd></div></dl>
+          <div class="panel"><strong>Exact changes</strong><ol><li>Create one persistent Tailscale Serve HTTPS listener on port 3101.</li><li>Proxy only to <code>http://127.0.0.1:3101</code>.</li><li>Verify the route is labeled tailnet only.</li></ol></div>
+          <div class="panel locks"><strong>Locked boundaries</strong><span>Funnel and public exposure remain off. The hostname, port, and target are derived from verified Bigbox state.</span><span>BoxPilot's route, every other Serve route, firewall, DNS, router, container, image, Compose, and data remain unchanged.</span></div>
+          <div class="panel"><strong>Recovery</strong><p>If verification fails, remove only this listener and keep Uptime Kuma healthy on loopback.</p></div>
+          <div class="footer"><code>Plan revision 5919c0de... checked again before execution</code><span class="approve">Stage for password approval</span></div>
         </section>
       </div>
     </main>

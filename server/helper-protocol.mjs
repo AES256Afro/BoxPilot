@@ -31,7 +31,7 @@ import { createKeelRollbackHelper, validateKeelRollbackCreateInput, validateKeel
 import { validUuid } from "./keel-artifact-spec.mjs";
 
 export const helperProtocolVersion = 1;
-export const helperOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.smartmontools.install", "prerequisite.restic.inspect", "prerequisite.restic.install", "prerequisite.docker.inspect", "prerequisite.docker.install", "prerequisite.virtualization.inspect", "prerequisite.virtualization.install", "prerequisite.apt-metadata.inspect", "prerequisite.apt-metadata.refresh", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.backup.create", "controller.database.protection.inspect", "controller.database.protection.create", "controller.database.protection.retention.inspect", "controller.database.protection.retention.apply", "application.backup.protection.inspect", "application.backup.protection.create", "application.uptime-kuma.inspect", "application.uptime-kuma.lifecycle.inspect", "application.uptime-kuma.action", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "application.pi-hole.inspect", "application.pi-hole.lifecycle.inspect", "application.pi-hole.action", "application.pi-hole.deploy", "application.pi-hole.backup", "application.keel.inspect", "application.keel.artifact.inspect", "application.keel.artifact.acquire", "application.keel.archive.inspect", "application.keel.stage.inspect", "application.keel.stage", "application.keel.install.inspect", "application.keel.install", "application.keel.login-proof.inspect", "application.keel.backup", "application.keel.recovery.inspect", "application.keel.recovery.create", "application.keel.recovery-drill.inspect", "application.keel.recovery-drill.create", "application.keel.promotion.inspect", "application.keel.promotion.create", "application.keel.rollback.inspect", "application.keel.rollback.create", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.foundation.inspect", "virtualization.foundation.initialize", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
+export const helperOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.smartmontools.install", "prerequisite.restic.inspect", "prerequisite.restic.install", "prerequisite.docker.inspect", "prerequisite.docker.install", "prerequisite.virtualization.inspect", "prerequisite.virtualization.install", "prerequisite.apt-metadata.inspect", "prerequisite.apt-metadata.refresh", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.backup.create", "controller.database.protection.inspect", "controller.database.protection.create", "controller.database.protection.retention.inspect", "controller.database.protection.retention.apply", "application.backup.protection.inspect", "application.backup.protection.create", "application.uptime-kuma.inspect", "application.uptime-kuma.lifecycle.inspect", "application.uptime-kuma.action", "application.uptime-kuma.private-access.inspect", "application.uptime-kuma.private-access.configure", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "application.pi-hole.inspect", "application.pi-hole.lifecycle.inspect", "application.pi-hole.action", "application.pi-hole.deploy", "application.pi-hole.backup", "application.keel.inspect", "application.keel.artifact.inspect", "application.keel.artifact.acquire", "application.keel.archive.inspect", "application.keel.stage.inspect", "application.keel.stage", "application.keel.install.inspect", "application.keel.install", "application.keel.login-proof.inspect", "application.keel.backup", "application.keel.recovery.inspect", "application.keel.recovery.create", "application.keel.recovery-drill.inspect", "application.keel.recovery-drill.create", "application.keel.promotion.inspect", "application.keel.promotion.create", "application.keel.rollback.inspect", "application.keel.rollback.create", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.foundation.inspect", "virtualization.foundation.initialize", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
 const virtualizationPackageKeys = ["libvirt-clients", "libvirt-daemon-system", "ovmf", "qemu-system-x86", "virtinst"];
 const vmCreationKeys = ["autostart", "diskGiB", "firmware", "isoFile", "memoryMiB", "name", "network", "osProfile", "vcpus"];
 const vmLifecycleKeys = ["action", "expectedAutostart", "expectedState", "name"];
@@ -133,6 +133,11 @@ export function validateHelperRequest(value) {
     if (keys.length !== 2 || keys[0] !== "action" || keys[1] !== "expectedRevision" || !["start", "stop", "restart"].includes(value.parameters.action) || !/^[a-f0-9]{64}$/.test(String(value.parameters.expectedRevision ?? ""))) {
       return "Uptime Kuma lifecycle accepts only a fixed action and exact state revision";
     }
+  }
+  if (value.operation === "application.uptime-kuma.private-access.inspect" && Object.keys(value.parameters).length !== 0) return "Private access inspection accepts no parameters";
+  if (value.operation === "application.uptime-kuma.private-access.configure") {
+    const keys = Object.keys(value.parameters).sort();
+    if (keys.length !== 2 || keys[0] !== "action" || keys[1] !== "expectedRevision" || !["publish", "unpublish"].includes(value.parameters.action) || !/^[a-f0-9]{64}$/.test(String(value.parameters.expectedRevision ?? ""))) return "Private access accepts only a fixed action and exact state revision";
   }
   if (value.operation === "application.pi-hole.lifecycle.inspect" && Object.keys(value.parameters).length !== 0) return "Pi-hole lifecycle inspection accepts no parameters";
   if (value.operation === "application.pi-hole.action") {
@@ -292,7 +297,7 @@ export async function executeHelperOperation(request, { applications = createApp
       version: helperProtocolVersion,
       id: request.id,
       ok: true,
-      result: { verified: true, helperVersion: "0.58.0", mutationPerformed: false },
+      result: { verified: true, helperVersion: "0.59.0", mutationPerformed: false },
     };
   }
   if (request.operation === "prerequisite.smartmontools.inspect") {
@@ -366,6 +371,12 @@ export async function executeHelperOperation(request, { applications = createApp
   }
   if (request.operation === "application.uptime-kuma.action") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await applications.actionUptimeKuma(request.parameters) };
+  }
+  if (request.operation === "application.uptime-kuma.private-access.inspect") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await applications.inspectUptimeKumaPrivateAccess() };
+  }
+  if (request.operation === "application.uptime-kuma.private-access.configure") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await applications.configureUptimeKumaPrivateAccess(request.parameters) };
   }
   if (request.operation === "application.uptime-kuma.deploy") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await applications.deploy(request.parameters) };
