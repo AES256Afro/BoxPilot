@@ -48,4 +48,16 @@ describe("read-only local Action Center", () => {
     const result = await createActionCenterService({ recoveryKit, now }).inspect();
     expect(result.notices).toEqual([expect.objectContaining({ id: "action-center.unmapped-evidence", severity: "warning" })]);
   });
+
+  it("adds fail-closed storage capacity and SMART guidance without a repair route", async () => {
+    const recoveryKit = { inspect: vi.fn(async () => ({ checks: [], evidence: { jobs: [] } })) };
+    const inventory = { inspect: vi.fn(async () => ({ storage: { filesystems: { summary: { healthy: 1, warning: 0, critical: 1, unavailable: 0 } }, smart: { available: false, status: "unavailable", reason: "smartctl-not-installed" } } })) };
+    const result = await createActionCenterService({ recoveryKit, inventory, now }).inspect();
+    expect(result.notices).toEqual([
+      expect.objectContaining({ id: "storage.filesystem-capacity", severity: "critical", recommendation: { view: "overview", title: "Open Overview", steps: expect.any(Array) } }),
+      expect.objectContaining({ id: "storage.smart-evidence", severity: "warning", boundary: expect.objectContaining({ automaticFixAvailable: false }) }),
+    ]);
+    expect(JSON.stringify(result)).not.toContain("apt-get");
+    expect(JSON.stringify(result)).not.toContain("rm ");
+  });
 });

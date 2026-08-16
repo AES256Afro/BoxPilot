@@ -1,4 +1,4 @@
-const productVersion = "0.29.0";
+const productVersion = "0.30.0";
 
 const guidance = {
   "controller.database": {
@@ -114,7 +114,7 @@ function collectorNotice() {
   };
 }
 
-export function createActionCenterService({ recoveryKit, now = () => new Date(), version = productVersion } = {}) {
+export function createActionCenterService({ recoveryKit, inventory = null, now = () => new Date(), version = productVersion } = {}) {
   async function inspect() {
     let kit;
     try {
@@ -183,6 +183,52 @@ export function createActionCenterService({ recoveryKit, now = () => new Date(),
       },
       boundary: boundary(),
     });
+
+    if (inventory) {
+      let hostInventory = null;
+      try { hostInventory = await inventory.inspect(); } catch { hostInventory = null; }
+      if (!hostInventory?.storage) {
+        notices.push({
+          id: "storage.inventory-unavailable",
+          severity: "warning",
+          category: "Storage health",
+          title: "Storage evidence is unavailable",
+          summary: "BoxPilot will not claim storage readiness without the fixed mount and device collectors.",
+          evidence: ["The sanitized storage inventory did not return a complete result."],
+          recommendation: { view: "overview", title: "Open Overview", steps: ["Refresh Overview and confirm real-mount inventory.", "Check the BoxPilot service if storage evidence remains unavailable.", "Do not begin a storage-sensitive operation until current evidence returns."] },
+          boundary: boundary(),
+        });
+      } else {
+        const filesystemSummary = hostInventory.storage.filesystems?.summary;
+        if ((filesystemSummary?.critical ?? 0) > 0 || (filesystemSummary?.warning ?? 0) > 0) {
+          const critical = (filesystemSummary?.critical ?? 0) > 0;
+          notices.push({
+            id: "storage.filesystem-capacity",
+            severity: critical ? "critical" : "warning",
+            category: "Storage health",
+            title: critical ? "A filesystem is critically full" : "A filesystem is approaching capacity",
+            summary: "Review the exact sanitized mount evidence before creating backups, migrations, applications, or virtual-machine disks.",
+            evidence: [`${filesystemSummary.critical ?? 0} critical and ${filesystemSummary.warning ?? 0} warning filesystem capacity state(s) were reported.`],
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Identify the reported mount and verify its capacity at the server console.", "Pause storage-producing jobs and preserve current backups.", "Use a separately reviewed cleanup or expansion procedure; Action Center performs no deletion."] },
+            boundary: boundary(),
+          });
+        }
+        const smart = hostInventory.storage.smart;
+        if (!smart?.available || smart.status === "stale" || ["critical", "warning"].includes(smart.status)) {
+          const critical = smart?.status === "critical";
+          notices.push({
+            id: "storage.smart-evidence",
+            severity: critical ? "critical" : "warning",
+            category: "Storage health",
+            title: critical ? "SMART evidence reports a critical disk" : smart?.status === "stale" ? "SMART evidence is stale" : smart?.available ? "SMART evidence needs review" : "SMART evidence is unavailable",
+            summary: critical ? "Protect data and inspect the affected physical disk before continuing storage work." : "BoxPilot has no current all-clear SMART evidence for every discovered physical disk.",
+            evidence: [`SMART evidence state: ${smart?.status ?? "unavailable"}. Reason: ${smart?.reason ?? "storage-scan-unavailable"}.`],
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Review the fixed storage-evidence timestamp and per-disk state.", "Use the server console to verify the timer and separately reviewed smartmontools package.", "Do not replace a disk or delete data from Action Center; prepare a verified backup and hardware recovery plan first."] },
+            boundary: boundary(),
+          });
+        }
+      }
+    }
 
     if (notices.length === 0) notices.push({
       id: "action-center.no-current-actions",

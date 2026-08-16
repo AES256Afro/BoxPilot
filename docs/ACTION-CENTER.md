@@ -1,6 +1,6 @@
 # Local Action Center
 
-BoxPilot `0.29.0` adds an authenticated, read-only Action Center inside Repair Center. It converts the existing secret-free recovery kit into prioritized notices, explains the evidence behind each notice, and links the operator to a fixed BoxPilot destination with a short manual checklist.
+BoxPilot `0.29.0` adds an authenticated, read-only Action Center inside Repair Center. Version `0.30.0` also correlates sanitized filesystem-capacity and timer-generated SMART evidence. It converts fixed evidence into prioritized notices, explains why each notice exists, and links the operator to a fixed BoxPilot destination with a short manual checklist.
 
 The Action Center is guidance, not an automation system. Opening, refreshing, or navigating from it performs no host, application, VM, router, network, DNS, Tailscale, package, file, or service mutation.
 
@@ -19,6 +19,8 @@ The Action Center is guidance, not an automation system. Opening, refreshing, or
 | Independent DNS proof | Network |
 | Host prerequisite review | Repair Center |
 | Recent failed durable jobs | Repair Center |
+| Filesystem warning or critical capacity | Overview |
+| Missing, stale, warning, or critical SMART evidence | Overview |
 
 Verified and not-applicable checks do not create noise. If every mapped check is verified or not applicable, BoxPilot reports one informational readiness notice. Operator checks remain visible because they require human evidence outside Bigbox.
 
@@ -47,7 +49,7 @@ If the recovery collector throws, returns an incomplete object, or introduces an
 
 ## Deliberate exclusions
 
-Version `0.29.0` has no:
+Version `0.30.0` has no:
 
 - Automatic repair or remediation execution
 - Arbitrary command, package, service, file, Docker, libvirt, router, DNS, firewall, or Tailscale operation
