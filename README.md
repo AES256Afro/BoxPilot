@@ -4,24 +4,24 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.19.0` adds guarded Pi-hole staging on Bigbox. A Pi-hole job must consume a fresh owner-attributable Network Center assessment for the exact live LAN address, revalidate routes, resolvers, listeners, Tailscale state, recovery evidence, Docker, and the selected web port, and pass a separate password approval. The helper starts the official `2026.07.2` image pinned by digest, binds DNS and web only to the reviewed LAN address, generates a root-only administrator secret, and verifies container health plus exact TCP and UDP bindings. It cannot change the router, DHCP, client DNS, Tailscale DNS, firewall, or traffic path.
+Version `0.20.0` adds a guarded Pi-hole configuration backup and isolated restore drill. After a staged Pi-hole instance is healthy, a separate password-approved background job stops it briefly, archives its persistent configuration, curated Compose definition, and root-only administrator secret, restarts and revalidates the original DNS and web bindings, records SHA-256 and downtime evidence, and boots the restored configuration in a temporary container with no network and no published ports. The local artifact is recovery-tested but is still on Bigbox, so it is not independent 3-2-1 protection. Router, DHCP, client DNS, Tailscale DNS, firewall, and traffic-path changes remain locked.
 
 ### What works now
 
-| Area | Status in `0.19.0` | Capability |
+| Area | Status in `0.20.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
 | Operations Core | Live foundation | Persists plans, steps, approvals, results, recovery guidance, and audit attribution in SQLite. Interrupted applying or verifying jobs fail closed for review after restart. |
 | Repair Center | Live foundation | Checks Node.js, state storage, the helper, Docker, libvirt, Tailscale, and DNS port availability without returning peer details or raw command output. |
-| Restricted helper | Live typed operations | Uses a versioned, allowlisted protocol over a local Unix socket for the canary, bounded inventory and logs, Uptime Kuma deployment and backup, exact-address Pi-hole staging, guarded local migration staging, guarded VM creation and lifecycle, read-only libvirt inventory, offline snapshots, stopped-VM exports, mounted-restic VM copies, isolated restore drills, stopped no-network recovery clones, and exact no-prune retention. It accepts no command strings, binary selection, libvirt URI, argument arrays, operator paths, Compose source path, migration destination, SSH credential, repository password, backup mount, repository path, export destination, restore destination, recovery directory, prune flag, selector such as `latest`, or arbitrary root paths from the browser. |
+| Restricted helper | Live typed operations | Uses a versioned, allowlisted protocol over a local Unix socket for the canary, bounded inventory and logs, Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, guarded VM creation and lifecycle, read-only libvirt inventory, offline snapshots, stopped-VM exports, mounted-restic VM copies, isolated restore drills, stopped no-network recovery clones, and exact no-prune retention. It accepts no command strings, binary selection, libvirt URI, argument arrays, operator paths, Compose source path, migration destination, SSH credential, repository password, backup mount, repository path, export destination, restore destination, recovery directory, prune flag, selector such as `latest`, or arbitrary root paths from the browser. |
 | Host and Docker inventory | Live | Reports authenticated host identity, CPU, memory, root storage, uptime, selected service state, LAN addresses, Tailscale self-state, and sanitized Docker containers, images, networks, volumes, and Compose projects. |
 | Network and DNS Center | Live read-only planning | Reports validated default gateways, host LAN CIDRs, sanitized systemd-resolved servers, scoped TCP and UDP port 53 listeners, and Tailscale resolver observations. It creates attributable immutable assessments for Flint 2, ER707-M2, TP-Link BE400, Pi-hole, and external-DNS roles. Router writes and DNS cutover have no execution route. |
 | System logs | Live restricted sources | Returns capped, redacted entries for fixed BoxPilot, Docker, Tailscale, and virtualization unit sets. Credential-like values and URL query strings are redacted. |
 | Application catalog | Live | Publishes integrity-addressed manifests, live installation state, exact image policy, targets, ports, storage, prerequisites, recovery, and adapter risk. |
 | Uptime Kuma adapter | Executable deployment | Uses the official `2.5.0` image pinned by multi-platform digest, a loopback-only port, local persistent storage, Docker health, approval, and data-preserving rollback. The catalog shows whether restore-verified backup evidence exists. |
-| Pi-hole adapter | Guarded staging on Bigbox | Starts a digest-pinned Docker service only after a fresh Pi-hole-on-Bigbox network assessment and separate approval. It uses exact LAN bindings, persistent configuration, a root-only random administrator secret, least tested capabilities, health verification, and data-preserving rollback. DHCP, NTP, router writes, client DNS advertisement, Tailscale changes, and cutover do not exist. The dedicated-VM target remains planning-only, and the staged service is not reported protected until a future backup and restore drill passes. |
-| Backup engine | One live application adapter | Creates immutable local Uptime Kuma archives after a clean stop, verifies source restart, records SHA-256 and measured downtime, and runs a temporary restore container with no network or published ports. |
+| Pi-hole adapter | Guarded staging and recovery proof | Starts a digest-pinned Docker service only after a fresh Pi-hole-on-Bigbox network assessment and separate approval. A second approved workflow archives configuration and the administrator secret, verifies source restart and exact bindings, and health-checks a restored copy with no network or ports. DHCP, NTP, router writes, client DNS advertisement, Tailscale changes, and cutover do not exist. The dedicated-VM target remains planning-only. |
+| Backup engine | Two live application adapters | Creates immutable local Uptime Kuma and Pi-hole archives after a clean stop, verifies source restart, records SHA-256 and measured downtime, and runs temporary restore containers with no network or published ports. Pi-hole evidence additionally requires configuration, secret, and no-cutover proof, and a strict startup reconciler recovers interrupted source stops and exact orphan drills. Local artifacts are not independent copies. |
 | Migration Center | Guarded local staging | Exports and imports fingerprinted sanitized source manifests, creates immutable destination compatibility plans, discovers root-only checksummed Compose bundles from one fixed inbox, and executes resumable password-approved copies into isolated managed staging. It records exact durable evidence, supports no-copy reconciliation after a restart edge case, preserves the source, and never activates the workload. Remote SSH transport and cutover remain locked. |
 | QEMU/KVM preflight | Live through the native helper | Checks Linux, KVM support reported by libvirt, QEMU, `virsh`, `virt-install`, `qemu:///system`, the helper boundary, the default NAT network, the default storage pool, and Tailscale access. |
 | VM and libvirt inventory | Live through the restricted helper | Lists domains, state, CPU, memory, autostart, lease- and guest-agent-reported addresses, disks, interfaces, bounded snapshot metadata, guest-agent state, networks, and storage pools. The web service has no direct libvirt group access. |
@@ -46,7 +46,7 @@ The repository also includes a read-only Ubuntu deployment doctor and a USB-to-h
 
 - VM delete, force-off, console proxy, online snapshot, snapshot revert/delete, bridge creation, passthrough, in-place restore, recovered-VM network attachment, application-level restore tests, cloud-init, Windows TPM/Secure Boot creation, or VM migration transfer
 - General Docker mutation, custom Compose deployment, additional application installation beyond the curated adapters, package updates, firewall changes, storage changes, or arbitrary command execution
-- Backup schedules, restic prune and space reclamation, configurable retention policies, remote restic/cloud backends, Keel Notes export, SSH source discovery or transport, application-aware volume/database capture, staged-workload activation, or migration cutover
+- Backup schedules, application-backup independent or offsite destinations, restic prune and space reclamation, configurable retention policies, remote restic/cloud backends, Keel Notes export, SSH source discovery or transport, general application-aware volume/database capture, staged-workload activation, or migration cutover
 - Keel Notes, executable AdGuard Home, Jellyfin, Home Assistant, PostgreSQL, Pi-hole router cutover, GitHub, or remote-agent adapters
 - WebAuthn, recovery codes, multiple owners, Tailscale identity headers, tamper-evident audit chaining, or general-purpose mutation handlers
 
@@ -136,6 +136,12 @@ This explicitly disclosed `0.18.0` mock shows live-shaped gateway, Bigbox addres
 
 This explicitly disclosed `0.19.0` mock shows the linked network assessment, exact Bigbox LAN DNS and web bindings, root-only secret boundary, capability restrictions, health checks, backup-required state, and router, DHCP, client-DNS, and Tailscale cutover locks. No container, router, DNS client, DHCP service, firewall, Tailscale setting, or traffic path was changed for the capture.
 
+### Pi-hole backup and isolated restore mockup
+
+![BoxPilot Pi-hole recovery-proof plan before approval](docs/screenshots/pihole-backup-approval-mock.png)
+
+This explicitly disclosed `0.20.0` mock shows the clean-stop archive, root-only configuration and secret capture, source binding restart verification, SHA-256 evidence, temporary no-network restore container, local-destination limitation, and router and DNS cutover locks. No container was stopped, archive created, secret read, restore started, or network setting changed for the capture.
+
 ## Safety contract
 
 Every future host change must follow:
@@ -147,7 +153,7 @@ Every future host change must follow:
 5. Apply with streamed logs
 6. Verify or roll back
 
-Pi-hole staging, migration staging, VM creation, lifecycle changes, offline snapshots, stopped-VM exports, encrypted independent VM copies, isolated restore drills, guarded recovery clones, and exact retention batches use the durable job executor and separate typed helper operations. The helper derives its own application, secret, migration inbox, staging, binary, libvirt URI, managed-media, disk, export, restore-workspace, recovery, UEFI NVRAM, mount, repository, cache, and password-file roots, verbs, and argument arrays; the web process cannot supply them. Every supported mutation requires an immutable plan and owner password reauthentication. Higher-impact operations remain locked until each handler has authorization, path confinement, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
+Pi-hole staging and backup, migration staging, VM creation, lifecycle changes, offline snapshots, stopped-VM exports, encrypted independent VM copies, isolated restore drills, guarded recovery clones, and exact retention batches use the durable job executor and separate typed helper operations. The helper derives its own application, secret, backup, migration inbox, staging, binary, libvirt URI, managed-media, disk, export, restore-workspace, recovery, UEFI NVRAM, mount, repository, cache, and password-file roots, verbs, and argument arrays; the web process cannot supply them. Every supported mutation requires an immutable plan and owner password reauthentication. Higher-impact operations remain locked until each handler has authorization, path confinement, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
 
 ## Run for development
 
@@ -243,7 +249,7 @@ docker build -t boxpilot:local .
 
 ## Keel Notes roadmap adapter
 
-No Keel-specific adapter ships in `0.19.0`. The generic migration packer can stage an offline Keel Notes Compose project only as opaque verified files; it does not understand Keel databases, managed-secret keys, health, activation, or cutover. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
+No Keel-specific adapter ships in `0.20.0`. The generic migration packer can stage an offline Keel Notes Compose project only as opaque verified files; it does not understand Keel databases, managed-secret keys, health, activation, or cutover. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
 
 - Detect a Keel Docker or service installation
 - Inventory the database dialect and protected data paths without exposing secrets

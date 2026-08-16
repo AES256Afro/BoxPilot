@@ -131,6 +131,51 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("runs a Pi-hole backup as a typed long-running job and records only isolated no-cutover evidence", async () => {
+    const backupId = "22222222-2222-4222-8222-222222222222";
+    const result = {
+      backupId,
+      applicationId: "pi-hole",
+      sourceRestartVerified: true,
+      routerMutationPerformed: false,
+      dnsCutoverPerformed: false,
+      restoreDrill: {
+        passed: true,
+        network: "none",
+        publishedPorts: 0,
+        configurationIncluded: true,
+        administratorSecretIncluded: true,
+        routerMutationPerformed: false,
+        dnsCutoverPerformed: false,
+      },
+    };
+    let finish;
+    const helper = { request: vi.fn(() => new Promise((resolve) => { finish = resolve; })) };
+    const { store, owner } = await setup(helper);
+    const validateBackupJob = vi.fn(async () => {});
+    const recordBackupResult = vi.fn();
+    const jobs = createJobService(store, helper, { validateBackupJob, recordBackupResult });
+    const job = store.createJob({
+      type: "application.pi-hole.backup",
+      title: "Back up and restore-test Pi-hole",
+      risk: "network-critical",
+      parameters: { backupId, applicationId: "pi-hole" },
+      recovery: { automaticRollback: true },
+      createdBy: owner.id,
+    });
+
+    const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
+
+    expect(validateBackupJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("application.pi-hole.backup", { backupId }, { timeoutMs: 10 * 60 * 1000 });
+    expect(started.state).toBe("applying");
+    finish(result);
+    await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
+    expect(recordBackupResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
+    expect(store.getJob(job.id)).toMatchObject({ state: "completed", result: { applicationId: "pi-hole", routerMutationPerformed: false, dnsCutoverPerformed: false } });
+    store.close();
+  });
+
   it("runs a migration bundle transfer in the background without sending source records or paths to the helper", async () => {
     const input = {
       transferId: "11111111-1111-4111-8111-111111111111",

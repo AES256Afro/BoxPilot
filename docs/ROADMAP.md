@@ -81,7 +81,7 @@ Acceptance:
 
 ## Phase 4: restricted privileged helper
 
-Status: the root-owned service, Unix-socket boundary, versioned allowlist, hardened unit, negative protocol tests, and no-mutation canary are included in `0.4.0`. Versions `0.5.0` through `0.17.0` add the fixed Uptime Kuma, backup, migration, and VM operations documented above. Version `0.19.0` adds fixed exact-LAN Pi-hole inspection and deployment with helper-owned image, Compose source, paths, secret, capabilities, Docker arguments, health checks, and rollback. Package, service, firewall, storage-pool administration, host reboot, general Docker, general libvirt, in-place restore, recovery network attachment, configurable retention, prune, remote migration transport, and general backup handlers remain locked.
+Status: the root-owned service, Unix-socket boundary, versioned allowlist, hardened unit, negative protocol tests, and no-mutation canary are included in `0.4.0`. Versions `0.5.0` through `0.17.0` add the fixed Uptime Kuma, backup, migration, and VM operations documented above. Version `0.19.0` adds fixed exact-LAN Pi-hole inspection and deployment. Version `0.20.0` adds fixed Pi-hole configuration and secret backup, source restart verification, an isolated no-network restore container, and root-only cleanup. Package, service, firewall, storage-pool administration, host reboot, general Docker, general libvirt, in-place restore, recovery network attachment, configurable retention, prune, remote migration transport, and general backup handlers remain locked.
 
 - Root-owned Unix socket
 - Versioned typed-operation protocol
@@ -99,7 +99,7 @@ Acceptance:
 
 ## Phase 5: applications and Compose imports
 
-Status: integrity-addressed manifests, live prerequisite and port planning, immutable revisions, the executable Uptime Kuma adapter, and planning-only Pi-hole Docker and VM targets are included in `0.5.0`. Version `0.18.0` adds the read-only route, resolver, exact listener, router-role, and DNS recovery assessment. Version `0.19.0` enables guarded Docker Pi-hole staging only when a fresh owner-attributable assessment passes again at plan, stage, and approval time. It pins the official image by digest, binds only the reviewed LAN address, generates a root-only secret, minimizes capabilities, verifies health and bindings, and explicitly performs no router, DHCP, client DNS, or Tailscale cutover. The Pi-hole VM target, Pi-hole backup and restore, full Compose parsing, additional adapters, proxy registration, and update previews remain pending.
+Status: integrity-addressed manifests, live prerequisite and port planning, immutable revisions, the executable Uptime Kuma adapter, and planning-only Pi-hole Docker and VM targets are included in `0.5.0`. Version `0.18.0` adds the read-only route, resolver, exact listener, router-role, and DNS recovery assessment. Version `0.19.0` enables guarded Docker Pi-hole staging only when a fresh owner-attributable assessment passes again at plan, stage, and approval time. Version `0.20.0` adds the separate application-aware Pi-hole backup and isolated restore workflow, including configuration and administrator-secret evidence without router or DNS cutover. The Pi-hole VM target, direct DNS acceptance testing, router advertisement, full Compose parsing, additional adapters, proxy registration, independent application-backup destinations, and update previews remain pending.
 
 - Full Compose YAML parser and policy engine
 - Port, volume, architecture, secret, health, and backup planning

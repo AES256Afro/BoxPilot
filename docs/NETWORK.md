@@ -1,6 +1,6 @@
 # Network and DNS Center
 
-BoxPilot `0.19.0` uses the read-only Network and DNS Center as the authorization boundary for guarded Pi-hole staging. It is designed to answer the questions that must be settled before starting Pi-hole, enabling Flint 2 AdGuard Home, changing a router DNS advertisement, or placing another router in the forwarding path.
+BoxPilot `0.20.0` uses the read-only Network and DNS Center as the authorization boundary for guarded Pi-hole staging. It also provides a separate local Pi-hole configuration backup and isolated restore drill after staging. It is designed to answer the questions that must be settled before starting Pi-hole, enabling Flint 2 AdGuard Home, changing a router DNS advertisement, or placing another router in the forwarding path.
 
 This release can start only the curated Pi-hole Docker stack after a fresh assessment and separate approval. It cannot log in to a router, store a router password, change DHCP, advertise DNS to clients, enable AdGuard Home, reconfigure Tailscale, probe an operator-supplied address, or cut over traffic.
 
@@ -51,7 +51,7 @@ BoxPilot recognizes these declarations:
 - [Omada ER707-M2 product documentation](https://www.omadanetworks.com/us/business-networking/omada-router-wired-router/er707-m2/)
 - [TP-Link Archer BE400 product documentation](https://www.tp-link.com/us/home-networking/wifi-router/archer-be400/)
 
-The links identify the intended devices. BoxPilot does not claim API support for them in `0.19.0`.
+The links identify the intended devices. BoxPilot does not claim API support for them in `0.20.0`.
 
 ## Change-window assessment
 
@@ -89,10 +89,10 @@ Before making a network-critical resolver authoritative:
 
 The restricted helper accepts only a private RFC1918 LAN address and a high web port from the server-validated plan. It owns the image digest, paths, Compose source, capabilities, secret generation, Docker arguments, health checks, and rollback. See [Curated applications](APPLICATIONS.md).
 
-Starting Pi-hole does not make it authoritative. Keep current external AdGuard DNS or Flint 2 AdGuard Home active. BoxPilot reports the staged application as backup-required and does not tell any client or router to use it.
+Starting Pi-hole does not make it authoritative. Keep current external AdGuard DNS or Flint 2 AdGuard Home active. BoxPilot reports the staged application as backup-required until the separate local configuration backup and isolated no-network restore pass. Even then, it does not tell any client or router to use Pi-hole, and the artifact is not independent of Bigbox.
 
 ## Next gates
 
 Router writes remain blocked until an adapter has exact model and firmware compatibility, secret storage, read-only discovery, a downloadable configuration checkpoint, a bounded diff, password reauthentication, post-change tests from a second device, and an out-of-band recovery path.
 
-Pi-hole router cutover remains blocked until BoxPilot has configuration backup and isolated restore validation, direct DNS tests from Bigbox and a second device, a model-specific router checkpoint and advertisement adapter, a bounded diff, an observation window, and an approval-based rollback sequence.
+Pi-hole router cutover remains blocked. Version `0.20.0` satisfies only the configuration-backup and isolated-container-restore gate. Direct DNS tests from Bigbox and a second device, a model-specific router checkpoint and advertisement adapter, a bounded diff, an observation window, and an approval-based rollback sequence are still required.

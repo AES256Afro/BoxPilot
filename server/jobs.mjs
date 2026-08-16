@@ -41,9 +41,9 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.uptime-kuma.backup", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.uptime-kuma.backup", "application.pi-hole.backup", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy"].includes(job.type) ? await validateApplicationJob(job) : null;
-    if (job.type === "application.uptime-kuma.backup") await validateBackupJob(job);
+    if (["application.uptime-kuma.backup", "application.pi-hole.backup"].includes(job.type)) await validateBackupJob(job);
     const validatedMigrationTransferPlan = job.type === "migration.bundle.transfer" ? await validateMigrationTransferJob(job) : null;
     const validatedVmPlan = job.type === "virtualization.domain.create" ? await validateVmCreationJob(job) : null;
     const validatedVmExportPlan = job.type === "virtualization.domain.export.create" ? await validateVmExportJob(job) : null;
@@ -104,6 +104,26 @@ export function createJobService(store, helper, {
       verified: "An isolated no-network restore container passed health verification and was removed",
       failed: "The backup or isolated restore drill did not pass verification",
       validate: (result) => result?.backupId === job.parameters.backupId && result?.sourceRestartVerified && result?.restoreDrill?.passed,
+    } : job.type === "application.pi-hole.backup" ? {
+      operation: "application.pi-hole.backup",
+      parameters: { backupId: job.parameters.backupId },
+      timeoutMs: 10 * 60 * 1000,
+      applying: "Stopping Pi-hole cleanly, archiving its configuration and administrator secret, and restarting the exact source bindings through the restricted helper",
+      applied: "Pi-hole health and exact bindings returned; the root-only local artifact passed SHA-256 integrity collection",
+      verified: "An isolated no-network, no-published-port Pi-hole restore container passed health verification and was removed; router and client DNS were unchanged",
+      failed: "The Pi-hole backup or isolated restore drill did not pass verification; keep router and client DNS on the independent resolver",
+      validate: (result) => result?.backupId === job.parameters.backupId
+        && result?.applicationId === "pi-hole"
+        && result?.sourceRestartVerified === true
+        && result?.routerMutationPerformed === false
+        && result?.dnsCutoverPerformed === false
+        && result?.restoreDrill?.passed === true
+        && result?.restoreDrill?.network === "none"
+        && result?.restoreDrill?.publishedPorts === 0
+        && result?.restoreDrill?.configurationIncluded === true
+        && result?.restoreDrill?.administratorSecretIncluded === true
+        && result?.restoreDrill?.routerMutationPerformed === false
+        && result?.restoreDrill?.dnsCutoverPerformed === false,
     } : job.type === "migration.bundle.transfer" ? {
       operation: "migration.bundle.transfer",
       parameters: migrationHelperInput,
@@ -201,7 +221,7 @@ export function createJobService(store, helper, {
       store.addJobStep(jobId, "apply", "completed", execution.applied);
       if (job.type === "virtualization.export.backup.retention.apply" && result?.applied === true) recordVmRetentionResult(job, result);
       if (!execution.validate(result)) throw new Error("Helper returned an invalid operation result");
-      if (job.type === "application.uptime-kuma.backup") recordBackupResult(job, result);
+      if (["application.uptime-kuma.backup", "application.pi-hole.backup"].includes(job.type)) recordBackupResult(job, result);
       if (job.type === "migration.bundle.transfer") recordMigrationTransferResult(job, result);
       if (job.type === "virtualization.domain.export.create") recordVmExportResult(job, result);
       if (job.type === "virtualization.export.backup.create") recordVmProtectionResult(job, result);

@@ -256,7 +256,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.19.0",
+      version: "0.20.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
@@ -298,7 +298,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.19.0 Pi-hole staging<br />Router and DNS cutover locked</div>
+        <div className="prototype-label">v0.20.0 Pi-hole recovery proof<br />Router and DNS cutover locked</div>
       </aside>
 
       <main>

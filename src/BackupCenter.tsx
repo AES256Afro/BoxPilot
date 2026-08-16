@@ -26,6 +26,7 @@ type Coverage = {
 type BackupPlan = {
   id: string;
   revision: string;
+  subjectId: string;
   output: {
     executable: boolean;
     destination: string;
@@ -75,10 +76,10 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  const createPlan = async () => {
+  const createPlan = async (applicationId: string) => {
     setPending(true);
     try {
-      const body = await requestJson<{ plan: BackupPlan }>("/api/v1/backups/uptime-kuma/plans", {
+      const body = await requestJson<{ plan: BackupPlan }>(`/api/v1/backups/${applicationId}/plans`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
         body: "{}",
@@ -110,8 +111,8 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
     }
   };
 
-  const item = coverage[0];
   const verifiedCount = coverage.filter((entry) => entry.protected).length;
+  const plannedSource = coverage.find((entry) => entry.applicationId === plan?.subjectId);
 
   return (
     <>
@@ -126,22 +127,26 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
       {error && <p className="form-error" role="alert">{error}</p>}
       {limitations.map((limitation) => <div className="notice warning-notice" key={limitation}><strong>Destination limitation</strong><span>{limitation}</span></div>)}
 
-      <section className="panel backup-source-card">
-        <div>
-          <span className="eyebrow">Application-aware source</span>
-          <h3>Uptime Kuma</h3>
-          <p>{item?.source.detail ?? "Loading the managed application state..."}</p>
-          <small>{item?.requirement ?? "A consistent artifact and isolated restore drill are required."}</small>
-        </div>
-        <div className="backup-source-actions">
-          <span className={`status-pill ${item?.state === "verified" ? "status-good" : "status-warning"}`}>{item?.state ?? "loading"}</span>
-          <button className="primary-button" type="button" onClick={() => void createPlan()} disabled={pending || loading}>{pending ? "Inspecting..." : "Plan verified backup"}</button>
-        </div>
-      </section>
+      <div className="backup-source-grid">
+        {coverage.map((item) => (
+          <section className="panel backup-source-card" key={item.applicationId}>
+            <div>
+              <span className="eyebrow">Application-aware source</span>
+              <h3>{item.name}</h3>
+              <p>{item.source.detail}</p>
+              <small>{item.requirement}</small>
+            </div>
+            <div className="backup-source-actions">
+              <span className={`status-pill ${item.state === "verified" ? "status-good" : "status-warning"}`}>{item.state}</span>
+              <button className="primary-button" type="button" onClick={() => void createPlan(item.applicationId)} disabled={pending || loading}>{pending ? "Inspecting..." : `Plan verified backup for ${item.name}`}</button>
+            </div>
+          </section>
+        ))}
+      </div>
 
       {plan && (
         <section className="panel backup-plan-card" aria-label="Backup plan">
-          <div className="section-heading"><div><span className="eyebrow">Immutable plan {plan.revision}</span><h3>{plan.output.executable ? "Ready for approval" : "Backup is blocked"}</h3></div><span className={`status-pill ${plan.output.executable ? "status-good" : "status-warning"}`}>{plan.output.destination}</span></div>
+          <div className="section-heading"><div><span className="eyebrow">Immutable plan {plan.revision}</span><h3>{plannedSource?.name ?? plan.subjectId}: {plan.output.executable ? "ready for approval" : "backup is blocked"}</h3></div><span className={`status-pill ${plan.output.executable ? "status-good" : "status-warning"}`}>{plan.output.destination}</span></div>
           <div className="backup-plan-columns">
             <div><strong>Exact workflow</strong><ol>{plan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol></div>
             <div><strong>Warnings and recovery</strong><ul>{plan.output.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><p>{plan.output.recovery}</p></div>
@@ -154,7 +159,7 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
       <section className="panel table-panel">
         <div className="section-heading"><div><span className="eyebrow">Durable evidence</span><h3>Verified backup artifacts</h3></div><button className="secondary-button" type="button" onClick={() => void refresh()} disabled={loading}>Refresh</button></div>
         {backups.length ? (
-          <div className="table-scroll"><table><thead><tr><th>Created</th><th>Artifact</th><th>SHA-256</th><th>Downtime</th><th>Restore drill</th></tr></thead><tbody>{backups.map((backup) => <tr key={backup.id}><td>{new Date(backup.createdAt).toLocaleString()}</td><td>{formatBytes(backup.sizeBytes)} local</td><td><code>{backup.checksumSha256.slice(0, 12)}...</code></td><td>{backup.downtimeMs} ms</td><td className={backup.restoreDrill.passed ? "good-text" : "warning-text"}>{backup.restoreDrill.passed ? "Passed, network isolated" : "Failed"}</td></tr>)}</tbody></table></div>
+          <div className="table-scroll"><table><thead><tr><th>Application</th><th>Created</th><th>Artifact</th><th>SHA-256</th><th>Downtime</th><th>Restore drill</th></tr></thead><tbody>{backups.map((backup) => <tr key={backup.id}><td>{coverage.find((entry) => entry.applicationId === backup.applicationId)?.name ?? backup.applicationId}</td><td>{new Date(backup.createdAt).toLocaleString()}</td><td>{formatBytes(backup.sizeBytes)} local</td><td><code>{backup.checksumSha256.slice(0, 12)}...</code></td><td>{backup.downtimeMs} ms</td><td className={backup.restoreDrill.passed ? "good-text" : "warning-text"}>{backup.restoreDrill.passed ? "Passed, network isolated" : "Failed"}</td></tr>)}</tbody></table></div>
         ) : <p className="empty-state">No backup is listed as successful until its archive checksum and isolated restore health check both pass.</p>}
       </section>
     </>
