@@ -356,4 +356,4 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
   return { inspect, plan, validateAssessment, validateAcceptanceBaseline };
 }
 
-export const networkInternals = { eligibleLanAddresses, hostAddresses, ipv4Number, parseDefaultRoutes, parseDnsListeners, parseIpAddresses, parseResolverStatus, sameIpv4Subnet, topologyGuidance };
+export const networkInternals = { eligibleLanAddresses, hostAddresses, ipv4Number, parseDefaultRoutes, parseDnsListeners, parseIpAddresses, parseResolverStatus, routerCatalog, sameIpv4Subnet, topologyGuidance };

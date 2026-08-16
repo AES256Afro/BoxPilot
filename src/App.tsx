@@ -12,6 +12,7 @@ import HostOverview from "./HostOverview";
 import MigrationCenter from "./MigrationCenter";
 import NetworkCenter from "./NetworkCenter";
 import RepairCenter from "./RepairCenter";
+import RouterCenter from "./RouterCenter";
 import SystemLogs from "./SystemLogs";
 import { fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import VirtualMachines from "./VirtualMachines";
@@ -31,6 +32,10 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   network: {
     title: "Network and DNS",
     description: "Inspect the live gateway and resolver path, then collect guarded DNS evidence without changing clients or routers.",
+  },
+  routers: {
+    title: "Router checkpoints",
+    description: "Record local configuration-backup identity before any future router integration or DNS change.",
   },
   repairs: {
     title: "Prerequisites and Repair Center",
@@ -78,6 +83,11 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     label: "Network intelligence and guarded direct tests",
     tone: "live",
     description: "Live topology remains read-only. A separate password-approved Pi-hole workflow can send four fixed direct DNS queries from Bigbox and record durable evidence. Second-device proof, router credentials, router writes, and DNS cutover remain unavailable.",
+  },
+  routers: {
+    label: "Browser-local recovery checkpoint foundation",
+    tone: "live",
+    description: "The browser hashes a selected router backup and sends only SHA-256 metadata. Configuration uploads, credentials, router sessions, discovery, writes, and DNS cutover remain unavailable.",
   },
   repairs: {
     label: "Live Operations Core",
@@ -239,6 +249,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
       );
     }
     if (view === "network") return <NetworkCenter csrfToken={authStatus.csrfToken ?? ""} onAssessmentReady={setNetworkAssessmentId} onOpenRepair={() => setView("repairs")} />;
+    if (view === "routers") return <RouterCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "repairs") return <RepairCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "virtualization") return <VirtualMachines csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "backups") return <BackupCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
@@ -267,7 +278,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.22.0",
+      version: "0.23.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
@@ -309,7 +320,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.22.0 signed fleet evidence<br />Router writes and cutover locked</div>
+        <div className="prototype-label">v0.23.0 router checkpoints<br />Credentials, writes, cutover locked</div>
       </aside>
 
       <main>
