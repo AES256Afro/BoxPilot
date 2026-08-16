@@ -1,6 +1,6 @@
 # Local Action Center
 
-BoxPilot `0.29.0` adds an authenticated, read-only Action Center inside Repair Center. Version `0.30.1` also correlates sanitized host filesystem-capacity and timer-generated SMART evidence. Version `0.31.0` adds a separately named exact `smartmontools` repair elsewhere in Repair Center without granting the Action Center execution authority. Version `0.32.0` adds mounted-filesystem error-counter notices. Version `0.33.0` adds local UPS not-configured, unavailable, on-battery, low-battery, and forced-shutdown guidance without adding a power control. Action Center converts fixed evidence into prioritized notices, explains why each notice exists, and links the operator to a fixed BoxPilot destination with a short manual checklist.
+BoxPilot `0.29.0` adds an authenticated, read-only Action Center inside Repair Center. Versions `0.30.1` through `0.33.0` add storage, SMART, filesystem-error, and local UPS guidance. Version `0.34.0` adds interrupted package-manager, reboot-required, degraded systemd, incomplete maintenance evidence, stale APT metadata, and unattended-upgrades guidance without adding a host control. Action Center converts fixed evidence into prioritized notices, explains why each notice exists, and links the operator to a fixed BoxPilot destination with a short manual checklist.
 
 The Action Center is guidance, not an automation system. Opening, refreshing, or navigating from it performs no host, application, VM, router, network, DNS, Tailscale, package, file, or service mutation.
 
@@ -25,6 +25,9 @@ The Action Center is guidance, not an automation system. Opening, refreshing, or
 | Missing, stale, warning, or critical SMART evidence | Overview |
 | Missing local UPS setup or unavailable local NUT evidence | Overview |
 | On-battery, low-battery, or forced-shutdown UPS state | Overview |
+| Interrupted package-manager state | Repair Center |
+| Reboot required, degraded systemd, or incomplete maintenance evidence | Overview |
+| Stale APT metadata or unattended-upgrades review | Repair Center or Overview |
 
 Verified and not-applicable checks do not create noise. If every mapped check is verified or not applicable, BoxPilot reports one informational readiness notice. Operator checks remain visible because they require human evidence outside Bigbox.
 
@@ -53,7 +56,7 @@ If the recovery collector throws, returns an incomplete object, or introduces an
 
 ## Deliberate exclusions
 
-Version `0.33.0` Action Center has no:
+Version `0.34.0` Action Center has no:
 
 - Automatic repair or remediation execution
 - Arbitrary command, package, service, file, Docker, libvirt, router, DNS, firewall, or Tailscale operation
@@ -62,6 +65,7 @@ Version `0.33.0` Action Center has no:
 - Email, webhook, SMS, push, Slack, or other external delivery
 - User-provided rule, destination, command, target, template, or plugin
 - UPS power command, remote target, device selection, driver control, or shutdown-policy change
+- APT or dpkg operation, package mutation, service control, automatic-update policy change, or host reboot
 - Credential, agent key, router configuration, backup payload, application data, database content, or arbitrary log inclusion
 
 Future executable remediation must be implemented as a separately named, typed, narrowly scoped workflow. The Action Center itself should remain a read-only correlation and navigation layer.

@@ -1,4 +1,4 @@
-const productVersion = "0.33.0";
+const productVersion = "0.34.0";
 
 const guidance = {
   "controller.database": {
@@ -288,6 +288,82 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
             summary: "Protect current data and use the server's separately configured shutdown policy or local console procedure now.",
             evidence: [`Local UPS state: ${ups.state}.`],
             recommendation: { view: "overview", title: "Open Overview", steps: ["Confirm utility power and the physical UPS state immediately.", "Stop storage-producing work and preserve current data.", "Use the separately configured NUT or console shutdown procedure; Action Center cannot issue a power command."] },
+            boundary: boundary(),
+          });
+        }
+      }
+      const maintenance = hostInventory?.maintenance;
+      if (maintenance) {
+        if (maintenance.packageManager?.state === "interrupted") {
+          notices.push({
+            id: "maintenance.package-manager-interrupted",
+            severity: "critical",
+            category: "Host maintenance",
+            title: "Package-manager state is interrupted",
+            summary: "Do not start another package operation until dpkg state is inspected and recovered from the server console.",
+            evidence: [`${maintenance.packageManager.pendingUpdateFragments ?? "Unknown"} bounded pending update fragment(s) were detected.`],
+            recommendation: { view: "repairs", title: "Open Repair Center", steps: ["Pause BoxPilot package repairs and other package operations.", "Inspect dpkg and APT state from the local server console using Ubuntu recovery guidance.", "Return to Overview and confirm package-manager state is ready before retrying a separately reviewed operation."] },
+            boundary: boundary(),
+          });
+        }
+        if (maintenance.reboot?.required === true) {
+          notices.push({
+            id: "maintenance.reboot-required",
+            severity: "warning",
+            category: "Host maintenance",
+            title: "Ubuntu reports that a reboot is required",
+            summary: "Plan a maintenance window and preserve active workloads before rebooting from a separately controlled console.",
+            evidence: ["The fixed reboot-required marker is present; its text and package names are excluded."],
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Review active applications, jobs, backups, and virtual machines.", "Confirm local or Tailscale recovery access before the maintenance window.", "Reboot through a separately reviewed console procedure; Action Center cannot restart the host."] },
+            boundary: boundary(),
+          });
+        }
+        if (maintenance.system?.state === "degraded" || (maintenance.system?.failedServiceCount ?? 0) > 0) {
+          notices.push({
+            id: "maintenance.system-degraded",
+            severity: "warning",
+            category: "Host maintenance",
+            title: "Systemd reports degraded service state",
+            summary: "Inspect failed services at the server console before relying on the host for a high-impact operation.",
+            evidence: [`${maintenance.system.failedServiceCount ?? "Unknown"} failed service(s) were counted; unit names are excluded.`],
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Review the bounded system state and failed-service count.", "Identify and inspect failed units from the server console without restarting them automatically.", "Verify affected workloads and recovery access before applying a separately reviewed repair."] },
+            boundary: boundary(),
+          });
+        }
+        const coreUnavailable = !maintenance.system?.available || !maintenance.reboot?.available || !maintenance.packageManager?.available;
+        if (coreUnavailable) {
+          notices.push({
+            id: "maintenance.evidence-unavailable",
+            severity: "warning",
+            category: "Host maintenance",
+            title: "Host-maintenance evidence is incomplete",
+            summary: "BoxPilot will not claim maintenance readiness without system, reboot, and package-manager evidence.",
+            evidence: ["At least one fixed host-maintenance collector is unavailable."],
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Refresh the Overview and confirm which bounded state is unavailable.", "Inspect BoxPilot service permissions and the corresponding Ubuntu state at the server console.", "Do not begin a package or reboot workflow until current evidence returns."] },
+            boundary: boundary(),
+          });
+        }
+        if (maintenance.aptMetadata?.state === "stale") {
+          notices.push({
+            id: "maintenance.apt-metadata-stale",
+            severity: "info",
+            category: "Host maintenance",
+            title: "APT metadata evidence is stale",
+            summary: "Package decisions should not rely on repository metadata older than seven days.",
+            evidence: [`APT metadata age: ${maintenance.aptMetadata.ageHours ?? "unknown"} hours.`],
+            recommendation: { view: "repairs", title: "Open Repair Center", steps: ["Confirm internet and repository availability from the server console.", "Refresh package metadata through a separately reviewed console procedure.", "Re-run BoxPilot inspection before planning an exact package repair."] },
+            boundary: boundary(),
+          });
+        }
+        if (maintenance.automaticSecurityUpdates?.available && maintenance.automaticSecurityUpdates.state !== "enabled-active") {
+          notices.push({
+            id: "maintenance.security-updates",
+            severity: "info",
+            category: "Host maintenance",
+            title: "Automatic security updates need operator review",
+            summary: "The fixed unattended-upgrades unit is not both enabled and active.",
+            evidence: [`Automatic security update state: ${maintenance.automaticSecurityUpdates.state}.`],
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Review the current fixed unattended-upgrades unit state.", "Confirm the intended Ubuntu update policy and maintenance window at the server console.", "Apply any policy change separately; BoxPilot does not enable or start the service."] },
             boundary: boundary(),
           });
         }

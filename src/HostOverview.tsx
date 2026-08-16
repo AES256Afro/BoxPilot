@@ -10,6 +10,13 @@ type Inventory = {
     blockDevices?: { available: boolean; devices: Array<{ name: string; parent: string | null; type: string; filesystem: string | null; sizeBytes: number | null; mountTargets: string[]; rotational: boolean | null; readOnly: boolean | null; transport: string | null; model: string | null }> };
     smart?: { available: boolean; status: "healthy" | "warning" | "critical" | "stale" | "unavailable"; reason: string; generatedAt: string | null; stale: boolean; disks: Array<{ device: string; health: string; passed: boolean | null; temperatureCelsius: number | null; powerOnHours: number | null; percentageUsed: number | null; mediaErrors: number | null; unsafeShutdowns: number | null }> };
   };
+  maintenance?: {
+    system: { available: boolean; state: "running" | "degraded" | "maintenance" | "starting" | "stopping" | "offline" | "unavailable"; failedServiceCount: number | null; failedServiceCountTruncated: boolean };
+    reboot: { available: boolean; required: boolean | null };
+    packageManager: { available: boolean; state: "ready" | "interrupted" | "unavailable"; pendingUpdateFragments: number | null; countTruncated: boolean };
+    aptMetadata: { available: boolean; state: "current" | "stale" | "unavailable"; updatedAt: string | null; ageHours: number | null };
+    automaticSecurityUpdates: { available: boolean; state: "enabled-active" | "configured-inactive" | "disabled" | "unavailable"; enabled: boolean | null; active: boolean | null };
+  };
   power?: { ups: { installed: boolean; configured: boolean; available: boolean; state: "online" | "on-battery" | "low-battery" | "forced-shutdown" | "bypass" | "offline" | "unavailable"; reason: string; deviceCount: number; statusTokens: string[]; batteryChargePercent: number | null; estimatedRuntimeSeconds: number | null; loadPercent: number | null; source: "nut-localhost-fixed"; boundary: { mutationPerformed: false; powerCommandAvailable: false; shutdownPolicyChanged: false; localhostOnly: true; remoteNetworkProbePerformed: false; browserTargetAccepted: false; rawOutputIncluded: false; deviceNameIncluded: false; serialIncluded: false } } };
   network: { addresses: Array<{ interface: string; address: string; cidr: string | null }>; tailscale: { installed: boolean; connected: boolean; dnsName: string | null } };
   services: Array<{ unit: string; load: string; active: string; sub: string; enabled: string }>;
@@ -52,6 +59,7 @@ export default function HostOverview() {
   const filesystems = inventory.storage.filesystems ?? { available: false, namespace: "unavailable" as const, mounts: [], summary: { healthy: 0, warning: 0, critical: 0, unavailable: 0 }, errors: { healthy: 0, critical: 0, unavailable: 0, unsupported: 0 } };
   const blockDevices = inventory.storage.blockDevices ?? { available: false, devices: [] };
   const smart = inventory.storage.smart ?? { available: false, status: "unavailable" as const, reason: "storage-scan-evidence-missing", generatedAt: null, stale: true, disks: [] };
+  const maintenance = inventory.maintenance ?? { system: { available: false, state: "unavailable" as const, failedServiceCount: null, failedServiceCountTruncated: false }, reboot: { available: false, required: null }, packageManager: { available: false, state: "unavailable" as const, pendingUpdateFragments: null, countTruncated: false }, aptMetadata: { available: false, state: "unavailable" as const, updatedAt: null, ageHours: null }, automaticSecurityUpdates: { available: false, state: "unavailable" as const, enabled: null, active: null } };
   const ups = inventory.power?.ups ?? { installed: false, configured: false, available: false, state: "unavailable" as const, reason: "ups-evidence-missing", deviceCount: 0, statusTokens: [], batteryChargePercent: null, estimatedRuntimeSeconds: null, loadPercent: null };
   const physicalDisks = blockDevices.devices.filter((device) => device.type === "disk");
   const storageStatus = filesystems.errors.critical > 0 || filesystems.summary.critical > 0 || smart.status === "critical"
@@ -75,6 +83,13 @@ export default function HostOverview() {
           : ups.reason === "nut-client-not-installed" ? "NUT client is not installed"
             : ups.reason === "no-local-ups-configured" ? "No local UPS is configured"
               : ups.configured ? "Local UPS evidence is unavailable" : "UPS evidence is unavailable";
+  const maintenanceStatus = maintenance.packageManager.state === "interrupted"
+    ? "critical"
+    : maintenance.reboot.required || maintenance.system.state === "degraded" || (maintenance.system.failedServiceCount ?? 0) > 0
+      ? "warning"
+      : !maintenance.system.available || !maintenance.reboot.available || !maintenance.packageManager.available || maintenance.aptMetadata.state !== "current" || maintenance.automaticSecurityUpdates.state !== "enabled-active"
+        ? "review"
+        : "healthy";
   const metrics = [
     { label: "CPU load", value: `${inventory.compute.load1.toFixed(2)} / ${inventory.compute.cpuCount} cores`, percent: inventory.compute.loadPercent },
     { label: "Memory", value: `${gib(inventory.compute.usedMemoryBytes)} / ${gib(inventory.compute.totalMemoryBytes)}`, percent: inventory.compute.memoryUsedPercent },
@@ -97,6 +112,17 @@ export default function HostOverview() {
         {filesystems.mounts.length > 0 && <div className="mount-grid">{filesystems.mounts.map((mount) => <article key={`${mount.target}-${mount.source}`}><div><strong>{mount.target}</strong><span className={`status-pill status-${mount.capacityState === "healthy" ? "good" : mount.capacityState === "unavailable" ? "neutral" : "warning"}`}>{mount.usedPercent === null ? "unknown" : `${mount.usedPercent}% used`}</span></div><p>{mount.source} | {mount.filesystem} | {mount.totalBytes === null ? "size unavailable" : gib(mount.totalBytes)}</p><small>{mount.readOnly ? "read-only" : "read-write"} | {mount.optionNames.length ? mount.optionNames.join(", ") : "no safe option flags reported"}</small><small className={`filesystem-error filesystem-error-${mount.errorEvidence.state}`}>{mount.errorEvidence.state === "healthy" ? `ext4 kernel errors: ${mount.errorEvidence.errorsCount}` : mount.errorEvidence.state === "critical" ? `ext4 kernel errors recorded: ${mount.errorEvidence.errorsCount}` : mount.errorEvidence.state === "unsupported" ? `${mount.filesystem} error counter unsupported` : "ext4 error counter unavailable"}</small></article>)}</div>}
         {smart.disks.length > 0 && <div className="smart-grid">{smart.disks.map((disk) => <article key={disk.device}><div><strong>{disk.device}</strong><span className={`status-pill status-${disk.health === "healthy" ? "good" : disk.health === "unavailable" ? "neutral" : "warning"}`}>{disk.health}</span></div><span>{disk.temperatureCelsius === null ? "temperature unavailable" : `${disk.temperatureCelsius} C`} | {disk.percentageUsed === null ? "wear unavailable" : `${disk.percentageUsed}% life used`} | {disk.mediaErrors === null ? "media errors unavailable" : `${disk.mediaErrors} media errors`}</span></article>)}</div>}
         <div className="storage-boundary"><strong>Read-only evidence boundary</strong><span>The browser cannot select a device, run smartctl, or start fsck. A fixed root-only timer reads the host PID 1 mount table, reads only the mounted ext4 kernel errors_count file, and writes bounded fields. Unsupported filesystems stay explicit; service-sandbox mounts, serials, UUIDs, raw SMART output, mount option values, and private home paths are excluded.</span></div>
+      </section>
+      <section className="panel maintenance-evidence-panel">
+        <header className="panel-header"><div><strong>Host maintenance readiness</strong><span>Reboot, package-manager, systemd, APT metadata, and automatic-update evidence</span></div><span className={`status-pill ${maintenanceStatus === "healthy" ? "status-good" : maintenanceStatus === "review" ? "status-neutral" : "status-warning"}`}>{maintenanceStatus}</span></header>
+        <div className="maintenance-evidence-summary">
+          <div><span className="eyebrow">System state</span><strong>{maintenance.system.available ? maintenance.system.state.replaceAll("-", " ") : "Unavailable"}</strong><small>{maintenance.system.failedServiceCount === null ? "Failed-service count unavailable" : `${maintenance.system.failedServiceCount}${maintenance.system.failedServiceCountTruncated ? "+" : ""} failed services`}</small></div>
+          <div><span className="eyebrow">Reboot</span><strong>{maintenance.reboot.required === true ? "Required" : maintenance.reboot.required === false ? "Not required" : "Unavailable"}</strong><small>Marker presence only; package names excluded</small></div>
+          <div><span className="eyebrow">Package manager</span><strong>{maintenance.packageManager.state}</strong><small>{maintenance.packageManager.pendingUpdateFragments === null ? "dpkg state unavailable" : `${maintenance.packageManager.pendingUpdateFragments}${maintenance.packageManager.countTruncated ? "+" : ""} pending update fragments`}</small></div>
+          <div><span className="eyebrow">APT metadata</span><strong>{maintenance.aptMetadata.state}</strong><small>{maintenance.aptMetadata.ageHours === null ? "Timestamp unavailable" : `Updated ${maintenance.aptMetadata.ageHours}h ago`}</small></div>
+          <div><span className="eyebrow">Security updates</span><strong>{maintenance.automaticSecurityUpdates.state.replaceAll("-", " ")}</strong><small>Fixed unattended-upgrades unit state</small></div>
+        </div>
+        <div className="maintenance-boundary"><strong>Read-only maintenance boundary</strong><span>BoxPilot reports only derived states and bounded counts. Package names, failed-unit names, reboot reasons, command output, and errors are excluded. This collector cannot run apt, install or remove a package, restart a service, change unattended-upgrades, or reboot the host.</span></div>
       </section>
       <section className="panel power-evidence-panel">
         <header className="panel-header"><div><strong>UPS power protection</strong><span>Optional read-only evidence from one locally enumerated NUT device</span></div><span className={`status-pill ${upsStatus === "healthy" ? "status-good" : upsStatus === "critical" || upsStatus === "warning" ? "status-warning" : "status-neutral"}`}>{upsStatus}</span></header>

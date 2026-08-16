@@ -16,6 +16,7 @@ describe("live host overview", () => {
         blockDevices: { available: true, devices: [{ name: "/dev/nvme0n1", parent: null, type: "disk", filesystem: null, sizeBytes: 1000, mountTargets: [], rotational: false, readOnly: false, transport: "nvme", model: "Safe SSD" }] },
         smart: { available: true, status: "healthy", reason: "fixed-root-scan", generatedAt: "2026-08-15T18:00:00Z", stale: false, disks: [{ device: "/dev/nvme0n1", health: "healthy", passed: true, temperatureCelsius: 42, powerOnHours: 100, percentageUsed: 4, mediaErrors: 0, unsafeShutdowns: 1 }] },
       },
+      maintenance: { system: { available: true, state: "running", failedServiceCount: 0, failedServiceCountTruncated: false }, reboot: { available: true, required: false }, packageManager: { available: true, state: "ready", pendingUpdateFragments: 0, countTruncated: false }, aptMetadata: { available: true, state: "current", updatedAt: "2026-08-15T18:00:00Z", ageHours: 1 }, automaticSecurityUpdates: { available: true, state: "enabled-active", enabled: true, active: true } },
       power: { ups: { installed: true, configured: true, available: true, state: "online", reason: "ok", deviceCount: 1, statusTokens: ["CHRG", "OL"], batteryChargePercent: 96, estimatedRuntimeSeconds: 2700, loadPercent: 23, source: "nut-localhost-fixed", boundary: { mutationPerformed: false, powerCommandAvailable: false, shutdownPolicyChanged: false, localhostOnly: true, remoteNetworkProbePerformed: false, browserTargetAccepted: false, rawOutputIncluded: false, deviceNameIncluded: false, serialIncluded: false } } },
       network: { addresses: [{ interface: "enp1s0", address: "192.168.8.10", cidr: "192.168.8.10/24" }], tailscale: { installed: true, connected: true, dnsName: "bigbox.example.ts.net" } },
       services: [{ unit: "boxpilot.service", load: "loaded", active: "active", sub: "running", enabled: "enabled" }],
@@ -32,6 +33,9 @@ describe("live host overview", () => {
     expect(screen.getByText(/42 C/)).toBeTruthy();
     expect(screen.getByText("ext4 kernel errors: 0")).toBeTruthy();
     expect(screen.getByText("UPS power protection")).toBeTruthy();
+    expect(screen.getByText("Host maintenance readiness")).toBeTruthy();
+    expect(screen.getByText("Not required")).toBeTruthy();
+    expect(screen.getByText("enabled active")).toBeTruthy();
     expect(screen.getByText("Local UPS is online")).toBeTruthy();
     expect(screen.getByText("96%")).toBeTruthy();
     expect(screen.getByText(/45m estimated runtime/)).toBeTruthy();
