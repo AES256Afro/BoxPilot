@@ -111,32 +111,22 @@ function parseStorageBytes(value) {
   return Math.round(Number.parseFloat(match[1]) * multipliers[match[2].toLowerCase()]);
 }
 
-function safeUsername() {
-  const candidate = process.env.SUDO_USER ?? process.env.USER ?? "";
-  return /^[a-z_][a-z0-9_-]{0,31}$/.test(candidate) ? candidate : "<your-user>";
-}
-
 export function getSetupPlan() {
-  const username = safeUsername();
   return {
-    title: "Install and prepare QEMU/KVM with libvirt",
+    title: "Manual recovery path for QEMU/KVM and libvirt",
     destructive: false,
     requiresConsoleApproval: true,
     commands: [
       "sudo apt update",
-      "sudo apt install -y qemu-kvm libvirt-daemon-system libvirt-clients virtinst cpu-checker",
-      `sudo adduser ${username} libvirt`,
-      `sudo adduser ${username} kvm`,
+      "sudo apt install -y qemu-system-x86 libvirt-daemon-system libvirt-clients virtinst ovmf",
+      "sudo systemctl enable --now libvirtd.service",
       "sudo install -d -m 0755 /var/lib/libvirt/boot",
-      "sudo virsh net-start default || true",
-      "sudo virsh net-autostart default",
-      "sudo virsh pool-start default || true",
-      "sudo virsh pool-autostart default",
       "virsh --connect qemu:///system list --all",
     ],
     notes: [
-      "Log out and back in after adding the user to the libvirt group.",
-      "Use the default NAT network first. Bridging is a separate high-risk network change.",
+      "Use Repair Center for package installation and Default VM foundation for the network and pool whenever those guarded workflows are available.",
+      "The platform uses the system libvirt URI through its restricted helper, so it does not add an interactive user to libvirt or kvm groups.",
+      "Use the fixed default NAT network first. Bridging is a separate high-risk network change and remains unavailable.",
       "Do not create production VMs until their storage pool has backup coverage.",
     ],
   };

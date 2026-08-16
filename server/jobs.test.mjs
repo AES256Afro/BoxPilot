@@ -148,6 +148,28 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("revalidates and executes only the approved fixed libvirt foundation plan", async () => {
+    const foundationId = "123e4567-e89b-42d3-a456-426614174000";
+    const expectedRevision = "a".repeat(64);
+    const result = {
+      initialized: true, foundationId, revisionBefore: expectedRevision, revisionAfter: "b".repeat(64), ready: true,
+      network: { name: "default", created: true, started: true, autostartEnabled: true },
+      pool: { name: "default", targetPath: "/var/lib/libvirt/images", created: true, started: true, autostartEnabled: true },
+      rollback: { automatic: true, requestedOnFailure: true, limitedToJobChanges: true },
+      boundary: { resourceNamesFixed: true, otherNetworksChanged: false, otherPoolsChanged: false, virtualMachineCreated: false, diskCreated: false, bridgeModeEnabled: false, browserResourceAccepted: false },
+    };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const validateLibvirtFoundationJob = vi.fn(async () => ({ plan: { input: { foundationId, expectedRevision } }, state: { revision: expectedRevision } }));
+    const jobs = createJobService(store, helper, { validateLibvirtFoundationJob });
+    const job = store.createJob({ type: "virtualization.foundation.initialize", title: "Initialize libvirt foundation", risk: "virtualization-network-storage", parameters: { foundationId, expectedRevision }, recovery: { automaticRollback: true }, createdBy: owner.id });
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+    expect(validateLibvirtFoundationJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("virtualization.foundation.initialize", { foundationId, expectedRevision }, { timeoutMs: 5 * 60 * 1000 });
+    expect(completed).toMatchObject({ state: "completed", result: { initialized: true, ready: true, network: { name: "default" }, pool: { name: "default" } } });
+    store.close();
+  });
+
   it("revalidates and executes a typed Uptime Kuma deployment job", async () => {
     const helper = { request: vi.fn(async () => ({ installed: true, healthy: true, dataPreserved: true, hostPort: 3101 })) };
     const { store, owner } = await setup(helper);
