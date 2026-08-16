@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.48.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.49.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -164,6 +164,20 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ operation: "application.keel.backup", parameters: { backupId, path: "/tmp/copy" } }))).toContain("only one backupId UUID");
     const keelBackups = { backup: async (parameters) => ({ ...parameters, applicationId: "keel", sourceRestartVerified: true, restoreDrill: { passed: true, mode: "isolated-keel-export-open" } }) };
     await expect(executeHelperOperation(request({ operation: "application.keel.backup", parameters: { backupId } }), { keelBackups })).resolves.toMatchObject({ ok: true, result: { backupId, applicationId: "keel", sourceRestartVerified: true } });
+  });
+
+  it("accepts and delegates only fixed Keel recovery evidence", async () => {
+    const parameters = { recoveryId: randomUUID(), backupId: randomUUID(), expectedArtifactChecksumSha256: "a".repeat(64), expectedManifestChecksumSha256: "b".repeat(64), expectedSizeBytes: 8192 };
+    expect(validateHelperRequest(request({ operation: "application.keel.recovery.inspect", parameters }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.keel.recovery.create", parameters }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.keel.recovery.create", parameters: { ...parameters, path: "/tmp" } }))).toContain("fixed typed backup evidence fields");
+    expect(validateHelperRequest(request({ operation: "application.keel.recovery.create", parameters: { ...parameters, recoveryId: "../../etc" } }))).toContain("Recovery id must be a UUID");
+    const keelRecovery = {
+      inspect: async (input) => ({ ready: true, ...input, initialState: "stopped", network: "none" }),
+      create: async (input) => ({ created: true, ...input, initialState: "stopped", network: "none", productionStateReplaced: false }),
+    };
+    await expect(executeHelperOperation(request({ operation: "application.keel.recovery.inspect", parameters }), { keelRecovery })).resolves.toMatchObject({ ok: true, result: { ready: true, recoveryId: parameters.recoveryId, backupId: parameters.backupId, initialState: "stopped" } });
+    await expect(executeHelperOperation(request({ operation: "application.keel.recovery.create", parameters }), { keelRecovery })).resolves.toMatchObject({ ok: true, result: { created: true, recoveryId: parameters.recoveryId, productionStateReplaced: false } });
   });
 
   it("delegates only a typed Pi-hole backup id to the curated helper", async () => {

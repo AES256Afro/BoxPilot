@@ -20,6 +20,7 @@ export function createJobService(store, helper, {
   validateVmRetentionJob = async () => {},
   validateVmRestoreDrillJob = async () => {},
   validateVmRecoveryJob = async () => {},
+  validateKeelRecoveryJob = async () => {},
   validateVmLifecycleJob = async () => {},
   validateVmSnapshotJob = async () => {},
   recordBackupResult = () => {},
@@ -34,6 +35,7 @@ export function createJobService(store, helper, {
   recordVmRetentionResult = () => {},
   recordVmRestoreDrillResult = () => {},
   recordVmRecoveryResult = () => {},
+  recordKeelRecoveryResult = () => {},
 } = {}) {
   function createCanary(ownerId) {
     return store.createJob({
@@ -56,7 +58,7 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
     const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.stage", "application.keel.install"].includes(job.type) ? await validateApplicationJob(job) : null;
     const validatedKeelArtifactPlan = job.type === "application.keel.artifact.acquire" ? await validateKeelArtifactJob(job) : null;
@@ -73,6 +75,7 @@ export function createJobService(store, helper, {
     const validatedVmRetentionPlan = job.type === "virtualization.export.backup.retention.apply" ? await validateVmRetentionJob(job) : null;
     const validatedVmRestoreDrillPlan = job.type === "virtualization.export.backup.restore-drill" ? await validateVmRestoreDrillJob(job) : null;
     const validatedVmRecoveryPlan = job.type === "virtualization.backup.recovery.create" ? await validateVmRecoveryJob(job) : null;
+    const validatedKeelRecoveryPlan = job.type === "application.keel.recovery.create" ? await validateKeelRecoveryJob(job) : null;
     const validatedVmLifecyclePlan = job.type === "virtualization.domain.action" ? await validateVmLifecycleJob(job) : null;
     const validatedVmSnapshotPlan = job.type === "virtualization.domain.snapshot.create" ? await validateVmSnapshotJob(job) : null;
     if (job.type === "virtualization.domain.create" && !validatedVmPlan?.input) throw new Error("The staged VM creation plan is unavailable or changed");
@@ -86,6 +89,7 @@ export function createJobService(store, helper, {
     if (job.type === "virtualization.export.backup.retention.apply" && !validatedVmRetentionPlan?.input) throw new Error("The staged VM retention plan is unavailable or changed");
     if (job.type === "virtualization.export.backup.restore-drill" && !validatedVmRestoreDrillPlan?.input) throw new Error("The staged VM restore drill plan is unavailable or changed");
     if (job.type === "virtualization.backup.recovery.create" && !validatedVmRecoveryPlan?.input) throw new Error("The staged VM recovery plan is unavailable or changed");
+    if (job.type === "application.keel.recovery.create" && !validatedKeelRecoveryPlan?.input) throw new Error("The staged Keel recovery plan is unavailable or changed");
     if (job.type === "virtualization.domain.action" && !validatedVmLifecyclePlan?.input) throw new Error("The staged VM lifecycle plan is unavailable or changed");
     if (job.type === "virtualization.domain.snapshot.create" && !validatedVmSnapshotPlan?.input) throw new Error("The staged VM snapshot plan is unavailable or changed");
     if (job.type === "application.pi-hole.deploy" && !validatedApplicationPlan?.input) throw new Error("The staged Pi-hole plan is unavailable or changed");
@@ -441,6 +445,29 @@ export function createJobService(store, helper, {
         && result?.boundary?.tailscaleChanged === false
         && result?.boundary?.firewallChanged === false
         && result?.boundary?.routerChanged === false,
+    } : job.type === "application.keel.recovery.create" ? {
+      operation: "application.keel.recovery.create",
+      parameters: validatedKeelRecoveryPlan.input,
+      timeoutMs: 20 * 60 * 1000,
+      applying: "Rehashing the selected Keel backup and extracting it into one generated root-only recovery workspace",
+      applied: "The portable export was transformed into a stopped Keel state layout without changing production",
+      verified: "Manifest, complete tree, managed secret, SQLite integrity, foreign keys, schema, permissions, and no-start no-network boundaries passed",
+      failed: "The Keel recovery clone did not complete; production and the source backup remain unchanged and only the generated partial directory may have been removed",
+      validate: (result) => result?.created === true
+        && result?.recoveryId === validatedKeelRecoveryPlan.input.recoveryId
+        && result?.backupId === validatedKeelRecoveryPlan.input.backupId
+        && result?.destination === "managed-keel-recovery"
+        && result?.sourceArtifactChecksumSha256 === validatedKeelRecoveryPlan.input.expectedArtifactChecksumSha256
+        && result?.sourceManifestChecksumSha256 === validatedKeelRecoveryPlan.input.expectedManifestChecksumSha256
+        && result?.sourceSizeBytes === validatedKeelRecoveryPlan.input.expectedSizeBytes
+        && result?.databaseIntegrity === "ok"
+        && result?.foreignKeyIssues === 0
+        && result?.schemaVerified === true
+        && result?.initialState === "stopped"
+        && result?.network === "none"
+        && result?.applicationStarted === false
+        && result?.productionStateReplaced === false
+        && result?.promotionPerformed === false,
     } : job.type === "migration.bundle.transfer" ? {
       operation: "migration.bundle.transfer",
       parameters: migrationHelperInput,
@@ -551,6 +578,7 @@ export function createJobService(store, helper, {
       if (job.type === "virtualization.export.backup.create") recordVmProtectionResult(job, result);
       if (job.type === "virtualization.export.backup.restore-drill") recordVmRestoreDrillResult(job, result);
       if (job.type === "virtualization.backup.recovery.create") recordVmRecoveryResult(job, result);
+      if (job.type === "application.keel.recovery.create") recordKeelRecoveryResult(job, result);
       store.addJobStep(jobId, "verify", "completed", execution.verified);
       const completed = store.transitionJob(jobId, "verifying", "completed", { result });
       store.recordAudit("job.completed", { actorId: owner.id, subjectId: jobId, details: { type: job.type } });
