@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeSmartEvidence, parseBlockInventory, parseMountInventory } from "./storage-evidence.mjs";
+import { normalizeMountEvidence, normalizeSmartEvidence, parseBlockInventory, parseMountInventory } from "./storage-evidence.mjs";
 
 describe("sanitized storage evidence", () => {
   it("flattens real mounts while removing option values and sensitive mount locations", () => {
@@ -12,6 +12,14 @@ describe("sanitized storage evidence", () => {
     expect(result.mounts[1]).toMatchObject({ target: "/home/[redacted]", source: "[remote-or-virtual-source]" });
     expect(JSON.stringify(result)).not.toContain("password");
     expect(JSON.stringify(result)).not.toContain("private-owner");
+  });
+
+  it("accepts only re-sanitized host PID 1 mount evidence", () => {
+    const collected = parseMountInventory(JSON.stringify({ filesystems: [{ target: "/", source: "/dev/sda2", fstype: "ext4", size: 1000, used: 500, avail: 500, "use%": "50%", options: "rw,relatime,password=secret" }] }));
+    const metadata = { schemaVersion: 1, generatedAt: "2026-08-16T05:00:00.000Z", now: () => new Date("2026-08-16T05:01:00.000Z") };
+    expect(normalizeMountEvidence({ ...collected, namespace: "host-pid1" }, metadata)).toMatchObject({ available: true, namespace: "host-pid1", mounts: [{ target: "/", readOnly: false, optionNames: ["relatime", "rw"] }] });
+    expect(normalizeMountEvidence({ ...collected, namespace: "collector" }, metadata)).toMatchObject({ available: false, namespace: "unavailable", mounts: [] });
+    expect(normalizeMountEvidence({ ...collected, namespace: "host-pid1" }, { ...metadata, generatedAt: "2026-08-14T05:00:00.000Z" })).toMatchObject({ available: false, namespace: "unavailable", mounts: [] });
   });
 
   it("returns block topology without serials, UUIDs, or unsafe device values", () => {

@@ -111,7 +111,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.30.0",
+    version: "0.30.1",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -703,7 +703,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.30.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.30.1 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

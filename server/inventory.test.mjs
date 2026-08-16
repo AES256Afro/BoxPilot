@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";
 import { createInventoryService } from "./inventory.mjs";
+import { parseMountInventory } from "./storage-evidence.mjs";
 
 describe("sanitized host inventory", () => {
   it("collects host, service, Tailscale self, and helper-backed Docker state without peers or labels", async () => {
@@ -59,14 +60,23 @@ describe("sanitized host inventory", () => {
         readOsRelease: vi.fn(async () => fixture.osRelease),
         getFilesystem: vi.fn(async () => ({ blocks: 1000, bavail: 500, bsize: 4096 })),
         getNetworkInterfaces: vi.fn(() => ({})),
-        readStorageHealth: vi.fn(async () => { throw new Error("fixture has no root scan"); }),
+        now: () => new Date("2026-08-16T05:01:00.000Z"),
+        readStorageHealth: vi.fn(async () => JSON.stringify({
+          schemaVersion: 1,
+          generatedAt: "2026-08-16T05:00:00.000Z",
+          available: false,
+          reason: "no-supported-disks",
+          disks: [],
+          filesystems: { ...parseMountInventory(JSON.stringify(fixture.findmnt)), namespace: "host-pid1" },
+        })),
       }).inspect();
       expect(inventory.host.operatingSystem).toContain(`Ubuntu ${fixture.release}`);
       expect(inventory.storage.filesystems.available).toBe(true);
       expect(inventory.storage.filesystems.mounts.length).toBeGreaterThan(0);
       expect(inventory.storage.blockDevices.available).toBe(true);
+      expect(runCommand).not.toHaveBeenCalledWith("findmnt", expect.anything());
       expect(JSON.stringify(inventory)).not.toContain("UUID");
-      expect(JSON.stringify(inventory)).not.toContain("serial");
+      expect(inventory.storage.blockDevices.devices.every((device) => !("serial" in device))).toBe(true);
     }
   });
 });
