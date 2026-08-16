@@ -21,7 +21,7 @@ GET /api/v1/health
 GET /api/v1/capabilities
 ```
 
-Agents and interfaces should read capabilities before showing an operation. `vmCreationPlanning: validated-durable-approved` means supported plans can be staged as immutable jobs, but execution still requires separate password reauthentication.
+Agents and interfaces should read capabilities before showing an operation. `vmCreationPlanning: validated-durable-approved-with-authenticated-staged-iso-import` means supported plans can be staged as immutable jobs, but media import and VM creation each require their own separate password reauthentication.
 
 ## Host and domain discovery
 
@@ -41,6 +41,23 @@ GET /api/v1/virtualization/setup-plan
 `console-guidance` uses a parameter-free helper operation to inspect only `cockpit.socket`. If Cockpit is already active and Tailscale reports a DNS name, the response includes an HTTPS port `9090` handoff on that private hostname. BoxPilot does not install, enable, reconfigure, authenticate to, or proxy Cockpit. Cockpit remains a separate security boundary.
 
 A `503` from `domains` or `resources` is a structured discovery result when libvirt is unavailable. The web interface renders the partial result rather than treating the entire console as failed.
+
+## Upload and import VM installation media
+
+```text
+GET /api/v1/virtualization/media
+POST /api/v1/virtualization/media/uploads
+POST /api/v1/virtualization/media/import-plans
+POST /api/v1/virtualization/media/import-plans/:id/stage
+```
+
+The inventory route uses parameter-free helper inspection. It lists only regular managed `.iso` files and complete staging pairs whose safe filename, metadata name, byte count, SHA-256 syntax, and regular-file state match. It returns fixed staging and library identities, a 16 GiB upload limit, and explicit non-mutation boundaries. It does not hash every managed ISO or return arbitrary directory contents.
+
+The upload route requires an authenticated session, the session CSRF header, `Content-Type: application/octet-stream`, a basename-only `.iso` in `X-BoxPilot-Filename`, and an integer byte count in `X-BoxPilot-Size`. The server streams and hashes bytes directly into one generated partial beneath `/var/lib/boxpilot-managed/vm-media-inbox`, enforces the declared byte count and 16 GiB cap, keeps a fixed 1 GiB filesystem reserve, and publishes one mode-0600 data and metadata pair without overwriting. It never accepts a filesystem path, URL, destination, command, or argument array. An upload is staged data, not managed installation media.
+
+Import planning accepts only `{ "filename": "ubuntu.iso" }`, resolves that name against parameter-free helper inventory, rejects a managed-library collision, and pins a generated import UUID plus exact byte count, SHA-256, and candidate revision. Staging accepts only the immutable plan revision and rechecks the candidate and collision state. Password approval sends only those five evidence fields to `virtualization.media.import`.
+
+The helper rehashes the source, copies into one generated partial beneath `/var/lib/libvirt/boot`, applies read-only file mode, flushes and rehashes the copy, publishes the exact new filename without overwrite, verifies the final file again, and then removes the staging pair. Failure removes only the generated partial or exact newly published file and preserves the staged upload. Existing media, domains, libvirt resources, networks, Tailscale, firewall, DNS, and router state are unchanged. URL download, vendor catalog acquisition, signature verification, overwrite, and managed-media deletion are unavailable.
 
 ## Initialize the canonical libvirt foundation
 

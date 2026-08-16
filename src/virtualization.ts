@@ -136,6 +136,44 @@ export interface VmPlanningOptions {
   firmware: string[];
 }
 
+export interface VmMediaCandidate {
+  name: string;
+  sizeBytes: number;
+  sha256: string;
+  uploadedAt: string;
+  modifiedAt: string;
+  revision: string;
+}
+
+export interface VmMediaInventory {
+  inbox: { path: string; candidates: VmMediaCandidate[] };
+  library: { path: string; images: Array<{ name: string; sizeBytes: number; modifiedAt: string }> };
+  limits: { maximumIsoBytes: number };
+  boundary: {
+    browserPathAccepted: false;
+    arbitraryDestinationAccepted: false;
+    checksumVerifiedDuringImport: true;
+    existingMediaOverwritten: false;
+    mutationPerformed: false;
+  };
+}
+
+export interface VmMediaImportPlan {
+  id: string;
+  revision: string;
+  status: "draft" | "staged";
+  expiresAt: string;
+  executable: true;
+  input: { importId: string; filename: string; expectedSizeBytes: number; expectedSha256: string; expectedRevision: string };
+  candidate: VmMediaCandidate;
+  destination: string;
+  changes: string[];
+  verification: string[];
+  boundaries: string[];
+  recovery: string;
+  adapterRevision: string;
+}
+
 export interface VmPlanInput {
   name: string;
   osProfile: string;
@@ -472,6 +510,42 @@ export async function fetchVirtualization(): Promise<[VirtualizationStatus, Doma
 
 export async function fetchVmPlanningOptions(): Promise<VmPlanningOptions> {
   return readJson<VmPlanningOptions>(await fetch("/api/v1/virtualization/planning-options"));
+}
+
+export async function fetchVmMedia(): Promise<VmMediaInventory> {
+  return readJson<VmMediaInventory>(await fetch("/api/v1/virtualization/media"));
+}
+
+export async function uploadVmMedia(file: File, csrfToken: string): Promise<{ name: string; sizeBytes: number; sha256: string; uploadedAt: string }> {
+  const response = await fetch("/api/v1/virtualization/media/uploads", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/octet-stream",
+      "X-BoxPilot-CSRF": csrfToken,
+      "X-BoxPilot-Filename": file.name,
+      "X-BoxPilot-Size": String(file.size),
+    },
+    body: file,
+  });
+  return (await readJson<{ upload: { name: string; sizeBytes: number; sha256: string; uploadedAt: string } }>(response)).upload;
+}
+
+export async function createVmMediaImportPlan(filename: string, csrfToken: string): Promise<VmMediaImportPlan> {
+  const response = await fetch("/api/v1/virtualization/media/import-plans", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: JSON.stringify({ filename }),
+  });
+  return (await readJson<{ plan: VmMediaImportPlan }>(response)).plan;
+}
+
+export async function stageVmMediaImportPlan(planId: string, revision: string, csrfToken: string): Promise<VmCreationJob> {
+  const response = await fetch(`/api/v1/virtualization/media/import-plans/${encodeURIComponent(planId)}/stage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: JSON.stringify({ revision }),
+  });
+  return (await readJson<{ job: VmCreationJob }>(response)).job;
 }
 
 export async function fetchLibvirtFoundation(): Promise<LibvirtFoundation> {

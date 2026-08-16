@@ -11,6 +11,7 @@ User=boxpilot
 Group=boxpilot
 WorkingDirectory=/opt/boxpilot
 EnvironmentFile=/etc/boxpilot/boxpilot.env
+Environment=BOXPILOT_VM_MEDIA_INBOX=/var/lib/boxpilot-managed/vm-media-inbox
 StateDirectory=boxpilot
 StateDirectoryMode=0700
 ExecStart=/usr/local/bin/node /opt/boxpilot/server/index.mjs
@@ -27,6 +28,7 @@ ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectSystem=strict
+ReadWritePaths=/var/lib/boxpilot-managed/vm-media-inbox
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 RestrictRealtime=true
 SystemCallArchitectures=native
