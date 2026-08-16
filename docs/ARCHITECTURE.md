@@ -18,6 +18,8 @@ Version `0.38.1` corrects the Backups data-source disclosure and empty-state lan
 
 Version `0.39.0` adds a second controller protection stage. The web process can bind an immutable plan only to an existing verified local controller backup and fixed destination revision. The helper accepts no paths, passwords, repositories, commands, or restic options. It requires a separate exact mounted filesystem and controller recovery password, snapshots the complete local backup directory into `restic-controller`, reads all repository data, restores the exact snapshot with verification, repeats both hashes and the SQLite safety checks, removes a successful drill workspace, and stores independent protection evidence in a separate table. No retention, prune, automatic restore, or live database mutation is added.
 
+Version `0.40.0` adds one fixed controller-retention policy. It keeps the three newest active protected snapshots, every snapshot younger than 30 days, every snapshot without complete passing restore evidence, and every snapshot referenced by an active controller protection or retention job. A high-risk immutable plan contains at most 100 exact old snapshot ids and the complete destination and snapshot-set evidence. The helper revalidates the fixed repository and inventory, forgets only those ids, performs a complete post-mutation repository data read, proves every candidate absent and every reviewed noncandidate present, and returns bounded partial-removal evidence when later verification fails. Durable state never presents a confirmed forgotten record as protected or retained. No browser policy, selector, path, password, repository, schedule, prune, space reclamation, local-artifact deletion, production restore, or live database mutation is added.
+
 ## Target components
 
 ```text
@@ -63,6 +65,7 @@ BoxPilot web and API process (unprivileged)
           +---- Signed node-local-gateway Flint 2 second-device evidence (0.37.0)
           +---- Durable WAL-aware controller snapshot and isolated copy-open evidence (0.38.0)
           +---- Durable encrypted independent controller copy and exact database restore proof (0.39.0)
+          +---- Durable fixed no-prune controller retention with exact removal evidence (0.40.0)
           |
           +<--- Ed25519 signed polling and fixed Pi-hole or Flint 2 evidence from an enrolled LAN agent
                   Flint 2 target must match the node-local default gateway
@@ -78,6 +81,7 @@ Restricted helper over a local Unix socket (0.4.0 canary foundation)
           +---- fixed APT metadata inspect and static update-only unit handoff (0.35.0)
           +---- fixed controller database inspect, snapshot, manifest, and isolated copy-open drill (0.38.0)
           +---- fixed controller mounted-restic inspect, full read, exact restore, and copy-open drill (0.39.0)
+          +---- fixed exact old protected controller snapshot forget and full post-read proof (0.40.0)
           +---- fixed Uptime Kuma inspect, deploy, health, and rollback (0.5.0)
           +---- fixed Linux VM creation, verification, and exact-domain rollback (0.9.0)
           +---- fixed VM start, graceful shutdown, reboot request, and autostart operations (0.10.0)
@@ -176,7 +180,7 @@ Uptime Kuma is the low-risk canary adapter because it proves fixed Docker argume
 
 ## Data model target
 
-The persistent store is SQLite. Owners, sessions, jobs, job steps, approvals, plans, controller and application backups, Pi-hole and Flint 2 gateway DNS acceptance runs, fleet agents, one-time enrollment token digests, fleet tasks, signed evidence, router checkpoint metadata, VM exports, VM backups, VM recoveries, VM retention runs, imported migration sources, verified migration transfers, and audit events are live. Planned records include:
+The persistent store is SQLite. Owners, sessions, jobs, job steps, approvals, plans, controller and application backups, controller protection and retention runs, Pi-hole and Flint 2 gateway DNS acceptance runs, fleet agents, one-time enrollment token digests, fleet tasks, signed evidence, router checkpoint metadata, VM exports, VM backups, VM recoveries, VM retention runs, imported migration sources, verified migration transfers, and audit events are live. Planned records include:
 
 - hosts
 - workloads
@@ -201,7 +205,7 @@ A successful copy is not a verified backup. The controller adapter requires a co
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.39.0 limitations
+## Version 0.40.0 limitations
 
 - The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
@@ -216,9 +220,9 @@ A successful copy is not a verified backup. The controller adapter requires a co
 - The Keel Notes adapter is planning-only. It does not discover an existing install, download or hash an asset, validate an archive locally, install Node or Keel, create a service account, write a unit, open a port, start a process, claim an owner, restrict registration, back up or restore data, or activate a migration.
 - The recovery kit is evidence and guidance, not a backup. It can now report stored encrypted independent controller evidence only after the exact snapshot restore passes, but it cannot prove that the operator retained the repository password in a separate failure domain. It also cannot prove an independent source archive, router configuration file, application credential, or Tailscale account recovery path.
 - The Action Center is a transient read-only projection of recovery evidence. It has fixed guidance and view navigation only. It cannot dismiss or persist notices, repair a condition, run a command, install a package, schedule work, request browser notifications, or deliver messages externally. The separately named `smartmontools` workflow exists only in Repair Center.
-- Only the exact `smartmontools` repair, fixed local controller backup, fixed mounted-restic controller protection, fixed Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune VM retention batches can execute mutations. Network assessments and router checkpoints cannot execute. Pi-hole and Flint 2 direct DNS acceptance are approved fixed read-only jobs in the unprivileged web process and never cross the root helper. Signed agents can repeat only the four fixed Pi-hole checks or four fixed Flint 2 checks, with a mandatory node-local default-gateway match for Flint 2. Controller scheduling, retention, prune, remote/cloud adapters, browser download, and automatic production restore remain unavailable.
+- Only the exact `smartmontools` repair, fixed local controller backup, fixed mounted-restic controller protection, exact no-prune controller retention batch, fixed Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune VM retention batches can execute mutations. Network assessments and router checkpoints cannot execute. Pi-hole and Flint 2 direct DNS acceptance are approved fixed read-only jobs in the unprivileged web process and never cross the root helper. Signed agents can repeat only the four fixed Pi-hole checks or four fixed Flint 2 checks, with a mandatory node-local default-gateway match for Flint 2. Controller scheduling, configurable retention, prune, remote/cloud adapters, browser download, and automatic production restore remain unavailable.
 - A VM snapshot is never counted as an independent backup. The snapshot workflow rejects running guests, non-file disks, disks outside the managed image root, non-qcow2 disks, backing chains, symlinks, and changed inventory.
-- Controller, Uptime Kuma, and Pi-hole backups begin as root-only local artifacts on Bigbox. Only the exact controller record whose separate encrypted repository copy, complete repository read, and exact database restore drill pass is promoted to protected. Application artifacts remain local-only. The controller drill does not start a service or attempt an owner login. VM and controller protection both require an operator-provided independent mounted filesystem; no such destination is currently configured on Bigbox.
+- Controller, Uptime Kuma, and Pi-hole backups begin as root-only local artifacts on Bigbox. Only the exact controller record whose separate encrypted repository copy, complete repository read, and exact database restore drill pass is promoted to protected. The fixed controller-retention policy can later mark only exact old protected repository references as forgotten while retaining every local controller artifact. Application artifacts remain local-only. The controller drill does not start a service or attempt an owner login. VM and controller protection both require an operator-provided independent mounted filesystem; no such destination is currently configured on Bigbox, so no live controller retention plan or mutation exists there.
 - VM exports are root-only local integrity artifacts. They are unencrypted and are not reported as protected until a later independent copy and isolated restore boot pass.
 - Mounted-restic VM copies begin unprotected. Only the exact backup record whose transient no-network restore and guest-agent health drill passes is promoted to protected.
 - Restore-drill protection proves boot and guest-agent health, not application-level network health. The guest must already contain an enabled QEMU guest agent.

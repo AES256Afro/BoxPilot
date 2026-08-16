@@ -14,9 +14,10 @@ import { createMigrationTransferHelper, validateMigrationTransferInput } from ".
 import { createPrerequisiteHelper } from "./prerequisite-helper.mjs";
 import { createControllerBackupHelper, controllerBackupHelperInternals } from "./controller-backup-helper.mjs";
 import { createControllerProtectionHelper, validateControllerProtectionInput } from "./controller-protection-helper.mjs";
+import { createControllerRetentionHelper, validateControllerRetentionInput } from "./controller-retention-helper.mjs";
 
 export const helperProtocolVersion = 1;
-export const helperOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.smartmontools.install", "prerequisite.apt-metadata.inspect", "prerequisite.apt-metadata.refresh", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.backup.create", "controller.database.protection.inspect", "controller.database.protection.create", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "application.pi-hole.inspect", "application.pi-hole.deploy", "application.pi-hole.backup", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
+export const helperOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.smartmontools.install", "prerequisite.apt-metadata.inspect", "prerequisite.apt-metadata.refresh", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.backup.create", "controller.database.protection.inspect", "controller.database.protection.create", "controller.database.protection.retention.inspect", "controller.database.protection.retention.apply", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "application.pi-hole.inspect", "application.pi-hole.deploy", "application.pi-hole.backup", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
 const vmCreationKeys = ["autostart", "diskGiB", "firmware", "isoFile", "memoryMiB", "name", "network", "osProfile", "vcpus"];
 const vmLifecycleKeys = ["action", "expectedAutostart", "expectedState", "name"];
 const vmSnapshotKeys = ["expectedDiskRevision", "expectedSnapshotRevision", "expectedState", "expectedUuid", "name", "snapshotName"];
@@ -70,6 +71,11 @@ export function validateHelperRequest(value) {
     const keys = Object.keys(value.parameters).sort();
     if (keys.length !== expectedKeys.length || keys.some((key, index) => key !== expectedKeys[index])) return "Controller protection accepts only the fixed typed evidence fields";
     const errors = validateControllerProtectionInput(value.parameters);
+    if (errors.length) return errors.join(" | ");
+  }
+  if (value.operation === "controller.database.protection.retention.inspect" && Object.keys(value.parameters).length !== 0) return "Controller retention inspection accepts no parameters";
+  if (value.operation === "controller.database.protection.retention.apply") {
+    const errors = validateControllerRetentionInput(value.parameters);
     if (errors.length) return errors.join(" | ");
   }
   if (value.operation === "application.uptime-kuma.inspect" && Object.keys(value.parameters).length !== 0) return "Inspect operation accepts no parameters";
@@ -166,7 +172,7 @@ export function validateHelperRequest(value) {
   return null;
 }
 
-export async function executeHelperOperation(request, { applications = createApplicationHelper(), controllerBackups = createControllerBackupHelper(), controllerProtection = createControllerProtectionHelper(), migrations = createMigrationTransferHelper(), prerequisites = createPrerequisiteHelper(), virtualization = createVmHelper(), vmProtection = createVmProtectionHelper(), vmRetention = createVmRetentionHelper(), vmRestoreDrill = createVmRestoreDrillHelper(), vmRecovery = createVmRecoveryHelper() } = {}) {
+export async function executeHelperOperation(request, { applications = createApplicationHelper(), controllerBackups = createControllerBackupHelper(), controllerProtection = createControllerProtectionHelper(), controllerRetention = createControllerRetentionHelper(), migrations = createMigrationTransferHelper(), prerequisites = createPrerequisiteHelper(), virtualization = createVmHelper(), vmProtection = createVmProtectionHelper(), vmRetention = createVmRetentionHelper(), vmRestoreDrill = createVmRestoreDrillHelper(), vmRecovery = createVmRecoveryHelper() } = {}) {
   const error = validateHelperRequest(request);
   if (error) return { version: helperProtocolVersion, id: request?.id ?? null, ok: false, error, code: "invalid_request" };
   if (request.operation === "canary.verify") {
@@ -174,7 +180,7 @@ export async function executeHelperOperation(request, { applications = createApp
       version: helperProtocolVersion,
       id: request.id,
       ok: true,
-      result: { verified: true, helperVersion: "0.39.0", mutationPerformed: false },
+      result: { verified: true, helperVersion: "0.40.0", mutationPerformed: false },
     };
   }
   if (request.operation === "prerequisite.smartmontools.inspect") {
@@ -209,6 +215,12 @@ export async function executeHelperOperation(request, { applications = createApp
   }
   if (request.operation === "controller.database.protection.create") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await controllerProtection.protect(request.parameters) };
+  }
+  if (request.operation === "controller.database.protection.retention.inspect") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await controllerRetention.inspect() };
+  }
+  if (request.operation === "controller.database.protection.retention.apply") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await controllerRetention.apply(request.parameters) };
   }
   if (request.operation === "application.uptime-kuma.inspect") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await applications.inspect() };

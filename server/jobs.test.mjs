@@ -215,6 +215,25 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("runs exact controller retention and records forgotten evidence before completion validation", async () => {
+    const input = { retentionId: "55555555-5555-4555-8555-555555555555", repositoryId: "a".repeat(64), expectedDestinationRevision: "b".repeat(64), expectedSnapshotSetRevision: "c".repeat(64), forgetSnapshotIds: ["d".repeat(64)] };
+    const result = { applied: true, complete: true, retentionId: input.retentionId, repositoryId: input.repositoryId, forgottenSnapshotIds: input.forgetSnapshotIds, keptSnapshotIds: ["e".repeat(64)], beforeCount: 2, afterCount: 1, beforeSnapshotSetRevision: input.expectedSnapshotSetRevision, afterSnapshotSetRevision: "f".repeat(64), repositoryVerified: true, prunePerformed: false, spaceReclaimed: false };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const validateControllerRetentionJob = vi.fn(async () => ({ input }));
+    const recordControllerRetentionResult = vi.fn();
+    const jobs = createJobService(store, helper, { validateControllerRetentionJob, recordControllerRetentionResult });
+    const job = store.createJob({ type: "controller.database.backup.retention.apply", title: "Retain controller backups", risk: "high", parameters: { input }, recovery: {}, createdBy: owner.id });
+
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+
+    expect(validateControllerRetentionJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("controller.database.protection.retention.apply", input, { timeoutMs: 12 * 60 * 60 * 1000 });
+    expect(recordControllerRetentionResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
+    expect(completed).toMatchObject({ state: "completed", result: { prunePerformed: false, spaceReclaimed: false } });
+    store.close();
+  });
+
   it("runs a Pi-hole backup as a typed long-running job and records only isolated no-cutover evidence", async () => {
     const backupId = "22222222-2222-4222-8222-222222222222";
     const result = {
