@@ -107,7 +107,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   backups: {
     label: "Controller and application backup engine",
     tone: "live",
-    description: "BoxPilot controller, Uptime Kuma, and Pi-hole backup planning and durable SHA-256 evidence come from Bigbox. Controller state begins with a WAL-aware snapshot, and controller plus application state support separate encrypted independent exact-restore protection after terminal-only repository setup. Controller fixed no-prune retention is available; application retention and scheduling remain pending.",
+    description: "BoxPilot controller, Uptime Kuma, Pi-hole, and Keel backup planning plus durable SHA-256 evidence come from Bigbox. Controller state begins with a WAL-aware snapshot, and controller plus application state support separate encrypted independent exact-restore protection after terminal-only repository setup. The fixed no-prune retention policy is available for controller and per-application snapshots; scheduling remains pending.",
   },
   migrations: {
     label: "Guarded local transfer staging",
@@ -313,7 +313,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.59.0 working platform<br />apps, repairs, backups, and VMs</div>
+        <div className="prototype-label">v0.60.0 working platform<br />apps, repairs, backups, and VMs</div>
       </aside>
 
       <main>

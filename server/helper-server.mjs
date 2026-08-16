@@ -23,10 +23,11 @@ import { createKeelRecoveryHelper } from "./keel-recovery-helper.mjs";
 import { createKeelRecoveryDrillHelper } from "./keel-recovery-drill-helper.mjs";
 import { createKeelPromotionHelper } from "./keel-promotion-helper.mjs";
 import { createKeelRollbackHelper } from "./keel-rollback-helper.mjs";
+import { createApplicationRetentionHelper } from "./application-retention-helper.mjs";
 
 const socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock";
 const maxRequestBytes = 8192;
-const readOnlyOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.restic.inspect", "prerequisite.docker.inspect", "prerequisite.virtualization.inspect", "prerequisite.apt-metadata.inspect", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.protection.inspect", "controller.database.protection.retention.inspect", "application.backup.protection.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.lifecycle.inspect", "application.uptime-kuma.private-access.inspect", "application.pi-hole.inspect", "application.pi-hole.lifecycle.inspect", "application.keel.inspect", "application.keel.artifact.inspect", "application.keel.archive.inspect", "application.keel.stage.inspect", "application.keel.install.inspect", "application.keel.recovery.inspect", "application.keel.recovery-drill.inspect", "application.keel.promotion.inspect", "application.keel.rollback.inspect", "virtualization.foundation.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
+const readOnlyOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.restic.inspect", "prerequisite.docker.inspect", "prerequisite.virtualization.inspect", "prerequisite.apt-metadata.inspect", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.protection.inspect", "controller.database.protection.retention.inspect", "application.backup.protection.inspect", "application.backup.protection.retention.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.lifecycle.inspect", "application.uptime-kuma.private-access.inspect", "application.pi-hole.inspect", "application.pi-hole.lifecycle.inspect", "application.keel.inspect", "application.keel.artifact.inspect", "application.keel.archive.inspect", "application.keel.stage.inspect", "application.keel.install.inspect", "application.keel.recovery.inspect", "application.keel.recovery-drill.inspect", "application.keel.promotion.inspect", "application.keel.rollback.inspect", "virtualization.foundation.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
 let operationQueue = Promise.resolve();
 const vmRestoreDrill = createVmRestoreDrillHelper();
 const vmRecovery = createVmRecoveryHelper({ restoreEngine: vmRestoreDrill });
@@ -34,6 +35,7 @@ const vmRetention = createVmRetentionHelper();
 const migrations = createMigrationTransferHelper();
 const applications = createApplicationHelper();
 const applicationProtection = createApplicationProtectionHelper();
+const applicationRetention = createApplicationRetentionHelper({ inspectDestination: applicationProtection.inspect });
 const prerequisites = createPrerequisiteHelper();
 const foundation = createLibvirtFoundationHelper();
 const controllerBackups = createControllerBackupHelper();
@@ -59,7 +61,7 @@ const keelBackupRecovery = await keelBackups.recoverInterrupted();
 const keelDrillRecovery = await keelRecoveryDrill.recoverInterrupted();
 const keelPromotionRecovery = await keelPromotion.recoverInterrupted();
 const keelRollbackRecovery = await keelRollback.recoverInterrupted();
-const helperDependencies = { applications, applicationProtection, controllerBackups, controllerProtection, controllerRetention, keelDiscovery, keelArtifacts, keelArchive, keelStage, keelInstall, keelBackups, keelRecovery, keelRecoveryDrill, keelPromotion, keelRollback, migrations, prerequisites, foundation, vmRestoreDrill, vmRecovery, vmRetention };
+const helperDependencies = { applications, applicationProtection, applicationRetention, controllerBackups, controllerProtection, controllerRetention, keelDiscovery, keelArtifacts, keelArchive, keelStage, keelInstall, keelBackups, keelRecovery, keelRecoveryDrill, keelPromotion, keelRollback, migrations, prerequisites, foundation, vmRestoreDrill, vmRecovery, vmRetention };
 if (recovery.stoppedDomains > 0 || recovery.removedNvramFiles > 0 || recovery.normalizedWorkspaces > 0) {
   console.log(`BoxPilot restore drill recovery stopped=${recovery.stoppedDomains} nvram=${recovery.removedNvramFiles} workspaces=${recovery.normalizedWorkspaces}`);
 }
@@ -113,6 +115,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       if (request.operation === "controller.database.backup.create") connection.setTimeout(10 * 60 * 1000);
       if (request.operation === "controller.database.protection.create") connection.setTimeout(12 * 60 * 60 * 1000);
       if (request.operation === "application.backup.protection.create") connection.setTimeout(12 * 60 * 60 * 1000);
+      if (request.operation === "application.backup.protection.retention.apply") connection.setTimeout(12 * 60 * 60 * 1000);
       if (request.operation === "controller.database.protection.retention.apply") connection.setTimeout(12 * 60 * 60 * 1000);
       if (request.operation === "prerequisite.smartmontools.install") connection.setTimeout(15 * 60 * 1000);
       if (request.operation === "prerequisite.restic.install") connection.setTimeout(15 * 60 * 1000);
@@ -153,7 +156,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
 
 server.listen(socketPath, async () => {
   await chmod(socketPath, 0o660);
-  console.log(`BoxPilot helper 0.59.0 listening on ${socketPath}`);
+  console.log(`BoxPilot helper 0.60.0 listening on ${socketPath}`);
 });
 
 async function shutdown() {

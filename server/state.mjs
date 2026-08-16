@@ -240,6 +240,29 @@ export function createStateStore({
       created_by TEXT NOT NULL REFERENCES owners(id),
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS application_retention_runs (
+      id TEXT PRIMARY KEY,
+      repository_id TEXT NOT NULL,
+      before_snapshot_revision TEXT NOT NULL,
+      after_snapshot_revision TEXT,
+      before_count INTEGER NOT NULL,
+      after_count INTEGER,
+      forgotten_json TEXT NOT NULL,
+      kept_snapshot_ids_json TEXT NOT NULL,
+      repository_verified INTEGER NOT NULL,
+      complete INTEGER NOT NULL,
+      prune_performed INTEGER NOT NULL,
+      verification_json TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS application_retention_members (
+      run_id TEXT NOT NULL REFERENCES application_retention_runs(id),
+      protection_id TEXT NOT NULL UNIQUE REFERENCES application_backup_protections(id),
+      snapshot_id TEXT NOT NULL UNIQUE,
+      forgotten_at TEXT NOT NULL,
+      PRIMARY KEY (run_id, protection_id)
+    );
     CREATE TABLE IF NOT EXISTS controller_retention_runs (
       id TEXT PRIMARY KEY,
       repository_id TEXT NOT NULL,
@@ -781,6 +804,10 @@ export function createStateStore({
     return database.prepare("SELECT * FROM application_recoveries ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapApplicationRecovery);
   }
 
+  function listAllApplicationRecoveries() {
+    return database.prepare("SELECT * FROM application_recoveries ORDER BY created_at DESC").all().map(mapApplicationRecovery);
+  }
+
   function mapApplicationRecoveryDrill(row) {
     return row ? {
       id: row.id,
@@ -927,7 +954,9 @@ export function createStateStore({
   }
 
   function mapApplicationBackupProtection(row) {
-    return row ? {
+    if (!row) return null;
+    const retained = row.retention_run_id == null;
+    return {
       id: row.id,
       backupId: row.backup_id,
       applicationId: row.application_id,
@@ -938,24 +967,107 @@ export function createStateStore({
       encrypted: Boolean(row.encrypted),
       independent: Boolean(row.independent),
       repositoryVerified: Boolean(row.repository_verified),
-      protected: Boolean(row.protected),
+      protected: Boolean(row.protected) && retained,
+      retained,
+      retention: retained ? null : { runId: row.retention_run_id, forgottenAt: row.forgotten_at },
       restoreDrill: parseJson(row.restore_drill_json),
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+    };
+  }
+
+  function getApplicationBackupProtection(id) {
+    return mapApplicationBackupProtection(database.prepare(`
+      SELECT application_backup_protections.*, application_retention_members.run_id AS retention_run_id, application_retention_members.forgotten_at
+      FROM application_backup_protections
+      LEFT JOIN application_retention_members ON application_retention_members.protection_id = application_backup_protections.id
+      WHERE application_backup_protections.id = ?
+    `).get(id));
+  }
+
+  function getApplicationBackupProtectionByBackup(backupId) {
+    return mapApplicationBackupProtection(database.prepare(`
+      SELECT application_backup_protections.*, application_retention_members.run_id AS retention_run_id, application_retention_members.forgotten_at
+      FROM application_backup_protections
+      LEFT JOIN application_retention_members ON application_retention_members.protection_id = application_backup_protections.id
+      WHERE application_backup_protections.backup_id = ?
+    `).get(backupId));
+  }
+
+  function listApplicationBackupProtections(limit = 50) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    return database.prepare(`
+      SELECT application_backup_protections.*, application_retention_members.run_id AS retention_run_id, application_retention_members.forgotten_at
+      FROM application_backup_protections
+      LEFT JOIN application_retention_members ON application_retention_members.protection_id = application_backup_protections.id
+      ORDER BY application_backup_protections.created_at DESC LIMIT ?
+    `).all(safeLimit).map(mapApplicationBackupProtection);
+  }
+
+  function listAllApplicationBackupProtections() {
+    return database.prepare(`
+      SELECT application_backup_protections.*, application_retention_members.run_id AS retention_run_id, application_retention_members.forgotten_at
+      FROM application_backup_protections
+      LEFT JOIN application_retention_members ON application_retention_members.protection_id = application_backup_protections.id
+      ORDER BY application_backup_protections.created_at DESC
+    `).all().map(mapApplicationBackupProtection);
+  }
+
+  function mapApplicationRetentionRun(row) {
+    return row ? {
+      id: row.id,
+      repositoryId: row.repository_id,
+      beforeSnapshotSetRevision: row.before_snapshot_revision,
+      afterSnapshotSetRevision: row.after_snapshot_revision,
+      beforeCount: Number(row.before_count),
+      afterCount: row.after_count == null ? null : Number(row.after_count),
+      forgotten: parseJson(row.forgotten_json, []),
+      keptSnapshotIds: parseJson(row.kept_snapshot_ids_json, []),
+      repositoryVerified: Boolean(row.repository_verified),
+      complete: Boolean(row.complete),
+      prunePerformed: Boolean(row.prune_performed),
+      verification: parseJson(row.verification_json, []),
       createdBy: row.created_by,
       createdAt: row.created_at,
     } : null;
   }
 
-  function getApplicationBackupProtection(id) {
-    return mapApplicationBackupProtection(database.prepare("SELECT * FROM application_backup_protections WHERE id = ?").get(id));
+  function recordApplicationRetention({ id, repositoryId, beforeSnapshotSetRevision, afterSnapshotSetRevision, beforeCount, afterCount, forgotten, keptSnapshotIds, repositoryVerified, complete = repositoryVerified, prunePerformed, verification = [], createdBy }) {
+    const at = timestamp();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      if (!Array.isArray(forgotten) || forgotten.length < 1) throw new Error("An application retention run must identify forgotten protections");
+      database.prepare(`
+        INSERT INTO application_retention_runs (id, repository_id, before_snapshot_revision, after_snapshot_revision, before_count, after_count, forgotten_json, kept_snapshot_ids_json, repository_verified, complete, prune_performed, verification_json, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, repositoryId, beforeSnapshotSetRevision, afterSnapshotSetRevision ?? null, beforeCount, afterCount ?? null, json(forgotten), json(keptSnapshotIds), repositoryVerified ? 1 : 0, complete ? 1 : 0, prunePerformed ? 1 : 0, json(verification), createdBy, at);
+      for (const item of forgotten) {
+        const protection = database.prepare("SELECT snapshot_id, application_id FROM application_backup_protections WHERE id = ?").get(item.protectionId);
+        if (!protection || protection.snapshot_id !== item.snapshotId || protection.application_id !== item.applicationId) throw new Error("Retention evidence does not match a recorded application protection");
+        database.prepare("INSERT INTO application_retention_members (run_id, protection_id, snapshot_id, forgotten_at) VALUES (?, ?, ?, ?)")
+          .run(id, item.protectionId, item.snapshotId, at);
+      }
+      recordAudit("application.retention.applied", { actorId: createdBy, subjectId: id, details: { repositoryId, beforeCount, afterCount, forgottenCount: forgotten.length, repositoryVerified, complete, prunePerformed, verification } });
+      const run = getApplicationRetentionRun(id);
+      database.exec("COMMIT");
+      return run;
+    } catch (error) {
+      try {
+        database.exec("ROLLBACK");
+      } catch {
+        // Preserve the original retention-record error if SQLite already ended the transaction.
+      }
+      throw error;
+    }
   }
 
-  function getApplicationBackupProtectionByBackup(backupId) {
-    return mapApplicationBackupProtection(database.prepare("SELECT * FROM application_backup_protections WHERE backup_id = ?").get(backupId));
+  function getApplicationRetentionRun(id) {
+    return mapApplicationRetentionRun(database.prepare("SELECT * FROM application_retention_runs WHERE id = ?").get(id));
   }
 
-  function listApplicationBackupProtections(limit = 50) {
+  function listApplicationRetentionRuns(limit = 50) {
     const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
-    return database.prepare("SELECT * FROM application_backup_protections ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapApplicationBackupProtection);
+    return database.prepare("SELECT * FROM application_retention_runs ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapApplicationRetentionRun);
   }
 
   function recordControllerBackupProtection({ id, backupId, destination, repositoryId, snapshotId, sizeBytes, encrypted, independent, repositoryVerified, protected: protectedState, restoreDrill, createdBy }) {
@@ -1715,6 +1827,7 @@ export function createStateStore({
     recordApplicationRecovery,
     getApplicationRecovery,
     listApplicationRecoveries,
+    listAllApplicationRecoveries,
     recordApplicationRecoveryDrill,
     getApplicationRecoveryDrill,
     listApplicationRecoveryDrills,
@@ -1729,6 +1842,10 @@ export function createStateStore({
     getApplicationBackupProtection,
     getApplicationBackupProtectionByBackup,
     listApplicationBackupProtections,
+    listAllApplicationBackupProtections,
+    recordApplicationRetention,
+    getApplicationRetentionRun,
+    listApplicationRetentionRuns,
     recordControllerBackupProtection,
     getControllerBackupProtection,
     getControllerBackupProtectionByBackup,

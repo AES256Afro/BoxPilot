@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.59.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.60.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -391,6 +391,20 @@ describe("restricted helper protocol", () => {
     const applicationProtection = { inspect: async () => ({ ready: false, boundary: { mutationPerformed: false } }), protect: async (input) => ({ ...input, created: true, protected: true }) };
     await expect(executeHelperOperation(request({ operation: "application.backup.protection.inspect", parameters: {} }), { applicationProtection })).resolves.toMatchObject({ ok: true, result: { ready: false } });
     await expect(executeHelperOperation(request({ operation: "application.backup.protection.create", parameters }), { applicationProtection })).resolves.toMatchObject({ ok: true, result: { applicationId: "pi-hole", backupId: parameters.backupId, created: true, protected: true } });
+  });
+
+  it("accepts only exact application retention evidence and never prune or a repository selector", async () => {
+    const parameters = {
+      retentionId: randomUUID(), repositoryId: "a".repeat(64), expectedDestinationRevision: "b".repeat(64),
+      expectedSnapshotSetRevision: "c".repeat(64), forgetSnapshotIds: ["d".repeat(64)],
+    };
+    expect(validateHelperRequest(request({ operation: "application.backup.protection.retention.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.backup.protection.retention.inspect", parameters: { repository: "/tmp" } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "application.backup.protection.retention.apply", parameters }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.backup.protection.retention.apply", parameters: { ...parameters, prune: true } }))).toContain("fixed typed evidence");
+    const applicationRetention = { inspect: async () => ({ ready: true, snapshots: [] }), apply: async (input) => ({ ...input, applied: true, complete: true, prunePerformed: false }) };
+    await expect(executeHelperOperation(request({ operation: "application.backup.protection.retention.inspect", parameters: {} }), { applicationRetention })).resolves.toMatchObject({ ok: true, result: { ready: true, snapshots: [] } });
+    await expect(executeHelperOperation(request({ operation: "application.backup.protection.retention.apply", parameters }), { applicationRetention })).resolves.toMatchObject({ ok: true, result: { retentionId: parameters.retentionId, applied: true, complete: true, prunePerformed: false } });
   });
 
   it("delegates a typed backup id without accepting a path", async () => {

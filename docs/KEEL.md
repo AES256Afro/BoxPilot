@@ -1,6 +1,6 @@
 # Keel Notes guarded native service and recovery evidence
 
-BoxPilot `0.59.0` can acquire, inspect, stage, install, activate, health-check, consistently export, locally restore-verify, materialize a stopped recovery clone, run a disposable isolated startup rehearsal, promote only that exact drilled state, explicitly roll back a completed promotion, and record a sanitized terminal-only instance-owner login proof for one fixed [Keel Notes](https://github.com/AES256Afro/Keel) release. The corrected upstream `v1.2.6` server archive contains no links or special members. BoxPilot verifies that fact before extraction and again after extraction. Separate password-approved jobs create the guarded native service, create a root-only recovery artifact with an isolated SQLite-open drill, materialize only a stopped no-network recovery state, test only a disposable copy in a private network namespace, atomically exchange production only after the drill passes, and preserve both sides of a later operator-requested rollback.
+BoxPilot `0.60.0` can acquire, inspect, stage, install, activate, health-check, consistently export, locally restore-verify, independently protect, apply fixed per-application no-prune retention, materialize a stopped recovery clone, run a disposable isolated startup rehearsal, promote only that exact drilled state, explicitly roll back a completed promotion, and record a sanitized terminal-only instance-owner login proof for one fixed [Keel Notes](https://github.com/AES256Afro/Keel) release. The corrected upstream `v1.2.6` server archive contains no links or special members. BoxPilot verifies that fact before extraction and again after extraction. Separate password-approved jobs create the guarded native service, create a root-only recovery artifact with an isolated SQLite-open drill, materialize only a stopped no-network recovery state, test only a disposable copy in a private network namespace, atomically exchange production only after the drill passes, and preserve both sides of a later operator-requested rollback.
 
 Ownership claim and owner-login proof remain separate terminal-only handoffs. Registration changes, WebAuthn terminal proof, Tailscale exposure, import, migration activation, adoption, update, removal, rollback retention, and retained-state deletion remain unavailable. A locally verified artifact or local rollback checkpoint is not independently protected until its separate encrypted restic copy and exact restored-artifact proof pass.
 
@@ -200,7 +200,7 @@ Neither job asks for a sudo password, shell command, path, service name, listene
 
 ## Operations that remain unavailable
 
-BoxPilot `0.59.0` cannot:
+BoxPilot `0.60.0` cannot:
 
 - Install Node.js or another package through the Keel adapter
 - Accept a different Keel release, account, path, port, unit, command, or environment value
@@ -208,7 +208,7 @@ BoxPilot `0.59.0` cannot:
 - Create an owner, claim an instance, or change registration policy
 - Import, migrate, or delete Keel. Production restore is limited to the exact recovery and matching drill selected by the guarded promotion plan.
 - Start or expose the source recovery clone, accept login credentials in the web UI or helper, prove WebAuthn in a terminal, delete a recovery, repeat rollback for one promotion, delete retained state, or prune a retained rollback checkpoint.
-- Schedule Keel backups, apply application retention, run restic prune, or select another backup destination from the browser
+- Schedule Keel backups, retain local archives or rollback checkpoints, run restic prune, or select another backup destination from the browser
 - Adopt or overwrite an existing native or Docker installation
 - Change Tailscale Serve, firewall, DNS, DHCP, or router state
 - Download an arbitrary asset, clone a repository, select another release, or update Keel

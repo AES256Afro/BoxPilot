@@ -10,6 +10,7 @@ export function createJobService(store, helper, {
   validateLibvirtFoundationJob = async () => {},
   validateBackupJob = async () => {},
   validateApplicationProtectionJob = async () => {},
+  validateApplicationRetentionJob = async () => {},
   validateControllerProtectionJob = async () => {},
   validateControllerRetentionJob = async () => {},
   validateDnsAcceptanceJob = async () => {},
@@ -31,6 +32,7 @@ export function createJobService(store, helper, {
   validateVmSnapshotJob = async () => {},
   recordBackupResult = () => {},
   recordApplicationProtectionResult = () => {},
+  recordApplicationRetentionResult = () => {},
   recordControllerProtectionResult = () => {},
   recordControllerRetentionResult = () => {},
   recordDnsAcceptanceResult = () => {},
@@ -67,7 +69,7 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.uptime-kuma.deploy", "application.uptime-kuma.action", "application.uptime-kuma.private-access", "application.pi-hole.deploy", "application.pi-hole.action", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.uptime-kuma.deploy", "application.uptime-kuma.action", "application.uptime-kuma.private-access", "application.pi-hole.deploy", "application.pi-hole.action", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
     const validatedLibvirtFoundation = job.type === "virtualization.foundation.initialize" ? await validateLibvirtFoundationJob(job) : null;
     const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.stage", "application.keel.install"].includes(job.type) ? await validateApplicationJob(job) : null;
@@ -77,6 +79,7 @@ export function createJobService(store, helper, {
     if (["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup"].includes(job.type)) await validateBackupJob(job);
     const validatedControllerProtectionPlan = job.type === "controller.database.backup.protect" ? await validateControllerProtectionJob(job) : null;
     const validatedApplicationProtectionPlan = job.type === "application.backup.protect" ? await validateApplicationProtectionJob(job) : null;
+    const validatedApplicationRetentionPlan = job.type === "application.backup.retention.apply" ? await validateApplicationRetentionJob(job) : null;
     const validatedControllerRetentionPlan = job.type === "controller.database.backup.retention.apply" ? await validateControllerRetentionJob(job) : null;
     const validatedDnsAcceptancePlan = job.type === "network.dns.acceptance.run" ? await validateDnsAcceptanceJob(job) : null;
     const validatedFlint2AdguardPlan = job.type === "network.flint2-adguard.acceptance.run" ? await validateFlint2AdguardJob(job) : null;
@@ -96,6 +99,7 @@ export function createJobService(store, helper, {
     if (job.type === "virtualization.domain.create" && !validatedVmPlan?.input) throw new Error("The staged VM creation plan is unavailable or changed");
     if (job.type === "controller.database.backup.protect" && !validatedControllerProtectionPlan?.input) throw new Error("The staged controller protection plan is unavailable or changed");
     if (job.type === "application.backup.protect" && !validatedApplicationProtectionPlan?.input) throw new Error("The staged application protection plan is unavailable or changed");
+    if (job.type === "application.backup.retention.apply" && !validatedApplicationRetentionPlan?.input) throw new Error("The staged application retention plan is unavailable or changed");
     if (job.type === "controller.database.backup.retention.apply" && !validatedControllerRetentionPlan?.input) throw new Error("The staged controller retention plan is unavailable or changed");
     if (["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh"].includes(job.type) && !validatedPrerequisiteRepair?.plan?.input) throw new Error("The staged prerequisite repair plan is unavailable or changed");
     if (job.type === "virtualization.foundation.initialize" && !validatedLibvirtFoundation?.plan?.input) throw new Error("The staged libvirt foundation plan is unavailable or changed");
@@ -560,6 +564,15 @@ export function createJobService(store, helper, {
       verified: "A full controller repository data read passed, every approved snapshot is absent, and every noncandidate snapshot remains",
       failed: "Controller retention did not complete or verify; do not retry until repository and durable protection evidence are inspected",
       validate: (result) => result?.applied && result?.complete === true && result?.retentionId === validatedControllerRetentionPlan.input.retentionId && result?.repositoryId === validatedControllerRetentionPlan.input.repositoryId && result?.repositoryVerified === true && result?.prunePerformed === false && result?.spaceReclaimed === false,
+    } : job.type === "application.backup.retention.apply" ? {
+      operation: "application.backup.protection.retention.apply",
+      parameters: validatedApplicationRetentionPlan.input,
+      timeoutMs: 12 * 60 * 60 * 1000,
+      applying: "Forgetting only the exact reviewed old independently protected application snapshot references through the restricted helper",
+      applied: "Restic removed the approved application snapshot metadata without running prune or changing applications, local archives, or recovery objects",
+      verified: "A full application repository data read passed, every approved snapshot is absent, and every noncandidate snapshot remains",
+      failed: "Application retention did not complete or verify; do not retry until repository and durable protection evidence are inspected",
+      validate: (result) => result?.applied && result?.complete === true && result?.retentionId === validatedApplicationRetentionPlan.input.retentionId && result?.repositoryId === validatedApplicationRetentionPlan.input.repositoryId && result?.repositoryVerified === true && result?.prunePerformed === false && result?.spaceReclaimed === false,
     } : job.type === "application.uptime-kuma.backup" ? {
       operation: "application.uptime-kuma.backup",
       parameters: { backupId: job.parameters.backupId },
@@ -797,6 +810,7 @@ export function createJobService(store, helper, {
       store.addJobStep(jobId, "apply", "completed", execution.applied);
       if (job.type === "virtualization.export.backup.retention.apply" && result?.applied === true) recordVmRetentionResult(job, result);
       if (job.type === "controller.database.backup.retention.apply" && result?.applied === true) recordControllerRetentionResult(job, result);
+      if (job.type === "application.backup.retention.apply" && result?.applied === true) recordApplicationRetentionResult(job, result);
       if (!execution.validate(result)) throw new Error(execution.run ? "Operation returned an invalid result" : "Helper returned an invalid operation result");
       if (["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup"].includes(job.type)) recordBackupResult(job, result);
       if (job.type === "controller.database.backup.protect") recordControllerProtectionResult(job, result);

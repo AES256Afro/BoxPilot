@@ -7,6 +7,7 @@ import { createApplicationService } from "./applications.mjs";
 import { createApplicationLifecycleService } from "./application-lifecycle.mjs";
 import { createApplicationPrivateAccessService } from "./application-private-access.mjs";
 import { createApplicationProtectionService } from "./application-protection.mjs";
+import { createApplicationRetentionService } from "./application-retention.mjs";
 import { createBackupService } from "./backups.mjs";
 import { createControllerProtectionService } from "./controller-protection.mjs";
 import { createControllerRetentionService } from "./controller-retention.mjs";
@@ -75,6 +76,7 @@ const keelPromotions = createKeelPromotionService({ store: state, helper });
 const keelRollbacks = createKeelRollbackService({ store: state, helper });
 const backups = createBackupService({ store: state, prerequisites, helper });
 const applicationProtection = createApplicationProtectionService({ store: state, helper });
+const applicationRetention = createApplicationRetentionService({ store: state, helper });
 const controllerProtection = createControllerProtectionService({ store: state, helper });
 const controllerRetention = createControllerRetentionService({ store: state, helper });
 const dnsAcceptance = createDnsAcceptanceService({ store: state, helper, network });
@@ -113,6 +115,8 @@ const jobs = createJobService(state, helper, {
   recordBackupResult: backups.recordResult,
   validateApplicationProtectionJob: applicationProtection.validateJob,
   recordApplicationProtectionResult: applicationProtection.recordResult,
+  validateApplicationRetentionJob: applicationRetention.validateJob,
+  recordApplicationRetentionResult: applicationRetention.recordResult,
   validateControllerProtectionJob: controllerProtection.validateJob,
   recordControllerProtectionResult: controllerProtection.recordResult,
   validateControllerRetentionJob: controllerRetention.validateJob,
@@ -161,7 +165,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.59.0",
+    version: "0.60.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -669,6 +673,33 @@ app.post("/api/v1/application-protection-plans/:id/stage", async (request, respo
   }
 });
 
+app.get("/api/v1/application-backup-retention", async (_request, response) => {
+  try {
+    response.json(await applicationRetention.inspect());
+  } catch (error) {
+    response.status(503).json({ error: error.message, code: "application_retention_inspection_failed" });
+  }
+});
+
+app.post("/api/v1/application-retention-plans", async (request, response) => {
+  try {
+    const plan = await applicationRetention.plan(request.boxpilotSession.owner.id);
+    response.status(201).json({ plan });
+  } catch (error) {
+    response.status(503).json({ error: error.message, code: "application_retention_plan_failed" });
+  }
+});
+
+app.post("/api/v1/application-retention-plans/:id/stage", async (request, response) => {
+  try {
+    const job = await applicationRetention.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
+    response.status(201).json({ job });
+  } catch (error) {
+    const status = error.message === "Application retention plan not found" ? 404 : 409;
+    response.status(status).json({ error: error.message, code: "application_retention_stage_failed" });
+  }
+});
+
 app.get("/api/v1/keel-recoveries", (_request, response) => {
   response.json({ recoveries: keelRecoveries.list() });
 });
@@ -826,7 +857,7 @@ app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
+    const background = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, request.body?.password)
       : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
@@ -1111,7 +1142,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.59.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.60.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });
