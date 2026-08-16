@@ -66,11 +66,11 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.uptime-kuma.deploy", "application.uptime-kuma.action", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.uptime-kuma.deploy", "application.uptime-kuma.action", "application.pi-hole.deploy", "application.pi-hole.action", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
     const validatedLibvirtFoundation = job.type === "virtualization.foundation.initialize" ? await validateLibvirtFoundationJob(job) : null;
     const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.stage", "application.keel.install"].includes(job.type) ? await validateApplicationJob(job) : null;
-    const validatedApplicationLifecyclePlan = job.type === "application.uptime-kuma.action" ? await validateApplicationLifecycleJob(job) : null;
+    const validatedApplicationLifecyclePlan = ["application.uptime-kuma.action", "application.pi-hole.action"].includes(job.type) ? await validateApplicationLifecycleJob(job) : null;
     const validatedKeelArtifactPlan = job.type === "application.keel.artifact.acquire" ? await validateKeelArtifactJob(job) : null;
     if (["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup"].includes(job.type)) await validateBackupJob(job);
     const validatedControllerProtectionPlan = job.type === "controller.database.backup.protect" ? await validateControllerProtectionJob(job) : null;
@@ -110,7 +110,7 @@ export function createJobService(store, helper, {
     if (job.type === "virtualization.domain.action" && !validatedVmLifecyclePlan?.input) throw new Error("The staged VM lifecycle plan is unavailable or changed");
     if (job.type === "virtualization.domain.snapshot.create" && !validatedVmSnapshotPlan?.input) throw new Error("The staged VM snapshot plan is unavailable or changed");
     if (job.type === "application.pi-hole.deploy" && !validatedApplicationPlan?.input) throw new Error("The staged Pi-hole plan is unavailable or changed");
-    if (job.type === "application.uptime-kuma.action" && !validatedApplicationLifecyclePlan?.input) throw new Error("The staged Uptime Kuma lifecycle plan is unavailable or changed");
+    if (["application.uptime-kuma.action", "application.pi-hole.action"].includes(job.type) && !validatedApplicationLifecyclePlan?.input) throw new Error("The staged application lifecycle plan is unavailable or changed");
     if (job.type === "application.keel.stage" && !validatedApplicationPlan?.input) throw new Error("The staged Keel release plan is unavailable or changed");
     if (job.type === "application.keel.install" && !validatedApplicationPlan?.input) throw new Error("The staged Keel install plan is unavailable or changed");
     if (job.type === "application.keel.artifact.acquire" && !validatedKeelArtifactPlan?.input) throw new Error("The staged Keel artifact plan is unavailable or changed");
@@ -397,6 +397,40 @@ export function createJobService(store, helper, {
         && result?.boundary?.composeChanged === false
         && result?.boundary?.dataDeleted === false
         && result?.boundary?.networkDeleted === false
+        && result?.boundary?.arbitraryContainerAccepted === false
+        && result?.boundary?.arbitraryCommandAccepted === false,
+    } : job.type === "application.pi-hole.action" ? {
+      operation: "application.pi-hole.action",
+      parameters: validatedApplicationLifecyclePlan.input,
+      applying: `${validatedApplicationLifecyclePlan.output.label} only the exact managed Pi-hole container through the restricted helper`,
+      applied: "Restricted helper completed the fixed Pi-hole action without changing its image, Compose definition, ports, network, data, secret, router, DHCP, client DNS, firewall, Tailscale, or another container",
+      verified: `Pi-hole reached the reviewed ${validatedApplicationLifecyclePlan.output.desired.state} state with exact private-LAN bindings and persistent configuration preserved`,
+      failed: "Pi-hole lifecycle execution or exact post-action identity verification failed; router, DHCP, client DNS, data, and the administrator secret were not changed",
+      validate: (result) => result?.applicationId === "pi-hole"
+        && result?.action === validatedApplicationLifecyclePlan.input.action
+        && result?.expectedRevision === validatedApplicationLifecyclePlan.input.expectedRevision
+        && result?.performed === true
+        && result?.state === validatedApplicationLifecyclePlan.output.desired.state
+        && result?.lanAddress === validatedApplicationLifecyclePlan.output.desired.lanAddress
+        && result?.port === validatedApplicationLifecyclePlan.output.desired.port
+        && result?.dnsTcpBound === true
+        && result?.dnsUdpBound === true
+        && result?.running === (validatedApplicationLifecyclePlan.input.action !== "stop")
+        && result?.healthy === (validatedApplicationLifecyclePlan.input.action !== "stop")
+        && result?.dataPreserved === true
+        && result?.secretPreserved === true
+        && result?.dhcpEnabled === false
+        && result?.routerMutationPerformed === false
+        && result?.dnsCutoverPerformed === false
+        && result?.boundary?.exactContainerOnly === true
+        && result?.boundary?.imageChanged === false
+        && result?.boundary?.composeChanged === false
+        && result?.boundary?.dataDeleted === false
+        && result?.boundary?.secretDeleted === false
+        && result?.boundary?.networkDeleted === false
+        && result?.boundary?.routerChanged === false
+        && result?.boundary?.clientDnsChanged === false
+        && result?.boundary?.tailscaleChanged === false
         && result?.boundary?.arbitraryContainerAccepted === false
         && result?.boundary?.arbitraryCommandAccepted === false,
     } : job.type === "application.uptime-kuma.deploy" ? {

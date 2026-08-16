@@ -42,7 +42,7 @@ describe("curated application catalog", () => {
     };
     const plan = {
       id: "action-plan", revision: "action-revision", input: { applicationId: "uptime-kuma", action: "restart", expectedRevision: "b".repeat(64) },
-      output: { executable: true, label: "Restart", current: { state: "running", healthy: true, port: 3101 }, desired: { state: "running", healthy: true, port: 3101 }, changes: ["Restart only the exact managed container"], recovery: "Persistent data stays in place", boundaries: ["No image, port, volume, network, data, or other container can change"] },
+      output: { executable: true, applicationId: "uptime-kuma", applicationName: "Uptime Kuma", label: "Restart", current: { state: "running", healthy: true, port: 3101, lanAddress: null, dnsTcpBound: false, dnsUdpBound: false }, desired: { state: "running", healthy: true, port: 3101, lanAddress: null, dnsTcpBound: false, dnsUdpBound: false }, changes: ["Restart only the exact managed container"], recovery: "Persistent data stays in place", boundaries: ["No image, port, volume, network, data, or other container can change"] },
     };
     const onOpenRepair = vi.fn();
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -92,6 +92,42 @@ describe("curated application catalog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Generate live plan" }));
     expect(await screen.findByText("Ready to stage")).toBeTruthy();
     expect(screen.getByText(/DNS 192\.168\.8\.10:53 TCP\/UDP/)).toBeTruthy();
+  });
+
+  it("creates a network-critical Pi-hole lifecycle action from strict managed evidence", async () => {
+    const application = {
+      id: "pi-hole", name: "Pi-hole", category: "DNS", description: "Filter DNS", execution: "enabled", risk: "network-critical", targets: ["docker", "virtual-machine"],
+      image: { version: "2026.07.2", digestPinned: true }, integrity: `sha256:${"b".repeat(64)}`,
+      live: {
+        installed: true, state: "running", healthy: true, lanAddress: "192.168.8.10", port: 8080, detail: "Managed Pi-hole is healthy", backup: { state: "required", verifiedAt: null },
+        lifecycle: { installed: true, managed: true, state: "running", running: true, healthy: true, lanAddress: "192.168.8.10", port: 8080, dnsTcpBound: true, dnsUdpBound: true, revision: "c".repeat(64), allowedActions: ["stop", "restart"], detail: "Managed Pi-hole is healthy" },
+      },
+    };
+    const plan = {
+      id: "pihole-action-plan", revision: "pihole-action-revision", input: { applicationId: "pi-hole", action: "restart", expectedRevision: "c".repeat(64) },
+      output: {
+        executable: true, applicationId: "pi-hole", applicationName: "Pi-hole", label: "Restart",
+        current: { state: "running", healthy: true, port: 8080, lanAddress: "192.168.8.10", dnsTcpBound: true, dnsUdpBound: true },
+        desired: { state: "running", healthy: true, port: 8080, lanAddress: "192.168.8.10", dnsTcpBound: true, dnsUdpBound: true },
+        changes: ["Restart only the exact managed Pi-hole container"], recovery: "Keep clients on the independently tested resolver", boundaries: ["No router, DHCP, client DNS, data, secret, or Tailscale setting can change"],
+      },
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/api/v1/applications")) return new Response(JSON.stringify({ applications: [application] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url.endsWith("/api/v1/applications/pi-hole/action-plans")) return new Response(JSON.stringify({ plan }), { status: 201, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ job: { id: "job-pihole", state: "awaiting_approval" } }), { status: 201, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ApplicationCatalog csrfToken="csrf" onInspectCompose={vi.fn()} onOpenRepair={vi.fn()} />);
+
+    expect(await screen.findByRole("button", { name: "Plan restart" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Plan restart" }));
+    expect(await screen.findByRole("heading", { name: "Restart Pi-hole" })).toBeTruthy();
+    expect(screen.getByText("192.168.8.10")).toBeTruthy();
+    expect(screen.getByText("Keep clients on the independently tested resolver")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage for password approval" }));
+    expect(await screen.findByText(/Restart job staged/)).toBeTruthy();
   });
 
   it("shows and stages the exact inert Keel 1.2.6 release without claiming installation", async () => {

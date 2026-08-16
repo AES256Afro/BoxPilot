@@ -147,6 +147,79 @@ describe("curated Uptime Kuma helper", () => {
     await expect(helper.actionUptimeKuma({ action: "start", expectedRevision: before.revision })).rejects.toThrow("state changed");
   });
 
+  it("derives Pi-hole lifecycle actions only for the exact network-critical managed identity", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-pihole-lifecycle-"));
+    directories.push(directory);
+    const piholeDirectory = path.join(directory, "pi-hole");
+    const dataDirectory = path.join(piholeDirectory, "etc-pihole");
+    await mkdir(dataDirectory, { recursive: true });
+    await writeFile(path.join(piholeDirectory, "admin-password"), `PIHOLE_PASSWORD=${"A".repeat(43)}\n`, { mode: 0o600 });
+    const container = {
+      Id: "e".repeat(64), Image: `sha256:${"f".repeat(64)}`, Name: "/boxpilot-pi-hole",
+      State: { Running: true, Status: "running", Error: "", Health: { Status: "healthy" } },
+      Config: { Image: applicationInternals.piholeImage, Labels: { "com.docker.compose.project": "boxpilot-pi-hole", "com.docker.compose.service": "pi-hole" } },
+      HostConfig: {
+        PortBindings: { "53/tcp": [{ HostIp: "192.168.8.10", HostPort: "53" }], "53/udp": [{ HostIp: "192.168.8.10", HostPort: "53" }], "80/tcp": [{ HostIp: "192.168.8.10", HostPort: "8080" }] },
+        RestartPolicy: { Name: "unless-stopped" }, Privileged: false, Devices: null,
+        CapAdd: applicationHelperInternals.piholeCapabilities.map((capability) => `CAP_${capability}`), CapDrop: ["ALL"], SecurityOpt: ["no-new-privileges:true"],
+      },
+      Mounts: [{ Type: "bind", Source: dataDirectory, Destination: "/etc/pihole", RW: true }],
+    };
+    const runDocker = vi.fn(async () => ({ stdout: JSON.stringify(container), stderr: "" }));
+    const helper = createApplicationHelper({ appRoot: directory, runDocker });
+
+    const state = await helper.inspectPiholeLifecycle();
+
+    expect(state).toMatchObject({
+      installed: true, managed: true, state: "running", healthy: true, lanAddress: "192.168.8.10", port: 8080,
+      dnsTcpBound: true, dnsUdpBound: true, allowedActions: ["stop", "restart"],
+      boundary: { privateLanOnly: true, exactDnsBindings: true, exactWebBinding: true, exactDataMount: true, secretFileReady: true, noNewPrivileges: true, dockerSocketMounted: false, dhcpEnabled: false, routerMutationPerformed: false, dnsCutoverPerformed: false, mutationPerformed: false },
+    });
+    expect(state.revision).toMatch(/^[a-f0-9]{64}$/);
+    container.HostConfig.CapAdd.push("CAP_NET_ADMIN");
+    await expect(helper.inspectPiholeLifecycle()).resolves.toMatchObject({ installed: true, managed: false, allowedActions: [] });
+  });
+
+  it("executes a revision-bound Pi-hole action while preserving DNS bindings, data, and the administrator secret", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-pihole-action-"));
+    directories.push(directory);
+    const piholeDirectory = path.join(directory, "pi-hole");
+    const dataDirectory = path.join(piholeDirectory, "etc-pihole");
+    await mkdir(dataDirectory, { recursive: true });
+    await writeFile(path.join(piholeDirectory, "admin-password"), `PIHOLE_PASSWORD=${"B".repeat(43)}\n`, { mode: 0o600 });
+    let running = true;
+    const calls = [];
+    const container = () => ({
+      Id: "1".repeat(64), Image: `sha256:${"2".repeat(64)}`, Name: "/boxpilot-pi-hole",
+      State: { Running: running, Status: running ? "running" : "exited", Error: "", Health: { Status: running ? "healthy" : "none" } },
+      Config: { Image: applicationInternals.piholeImage, Labels: { "com.docker.compose.project": "boxpilot-pi-hole", "com.docker.compose.service": "pi-hole" } },
+      HostConfig: {
+        PortBindings: { "53/tcp": [{ HostIp: "192.168.8.10", HostPort: "53" }], "53/udp": [{ HostIp: "192.168.8.10", HostPort: "53" }], "80/tcp": [{ HostIp: "192.168.8.10", HostPort: "8080" }] },
+        RestartPolicy: { Name: "unless-stopped" }, Privileged: false, Devices: null,
+        CapAdd: applicationHelperInternals.piholeCapabilities.map((capability) => `CAP_${capability}`), CapDrop: ["ALL"], SecurityOpt: ["no-new-privileges:true"],
+      },
+      Mounts: [{ Type: "bind", Source: dataDirectory, Destination: "/etc/pihole", RW: true }],
+    });
+    const runDocker = vi.fn(async (_binary, args) => {
+      calls.push(args);
+      if (args[0] === "inspect" && args[2] === "{{json .}}") return { stdout: JSON.stringify(container()), stderr: "" };
+      if (args[0] === "stop") { running = false; return { stdout: "boxpilot-pi-hole", stderr: "" }; }
+      throw new Error(`Unexpected Docker call: ${args.join(" ")}`);
+    });
+    const helper = createApplicationHelper({ appRoot: directory, runDocker });
+    const before = await helper.inspectPiholeLifecycle();
+
+    const result = await helper.actionPihole({ action: "stop", expectedRevision: before.revision });
+
+    expect(result).toMatchObject({
+      applicationId: "pi-hole", action: "stop", performed: true, state: "stopped", running: false, healthy: false,
+      lanAddress: "192.168.8.10", port: 8080, dnsTcpBound: true, dnsUdpBound: true, dataPreserved: true, secretPreserved: true,
+      dhcpEnabled: false, routerMutationPerformed: false, dnsCutoverPerformed: false,
+      boundary: { exactContainerOnly: true, imageChanged: false, composeChanged: false, dataDeleted: false, secretDeleted: false, networkDeleted: false, routerChanged: false, clientDnsChanged: false, tailscaleChanged: false },
+    });
+    expect(calls).toContainEqual(["stop", "--time", "30", "boxpilot-pi-hole"]);
+  });
+
   it("removes a new Compose definition on failed first deployment without deleting data", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-app-helper-"));
     directories.push(directory);
