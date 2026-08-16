@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.17.0` adds immutable migration-bundle plans and a fixed root-only transfer boundary. A terminal-only packer captures one Compose project, rejects links and special files, proves the source stayed stable, and publishes a per-file SHA-256 manifest. The web process sees sanitized totals and opaque ids only. The helper derives fixed inbox and managed-staging roots, revalidates every source and destination file, resumes only checksum matches, never activates Compose, and supports read-only reconciliation if copying completed before durable SQLite recording.
+Version `0.18.0` adds unprivileged fixed-command network intelligence and immutable no-change DNS assessments. The web process validates and sanitizes default routes, resolver addresses, port 53 listener scopes, host LAN addresses, and Tailscale self-state. Browser input is restricted to typed IPv4 addresses, known topology and DNS roles, and recovery checklist booleans. No input is used as a command or probe target, and no router or DNS mutation handler exists.
 
 ## Target components
 
@@ -18,7 +18,7 @@ BoxPilot web and API process (unprivileged)
           +---- Integrity-addressed application catalog and plans (0.5.0)
           |
           +---- Read-only web collectors
-          |       systemd, host interfaces, and bounded host state
+          |       systemd, host interfaces, fixed routes, resolvers, listener scopes, and bounded host state
           |
           +---- Durable VM creation plans and approved jobs (0.9.0)
           +---- Durable VM lifecycle plans and approved jobs (0.10.0)
@@ -29,6 +29,7 @@ BoxPilot web and API process (unprivileged)
           +---- Durable stopped no-network VM recovery clones from protected evidence (0.15.0)
           +---- Durable exact no-prune VM retention batches (0.16.0)
           +---- Durable checksummed migration staging and reconciliation (0.17.0)
+          +---- Immutable no-change router and DNS assessments (0.18.0)
           |
           +---- Redacted VM audit JSONL in systemd StateDirectory (0.3.0 foundation)
           |
@@ -157,18 +158,18 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.17.0 limitations
+## Version 0.18.0 limitations
 
-- Dashboard values are demonstration data.
+- The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
-- Host, selected systemd services, Docker, libvirt, Tailscale self-state, and fixed journal sources are live. SMART and general hardware inspection remain pending.
+- Host, selected systemd services, Docker, libvirt, Tailscale self-state, fixed routes, resolver addresses, scoped port 53 listeners, and fixed journal sources are live. Neighbor MAC addresses, router sessions, SMART, and general hardware inspection remain excluded or pending.
 - Password owner bootstrap, sessions, CSRF, and approval reauthentication are live. WebAuthn, recovery codes, multiple owners, and trusted proxy identity are not implemented.
 - The web process has no direct libvirt or KVM group access. Read-only libvirt inventory and all shipped VM mutations use the restricted helper.
 - VM actions are limited to durable approved start, graceful shutdown, reboot request, and autostart jobs. Reboot verification does not yet prove guest application health.
 - Supported Linux VM creation, stopped-VM internal snapshots, local stopped-VM exports, mounted-restic VM copies, isolated VM restore drills, guarded stopped no-network recovery clones, and exact no-prune retention batches are durable approved helper jobs. Windows TPM/Secure Boot creation, cloud-init, console proxy, online snapshot, snapshot revert/delete, force-off, in-place restore, recovered-VM network attachment, and application-level restore tests are unavailable.
 - Managed media discovery lists regular `.iso` files only and does not upload or download installation media.
 - Operations Core jobs and attribution use SQLite. The older VM JSONL planning log remains a separate bounded log. Tamper evidence remains pending.
-- Only fixed Uptime Kuma deployment and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune retention batches can execute mutations. Remote migration transport, staged-workload activation, cutover, firewall, package, storage administration, general Docker, general libvirt, console proxy, snapshot revert/delete, restic prune, configurable retention, in-place restore, recovery network attachment, and force-off operations remain unavailable.
+- Only fixed Uptime Kuma deployment and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune retention batches can execute mutations. Network assessments cannot stage or execute. Router writes, DNS cutover, remote migration transport, staged-workload activation, firewall, package, storage administration, general Docker, general libvirt, console proxy, snapshot revert/delete, restic prune, configurable retention, in-place restore, recovery network attachment, and force-off operations remain unavailable.
 - A VM snapshot is never counted as an independent backup. The snapshot workflow rejects running guests, non-file disks, disks outside the managed image root, non-qcow2 disks, backing chains, symlinks, and changed inventory.
 - Uptime Kuma backup remains local to Bigbox. VM copies require an operator-provided independent mounted filesystem; no such destination is currently configured on Bigbox.
 - VM exports are root-only local integrity artifacts. They are unencrypted and are not reported as protected until a later independent copy and isolated restore boot pass.

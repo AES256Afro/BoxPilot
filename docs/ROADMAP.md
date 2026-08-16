@@ -25,7 +25,7 @@ Acceptance:
 
 ## Phase 1: real read-only inventory
 
-Status: libvirt VM, network, pool, and Tailscale access discovery is included in `0.2.0`. Version `0.7.0` adds host identity and resources, root storage, LAN addresses, selected systemd services, sanitized Docker resource inventory, and fixed redacted journal sources. SMART, full mount inventory, support-bundle redaction policies, and broader hardware collectors remain pending.
+Status: libvirt VM, network, pool, and Tailscale access discovery is included in `0.2.0`. Version `0.7.0` adds host identity and resources, root storage, LAN addresses, selected systemd services, sanitized Docker resource inventory, and fixed redacted journal sources. Version `0.18.0` adds fixed default-route, systemd-resolved, scoped port 53 listener, and Tailscale resolver observations plus no-change router and DNS assessments. SMART, full mount inventory, support-bundle redaction policies, and broader hardware collectors remain pending.
 
 - Host identity, OS, kernel, uptime, CPU, memory, mounts, and disk space
 - SMART and filesystem health
@@ -99,7 +99,7 @@ Acceptance:
 
 ## Phase 5: applications and Compose imports
 
-Status: integrity-addressed manifests, live prerequisite and port planning, immutable revisions, the executable Uptime Kuma adapter, and planning-only Pi-hole Docker and VM targets are included in `0.5.0`. Full Compose parsing, secret storage, verified backups, additional adapters, proxy registration, and update previews remain pending.
+Status: integrity-addressed manifests, live prerequisite and port planning, immutable revisions, the executable Uptime Kuma adapter, and planning-only Pi-hole Docker and VM targets are included in `0.5.0`. Version `0.18.0` adds the read-only route, resolver, exact listener, router-role, and DNS recovery assessment that Pi-hole will consume, but does not enable Pi-hole execution. Full Compose parsing, secret storage, verified backups, additional adapters, proxy registration, and update previews remain pending.
 
 - Full Compose YAML parser and policy engine
 - Port, volume, architecture, secret, health, and backup planning
