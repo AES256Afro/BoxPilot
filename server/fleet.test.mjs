@@ -12,9 +12,10 @@ const directories = [];
 const current = new Date("2026-08-16T02:00:00.000Z");
 
 async function fixture({ withControllerAcceptance = true } = {}) {
+  let observedNow = current;
   const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-fleet-"));
   directories.push(directory);
-  const store = createStateStore({ stateDirectory: directory, now: () => current });
+  const store = createStateStore({ stateDirectory: directory, now: () => observedNow });
   const bootstrap = store.createBootstrapToken();
   const password = "correct horse battery";
   const owner = store.consumeBootstrapToken(bootstrap.token, { username: "operator", passwordHash: await hashPassword(password) });
@@ -33,7 +34,7 @@ async function fixture({ withControllerAcceptance = true } = {}) {
       origin: "boxpilot-controller", checks: [], passed: true, secondDeviceTested: false, createdBy: owner.id,
     });
   }
-  return { store, owner, password, service: createFleetService({ store, now: () => current }) };
+  return { store, owner, password, service: createFleetService({ store, now: () => observedNow }), setNow: (value) => { observedNow = new Date(value); } };
 }
 
 function keyPair() {
@@ -70,7 +71,7 @@ describe("signed fleet agent", () => {
     expect(service.inspect().agents[0]).toMatchObject({ id: agent.id, name: "macbook-lan", status: "active", lastSequence: 0 });
     expect(service.inspect().agents[0]).not.toHaveProperty("publicKey");
 
-    const task = service.createDnsProbeTask(owner.id, { agentId: agent.id });
+    const task = await service.createDnsProbeTask(owner.id, { agentId: agent.id, delayMinutes: 0, password });
     expect(task).toMatchObject({ agentId: agent.id, type: "dns.pi-hole.acceptance.v1", payload: { resolverAddress: "192.168.8.10", boundary: { arbitraryCommand: false, arbitraryTarget: false } } });
     const polled = service.nextTask({ headers: signedHeaders({ agentId: agent.id, privateKey: keys.privateKey, sequence: 1, method: "GET", requestPath: "/api/v1/agent/tasks/next" }) });
     expect(polled.id).toBe(task.id);
@@ -89,7 +90,7 @@ describe("signed fleet agent", () => {
     const keys = keyPair();
     expect(() => service.enroll({ token: enrollment.token, name: "unsafe-agent", publicKey: keys.publicKey.toString("base64url"), capabilities: ["remote-shell"] })).toThrow("dns-probe-v1");
     const agent = service.enroll({ token: enrollment.token, name: "safe-agent", publicKey: keys.publicKey.toString("base64url"), capabilities: ["dns-probe-v1"] });
-    expect(() => service.createDnsProbeTask(owner.id, { agentId: agent.id })).toThrow("passing direct Bigbox");
+    await expect(service.createDnsProbeTask(owner.id, { agentId: agent.id, delayMinutes: 0, password })).rejects.toThrow("passing direct Bigbox");
     const forged = signedHeaders({ agentId: agent.id, privateKey: keyPair().privateKey, sequence: 1, method: "GET", requestPath: "/api/v1/agent/tasks/next" });
     expect(() => service.nextTask({ headers: forged })).toThrow("signature verification");
     const stale = signedHeaders({ agentId: agent.id, privateKey: keys.privateKey, sequence: 1, timestamp: "2026-08-16T01:00:00.000Z", method: "GET", requestPath: "/api/v1/agent/tasks/next" });
@@ -106,5 +107,23 @@ describe("signed fleet agent", () => {
     await expect(service.revoke(owner.id, agent.id, { password })).resolves.toMatchObject({ status: "revoked" });
     const headers = signedHeaders({ agentId: agent.id, privateKey: keys.privateKey, sequence: 1, method: "GET", requestPath: "/api/v1/agent/tasks/next" });
     expect(() => service.nextTask({ headers })).toThrow("Active agent not found");
+  });
+
+  it("schedules only an approved one-shot delay and withholds the task until its exact window", async () => {
+    const { store, owner, password, service, setNow } = await fixture();
+    const enrollment = await service.createEnrollment(owner.id, { password });
+    const keys = keyPair();
+    const agent = service.enroll({ token: enrollment.token, name: "scheduled-agent", publicKey: keys.publicKey.toString("base64url"), capabilities: ["dns-probe-v1"] });
+    await expect(service.createDnsProbeTask(owner.id, { agentId: agent.id, delayMinutes: 7, password })).rejects.toThrow("immediate, 5 minutes, or 10 minutes");
+    await expect(service.createDnsProbeTask(owner.id, { agentId: agent.id, delayMinutes: 5, password: "wrong password" })).rejects.toThrow("reauthentication");
+    await expect(service.createDnsProbeTask(owner.id, { agentId: agent.id, delayMinutes: 5, password, command: "reboot" })).rejects.toThrow("accepts only");
+
+    const task = await service.createDnsProbeTask(owner.id, { agentId: agent.id, delayMinutes: 5, password });
+    expect(task).toMatchObject({ state: "pending", availableAt: "2026-08-16T02:05:00.000Z", expiresAt: "2026-08-16T02:15:00.000Z", payload: { schedule: { delayMinutes: 5, recurring: false, unattended: false } } });
+    expect(service.nextTask({ headers: signedHeaders({ agentId: agent.id, privateKey: keys.privateKey, sequence: 1, method: "GET", requestPath: "/api/v1/agent/tasks/next" }) })).toBeNull();
+    setNow("2026-08-16T02:05:00.000Z");
+    expect(service.nextTask({ headers: signedHeaders({ agentId: agent.id, privateKey: keys.privateKey, sequence: 2, timestamp: "2026-08-16T02:05:00.000Z", method: "GET", requestPath: "/api/v1/agent/tasks/next" }) })).toMatchObject({ id: task.id, availableAt: task.availableAt });
+    expect(service.inspect().schedulingPolicy).toMatchObject({ recurrenceSupported: false, unattendedExecutionSupported: false, allowedDelayMinutes: [0, 5, 10], passwordReauthenticationRequired: true });
+    store.close();
   });
 });
