@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { applicationHelperInternals, createApplicationHelper } from "./application-helper.mjs";
+import { applicationInternals } from "./applications.mjs";
 
 const directories = [];
 
@@ -88,6 +89,62 @@ describe("curated Uptime Kuma helper", () => {
     expect(await readFile(helper.composePath, "utf8")).toContain("127.0.0.1:3101:3001");
     expect(calls).toContainEqual(["inspect", "--format", "{{.State.Health.Status}}", "boxpilot-uptime-kuma"]);
     expect(calls.some((args) => args[0] === "compose" && args.includes("up"))).toBe(true);
+  });
+
+  it("derives lifecycle actions only for the exact managed Uptime Kuma identity", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-uptime-lifecycle-"));
+    directories.push(directory);
+    const dataDirectory = path.join(directory, "uptime-kuma", "data");
+    await mkdir(dataDirectory, { recursive: true });
+    const container = {
+      Id: "a".repeat(64), Image: `sha256:${"b".repeat(64)}`, Name: "/boxpilot-uptime-kuma",
+      State: { Running: true, Status: "running", Error: "", Health: { Status: "healthy" } },
+      Config: { Image: applicationInternals.uptimeKumaImage, Labels: { "com.docker.compose.project": "boxpilot-uptime-kuma", "com.docker.compose.service": "uptime-kuma" } },
+      HostConfig: { PortBindings: { "3001/tcp": [{ HostIp: "127.0.0.1", HostPort: "3101" }] }, RestartPolicy: { Name: "unless-stopped" }, Privileged: false, Devices: null, CapAdd: null },
+      Mounts: [{ Type: "bind", Source: dataDirectory, Destination: "/app/data", RW: true }],
+    };
+    const runDocker = vi.fn(async () => ({ stdout: JSON.stringify(container), stderr: "" }));
+    const helper = createApplicationHelper({ appRoot: directory, runDocker });
+
+    const state = await helper.inspectUptimeKumaLifecycle();
+
+    expect(state).toMatchObject({ installed: true, managed: true, state: "running", healthy: true, port: 3101, allowedActions: ["stop", "restart"], boundary: { loopbackOnly: true, exactDataMount: true, privileged: false, dockerSocketMounted: false, mutationPerformed: false } });
+    expect(state.revision).toMatch(/^[a-f0-9]{64}$/);
+    delete container.State.Health;
+    await expect(helper.inspectUptimeKumaLifecycle()).resolves.toMatchObject({ installed: true, managed: true, healthy: false, allowedActions: ["stop", "restart"] });
+    container.State.Health = { Status: "healthy" };
+    container.HostConfig.Privileged = true;
+    await expect(helper.inspectUptimeKumaLifecycle()).resolves.toMatchObject({ installed: true, managed: false, allowedActions: [] });
+  });
+
+  it("executes a revision-bound lifecycle action and preserves persistent data", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-uptime-action-"));
+    directories.push(directory);
+    const dataDirectory = path.join(directory, "uptime-kuma", "data");
+    await mkdir(dataDirectory, { recursive: true });
+    let running = true;
+    const calls = [];
+    const container = () => ({
+      Id: "c".repeat(64), Image: `sha256:${"d".repeat(64)}`, Name: "/boxpilot-uptime-kuma",
+      State: { Running: running, Status: running ? "running" : "exited", Error: "", Health: { Status: running ? "healthy" : "none" } },
+      Config: { Image: applicationInternals.uptimeKumaImage, Labels: { "com.docker.compose.project": "boxpilot-uptime-kuma", "com.docker.compose.service": "uptime-kuma" } },
+      HostConfig: { PortBindings: { "3001/tcp": [{ HostIp: "127.0.0.1", HostPort: "3101" }] }, RestartPolicy: { Name: "unless-stopped" }, Privileged: false, Devices: null, CapAdd: null },
+      Mounts: [{ Type: "bind", Source: dataDirectory, Destination: "/app/data", RW: true }],
+    });
+    const runDocker = vi.fn(async (_binary, args) => {
+      calls.push(args);
+      if (args[0] === "inspect" && args[2] === "{{json .}}") return { stdout: JSON.stringify(container()), stderr: "" };
+      if (args[0] === "stop") { running = false; return { stdout: "boxpilot-uptime-kuma", stderr: "" }; }
+      throw new Error(`Unexpected Docker call: ${args.join(" ")}`);
+    });
+    const helper = createApplicationHelper({ appRoot: directory, runDocker });
+    const before = await helper.inspectUptimeKumaLifecycle();
+
+    const result = await helper.actionUptimeKuma({ action: "stop", expectedRevision: before.revision });
+
+    expect(result).toMatchObject({ applicationId: "uptime-kuma", action: "stop", performed: true, state: "stopped", running: false, healthy: false, port: 3101, dataPreserved: true, boundary: { exactContainerOnly: true, imageChanged: false, composeChanged: false, dataDeleted: false, networkDeleted: false } });
+    expect(calls).toContainEqual(["stop", "--time", "30", "boxpilot-uptime-kuma"]);
+    await expect(helper.actionUptimeKuma({ action: "start", expectedRevision: before.revision })).rejects.toThrow("state changed");
   });
 
   it("removes a new Compose definition on failed first deployment without deleting data", async () => {

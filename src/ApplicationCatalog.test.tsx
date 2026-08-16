@@ -34,6 +34,41 @@ describe("curated application catalog", () => {
     expect(screen.getByText("Create managed data directory")).toBeTruthy();
   });
 
+  it("creates and stages an immutable Uptime Kuma lifecycle action", async () => {
+    const application = {
+      id: "uptime-kuma", name: "Uptime Kuma", category: "Monitoring", description: "Monitor services", execution: "enabled", risk: "low", targets: ["docker"],
+      image: { version: "2.5.0", digestPinned: true }, integrity: `sha256:${"a".repeat(64)}`,
+      live: { installed: true, state: "running", healthy: true, port: 3101, detail: "Managed container is running", backup: { state: "required", verifiedAt: null }, lifecycle: { installed: true, managed: true, state: "running", running: true, healthy: true, port: 3101, revision: "b".repeat(64), allowedActions: ["stop", "restart"], detail: "Managed Uptime Kuma is healthy" } },
+    };
+    const plan = {
+      id: "action-plan", revision: "action-revision", input: { applicationId: "uptime-kuma", action: "restart", expectedRevision: "b".repeat(64) },
+      output: { executable: true, label: "Restart", current: { state: "running", healthy: true, port: 3101 }, desired: { state: "running", healthy: true, port: 3101 }, changes: ["Restart only the exact managed container"], recovery: "Persistent data stays in place", boundaries: ["No image, port, volume, network, data, or other container can change"] },
+    };
+    const onOpenRepair = vi.fn();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/api/v1/applications")) return new Response(JSON.stringify({ applications: [application] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url.endsWith("/api/v1/applications/uptime-kuma/action-plans")) {
+        expect(JSON.parse(String(init?.body))).toEqual({ action: "restart" });
+        return new Response(JSON.stringify({ plan }), { status: 201, headers: { "Content-Type": "application/json" } });
+      }
+      expect(url).toContain("/api/v1/application-action-plans/action-plan/stage");
+      expect(JSON.parse(String(init?.body))).toEqual({ revision: "action-revision" });
+      return new Response(JSON.stringify({ job: { id: "job-one", state: "awaiting_approval" } }), { status: 201, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ApplicationCatalog csrfToken="csrf" onInspectCompose={vi.fn()} onOpenRepair={onOpenRepair} />);
+
+    expect(await screen.findByRole("button", { name: "Plan restart" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Plan restart" }));
+    expect(await screen.findByRole("heading", { name: "Restart Uptime Kuma" })).toBeTruthy();
+    expect(screen.getByText("Restart only the exact managed container")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage for password approval" }));
+    expect(await screen.findByText(/Restart job staged/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open Repair Center" }));
+    expect(onOpenRepair).toHaveBeenCalledOnce();
+  });
+
   it("carries the linked network assessment into an exact-address Pi-hole plan", async () => {
     const application = {
       id: "pi-hole", name: "Pi-hole", category: "DNS", description: "Filter DNS", execution: "enabled", risk: "network-critical", targets: ["docker", "virtual-machine"],
