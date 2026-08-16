@@ -13,6 +13,7 @@ import { createVmRetentionHelper, validateVmRetentionInput } from "./vm-retentio
 import { createVmRestoreDrillHelper, validateVmRestoreDrillInput } from "./vm-restore-drill-helper.mjs";
 import { createMigrationTransferHelper, validateMigrationTransferInput } from "./migration-transfer-helper.mjs";
 import { createPrerequisiteHelper } from "./prerequisite-helper.mjs";
+import { createLibvirtFoundationHelper } from "./libvirt-foundation-helper.mjs";
 import { createControllerBackupHelper, controllerBackupHelperInternals } from "./controller-backup-helper.mjs";
 import { createControllerProtectionHelper, validateControllerProtectionInput } from "./controller-protection-helper.mjs";
 import { createControllerRetentionHelper, validateControllerRetentionInput } from "./controller-retention-helper.mjs";
@@ -30,7 +31,7 @@ import { createKeelRollbackHelper, validateKeelRollbackCreateInput, validateKeel
 import { validUuid } from "./keel-artifact-spec.mjs";
 
 export const helperProtocolVersion = 1;
-export const helperOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.smartmontools.install", "prerequisite.restic.inspect", "prerequisite.restic.install", "prerequisite.docker.inspect", "prerequisite.docker.install", "prerequisite.virtualization.inspect", "prerequisite.virtualization.install", "prerequisite.apt-metadata.inspect", "prerequisite.apt-metadata.refresh", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.backup.create", "controller.database.protection.inspect", "controller.database.protection.create", "controller.database.protection.retention.inspect", "controller.database.protection.retention.apply", "application.backup.protection.inspect", "application.backup.protection.create", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "application.pi-hole.inspect", "application.pi-hole.deploy", "application.pi-hole.backup", "application.keel.inspect", "application.keel.artifact.inspect", "application.keel.artifact.acquire", "application.keel.archive.inspect", "application.keel.stage.inspect", "application.keel.stage", "application.keel.install.inspect", "application.keel.install", "application.keel.login-proof.inspect", "application.keel.backup", "application.keel.recovery.inspect", "application.keel.recovery.create", "application.keel.recovery-drill.inspect", "application.keel.recovery-drill.create", "application.keel.promotion.inspect", "application.keel.promotion.create", "application.keel.rollback.inspect", "application.keel.rollback.create", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
+export const helperOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.smartmontools.install", "prerequisite.restic.inspect", "prerequisite.restic.install", "prerequisite.docker.inspect", "prerequisite.docker.install", "prerequisite.virtualization.inspect", "prerequisite.virtualization.install", "prerequisite.apt-metadata.inspect", "prerequisite.apt-metadata.refresh", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.backup.create", "controller.database.protection.inspect", "controller.database.protection.create", "controller.database.protection.retention.inspect", "controller.database.protection.retention.apply", "application.backup.protection.inspect", "application.backup.protection.create", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "application.pi-hole.inspect", "application.pi-hole.deploy", "application.pi-hole.backup", "application.keel.inspect", "application.keel.artifact.inspect", "application.keel.artifact.acquire", "application.keel.archive.inspect", "application.keel.stage.inspect", "application.keel.stage", "application.keel.install.inspect", "application.keel.install", "application.keel.login-proof.inspect", "application.keel.backup", "application.keel.recovery.inspect", "application.keel.recovery.create", "application.keel.recovery-drill.inspect", "application.keel.recovery-drill.create", "application.keel.promotion.inspect", "application.keel.promotion.create", "application.keel.rollback.inspect", "application.keel.rollback.create", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.foundation.inspect", "virtualization.foundation.initialize", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
 const virtualizationPackageKeys = ["libvirt-clients", "libvirt-daemon-system", "ovmf", "qemu-system-x86", "virtinst"];
 const vmCreationKeys = ["autostart", "diskGiB", "firmware", "isoFile", "memoryMiB", "name", "network", "osProfile", "vcpus"];
 const vmLifecycleKeys = ["action", "expectedAutostart", "expectedState", "name"];
@@ -85,6 +86,11 @@ export function validateHelperRequest(value) {
     const timestamp = value.parameters.expectedUpdatedAt;
     const validTimestamp = timestamp === null || (typeof timestamp === "string" && timestamp.length <= 32 && Number.isFinite(Date.parse(timestamp)) && new Date(timestamp).toISOString() === timestamp);
     if (keys.length !== 1 || keys[0] !== "expectedUpdatedAt" || !validTimestamp) return "APT metadata refresh accepts only one exact expectedUpdatedAt timestamp";
+  }
+  if (value.operation === "virtualization.foundation.inspect" && Object.keys(value.parameters).length !== 0) return "Libvirt foundation inspection accepts no parameters";
+  if (value.operation === "virtualization.foundation.initialize") {
+    const keys = Object.keys(value.parameters).sort();
+    if (keys.join(",") !== "expectedRevision,foundationId" || !/^[a-f0-9]{64}$/.test(String(value.parameters.expectedRevision ?? "")) || !validUuid(value.parameters.foundationId)) return "Libvirt foundation initialization accepts only one server-generated id and exact state revision";
   }
   if (value.operation === "container.docker.inspect" && Object.keys(value.parameters).length !== 0) return "Docker inspection accepts no parameters";
   if (value.operation === "container.docker.inventory" && Object.keys(value.parameters).length !== 0) return "Docker inventory accepts no parameters";
@@ -264,7 +270,7 @@ export function validateHelperRequest(value) {
   return null;
 }
 
-export async function executeHelperOperation(request, { applications = createApplicationHelper(), applicationProtection = createApplicationProtectionHelper(), controllerBackups = createControllerBackupHelper(), controllerProtection = createControllerProtectionHelper(), controllerRetention = createControllerRetentionHelper(), keelDiscovery = createKeelDiscoveryHelper(), keelArtifacts = createKeelArtifactHelper(), keelArchive = createKeelArchiveHelper(), keelStage = createKeelStageHelper(), keelInstall = createKeelInstallHelper(), keelLoginProof = createKeelLoginProofHelper(), keelBackups = createKeelBackupHelper({ installHelper: keelInstall }), keelRecovery = createKeelRecoveryHelper(), keelRecoveryDrill = createKeelRecoveryDrillHelper(), keelPromotion = createKeelPromotionHelper(), keelRollback = createKeelRollbackHelper(), migrations = createMigrationTransferHelper(), prerequisites = createPrerequisiteHelper(), virtualization = createVmHelper(), vmProtection = createVmProtectionHelper(), vmRetention = createVmRetentionHelper(), vmRestoreDrill = createVmRestoreDrillHelper(), vmRecovery = createVmRecoveryHelper() } = {}) {
+export async function executeHelperOperation(request, { applications = createApplicationHelper(), applicationProtection = createApplicationProtectionHelper(), controllerBackups = createControllerBackupHelper(), controllerProtection = createControllerProtectionHelper(), controllerRetention = createControllerRetentionHelper(), keelDiscovery = createKeelDiscoveryHelper(), keelArtifacts = createKeelArtifactHelper(), keelArchive = createKeelArchiveHelper(), keelStage = createKeelStageHelper(), keelInstall = createKeelInstallHelper(), keelLoginProof = createKeelLoginProofHelper(), keelBackups = createKeelBackupHelper({ installHelper: keelInstall }), keelRecovery = createKeelRecoveryHelper(), keelRecoveryDrill = createKeelRecoveryDrillHelper(), keelPromotion = createKeelPromotionHelper(), keelRollback = createKeelRollbackHelper(), migrations = createMigrationTransferHelper(), prerequisites = createPrerequisiteHelper(), foundation = createLibvirtFoundationHelper(), virtualization = createVmHelper(), vmProtection = createVmProtectionHelper(), vmRetention = createVmRetentionHelper(), vmRestoreDrill = createVmRestoreDrillHelper(), vmRecovery = createVmRecoveryHelper() } = {}) {
   const error = validateHelperRequest(request);
   if (error) return { version: helperProtocolVersion, id: request?.id ?? null, ok: false, error, code: "invalid_request" };
   if (request.operation === "canary.verify") {
@@ -272,7 +278,7 @@ export async function executeHelperOperation(request, { applications = createApp
       version: helperProtocolVersion,
       id: request.id,
       ok: true,
-      result: { verified: true, helperVersion: "0.55.1", mutationPerformed: false },
+      result: { verified: true, helperVersion: "0.56.0", mutationPerformed: false },
     };
   }
   if (request.operation === "prerequisite.smartmontools.inspect") {
@@ -415,6 +421,12 @@ export async function executeHelperOperation(request, { applications = createApp
   }
   if (request.operation === "migration.bundle.transfer") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await migrations.transfer(request.parameters) };
+  }
+  if (request.operation === "virtualization.foundation.inspect") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await foundation.inspect() };
+  }
+  if (request.operation === "virtualization.foundation.initialize") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await foundation.initialize(request.parameters) };
   }
   if (request.operation === "virtualization.inventory.inspect") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await virtualization.inventory(request.parameters) };

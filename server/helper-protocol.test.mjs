@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.55.1", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.56.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -463,6 +463,22 @@ describe("restricted helper protocol", () => {
     const virtualization = { inventory: async ({ scope }) => ({ scope, connected: true }) };
     const result = await executeHelperOperation(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "resources" } }), { virtualization });
     expect(result).toMatchObject({ ok: true, result: { scope: "resources", connected: true } });
+  });
+
+  it("accepts only the fixed libvirt foundation identity and state revision", async () => {
+    const foundationId = "123e4567-e89b-42d3-a456-426614174000";
+    const expectedRevision = "a".repeat(64);
+    expect(validateHelperRequest(request({ operation: "virtualization.foundation.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.foundation.inspect", parameters: { pool: "custom" } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "virtualization.foundation.initialize", parameters: { foundationId, expectedRevision } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "virtualization.foundation.initialize", parameters: { foundationId, expectedRevision, network: "bridge" } }))).toContain("only one server-generated id");
+    expect(validateHelperRequest(request({ operation: "virtualization.foundation.initialize", parameters: { foundationId, expectedRevision: "$(id)" } }))).toContain("only one server-generated id");
+    const foundation = {
+      inspect: async () => ({ ready: false, revision: expectedRevision, mutationPerformed: false }),
+      initialize: async () => ({ initialized: true, foundationId, revisionBefore: expectedRevision, ready: true }),
+    };
+    await expect(executeHelperOperation(request({ operation: "virtualization.foundation.inspect", parameters: {} }), { foundation })).resolves.toMatchObject({ ok: true, result: { ready: false, revision: expectedRevision } });
+    await expect(executeHelperOperation(request({ operation: "virtualization.foundation.initialize", parameters: { foundationId, expectedRevision } }), { foundation })).resolves.toMatchObject({ ok: true, result: { initialized: true, foundationId, ready: true } });
   });
 
   it("accepts only a parameter-free console handoff inspection", async () => {

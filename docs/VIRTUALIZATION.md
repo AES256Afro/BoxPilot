@@ -1,12 +1,13 @@
 # QEMU/KVM setup and operation
 
-BoxPilot `0.55.1` can install the fixed Ubuntu KVM, QEMU, libvirt, virt-install, and OVMF prerequisites on a clean hardware-ready host, inspect the local libvirt system connection through its restricted helper, create supported Linux virtual machines through durable approved jobs, manage a deliberately small set of lifecycle operations, report QEMU guest-agent and snapshot state, create guarded offline internal snapshots, produce integrity-verified local exports for stopped managed VMs, copy those exports into a fixed encrypted restic repository on an independent mounted filesystem, prove one backup bootable through an isolated transient restore drill, create a separately named stopped no-network recovery clone, and apply one fixed exact no-prune retention policy. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
+BoxPilot `0.56.0` can install the fixed Ubuntu KVM, QEMU, libvirt, virt-install, and OVMF prerequisites on a clean hardware-ready host, initialize and verify the canonical default NAT network and storage pool through a separate approved workflow, inspect the local libvirt system connection through its restricted helper, create supported Linux virtual machines through durable approved jobs, manage a deliberately small set of lifecycle operations, report QEMU guest-agent and snapshot state, create guarded offline internal snapshots, produce integrity-verified local exports for stopped managed VMs, copy those exports into a fixed encrypted restic repository on an independent mounted filesystem, prove one backup bootable through an isolated transient restore drill, create a separately named stopped no-network recovery clone, and apply one fixed exact no-prune retention policy. It is intended for the Ubuntu server itself, not a remote libvirt daemon.
 
 ## What works now
 
 - Detect Linux, KVM support through libvirt, QEMU, `virsh`, `virt-install`, and the restricted helper boundary
 - Review and install the exact five-root Ubuntu virtualization package bundle on a clean host after owner-password approval
-- Check the default libvirt NAT network and storage pool
+- Check the exact default libvirt NAT network and storage pool
+- Review, stage, password-approve, initialize, and verify missing or inactive canonical default resources with job-limited automatic rollback
 - List persistent VMs with state, vCPU, maximum memory, autostart, lease- and guest-agent-reported IP addresses, guest-agent status, filesystem-freeze state, and bounded snapshot metadata
 - Start a stopped VM
 - Request graceful shutdown or reboot of a running VM
@@ -28,7 +29,7 @@ BoxPilot `0.55.1` can install the fixed Ubuntu KVM, QEMU, libvirt, virt-install,
 - Read every data pack in the repository and confirm exact snapshot identity before recording evidence
 - Restore a protected snapshot into a new persistent recovery domain that remains stopped, non-autostarting, and network-isolated
 
-The release does not delete VMs, force power off, provide general XML editing, open a web console proxy, create online snapshots, revert or delete snapshots, overwrite a VM in place, attach a recovered VM to a network, change storage pools, build a network bridge, generate cloud-init media, or create Windows 11 guests. Windows 11 remains locked until TPM 2.0 and Secure Boot checks exist.
+The release does not delete VMs, force power off, provide general XML editing, open a web console proxy, create online snapshots, revert or delete snapshots, overwrite a VM in place, attach a recovered VM to a network, change non-default storage pools, build a network bridge, generate cloud-init media, or create Windows 11 guests. Windows 11 remains locked until TPM 2.0 and Secure Boot checks exist.
 
 ## 1. Prepare Ubuntu for virtualization
 
@@ -45,7 +46,9 @@ sudo virsh --connect qemu:///system uri
 qemu-system-x86_64 --version
 ```
 
-Default network and storage-pool initialization are separate from the prerequisite job. Inspect existing state first, then use these console fallbacks only if the resources are missing:
+Default network and storage-pool initialization are separate from the prerequisite job. In **Virtual Machines**, find **Default VM foundation**, select **Review setup plan**, review the fixed NAT subnet and image path, stage the job, then approve it with the owner password in **Repair Center**. BoxPilot defines missing canonical resources, starts inactive compatible resources, enables autostart, and verifies the result. It accepts no resource value from the browser and never changes other networks or pools.
+
+If the canonical definitions already exist, these console commands are a manual recovery fallback for inactive state only:
 
 ```bash
 sudo install -d -m 0755 /var/lib/libvirt/boot
@@ -89,6 +92,7 @@ sudo install -m 0644 deploy/boxpilot-smartmontools-install.service /etc/systemd/
 sudo install -m 0644 deploy/boxpilot-restic-install.service /etc/systemd/system/boxpilot-restic-install.service
 sudo install -m 0644 deploy/boxpilot-docker-install.service /etc/systemd/system/boxpilot-docker-install.service
 sudo install -m 0644 deploy/boxpilot-virtualization-install.service /etc/systemd/system/boxpilot-virtualization-install.service
+sudo install -m 0644 deploy/boxpilot-libvirt-foundation.service /etc/systemd/system/boxpilot-libvirt-foundation.service
 sudo install -m 0644 deploy/boxpilot-apt-refresh.service /etc/systemd/system/boxpilot-apt-refresh.service
 sudo install -m 0644 deploy/boxpilot-keel-artifact.service /etc/systemd/system/boxpilot-keel-artifact.service
 sudo install -m 0644 deploy/boxpilot-keel-install.service /etc/systemd/system/boxpilot-keel-install.service
@@ -119,7 +123,7 @@ sudo journalctl -u boxpilot-helper -u boxpilot -n 100 --no-pager
 curl http://127.0.0.1:8787/api/v1/health
 ```
 
-Create the first owner using [Operations Core setup and recovery](OPERATIONS-CORE.md), sign in, then open **Virtual Machines**. The preflight checklist names each missing requirement without changing the host.
+Create the first owner using [Operations Core setup and recovery](OPERATIONS-CORE.md), sign in, then open **Virtual Machines**. The preflight checklist names each missing requirement without changing the host. **Default VM foundation** either proves both fixed resources ready, offers the immutable setup plan, or reports the exact compatibility conflict that must be handled at the server console.
 
 Run the read-only deployment doctor at any time:
 

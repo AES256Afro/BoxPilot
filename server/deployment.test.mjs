@@ -52,7 +52,7 @@ describe("native systemd network boundaries", () => {
     expect(dockerfile).toContain("BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot");
     expect(dockerfile).toContain("BOXPILOT_COOKIE_SECURE=false");
     expect(dockerfile).toContain("USER node");
-    expect(compose).toContain("image: boxpilot:0.55.1");
+    expect(compose).toContain("image: boxpilot:0.56.0");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("/tmp:size=16m,mode=1777");
   });
@@ -225,6 +225,37 @@ describe("native systemd network boundaries", () => {
     expect(service).not.toContain("[Install]");
     expect(protocol).toContain("prerequisite.virtualization.install");
     expect(protocol).not.toContain("package.install");
+  });
+
+  it("ships a static fixed libvirt foundation initializer with job-limited rollback", async () => {
+    const service = await readFile("deploy/boxpilot-libvirt-foundation.service", "utf8");
+    const initializer = await readFile("scripts/boxpilot-libvirt-foundation.mjs", "utf8");
+    const foundationHelper = await readFile("server/libvirt-foundation-helper.mjs", "utf8");
+    const helperUnit = await readFile("deploy/boxpilot-helper.service", "utf8");
+    const protocol = await readFile("server/helper-protocol.mjs", "utf8");
+    const metadata = await stat("scripts/boxpilot-libvirt-foundation.mjs");
+    expect(metadata.mode & 0o111).not.toBe(0);
+    expect(service).toContain("Type=oneshot");
+    expect(service).toContain("ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-libvirt-foundation.mjs");
+    expect(service).toContain("ConditionPathExists=/run/boxpilot/libvirt-foundation-approval.json");
+    expect(service).toContain("RestrictAddressFamilies=AF_UNIX");
+    expect(service).toContain("PrivateNetwork=true");
+    expect(service).toContain("CapabilityBoundingSet=\n");
+    expect(service).toContain("ReadWritePaths=/var/lib/libvirt");
+    expect(service).not.toContain("%i");
+    expect(service).not.toContain("[Install]");
+    expect(helperUnit).toContain("PrivateNetwork=true");
+    expect(helperUnit).toContain("PrivateDevices=true");
+    expect(initializer).toContain("process.argv.length !== 2");
+    expect(initializer).toContain("<name>default</name>");
+    expect(initializer).toContain("192.168.122.1");
+    expect(foundationHelper).toContain('const poolTarget = "/var/lib/libvirt/images"');
+    expect(initializer).toContain('["net-undefine", libvirtFoundationSpec.networkName]');
+    expect(initializer).toContain('["pool-undefine", libvirtFoundationSpec.poolName]');
+    expect(initializer).not.toContain("process.argv[2]");
+    expect(initializer).not.toContain("virt-install");
+    expect(protocol).toContain("virtualization.foundation.initialize");
+    expect(protocol).not.toContain("virtualization.resource.execute");
   });
 
   it("ships a static metadata-only APT refresh without browser package or command arguments", async () => {
