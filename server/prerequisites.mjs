@@ -61,6 +61,27 @@ export function createPrerequisiteService({ stateDirectory, helper, runCommand =
       checks.push(check("helper.boundary", "BoxPilot", "Restricted helper", "repairable", "The local helper socket is unavailable", { kind: "guided", description: "Start or repair boxpilot-helper.service" }));
     }
 
+    let smartmontools = null;
+    try {
+      smartmontools = await helper.request("prerequisite.smartmontools.inspect", {});
+    } catch {
+      smartmontools = null;
+    }
+    checks.push(check(
+      "storage.smartmontools",
+      "Storage",
+      "SMART monitoring tools",
+      smartmontools?.installed ? "ready" : smartmontools?.repairAvailable ? "repairable" : "missing",
+      smartmontools?.installed
+        ? `smartmontools ${smartmontools.installedVersion} is installed for the fixed storage evidence timer`
+        : smartmontools?.repairAvailable
+          ? `Configured APT metadata offers the fixed smartmontools ${smartmontools.candidateVersion} candidate`
+          : "smartmontools is not installed and no fixed configured APT candidate was verified",
+      smartmontools?.installed ? null : smartmontools?.repairAvailable
+        ? { kind: "approved", description: "Review an exact-version durable plan, reauthenticate, install only smartmontools, and verify a fresh fixed storage scan" }
+        : { kind: "manual", description: "Repair configured Ubuntu APT metadata before creating an installation plan" },
+    ));
+
     let docker = { available: false, version: null };
     try {
       docker = await helper.request("container.docker.inspect", {});

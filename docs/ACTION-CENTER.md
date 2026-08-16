@@ -1,6 +1,6 @@
 # Local Action Center
 
-BoxPilot `0.29.0` adds an authenticated, read-only Action Center inside Repair Center. Version `0.30.1` also correlates sanitized host filesystem-capacity and timer-generated SMART evidence. It converts fixed evidence into prioritized notices, explains why each notice exists, and links the operator to a fixed BoxPilot destination with a short manual checklist.
+BoxPilot `0.29.0` adds an authenticated, read-only Action Center inside Repair Center. Version `0.30.1` also correlates sanitized host filesystem-capacity and timer-generated SMART evidence. Version `0.31.0` adds a separately named exact `smartmontools` repair elsewhere in Repair Center without granting the Action Center execution authority. Action Center converts fixed evidence into prioritized notices, explains why each notice exists, and links the operator to a fixed BoxPilot destination with a short manual checklist.
 
 The Action Center is guidance, not an automation system. Opening, refreshing, or navigating from it performs no host, application, VM, router, network, DNS, Tailscale, package, file, or service mutation.
 
@@ -49,7 +49,7 @@ If the recovery collector throws, returns an incomplete object, or introduces an
 
 ## Deliberate exclusions
 
-Version `0.30.1` has no:
+Version `0.31.0` Action Center has no:
 
 - Automatic repair or remediation execution
 - Arbitrary command, package, service, file, Docker, libvirt, router, DNS, firewall, or Tailscale operation

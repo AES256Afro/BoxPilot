@@ -7,20 +7,22 @@ import { createVmRecoveryHelper } from "./vm-recovery-helper.mjs";
 import { createVmRestoreDrillHelper } from "./vm-restore-drill-helper.mjs";
 import { createVmRetentionHelper } from "./vm-retention-helper.mjs";
 import { createMigrationTransferHelper } from "./migration-transfer-helper.mjs";
+import { createPrerequisiteHelper } from "./prerequisite-helper.mjs";
 
 const socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock";
 const maxRequestBytes = 8192;
-const readOnlyOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.pi-hole.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
+const readOnlyOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.pi-hole.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
 let operationQueue = Promise.resolve();
 const vmRestoreDrill = createVmRestoreDrillHelper();
 const vmRecovery = createVmRecoveryHelper({ restoreEngine: vmRestoreDrill });
 const vmRetention = createVmRetentionHelper();
 const migrations = createMigrationTransferHelper();
 const applications = createApplicationHelper();
+const prerequisites = createPrerequisiteHelper();
 await migrations.initialize();
 const recovery = await vmRestoreDrill.recoverOrphans();
 const applicationRecovery = await applications.recoverInterruptedPiholeBackup();
-const helperDependencies = { applications, migrations, vmRestoreDrill, vmRecovery, vmRetention };
+const helperDependencies = { applications, migrations, prerequisites, vmRestoreDrill, vmRecovery, vmRetention };
 if (recovery.stoppedDomains > 0 || recovery.removedNvramFiles > 0 || recovery.normalizedWorkspaces > 0) {
   console.log(`BoxPilot restore drill recovery stopped=${recovery.stoppedDomains} nvram=${recovery.removedNvramFiles} workspaces=${recovery.normalizedWorkspaces}`);
 }
@@ -59,6 +61,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       if (request.operation === "migration.bundle.inspect") connection.setTimeout(12 * 60 * 60 * 1000);
       if (request.operation === "application.pi-hole.deploy") connection.setTimeout(10 * 60 * 1000);
       if (request.operation === "application.pi-hole.backup") connection.setTimeout(10 * 60 * 1000);
+      if (request.operation === "prerequisite.smartmontools.install") connection.setTimeout(15 * 60 * 1000);
       const execution = readOnlyOperations.has(request.operation)
         ? executeHelperOperation(request, helperDependencies)
         : operationQueue.then(() => executeHelperOperation(request, helperDependencies));
@@ -87,7 +90,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
 
 server.listen(socketPath, async () => {
   await chmod(socketPath, 0o660);
-  console.log(`BoxPilot helper 0.15.0 listening on ${socketPath}`);
+  console.log(`BoxPilot helper 0.16.0 listening on ${socketPath}`);
 });
 
 async function shutdown() {

@@ -7,7 +7,9 @@ describe("prerequisite inventory", () => {
       ? ({ available: true, version: "29.1.3" })
       : operation === "virtualization.inventory.inspect"
         ? ({ checks: [{ id: "connection", ok: true }, { id: "helper", ok: true }] })
-        : ({ verified: true, helperVersion: "0.7.0", mutationPerformed: false })) };
+        : operation === "prerequisite.smartmontools.inspect"
+          ? ({ installed: true, installedVersion: "7.5-2", repairAvailable: false })
+          : ({ verified: true, helperVersion: "0.16.0", mutationPerformed: false })) };
     const runCommand = vi.fn(async (command) => {
       if (command === "tailscale") return { ok: true, stdout: "SECRET PEER DATA" };
       return { ok: true, stdout: "udp UNCONN 0 0 0.0.0.0:53 0.0.0.0:*" };
@@ -25,6 +27,7 @@ describe("prerequisite inventory", () => {
     expect(runCommand).not.toHaveBeenCalledWith("docker", expect.anything());
     expect(runCommand).not.toHaveBeenCalledWith("virsh", expect.anything());
     expect(result.checks.find((item) => item.id === "virtualization.libvirt")).toMatchObject({ status: "ready" });
+    expect(result.checks.find((item) => item.id === "storage.smartmontools")).toMatchObject({ status: "ready", summary: expect.stringContaining("7.5-2") });
     expect(result.checks.find((item) => item.id === "dns.port53")).toMatchObject({ status: "conflict" });
     expect(JSON.stringify(result)).not.toContain("SECRET PEER DATA");
   });
@@ -40,6 +43,20 @@ describe("prerequisite inventory", () => {
     const result = await service.inspect();
     expect(result.checks.find((item) => item.id === "storage.state")?.status).toBe("missing");
     expect(result.checks.find((item) => item.id === "helper.boundary")?.status).toBe("repairable");
-    expect(result.checks).toHaveLength(7);
+    expect(result.checks).toHaveLength(8);
+  });
+
+  it("offers only the fixed approved smartmontools repair when configured metadata has a candidate", async () => {
+    const helper = { request: vi.fn(async (operation) => {
+      if (operation === "canary.verify") return { verified: true, helperVersion: "0.16.0", mutationPerformed: false };
+      if (operation === "prerequisite.smartmontools.inspect") return { installed: false, candidateVersion: "7.5-2", repairAvailable: true };
+      if (operation === "container.docker.inspect") return { available: true, version: "29.1.3" };
+      if (operation === "virtualization.inventory.inspect") return { checks: [{ id: "connection", ok: true }, { id: "helper", ok: true }] };
+      throw new Error("unexpected operation");
+    }) };
+    const service = createPrerequisiteService({ stateDirectory: "/state", helper, runCommand: vi.fn(async () => ({ ok: true, stdout: "" })), checkAccess: vi.fn(async () => {}), getFilesystem: vi.fn(async () => ({ bavail: 2_000_000, bsize: 4096 })) });
+    const result = await service.inspect();
+    expect(result.checks.find((item) => item.id === "storage.smartmontools")).toMatchObject({ status: "repairable", repair: { kind: "approved" } });
+    expect(JSON.stringify(result)).not.toContain("apt-get");
   });
 });

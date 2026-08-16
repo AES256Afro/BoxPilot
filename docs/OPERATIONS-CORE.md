@@ -26,13 +26,16 @@ sudo install -m 0644 deploy/boxpilot-helper.service /etc/systemd/system/boxpilot
 sudo install -m 0644 deploy/boxpilot.service /etc/systemd/system/boxpilot.service
 sudo install -m 0644 deploy/boxpilot-storage-scan.service /etc/systemd/system/boxpilot-storage-scan.service
 sudo install -m 0644 deploy/boxpilot-storage-scan.timer /etc/systemd/system/boxpilot-storage-scan.timer
+sudo install -m 0644 deploy/boxpilot-smartmontools-install.service /etc/systemd/system/boxpilot-smartmontools-install.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now boxpilot-helper.service boxpilot.service boxpilot-storage-scan.timer
 ```
 
 Both units expect the verified Node.js runtime at `/usr/local/bin/node`. Do not weaken the helper socket mode or add the web service to sudoers.
 
-The storage timer is separate from the web service and helper protocol. If `/usr/sbin/smartctl` is absent, its successful evidence file says `smartctl-not-installed`; it does not install a package or invent disk health. After separately reviewing the Ubuntu package, an administrator may install `smartmontools` and start one fixed scan:
+The storage timer is separate from the web service and helper protocol. If `/usr/sbin/smartctl` is absent, its successful evidence file says `smartctl-not-installed`; it does not install a package or invent disk health. Version `0.31.0` adds a dedicated Repair Center workflow that resolves only the configured `smartmontools` candidate, stores an immutable plan, requires separate staging and owner-password approval, revalidates the exact version, starts a static root package unit, and verifies a fresh scan. See [Exact prerequisite repair boundary](PREREQUISITE-REPAIRS.md).
+
+The manual console fallback remains:
 
 ```bash
 sudo apt-get install smartmontools

@@ -77,6 +77,7 @@ sudo install -m 0644 deploy/boxpilot-helper.service /etc/systemd/system/boxpilot
 sudo install -m 0644 deploy/boxpilot.service /etc/systemd/system/boxpilot.service
 sudo install -m 0644 deploy/boxpilot-storage-scan.service /etc/systemd/system/boxpilot-storage-scan.service
 sudo install -m 0644 deploy/boxpilot-storage-scan.timer /etc/systemd/system/boxpilot-storage-scan.timer
+sudo install -m 0644 deploy/boxpilot-smartmontools-install.service /etc/systemd/system/boxpilot-smartmontools-install.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now boxpilot-helper.service boxpilot.service boxpilot-storage-scan.timer
 ```
