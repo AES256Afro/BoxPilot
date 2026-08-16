@@ -208,6 +208,39 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("installs only the approved fixed Keel service and preserves claim separation", async () => {
+    const installId = "33333333-3333-4333-8333-333333333333";
+    const result = {
+      installId,
+      installed: true,
+      healthy: true,
+      releaseVersion: "1.2.6",
+      serviceActive: true,
+      serviceEnabled: true,
+      listener: "127.0.0.1:3000",
+      statePreserved: true,
+      claimRequired: true,
+      privateAccessConfigured: false,
+      boundary: {
+        releaseExecuted: true, serviceChanged: true, accountChanged: true, applicationStateCreated: true, listenerChanged: true,
+        registrationChanged: false, claimChanged: false, tailscaleChanged: false, firewallChanged: false, routerChanged: false,
+        databaseOpened: false, secretRead: false, arbitraryPathAccepted: false, arbitraryCommandAccepted: false, browserEnvironmentAccepted: false,
+      },
+    };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const validateApplicationJob = vi.fn(async () => ({ input: { installId } }));
+    const jobs = createJobService(store, helper, { validateApplicationJob });
+    const job = store.createJob({ type: "application.keel.install", title: "Install private Keel 1.2.6 service", risk: "stateful-install", parameters: { installId }, recovery: { automaticRollback: true }, createdBy: owner.id });
+
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+
+    expect(validateApplicationJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("application.keel.install", { installId }, { timeoutMs: 15 * 60 * 1000 });
+    expect(completed).toMatchObject({ state: "completed", result: { installed: true, healthy: true, listener: "127.0.0.1:3000", claimRequired: true, privateAccessConfigured: false } });
+    store.close();
+  });
+
   it("records a backup only after the isolated restore evidence passes", async () => {
     const backupId = "11111111-1111-4111-8111-111111111111";
     const result = { backupId, applicationId: "uptime-kuma", sourceRestartVerified: true, restoreDrill: { passed: true } };

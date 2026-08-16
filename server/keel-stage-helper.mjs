@@ -40,7 +40,7 @@ async function listPartials(paths = keelStagePaths, spec = keelArtifactSpec) {
   const releases = await metadata(paths.releases);
   if (!releases) return [];
   if (!releases.isDirectory() || releases.isSymbolicLink()) throw new Error("The Keel release root is not a real directory");
-  if ((releases.mode & 0o7077) !== 0) throw new Error("The Keel release root has unsafe permissions");
+  if (![0o700, 0o750].includes(releases.mode & 0o7777)) throw new Error("The Keel release root has unsafe permissions");
   const names = await readdir(paths.releases);
   const partials = [];
   for (const name of names) {
@@ -64,7 +64,7 @@ async function hardenAndScan(root, { evidencePath = null, harden = false } = {})
     const isEvidence = evidencePath !== null && current === evidencePath;
     if (currentMetadata.isDirectory()) {
       if (harden) await chmod(current, 0o700);
-      else if ((currentMetadata.mode & 0o7077) !== 0) throw new Error("The staged Keel tree has unsafe directory permissions");
+      else if (![0o700, 0o750].includes(currentMetadata.mode & 0o7777)) throw new Error("The staged Keel tree has unsafe directory permissions");
       counts.members += 1;
       counts.directories += 1;
       for (const name of await readdir(current)) stack.push(path.join(current, name));
@@ -76,7 +76,10 @@ async function hardenAndScan(root, { evidencePath = null, harden = false } = {})
       throw new Error("The staged Keel release contains a forbidden state or secret file");
     }
     if (harden) await chmod(current, (currentMetadata.mode & 0o111) !== 0 ? 0o700 : 0o600);
-    else if ((currentMetadata.mode & 0o7077) !== 0) throw new Error("The staged Keel tree has unsafe file permissions");
+    else {
+      const allowedModes = (currentMetadata.mode & 0o111) !== 0 ? [0o700, 0o750] : [0o600, 0o640];
+      if (!allowedModes.includes(currentMetadata.mode & 0o7777)) throw new Error("The staged Keel tree has unsafe file permissions");
+    }
     if (isEvidence) counts.managedMetadataFiles += 1;
     else {
       counts.members += 1;
@@ -123,7 +126,7 @@ export function createKeelStageHelper({
     try {
       const root = await metadata(paths.root);
       if (root && (!root.isDirectory() || root.isSymbolicLink())) throw new Error("The Keel staging root is not a real directory");
-      if (root && (root.mode & 0o7077) !== 0) throw new Error("The Keel staging root has unsafe permissions");
+      if (root && ![0o700, 0o750].includes(root.mode & 0o7777)) throw new Error("The Keel staging root has unsafe permissions");
       if (!root) {
         return {
           state: "absent", staged: false, readyToStage: true, version: null, sourceMemberCount: 0, regularFiles: 0, directories: 0, partialCount: 0, stagedAt: null, stageId: null,
@@ -132,7 +135,8 @@ export function createKeelStageHelper({
         };
       }
       const rootEntries = await readdir(paths.root);
-      if (rootEntries.some((name) => name !== path.basename(paths.releases))) throw new Error("The Keel staging root contains an unexpected entry");
+      const allowedRootEntries = new Set([path.basename(paths.releases), "current", ".boxpilot-install.json"]);
+      if (rootEntries.some((name) => !allowedRootEntries.has(name))) throw new Error("The Keel staging root contains an unexpected entry");
       const [release, partials] = await Promise.all([metadata(paths.release), listPartials(paths, spec)]);
       if (!release) {
         return {

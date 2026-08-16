@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.46.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.47.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -283,6 +283,21 @@ describe("restricted helper protocol", () => {
     const keelStage = { inspect: async () => ({ state: "absent", readyToStage: true }), stage: async (parameters) => ({ staged: true, ...parameters, boundary: { applicationInstalled: false } }) };
     await expect(executeHelperOperation(request({ operation: "application.keel.stage.inspect", parameters: {} }), { keelStage })).resolves.toMatchObject({ ok: true, result: { state: "absent", readyToStage: true } });
     await expect(executeHelperOperation(request({ operation: "application.keel.stage", parameters: { stageId } }), { keelStage })).resolves.toMatchObject({ ok: true, result: { staged: true, stageId, boundary: { applicationInstalled: false } } });
+  });
+
+  it("accepts only parameter-free Keel install inspection and one server-generated install UUID", async () => {
+    const installId = randomUUID();
+    expect(validateHelperRequest(request({ operation: "application.keel.install.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.keel.install.inspect", parameters: { unit: "changed.service" } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "application.keel.install", parameters: { installId } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "application.keel.install", parameters: { installId, command: "bash" } }))).toContain("only one installId UUID");
+    expect(validateHelperRequest(request({ operation: "application.keel.install", parameters: { installId: "changed" } }))).toContain("only one installId UUID");
+    const keelInstall = {
+      inspect: async () => ({ state: "absent", readyToInstall: true, boundary: { mutationPerformed: false } }),
+      install: async (parameters) => ({ installed: true, healthy: true, ...parameters, listener: "127.0.0.1:3000", boundary: { claimChanged: false, arbitraryCommandAccepted: false } }),
+    };
+    await expect(executeHelperOperation(request({ operation: "application.keel.install.inspect", parameters: {} }), { keelInstall })).resolves.toMatchObject({ ok: true, result: { state: "absent", readyToInstall: true, boundary: { mutationPerformed: false } } });
+    await expect(executeHelperOperation(request({ operation: "application.keel.install", parameters: { installId } }), { keelInstall })).resolves.toMatchObject({ ok: true, result: { installed: true, healthy: true, installId, listener: "127.0.0.1:3000", boundary: { claimChanged: false, arbitraryCommandAccepted: false } } });
   });
 
   it("accepts only exact migration bundle evidence and keeps all paths helper-owned", async () => {

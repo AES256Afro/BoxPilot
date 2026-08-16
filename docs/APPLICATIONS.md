@@ -1,6 +1,6 @@
 # Curated applications
 
-BoxPilot `0.46.0` provides integrity-addressed manifests, executable Uptime Kuma and guarded Pi-hole adapters, two application-aware local backup adapters, and encrypted independent exact-archive protection for verified Uptime Kuma and Pi-hole records. Its Keel Notes adapter adds read-only discovery, separately approved fixed artifact acquisition, parameter-free archive and staging inspection, and password-approved extraction of the exact corrected `v1.2.6` release into an inert root-only tree. Keel installation, execution, writable state, accounts, registration, listeners, claim, backup, restore, import, adoption, update, and exposure remain locked. The web process never receives the Docker socket or a general root operation.
+BoxPilot `0.47.0` provides integrity-addressed manifests, executable Uptime Kuma and guarded Pi-hole adapters, two application-aware local backup adapters, and encrypted independent exact-archive protection for verified Uptime Kuma and Pi-hole records. Its Keel Notes adapter adds read-only discovery, separately approved fixed artifact acquisition, parameter-free archive, staging, and installation inspection, password-approved extraction of the exact corrected `v1.2.6` release into an inert root-owned tree, and a separate password-approved native-service installation. Keel runs under a dedicated non-login account with private state, an immutable release link, a hardened loopback-only systemd unit, exact health acceptance, and state-preserving rollback. Claim, registration changes, Tailscale exposure, backup, restore, import, adoption, update, and removal remain locked. The web process never receives the Docker socket or a general root operation.
 
 ## Install the Docker prerequisite on Ubuntu
 
@@ -72,7 +72,7 @@ If deployment or health verification fails, BoxPilot stops the managed stack and
 
 After deployment, the Backups page can record artifact integrity and an isolated restore test for the Uptime Kuma data directory. Version `0.44.0` can then copy that exact verified archive into the separate encrypted application restic repository, read the complete repository, restore the exact snapshot, and match its size and SHA-256 before reporting independent protection. See [Verified application backups](BACKUPS.md).
 
-## Keel Notes discovery and safe release staging adapter
+## Keel Notes discovery, safe staging, and private installation adapter
 
 Version `0.41.0` adds the parameter-free `application.keel.inspect` helper operation. It checks only bounded fixed locations and identities: supported per-user Linux install trees and systemd user units, the fixed `/opt/keel` and future BoxPilot-managed roots, Docker containers with the exact Keel service label or name, persistent `/data` coverage, fixed port 3000 exposure, and exact JSON identity from `127.0.0.1:3000/api/health`. Candidate usernames, private paths, container ids, image names, unit contents, `.env`, database contents, secret contents, mount sources, and raw command output never reach the browser. Duplicate, stale, changed, unsafe, or incomplete evidence becomes an explicit risk and blocks the plan.
 
@@ -84,7 +84,11 @@ Version `0.46.0` pins the corrected Keel `v1.2.6` Linux x64 asset and enables on
 
 After staging and owner-password approval, the UUID-only helper operation extracts into one generated partial, rejects links, hard links, state, secrets, changed package identity, missing runtime files, unsafe permissions, and changed membership, then atomically publishes `/var/lib/boxpilot-managed/apps/keel/releases/1.2.6`. Failure removes only the generated partial or newly published inert tree. It does not create `/var/lib/keel`, a service account, systemd unit, process, account, listener, registration setting, access route, backup, or migration.
 
-GitHub metadata matching is not local verification. Acquisition must hash all local bytes, archive inspection must pass, and the staged tree must pass its own evidence check. The exact identity and remaining installation, claim, and recovery gates are documented in [Keel Notes safe release staging](KEEL.md).
+Version `0.47.0` adds a second immutable plan after safe staging. The parameter-free inspection requires an absent, exact, or explicitly degraded fixed installation boundary. The mutation accepts only a server-generated install UUID after a separate stage and owner-password approval. Its static one-shot creates only the `keel` non-login account and private `/var/lib/keel` state, grants that group read-only access to the immutable release, atomically links `current` to `releases/1.2.6`, writes one exact root-owned environment file and hardened systemd unit, and starts only `127.0.0.1:3000`. Success requires the exact Keel JSON health identity and a private SQLite database. Failure removes generated activation, environment, and unit state but retains `/var/lib/keel` for recovery.
+
+BoxPilot's web and helper operations never accept a Keel claim token. The owner claims the fresh instance from a normal Bigbox administrator terminal with the exact fixed command displayed by the application view. That command forces fresh sudo, rechecks the activation, environment, database ownership, evidence, account, and active service, then drops permanently to the `keel` identity before it invokes the upstream claim transaction. Before claim, private browser access uses an SSH loopback tunnel. BoxPilot does not enable Tailscale Serve, open a firewall, alter registration, or advertise the service.
+
+GitHub metadata matching is not local verification. Acquisition must hash all local bytes, archive inspection must pass, and the staged tree must pass its own evidence check before installation becomes available. The exact identity, install boundary, terminal claim handoff, and remaining recovery gates are documented in [Keel Notes guarded private installation](KEEL.md).
 
 ## Pi-hole guarded staging adapter
 
