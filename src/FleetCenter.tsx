@@ -1,0 +1,196 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+type Agent = {
+  id: string;
+  name: string;
+  fingerprint: string;
+  capabilities: string[];
+  status: "active" | "revoked";
+  lastSequence: number;
+  enrolledAt: string;
+  lastSeenAt: string | null;
+};
+
+type FleetTask = {
+  id: string;
+  agentId: string;
+  type: string;
+  state: "pending" | "completed" | "expired";
+  createdAt: string;
+  expiresAt: string;
+};
+
+type FleetEvidence = {
+  id: string;
+  taskId: string;
+  agentId: string;
+  sequence: number;
+  passed: boolean;
+  receivedAt: string;
+  result: { resolverAddress: string; secondDeviceTested: boolean; checks: Array<{ passed: boolean }> };
+};
+
+type FleetStatus = {
+  agents: Agent[];
+  tasks: FleetTask[];
+  evidence: FleetEvidence[];
+  enrollment: { tokenTtlMinutes: number; keyType: string; tokenStoredAsDigest: boolean };
+  executionBoundary: {
+    controllerShellAccess: boolean;
+    arbitraryCommands: boolean;
+    arbitraryTargets: boolean;
+    supportedTasks: string[];
+    nodeLocalExecution: boolean;
+    routerMutationSupported: boolean;
+    dnsCutoverSupported: boolean;
+  };
+};
+
+async function readJson<T>(response: Response): Promise<T> {
+  const body = await response.json() as T & { error?: string };
+  if (!response.ok) throw new Error(body.error ?? `Request failed with status ${response.status}`);
+  return body;
+}
+
+export default function FleetCenter({ csrfToken }: { csrfToken: string }) {
+  const [status, setStatus] = useState<FleetStatus | null>(null);
+  const [deviceName, setDeviceName] = useState("second-lan-device");
+  const [password, setPassword] = useState("");
+  const [revocationPassword, setRevocationPassword] = useState("");
+  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [enrollment, setEnrollment] = useState<{ token: string; expiresAt: string } | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const next = await readJson<FleetStatus>(await fetch("/api/v1/fleet"));
+      setStatus(next);
+      const active = next.agents.find((agent) => agent.status === "active");
+      setSelectedAgentId((value) => next.agents.some((agent) => agent.id === value && agent.status === "active") ? value : active?.id ?? "");
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Fleet status is unavailable");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const createEnrollment = async () => {
+    setSubmitting(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const body = await readJson<{ enrollment: { token: string; expiresAt: string } }>(await fetch("/api/v1/fleet/enrollments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ password }),
+      }));
+      setEnrollment(body.enrollment);
+      setPassword("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to create enrollment token");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const createProbe = async () => {
+    if (!selectedAgentId) return;
+    setSubmitting(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const body = await readJson<{ task: FleetTask }>(await fetch("/api/v1/fleet/dns-probe-tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ agentId: selectedAgentId }),
+      }));
+      setMessage(`Fixed DNS probe ${body.task.id} is waiting for the selected agent. Run the agent once from that LAN device.`);
+      await refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to create DNS probe task");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const revokeAgent = async (agentId: string) => {
+    setSubmitting(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const body = await readJson<{ agent: Agent }>(await fetch(`/api/v1/fleet/agents/${agentId}/revoke`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ password: revocationPassword }),
+      }));
+      setRevocationPassword("");
+      setMessage(`${body.agent.name} was revoked. Pending tasks expired and future signed requests will be rejected.`);
+      await refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to revoke agent");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const activeAgents = useMemo(() => status?.agents.filter((agent) => agent.status === "active") ?? [], [status]);
+  if (!status && loading) return <section className="vm-loading">Loading signed agents and evidence...</section>;
+  if (!status) return <p className="form-error" role="alert">{error}</p>;
+  const command = enrollment
+    ? `npm run agent -- enroll --controller ${window.location.origin} --token ${enrollment.token} --name ${deviceName}`
+    : null;
+  const enrollmentExpiry = enrollment ? new Date(enrollment.expiresAt).toLocaleTimeString() : "";
+
+  return (
+    <div className="fleet-center">
+      <section className="readiness">
+        <div><strong>{activeAgents.length} active signed agent{activeAgents.length === 1 ? "" : "s"}</strong><span>Ed25519 identity, five-minute request window, and strictly increasing replay sequence</span></div>
+        <div className="readiness-actions"><span className="status-pill status-good">No remote shell</span><button className="secondary-button" type="button" onClick={() => void refresh()} disabled={loading}>{loading ? "Refreshing..." : "Refresh"}</button></div>
+      </section>
+      {error && <p className="form-error" role="alert">{error}</p>}
+      {message && <div className="notice"><strong>Agent task ready</strong><span>{message}</span></div>}
+
+      <div className="dashboard-grid">
+        <section className="panel fleet-boundary">
+          <header className="panel-header"><strong>Execution boundary</strong><span>Controller compromise cannot request a shell</span></header>
+          <div className="network-lock"><span className="status-pill status-good">Commands unavailable</span><span className="status-pill status-good">Targets fixed</span><span className="status-pill status-warning">Router writes locked</span></div>
+          <ul><li>The only task contract is four fixed Pi-hole DNS checks.</li><li>The resolver comes from a fresh passing Bigbox acceptance record.</li><li>The device executes locally and keeps functioning without the controller.</li><li>No router, DHCP, client DNS, firewall, or Tailscale setting can be changed.</li></ul>
+        </section>
+
+        <section className="panel fleet-enrollment">
+          <header className="panel-header"><strong>Enroll a second LAN device</strong><span>Token shown once and stored only as a digest</span></header>
+          <div className="network-form-grid">
+            <label>Device name<input value={deviceName} onChange={(event) => { setDeviceName(event.target.value); setEnrollment(null); }} pattern="[A-Za-z0-9][A-Za-z0-9_.-]{2,47}" /></label>
+            <label>Owner password<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" /></label>
+          </div>
+          <button className="primary-button" type="button" disabled={submitting || password.length < 12 || !/^[A-Za-z0-9][A-Za-z0-9_.-]{2,47}$/.test(deviceName)} onClick={() => void createEnrollment()}>{submitting ? "Reauthenticating..." : "Create 10-minute token"}</button>
+          {command && <div className="fleet-command"><strong>Run from a trusted checkout on the second device</strong><code>{command}</code><code>npm run agent -- run-once</code><span>Expires {enrollmentExpiry}. The private key never leaves that device.</span></div>}
+        </section>
+      </div>
+
+      <section className="panel fleet-probe">
+        <header className="panel-header"><strong>Independent Pi-hole proof</strong><span>Available only after fresh passing Bigbox proof</span></header>
+        <div className="network-form-grid"><label>Signed device<select value={selectedAgentId} onChange={(event) => setSelectedAgentId(event.target.value)}><option value="">Choose an active agent</option>{activeAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select></label></div>
+        <div className="network-plan-actions"><button className="primary-button" type="button" disabled={!selectedAgentId || submitting} onClick={() => void createProbe()}>{submitting ? "Checking evidence..." : "Queue four fixed DNS checks"}</button><span>No address, hostname, port, or command is accepted from this form.</span></div>
+      </section>
+
+      <section className="panel table-panel">
+        <header className="panel-header"><strong>Agents</strong><span>Public-key fingerprint and liveness only</span></header>
+        <div className="fleet-revoke"><label>Owner password to revoke an active identity<input type="password" value={revocationPassword} onChange={(event) => setRevocationPassword(event.target.value)} autoComplete="current-password" /></label><span>Revocation expires pending tasks and cannot be undone. Re-enrollment creates a new key identity.</span></div>
+        <div className="table-scroll"><table><thead><tr><th>Device</th><th>Status</th><th>Fingerprint</th><th>Last seen</th><th>Sequence</th><th>Action</th></tr></thead><tbody>{status.agents.length ? status.agents.map((agent) => <tr key={agent.id}><td>{agent.name}</td><td className={agent.status === "active" ? "good-text" : "warning-text"}>{agent.status}</td><td><code>{agent.fingerprint.slice(0, 16)}...</code></td><td>{agent.lastSeenAt ? new Date(agent.lastSeenAt).toLocaleString() : "Never"}</td><td>{agent.lastSequence}</td><td>{agent.status === "active" ? <button className="text-button warning-text" type="button" disabled={revocationPassword.length < 12 || submitting} onClick={() => void revokeAgent(agent.id)}>Revoke</button> : "Revoked"}</td></tr>) : <tr><td colSpan={6}>No agent has been enrolled.</td></tr>}</tbody></table></div>
+      </section>
+
+      <section className="panel table-panel">
+        <header className="panel-header"><strong>Signed DNS evidence</strong><span>Second-device proof does not unlock router cutover</span></header>
+        <div className="table-scroll"><table><thead><tr><th>Received</th><th>Agent</th><th>Resolver</th><th>Checks</th><th>Result</th></tr></thead><tbody>{status.evidence.length ? status.evidence.map((evidence) => <tr key={evidence.id}><td>{new Date(evidence.receivedAt).toLocaleString()}</td><td>{status.agents.find((agent) => agent.id === evidence.agentId)?.name ?? evidence.agentId}</td><td>{evidence.result.resolverAddress}:53</td><td>{evidence.result.checks.filter((check) => check.passed).length}/4</td><td className={evidence.passed ? "good-text" : "warning-text"}>{evidence.passed ? "Passed" : "Failed"}</td></tr>) : <tr><td colSpan={5}>No independent DNS evidence has been recorded.</td></tr>}</tbody></table></div>
+      </section>
+    </div>
+  );
+}

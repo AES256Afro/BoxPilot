@@ -238,6 +238,49 @@ export function createStateStore({
       created_by TEXT NOT NULL REFERENCES owners(id),
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS agent_enrollment_tokens (
+      token_hash TEXT PRIMARY KEY,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS fleet_agents (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      public_key TEXT NOT NULL,
+      fingerprint TEXT NOT NULL UNIQUE,
+      capabilities_json TEXT NOT NULL,
+      status TEXT NOT NULL,
+      last_sequence INTEGER NOT NULL,
+      enrolled_by TEXT NOT NULL REFERENCES owners(id),
+      enrolled_at TEXT NOT NULL,
+      last_seen_at TEXT,
+      revoked_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS fleet_tasks (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL REFERENCES fleet_agents(id),
+      type TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      controller_acceptance_id TEXT REFERENCES dns_acceptances(id),
+      state TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      completed_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS fleet_evidence (
+      id TEXT PRIMARY KEY,
+      task_id TEXT NOT NULL UNIQUE REFERENCES fleet_tasks(id),
+      agent_id TEXT NOT NULL REFERENCES fleet_agents(id),
+      sequence INTEGER NOT NULL,
+      result_json TEXT NOT NULL,
+      passed INTEGER NOT NULL,
+      signature TEXT NOT NULL,
+      received_at TEXT NOT NULL,
+      UNIQUE(agent_id, sequence)
+    );
     CREATE TABLE IF NOT EXISTS audit_events (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,
@@ -257,6 +300,8 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_migration_sources_imported_at ON migration_sources(imported_at DESC);
     CREATE INDEX IF NOT EXISTS idx_migration_transfers_created_at ON migration_transfers(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_dns_acceptances_created_at ON dns_acceptances(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_fleet_tasks_agent_state ON fleet_tasks(agent_id, state, created_at);
+    CREATE INDEX IF NOT EXISTS idx_fleet_evidence_received_at ON fleet_evidence(received_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_events(created_at DESC);
   `);
 
@@ -824,6 +869,198 @@ export function createStateStore({
     }));
   }
 
+  function createAgentEnrollmentToken(createdBy, { ttlMs = 10 * 60 * 1000 } = {}) {
+    const token = tokenBytes(32).toString("base64url");
+    const createdAt = now();
+    const expiresAt = new Date(createdAt.getTime() + ttlMs);
+    database.prepare("DELETE FROM agent_enrollment_tokens WHERE used_at IS NOT NULL OR expires_at <= ?").run(iso(createdAt));
+    database.prepare("INSERT INTO agent_enrollment_tokens (token_hash, created_by, created_at, expires_at) VALUES (?, ?, ?, ?)")
+      .run(digest(token), createdBy, iso(createdAt), iso(expiresAt));
+    recordAudit("fleet.enrollment.created", { actorId: createdBy, details: { expiresAt: iso(expiresAt) } });
+    return { token, expiresAt: iso(expiresAt) };
+  }
+
+  function mapFleetAgent(row, { includePublicKey = false } = {}) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      name: row.name,
+      fingerprint: row.fingerprint,
+      capabilities: parseJson(row.capabilities_json, []),
+      status: row.status,
+      lastSequence: Number(row.last_sequence),
+      enrolledBy: row.enrolled_by,
+      enrolledAt: row.enrolled_at,
+      lastSeenAt: row.last_seen_at,
+      revokedAt: row.revoked_at,
+      ...(includePublicKey ? { publicKey: row.public_key } : {}),
+    };
+  }
+
+  function consumeAgentEnrollmentToken({ token, name, publicKey, fingerprint, capabilities }) {
+    const at = timestamp();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const entry = database.prepare("SELECT * FROM agent_enrollment_tokens WHERE token_hash = ?").get(digest(token));
+      if (!entry || entry.used_at || entry.expires_at <= at) throw new Error("Enrollment token is invalid or expired");
+      const agent = {
+        id: randomUUID(), name, publicKey, fingerprint, capabilities, status: "active",
+        lastSequence: 0, enrolledBy: entry.created_by, enrolledAt: at,
+      };
+      database.prepare(`
+        INSERT INTO fleet_agents (id, name, public_key, fingerprint, capabilities_json, status, last_sequence, enrolled_by, enrolled_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(agent.id, agent.name, agent.publicKey, agent.fingerprint, json(agent.capabilities), agent.status, agent.lastSequence, agent.enrolledBy, agent.enrolledAt);
+      database.prepare("UPDATE agent_enrollment_tokens SET used_at = ? WHERE token_hash = ?").run(at, digest(token));
+      recordAudit("fleet.agent.enrolled", { actorId: agent.enrolledBy, subjectId: agent.id, details: { name, fingerprint, capabilities } });
+      database.exec("COMMIT");
+      return mapFleetAgent(database.prepare("SELECT * FROM fleet_agents WHERE id = ?").get(agent.id));
+    } catch (error) {
+      try {
+        database.exec("ROLLBACK");
+      } catch {
+        // Preserve the enrollment error if SQLite already ended the transaction.
+      }
+      throw error;
+    }
+  }
+
+  function getFleetAgent(id, { includePublicKey = false } = {}) {
+    return mapFleetAgent(database.prepare("SELECT * FROM fleet_agents WHERE id = ?").get(id), { includePublicKey });
+  }
+
+  function listFleetAgents(limit = 100) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 200);
+    return database.prepare("SELECT * FROM fleet_agents ORDER BY enrolled_at DESC LIMIT ?").all(safeLimit).map((row) => mapFleetAgent(row));
+  }
+
+  function advanceFleetAgentSequence(id, sequence) {
+    const at = timestamp();
+    const update = database.prepare("UPDATE fleet_agents SET last_sequence = ?, last_seen_at = ? WHERE id = ? AND status = 'active' AND last_sequence < ?")
+      .run(sequence, at, id, sequence);
+    if (Number(update.changes) !== 1) throw new Error("Agent request was replayed, revoked, or out of sequence");
+    return getFleetAgent(id);
+  }
+
+  function revokeFleetAgent(id, ownerId) {
+    const at = timestamp();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const update = database.prepare("UPDATE fleet_agents SET status = 'revoked', revoked_at = ? WHERE id = ? AND status = 'active'").run(at, id);
+      if (Number(update.changes) !== 1) throw new Error("Active agent not found");
+      database.prepare("UPDATE fleet_tasks SET state = 'expired' WHERE agent_id = ? AND state = 'pending'").run(id);
+      recordAudit("fleet.agent.revoked", { actorId: ownerId, subjectId: id });
+      const agent = getFleetAgent(id);
+      database.exec("COMMIT");
+      return agent;
+    } catch (error) {
+      try {
+        database.exec("ROLLBACK");
+      } catch {
+        // Preserve the revocation error if SQLite already ended the transaction.
+      }
+      throw error;
+    }
+  }
+
+  function mapFleetTask(row) {
+    return row ? {
+      id: row.id,
+      agentId: row.agent_id,
+      type: row.type,
+      payload: parseJson(row.payload_json),
+      controllerAcceptanceId: row.controller_acceptance_id,
+      state: row.state,
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+      completedAt: row.completed_at,
+    } : null;
+  }
+
+  function createFleetTask({ agentId, type, payload, controllerAcceptanceId, createdBy, ttlMs = 10 * 60 * 1000 }) {
+    const agent = getFleetAgent(agentId);
+    if (!agent || agent.status !== "active") throw new Error("Active agent not found");
+    const createdAt = now();
+    const task = {
+      id: randomUUID(), agentId, type, payload, controllerAcceptanceId, state: "pending", createdBy,
+      createdAt: iso(createdAt), expiresAt: iso(new Date(createdAt.getTime() + ttlMs)), completedAt: null,
+    };
+    database.prepare(`
+      INSERT INTO fleet_tasks (id, agent_id, type, payload_json, controller_acceptance_id, state, created_by, created_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(task.id, task.agentId, task.type, json(task.payload), task.controllerAcceptanceId, task.state, task.createdBy, task.createdAt, task.expiresAt);
+    recordAudit("fleet.task.created", { actorId: createdBy, subjectId: task.id, details: { agentId, type, controllerAcceptanceId } });
+    return task;
+  }
+
+  function getFleetTask(id) {
+    return mapFleetTask(database.prepare("SELECT * FROM fleet_tasks WHERE id = ?").get(id));
+  }
+
+  function getPendingFleetTask(agentId) {
+    const at = timestamp();
+    database.prepare("UPDATE fleet_tasks SET state = 'expired' WHERE agent_id = ? AND state = 'pending' AND expires_at <= ?").run(agentId, at);
+    return mapFleetTask(database.prepare("SELECT * FROM fleet_tasks WHERE agent_id = ? AND state = 'pending' AND expires_at > ? ORDER BY created_at LIMIT 1").get(agentId, at));
+  }
+
+  function listFleetTasks(limit = 100) {
+    const at = timestamp();
+    database.prepare("UPDATE fleet_tasks SET state = 'expired' WHERE state = 'pending' AND expires_at <= ?").run(at);
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 200);
+    return database.prepare("SELECT * FROM fleet_tasks ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapFleetTask);
+  }
+
+  function recordFleetEvidence({ id, taskId, agentId, sequence, result, passed, signature }) {
+    const at = timestamp();
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const sequenceUpdate = database.prepare("UPDATE fleet_agents SET last_sequence = ?, last_seen_at = ? WHERE id = ? AND status = 'active' AND last_sequence < ?")
+        .run(sequence, at, agentId, sequence);
+      if (Number(sequenceUpdate.changes) !== 1) throw new Error("Agent request was replayed, revoked, or out of sequence");
+      const task = database.prepare("SELECT * FROM fleet_tasks WHERE id = ? AND agent_id = ? AND state = 'pending' AND expires_at > ?").get(taskId, agentId, at);
+      if (!task) throw new Error("Fleet task is unavailable, expired, or already completed");
+      database.prepare(`
+        INSERT INTO fleet_evidence (id, task_id, agent_id, sequence, result_json, passed, signature, received_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(id, taskId, agentId, sequence, json(result), passed ? 1 : 0, signature, at);
+      database.prepare("UPDATE fleet_tasks SET state = 'completed', completed_at = ? WHERE id = ?").run(at, taskId);
+      recordAudit("fleet.evidence.recorded", { actorId: null, subjectId: id, details: { taskId, agentId, passed, signed: true } });
+      const evidence = getFleetEvidence(id);
+      database.exec("COMMIT");
+      return evidence;
+    } catch (error) {
+      try {
+        database.exec("ROLLBACK");
+      } catch {
+        // Preserve the evidence error if SQLite already ended the transaction.
+      }
+      throw error;
+    }
+  }
+
+  function mapFleetEvidence(row) {
+    return row ? {
+      id: row.id,
+      taskId: row.task_id,
+      agentId: row.agent_id,
+      sequence: Number(row.sequence),
+      result: parseJson(row.result_json),
+      passed: Boolean(row.passed),
+      signature: row.signature,
+      receivedAt: row.received_at,
+    } : null;
+  }
+
+  function getFleetEvidence(id) {
+    return mapFleetEvidence(database.prepare("SELECT * FROM fleet_evidence WHERE id = ?").get(id));
+  }
+
+  function listFleetEvidence(limit = 100) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 200);
+    return database.prepare("SELECT * FROM fleet_evidence ORDER BY received_at DESC LIMIT ?").all(safeLimit).map(mapFleetEvidence);
+  }
+
   function recoverInterruptedJobs() {
     const interrupted = database.prepare("SELECT id FROM jobs WHERE state IN ('applying', 'verifying')").all();
     for (const { id } of interrupted) {
@@ -886,6 +1123,19 @@ export function createStateStore({
     listMigrationTransfers,
     recordDnsAcceptance,
     listDnsAcceptances,
+    createAgentEnrollmentToken,
+    consumeAgentEnrollmentToken,
+    getFleetAgent,
+    listFleetAgents,
+    advanceFleetAgentSequence,
+    revokeFleetAgent,
+    createFleetTask,
+    getFleetTask,
+    getPendingFleetTask,
+    listFleetTasks,
+    recordFleetEvidence,
+    getFleetEvidence,
+    listFleetEvidence,
     recoverInterruptedJobs,
     close,
   };

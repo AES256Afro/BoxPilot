@@ -1,6 +1,6 @@
 # Curated applications
 
-BoxPilot `0.21.0` provides integrity-addressed manifests, two executable deployment adapters, two application-aware backup adapters, and fixed direct DNS acceptance for managed Pi-hole. The web process never receives the Docker socket. Docker readiness, application inspection, deployment, backup, and restore-drill execution cross the restricted local helper as typed operations. Direct DNS checks run as a separate approved read-only job in the unprivileged web process.
+BoxPilot `0.22.0` provides integrity-addressed manifests, two executable deployment adapters, two application-aware backup adapters, fixed direct DNS acceptance for managed Pi-hole, and signed repetition of those checks from an enrolled LAN device. The web process never receives the Docker socket. Docker readiness, application inspection, deployment, backup, and restore-drill execution cross the restricted local helper as typed operations. Direct DNS checks run in the unprivileged controller or the separately enrolled node-local agent.
 
 ## Install the Docker prerequisite on Ubuntu
 
@@ -74,7 +74,7 @@ After deployment, the Backups page can record artifact integrity and an isolated
 
 ## Pi-hole guarded staging adapter
 
-Version `0.21.0` can stage Pi-hole in Docker on the exact reviewed Bigbox LAN address, create a local configuration backup with isolated restore proof, and separately collect fixed direct DNS evidence from Bigbox. The dedicated-VM target remains planning-only. These are service staging, recovery-evidence, and controller-path acceptance workflows, not router or client cutover workflows.
+Version `0.22.0` can stage Pi-hole in Docker on the exact reviewed Bigbox LAN address, create a local configuration backup with isolated restore proof, collect fixed direct DNS evidence from Bigbox, and repeat the same fixed checks through a signed enrolled agent. The dedicated-VM target remains planning-only. These are service staging, recovery-evidence, and direct-path acceptance workflows, not router or client cutover workflows.
 
 The adapter uses:
 

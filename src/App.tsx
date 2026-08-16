@@ -7,6 +7,7 @@ import { inspectCompose, type ComposeInspection } from "./composeInspector";
 import AuthScreen from "./AuthScreen";
 import ApplicationCatalog from "./ApplicationCatalog";
 import BackupCenter from "./BackupCenter";
+import FleetCenter from "./FleetCenter";
 import HostOverview from "./HostOverview";
 import MigrationCenter from "./MigrationCenter";
 import NetworkCenter from "./NetworkCenter";
@@ -46,6 +47,10 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   migrations: {
     title: "Migration Center",
     description: "Discover, copy, validate, and cut over without destroying the source.",
+  },
+  fleet: {
+    title: "Fleet and agents",
+    description: "Enroll signed devices for narrow node-local evidence without granting remote shell access.",
   },
   logs: {
     title: "Logs and events",
@@ -93,6 +98,11 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     label: "Guarded local transfer staging",
     tone: "live",
     description: "Sanitized source manifests, compatibility plans, root-only checksummed Compose bundles, resumable managed staging, and durable transfer evidence are live. Remote SSH transport, activation, cutover, and source deletion remain unavailable.",
+  },
+  fleet: {
+    label: "Signed node-local agent foundation",
+    tone: "live",
+    description: "One-time enrollment, Ed25519 requests, replay protection, and a single fixed second-device Pi-hole probe are live. Arbitrary commands, targets, plugins, router writes, and DNS cutover remain unavailable.",
   },
   logs: {
     label: "Restricted journal inventory",
@@ -233,6 +243,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     if (view === "virtualization") return <VirtualMachines csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "backups") return <BackupCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "migrations") return <MigrationCenter csrfToken={authStatus.csrfToken ?? ""} />;
+    if (view === "fleet") return <FleetCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "logs") return <SystemLogs />;
     return <Settings apiMode={apiMode} />;
   }, [apiMode, authStatus.csrfToken, networkAssessmentId, view]);
@@ -256,7 +267,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.21.0",
+      version: "0.22.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
@@ -298,7 +309,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.21.0 direct DNS evidence<br />Second device and cutover locked</div>
+        <div className="prototype-label">v0.22.0 signed fleet evidence<br />Router writes and cutover locked</div>
       </aside>
 
       <main>

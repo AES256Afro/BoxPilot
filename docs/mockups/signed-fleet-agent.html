@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BoxPilot signed fleet agent mock</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; width: 1440px; min-height: 1000px; color: #eaf3f3; background: #071017; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    .disclosure { height: 44px; display: grid; place-items: center; color: #fde8a8; background: #49370d; border-bottom: 1px solid #8a6a1f; font-size: 13px; font-weight: 800; letter-spacing: .04em; }
+    .shell { display: grid; grid-template-columns: 220px 1fr; min-height: 956px; }
+    aside { padding: 24px 16px; border-right: 1px solid #1d303b; background: #09141d; }
+    .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; font-size: 20px; font-weight: 800; }
+    .brand b { display: grid; place-items: center; width: 35px; height: 35px; color: #071017; background: #6ad0b1; border-radius: 10px; }
+    nav { display: grid; gap: 6px; }
+    nav div { padding: 10px 12px; color: #88a1ae; border-radius: 8px; font-size: 13px; }
+    nav .active { color: #dff9f0; background: #17352f; border: 1px solid #2c5b50; }
+    .private { margin-top: 260px; padding: 12px; color: #9bb0b9; background: #0d1d26; border: 1px solid #243b46; border-radius: 10px; font-size: 11px; line-height: 1.55; }
+    main { padding: 28px 34px 48px; }
+    .top { display: flex; justify-content: space-between; gap: 20px; align-items: start; margin-bottom: 18px; }
+    .eyebrow { color: #69cfb0; font-size: 11px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+    h1 { margin: 5px 0 5px; font-size: 30px; }
+    p { margin: 0; color: #94a9b3; line-height: 1.5; }
+    .pill { display: inline-block; padding: 6px 9px; border-radius: 999px; font-size: 10px; font-weight: 800; }
+    .good { color: #9eefd5; background: #133c32; border: 1px solid #286e5b; }
+    .warn { color: #ffe195; background: #463510; border: 1px solid #795d1c; }
+    .notice { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-bottom: 16px; padding: 13px 16px; background: #10241f; border: 1px solid #2d6255; border-radius: 10px; }
+    .notice strong { color: #a9ead6; font-size: 13px; }
+    .notice span { color: #8fa7b0; font-size: 11px; }
+    .readiness { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding: 16px 18px; border: 1px solid #243c47; border-radius: 12px; background: #0c1922; }
+    .readiness strong { display: block; margin-bottom: 4px; font-size: 17px; }
+    .readiness small { color: #8ca4ae; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .panel { padding: 18px; border: 1px solid #213945; border-radius: 12px; background: #0b1821; box-shadow: 0 15px 34px rgb(0 0 0 / 18%); }
+    .panel h2 { margin: 2px 0 4px; font-size: 16px; }
+    .panel > span { color: #8098a4; font-size: 11px; }
+    .locks { display: flex; gap: 7px; margin: 16px 0 13px; }
+    ul { margin: 0; padding-left: 18px; color: #9db0b8; font-size: 12px; line-height: 1.65; }
+    .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 15px 0 12px; }
+    label { color: #849ba6; font-size: 10px; }
+    .input { margin-top: 5px; padding: 10px; color: #d9e8e9; background: #071118; border: 1px solid #304955; border-radius: 7px; font-size: 12px; }
+    button { padding: 10px 13px; color: #06110e; background: #68cfaf; border: 0; border-radius: 8px; font-weight: 800; }
+    .command { display: grid; gap: 7px; margin-top: 13px; padding: 12px; border: 1px solid #2a4850; border-radius: 8px; background: #061117; }
+    code { color: #9ce5cf; font: 10px/1.5 ui-monospace, Menlo, monospace; overflow-wrap: anywhere; }
+    .full { grid-column: 1 / -1; }
+    .probe { display: flex; justify-content: space-between; align-items: end; }
+    .select { width: 360px; margin-top: 11px; padding: 10px; color: #d9e8e9; background: #071118; border: 1px solid #304955; border-radius: 7px; font-size: 12px; }
+    table { width: 100%; margin-top: 12px; border-collapse: collapse; font-size: 11px; }
+    th { padding: 8px 9px; color: #758e9b; text-align: left; border-bottom: 1px solid #2b414b; }
+    td { padding: 10px 9px; color: #b7c8cd; border-bottom: 1px solid #192b34; }
+    .passed { color: #8ee4c7; font-weight: 800; }
+    .footer-lock { display: flex; gap: 8px; margin-top: 12px; align-items: center; color: #7f96a1; font-size: 10px; }
+    body { width: 1024px; min-height: 711px; }
+    .disclosure { height: 32px; white-space: nowrap; font-size: 9px; }
+    .shell { grid-template-columns: 155px 1fr; min-height: 679px; }
+    aside { padding: 17px 11px; }
+    .brand { gap: 7px; margin-bottom: 18px; font-size: 14px; }
+    .brand b { width: 26px; height: 26px; border-radius: 7px; }
+    nav { gap: 3px; }
+    nav div { padding: 7px 8px; font-size: 9px; }
+    .private { margin-top: 178px; padding: 8px; border-radius: 7px; font-size: 8px; }
+    main { padding: 18px 24px 24px; }
+    .top { margin-bottom: 11px; }
+    .eyebrow { font-size: 8px; }
+    h1 { margin: 3px 0; font-size: 22px; }
+    p { font-size: 10px; }
+    .pill { padding: 4px 7px; font-size: 7px; }
+    .notice { margin-bottom: 11px; padding: 9px 11px; border-radius: 7px; }
+    .notice strong { font-size: 9px; }
+    .notice span { font-size: 8px; }
+    .readiness { margin-bottom: 11px; padding: 11px 13px; border-radius: 8px; }
+    .readiness strong { margin-bottom: 2px; font-size: 12px; }
+    .readiness small { font-size: 8px; }
+    .grid { gap: 11px; }
+    .panel { padding: 13px; border-radius: 8px; }
+    .panel h2 { font-size: 12px; }
+    .panel > span { font-size: 8px; }
+    .locks { gap: 5px; margin: 10px 0 8px; }
+    ul { padding-left: 14px; font-size: 8px; line-height: 1.55; }
+    .fields { gap: 7px; margin: 10px 0 8px; }
+    label { font-size: 7px; }
+    .input, .select { margin-top: 3px; padding: 7px; border-radius: 5px; font-size: 8px; }
+    button { padding: 7px 9px; border-radius: 6px; font-size: 8px; }
+    .command { gap: 4px; margin-top: 8px; padding: 8px; border-radius: 6px; }
+    code { font-size: 7px; }
+    .select { width: 260px; margin-top: 7px; }
+    table { margin-top: 7px; font-size: 8px; }
+    th { padding: 5px 6px; }
+    td { padding: 7px 6px; }
+    .footer-lock { gap: 5px; margin-top: 7px; font-size: 7px; }
+  </style>
+</head>
+<body>
+  <div class="disclosure">MOCKED 0.22.0 PRODUCT STATE. No device enrolled, key or token generated, DNS query sent, or network setting changed.</div>
+  <div class="shell">
+    <aside>
+      <div class="brand"><b>B</b>BoxPilot</div>
+      <nav><div>OV Overview</div><div>AP Applications</div><div>NW Network</div><div>RX Repair Center</div><div>VM Virtual Machines</div><div>BK Backups</div><div>MG Migrations</div><div class="active">FL Fleet</div><div>LG Logs</div><div>ST Settings</div></nav>
+      <div class="private"><strong>Private administration</strong><br>Tailscale HTTPS<br>Funnel off<br><br>v0.22.0 signed evidence</div>
+    </aside>
+    <main>
+      <div class="top"><div><span class="eyebrow">BoxPilot</span><h1>Fleet and agents</h1><p>Enroll signed devices for narrow node-local evidence without granting remote shell access.</p></div><span class="pill warn">Guarded mode</span></div>
+      <div class="notice"><strong>Signed node-local agent foundation</strong><span>Ed25519 requests, replay protection, and one fixed second-device Pi-hole probe</span></div>
+      <div class="readiness"><div><strong>1 active signed agent</strong><small>Five-minute request window and strictly increasing replay sequence</small></div><span class="pill good">No remote shell</span></div>
+      <div class="grid">
+        <section class="panel"><span class="eyebrow">Execution boundary</span><h2>Controller cannot become a shell</h2><span>One fixed evidence task only</span><div class="locks"><span class="pill good">Commands unavailable</span><span class="pill good">Targets fixed</span><span class="pill warn">Router locked</span></div><ul><li>Four fixed Pi-hole DNS checks</li><li>Resolver derived from fresh Bigbox proof</li><li>Device executes locally</li><li>No DHCP, client, firewall, or Tailscale changes</li></ul></section>
+        <section class="panel"><span class="eyebrow">One-time enrollment</span><h2>Enroll a second LAN device</h2><span>Token shown once and stored only as a digest</span><div class="fields"><label>Device name<div class="input">macbook-lan</div></label><label>Owner password<div class="input">••••••••••••••</div></label></div><button>Create 10-minute token</button><div class="command"><code>npm run agent -- enroll --controller https://bigbox.tailnet.ts.net --token ••••• --name macbook-lan</code><code>npm run agent -- run-once</code></div></section>
+        <section class="panel full probe"><div><span class="eyebrow">Independent Pi-hole proof</span><h2>Queue four fixed DNS checks</h2><div class="select">macbook-lan · Ed25519 verified</div></div><button>Queue fixed checks</button></section>
+        <section class="panel full"><span class="eyebrow">Signed DNS evidence</span><h2>Second-device result</h2><table><thead><tr><th>Received</th><th>Agent</th><th>Resolver</th><th>Checks</th><th>Signature sequence</th><th>Result</th></tr></thead><tbody><tr><td>Aug 15, 8:41 PM</td><td>macbook-lan</td><td>192.168.8.10:53</td><td>4 / 4</td><td>42</td><td class="passed">Passed</td></tr></tbody></table><div class="footer-lock"><span class="pill warn">Router writes locked</span><span class="pill warn">DNS cutover locked</span>Passing proves only this device-to-resolver path.</div></section>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
