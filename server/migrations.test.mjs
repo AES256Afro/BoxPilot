@@ -47,3 +47,91 @@ describe("read-only migration manifests", () => {
     expect(plan.output.blockers.map((item) => item.id)).toEqual(expect.arrayContaining(["architecture", "container-names", "published-ports"]));
   });
 });
+
+describe("guarded migration bundle transfers", () => {
+  const bundle = {
+    bundleId: "11111111-1111-4111-8111-111111111111",
+    workloadName: "keel-notes",
+    sourceFingerprint: `sha256:${"a".repeat(64)}`,
+    createdAt: "2026-08-15T20:00:00.000Z",
+    composeFile: "compose.yaml",
+    contentRevision: "b".repeat(64),
+    fileCount: 4,
+    sensitiveFileCount: 1,
+    totalBytes: 8192,
+    destinationState: "empty",
+    remainingBytes: 8192,
+    verifiedBytes: 0,
+    executable: true,
+    blockers: [],
+  };
+
+  function transferFixture({ sources = [{ id: "source-one", fingerprint: bundle.sourceFingerprint, manifest: { source: { hostname: "oldbox" } } }], bundleValue = bundle, transfers = [] } = {}) {
+    let plan;
+    const store = {
+      listMigrationSources: vi.fn(() => sources),
+      listMigrationTransfers: vi.fn(() => transfers),
+      createPlan: vi.fn((value) => { plan = { id: "plan-one", revision: "revision-one", status: "draft", ...value }; return plan; }),
+      getPlan: vi.fn(() => plan),
+      stagePlan: vi.fn(() => { plan.status = "staged"; return plan; }),
+      createJob: vi.fn((value) => ({ id: "job-one", state: "awaiting_approval", ...value })),
+      recordMigrationTransfer: vi.fn((value) => value),
+    };
+    const helper = { request: vi.fn(async () => ({ ready: true, bundles: [bundleValue], invalidBundles: [], activationSupported: false, sourceMutationSupported: false })) };
+    return { store, helper, service: createMigrationService({ store, inventory: { inspect: vi.fn() }, helper }), getPlan: () => plan };
+  }
+
+  it("joins a helper-only bundle to its exact imported source without exposing secrets", async () => {
+    const { service } = transferFixture();
+    const inspection = await service.inspectBundles();
+    expect(inspection.bundles[0]).toMatchObject({ sourceId: "source-one", sourceHostname: "oldbox", executable: true, sensitiveFileCount: 1 });
+    expect(JSON.stringify(inspection)).not.toContain("PASSWORD");
+  });
+
+  it("blocks planning when the source manifest has not been imported", async () => {
+    const { service } = transferFixture({ sources: [] });
+    const plan = await service.planTransfer(bundle.bundleId, "owner-one");
+    expect(plan.output.executable).toBe(false);
+    expect(plan.output.blockers).toContain("Import the exact sanitized source manifest before planning this transfer");
+  });
+
+  it("stages, revalidates, and records a verified transfer without activation", async () => {
+    const { service, store, getPlan } = transferFixture();
+    const plan = await service.planTransfer(bundle.bundleId, "owner-one");
+    expect(plan.output).toMatchObject({ executable: true, sourcePreserved: true, activationPerformed: false, sensitiveFileCount: 1 });
+    const job = await service.stageTransfer(plan.id, plan.revision, "owner-one");
+    expect(job).toMatchObject({ type: "migration.bundle.transfer", risk: "medium" });
+    const staged = await service.validateTransferJob(job);
+    expect(staged.status).toBe("staged");
+    expect(service.helperTransferInput(staged.input)).not.toHaveProperty("sourceId");
+    const result = {
+      created: true,
+      transferId: staged.input.transferId,
+      bundleId: staged.input.bundleId,
+      workloadName: "keel-notes",
+      sourceFingerprint: staged.input.sourceFingerprint,
+      contentRevision: staged.input.contentRevision,
+      destination: `managed-migration-staging/${staged.input.bundleId}`,
+      fileCount: 4,
+      sizeBytes: 8192,
+      contentVerified: true,
+      sourcePreserved: true,
+      activationPerformed: false,
+      networkCutoverPerformed: false,
+      sourceDeletionPerformed: false,
+    };
+    service.recordTransferResult(job, result);
+    expect(store.recordMigrationTransfer).toHaveBeenCalledWith(expect.objectContaining({ sourceId: "source-one", contentVerified: true, sourcePreserved: true, activationPerformed: false }));
+    expect(() => service.recordTransferResult(job, { ...result, destination: "../../etc" })).toThrow("evidence validation failed");
+    expect(getPlan().input).toEqual(staged.input);
+  });
+
+  it("creates a no-copy reconciliation plan when helper completion outlived the durable record", async () => {
+    const completedTransferId = "99999999-9999-4999-8999-999999999999";
+    const { service } = transferFixture({ bundleValue: { ...bundle, destinationState: "completed", remainingBytes: 0, verifiedBytes: 8192, executable: false, reconcilable: true, completedTransferId } });
+    const plan = await service.planTransfer(bundle.bundleId, "owner-one");
+    expect(plan.input).toMatchObject({ transferId: completedTransferId, expectedDestinationState: "completed", expectedRemainingBytes: 0 });
+    expect(plan.output).toMatchObject({ executable: true, reconciliationOnly: true, activationPerformed: false });
+    expect(plan.output.changes[0]).toContain("without copying or activating");
+  });
+});

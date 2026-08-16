@@ -1,0 +1,1 @@
+BoxPilot guarded migration staging fixture.

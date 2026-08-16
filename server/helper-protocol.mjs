@@ -9,9 +9,10 @@ import { createVmProtectionHelper, validateVmProtectionInput } from "./vm-protec
 import { createVmRecoveryHelper, validateVmRecoveryInput } from "./vm-recovery-helper.mjs";
 import { createVmRetentionHelper, validateVmRetentionInput } from "./vm-retention-helper.mjs";
 import { createVmRestoreDrillHelper, validateVmRestoreDrillInput } from "./vm-restore-drill-helper.mjs";
+import { createMigrationTransferHelper, validateMigrationTransferInput } from "./migration-transfer-helper.mjs";
 
 export const helperProtocolVersion = 1;
-export const helperOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
+export const helperOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
 const vmCreationKeys = ["autostart", "diskGiB", "firmware", "isoFile", "memoryMiB", "name", "network", "osProfile", "vcpus"];
 const vmLifecycleKeys = ["action", "expectedAutostart", "expectedState", "name"];
 const vmSnapshotKeys = ["expectedDiskRevision", "expectedSnapshotRevision", "expectedState", "expectedUuid", "name", "snapshotName"];
@@ -46,6 +47,11 @@ export function validateHelperRequest(value) {
     if (Object.keys(value.parameters).length !== 1 || typeof value.parameters.backupId !== "string" || !/^[a-f0-9-]{36}$/.test(value.parameters.backupId)) {
       return "Uptime Kuma backup accepts only a backupId UUID";
     }
+  }
+  if (value.operation === "migration.bundle.inspect" && Object.keys(value.parameters).length !== 0) return "Migration bundle inspection accepts no parameters";
+  if (value.operation === "migration.bundle.transfer") {
+    const errors = validateMigrationTransferInput(value.parameters);
+    if (errors.length) return `Invalid migration transfer plan: ${errors.join(" | ")}`;
   }
   if (value.operation === "virtualization.domain.create") {
     const keys = Object.keys(value.parameters).sort();
@@ -113,7 +119,7 @@ export function validateHelperRequest(value) {
   return null;
 }
 
-export async function executeHelperOperation(request, { applications = createApplicationHelper(), virtualization = createVmHelper(), vmProtection = createVmProtectionHelper(), vmRetention = createVmRetentionHelper(), vmRestoreDrill = createVmRestoreDrillHelper(), vmRecovery = createVmRecoveryHelper() } = {}) {
+export async function executeHelperOperation(request, { applications = createApplicationHelper(), migrations = createMigrationTransferHelper(), virtualization = createVmHelper(), vmProtection = createVmProtectionHelper(), vmRetention = createVmRetentionHelper(), vmRestoreDrill = createVmRestoreDrillHelper(), vmRecovery = createVmRecoveryHelper() } = {}) {
   const error = validateHelperRequest(request);
   if (error) return { version: helperProtocolVersion, id: request?.id ?? null, ok: false, error, code: "invalid_request" };
   if (request.operation === "canary.verify") {
@@ -121,7 +127,7 @@ export async function executeHelperOperation(request, { applications = createApp
       version: helperProtocolVersion,
       id: request.id,
       ok: true,
-      result: { verified: true, helperVersion: "0.12.0", mutationPerformed: false },
+      result: { verified: true, helperVersion: "0.13.0", mutationPerformed: false },
     };
   }
   if (request.operation === "container.docker.inspect") {
@@ -141,6 +147,12 @@ export async function executeHelperOperation(request, { applications = createApp
   }
   if (request.operation === "application.uptime-kuma.backup") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await applications.backup(request.parameters) };
+  }
+  if (request.operation === "migration.bundle.inspect") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await migrations.inspect() };
+  }
+  if (request.operation === "migration.bundle.transfer") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await migrations.transfer(request.parameters) };
   }
   if (request.operation === "virtualization.inventory.inspect") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await virtualization.inventory(request.parameters) };

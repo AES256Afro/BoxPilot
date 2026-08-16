@@ -54,10 +54,22 @@ function retentionParameters(overrides = {}) {
   };
 }
 
+function migrationTransferParameters(overrides = {}) {
+  return {
+    transferId: "88888888-8888-4888-8888-888888888888",
+    bundleId: "99999999-9999-4999-8999-999999999999",
+    sourceFingerprint: `sha256:${"a".repeat(64)}`,
+    contentRevision: "b".repeat(64),
+    expectedDestinationState: "empty",
+    expectedRemainingBytes: 8192,
+    ...overrides,
+  };
+}
+
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.13.0", mutationPerformed: false } });
   });
 
   it("rejects arbitrary operation names and parameters", () => {
@@ -94,6 +106,20 @@ describe("restricted helper protocol", () => {
     const applications = { backup: async (parameters) => ({ ...parameters, restoreDrill: { passed: true } }) };
     const result = await executeHelperOperation(request({ operation: "application.uptime-kuma.backup", parameters: { backupId } }), { applications });
     expect(result).toMatchObject({ ok: true, result: { backupId, restoreDrill: { passed: true } } });
+  });
+
+  it("accepts only exact migration bundle evidence and keeps all paths helper-owned", async () => {
+    expect(validateHelperRequest(request({ operation: "migration.bundle.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "migration.bundle.inspect", parameters: { inbox: "/tmp" } }))).toContain("accepts no parameters");
+    expect(validateHelperRequest(request({ operation: "migration.bundle.transfer", parameters: migrationTransferParameters() }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "migration.bundle.transfer", parameters: migrationTransferParameters({ sourcePath: "/etc" }) }))).toContain("only fixed typed evidence fields");
+    expect(validateHelperRequest(request({ operation: "migration.bundle.transfer", parameters: migrationTransferParameters({ expectedDestinationState: "overwrite" }) }))).toContain("Destination state is invalid");
+    const migrations = {
+      inspect: async () => ({ ready: true, bundles: [] }),
+      transfer: async (parameters) => ({ created: true, transferId: parameters.transferId, bundleId: parameters.bundleId, contentVerified: true, activationPerformed: false }),
+    };
+    await expect(executeHelperOperation(request({ operation: "migration.bundle.inspect", parameters: {} }), { migrations })).resolves.toMatchObject({ ok: true, result: { ready: true, bundles: [] } });
+    await expect(executeHelperOperation(request({ operation: "migration.bundle.transfer", parameters: migrationTransferParameters() }), { migrations })).resolves.toMatchObject({ ok: true, result: { created: true, contentVerified: true, activationPerformed: false } });
   });
 
   it("rejects incompatible versions and malformed ids", () => {

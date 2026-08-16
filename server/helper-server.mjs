@@ -5,6 +5,7 @@ import { executeHelperOperation } from "./helper-protocol.mjs";
 import { createVmRecoveryHelper } from "./vm-recovery-helper.mjs";
 import { createVmRestoreDrillHelper } from "./vm-restore-drill-helper.mjs";
 import { createVmRetentionHelper } from "./vm-retention-helper.mjs";
+import { createMigrationTransferHelper } from "./migration-transfer-helper.mjs";
 
 const socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock";
 const maxRequestBytes = 8192;
@@ -13,8 +14,10 @@ let operationQueue = Promise.resolve();
 const vmRestoreDrill = createVmRestoreDrillHelper();
 const vmRecovery = createVmRecoveryHelper({ restoreEngine: vmRestoreDrill });
 const vmRetention = createVmRetentionHelper();
+const migrations = createMigrationTransferHelper();
+await migrations.initialize();
 const recovery = await vmRestoreDrill.recoverOrphans();
-const helperDependencies = { vmRestoreDrill, vmRecovery, vmRetention };
+const helperDependencies = { migrations, vmRestoreDrill, vmRecovery, vmRetention };
 if (recovery.stoppedDomains > 0 || recovery.removedNvramFiles > 0 || recovery.normalizedWorkspaces > 0) {
   console.log(`BoxPilot restore drill recovery stopped=${recovery.stoppedDomains} nvram=${recovery.removedNvramFiles} workspaces=${recovery.normalizedWorkspaces}`);
 }
@@ -46,6 +49,8 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       if (request.operation === "virtualization.export.backup.retention.apply") connection.setTimeout(12 * 60 * 60 * 1000);
       if (request.operation === "virtualization.export.backup.restore-drill") connection.setTimeout(12 * 60 * 60 * 1000);
       if (request.operation === "virtualization.backup.recovery.create") connection.setTimeout(12 * 60 * 60 * 1000);
+      if (request.operation === "migration.bundle.transfer") connection.setTimeout(12 * 60 * 60 * 1000);
+      if (request.operation === "migration.bundle.inspect") connection.setTimeout(12 * 60 * 60 * 1000);
       const execution = readOnlyOperations.has(request.operation)
         ? executeHelperOperation(request, helperDependencies)
         : operationQueue.then(() => executeHelperOperation(request, helperDependencies));
@@ -74,7 +79,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
 
 server.listen(socketPath, async () => {
   await chmod(socketPath, 0o660);
-  console.log(`BoxPilot helper 0.12.0 listening on ${socketPath}`);
+  console.log(`BoxPilot helper 0.13.0 listening on ${socketPath}`);
 });
 
 async function shutdown() {

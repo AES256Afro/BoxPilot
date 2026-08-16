@@ -1,0 +1,7 @@
+services:
+  canary:
+    image: example.invalid/boxpilot-migration-canary:1
+    environment:
+      CANARY_DATA: /data/state.txt
+    volumes:
+      - ./data:/data:ro
