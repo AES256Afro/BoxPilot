@@ -3,6 +3,7 @@ import { verifyPassword } from "./security.mjs";
 export function createJobService(store, helper, {
   validateApplicationJob = async () => {},
   validateBackupJob = async () => {},
+  validateMigrationTransferJob = async () => {},
   validateVmCreationJob = async () => {},
   validateVmExportJob = async () => {},
   validateVmProtectionJob = async () => {},
@@ -12,6 +13,7 @@ export function createJobService(store, helper, {
   validateVmLifecycleJob = async () => {},
   validateVmSnapshotJob = async () => {},
   recordBackupResult = () => {},
+  recordMigrationTransferResult = () => {},
   recordVmExportResult = () => {},
   recordVmProtectionResult = () => {},
   recordVmRetentionResult = () => {},
@@ -39,9 +41,10 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     if (job.type === "application.uptime-kuma.deploy") await validateApplicationJob(job);
     if (job.type === "application.uptime-kuma.backup") await validateBackupJob(job);
+    const validatedMigrationTransferPlan = job.type === "migration.bundle.transfer" ? await validateMigrationTransferJob(job) : null;
     const validatedVmPlan = job.type === "virtualization.domain.create" ? await validateVmCreationJob(job) : null;
     const validatedVmExportPlan = job.type === "virtualization.domain.export.create" ? await validateVmExportJob(job) : null;
     const validatedVmProtectionPlan = job.type === "virtualization.export.backup.create" ? await validateVmProtectionJob(job) : null;
@@ -51,6 +54,7 @@ export function createJobService(store, helper, {
     const validatedVmLifecyclePlan = job.type === "virtualization.domain.action" ? await validateVmLifecycleJob(job) : null;
     const validatedVmSnapshotPlan = job.type === "virtualization.domain.snapshot.create" ? await validateVmSnapshotJob(job) : null;
     if (job.type === "virtualization.domain.create" && !validatedVmPlan?.input) throw new Error("The staged VM creation plan is unavailable or changed");
+    if (job.type === "migration.bundle.transfer" && !validatedMigrationTransferPlan?.input) throw new Error("The staged migration transfer plan is unavailable or changed");
     if (job.type === "virtualization.domain.export.create" && !validatedVmExportPlan?.input) throw new Error("The staged VM export plan is unavailable or changed");
     if (job.type === "virtualization.export.backup.create" && !validatedVmProtectionPlan?.input) throw new Error("The staged VM protection plan is unavailable or changed");
     if (job.type === "virtualization.export.backup.retention.apply" && !validatedVmRetentionPlan?.input) throw new Error("The staged VM retention plan is unavailable or changed");
@@ -58,6 +62,14 @@ export function createJobService(store, helper, {
     if (job.type === "virtualization.backup.recovery.create" && !validatedVmRecoveryPlan?.input) throw new Error("The staged VM recovery plan is unavailable or changed");
     if (job.type === "virtualization.domain.action" && !validatedVmLifecyclePlan?.input) throw new Error("The staged VM lifecycle plan is unavailable or changed");
     if (job.type === "virtualization.domain.snapshot.create" && !validatedVmSnapshotPlan?.input) throw new Error("The staged VM snapshot plan is unavailable or changed");
+    const migrationHelperInput = validatedMigrationTransferPlan?.input ? {
+      transferId: validatedMigrationTransferPlan.input.transferId,
+      bundleId: validatedMigrationTransferPlan.input.bundleId,
+      sourceFingerprint: validatedMigrationTransferPlan.input.sourceFingerprint,
+      contentRevision: validatedMigrationTransferPlan.input.contentRevision,
+      expectedDestinationState: validatedMigrationTransferPlan.input.expectedDestinationState,
+      expectedRemainingBytes: validatedMigrationTransferPlan.input.expectedRemainingBytes,
+    } : null;
     const execution = job.type === "helper.canary.verify" ? {
       operation: "canary.verify",
       parameters: {},
@@ -82,6 +94,15 @@ export function createJobService(store, helper, {
       verified: "An isolated no-network restore container passed health verification and was removed",
       failed: "The backup or isolated restore drill did not pass verification",
       validate: (result) => result?.backupId === job.parameters.backupId && result?.sourceRestartVerified && result?.restoreDrill?.passed,
+    } : job.type === "migration.bundle.transfer" ? {
+      operation: "migration.bundle.transfer",
+      parameters: migrationHelperInput,
+      timeoutMs: 12 * 60 * 60 * 1000,
+      applying: "Copying or resuming the exact checksummed migration bundle into isolated managed staging",
+      applied: "Restricted helper staged the immutable bundle without changing the source workload, routes, DNS, containers, or ports",
+      verified: "Every staged file passed SHA-256 and complete inventory verification; activation and source deletion remain disabled",
+      failed: "Migration staging did not complete; the source remains unchanged and an isolated partial destination may be resumable",
+      validate: (result) => result?.created && result?.transferId === validatedMigrationTransferPlan.input.transferId && result?.bundleId === validatedMigrationTransferPlan.input.bundleId && result?.contentVerified === true && result?.sourcePreserved === true && result?.activationPerformed === false && result?.networkCutoverPerformed === false && result?.sourceDeletionPerformed === false,
     } : job.type === "virtualization.domain.create" ? {
       operation: "virtualization.domain.create",
       parameters: validatedVmPlan.input,
@@ -171,6 +192,7 @@ export function createJobService(store, helper, {
       if (job.type === "virtualization.export.backup.retention.apply" && result?.applied === true) recordVmRetentionResult(job, result);
       if (!execution.validate(result)) throw new Error("Helper returned an invalid operation result");
       if (job.type === "application.uptime-kuma.backup") recordBackupResult(job, result);
+      if (job.type === "migration.bundle.transfer") recordMigrationTransferResult(job, result);
       if (job.type === "virtualization.domain.export.create") recordVmExportResult(job, result);
       if (job.type === "virtualization.export.backup.create") recordVmProtectionResult(job, result);
       if (job.type === "virtualization.export.backup.restore-drill") recordVmRestoreDrillResult(job, result);
@@ -197,6 +219,9 @@ export function createJobService(store, helper, {
         }
         if (job.type === "virtualization.backup.recovery.create" && error.message.includes("Automatic recovery-clone rollback removed")) {
           store.addJobStep(jobId, "rollback", "completed", "The incomplete new recovery domain definition and its server-generated disk directory were removed; protected source evidence was unchanged");
+        }
+        if (job.type === "migration.bundle.transfer") {
+          store.addJobStep(jobId, "recovery", "required", "The source is unchanged. Reinspect and create a new plan to resume only exact verified staged files; no activation or source deletion occurred");
         }
         store.transitionJob(jobId, current.state, "failed", { error: error.message });
       }

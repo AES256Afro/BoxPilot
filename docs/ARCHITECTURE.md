@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.16.0` adds immutable, high-risk retention plans for the fixed VM restic repository. The web service combines durable backup, restore-drill, recovery-clone, age, and repository evidence into a bounded exact candidate list. The helper alone derives repository, cache, password-file, and binary paths, rechecks the complete tagged snapshot-set revision, forgets only one to 100 exact full snapshot ids, refuses prune, reads all remaining repository data, and proves every noncandidate still exists. The native web unit retains no direct libvirt or KVM group access and never receives repository secrets or filesystem paths.
+Version `0.17.0` adds immutable migration-bundle plans and a fixed root-only transfer boundary. A terminal-only packer captures one Compose project, rejects links and special files, proves the source stayed stable, and publishes a per-file SHA-256 manifest. The web process sees sanitized totals and opaque ids only. The helper derives fixed inbox and managed-staging roots, revalidates every source and destination file, resumes only checksum matches, never activates Compose, and supports read-only reconciliation if copying completed before durable SQLite recording.
 
 ## Target components
 
@@ -28,6 +28,7 @@ BoxPilot web and API process (unprivileged)
           +---- Durable isolated no-network VM restore drills and protection evidence (0.14.0)
           +---- Durable stopped no-network VM recovery clones from protected evidence (0.15.0)
           +---- Durable exact no-prune VM retention batches (0.16.0)
+          +---- Durable checksummed migration staging and reconciliation (0.17.0)
           |
           +---- Redacted VM audit JSONL in systemd StateDirectory (0.3.0 foundation)
           |
@@ -47,6 +48,7 @@ Restricted helper over a local Unix socket (0.4.0 canary foundation)
           +---- exact interrupted-drill startup reconciliation with fail-closed identity checks (0.14.0)
           +---- fixed recovery directory, persistent stopped definition, and exact rollback checks (0.15.0)
           +---- exact old protected snapshot forget with copy, age, drill, recovery, and snapshot-set gates (0.16.0)
+          +---- fixed root-only migration bundle inspect, resume, verify, and reconcile (0.17.0)
           +---- typed apt operations (future)
           +---- typed systemd operations
           +---- typed firewall operations
@@ -130,7 +132,7 @@ Uptime Kuma is the first executable adapter because it proves fixed Docker argum
 
 ## Data model target
 
-The persistent store is SQLite. Owners, sessions, jobs, job steps, approvals, plans, application backups, VM exports, VM backups, VM recoveries, VM retention runs, imported migration sources, and audit events are live. Planned records include:
+The persistent store is SQLite. Owners, sessions, jobs, job steps, approvals, plans, application backups, VM exports, VM backups, VM recoveries, VM retention runs, imported migration sources, verified migration transfers, and audit events are live. Planned records include:
 
 - hosts
 - workloads
@@ -155,7 +157,7 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.16.0 limitations
+## Version 0.17.0 limitations
 
 - Dashboard values are demonstration data.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
@@ -166,7 +168,7 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Supported Linux VM creation, stopped-VM internal snapshots, local stopped-VM exports, mounted-restic VM copies, isolated VM restore drills, guarded stopped no-network recovery clones, and exact no-prune retention batches are durable approved helper jobs. Windows TPM/Secure Boot creation, cloud-init, console proxy, online snapshot, snapshot revert/delete, force-off, in-place restore, recovered-VM network attachment, and application-level restore tests are unavailable.
 - Managed media discovery lists regular `.iso` files only and does not upload or download installation media.
 - Operations Core jobs and attribution use SQLite. The older VM JSONL planning log remains a separate bounded log. Tamper evidence remains pending.
-- Only fixed Uptime Kuma deployment and backup plus fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune retention batches can execute mutations. Migration transfer, firewall, package, storage administration, general Docker, general libvirt, console proxy, snapshot revert/delete, restic prune, configurable retention, in-place restore, recovery network attachment, and force-off operations remain unavailable.
+- Only fixed Uptime Kuma deployment and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune retention batches can execute mutations. Remote migration transport, staged-workload activation, cutover, firewall, package, storage administration, general Docker, general libvirt, console proxy, snapshot revert/delete, restic prune, configurable retention, in-place restore, recovery network attachment, and force-off operations remain unavailable.
 - A VM snapshot is never counted as an independent backup. The snapshot workflow rejects running guests, non-file disks, disks outside the managed image root, non-qcow2 disks, backing chains, symlinks, and changed inventory.
 - Uptime Kuma backup remains local to Bigbox. VM copies require an operator-provided independent mounted filesystem; no such destination is currently configured on Bigbox.
 - VM exports are root-only local integrity artifacts. They are unencrypted and are not reported as protected until a later independent copy and isolated restore boot pass.

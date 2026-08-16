@@ -215,6 +215,25 @@ describe("BoxPilot state store", () => {
     expect(duplicate.id).toBe(first.id);
     expect(store.listMigrationSources()).toEqual([expect.objectContaining({ fingerprint: "sha256:fixture", manifest })]);
     expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "migration.source.imported", subjectId: first.id })]));
+
+    const transfer = store.recordMigrationTransfer({
+      id: "11111111-1111-4111-8111-111111111111",
+      bundleId: "22222222-2222-4222-8222-222222222222",
+      sourceId: first.id,
+      sourceFingerprint: first.fingerprint,
+      contentRevision: "a".repeat(64),
+      workloadName: "keel-notes",
+      destination: "managed-migration-staging/22222222-2222-4222-8222-222222222222",
+      fileCount: 4,
+      sizeBytes: 8192,
+      contentVerified: true,
+      sourcePreserved: true,
+      activationPerformed: false,
+      createdBy: owner.id,
+    });
+    expect(transfer).toMatchObject({ bundleId: "22222222-2222-4222-8222-222222222222", workloadName: "keel-notes", contentVerified: true, sourcePreserved: true, activationPerformed: false });
+    expect(store.listMigrationTransfers()).toHaveLength(1);
+    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "migration.transfer.verified", subjectId: transfer.id })]));
     store.close();
   });
 
