@@ -41,7 +41,7 @@ describe("native systemd network boundaries", () => {
     expect(dockerfile).toContain("BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot");
     expect(dockerfile).toContain("BOXPILOT_COOKIE_SECURE=false");
     expect(dockerfile).toContain("USER node");
-    expect(compose).toContain("image: boxpilot:0.34.0");
+    expect(compose).toContain("image: boxpilot:0.35.0");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("/tmp:size=16m,mode=1777");
   });
@@ -96,6 +96,24 @@ describe("native systemd network boundaries", () => {
     expect(service).not.toContain("[Install]");
     expect(protocol).toContain("prerequisite.smartmontools.install");
     expect(protocol).not.toContain("package.install");
+  });
+
+  it("ships a static metadata-only APT refresh without browser package or command arguments", async () => {
+    const service = await readFile("deploy/boxpilot-apt-refresh.service", "utf8");
+    const refresher = await readFile("scripts/boxpilot-apt-refresh.mjs", "utf8");
+    const protocol = await readFile("server/helper-protocol.mjs", "utf8");
+    expect(service).toContain("Type=oneshot");
+    expect(service).toContain("ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-apt-refresh.mjs");
+    expect(service).toContain("ConditionPathExists=/run/boxpilot/apt-refresh-approval.json");
+    expect(service).not.toContain("%i");
+    expect(service).not.toContain("$PACKAGE");
+    expect(service).not.toContain("[Install]");
+    expect(refresher).toContain('run("/usr/bin/apt-get", ["update", "--error-on=any"]');
+    expect(refresher).toContain("process.argv.length !== 2");
+    expect(refresher).toContain("installed package database changed");
+    expect(refresher).not.toMatch(/(?:install|upgrade|remove|autoremove|dist-upgrade)["']/);
+    expect(protocol).toContain("prerequisite.apt-metadata.refresh");
+    expect(protocol).not.toContain("package.update");
   });
 
   it("ships a terminal-only migration packer without a browser-selectable inbox", async () => {

@@ -1,6 +1,6 @@
 # Sanitized live inventory
 
-BoxPilot `0.7.0` replaced the demonstration overview with authenticated host, service, network, Docker, and log inventory. Version `0.30.1` adds sanitized host-mount and block-device topology, a separate fixed root-only storage evidence timer, and a server-generated support bundle with a final configurable redaction pass. Version `0.31.0` adds a separately named exact `smartmontools` repair. Version `0.32.0` adds mounted ext4 kernel error counters. Version `0.33.0` adds optional bounded local NUT evidence. Version `0.34.0` adds bounded host-maintenance readiness. Every collector remains bounded so discovery does not become arbitrary command execution.
+BoxPilot `0.7.0` replaced the demonstration overview with authenticated host, service, network, Docker, and log inventory. Version `0.30.1` adds sanitized host-mount and block-device topology, a separate fixed root-only storage evidence timer, and a server-generated support bundle with a final configurable redaction pass. Version `0.31.0` adds a separately named exact `smartmontools` repair. Version `0.32.0` adds mounted ext4 kernel error counters. Version `0.33.0` adds optional bounded local NUT evidence. Version `0.34.0` adds bounded host-maintenance readiness. Version `0.35.0` links stale or unavailable APT evidence to a separate durable metadata-only repair. Every collector remains bounded so discovery does not become arbitrary command execution.
 
 ## Host inventory
 
@@ -73,6 +73,8 @@ Version `0.34.0` runs only these fixed local reads:
 The response contains only fixed derived states, bounded counts, one APT timestamp, and age in hours. It never returns a package name, failed unit name, reboot-marker text, unit description, path listing, command output, stderr, or error. More than 256 failed services or dpkg fragments is capped and marked truncated. Unknown system state and future-dated APT metadata fail closed to unavailable.
 
 The collector cannot run `apt`, `apt-get`, `dpkg`, or `unattended-upgrade`; install, remove, or update a package; enable, disable, start, stop, or restart a service; change update policy; or reboot the host. Action Center guidance links only to fixed BoxPilot views and requires a separately reviewed console procedure for any change.
+
+The inventory collector remains read-only in `0.35.0`. A stale or unavailable metadata check with ready dpkg state may separately expose a Repair Center plan. That password-approved plan starts a static metadata-only unit and is documented in [Exact prerequisite repair boundary](PREREQUISITE-REPAIRS.md). It does not widen this collector or Action Center into an execution surface.
 
 ## Docker inventory
 

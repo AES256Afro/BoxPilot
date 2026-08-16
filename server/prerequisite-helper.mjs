@@ -1,6 +1,7 @@
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
+import { createMaintenanceService } from "./maintenance.mjs";
 
 const execFile = promisify(execFileCallback);
 const defaultDpkgQuery = "/usr/bin/dpkg-query";
@@ -8,6 +9,7 @@ const defaultAptCache = "/usr/bin/apt-cache";
 const defaultSystemctl = "/usr/bin/systemctl";
 const defaultEvidencePath = "/var/lib/boxpilot/storage-health.json";
 const defaultApprovalPath = "/run/boxpilot/smartmontools-approval.json";
+const defaultAptApprovalPath = "/run/boxpilot/apt-refresh-approval.json";
 const versionPattern = /^[0-9A-Za-z.+:~_-]{1,64}$/;
 
 async function fixedRun(binary, args, { timeout = 30000 } = {}) {
@@ -45,6 +47,18 @@ async function writeApprovalFile(approval) {
   await writeFile(defaultApprovalPath, `${JSON.stringify(approval)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
 }
 
+async function clearAptApprovalFile() {
+  try {
+    await unlink(defaultAptApprovalPath);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+}
+
+async function writeAptApprovalFile(approval) {
+  await writeFile(defaultAptApprovalPath, `${JSON.stringify(approval)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
+}
+
 export function createPrerequisiteHelper({
   run = fixedRun,
   loadEvidence = () => readFile(defaultEvidencePath, "utf8"),
@@ -54,6 +68,9 @@ export function createPrerequisiteHelper({
   systemctlBinary = defaultSystemctl,
   clearApproval = clearApprovalFile,
   writeApproval = writeApprovalFile,
+  maintenance = createMaintenanceService(),
+  clearAptApproval = clearAptApprovalFile,
+  writeAptApproval = writeAptApprovalFile,
 } = {}) {
   async function inspectSmartmontools() {
     const [installedResult, policyResult] = await Promise.all([
@@ -110,7 +127,57 @@ export function createPrerequisiteHelper({
     };
   }
 
-  return { inspectSmartmontools, installSmartmontools };
+  async function inspectAptMetadata() {
+    const evidence = await maintenance.inspect();
+    const packageManagerState = evidence.packageManager.state;
+    return {
+      available: evidence.aptMetadata.available,
+      state: evidence.aptMetadata.state,
+      updatedAt: evidence.aptMetadata.updatedAt,
+      ageHours: evidence.aptMetadata.ageHours,
+      packageManagerState,
+      refreshAvailable: packageManagerState === "ready" && evidence.aptMetadata.state !== "current",
+      source: "fixed-local-apt-metadata",
+      mutationPerformed: false,
+      arbitraryCommandAccepted: false,
+    };
+  }
+
+  async function refreshAptMetadata({ expectedUpdatedAt }) {
+    if (!(expectedUpdatedAt === null || (typeof expectedUpdatedAt === "string" && Number.isFinite(Date.parse(expectedUpdatedAt))))) throw new Error("The expected APT metadata timestamp is invalid");
+    const before = await inspectAptMetadata();
+    if (before.packageManagerState !== "ready") throw new Error("The package manager is not ready for a metadata refresh");
+    if (before.updatedAt !== expectedUpdatedAt || before.state === "current") throw new Error("Host state changed: APT metadata no longer matches the approved plan");
+    await clearAptApproval();
+    await writeAptApproval({ approvedAt: now().toISOString(), expectedUpdatedAt });
+    let start;
+    try {
+      start = await run(systemctlBinary, ["start", "boxpilot-apt-refresh.service"], { timeout: 15 * 60 * 1000 });
+    } finally {
+      await clearAptApproval();
+    }
+    if (!start.ok) throw new Error("The fixed APT metadata refresh service failed");
+    const after = await inspectAptMetadata();
+    if (after.packageManagerState !== "ready" || after.state !== "current" || after.updatedAt === before.updatedAt) throw new Error("APT metadata was not verified current after the approved refresh");
+    return {
+      refreshed: true,
+      updatedAt: after.updatedAt,
+      state: after.state,
+      packageManagerState: after.packageManagerState,
+      boundary: {
+        fixedAptUpdateOnly: true,
+        packageInstallPerformed: false,
+        packageUpgradePerformed: false,
+        packageRemovalPerformed: false,
+        serviceMutationPerformed: false,
+        rebootPerformed: false,
+        arbitraryCommandAccepted: false,
+        browserArgumentAccepted: false,
+      },
+    };
+  }
+
+  return { inspectSmartmontools, installSmartmontools, inspectAptMetadata, refreshAptMetadata };
 }
 
-export const prerequisiteHelperInternals = { candidateVersion, cleanVersion, defaultAptCache, defaultApprovalPath, defaultDpkgQuery, defaultEvidencePath, defaultSystemctl, installedVersion, versionPattern };
+export const prerequisiteHelperInternals = { candidateVersion, cleanVersion, defaultAptCache, defaultAptApprovalPath, defaultApprovalPath, defaultDpkgQuery, defaultEvidencePath, defaultSystemctl, installedVersion, versionPattern };

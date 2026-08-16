@@ -82,6 +82,32 @@ export function createPrerequisiteService({ stateDirectory, helper, runCommand =
         : { kind: "manual", description: "Repair configured Ubuntu APT metadata before creating an installation plan" },
     ));
 
+    let aptMetadata = null;
+    try {
+      aptMetadata = await helper.request("prerequisite.apt-metadata.inspect", {});
+    } catch {
+      aptMetadata = null;
+    }
+    const aptReady = aptMetadata?.state === "current" && aptMetadata?.packageManagerState === "ready";
+    const aptRepairable = aptMetadata?.refreshAvailable === true && aptMetadata?.packageManagerState === "ready";
+    const aptInterrupted = aptMetadata?.packageManagerState === "interrupted";
+    checks.push(check(
+      "host.apt-metadata",
+      "Host maintenance",
+      "APT package metadata",
+      aptReady ? "ready" : aptRepairable ? "repairable" : aptInterrupted ? "conflict" : "missing",
+      aptReady
+        ? `APT metadata is current${Number.isInteger(aptMetadata.ageHours) ? ` (${aptMetadata.ageHours} hours old)` : ""}; dpkg state is ready`
+        : aptRepairable
+          ? `APT metadata is ${aptMetadata.state}; the fixed metadata-only refresh is available`
+          : aptInterrupted
+            ? "dpkg has pending update fragments; metadata refresh is locked until package state is repaired"
+            : "APT metadata or package-manager readiness could not be verified",
+      aptReady ? null : aptRepairable
+        ? { kind: "approved", description: "Review a durable fixed APT metadata refresh that performs no package install, upgrade, or removal" }
+        : { kind: "manual", description: aptInterrupted ? "Repair interrupted dpkg state from the server console before refreshing metadata" : "Verify configured Ubuntu repositories and package-manager state" },
+    ));
+
     let docker = { available: false, version: null };
     try {
       docker = await helper.request("container.docker.inspect", {});

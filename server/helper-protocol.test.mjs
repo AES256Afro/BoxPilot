@@ -86,6 +86,22 @@ describe("restricted helper protocol", () => {
     await expect(executeHelperOperation(request({ operation: "prerequisite.smartmontools.install", parameters: { expectedVersion: "7.5-2" } }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { installed: true, version: "7.5-2", boundary: { arbitraryPackageAccepted: false } } });
   });
 
+  it("accepts only exact APT metadata evidence and no package or command input", async () => {
+    const updatedAt = "2026-08-01T00:00:00.000Z";
+    expect(validateHelperRequest(request({ operation: "prerequisite.apt-metadata.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "prerequisite.apt-metadata.inspect", parameters: { command: "apt upgrade" } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "prerequisite.apt-metadata.refresh", parameters: { expectedUpdatedAt: updatedAt } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "prerequisite.apt-metadata.refresh", parameters: { expectedUpdatedAt: null } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "prerequisite.apt-metadata.refresh", parameters: { expectedUpdatedAt: updatedAt, package: "curl" } }))).toContain("only one exact");
+    expect(validateHelperRequest(request({ operation: "prerequisite.apt-metadata.refresh", parameters: { expectedUpdatedAt: "yesterday" } }))).toContain("only one exact");
+    const prerequisites = {
+      inspectAptMetadata: async () => ({ state: "stale", updatedAt, refreshAvailable: true, mutationPerformed: false }),
+      refreshAptMetadata: async () => ({ refreshed: true, state: "current", boundary: { fixedAptUpdateOnly: true, packageInstallPerformed: false } }),
+    };
+    await expect(executeHelperOperation(request({ operation: "prerequisite.apt-metadata.inspect", parameters: {} }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { state: "stale", mutationPerformed: false } });
+    await expect(executeHelperOperation(request({ operation: "prerequisite.apt-metadata.refresh", parameters: { expectedUpdatedAt: updatedAt } }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { refreshed: true, boundary: { fixedAptUpdateOnly: true, packageInstallPerformed: false } } });
+  });
+
   it("rejects arbitrary operation names and parameters", () => {
     expect(validateHelperRequest(request({ operation: "shell.exec" }))).toBe("Operation is not allowlisted");
     expect(validateHelperRequest(request({ parameters: { command: "id" } }))).toBe("Canary operation accepts no parameters");
