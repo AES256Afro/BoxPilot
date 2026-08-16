@@ -149,6 +149,45 @@ describe("BoxPilot state store", () => {
     store.close();
   });
 
+  it("records independent encrypted controller protection separately from its immutable local backup", async () => {
+    const store = await testStore();
+    const bootstrap = store.createBootstrapToken();
+    const owner = store.consumeBootstrapToken(bootstrap.token, { username: "operator", passwordHash: "hash" });
+    const backupId = "11111111-1111-4111-8111-111111111111";
+    store.recordBackup({
+      id: backupId,
+      applicationId: "boxpilot-controller",
+      destination: "local-managed",
+      artifactPath: `/var/lib/boxpilot-managed/backups/boxpilot-controller/${backupId}/boxpilot.sqlite3`,
+      checksumSha256: "a".repeat(64),
+      sizeBytes: 8192,
+      downtimeMs: 0,
+      restoreDrill: { passed: true, mode: "isolated-copy-open", manifestChecksumSha256: "b".repeat(64) },
+      createdBy: owner.id,
+    });
+    const protection = store.recordControllerBackupProtection({
+      id: "22222222-2222-4222-8222-222222222222",
+      backupId,
+      destination: "mounted-restic-controller",
+      repositoryId: "c".repeat(64),
+      snapshotId: "d".repeat(64),
+      sizeBytes: 8192,
+      encrypted: true,
+      independent: true,
+      repositoryVerified: true,
+      protected: true,
+      restoreDrill: { passed: true, mode: "exact-snapshot-isolated-copy-open", network: "none", workspaceRemoved: true },
+      createdBy: owner.id,
+    });
+
+    expect(protection).toMatchObject({ backupId, encrypted: true, independent: true, repositoryVerified: true, protected: true });
+    expect(store.getControllerBackupProtectionByBackup(backupId)?.snapshotId).toBe("d".repeat(64));
+    expect(store.listControllerBackupProtections()).toEqual([protection]);
+    expect(() => store.recordControllerBackupProtection({ ...protection, id: "33333333-3333-4333-8333-333333333333" })).toThrow();
+    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "controller.backup.protected", subjectId: protection.id })]));
+    store.close();
+  });
+
   it("records a verified local VM export without promoting it to a protected backup", async () => {
     const store = await testStore();
     const bootstrap = store.createBootstrapToken();

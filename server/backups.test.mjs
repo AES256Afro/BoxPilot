@@ -4,6 +4,7 @@ import { createBackupService } from "./backups.mjs";
 function fixture({ applicationId = "uptime-kuma", installed = true, healthy = true, backups = [] } = {}) {
   const store = {
     listBackups: vi.fn(() => backups),
+    listControllerBackupProtections: vi.fn(() => []),
     createPlan: vi.fn((value) => ({ id: "plan-one", revision: "rev-one", status: "draft", ...value })),
     getPlan: vi.fn(() => ({ id: "plan-one", type: "application.backup", subjectId: applicationId, revision: "rev-one", status: "draft", output: { executable: true, blockers: [] }, createdBy: "owner-one" })),
     stagePlan: vi.fn(),
@@ -73,11 +74,11 @@ describe("application-aware backup service", () => {
     expect(inventory.coverage).toEqual([
       expect.objectContaining({ applicationId: "boxpilot-controller", name: "BoxPilot controller", sourceKind: "controller-state", state: "unprotected", protected: false }),
       expect.objectContaining({ applicationId: "uptime-kuma", name: "Uptime Kuma", state: "unprotected", protected: false }),
-      expect.objectContaining({ applicationId: "pi-hole", name: "Pi-hole", state: "verified", protected: true, latestBackup: latest }),
+      expect.objectContaining({ applicationId: "pi-hole", name: "Pi-hole", state: "locally-verified", protected: false, latestBackup: latest }),
     ]);
     expect(helper.request).toHaveBeenCalledWith("application.uptime-kuma.inspect", {});
     expect(helper.request).toHaveBeenCalledWith("application.pi-hole.inspect", {});
-    expect(inventory.limitations.join(" ")).toContain("3-2-1 protection");
+    expect(inventory.limitations.join(" ")).toContain("disaster protection");
   });
 
   it.each([

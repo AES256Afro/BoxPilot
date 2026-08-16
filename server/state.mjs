@@ -131,6 +131,21 @@ export function createStateStore({
       created_at TEXT NOT NULL,
       verified_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS controller_backup_protections (
+      id TEXT PRIMARY KEY,
+      backup_id TEXT NOT NULL UNIQUE REFERENCES backups(id),
+      destination_type TEXT NOT NULL,
+      repository_id TEXT NOT NULL,
+      snapshot_id TEXT NOT NULL UNIQUE,
+      size_bytes INTEGER NOT NULL,
+      encrypted INTEGER NOT NULL,
+      independent INTEGER NOT NULL,
+      repository_verified INTEGER NOT NULL,
+      protected INTEGER NOT NULL,
+      restore_drill_json TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS vm_exports (
       id TEXT PRIMARY KEY,
       domain_name TEXT NOT NULL,
@@ -320,6 +335,7 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_plans_created_at ON plans(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_job_steps_job_id ON job_steps(job_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_backups_created_at ON backups(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_controller_backup_protections_created_at ON controller_backup_protections(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_vm_exports_created_at ON vm_exports(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_vm_backups_created_at ON vm_backups(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_vm_recoveries_created_at ON vm_recoveries(created_at DESC);
@@ -581,6 +597,47 @@ export function createStateStore({
       createdAt: row.created_at,
       verifiedAt: row.verified_at,
     }));
+  }
+
+  function recordControllerBackupProtection({ id, backupId, destination, repositoryId, snapshotId, sizeBytes, encrypted, independent, repositoryVerified, protected: protectedState, restoreDrill, createdBy }) {
+    const at = timestamp();
+    database.prepare(`
+      INSERT INTO controller_backup_protections (id, backup_id, destination_type, repository_id, snapshot_id, size_bytes, encrypted, independent, repository_verified, protected, restore_drill_json, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, backupId, destination, repositoryId, snapshotId, sizeBytes, encrypted ? 1 : 0, independent ? 1 : 0, repositoryVerified ? 1 : 0, protectedState ? 1 : 0, json(restoreDrill), createdBy, at);
+    recordAudit("controller.backup.protected", { actorId: createdBy, subjectId: id, details: { backupId, destination, repositoryId, snapshotId, sizeBytes, protected: protectedState } });
+    return getControllerBackupProtection(id);
+  }
+
+  function mapControllerBackupProtection(row) {
+    return row ? {
+      id: row.id,
+      backupId: row.backup_id,
+      destination: row.destination_type,
+      repositoryId: row.repository_id,
+      snapshotId: row.snapshot_id,
+      sizeBytes: Number(row.size_bytes),
+      encrypted: Boolean(row.encrypted),
+      independent: Boolean(row.independent),
+      repositoryVerified: Boolean(row.repository_verified),
+      protected: Boolean(row.protected),
+      restoreDrill: parseJson(row.restore_drill_json),
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+    } : null;
+  }
+
+  function getControllerBackupProtection(id) {
+    return mapControllerBackupProtection(database.prepare("SELECT * FROM controller_backup_protections WHERE id = ?").get(id));
+  }
+
+  function getControllerBackupProtectionByBackup(backupId) {
+    return mapControllerBackupProtection(database.prepare("SELECT * FROM controller_backup_protections WHERE backup_id = ?").get(backupId));
+  }
+
+  function listControllerBackupProtections(limit = 50) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    return database.prepare("SELECT * FROM controller_backup_protections ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapControllerBackupProtection);
   }
 
   function recordVmExport({ id, domainName, domainUuid, destination, artifactPath, manifestChecksumSha256, sizeBytes, protected: protectedState, encrypted, restoreDrill, createdBy }) {
@@ -1210,6 +1267,10 @@ export function createStateStore({
     listActiveJobs,
     recordBackup,
     listBackups,
+    recordControllerBackupProtection,
+    getControllerBackupProtection,
+    getControllerBackupProtectionByBackup,
+    listControllerBackupProtections,
     recordVmExport,
     listVmExports,
     getVmExport,

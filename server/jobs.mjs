@@ -4,6 +4,7 @@ export function createJobService(store, helper, {
   validateApplicationJob = async () => {},
   validatePrerequisiteRepairJob = async () => {},
   validateBackupJob = async () => {},
+  validateControllerProtectionJob = async () => {},
   validateDnsAcceptanceJob = async () => {},
   executeDnsAcceptanceJob = async () => {},
   validateFlint2AdguardJob = async () => {},
@@ -18,6 +19,7 @@ export function createJobService(store, helper, {
   validateVmLifecycleJob = async () => {},
   validateVmSnapshotJob = async () => {},
   recordBackupResult = () => {},
+  recordControllerProtectionResult = () => {},
   recordDnsAcceptanceResult = () => {},
   recordFlint2AdguardResult = () => {},
   recordMigrationTransferResult = () => {},
@@ -48,10 +50,11 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "controller.database.backup", "controller.database.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
     const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy"].includes(job.type) ? await validateApplicationJob(job) : null;
     if (["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup"].includes(job.type)) await validateBackupJob(job);
+    const validatedControllerProtectionPlan = job.type === "controller.database.backup.protect" ? await validateControllerProtectionJob(job) : null;
     const validatedDnsAcceptancePlan = job.type === "network.dns.acceptance.run" ? await validateDnsAcceptanceJob(job) : null;
     const validatedFlint2AdguardPlan = job.type === "network.flint2-adguard.acceptance.run" ? await validateFlint2AdguardJob(job) : null;
     const validatedMigrationTransferPlan = job.type === "migration.bundle.transfer" ? await validateMigrationTransferJob(job) : null;
@@ -64,6 +67,7 @@ export function createJobService(store, helper, {
     const validatedVmLifecyclePlan = job.type === "virtualization.domain.action" ? await validateVmLifecycleJob(job) : null;
     const validatedVmSnapshotPlan = job.type === "virtualization.domain.snapshot.create" ? await validateVmSnapshotJob(job) : null;
     if (job.type === "virtualization.domain.create" && !validatedVmPlan?.input) throw new Error("The staged VM creation plan is unavailable or changed");
+    if (job.type === "controller.database.backup.protect" && !validatedControllerProtectionPlan?.input) throw new Error("The staged controller protection plan is unavailable or changed");
     if (["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh"].includes(job.type) && !validatedPrerequisiteRepair?.plan?.input) throw new Error("The staged prerequisite repair plan is unavailable or changed");
     if (job.type === "migration.bundle.transfer" && !validatedMigrationTransferPlan?.input) throw new Error("The staged migration transfer plan is unavailable or changed");
     if (job.type === "virtualization.domain.export.create" && !validatedVmExportPlan?.input) throw new Error("The staged VM export plan is unavailable or changed");
@@ -202,6 +206,25 @@ export function createJobService(store, helper, {
         && result?.boundary?.networkAccessRequired === false
         && result?.boundary?.independentCopyCreated === false
         && result?.boundary?.retentionPerformed === false,
+    } : job.type === "controller.database.backup.protect" ? {
+      operation: "controller.database.protection.create",
+      parameters: validatedControllerProtectionPlan.input,
+      timeoutMs: 12 * 60 * 60 * 1000,
+      applying: "Reverifying the local controller snapshot and writing it to the separate encrypted independent restic repository",
+      applied: "Restic published an encrypted controller snapshot without changing the live database or local backup",
+      verified: "A full repository data read, exact snapshot readback, restored hashes, and isolated SQLite copy-open checks passed",
+      failed: "Independent controller protection did not complete; preserve the local backup, encrypted repository, and any generated root-only drill workspace for inspection",
+      validate: (result) => result?.created === true
+        && result?.protectionId === validatedControllerProtectionPlan.input.protectionId
+        && result?.backupId === validatedControllerProtectionPlan.input.backupId
+        && result?.encrypted === true
+        && result?.independent === true
+        && result?.repositoryVerified === true
+        && result?.protected === true
+        && result?.restoreDrill?.passed === true
+        && result?.restoreDrill?.mode === "exact-snapshot-isolated-copy-open"
+        && result?.restoreDrill?.network === "none"
+        && result?.restoreDrill?.productionDatabaseReplaced === false,
     } : job.type === "application.uptime-kuma.backup" ? {
       operation: "application.uptime-kuma.backup",
       parameters: { backupId: job.parameters.backupId },
@@ -330,6 +353,7 @@ export function createJobService(store, helper, {
       if (job.type === "virtualization.export.backup.retention.apply" && result?.applied === true) recordVmRetentionResult(job, result);
       if (!execution.validate(result)) throw new Error(execution.run ? "Operation returned an invalid result" : "Helper returned an invalid operation result");
       if (["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup"].includes(job.type)) recordBackupResult(job, result);
+      if (job.type === "controller.database.backup.protect") recordControllerProtectionResult(job, result);
       if (job.type === "network.dns.acceptance.run") recordDnsAcceptanceResult(job, result);
       if (job.type === "network.flint2-adguard.acceptance.run") recordFlint2AdguardResult(job, result);
       if (job.type === "migration.bundle.transfer") recordMigrationTransferResult(job, result);

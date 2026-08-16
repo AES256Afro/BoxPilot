@@ -1,4 +1,4 @@
-const productVersion = "0.38.1";
+const productVersion = "0.39.0";
 
 const guidance = {
   "controller.database": {
@@ -6,8 +6,8 @@ const guidance = {
     view: "backups",
     steps: [
       "Open Backups and create the WAL-aware controller snapshot with its isolated copy-open drill.",
-      "Copy the complete root-only backup directory and manifest to encrypted independent storage.",
-      "Verify both recorded SHA-256 values on the independent copy and retain the restore procedure.",
+      "Mount independent storage and run the fixed controller restic setup from the Bigbox terminal.",
+      "In Backups, protect the verified local snapshot and require full repository-read plus exact isolated restore evidence.",
     ],
   },
   "controller.source": {
