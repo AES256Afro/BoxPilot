@@ -304,4 +304,4 @@ if (invokedPath === import.meta.url) {
   }
 }
 
-export const keelPromotionScriptInternals = { exactKeys, hardenState, inspectAccount, parseActive, parseApproval, restorePreviousProduction, waitForHealth, writeActive };
+export const keelPromotionScriptInternals = { defaultHealthRequest, defaultRun, exactKeys, hardenState, inspectAccount, parseActive, parseApproval, restorePreviousProduction, startHealthy, stopService, waitForHealth, writeActive };

@@ -187,6 +187,28 @@ export function createStateStore({
       created_by TEXT NOT NULL REFERENCES owners(id),
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS application_recovery_rollbacks (
+      id TEXT PRIMARY KEY,
+      promotion_id TEXT NOT NULL UNIQUE REFERENCES application_recovery_promotions(id),
+      application_id TEXT NOT NULL,
+      release_version TEXT NOT NULL,
+      install_id TEXT NOT NULL,
+      source_rollback_evidence_checksum_sha256 TEXT NOT NULL,
+      source_previous_state_tree_digest_sha256 TEXT NOT NULL,
+      restored_state_tree_digest_sha256 TEXT NOT NULL,
+      displaced_state_tree_digest_sha256 TEXT NOT NULL,
+      displaced_state_path TEXT NOT NULL UNIQUE,
+      displaced_evidence_path TEXT NOT NULL UNIQUE,
+      health_identity_verified INTEGER NOT NULL,
+      database_integrity TEXT NOT NULL,
+      foreign_key_issues INTEGER NOT NULL,
+      schema_verified INTEGER NOT NULL,
+      displaced_state_retained INTEGER NOT NULL,
+      source_rollback_checkpoint_unchanged INTEGER NOT NULL,
+      owner_login_tested INTEGER NOT NULL,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS controller_backup_protections (
       id TEXT PRIMARY KEY,
       backup_id TEXT NOT NULL UNIQUE REFERENCES backups(id),
@@ -438,6 +460,7 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_application_recoveries_created_at ON application_recoveries(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_application_recovery_drills_created_at ON application_recovery_drills(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_application_recovery_promotions_created_at ON application_recovery_promotions(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_application_recovery_rollbacks_created_at ON application_recovery_rollbacks(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_vm_retention_runs_created_at ON vm_retention_runs(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_migration_sources_imported_at ON migration_sources(imported_at DESC);
     CREATE INDEX IF NOT EXISTS idx_migration_transfers_created_at ON migration_transfers(created_at DESC);
@@ -843,6 +866,54 @@ export function createStateStore({
   function listApplicationRecoveryPromotions(limit = 50) {
     const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
     return database.prepare("SELECT * FROM application_recovery_promotions ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapApplicationRecoveryPromotion);
+  }
+
+  function mapApplicationRecoveryRollback(row) {
+    return row ? {
+      id: row.id,
+      promotionId: row.promotion_id,
+      applicationId: row.application_id,
+      releaseVersion: row.release_version,
+      installId: row.install_id,
+      sourceRollbackEvidenceChecksumSha256: row.source_rollback_evidence_checksum_sha256,
+      sourcePreviousStateTreeDigestSha256: row.source_previous_state_tree_digest_sha256,
+      restoredStateTreeDigestSha256: row.restored_state_tree_digest_sha256,
+      displacedStateTreeDigestSha256: row.displaced_state_tree_digest_sha256,
+      displacedStatePath: row.displaced_state_path,
+      displacedEvidencePath: row.displaced_evidence_path,
+      healthIdentityVerified: Boolean(row.health_identity_verified),
+      databaseIntegrity: row.database_integrity,
+      foreignKeyIssues: Number(row.foreign_key_issues),
+      schemaVerified: Boolean(row.schema_verified),
+      displacedStateRetained: Boolean(row.displaced_state_retained),
+      sourceRollbackCheckpointUnchanged: Boolean(row.source_rollback_checkpoint_unchanged),
+      ownerLoginTested: Boolean(row.owner_login_tested),
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+    } : null;
+  }
+
+  function recordApplicationRecoveryRollback({ id, promotionId, applicationId, releaseVersion, installId, sourceRollbackEvidenceChecksumSha256, sourcePreviousStateTreeDigestSha256, restoredStateTreeDigestSha256, displacedStateTreeDigestSha256, displacedStatePath, displacedEvidencePath, healthIdentityVerified, databaseIntegrity, foreignKeyIssues, schemaVerified, displacedStateRetained, sourceRollbackCheckpointUnchanged, ownerLoginTested, createdBy }) {
+    const at = timestamp();
+    database.prepare(`
+      INSERT INTO application_recovery_rollbacks (id, promotion_id, application_id, release_version, install_id, source_rollback_evidence_checksum_sha256, source_previous_state_tree_digest_sha256, restored_state_tree_digest_sha256, displaced_state_tree_digest_sha256, displaced_state_path, displaced_evidence_path, health_identity_verified, database_integrity, foreign_key_issues, schema_verified, displaced_state_retained, source_rollback_checkpoint_unchanged, owner_login_tested, created_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, promotionId, applicationId, releaseVersion, installId, sourceRollbackEvidenceChecksumSha256, sourcePreviousStateTreeDigestSha256, restoredStateTreeDigestSha256, displacedStateTreeDigestSha256, displacedStatePath, displacedEvidencePath, healthIdentityVerified ? 1 : 0, databaseIntegrity, foreignKeyIssues, schemaVerified ? 1 : 0, displacedStateRetained ? 1 : 0, sourceRollbackCheckpointUnchanged ? 1 : 0, ownerLoginTested ? 1 : 0, createdBy, at);
+    recordAudit("application.recovery.rolled-back", { actorId: createdBy, subjectId: id, details: { promotionId, applicationId, releaseVersion, displacedStateRetained, sourceRollbackCheckpointUnchanged } });
+    return getApplicationRecoveryRollback(id);
+  }
+
+  function getApplicationRecoveryRollback(id) {
+    return mapApplicationRecoveryRollback(database.prepare("SELECT * FROM application_recovery_rollbacks WHERE id = ?").get(id));
+  }
+
+  function getApplicationRecoveryRollbackByPromotion(promotionId) {
+    return mapApplicationRecoveryRollback(database.prepare("SELECT * FROM application_recovery_rollbacks WHERE promotion_id = ?").get(promotionId));
+  }
+
+  function listApplicationRecoveryRollbacks(limit = 50) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    return database.prepare("SELECT * FROM application_recovery_rollbacks ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapApplicationRecoveryRollback);
   }
 
   function recordApplicationBackupProtection({ id, backupId, applicationId, destination, repositoryId, snapshotId, sizeBytes, encrypted, independent, repositoryVerified, protected: protectedState, restoreDrill, createdBy }) {
@@ -1650,6 +1721,10 @@ export function createStateStore({
     recordApplicationRecoveryPromotion,
     getApplicationRecoveryPromotion,
     listApplicationRecoveryPromotions,
+    recordApplicationRecoveryRollback,
+    getApplicationRecoveryRollback,
+    getApplicationRecoveryRollbackByPromotion,
+    listApplicationRecoveryRollbacks,
     recordApplicationBackupProtection,
     getApplicationBackupProtection,
     getApplicationBackupProtectionByBackup,

@@ -458,6 +458,39 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("runs only the exact Keel operator rollback and records both preserved state boundaries", async () => {
+    const input = {
+      rollbackId: "55555555-5555-4555-8555-555555555555", promotionId: "33333333-3333-4333-8333-333333333333",
+      expectedInstallId: "44444444-4444-4444-8444-444444444444", expectedRollbackEvidenceChecksumSha256: "a".repeat(64),
+      expectedPreviousStateTreeDigestSha256: "b".repeat(64),
+    };
+    const result = {
+      schemaVersion: 1, passed: true, rollbackId: input.rollbackId, promotionId: input.promotionId, installId: input.expectedInstallId,
+      sourceRollbackEvidenceChecksumSha256: input.expectedRollbackEvidenceChecksumSha256,
+      sourcePreviousStateTreeDigestSha256: input.expectedPreviousStateTreeDigestSha256,
+      restoredStateTreeDigestSha256: input.expectedPreviousStateTreeDigestSha256, displacedStateRetained: true,
+      sourceRollbackCheckpointUnchanged: true, rollbackRequested: true, productionStateReplaced: true, healthIdentityVerified: true,
+      databaseIntegrity: "ok", foreignKeyIssues: 0, schemaVerified: true, automaticFailureRecoveryTested: false, ownerLoginTested: false,
+      publishedPortsChanged: false, tailscaleChanged: false, firewallChanged: false, routerChanged: false,
+    };
+    let finish;
+    const helper = { request: vi.fn(() => new Promise((resolve) => { finish = resolve; })) };
+    const { store, owner } = await setup(helper);
+    const validateKeelRollbackJob = vi.fn(async () => ({ input }));
+    const recordKeelRollbackResult = vi.fn();
+    const jobs = createJobService(store, helper, { validateKeelRollbackJob, recordKeelRollbackResult });
+    const job = store.createJob({ type: "application.keel.rollback", title: "Roll back Keel promotion", risk: "critical", parameters: { input }, recovery: { automaticRollback: true }, createdBy: owner.id });
+
+    const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
+    expect(started.state).toBe("applying");
+    expect(validateKeelRollbackJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("application.keel.rollback.create", input, { timeoutMs: 20 * 60 * 1000 });
+    finish(result);
+    await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
+    expect(recordKeelRollbackResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
+    store.close();
+  });
+
   it("runs a migration bundle transfer in the background without sending source records or paths to the helper", async () => {
     const input = {
       transferId: "11111111-1111-4111-8111-111111111111",
