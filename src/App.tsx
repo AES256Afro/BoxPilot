@@ -260,7 +260,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     }
     if (view === "network") return <NetworkCenter csrfToken={authStatus.csrfToken ?? ""} onAssessmentReady={setNetworkAssessmentId} onOpenRepair={() => setView("repairs")} />;
     if (view === "routers") return <RouterCenter csrfToken={authStatus.csrfToken ?? ""} />;
-    if (view === "repairs") return <RepairCenter csrfToken={authStatus.csrfToken ?? ""} />;
+    if (view === "repairs") return <RepairCenter csrfToken={authStatus.csrfToken ?? ""} onNavigate={setView} />;
     if (view === "virtualization") return <VirtualMachines csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "backups") return <BackupCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "migrations") return <MigrationCenter csrfToken={authStatus.csrfToken ?? ""} />;
@@ -289,7 +289,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.28.0",
+      version: "0.29.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
@@ -331,7 +331,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.28.0 one-shot fleet policy<br />No general scheduler</div>
+        <div className="prototype-label">v0.29.0 local Action Center<br />Guidance only, no auto-repair</div>
       </aside>
 
       <main>

@@ -21,6 +21,20 @@ describe("Repair Center", () => {
         expect(init?.headers).toMatchObject({ "X-BoxPilot-CSRF": "csrf-token" });
         return new Response(JSON.stringify({ job: { id: "job-one" } }), { status: 201, headers: { "Content-Type": "application/json" } });
       }
+      if (url.includes("action-center")) {
+        return new Response(JSON.stringify({
+          generatedAt: "2026-08-16T05:00:00.000Z",
+          sourceStatus: "ready",
+          summary: { critical: 0, warning: 1, info: 0, total: 1 },
+          notices: [{
+            id: "recovery.router.checkpoint", severity: "warning", category: "Router recovery", title: "Router configuration checkpoint", summary: "Export and hash the active router configuration.",
+            evidence: ["No router backup identity is recorded.", "Recovery evidence state: action-required."],
+            recommendation: { view: "routers", title: "Open Routers", steps: ["Export the active configuration.", "Keep the file independently.", "Record its SHA-256."] },
+            boundary: { mutationPerformed: false, automaticFixAvailable: false, commandsIncluded: false, secretsIncluded: false, logsIncluded: false },
+          }],
+          boundary: { mutationPerformed: false, automaticRepair: false, persistence: false, browserNotifications: false, externalDelivery: false, credentialsIncluded: false, arbitraryLogsIncluded: false },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
       if (url.includes("recovery-kit")) {
         return new Response(JSON.stringify({
           schemaVersion: 1, generatedAt: "2026-08-16T04:05:00.000Z", product: { name: "BoxPilot", version: "0.26.0" },
@@ -42,6 +56,8 @@ describe("Repair Center", () => {
     expect(await screen.findByText("Restricted helper")).toBeTruthy();
     expect(screen.getByText("Docker Engine")).toBeTruthy();
     expect(screen.getByText("Recovery readiness and ordered runbook")).toBeTruthy();
+    expect(screen.getByText("Prioritized evidence and guided next steps")).toBeTruthy();
+    expect(screen.getByText("No automatic fix, command, credential, or log payload.")).toBeTruthy();
     expect(screen.getByText("Independent BoxPilot database copy")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Download evidence JSON" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Create verification job" }));
@@ -52,6 +68,7 @@ describe("Repair Center", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url.includes("prerequisites")) return new Response(JSON.stringify({ checks: [{ id: "helper.boundary", group: "BoxPilot", name: "Restricted helper", status: "ready", summary: "Ready", repair: null }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url.includes("action-center")) return new Response(JSON.stringify({ error: "Action collector unavailable" }), { status: 503, headers: { "Content-Type": "application/json" } });
       if (url.includes("recovery-kit")) return new Response(JSON.stringify({ error: "Collector unavailable" }), { status: 503, headers: { "Content-Type": "application/json" } });
       return new Response(JSON.stringify({ jobs: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
     });
