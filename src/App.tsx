@@ -313,7 +313,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.55.0 guided KVM, QEMU<br />and libvirt prerequisite install</div>
+        <div className="prototype-label">v0.55.1 guided KVM, QEMU<br />and libvirt prerequisite install</div>
       </aside>
 
       <main>

@@ -147,7 +147,7 @@ describe("KVM QEMU libvirt prerequisite repair planning", () => {
     const { store, owner, helper, service } = await setup(state);
     await expect(service.planVirtualization(owner.id, { uri: "qemu:///session" })).rejects.toThrow("empty object");
     helper.request.mockResolvedValueOnce({ ...state, kvmDeviceAvailable: false, repairAvailable: false });
-    await expect(service.planVirtualization(owner.id, {})).rejects.toThrow("/dev/kvm");
+    await expect(service.planVirtualization(owner.id, {})).rejects.toThrow("KVM kernel interface");
     helper.request.mockResolvedValueOnce({ ...state, installed: true, providerPresent: true, repairAvailable: false });
     await expect(service.planVirtualization(owner.id, {})).rejects.toThrow("already active");
     helper.request.mockResolvedValueOnce({ ...state, candidatePackages: { "qemu-system-x86": candidates["qemu-system-x86"], "libvirt-daemon-system": candidates["libvirt-daemon-system"], "libvirt-clients": candidates["libvirt-clients"], virtinst: candidates.virtinst, curl: "1.0" } });

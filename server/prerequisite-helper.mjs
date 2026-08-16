@@ -321,7 +321,7 @@ export function createPrerequisiteHelper({
     const [virshPath, qemuPath, kvmDevice, service, uri, qemu] = await Promise.all([
       run("/usr/bin/test", ["-e", "/usr/bin/virsh"], { timeout: 10000 }),
       run("/usr/bin/test", ["-e", "/usr/bin/qemu-system-x86_64"], { timeout: 10000 }),
-      run("/usr/bin/test", ["-c", "/dev/kvm"], { timeout: 10000 }),
+      run("/usr/bin/test", ["-r", "/sys/class/misc/kvm/dev"], { timeout: 10000 }),
       run(systemctlBinary, ["is-active", "--quiet", "libvirtd.service"], { timeout: 10000 }),
       run("/usr/bin/virsh", ["--connect", "qemu:///system", "uri"], { timeout: 15000 }),
       run("/usr/bin/qemu-system-x86_64", ["--version"], { timeout: 10000 }),
@@ -343,6 +343,7 @@ export function createPrerequisiteHelper({
       candidateSetAvailable,
       providerPresent,
       kvmDeviceAvailable: kvmDevice.ok,
+      kvmEvidencePath: "/sys/class/misc/kvm/dev",
       serviceActive: service.ok,
       connectionReady,
       connectionUri: connectionReady ? uri.stdout : null,
