@@ -1,10 +1,10 @@
 # Verified application backups
 
-BoxPilot provides four deliberately narrow recovery-evidence paths: the `0.38.0` WAL-aware controller database snapshot, `0.39.0` encrypted independent exact-restore stage, and `0.40.0` fixed evidence-gated retention; the restore-verified local Uptime Kuma and Pi-hole adapters plus their `0.44.0` encrypted independent exact-archive restore stage; and the VM export, encrypted independent-copy, isolated restore-drill, guarded recovery-clone, and evidence-gated retention chain completed through `0.16.0`. It does not report a workload as protected merely because a file was copied.
+BoxPilot provides deliberately narrow recovery-evidence paths: the `0.38.0` WAL-aware controller database snapshot, `0.39.0` encrypted independent exact-restore stage, and `0.40.0` fixed evidence-gated retention; the restore-verified local Uptime Kuma and Pi-hole adapters plus their `0.44.0` encrypted independent exact-archive restore stage; the `0.48.0` consistent Keel export, guaranteed source restart, and isolated SQLite-open drill using that same independent application protection stage; and the VM export, encrypted independent-copy, isolated restore-drill, guarded recovery-clone, and evidence-gated retention chain completed through `0.16.0`. It does not report a workload as protected merely because a file was copied.
 
 ## Safety boundary
 
-The browser can request immutable local plans for `boxpilot-controller`, `uptime-kuma`, or `pi-hole`. Independent application protection can select only a durable verified local application backup id. Approval requires the owner password. The restricted root helper derives every source, artifact, repository, password-file, and restore path itself.
+The browser can request immutable local plans for `boxpilot-controller`, `uptime-kuma`, `pi-hole`, or `keel`. Independent application protection can select only a durable verified local application backup id. Approval requires the owner password. The restricted root helper derives every source, artifact, repository, password-file, and restore path itself.
 
 It never accepts a path, archive command, container name, image name, destination, repository selector, password, restic argument, or shell string from the browser.
 
@@ -38,6 +38,7 @@ The helper stores artifacts under:
 ```text
 /var/lib/boxpilot-managed/backups/uptime-kuma/<backup-uuid>.tar.gz
 /var/lib/boxpilot-managed/backups/pi-hole/<backup-uuid>.tar.gz
+/var/lib/boxpilot-managed/backups/keel/<backup-uuid>.tar.gz
 /var/lib/boxpilot-managed/backups/boxpilot-controller/<backup-uuid>/boxpilot.sqlite3
 /var/lib/boxpilot-managed/backups/boxpilot-controller/<backup-uuid>/manifest.json
 ```
@@ -76,9 +77,29 @@ Before stopping the source, the helper writes a strict root-only active-operatio
 
 This workflow never publishes restore ports, edits Pi-hole live configuration, retrieves the password into the web process, changes DHCP, changes a router, advertises DNS, reconfigures Tailscale, or performs DNS cutover.
 
+## Keel Notes workflow
+
+Version `0.48.0` backs up only the exact BoxPilot-managed Keel 1.2.6 native service. The plan requires the fixed install identity, active and enabled `keel.service`, private state, loopback-only listener, exact JSON health identity, the `runtime.node` prerequisite, the helper boundary, and storage readiness.
+
+For one approved Keel backup, BoxPilot:
+
+1. Writes a five-minute root-only operation marker and starts one static no-argument systemd unit.
+2. Rechecks the install id, release, dedicated account, service, private state, and loopback health.
+3. Stops only `keel.service`, confirms it is inactive, and runs the fixed upstream `keel export` as the `keel` uid and gid.
+4. Captures the consistent SQLite database, emitted WAL companions, managed-secret companion and uploads when present, and the fixed environment into one generated tree without returning contents.
+5. Rejects links, non-regular files, multiple hard links, unexpected top-level entries, unsafe managed-secret shape, any upstream incomplete-uploads warning, and fixed member or logical-size ceiling violations.
+6. Opens the exported SQLite copy read-only and requires `PRAGMA integrity_check`, zero foreign-key issues, and the required Keel tables.
+7. Records complete file hashes, sizes, a deterministic tree digest, and a root-only manifest; creates a non-overwriting compressed artifact; restarts Keel; and requires the exact health identity.
+8. Extracts the artifact into one generated restore workspace while the one-shot has only loopback network access. It starts no application and verifies the restored manifest checksum, membership, complete tree digest, SQLite integrity, foreign keys, and schema.
+9. Removes the successful drill workspace and records source-restart, isolation, no-production-replacement, and no-network-or-router-mutation evidence.
+
+The script and systemd unit both request source restart after failure. Helper startup can also recover a validated marker left by an interrupted request. It restarts only `keel.service` and removes only generated unrecorded backup paths after restart succeeds. It never deletes or replaces `/var/lib/keel`, changes claim or registration, exposes a listener, modifies Tailscale or a firewall, changes DNS or DHCP, or contacts a router.
+
+The archive may contain private notes, users, sessions, configuration, uploads, credentials, and the managed-secret companion. Keep it mode `0600` and treat it as highly sensitive. Local verification proves that the artifact can be opened and structurally recovered, but not that Bigbox storage failure is covered. Run the separate encrypted independent application protection workflow before marking it protected.
+
 ## Encrypted independent application protection
 
-Version `0.44.0` adds a second required layer for a locally verified Uptime Kuma or Pi-hole archive. It uses the fixed repository and separate key below:
+Version `0.44.0` adds a second required layer for a locally verified Uptime Kuma or Pi-hole archive. Version `0.48.0` admits a Keel archive only after its native-service restart and isolated SQLite-open evidence passes. All three use the fixed repository and separate key below:
 
 ```text
 Mount:      /mnt/boxpilot-backup
@@ -110,7 +131,7 @@ For one approved protection job, BoxPilot:
 7. Restores that exact snapshot with verification into a generated root-only workspace, then requires identical size and SHA-256.
 8. Removes the successful drill workspace and records encryption, independence, repository verification, prior local drill, and exact restored-artifact evidence.
 
-Uptime Kuma and Pi-hole are shown as protected only after both layers pass. The independent drill deliberately does not extract the sensitive archive or start another container; that application-aware boot proof already belongs to the pinned local record. It proves the encrypted independent repository can return the exact bytes that passed that earlier drill.
+Uptime Kuma, Pi-hole, and Keel are shown as protected only after both layers pass. The independent drill deliberately does not extract the sensitive archive or start another application; that adapter-aware boot or SQLite-open proof already belongs to the pinned local record. It proves the encrypted independent repository can return the exact bytes that passed that earlier drill.
 
 This workflow never starts or stops the production application, changes the local archive, returns a secret, changes router or client DNS, queries DNS, forgets a snapshot, prunes packs, schedules itself, or performs automatic production restore. A failed post-copy check preserves the repository and generated root-only drill workspace for inspection. Application retention remains unavailable.
 

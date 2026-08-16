@@ -23,7 +23,7 @@ function fixture({ applicationId = "uptime-kuma", installed = true, healthy = tr
   const prerequisites = { inspect: vi.fn(async () => ({ checks: [
     { id: "storage.state", status: "ready" }, { id: "helper.boundary", status: "ready" }, { id: "containers.docker", status: "ready" },
   ] })) };
-  return { store, helper, prerequisites, service: createBackupService({ store, helper, prerequisites }) };
+  return { store, helper, prerequisites, service: createBackupService({ store, helper, prerequisites, inspectKeelHealth: async () => healthy }) };
 }
 
 function resultFor(applicationId, backupId = "11111111-1111-4111-8111-111111111111") {
@@ -63,11 +63,27 @@ function resultFor(applicationId, backupId = "11111111-1111-4111-8111-1111111111
       dnsCutoverPerformed: false,
     });
   }
+  if (applicationId === "keel") {
+    Object.assign(result, { releaseVersion: "1.2.6", manifestChecksumSha256: "b".repeat(64) });
+    Object.assign(result.restoreDrill, {
+      mode: "isolated-keel-export-open",
+      databaseIntegrity: "ok",
+      foreignKeyIssues: 0,
+      schemaVerified: true,
+      environmentIncluded: true,
+      treeDigestMatched: true,
+      manifestChecksumSha256: "b".repeat(64),
+      workspaceRemoved: true,
+      applicationStarted: false,
+      productionStateReplaced: false,
+    });
+    result.boundary = { browserPathAccepted: false, browserCommandAccepted: false, browserTokenAccepted: false, databaseOpened: true, secretContentReturned: false, environmentContentReturned: false, sourceServiceStopped: true, sourceRestarted: true, networkAccessRequiredForDrill: false, productionStateReplaced: false, registrationChanged: false, claimChanged: false, tailscaleChanged: false, firewallChanged: false, routerChanged: false, independentCopyCreated: false, retentionPerformed: false, prunePerformed: false };
+  }
   return result;
 }
 
 describe("application-aware backup service", () => {
-  it("lists controller, Uptime Kuma, and Pi-hole coverage independently", async () => {
+  it("lists controller, Uptime Kuma, Pi-hole, and Keel coverage independently", async () => {
     const latest = resultFor("pi-hole");
     latest.createdAt = "2026-08-16T00:00:00.000Z";
     const { service, helper } = fixture({ backups: [latest] });
@@ -76,21 +92,24 @@ describe("application-aware backup service", () => {
       expect.objectContaining({ applicationId: "boxpilot-controller", name: "BoxPilot controller", sourceKind: "controller-state", state: "unprotected", protected: false }),
       expect.objectContaining({ applicationId: "uptime-kuma", name: "Uptime Kuma", state: "unprotected", protected: false }),
       expect.objectContaining({ applicationId: "pi-hole", name: "Pi-hole", state: "locally-verified", protected: false, latestBackup: latest }),
+      expect.objectContaining({ applicationId: "keel", name: "Keel Notes", state: "unprotected", protected: false }),
     ]);
     expect(helper.request).toHaveBeenCalledWith("application.uptime-kuma.inspect", {});
     expect(helper.request).toHaveBeenCalledWith("application.pi-hole.inspect", {});
+    expect(helper.request).toHaveBeenCalledWith("application.keel.install.inspect", {});
     expect(inventory.limitations.join(" ")).toContain("disaster protection");
   });
 
   it.each([
     ["uptime-kuma", "Uptime Kuma"],
     ["pi-hole", "Pi-hole"],
+    ["keel", "Keel Notes"],
   ])("creates an executable %s plan only for an installed healthy source", async (applicationId, name) => {
     const { service } = fixture({ applicationId });
     const plan = await service.plan(applicationId, "owner-one");
     expect(plan).toMatchObject({ subjectId: applicationId, output: { executable: true, destination: "local-managed", blockers: [] } });
     expect(plan.output.changes.join(" ")).toContain("SHA-256");
-    expect(plan.output.changes.join(" ")).toContain("Restart the source container");
+    expect(plan.output.changes.join(" ")).toContain(applicationId === "keel" ? "Restart keel.service" : "Restart the source container");
     expect(plan.output.recovery).toContain(name);
   });
 
@@ -116,6 +135,7 @@ describe("application-aware backup service", () => {
     ["boxpilot-controller", "controller.database.backup", "medium"],
     ["uptime-kuma", "application.uptime-kuma.backup", "medium"],
     ["pi-hole", "application.pi-hole.backup", "network-critical"],
+    ["keel", "application.keel.backup", "medium"],
   ])("stages an exact %s revision with a server-generated backup id", async (applicationId, jobType, risk) => {
     const { service, store } = fixture({ applicationId });
     const job = await service.stage("plan-one", "rev-one", "owner-one");
@@ -128,6 +148,7 @@ describe("application-aware backup service", () => {
     ["boxpilot-controller", "controller.database.backup"],
     ["uptime-kuma", "application.uptime-kuma.backup"],
     ["pi-hole", "application.pi-hole.backup"],
+    ["keel", "application.keel.backup"],
   ])("records only restore-verified %s evidence tied to the job", (applicationId, type) => {
     const { service, store } = fixture({ applicationId });
     const job = { type, parameters: { backupId: "11111111-1111-4111-8111-111111111111", applicationId }, createdBy: "owner-one" };
@@ -154,5 +175,14 @@ describe("application-aware backup service", () => {
     const result = resultFor("pi-hole", job.parameters.backupId);
     expect(() => service.recordResult(job, { ...result, restoreDrill: { ...result.restoreDrill, administratorSecretIncluded: false } })).toThrow("evidence validation");
     expect(() => service.recordResult(job, { ...result, dnsCutoverPerformed: true })).toThrow("evidence validation");
+  });
+
+  it("rejects Keel evidence that omits source restart, database, tree, claim, or private-boundary proof", () => {
+    const { service } = fixture({ applicationId: "keel" });
+    const job = { type: "application.keel.backup", parameters: { backupId: "11111111-1111-4111-8111-111111111111", applicationId: "keel" }, createdBy: "owner-one" };
+    const result = resultFor("keel", job.parameters.backupId);
+    expect(() => service.recordResult(job, { ...result, restoreDrill: { ...result.restoreDrill, databaseIntegrity: "failed" } })).toThrow("evidence validation");
+    expect(() => service.recordResult(job, { ...result, boundary: { ...result.boundary, claimChanged: true } })).toThrow("evidence validation");
+    expect(() => service.recordResult(job, { ...result, boundary: { ...result.boundary, secretContentReturned: true } })).toThrow("evidence validation");
   });
 });
