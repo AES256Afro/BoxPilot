@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BoxPilot network and DNS assessment mock</title>
+  <style>
+    :root { color-scheme:dark; --bg:#071019; --panel:#0d1924; --panel2:#111f2c; --line:#24384a; --muted:#8ea4b8; --text:#e8f0f6; --cyan:#52d3d8; --amber:#f5bd63; --green:#68d39b; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:radial-gradient(circle at 90% 0,#143044 0,transparent 31%),var(--bg); color:var(--text); font-family:Inter,ui-sans-serif,system-ui,-apple-system,sans-serif; }
+    .shell { min-height:100vh; display:grid; grid-template-columns:232px 1fr; }
+    aside { border-right:1px solid var(--line); background:#09131d; padding:26px 20px; display:flex; flex-direction:column; }
+    .brand { font-size:21px; font-weight:800; margin-bottom:34px; } .brand span { display:inline-grid; place-items:center; width:34px; height:34px; margin-right:9px; border-radius:9px; background:var(--cyan); color:#051014; }
+    nav { display:grid; gap:7px; } nav div { padding:10px 12px; color:var(--muted); border-radius:8px; font-size:12px; } nav .active { color:var(--text); background:#142534; border:1px solid #28465d; }
+    .private { margin-top:auto; border:1px solid #244657; border-radius:10px; padding:12px; color:var(--muted); font-size:11px; } .private strong { color:var(--green); display:block; margin-bottom:4px; }
+    main { padding:25px 32px 34px; }
+    .top { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; } .top small { color:var(--muted); } .pill { border:1px solid #685434; background:#332713; color:var(--amber); border-radius:999px; padding:6px 10px; font-size:10px; white-space:nowrap; }
+    .pill.good { border-color:#285944; background:#102c24; color:var(--green); }
+    .eyebrow { color:var(--cyan); text-transform:uppercase; letter-spacing:.13em; font-size:9px; font-weight:800; }
+    h1 { margin:5px 0 4px; font-size:28px; } h2 { margin:4px 0 0; font-size:16px; } p { color:var(--muted); font-size:11px; line-height:1.45; margin:4px 0; }
+    .disclosure { margin:13px 0; border:1px solid #7e542c; background:#2b1d10; color:#ffd293; border-radius:10px; padding:10px 13px; font-weight:700; font-size:10px; }
+    .summary { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:12px; }
+    .metric,.panel { border:1px solid var(--line); background:linear-gradient(180deg,var(--panel2),var(--panel)); border-radius:11px; box-shadow:0 12px 28px #0004; }
+    .metric { padding:12px; } .metric span { display:block; color:var(--muted); font-size:9px; margin-bottom:5px; } .metric strong { font-size:12px; }
+    .grid { display:grid; grid-template-columns:.9fr 1.1fr; gap:12px; }
+    .panel { padding:15px; }
+    .panel-head { display:flex; justify-content:space-between; align-items:flex-start; padding-bottom:10px; margin-bottom:10px; border-bottom:1px solid var(--line); }
+    .rows { display:grid; gap:7px; }.row { display:flex; justify-content:space-between; align-items:center; gap:12px; border:1px solid #1e3445; background:#09151f; border-radius:8px; padding:9px 10px; font-size:10px; }.row span { color:var(--muted); }.row strong { font-size:11px; }
+    .plan { margin-top:12px; }
+    .plan-top { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+    .roles { display:grid; grid-template-columns:1fr 1fr; gap:11px; margin-top:11px; }
+    .card { border:1px solid #1f3748; background:#09151f; border-radius:9px; padding:12px; }
+    .card > strong { font-size:10px; } ul,ol { margin:7px 0 0; padding-left:17px; } li { color:var(--muted); font-size:9px; line-height:1.45; margin:4px 0; }
+    .checks { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; margin:11px 0; }.check { border:1px solid #24543f; background:#0d271f; color:#a9e7c7; border-radius:7px; padding:8px; font-size:9px; }.check::before { content:"✓"; color:var(--green); margin-right:5px; font-weight:900; }
+    .warning { border:1px solid #6a5533; background:#2a2114; border-radius:8px; padding:9px 11px; display:flex; gap:10px; justify-content:space-between; align-items:center; }.warning strong { color:var(--amber); font-size:10px; }.warning span { color:#d7c29b; font-size:9px; }
+    .locks { display:flex; align-items:center; gap:8px; margin-top:10px; }.locks > span:last-child { color:var(--muted); font-size:9px; margin-left:auto; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand"><span>B</span>BoxPilot</div>
+      <nav><div>Overview</div><div>Applications</div><div class="active">Network</div><div>Repair Center</div><div>Virtual Machines</div><div>Backups</div><div>Migrations</div><div>Logs</div><div>Settings</div></nav>
+      <div class="private"><strong>Private administration</strong>Tailscale HTTPS | Funnel off</div>
+    </aside>
+    <main>
+      <div class="top"><div><small>BoxPilot control plane</small><h1>Network and DNS</h1><p>Inspect the live-shaped gateway, resolver path, and DNS listeners before planning a change.</p></div><span class="pill">Guarded mode</span></div>
+      <div class="disclosure">MOCKED 0.18.0 PRODUCT STATE. No real router, DNS, DHCP, firewall, Tailscale, or application setting was read or changed for this capture.</div>
+      <div class="summary">
+        <div class="metric"><span>Default gateway</span><strong>192.168.8.1 | eno1</strong></div>
+        <div class="metric"><span>Bigbox LAN</span><strong>192.168.8.10/24</strong></div>
+        <div class="metric"><span>Default resolvers</span><strong>94.140.14.49 + .59</strong></div>
+        <div class="metric"><span>Tailscale DNS</span><strong>Split resolver only</strong></div>
+      </div>
+      <div class="grid">
+        <section class="panel">
+          <div class="panel-head"><div><span class="eyebrow">Observed listener scope</span><h2>TCP and UDP port 53</h2></div><span class="pill good">5/5 collectors</span></div>
+          <div class="rows">
+            <div class="row"><div><strong>127.0.0.53:53</strong><span> systemd-resolved</span></div><span>TCP | loopback</span></div>
+            <div class="row"><div><strong>127.0.0.54:53</strong><span> proxy stub</span></div><span>UDP | loopback</span></div>
+            <div class="row"><div><strong>192.168.122.1:53</strong><span> virbr0</span></div><span>TCP+UDP | virtual</span></div>
+          </div>
+          <p>There is no wildcard or 192.168.8.10 listener in this mocked state. A future Bigbox DNS adapter must bind the exact reviewed LAN address.</p>
+        </section>
+        <section class="panel">
+          <div class="panel-head"><div><span class="eyebrow">Declared hardware roles</span><h2>One router, two non-routing devices</h2></div><span class="pill">Read only</span></div>
+          <div class="rows">
+            <div class="row"><div><strong>GL.iNet Flint 2</strong><span> edge router, NAT, DHCP</span></div><span>AdGuard Home optional</span></div>
+            <div class="row"><div><strong>TP-Link Archer BE400</strong><span> access point</span></div><span>No downstream NAT</span></div>
+            <div class="row"><div><strong>Omada ER707-M2</strong><span> standby or lab</span></div><span>Not in forwarding path</span></div>
+          </div>
+          <p>Placing all three devices in router mode would create multiple NAT and DHCP boundaries. BoxPilot does not log in to any device in 0.18.0.</p>
+        </section>
+      </div>
+      <section class="panel plan">
+        <div class="plan-top"><div><span class="eyebrow">Immutable no-change assessment 7e5b1a90</span><h2>Keep current external AdGuard DNS while preparing the recovery boundary</h2></div><span class="pill good">Prerequisites recorded</span></div>
+        <div class="checks"><div class="check">Router backup recorded</div><div class="check">Emergency DNS tested</div><div class="check">Second device ready</div><div class="check">Tailscale override off</div></div>
+        <div class="roles">
+          <div class="card"><strong>Planned sequence</strong><ol><li>Keep Flint 2 as the only gateway and DHCP authority.</li><li>Preserve 94.140.14.59 as the independent emergency resolver.</li><li>Test any new DNS appliance before advertising it.</li><li>Verify from Bigbox and a second LAN device.</li></ol></div>
+          <div class="card"><strong>Rollback order</strong><ol><li>Restore router DNS advertisement to 94.140.14.59.</li><li>Verify ordinary DNS without depending on Bigbox.</li><li>Preserve Tailscale access and keep DNS override off.</li><li>Do not stop the previous resolver during the rollback window.</li></ol></div>
+        </div>
+        <div class="warning"><strong>Assessment only</strong><span>No router session, router write, DNS cutover, network probe, or application deployment exists in this workflow.</span></div>
+        <div class="locks"><span class="pill">Router writes locked</span><span class="pill">DNS cutover locked</span><span>revision 90f3c7... | expires 7:42 PM | owner chris</span></div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

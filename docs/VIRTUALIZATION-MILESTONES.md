@@ -2,7 +2,7 @@
 
 This plan turns the current QEMU/KVM module into a dependable home-server virtualization control plane. Milestones are dependency ordered. A later milestone cannot ship merely because its interface is complete.
 
-## Current baseline: 0.17.0
+## Current baseline: 0.18.0
 
 Shipped:
 
@@ -130,7 +130,7 @@ Acceptance:
 
 Target: `0.8.0`
 
-Status: `0.12.0` ships the first stopped-VM export slice to a fixed root-only local destination with preflight capacity, immutable state revisions, standalone qcow2 conversion, structure and source-content verification, SHA-256 evidence, background execution, and confined cleanup. Version `0.13.0` adds one fixed independent mounted-restic destination with exact mount and filesystem-device checks, root-only password policy, immutable repository identity, local source rehashing, encrypted snapshots, full repository reads, exact snapshot readback, and no automated deletion. Version `0.14.0` adds exact-snapshot restore, restored-file and qcow2 verification, a transient zero-network guest, repeated QEMU guest-agent health, exact UEFI and permission cleanup, and evidence-gated protected status. Version `0.15.0` adds guarded restore execution as a separately named stopped persistent no-network recovery clone, with exact source preservation and confined rollback. Version `0.16.0` adds one fixed high-risk retention workflow for exact old protected snapshot references, with no prune or space-reclamation claim. Version `0.17.0` does not change VM behavior. In-place restore, application-level health tests, configurable retention, prune, remote destinations, and VM migration transfer remain pending.
+Status: `0.12.0` ships the first stopped-VM export slice to a fixed root-only local destination with preflight capacity, immutable state revisions, standalone qcow2 conversion, structure and source-content verification, SHA-256 evidence, background execution, and confined cleanup. Version `0.13.0` adds one fixed independent mounted-restic destination with exact mount and filesystem-device checks, root-only password policy, immutable repository identity, local source rehashing, encrypted snapshots, full repository reads, exact snapshot readback, and no automated deletion. Version `0.14.0` adds exact-snapshot restore, restored-file and qcow2 verification, a transient zero-network guest, repeated QEMU guest-agent health, exact UEFI and permission cleanup, and evidence-gated protected status. Version `0.15.0` adds guarded restore execution as a separately named stopped persistent no-network recovery clone, with exact source preservation and confined rollback. Version `0.16.0` adds one fixed high-risk retention workflow for exact old protected snapshot references, with no prune or space-reclamation claim. Versions `0.17.0` and `0.18.0` do not change VM behavior. In-place restore, application-level health tests, configurable retention, prune, remote destinations, and VM migration transfer remain pending.
 
 - Quiesced backup coordination when a guest agent is available
 - Offline backup fallback with measured downtime

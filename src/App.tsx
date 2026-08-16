@@ -9,6 +9,7 @@ import ApplicationCatalog from "./ApplicationCatalog";
 import BackupCenter from "./BackupCenter";
 import HostOverview from "./HostOverview";
 import MigrationCenter from "./MigrationCenter";
+import NetworkCenter from "./NetworkCenter";
 import RepairCenter from "./RepairCenter";
 import SystemLogs from "./SystemLogs";
 import { fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
@@ -25,6 +26,10 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
     title: "Applications",
     description: "Curated installs with port, storage, secret, health, and backup checks.",
     action: "Import Compose",
+  },
+  network: {
+    title: "Network and DNS",
+    description: "Inspect the live gateway, resolver path, and DNS listeners before planning router or DNS changes.",
   },
   repairs: {
     title: "Prerequisites and Repair Center",
@@ -63,6 +68,11 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     label: "Curated application engine",
     tone: "live",
     description: "Manifests, host-backed plans, and Uptime Kuma staging are live. Pi-hole remains planning-only until DNS recovery gates pass.",
+  },
+  network: {
+    label: "Read-only network intelligence",
+    tone: "live",
+    description: "Default routes, systemd-resolved servers, fixed port 53 listener metadata, Bigbox LAN addresses, and Tailscale self-state come from the server. Router credentials, neighbor MAC addresses, router writes, and DNS cutover are not supported.",
   },
   repairs: {
     label: "Live Operations Core",
@@ -215,6 +225,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
         />
       );
     }
+    if (view === "network") return <NetworkCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "repairs") return <RepairCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "virtualization") return <VirtualMachines csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "backups") return <BackupCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
@@ -242,7 +253,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.17.0",
+      version: "0.18.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
@@ -284,7 +295,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.17.0 guarded migration staging<br />Checksummed, resumable, no activation</div>
+        <div className="prototype-label">v0.18.0 network intelligence<br />Read-only topology and recovery plans</div>
       </aside>
 
       <main>

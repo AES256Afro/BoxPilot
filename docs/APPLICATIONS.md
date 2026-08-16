@@ -76,6 +76,8 @@ After deployment, the Backups page can record artifact integrity and an isolated
 
 Pi-hole is planning-only. The adapter models the official Docker image, persistent `/etc/pihole` configuration, TCP and UDP port 53, web access, and both Docker and dedicated-VM targets.
 
+Version `0.18.0` adds the prerequisite [Network and DNS Center](NETWORK.md). It can distinguish loopback, virtual-network, wildcard, and exact host-address port 53 listeners and can record the router checkpoint, emergency resolver, second-device, address, subnet, and Tailscale DNS recovery gates. The resulting assessment is not executable and does not yet unlock Pi-hole staging.
+
 Official source: [Docker Pi-hole](https://github.com/pi-hole/docker-pi-hole).
 
 BoxPilot will not stage Pi-hole until later milestones can prove:
