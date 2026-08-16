@@ -5,6 +5,7 @@ function fixture({ applicationId = "uptime-kuma", installed = true, healthy = tr
   const store = {
     listBackups: vi.fn(() => backups),
     listControllerBackupProtections: vi.fn(() => []),
+    listApplicationBackupProtections: vi.fn(() => []),
     createPlan: vi.fn((value) => ({ id: "plan-one", revision: "rev-one", status: "draft", ...value })),
     getPlan: vi.fn(() => ({ id: "plan-one", type: "application.backup", subjectId: applicationId, revision: "rev-one", status: "draft", output: { executable: true, blockers: [] }, createdBy: "owner-one" })),
     stagePlan: vi.fn(),

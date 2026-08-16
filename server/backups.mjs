@@ -18,12 +18,13 @@ export function createBackupService({ store, prerequisites, helper }) {
   async function list() {
     const backups = store.listBackups();
     const controllerProtections = store.listControllerBackupProtections();
+    const applicationProtections = store.listApplicationBackupProtections();
     const coverage = await Promise.all(Object.entries(adapters).map(async ([applicationId, adapter]) => {
       const source = await inspectSource(applicationId);
       const latest = backups.find((backup) => backup.applicationId === applicationId) ?? null;
-      const latestProtection = applicationId === "boxpilot-controller" && latest
+      const latestProtection = latest ? (applicationId === "boxpilot-controller"
         ? controllerProtections.find((protection) => protection.backupId === latest.id) ?? null
-        : null;
+        : applicationProtections.find((protection) => protection.backupId === latest.id) ?? null) : null;
       const state = !source.installed ? "not-installed" : latestProtection?.protected ? "protected" : latest?.restoreDrill?.passed ? "locally-verified" : "unprotected";
       return {
         applicationId,
@@ -42,7 +43,7 @@ export function createBackupService({ store, prerequisites, helper }) {
     return {
       coverage,
       backups,
-      limitations: ["Local restore verification is not disaster protection. Controller state needs the separate encrypted mounted-restic workflow; application artifacts still need an independent destination adapter."],
+      limitations: ["Local restore verification is not disaster protection. Controller and application backups use separate encrypted restic repositories and separate recovery keys on an independently mounted filesystem."],
     };
   }
 

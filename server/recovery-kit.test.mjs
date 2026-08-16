@@ -52,7 +52,9 @@ describe("secret-free disaster recovery kit", () => {
   it("reports exact restore evidence without exporting secrets or sensitive state fields", async () => {
     const { owner, service, store } = await setup();
     store.recordBackup({ id: "55555555-5555-4555-8555-555555555555", applicationId: "boxpilot-controller", destination: "local-managed", artifactPath: "/secret/controller/boxpilot.sqlite3", checksumSha256: "e".repeat(64), sizeBytes: 8192, downtimeMs: 0, restoreDrill: { passed: true, integrityCheck: "ok", foreignKeyIssues: 0, schemaVerified: true, manifestChecksumSha256: "f".repeat(64), privateField: "do-not-export" }, createdBy: owner.id });
-    store.recordBackup({ id: "11111111-1111-4111-8111-111111111111", applicationId: "uptime-kuma", destination: "local-managed", artifactPath: "/secret/application/archive.tar.gz", checksumSha256: "a".repeat(64), sizeBytes: 1024, downtimeMs: 25, restoreDrill: { passed: true, secret: "do-not-export" }, createdBy: owner.id });
+    const applicationBackupId = "11111111-1111-4111-8111-111111111111";
+    store.recordBackup({ id: applicationBackupId, applicationId: "uptime-kuma", destination: "local-managed", artifactPath: "/secret/application/archive.tar.gz", checksumSha256: "a".repeat(64), sizeBytes: 1024, downtimeMs: 25, restoreDrill: { passed: true, network: "none", publishedPorts: 0, secret: "do-not-export" }, createdBy: owner.id });
+    store.recordApplicationBackupProtection({ id: "77777777-7777-4777-8777-777777777777", backupId: applicationBackupId, applicationId: "uptime-kuma", destination: "mounted-restic-applications", repositoryId: "9".repeat(64), snapshotId: "8".repeat(64), sizeBytes: 1024, encrypted: true, independent: true, repositoryVerified: true, protected: true, restoreDrill: { passed: true, mode: "exact-snapshot-artifact-restore", network: "none", artifactChecksumMatched: true, workspaceRemoved: true }, createdBy: owner.id });
     store.recordVmExport({ id: "33333333-3333-4333-8333-333333333333", domainName: "notes-vm", domainUuid: "44444444-4444-4444-8444-444444444444", destination: "local-managed", artifactPath: "/secret/vm/export", manifestChecksumSha256: "d".repeat(64), sizeBytes: 2048, protected: false, encrypted: false, restoreDrill: { passed: false }, createdBy: owner.id });
     store.recordVmBackup({ id: "22222222-2222-4222-8222-222222222222", exportId: "33333333-3333-4333-8333-333333333333", domainName: "notes-vm", domainUuid: "44444444-4444-4444-8444-444444444444", destination: "mounted-restic", repositoryId: "repository-safe-reference", snapshotId: "b".repeat(64), sizeBytes: 2048, encrypted: true, independent: true, repositoryVerified: true, protected: true, restoreDrill: { passed: true, password: "do-not-export" }, createdBy: owner.id });
     store.recordRouterCheckpoint({ modelId: "glinet-flint2", firmwareVersion: "4.8.2", checksumSha256: "c".repeat(64), sizeBytes: 4096, hashOrigin: "operator-browser-reported-sha256", configurationUploaded: false, fileRetainedByOperator: true, createdBy: owner.id });
@@ -72,6 +74,8 @@ describe("secret-free disaster recovery kit", () => {
     expect(serialized).toContain("repository-safe-reference");
     expect(kit.evidence.controllerBackups).toEqual([expect.objectContaining({ checksumSha256: "e".repeat(64), manifestChecksumSha256: "f".repeat(64), restorePassed: true, schemaVerified: true })]);
     expect(kit.evidence.applicationBackups).toHaveLength(1);
+    expect(kit.evidence.applicationProtections).toEqual([expect.objectContaining({ backupId: applicationBackupId, applicationId: "uptime-kuma", protected: true, artifactChecksumMatched: true })]);
+    expect(kit.runbookMarkdown).toContain("Protected application snapshots: 1");
     store.close();
   });
 

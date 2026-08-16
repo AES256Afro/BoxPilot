@@ -51,6 +51,8 @@ Version `0.42.0` adds a static Keel artifact one-shot. Install its unit, but do 
 
 Version `0.43.0` adds a parameter-free read-only Keel archive membership operation inside the network-isolated helper. It rechecks the fixed compressed identity and parses the archive in place under hard member and size ceilings. No extraction unit or installation unit exists. The current 1.2.5 result is blocked by one symbolic link with an absolute build-workspace target.
 
+Version `0.44.0` adds parameter-free inspection and one exact typed create operation for independent Uptime Kuma and Pi-hole protection. The helper derives the fixed local archive, separate `restic-applications` repository and password file, cache, and drill path. It accepts only the application id, two UUIDs, approved hash and size, and destination revision. A complete repository data read and exact restored archive hash are mandatory. The application, local artifact, router, DNS, repository retention, and production restore state remain unchanged. Configure the separate terminal-only key with `sudo /opt/boxpilot/scripts/boxpilot-application-restic-setup.sh`; see [Verified application backups](BACKUPS.md).
+
 The manual console fallback remains:
 
 ```bash

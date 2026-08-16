@@ -30,6 +30,22 @@ type ControllerProtectionRecord = {
   createdAt: string;
 };
 
+type ApplicationProtectionRecord = {
+  id: string;
+  backupId: string;
+  applicationId: "uptime-kuma" | "pi-hole";
+  destination: "mounted-restic-applications";
+  repositoryId: string;
+  snapshotId: string;
+  sizeBytes: number;
+  encrypted: boolean;
+  independent: boolean;
+  repositoryVerified: boolean;
+  protected: boolean;
+  restoreDrill: { passed: boolean; mode: string; network: string; workspaceRemoved: boolean; artifactChecksumMatched: boolean };
+  createdAt: string;
+};
+
 type ControllerRetentionStatus = {
   executable: boolean;
   repositoryId: string | null;
@@ -65,6 +81,8 @@ type ControllerDestination = {
   setupCommand: string;
 };
 
+type ApplicationDestination = ControllerDestination;
+
 type Coverage = {
   applicationId: string;
   name: string;
@@ -73,7 +91,7 @@ type Coverage = {
   state: "not-installed" | "unprotected" | "locally-verified" | "protected";
   protected: boolean;
   latestBackup: BackupRecord | null;
-  latestProtection: ControllerProtectionRecord | null;
+  latestProtection: ControllerProtectionRecord | ApplicationProtectionRecord | null;
   requirement: string;
 };
 
@@ -127,7 +145,10 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
   const [plan, setPlan] = useState<BackupPlan | null>(null);
   const [controllerDestination, setControllerDestination] = useState<ControllerDestination | null>(null);
   const [controllerProtections, setControllerProtections] = useState<ControllerProtectionRecord[]>([]);
+  const [applicationDestination, setApplicationDestination] = useState<ApplicationDestination | null>(null);
+  const [applicationProtections, setApplicationProtections] = useState<ApplicationProtectionRecord[]>([]);
   const [protectionPlan, setProtectionPlan] = useState<ControllerProtectionPlan | null>(null);
+  const [applicationProtectionPlan, setApplicationProtectionPlan] = useState<ControllerProtectionPlan | null>(null);
   const [controllerRetention, setControllerRetention] = useState<ControllerRetentionStatus | null>(null);
   const [retentionPlan, setRetentionPlan] = useState<ControllerRetentionPlan | null>(null);
   const [loading, setLoading] = useState(true);
@@ -137,9 +158,10 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [body, protection, retention] = await Promise.all([
+      const [body, protection, applicationProtection, retention] = await Promise.all([
         requestJson<{ coverage: Coverage[]; backups: BackupRecord[]; limitations: string[] }>("/api/v1/backups"),
         requestJson<{ destination: ControllerDestination; protections: ControllerProtectionRecord[] }>("/api/v1/controller-backup-protection"),
+        requestJson<{ destination: ApplicationDestination; protections: ApplicationProtectionRecord[] }>("/api/v1/application-backup-protection"),
         requestJson<ControllerRetentionStatus>("/api/v1/controller-backup-retention"),
       ]);
       setCoverage(body.coverage ?? []);
@@ -147,6 +169,8 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
       setLimitations(body.limitations ?? []);
       setControllerDestination(protection.destination);
       setControllerProtections(protection.protections ?? []);
+      setApplicationDestination(applicationProtection.destination);
+      setApplicationProtections(applicationProtection.protections ?? []);
       setControllerRetention(retention);
       setError(null);
     } catch (caught) {
@@ -228,6 +252,41 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
     }
   };
 
+  const createApplicationProtectionPlan = async (backupId: string) => {
+    setPending(true);
+    try {
+      const body = await requestJson<{ plan: ControllerProtectionPlan }>(`/api/v1/application-backups/${backupId}/protection-plans`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: "{}",
+      });
+      setApplicationProtectionPlan(body.plan);
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Application protection planning failed");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const stageApplicationProtection = async () => {
+    if (!applicationProtectionPlan) return;
+    setPending(true);
+    try {
+      await requestJson(`/api/v1/application-protection-plans/${applicationProtectionPlan.id}/stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ revision: applicationProtectionPlan.revision }),
+      });
+      setApplicationProtectionPlan(null);
+      onOpenRepair();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Application protection staging failed");
+    } finally {
+      setPending(false);
+    }
+  };
+
   const createRetentionPlan = async () => {
     setPending(true);
     try {
@@ -271,7 +330,7 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
     <>
       <div className="readiness">
         <div>
-          <strong>{loading ? "Inspecting backup coverage" : protectedCount ? "Independent controller protection is proven" : verifiedCount ? "Local restore evidence exists, but disaster protection is incomplete" : "No backup source is restore-verified yet"}</strong>
+          <strong>{loading ? "Inspecting backup coverage" : protectedCount ? "Independent backup protection is proven" : verifiedCount ? "Local restore evidence exists, but disaster protection is incomplete" : "No backup source is restore-verified yet"}</strong>
           <span>BoxPilot separates local restore verification from encrypted independent protection.</span>
         </div>
         <span className={`status-pill ${protectedCount ? "status-good" : "status-warning"}`}>{protectedCount} protected | {verifiedCount} local</span>
@@ -315,6 +374,12 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
         {controllerDestination?.ready ? <p className="good-text">Mounted at {controllerDestination.mount?.target} on {controllerDestination.mount?.sourceType ?? "independent storage"}. Full repository reads and exact isolated restore drills are required.</p> : <div className="vm-plan-warnings"><strong>Fail-closed setup</strong>{controllerDestination?.blockers.map((blocker) => <span key={blocker}>{blocker}</span>)}<span>Run from the Bigbox terminal after mounting independent storage: <code>{controllerDestination?.setupCommand ?? "sudo /opt/boxpilot/scripts/boxpilot-controller-restic-setup.sh"}</code></span><span>Keep the controller repository password outside Bigbox.</span></div>}
       </section>
 
+      <section className="panel backup-plan-card" aria-label="Application disaster protection">
+        <div className="section-heading"><div><span className="eyebrow">Independent application destination</span><h3>{applicationDestination?.ready ? "Encrypted restic destination ready" : "Setup required on Bigbox"}</h3></div><span className={`status-pill ${applicationDestination?.ready ? "status-good" : "status-warning"}`}>{applicationDestination?.ready ? "ready" : "blocked"}</span></div>
+        <p>A separate <code>restic-applications</code> repository and recovery password protect verified Uptime Kuma and Pi-hole archives from loss of the server disk.</p>
+        {applicationDestination?.ready ? <p className="good-text">Mounted at {applicationDestination.mount?.target} on {applicationDestination.mount?.sourceType ?? "independent storage"}. Full repository reads and exact byte-for-byte archive restores are required.</p> : <div className="vm-plan-warnings"><strong>Fail-closed setup</strong>{applicationDestination?.blockers.map((blocker) => <span key={blocker}>{blocker}</span>)}<span>Run from the Bigbox terminal after mounting independent storage: <code>{applicationDestination?.setupCommand ?? "sudo /opt/boxpilot/scripts/boxpilot-application-restic-setup.sh"}</code></span><span>Keep this recovery password separate from the controller and VM repository passwords.</span></div>}
+      </section>
+
       <section className="panel backup-plan-card" aria-label="Controller retention">
         <div className="section-heading"><div><span className="eyebrow">Independent controller lifecycle</span><h3>Fixed evidence-gated retention</h3></div><span className={`status-pill ${controllerRetention?.executable ? "status-good" : "status-warning"}`}>{controllerRetention?.executable ? `${controllerRetention.candidates.length} eligible` : "no eligible batch"}</span></div>
         <p>BoxPilot keeps at least {controllerRetention?.policy?.minimumCopies ?? 3} retained protected snapshots, keeps every snapshot younger than {controllerRetention?.policy?.minimumAgeDays ?? 30} days, and never runs restic prune.</p>
@@ -332,6 +397,15 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
         </section>
       )}
 
+      {applicationProtectionPlan && (
+        <section className="panel backup-plan-card" aria-label="Application protection plan">
+          <div className="section-heading"><div><span className="eyebrow">Immutable application protection plan {applicationProtectionPlan.revision}</span><h3>{applicationProtectionPlan.output.executable ? "Ready for owner approval" : "Independent application protection is blocked"}</h3></div><span className={`status-pill ${applicationProtectionPlan.output.executable ? "status-good" : "status-warning"}`}>{applicationProtectionPlan.output.destination}</span></div>
+          <div className="backup-plan-columns"><div><strong>Exact workflow</strong><ol>{applicationProtectionPlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol><strong>Required evidence</strong><ol>{applicationProtectionPlan.output.verification.map((check) => <li key={check}>{check}</li>)}</ol></div><div><strong>Warnings and recovery</strong><ul>{applicationProtectionPlan.output.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><p>{applicationProtectionPlan.output.recovery}</p></div></div>
+          {applicationProtectionPlan.output.blockers.map((blocker) => <div className="notice warning-notice" key={blocker}><strong>Protection blocker</strong><span>{blocker}</span></div>)}
+          <footer className="modal-actions"><button className="text-button" type="button" onClick={() => setApplicationProtectionPlan(null)}>Discard plan</button><button className="primary-button" type="button" disabled={!applicationProtectionPlan.output.executable || pending} onClick={() => void stageApplicationProtection()}>Stage independent protection</button></footer>
+        </section>
+      )}
+
       {retentionPlan && (
         <section className="panel backup-plan-card" aria-label="Controller retention plan">
           <div className="section-heading"><div><span className="eyebrow">Immutable retention plan {retentionPlan.revision}</span><h3>{retentionPlan.output.executable ? `${retentionPlan.output.candidates.length} exact snapshot(s) ready for approval` : "Controller retention is blocked"}</h3></div><span className={`status-pill ${retentionPlan.output.executable ? "status-good" : "status-warning"}`}>high risk</span></div>
@@ -345,7 +419,7 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
       <section className="panel table-panel">
         <div className="section-heading"><div><span className="eyebrow">Durable evidence</span><h3>Verified backup artifacts</h3></div><button className="secondary-button" type="button" onClick={() => void refresh()} disabled={loading}>Refresh</button></div>
         {backups.length ? (
-          <div className="table-scroll"><table><thead><tr><th>Source</th><th>Created</th><th>Artifact</th><th>SHA-256</th><th>Restore drill</th><th>Independent protection</th></tr></thead><tbody>{backups.map((backup) => { const protection = controllerProtections.find((item) => item.backupId === backup.id); return <tr key={backup.id}><td>{coverage.find((entry) => entry.applicationId === backup.applicationId)?.name ?? backup.applicationId}</td><td>{new Date(backup.createdAt).toLocaleString()}</td><td>{formatBytes(backup.sizeBytes)} local<details><summary>Verification details</summary><small>Server path</small><code className="backup-evidence-value">{backup.artifactPath}</code><small>Artifact SHA-256</small><code className="backup-evidence-value">{backup.checksumSha256}</code>{backup.restoreDrill.manifestChecksumSha256 && <><small>Manifest SHA-256</small><code className="backup-evidence-value">{backup.restoreDrill.manifestChecksumSha256}</code></>}</details></td><td><code>{backup.checksumSha256.slice(0, 12)}...</code></td><td className={backup.restoreDrill.passed ? "good-text" : "warning-text"}>{backup.restoreDrill.passed ? (backup.applicationId === "boxpilot-controller" ? "Passed, isolated copy-open" : "Passed, network isolated") : "Failed"}</td><td>{backup.applicationId !== "boxpilot-controller" ? <span className="warning-text">Adapter pending</span> : protection?.protected ? <details><summary className="good-text">Protected and restored</summary><small>Repository</small><code className="backup-evidence-value">{protection.repositoryId}</code><small>Snapshot</small><code className="backup-evidence-value">{protection.snapshotId}</code></details> : protection?.retained === false ? <details><summary className="warning-text">Snapshot forgotten</summary><small>The local restore-verified artifact remains. This old restic snapshot no longer counts as protected.</small><code className="backup-evidence-value">{protection.snapshotId}</code></details> : <button className="text-button" type="button" disabled={pending} onClick={() => void createProtectionPlan(backup.id)}>Plan encrypted copy</button>}</td></tr>; })}</tbody></table></div>
+          <div className="table-scroll"><table><thead><tr><th>Source</th><th>Created</th><th>Artifact</th><th>SHA-256</th><th>Restore drill</th><th>Independent protection</th></tr></thead><tbody>{backups.map((backup) => { const controllerProtection = controllerProtections.find((item) => item.backupId === backup.id); const applicationProtection = applicationProtections.find((item) => item.backupId === backup.id); return <tr key={backup.id}><td>{coverage.find((entry) => entry.applicationId === backup.applicationId)?.name ?? backup.applicationId}</td><td>{new Date(backup.createdAt).toLocaleString()}</td><td>{formatBytes(backup.sizeBytes)} local<details><summary>Verification details</summary><small>Server path</small><code className="backup-evidence-value">{backup.artifactPath}</code><small>Artifact SHA-256</small><code className="backup-evidence-value">{backup.checksumSha256}</code>{backup.restoreDrill.manifestChecksumSha256 && <><small>Manifest SHA-256</small><code className="backup-evidence-value">{backup.restoreDrill.manifestChecksumSha256}</code></>}</details></td><td><code>{backup.checksumSha256.slice(0, 12)}...</code></td><td className={backup.restoreDrill.passed ? "good-text" : "warning-text"}>{backup.restoreDrill.passed ? (backup.applicationId === "boxpilot-controller" ? "Passed, isolated copy-open" : "Passed, network isolated") : "Failed"}</td><td>{backup.applicationId === "boxpilot-controller" ? (controllerProtection?.protected ? <details><summary className="good-text">Protected and restored</summary><small>Repository</small><code className="backup-evidence-value">{controllerProtection.repositoryId}</code><small>Snapshot</small><code className="backup-evidence-value">{controllerProtection.snapshotId}</code></details> : controllerProtection?.retained === false ? <details><summary className="warning-text">Snapshot forgotten</summary><small>The local restore-verified artifact remains. This old restic snapshot no longer counts as protected.</small><code className="backup-evidence-value">{controllerProtection.snapshotId}</code></details> : <button className="text-button" type="button" disabled={pending} onClick={() => void createProtectionPlan(backup.id)}>Plan encrypted copy</button>) : applicationProtection?.protected ? <details><summary className="good-text">Protected and restored</summary><small>Repository</small><code className="backup-evidence-value">{applicationProtection.repositoryId}</code><small>Snapshot</small><code className="backup-evidence-value">{applicationProtection.snapshotId}</code><small>Proof</small><span>Exact archive SHA-256 restored</span></details> : <button className="text-button" type="button" disabled={pending} onClick={() => void createApplicationProtectionPlan(backup.id)}>Plan encrypted copy</button>}</td></tr>; })}</tbody></table></div>
         ) : <p className="empty-state">No backup is listed as successful until its artifact checksum and adapter-specific isolated recovery drill both pass.</p>}
       </section>
     </>

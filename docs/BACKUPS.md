@@ -1,12 +1,12 @@
 # Verified application backups
 
-BoxPilot provides four deliberately narrow recovery-evidence paths: the `0.38.0` WAL-aware controller database snapshot, `0.39.0` encrypted independent exact-restore stage, and `0.40.0` fixed evidence-gated retention; the `0.6.0` restore-verified local Uptime Kuma adapter; the `0.20.0` restore-verified local Pi-hole configuration adapter; and the VM export, encrypted independent-copy, isolated restore-drill, guarded recovery-clone, and evidence-gated retention chain completed through `0.16.0`. It does not report a workload as verified merely because a file was copied.
+BoxPilot provides four deliberately narrow recovery-evidence paths: the `0.38.0` WAL-aware controller database snapshot, `0.39.0` encrypted independent exact-restore stage, and `0.40.0` fixed evidence-gated retention; the restore-verified local Uptime Kuma and Pi-hole adapters plus their `0.44.0` encrypted independent exact-archive restore stage; and the VM export, encrypted independent-copy, isolated restore-drill, guarded recovery-clone, and evidence-gated retention chain completed through `0.16.0`. It does not report a workload as protected merely because a file was copied.
 
 ## Safety boundary
 
-The browser can request only an immutable plan for `boxpilot-controller`, `uptime-kuma`, or `pi-hole` and the fixed `local-managed` destination. Approval requires the owner password. The restricted root helper accepts only a server-generated UUID and derives every source, artifact, manifest, and restore path itself.
+The browser can request immutable local plans for `boxpilot-controller`, `uptime-kuma`, or `pi-hole`. Independent application protection can select only a durable verified local application backup id. Approval requires the owner password. The restricted root helper derives every source, artifact, repository, password-file, and restore path itself.
 
-It never accepts a path, archive command, container name, image name, destination, or shell string from the browser.
+It never accepts a path, archive command, container name, image name, destination, repository selector, password, restic argument, or shell string from the browser.
 
 The managed application and backup directory is root-only mode `0700`. Artifacts, manifests, and generated Compose definitions are mode `0600`. The unprivileged web process reaches these operations only through the typed Unix socket and cannot read the files directly.
 
@@ -75,6 +75,63 @@ Archive failure restarts and rechecks the source before reporting failure. Sourc
 Before stopping the source, the helper writes a strict root-only active-operation marker. On helper restart it validates that marker, restarts and rechecks the exact managed Pi-hole source when needed, and removes an orphan drill only if its digest-pinned image, `network none` mode, empty port bindings, and exact generated configuration mount all match. Ambiguous container or marker state fails helper startup for manual inspection instead of triggering broad cleanup.
 
 This workflow never publishes restore ports, edits Pi-hole live configuration, retrieves the password into the web process, changes DHCP, changes a router, advertises DNS, reconfigures Tailscale, or performs DNS cutover.
+
+## Encrypted independent application protection
+
+Version `0.44.0` adds a second required layer for a locally verified Uptime Kuma or Pi-hole archive. It uses the fixed repository and separate key below:
+
+```text
+Mount:      /mnt/boxpilot-backup
+Repository: /mnt/boxpilot-backup/restic-applications
+Key file:   /etc/boxpilot/secrets/application-backup-restic-password
+Cache:      /var/cache/boxpilot-application-restic
+Drills:     /var/lib/boxpilot-managed/application-independent-restore-drills
+```
+
+The mount must be an exact writable mountpoint on a filesystem different from both `/var/lib/boxpilot-managed/apps` and `/var/lib/boxpilot-managed/backups`. The repository password must be a separate root-owned mode-0600 key. Do not reuse the controller or VM recovery password.
+
+After mounting independent storage, run only from an interactive Bigbox terminal:
+
+```bash
+sudo /opt/boxpilot/scripts/boxpilot-application-restic-setup.sh
+sudo systemctl restart boxpilot-helper.service boxpilot.service
+```
+
+The script accepts no arguments, refuses a symlink or same-filesystem destination, reads the password without echo, and initializes only `restic-applications`. Keep a recovery copy of the password outside Bigbox and outside the mounted backup filesystem.
+
+For one approved protection job, BoxPilot:
+
+1. Requires the durable local backup to contain complete prior application-aware no-network restore evidence.
+2. Pins the application id, backup and protection UUIDs, exact archive SHA-256 and size, and destination revision in an immutable plan.
+3. Revalidates the exact mount, repository identity, recovery-key mode, capacity, source artifact type, mode, size, and complete SHA-256 at stage and approval time.
+4. Writes only the fixed derived archive path into `restic-applications` with server-generated tags.
+5. Runs `restic check --read-data` so every repository data pack is read.
+6. Confirms the exact snapshot id, source path, and application, backup, and protection tags.
+7. Restores that exact snapshot with verification into a generated root-only workspace, then requires identical size and SHA-256.
+8. Removes the successful drill workspace and records encryption, independence, repository verification, prior local drill, and exact restored-artifact evidence.
+
+Uptime Kuma and Pi-hole are shown as protected only after both layers pass. The independent drill deliberately does not extract the sensitive archive or start another container; that application-aware boot proof already belongs to the pinned local record. It proves the encrypted independent repository can return the exact bytes that passed that earlier drill.
+
+This workflow never starts or stops the production application, changes the local archive, returns a secret, changes router or client DNS, queries DNS, forgets a snapshot, prunes packs, schedules itself, or performs automatic production restore. A failed post-copy check preserves the repository and generated root-only drill workspace for inspection. Application retention remains unavailable.
+
+Authenticated routes:
+
+```text
+GET  /api/v1/application-backup-protection
+POST /api/v1/application-backups/:id/protection-plans
+POST /api/v1/application-protection-plans/:id/stage
+```
+
+Helper operations:
+
+```text
+application.backup.protection.inspect parameters: {}
+application.backup.protection.create  parameters: {
+  applicationId, backupId, protectionId,
+  expectedArtifactChecksumSha256, expectedSizeBytes,
+  expectedDestinationRevision
+}
+```
 
 ## VM encrypted independent-copy workflow
 
@@ -211,4 +268,4 @@ The controller repository uses the same evidence principle through a separate `0
 
 ## Current limitations
 
-The controller, Uptime Kuma, and Pi-hole artifacts remain local to Bigbox. The controller copy-open drill proves SQLite integrity and schema, not service startup or owner login. Application restore containers prove local artifact integrity and basic container startup, not survival of Bigbox loss or direct DNS service from another LAN device. The VM and controller workflows support only their fixed mounted-restic destinations and require an operator-provided independent filesystem. Bigbox currently has no configured independent backup mount, so its live UI correctly reports setup blockers and no real VM restore drill, recovery clone, VM retention mutation, controller protection, or controller retention mutation has run there. Remote restic backends, offsite copies, schedules, controller browser download or automatic restore, restic prune, configurable policies beyond the fixed evidence-gated policies, notification, in-place restore, recovered-VM network attachment, application-level VM restore tests, Keel Notes export, PostgreSQL, and Litestream-aware adapters remain future milestones.
+Controller and application backups begin as local artifacts on Bigbox. Their separate fixed mounted-restic workflows can protect exact verified records, but an operator must first provide the independent filesystem and separately retain each repository key. The controller copy-open drill proves SQLite integrity and schema, not service startup or owner login. Application local restore containers prove basic no-network startup; the independent application drill proves exact archived bytes, not direct Pi-hole DNS service from another LAN device. Bigbox currently has no configured independent backup mount, so its live UI correctly reports setup blockers and no real VM restore drill, recovery clone, retention mutation, controller protection, or application protection has run there. Remote restic backends, offsite copies, schedules, application retention, controller browser download or automatic restore, restic prune, configurable policies beyond the fixed evidence-gated policies, notification, in-place restore, recovered-VM network attachment, application-level VM restore tests, Keel Notes export, PostgreSQL, and Litestream-aware adapters remain future milestones.
