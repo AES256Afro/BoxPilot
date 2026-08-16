@@ -4,11 +4,11 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.23.0` adds a router checkpoint center for the Flint 2, ER707-M2, and Archer BE400 declarations. The browser hashes a selected router backup with SHA-256 and submits only model, operator-entered firmware, byte count, digest, and file-retention evidence. The filename and configuration bytes never leave the browser. This is attributable operator evidence, not remote attestation or a restore test. BoxPilot still accepts no router credential, opens no router session, performs no discovery or write, and cannot change DHCP or DNS.
+Version `0.24.0` adds credential-free GitHub provenance for the fixed public `AES256Afro/BoxPilot` and `AES256Afro/Keel` repositories. It reports sanitized repository heads, GitHub-reported commit verification, latest-release identity, and GitHub-reported asset digests through a bounded 15-minute cache. BoxPilot sends no token, accepts no repository input, discards signatures and payloads, downloads no bytes, writes nothing to GitHub, and cannot install an asset. GitHub-reported metadata is not represented as local signature or digest verification.
 
 ### What works now
 
-| Area | Status in `0.23.0` | Capability |
+| Area | Status in `0.24.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
@@ -18,6 +18,7 @@ Version `0.23.0` adds a router checkpoint center for the Flint 2, ER707-M2, and 
 | Host and Docker inventory | Live | Reports authenticated host identity, CPU, memory, root storage, uptime, selected service state, LAN addresses, Tailscale self-state, and sanitized Docker containers, images, networks, volumes, and Compose projects. |
 | Network and DNS Center | Live planning and guarded fixed tests | Reports validated default gateways, host LAN CIDRs, sanitized systemd-resolved servers, scoped TCP and UDP port 53 listeners, and Tailscale resolver observations. It creates immutable topology assessments and can separately stage four fixed direct Pi-hole DNS checks after exact deployment and restore evidence match. A separately enrolled signed agent can repeat only those fixed checks after a fresh passing Bigbox record. Router writes and DNS cutover have no execution route. |
 | Router checkpoints | Local-hash metadata foundation | Hashes an operator-selected router backup in the browser and stores only fixed-model, firmware, size, SHA-256, attribution, and retention metadata. The configuration is not uploaded. Credentials, live discovery, API sessions, writes, restore claims, and DNS cutover are unavailable. |
+| GitHub provenance | Live fixed public metadata | Reads sanitized commit, verification, latest-release, and asset-digest metadata for BoxPilot and Keel through GitHub's unauthenticated public API. No token, repository input, clone, download, write, webhook, workflow dispatch, local digest verification, or installation route exists. |
 | System logs | Live restricted sources | Returns capped, redacted entries for fixed BoxPilot, Docker, Tailscale, and virtualization unit sets. Credential-like values and URL query strings are redacted. |
 | Application catalog | Live | Publishes integrity-addressed manifests, live installation state, exact image policy, targets, ports, storage, prerequisites, recovery, and adapter risk. |
 | Uptime Kuma adapter | Executable deployment | Uses the official `2.5.0` image pinned by multi-platform digest, a loopback-only port, local persistent storage, Docker health, approval, and data-preserving rollback. The catalog shows whether restore-verified backup evidence exists. |
@@ -49,7 +50,7 @@ The repository also includes a read-only Ubuntu deployment doctor and a USB-to-h
 - VM delete, force-off, console proxy, online snapshot, snapshot revert/delete, bridge creation, passthrough, in-place restore, recovered-VM network attachment, application-level restore tests, cloud-init, Windows TPM/Secure Boot creation, or VM migration transfer
 - General Docker mutation, custom Compose deployment, additional application installation beyond the curated adapters, package updates, firewall changes, storage changes, or arbitrary command execution
 - Backup schedules, application-backup independent or offsite destinations, restic prune and space reclamation, configurable retention policies, remote restic/cloud backends, Keel Notes export, SSH source discovery or transport, general application-aware volume/database capture, staged-workload activation, or migration cutover
-- Keel Notes, executable AdGuard Home, Jellyfin, Home Assistant, PostgreSQL, Pi-hole router cutover, GitHub integration, signed adapter installation, or general remote-agent operations
+- Keel Notes deployment, executable AdGuard Home, Jellyfin, Home Assistant, PostgreSQL, Pi-hole router cutover, private or write-capable GitHub integration, signed adapter installation, or general remote-agent operations
 - WebAuthn, recovery codes, multiple owners, Tailscale identity headers, tamper-evident audit chaining, or general-purpose mutation handlers
 
 ## Screenshots
@@ -162,6 +163,12 @@ This explicitly disclosed `0.22.0` mock shows one-time enrollment, device-owned 
 
 This explicitly disclosed `0.23.0` mock shows supported device declarations, local file hashing, metadata-only persistence, the operator-retention assertion, and the remaining credential, router-write, restore, and DNS-cutover locks. No file was selected, hashed, or uploaded, no checkpoint was recorded, and no router or network setting was read or changed for the capture.
 
+### GitHub provenance mockup
+
+![BoxPilot credential-free GitHub provenance](docs/screenshots/github-provenance-mock.png)
+
+This explicitly disclosed `0.24.0` mock shows fixed public repository heads, GitHub-reported verification, Keel release-asset digest metadata, and the remaining token, write, download, local-verification, and installation locks. No credential was accepted, repository or workflow was changed, asset was downloaded, digest was verified locally, or software was installed for the capture.
+
 ## Safety contract
 
 Every future host change must follow:
@@ -262,6 +269,7 @@ docker build -t boxpilot:local .
 - [Router, DNS topology, and guarded direct acceptance](docs/NETWORK.md)
 - [Router checkpoint evidence and future adapter gates](docs/ROUTERS.md)
 - [Signed fleet agents and independent DNS evidence](docs/FLEET.md)
+- [Credential-free GitHub provenance and installation gates](docs/GITHUB.md)
 - [Guarded migration discovery and local staging](docs/MIGRATIONS.md)
 - [Dependency-ordered roadmap](docs/ROADMAP.md)
 - [QEMU/KVM setup and operation](docs/VIRTUALIZATION.md)
@@ -271,7 +279,7 @@ docker build -t boxpilot:local .
 
 ## Keel Notes roadmap adapter
 
-No Keel-specific adapter ships in `0.23.0`. The generic migration packer can stage an offline Keel Notes Compose project only as opaque verified files; it does not understand Keel databases, managed-secret keys, health, activation, or cutover. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
+No Keel-specific deployment adapter ships in `0.24.0`. The GitHub provenance view can inspect sanitized public Keel release metadata but cannot download or install it. The generic migration packer can stage an offline Keel Notes Compose project only as opaque verified files; it does not understand Keel databases, managed-secret keys, health, activation, or cutover. A planned application adapter will support [Keel Notes](https://github.com/AES256Afro/Keel):
 
 - Detect a Keel Docker or service installation
 - Inventory the database dialect and protected data paths without exposing secrets
