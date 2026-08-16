@@ -3,8 +3,8 @@ import { createPrerequisiteService } from "./prerequisites.mjs";
 
 describe("prerequisite inventory", () => {
   it("reports live readiness without returning raw peer or listener output", async () => {
-    const helper = { request: vi.fn(async (operation) => operation === "container.docker.inspect"
-      ? ({ available: true, version: "29.1.3" })
+    const helper = { request: vi.fn(async (operation) => operation === "prerequisite.docker.inspect"
+      ? ({ installed: true, engineVersion: "29.1.3", provider: "existing-compatible-engine", installedPackageVersion: null, repairAvailable: false })
       : operation === "virtualization.inventory.inspect"
         ? ({ checks: [{ id: "connection", ok: true }, { id: "helper", ok: true }] })
         : operation === "prerequisite.smartmontools.inspect"
@@ -27,7 +27,7 @@ describe("prerequisite inventory", () => {
     });
 
     const result = await service.inspect();
-    expect(result.checks.find((item) => item.id === "containers.docker")).toMatchObject({ status: "ready", summary: "Docker Engine 29.1.3" });
+    expect(result.checks.find((item) => item.id === "containers.docker")).toMatchObject({ status: "ready", summary: expect.stringContaining("Docker Engine 29.1.3") });
     expect(runCommand).not.toHaveBeenCalledWith("docker", expect.anything());
     expect(runCommand).not.toHaveBeenCalledWith("virsh", expect.anything());
     expect(result.checks.find((item) => item.id === "virtualization.libvirt")).toMatchObject({ status: "ready" });
@@ -58,7 +58,7 @@ describe("prerequisite inventory", () => {
       if (operation === "prerequisite.smartmontools.inspect") return { installed: false, candidateVersion: "7.5-2", repairAvailable: true };
       if (operation === "prerequisite.restic.inspect") return { installed: false, candidateVersion: "0.18.1-1", repairAvailable: true };
       if (operation === "prerequisite.apt-metadata.inspect") return { available: true, state: "stale", updatedAt: "2026-08-01T00:00:00.000Z", ageHours: 360, packageManagerState: "ready", refreshAvailable: true };
-      if (operation === "container.docker.inspect") return { available: true, version: "29.1.3" };
+      if (operation === "prerequisite.docker.inspect") return { installed: false, candidateVersion: "28.2.2-0ubuntu1", repairAvailable: true };
       if (operation === "virtualization.inventory.inspect") return { checks: [{ id: "connection", ok: true }, { id: "helper", ok: true }] };
       throw new Error("unexpected operation");
     }) };
@@ -66,6 +66,7 @@ describe("prerequisite inventory", () => {
     const result = await service.inspect();
     expect(result.checks.find((item) => item.id === "storage.smartmontools")).toMatchObject({ status: "repairable", repair: { kind: "approved" } });
     expect(result.checks.find((item) => item.id === "backup.restic")).toMatchObject({ status: "repairable", repair: { kind: "approved" } });
+    expect(result.checks.find((item) => item.id === "containers.docker")).toMatchObject({ status: "repairable", repair: { kind: "approved" } });
     expect(result.checks.find((item) => item.id === "host.apt-metadata")).toMatchObject({ status: "repairable", repair: { kind: "approved" } });
     expect(JSON.stringify(result)).not.toContain("apt-get");
   });

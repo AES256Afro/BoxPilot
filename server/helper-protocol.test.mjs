@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.53.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.54.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -98,6 +98,20 @@ describe("restricted helper protocol", () => {
     };
     await expect(executeHelperOperation(request({ operation: "prerequisite.restic.inspect", parameters: {} }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { candidateVersion: "0.18.1-1", mutationPerformed: false } });
     await expect(executeHelperOperation(request({ operation: "prerequisite.restic.install", parameters: { expectedVersion: "0.18.1-1" } }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { installed: true, version: "0.18.1-1", binaryVerified: true } });
+  });
+
+  it("accepts only fixed Docker prerequisite inspection and exact-version installation", async () => {
+    expect(validateHelperRequest(request({ operation: "prerequisite.docker.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "prerequisite.docker.inspect", parameters: { repository: "example" } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "prerequisite.docker.install", parameters: { expectedVersion: "28.2.2-0ubuntu1" } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "prerequisite.docker.install", parameters: { expectedVersion: "28.2.2-0ubuntu1", package: "curl" } }))).toContain("only one exact expectedVersion");
+    expect(validateHelperRequest(request({ operation: "prerequisite.docker.install", parameters: { expectedVersion: "$(id)" } }))).toContain("only one exact expectedVersion");
+    const prerequisites = {
+      inspectDocker: async () => ({ package: "docker.io", installed: false, candidateVersion: "28.2.2-0ubuntu1", mutationPerformed: false }),
+      installDocker: async ({ expectedVersion }) => ({ package: "docker.io", installed: true, version: expectedVersion, engineVersion: "28.2.2", engineVerified: true, boundary: { arbitraryPackageAccepted: false, arbitraryRepositoryAccepted: false } }),
+    };
+    await expect(executeHelperOperation(request({ operation: "prerequisite.docker.inspect", parameters: {} }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { candidateVersion: "28.2.2-0ubuntu1", mutationPerformed: false } });
+    await expect(executeHelperOperation(request({ operation: "prerequisite.docker.install", parameters: { expectedVersion: "28.2.2-0ubuntu1" } }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { installed: true, version: "28.2.2-0ubuntu1", engineVerified: true } });
   });
 
   it("accepts only exact APT metadata evidence and no package or command input", async () => {

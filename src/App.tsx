@@ -97,7 +97,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   repairs: {
     label: "Live Operations Core",
     tone: "live",
-    description: "Prerequisite checks, durable approvals, the exact smartmontools and restic package repairs, fixed APT metadata refresh, helper canary, fixed Keel artifact job, and secret-free recovery readiness kit come from Bigbox. Restic storage and repository setup remains terminal-only; general package and application mutation remains locked.",
+    description: "Prerequisite checks, durable approvals, exact smartmontools, restic, and Ubuntu Docker Engine repairs, fixed APT metadata refresh, helper canary, fixed Keel artifact job, and secret-free recovery readiness kit come from Bigbox. Existing Docker providers are preserved; restic storage and repository setup remains terminal-only; general package mutation remains locked.",
   },
   virtualization: {
     label: "Host-backed module",
@@ -313,7 +313,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.53.0 Keel owner login<br />terminal proof</div>
+        <div className="prototype-label">v0.54.0 guided Docker Engine<br />prerequisite install</div>
       </aside>
 
       <main>

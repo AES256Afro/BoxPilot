@@ -129,19 +129,27 @@ export function createPrerequisiteService({ stateDirectory, helper, runCommand =
         : { kind: "manual", description: aptInterrupted ? "Repair interrupted dpkg state from the server console before refreshing metadata" : "Verify configured Ubuntu repositories and package-manager state" },
     ));
 
-    let docker = { available: false, version: null };
+    let docker = null;
     try {
-      docker = await helper.request("container.docker.inspect", {});
+      docker = await helper.request("prerequisite.docker.inspect", {});
     } catch {
-      docker = { available: false, version: null };
+      docker = null;
     }
     checks.push(check(
       "containers.docker",
       "Applications",
       "Docker Engine",
-      docker.available ? "ready" : "missing",
-      docker.available ? `Docker Engine ${docker.version || "available"}` : "Docker Engine is not installed or the restricted helper cannot reach it",
-      docker.available ? null : { kind: "planned", description: "Install Docker Engine or repair helper access to the local Docker service" },
+      docker?.installed ? "ready" : docker?.repairAvailable ? "repairable" : "missing",
+      docker?.installed
+        ? `Docker Engine ${docker.engineVersion || "available"} is active through ${docker.provider === "ubuntu-docker.io" ? `Ubuntu docker.io ${docker.installedPackageVersion}` : "an existing compatible provider"}`
+        : docker?.repairAvailable
+          ? `Configured Ubuntu APT metadata offers the fixed docker.io ${docker.candidateVersion} candidate`
+          : docker?.providerPresent
+            ? "A Docker provider already occupies the fixed client path, but an active local daemon was not verified"
+          : "Docker Engine is not active and no fixed configured Ubuntu docker.io candidate was verified",
+      docker?.installed ? null : docker?.repairAvailable
+        ? { kind: "approved", description: "Review an exact-version durable plan, reauthenticate, install only Ubuntu docker.io, and verify the active local daemon" }
+        : { kind: "manual", description: "Repair configured Ubuntu APT metadata or an existing Docker provider before creating an installation plan" },
     ));
 
     let virtualization = null;
