@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BoxPilot controller backup mock</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #07100f; color: #f4f7f6; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 1180px; background: radial-gradient(circle at 74% 0, #16392f 0, #07100f 38%, #050a09 100%); }
+    .disclosure { padding: 12px 34px; color: #ffe3ad; background: #5a3c08; border-bottom: 1px solid #9b6913; font-size: 14px; font-weight: 750; }
+    .shell { display: grid; grid-template-columns: 230px 1fr; min-height: 920px; }
+    aside { border-right: 1px solid #1d302d; padding: 26px 18px; background: rgba(5,12,11,.94); }
+    .brand { font-size: 24px; font-weight: 800; margin: 0 10px 30px; }.brand b { display: inline-grid; place-items: center; width: 35px; height: 35px; margin-right: 10px; border-radius: 10px; background: #4de1b0; color: #06100e; }
+    nav { display: grid; gap: 7px; color: #90a8a2; font-size: 14px; } nav div { padding: 11px 13px; border-radius: 9px; } nav .active { color: #effbf7; background: #16322d; border: 1px solid #275047; }
+    .private { margin-top: 230px; border: 1px solid #214139; border-radius: 12px; padding: 13px; color: #96aaa5; font-size: 12px; line-height: 1.55; }.private strong { color: #59dfb6; }
+    main { padding: 28px 36px 44px; }.top { display: flex; justify-content: space-between; align-items: flex-start; }.eyebrow { color: #57d8b1; font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; } h1 { margin: 7px 0; font-size: 34px; }.top p { margin: 0; color: #9bb0aa; }.pill { border: 1px solid #285047; border-radius: 999px; padding: 8px 13px; color: #64e1bc; background: #102721; font-size: 12px; }
+    .source { margin: 24px 0 18px; padding: 13px 16px; border: 1px solid #24604f; border-radius: 11px; background: #102b24; color: #b8d0c9; font-size: 13px; }.source strong { color: #6ce2be; }
+    .panel { border: 1px solid #203a35; border-radius: 14px; padding: 18px; background: rgba(12,25,22,.93); }.panel h2 { margin: 5px 0; font-size: 19px; }.panel p { margin: 0; color: #98aba6; font-size: 13px; line-height: 1.5; }
+    .coverage { display: grid; grid-template-columns: 1.2fr .8fr; gap: 16px; }.state { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 15px; }.field { padding: 12px; border: 1px solid #29443e; border-radius: 10px; display: grid; gap: 5px; }.field span { color: #8da39d; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; }.field strong { font-size: 14px; }.field code { color: #65e2bc; font-size: 12px; }
+    .boundary { display: grid; gap: 9px; margin-top: 14px; }.boundary div { padding: 10px 12px; border: 1px solid #29433e; border-left: 3px solid #4de1b0; border-radius: 9px; display: grid; gap: 3px; }.boundary strong { font-size: 13px; }.boundary span { color: #95aaa4; font-size: 12px; }
+    .plan { margin-top: 16px; }.plan-grid { display: grid; grid-template-columns: 1fr .8fr; gap: 18px; margin-top: 13px; }.plan ol { margin: 8px 0 0; padding-left: 19px; color: #b8cac5; font-size: 12px; line-height: 1.55; }.warning { padding: 13px; border-left: 3px solid #eeb855; border-radius: 8px; background: #2b220f; color: #efd59f; font-size: 12px; line-height: 1.5; }.fixed { margin-top: 10px; padding: 11px; border: 1px solid #2b4a43; border-radius: 8px; color: #afe5d5; background: #0b1d19; font: 12px ui-monospace, monospace; }
+    .approval { margin-top: 16px; display: flex; justify-content: space-between; align-items: center; gap: 20px; border-color: #5b4923; background: #211b0f; }.approval strong { display: block; margin-bottom: 4px; }.approval span { color: #cbbd9e; font-size: 12px; }.button { border-radius: 9px; padding: 11px 15px; background: #4de1b0; color: #06100d !important; font-weight: 800; }
+  </style>
+</head>
+<body>
+  <div class="disclosure">MOCKED 0.38.0 PRODUCT STATE. No password, snapshot, database read, restore, service stop, file copy, or host state change occurred.</div>
+  <div class="shell"><aside><div class="brand"><b>B</b>BoxPilot</div><nav><div>OV Overview</div><div>AP Applications</div><div>NW Network</div><div>RT Routers</div><div>RX Repair Center</div><div>VM Virtual Machines</div><div class="active">BK Backups</div><div>MG Migrations</div><div>FL Fleet</div><div>GH GitHub</div><div>LG Logs</div></nav><div class="private"><strong>Private administration</strong><br>Tailscale HTTPS<br>Funnel off<br><br>v0.38.0 controller recovery</div></aside>
+    <main><div class="top"><div><span class="eyebrow">BoxPilot</span><h1>Backups and recovery</h1><p>Prove recovery locally, then move verified artifacts outside Bigbox.</p></div><span class="pill">Owner approval required</span></div>
+      <div class="source"><strong>WAL-aware controller source</strong> | A raw main-file copy can miss committed SQLite WAL state. The helper creates a consistent standalone snapshot.</div>
+      <div class="coverage">
+        <section class="panel"><span class="eyebrow">Controller state source</span><h2>BoxPilot controller</h2><p>Illustrative ready-to-stage state. Integrity, foreign keys, required schema, owner state, helper roots, and storage passed fixed preflight.</p><div class="state"><div class="field"><span>Source</span><strong>Fixed live SQLite</strong><code>/var/lib/boxpilot</code></div><div class="field"><span>Snapshot</span><strong>WAL-aware</strong><code>sqlite-vacuum-into</code></div><div class="field"><span>Downtime</span><strong>None</strong><code>service remains online</code></div></div></section>
+        <section class="panel"><span class="eyebrow">Typed helper boundary</span><h2>UUID only</h2><p>No database content returns to the web process.</p><div class="boundary"><div><strong>Fixed paths</strong><span>Source, backup, manifest, and drill roots are helper-owned.</span></div><div><strong>No arbitrary input</strong><span>No path, filename, command, selector, or retention rule.</span></div><div><strong>No network</strong><span>The root helper retains PrivateNetwork=true.</span></div></div></section>
+      </div>
+      <section class="panel plan"><span class="eyebrow">Immutable plan 6c7a...e021</span><h2>BoxPilot controller: ready for approval</h2><div class="plan-grid"><div><strong>Exact six-step workflow</strong><ol><li>Inspect the fixed live database without returning content.</li><li>Create one consistent root-only SQLite snapshot.</li><li>Verify SHA-256, integrity, foreign keys, schema, and owner state.</li><li>Copy into one generated isolated drill workspace.</li><li>Open and reverify the copy, then remove only that workspace.</li><li>Write a root-only manifest; keep production unchanged.</li></ol></div><div><div class="warning"><strong>Same-host recovery evidence only.</strong><br>This contains sensitive authentication and audit state. Copy the complete artifact and manifest directory to encrypted independent storage.</div><div class="fixed">destination: local-managed<br>artifact mode: 0600<br>drill: isolated-copy-open<br>production replaced: false<br>retention performed: false</div></div></div></section>
+      <section class="panel approval"><div><strong>Stage now, approve separately in Repair Center</strong><span>The owner password is never stored in the job payload or sent to the root helper.</span></div><span class="button">Stage for approval</span></section>
+    </main>
+  </div>
+</body>
+</html>

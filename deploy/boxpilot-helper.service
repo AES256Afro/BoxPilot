@@ -13,6 +13,9 @@ Environment=BOXPILOT_HELPER_SOCKET=/run/boxpilot/helper.sock
 Environment=BOXPILOT_APP_ROOT=/var/lib/boxpilot-managed/apps
 Environment=BOXPILOT_MIGRATION_INBOX=/var/lib/boxpilot-migration/inbox
 Environment=BOXPILOT_MIGRATION_STAGING_ROOT=/var/lib/boxpilot-managed/migration-staging
+Environment=BOXPILOT_CONTROLLER_DATABASE=/var/lib/boxpilot/boxpilot.sqlite3
+Environment=BOXPILOT_CONTROLLER_BACKUP_ROOT=/var/lib/boxpilot-managed/backups/boxpilot-controller
+Environment=BOXPILOT_CONTROLLER_RESTORE_DRILL_ROOT=/var/lib/boxpilot-managed/controller-restore-drills
 Environment=BOXPILOT_DOCKER_BINARY=/usr/bin/docker
 Environment=BOXPILOT_TAR_BINARY=/usr/bin/tar
 Environment=BOXPILOT_JOURNALCTL_BINARY=/usr/bin/journalctl
@@ -56,6 +59,7 @@ ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectSystem=strict
+ReadOnlyPaths=/var/lib/boxpilot
 ReadWritePaths=/var/lib/libvirt/images
 ReadWritePaths=/var/lib/libvirt/qemu/nvram
 ReadWritePaths=-/mnt/boxpilot-backup
