@@ -95,6 +95,38 @@ describe("network topology and DNS assessment", () => {
     store.close();
   });
 
+  it("correlates the observed gateway with fixed router guidance without claiming device identity", async () => {
+    const { store, service } = await fixture();
+    const checkpointStatus = { latestByModel: { "glinet-flint-2": null, "tp-link-archer-be400": null, "omada-er707-m2": null } };
+    const result = await service.routerReadiness(checkpointStatus);
+    expect(result).toMatchObject({
+      recommendedTopology: { id: "flint2-edge-tplink-ap" },
+      observedGateway: { address: "192.168.8.1", interface: "eno1", modelVerified: false, identityClaim: "address-observed-model-unverified" },
+      counts: { verified: 2, "action-required": 1, "operator-check": 4, unavailable: 0 },
+      boundary: { credentialsAccepted: false, routerSessionsOpened: false, neighborDiscoveryPerformed: false, arbitraryTargetsProbed: false, configurationUploaded: false, routerMutationSupported: false, dhcpMutationSupported: false, dnsCutoverSupported: false, tailscaleMutationSupported: false },
+    });
+    expect(result.checks.find((check) => check.id === "gateway.identity")?.state).toBe("operator-check");
+    expect(result.checks.find((check) => check.id === "flint.checkpoint")?.state).toBe("action-required");
+    expect(result.guides).toHaveLength(3);
+    expect(result.guides.find((guide) => guide.modelId === "tp-link-archer-be400")?.steps.join(" ")).toContain("Operation Mode > Access Point");
+    expect(result).not.toHaveProperty("addresses");
+    expect(result).not.toHaveProperty("resolverLinks");
+    expect(result).not.toHaveProperty("dnsListeners");
+    expect(result.observedGateway).not.toHaveProperty("macAddress");
+    expect(result.observedGateway).not.toHaveProperty("vendor");
+    store.close();
+  });
+
+  it("uses checkpoint evidence without treating it as router attestation", async () => {
+    const { store, service } = await fixture();
+    const checkpoint = { id: "router-checkpoint-one", modelId: "glinet-flint-2", firmwareVersion: "4.8.2", checksumSha256: "a".repeat(64), sizeBytes: 4096, createdAt: "2026-08-15T00:00:00.000Z" };
+    const result = await service.routerReadiness({ latestByModel: { "glinet-flint-2": checkpoint } });
+    expect(result.checks.find((check) => check.id === "flint.checkpoint")).toMatchObject({ state: "verified" });
+    expect(result.checks.find((check) => check.id === "gateway.identity")).toMatchObject({ state: "operator-check" });
+    expect(result.guides.find((guide) => guide.modelId === "glinet-flint-2")?.checkpoint).toEqual(checkpoint);
+    store.close();
+  });
+
   it("creates an attributable assessment while keeping all network mutation disabled", async () => {
     const { store, owner, runCommand, service } = await fixture();
     const plan = await service.plan(input(), owner.id);

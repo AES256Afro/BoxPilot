@@ -90,9 +90,9 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     description: "Live topology remains read-only. A password-approved Pi-hole workflow can send four fixed direct DNS queries from Bigbox, and a signed enrolled agent can independently repeat them. Router credentials, router writes, and DNS cutover remain unavailable.",
   },
   routers: {
-    label: "Browser-local recovery checkpoint foundation",
+    label: "Live router-readiness guidance",
     tone: "live",
-    description: "The browser hashes a selected router backup and sends only SHA-256 metadata. Configuration uploads, credentials, router sessions, discovery, writes, and DNS cutover remain unavailable.",
+    description: "BoxPilot correlates Bigbox's observed gateway address with a fixed Flint 2, TP-Link BE400, and ER707-M2 operator checklist. The browser can record local backup hashes, but model identity, operating modes, and cabling remain operator checks. Credentials, sessions, probes, writes, and DNS cutover remain unavailable.",
   },
   repairs: {
     label: "Live Operations Core",
@@ -289,7 +289,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
     const bundle = {
       generatedAt: new Date().toISOString(),
       product: "BoxPilot",
-      version: "0.26.0",
+      version: "0.27.0",
       mode: "host-aware",
       safeMode: true,
       hostMutationsEnabled: "configuration-dependent-vm-actions-only",
@@ -331,7 +331,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.26.0 recovery kit<br />Evidence only, no backup data</div>
+        <div className="prototype-label">v0.27.0 router readiness<br />Private and mutation locked</div>
       </aside>
 
       <main>

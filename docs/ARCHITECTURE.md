@@ -4,7 +4,7 @@
 
 BoxPilot is a local-first management plane for one Ubuntu server. The normal operator uses a browser from another LAN or Tailscale device. Cloud accounts are optional integrations, not a requirement for operating the server.
 
-Version `0.26.0` adds a secret-free disaster recovery kit after the immutable planning-only Keel Notes adapter. The authenticated unprivileged web service correlates already-sanitized controller evidence into readiness checks, an ordered runbook, and browser-downloaded JSON or Markdown. It reads no backup payload, configuration file, credential, private key, application database, arbitrary log, or environment value. It calls no privileged mutation and does not claim that the export is a backup.
+Version `0.27.0` adds router-readiness guidance after the secret-free disaster recovery kit. The authenticated unprivileged web service reuses its fixed host collectors and checkpoint metadata to correlate an observed default-gateway address with a recommended three-device topology. It never claims the address proves a physical model. Device identity, operating mode, cabling, and DHCP authority remain explicit operator checks. It reads no neighbor table, MAC address, router page, credential, session, configuration payload, or arbitrary target, and it calls no router or host mutation.
 
 ## Target components
 
@@ -38,6 +38,7 @@ BoxPilot web and API process (unprivileged)
           +---- Fixed public GitHub repository and release provenance (0.24.0)
           +---- Exact-release Keel Notes planning with execution locked (0.25.0)
           +---- Secret-free recovery readiness and ordered runbook export (0.26.0)
+          +---- Fixed-model router guidance and gateway-address correlation (0.27.0)
           |
           +<--- Ed25519 signed polling and fixed evidence from enrolled LAN agent
                   no remote shell, arbitrary command, arbitrary target, or private-key transfer
@@ -171,11 +172,11 @@ A successful copy is not a verified backup. BoxPilot reports a workload as prote
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.26.0 limitations
+## Version 0.27.0 limitations
 
 - The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
-- Host, selected systemd services, Docker, libvirt, Tailscale self-state, fixed routes, resolver addresses, scoped port 53 listeners, and fixed journal sources are live. Router checkpoint records contain operator-reported local file hashes only. Neighbor MAC addresses, router sessions, live router state, SMART, and general hardware inspection remain excluded or pending.
+- Host, selected systemd services, Docker, libvirt, Tailscale self-state, fixed routes, resolver addresses, scoped port 53 listeners, and fixed journal sources are live. Router readiness correlates only the observed gateway address and checkpoint evidence. Router checkpoint records contain operator-reported local file hashes only. Physical router identity, operating mode, cabling, DHCP authority, neighbor MAC addresses, router sessions, live router state, SMART, and general hardware inspection remain excluded, operator-verified, or pending.
 - Password owner bootstrap, sessions, CSRF, and approval reauthentication are live. WebAuthn, recovery codes, multiple owners, and trusted proxy identity are not implemented.
 - The web process has no direct libvirt or KVM group access. Read-only libvirt inventory and all shipped VM mutations use the restricted helper.
 - VM actions are limited to durable approved start, graceful shutdown, reboot request, and autostart jobs. Reboot verification does not yet prove guest application health.
