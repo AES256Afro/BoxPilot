@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  createLibvirtFoundationPlan,
   createVmLifecyclePlan,
   createVmExportPlan,
   createVmProtectionPlan,
@@ -8,6 +9,7 @@ import {
   createVmRestoreDrillPlan,
   createVmSnapshotPlan,
   fetchVmExports,
+  fetchLibvirtFoundation,
   fetchVmProtection,
   fetchVmRecoveries,
   fetchVmRetention,
@@ -15,8 +17,11 @@ import {
   formatBytes,
   formatMemory,
   type LibvirtResources,
+  type LibvirtFoundation,
+  type LibvirtFoundationPlan,
   type ConsoleGuidance,
   stageVmLifecyclePlan,
+  stageLibvirtFoundationPlan,
   stageVmExportPlan,
   stageVmProtectionPlan,
   stageVmRecoveryPlan,
@@ -68,6 +73,8 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
   const [status, setStatus] = useState<VirtualizationStatus | null>(null);
   const [domainList, setDomainList] = useState<DomainList | null>(null);
   const [resources, setResources] = useState<LibvirtResources | null>(null);
+  const [foundation, setFoundation] = useState<LibvirtFoundation | null>(null);
+  const [foundationPlan, setFoundationPlan] = useState<LibvirtFoundationPlan | null>(null);
   const [consoleGuidance, setConsoleGuidance] = useState<ConsoleGuidance | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -95,8 +102,9 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
     setLoading(true);
     setError(null);
     try {
-      const [[nextStatus, nextDomains, nextResources, nextConsoleGuidance], nextExports, nextProtection, nextRecoveries, nextRetention] = await Promise.all([
+      const [[nextStatus, nextDomains, nextResources, nextConsoleGuidance], nextFoundation, nextExports, nextProtection, nextRecoveries, nextRetention] = await Promise.all([
         fetchVirtualization(),
+        fetchLibvirtFoundation(),
         fetchVmExports(),
         fetchVmProtection(),
         fetchVmRecoveries(),
@@ -105,6 +113,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       setStatus(nextStatus);
       setDomainList(nextDomains);
       setResources(nextResources);
+      setFoundation(nextFoundation);
       setConsoleGuidance(nextConsoleGuidance);
       setExports(nextExports);
       setProtectionDestination(nextProtection?.destination ?? null);
@@ -129,6 +138,33 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       setMessage("Setup commands copied. Review every command in the Ubuntu console before running it.");
     } catch {
       setMessage("Clipboard access was unavailable. Select the commands and copy them manually.");
+    }
+  };
+
+  const planFoundation = async () => {
+    setPending("foundation-plan");
+    setMessage(null);
+    try {
+      setFoundationPlan(await createLibvirtFoundationPlan(csrfToken));
+    } catch (foundationError) {
+      setMessage(foundationError instanceof Error ? foundationError.message : "Unable to plan the libvirt foundation setup");
+    } finally {
+      setPending(null);
+    }
+  };
+
+  const stageFoundation = async () => {
+    if (!foundationPlan) return;
+    setPending(`foundation-stage:${foundationPlan.id}`);
+    setMessage(null);
+    try {
+      await stageLibvirtFoundationPlan(foundationPlan.id, foundationPlan.revision, csrfToken);
+      setFoundationPlan(null);
+      onOpenRepair();
+    } catch (foundationError) {
+      setMessage(foundationError instanceof Error ? foundationError.message : "Unable to stage the libvirt foundation job");
+    } finally {
+      setPending(null);
     }
   };
 
@@ -438,6 +474,30 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       </div>
 
       <section className="panel vm-resources-panel">
+        <header className="panel-header">
+          <div><strong>Default VM foundation</strong><span>Platform-managed NAT network and storage pool</span></div>
+          <span className={`status-pill status-${foundation?.ready ? "good" : foundation?.planAvailable ? "warning" : "neutral"}`}>{foundation?.ready ? "Ready" : foundation?.planAvailable ? "Setup available" : "Blocked"}</span>
+        </header>
+        <div className="vm-resource-grid">
+          <div>
+            <span className="eyebrow">Default NAT network</span>
+            <div className="vm-resource-row"><strong>{foundation?.network.name ?? "default"}</strong><span>{foundation?.network.exists ? foundation.network.active ? "Active" : "Inactive" : "Not defined"} | {foundation?.network.autostart ? "autostart" : "manual"} | virbr0</span><code>192.168.122.0/24</code></div>
+          </div>
+          <div>
+            <span className="eyebrow">Default storage pool</span>
+            <div className="vm-resource-row"><strong>{foundation?.pool.name ?? "default"}</strong><span>{foundation?.pool.exists ? foundation.pool.active ? "Active" : "Inactive" : "Not defined"} | {foundation?.pool.autostart ? "autostart" : "manual"}</span><code>{foundation?.pool.targetPath ?? "/var/lib/libvirt/images"}</code></div>
+          </div>
+        </div>
+        {foundation?.ready ? (
+          <div className="vm-control-lock"><div><strong>VM creation foundation verified</strong><span>Both canonical resources are persistent, active, compatible, and enabled at boot. Other networks and pools remain untouched.</span></div><button type="button" className="secondary-button" onClick={() => void refresh()} disabled={pending !== null}>Refresh</button></div>
+        ) : foundation?.planAvailable ? (
+          <div className="vm-control-lock"><div><strong>Guided initialization is available</strong><span>{foundation.changes.join(" | ")}. The job accepts no resource names or paths and rolls back only its own changes.</span></div><button type="button" className="primary-button" onClick={() => void planFoundation()} disabled={pending !== null}>{pending === "foundation-plan" ? "Inspecting..." : "Review setup plan"}</button></div>
+        ) : (
+          <div className="vm-plan-warnings"><strong>Setup is blocked</strong>{foundation?.conflicts.map((conflict) => <span key={conflict}>{conflict}</span>)}<button type="button" className="secondary-button" onClick={onOpenRepair}>Open prerequisite repairs</button></div>
+        )}
+      </section>
+
+      <section className="panel vm-resources-panel">
         <header className="panel-header"><div><strong>Libvirt resources</strong><span>Live networks and storage pools</span></div><span className={`status-pill ${resources?.connected ? "status-good" : "status-warning"}`}>{resources?.connected ? "Connected" : "Unavailable"}</span></header>
         <div className="vm-resource-grid">
           <div><span className="eyebrow">Networks</span>{resources?.networks.length ? resources.networks.map((network) => <div className="vm-resource-row" key={network.name}><strong>{network.name}</strong><span>{network.active ? "Active" : "Inactive"} | {network.bridge ?? "no bridge"} | {network.autostart ? "autostart" : "manual"}</span></div>) : <p>No libvirt networks reported.</p>}</div>
@@ -524,6 +584,18 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
 
       {message && <p className="vm-message" aria-live="polite">{message}</p>}
       {plannerOpen && <VmPlanner csrfToken={csrfToken} onClose={() => setPlannerOpen(false)} onOpenRepair={onOpenRepair} />}
+      {foundationPlan && (
+        <div className="vm-planner-backdrop" role="presentation">
+          <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="foundation-plan-title">
+            <header className="vm-planner-header"><div><span className="eyebrow">Immutable foundation plan</span><h2 id="foundation-plan-title">Prepare default libvirt resources</h2><p>One password-approved job applies only this fixed NAT network and directory pool.</p></div><button type="button" className="modal-close" aria-label="Close foundation plan" onClick={() => setFoundationPlan(null)}>X</button></header>
+            <dl className="vm-plan-summary"><div><dt>Network</dt><dd>default | NAT | virbr0 | 192.168.122.0/24</dd></div><div><dt>Storage</dt><dd>default | dir | /var/lib/libvirt/images</dd></div><div><dt>Rollback</dt><dd>Automatic, limited to this job</dd></div></dl>
+            <div className="vm-plan-warnings"><strong>Planned changes</strong>{foundationPlan.output.changes.map((change) => <span key={change}>{change}</span>)}</div>
+            <div className="vm-plan-warnings"><strong>Locked boundaries</strong>{foundationPlan.output.boundaries.map((boundary) => <span key={boundary}>{boundary}</span>)}</div>
+            <p>{foundationPlan.output.recovery}</p>
+            <div className="vm-planner-actions"><button type="button" className="secondary-button" onClick={() => setFoundationPlan(null)}>Cancel</button><button type="button" className="primary-button" onClick={() => void stageFoundation()} disabled={pending !== null}>{pending === `foundation-stage:${foundationPlan.id}` ? "Staging..." : "Stage approval job"}</button></div>
+          </section>
+        </div>
+      )}
       {actionPlan && (
         <div className="vm-planner-backdrop" role="presentation">
           <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-action-title">

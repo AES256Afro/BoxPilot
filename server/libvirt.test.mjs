@@ -14,7 +14,8 @@ describe("libvirt service", () => {
 
   it("returns a guided Ubuntu setup plan", () => {
     const plan = getSetupPlan();
-    expect(plan.commands.join("\n")).toContain("qemu-kvm");
+    expect(plan.commands.join("\n")).toContain("qemu-system-x86");
+    expect(plan.commands.join("\n")).not.toContain("adduser");
     expect(plan.commands.join("\n")).toContain("qemu:///system");
     expect(plan.requiresConsoleApproval).toBe(true);
   });

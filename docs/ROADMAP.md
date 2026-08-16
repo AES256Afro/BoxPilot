@@ -29,6 +29,8 @@ Status: libvirt VM, network, pool, and Tailscale access discovery is included in
 
 Version `0.55.1` makes KVM readiness compatible with the main helper's private-device namespace by reading fixed kernel sysfs registration while keeping the actual `/dev/kvm` requirement in the separate installer unit.
 
+Version `0.56.0` adds parameter-free canonical default-network and default-pool inspection plus a separate immutable, staged, password-approved initialization job. It defines, starts, and enables only the fixed compatible resources and automatically rolls back only changes made by that job.
+
 - Host identity, OS, kernel, uptime, CPU, memory, mounts, and disk space
 - SMART and filesystem health
 - systemd unit status and selected journald streams

@@ -49,6 +49,12 @@ describe("Virtual Machines", () => {
       pools: [{ name: "default", active: true, autostart: true, persistent: true, type: "dir", targetPath: "/var/lib/libvirt/images", capacity: "100 GiB", allocation: "20 GiB", available: "80 GiB" }],
       errors: [],
     };
+    const foundation = {
+      connectionUri: "qemu:///system", connectionReady: true, ready: true, revision: "a".repeat(64), planAvailable: false, changes: [], conflicts: [],
+      network: { name: "default", exists: true, active: true, autostart: true, persistent: true, compatible: true, bridge: "virbr0", forwardMode: "nat", address: "192.168.122.1", rangeStart: "192.168.122.2", rangeEnd: "192.168.122.254" },
+      pool: { name: "default", exists: true, active: true, autostart: true, persistent: true, compatible: true, type: "dir", targetPath: "/var/lib/libvirt/images", target: { exists: true, directory: true, symbolicLink: false } },
+      boundary: { networkCidr: "192.168.122.0/24", poolTarget: "/var/lib/libvirt/images", mutationPerformed: false, browserResourceAccepted: false },
+    };
     const consoleGuidance = { nativeProxyAvailable: false, cockpit: { installed: false, active: false, enabled: false, port: 9090 }, tailscaleDnsName: null, privateUrl: null, accessNote: "No web console handoff is active." };
     const actionPlan = {
       id: "plan-1", revision: "revision-1", status: "draft", expiresAt: "2026-08-15T21:00:00Z",
@@ -161,7 +167,7 @@ describe("Virtual Machines", () => {
         ? url.endsWith("/stage")
           ? { job: { id: "job-1", state: "awaiting_approval", title: "Reviewed VM job" } }
           : { plan: url.endsWith("/snapshot-plans") ? snapshotPlan : url.endsWith("/export-plans") ? exportPlan : url.endsWith("/protection-plans") ? protectionPlan : url.endsWith("/retention-plans") ? retentionPlan : url.endsWith("/restore-drill-plans") ? restoreDrillPlan : url.endsWith("/recovery-plans") ? recoveryPlan : actionPlan }
-        : url.endsWith("/status") ? status : url.endsWith("/resources") ? resources : url.endsWith("/console-guidance") ? consoleGuidance : url.endsWith("/protection") ? protection : url.endsWith("/retention") ? retentionStatus : url.endsWith("/exports") ? { exports: [exportArtifact] } : url.endsWith("/recoveries") ? { recoveries } : domains;
+        : url.endsWith("/status") ? status : url.endsWith("/resources") ? resources : url.endsWith("/foundation") ? foundation : url.endsWith("/console-guidance") ? consoleGuidance : url.endsWith("/protection") ? protection : url.endsWith("/retention") ? retentionStatus : url.endsWith("/exports") ? { exports: [exportArtifact] } : url.endsWith("/recoveries") ? { recoveries } : domains;
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -174,6 +180,8 @@ describe("Virtual Machines", () => {
     expect(screen.getByText("ubuntu-lab")).toBeTruthy();
     expect(screen.getByText("192.168.122.25/24")).toBeTruthy();
     expect(screen.getByText("Libvirt resources")).toBeTruthy();
+    expect(screen.getByText("Default VM foundation")).toBeTruthy();
+    expect(screen.getByText("VM creation foundation verified")).toBeTruthy();
     expect(screen.getByText("No web console handoff is active.")).toBeTruthy();
     expect(screen.getByText(/80 GiB/)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Reboot" }) as HTMLButtonElement).disabled).toBe(false);

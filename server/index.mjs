@@ -23,6 +23,7 @@ import { createKeelRecoveryDrillService } from "./keel-recovery-drill.mjs";
 import { createKeelPromotionService } from "./keel-promotion.mjs";
 import { createKeelRollbackService } from "./keel-rollback.mjs";
 import { getSetupPlan } from "./libvirt.mjs";
+import { createLibvirtFoundationService } from "./libvirt-foundation.mjs";
 import { createMigrationService } from "./migrations.mjs";
 import { createMaintenanceService } from "./maintenance.mjs";
 import { createNetworkService } from "./network.mjs";
@@ -54,6 +55,7 @@ const auth = createAuthService(state);
 const helper = createHelperClient({ timeoutMs: 180000 });
 const maintenance = createMaintenanceService();
 const libvirt = createHelperLibvirtService({ helper });
+const libvirtFoundation = createLibvirtFoundationService({ store: state, helper });
 const prerequisites = createPrerequisiteService({
   stateDirectory: process.env.BOXPILOT_STATE_DIRECTORY ?? path.dirname(state.databasePath),
   helper,
@@ -90,6 +92,7 @@ const supportBundle = createSupportBundleService({ inventory, prerequisites, act
 const vmRestoreDrills = createVmRestoreDrillService({ store: state, helper });
 const jobs = createJobService(state, helper, {
   validatePrerequisiteRepairJob: prerequisiteRepairs.validateJob,
+  validateLibvirtFoundationJob: libvirtFoundation.validateJob,
   validateApplicationJob: applications.validateJob,
   validateKeelArtifactJob: keelArtifacts.validateJob,
   validateKeelRecoveryJob: keelRecoveries.validateJob,
@@ -152,7 +155,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.55.1",
+    version: "0.56.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -223,10 +226,11 @@ app.get("/api/v1/capabilities", (_request, response) => {
     backups: "wal-aware-controller-local-restore-plus-encrypted-independent-restic-copy-uptime-kuma-pi-hole-and-keel-local-restore-drills-stopped-keel-recovery-clones-isolated-keel-startup-rehearsals-rollback-backed-keel-promotion-operator-rollback-and-vm-protection",
     migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
     network: "read-only-topology-approved-fixed-pi-hole-and-observed-gateway-direct-dns-acceptance-plus-signed-second-device-evidence",
-    privilegedHelper: "typed-canary-exact-smartmontools-and-restic-repairs-fixed-apt-metadata-refresh-controller-local-backup-independent-restic-protection-curated-applications-fixed-keel-artifact-stage-install-backup-stopped-recovery-isolated-recovery-drill-rollback-backed-promotion-and-operator-rollback-migration-inventory-logs-and-vm-workflows",
+    privilegedHelper: "typed-canary-exact-smartmontools-restic-docker-and-virtualization-repairs-fixed-apt-metadata-refresh-fixed-libvirt-foundation-controller-local-backup-independent-restic-protection-curated-applications-fixed-keel-artifact-stage-install-backup-stopped-recovery-isolated-recovery-drill-rollback-backed-promotion-and-operator-rollback-migration-inventory-logs-and-vm-workflows",
     identity: "owner-password-foundation",
-    durableJobs: "sqlite-approved-prerequisite-controller-local-backup-controller-independent-protection-application-backup-keel-artifact-stage-install-backup-stopped-recovery-isolated-recovery-drill-rollback-backed-promotion-and-operator-rollback-dns-migration-and-vm-workflows",
+    durableJobs: "sqlite-approved-prerequisite-libvirt-foundation-controller-local-backup-controller-independent-protection-application-backup-keel-artifact-stage-install-backup-stopped-recovery-isolated-recovery-drill-rollback-backed-promotion-and-operator-rollback-dns-migration-and-vm-workflows",
     virtualization: "live-libvirt-via-restricted-helper",
+    libvirtFoundation: { inspect: "parameter-free-canonical-default-only", initialize: "durable-approved-static-unit", network: "default-nat-192.168.122.0/24", pool: "default-dir-var-lib-libvirt-images", automaticRollback: "job-changes-only", browserResourceInput: false },
     vmCreationPlanning: "validated-durable-approved",
     audit: "redacted-jsonl-foundation",
     vmActions: { enabled: true, mode: "durable-approved-helper-jobs" },
@@ -773,7 +777,7 @@ app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
+    const background = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, request.body?.password)
       : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
@@ -803,6 +807,30 @@ app.get("/api/v1/virtualization/setup-plan", (_request, response) => {
 app.get("/api/v1/virtualization/resources", async (_request, response) => {
   const resources = await libvirt.listResources();
   response.status(resources.connected ? 200 : 503).json(resources);
+});
+
+app.get("/api/v1/virtualization/foundation", async (_request, response) => {
+  const foundation = await libvirtFoundation.inspect();
+  response.status(foundation.connectionReady ? 200 : 503).json(foundation);
+});
+
+app.post("/api/v1/virtualization/foundation/plans", async (request, response) => {
+  try {
+    const plan = await libvirtFoundation.plan(request.boxpilotSession.owner.id, request.body);
+    response.status(201).json({ plan });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "libvirt_foundation_plan_failed" });
+  }
+});
+
+app.post("/api/v1/virtualization/foundation/plans/:id/stage", async (request, response) => {
+  try {
+    const job = await libvirtFoundation.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
+    response.status(201).json({ job });
+  } catch (error) {
+    const status = error.message.includes("not found") ? 404 : 409;
+    response.status(status).json({ error: error.message, code: "libvirt_foundation_stage_failed" });
+  }
 });
 
 app.get("/api/v1/virtualization/console-guidance", async (_request, response) => {
@@ -1034,7 +1062,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.55.1 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.56.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

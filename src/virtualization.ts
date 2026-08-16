@@ -76,6 +76,37 @@ export interface LibvirtResources {
   errors: string[];
 }
 
+export interface LibvirtFoundation {
+  connectionUri: "qemu:///system";
+  connectionReady: boolean;
+  ready: boolean;
+  revision: string | null;
+  network: { name: "default"; exists: boolean; active: boolean; autostart: boolean; persistent: boolean; compatible: boolean; bridge: string; forwardMode?: string | null; address?: string | null; rangeStart?: string | null; rangeEnd?: string | null };
+  pool: { name: "default"; exists: boolean; active: boolean; autostart: boolean; persistent: boolean; compatible: boolean; type?: string | null; targetPath: string; target?: { exists: boolean; directory: boolean; symbolicLink: boolean } };
+  conflicts: string[];
+  planAvailable: boolean;
+  changes: string[];
+  boundary: { networkCidr?: string; poolTarget?: string; mutationPerformed: boolean; browserResourceAccepted: boolean };
+}
+
+export interface LibvirtFoundationPlan {
+  id: string;
+  revision: string;
+  status: "draft" | "staged";
+  expiresAt: string;
+  input: { expectedRevision: string; foundationId: string };
+  output: {
+    executable: true;
+    connectionUri: "qemu:///system";
+    network: { name: "default"; mode: "nat"; bridge: "virbr0"; cidr: "192.168.122.0/24"; dhcpRange: string };
+    pool: { name: "default"; type: "dir"; targetPath: "/var/lib/libvirt/images" };
+    changes: string[];
+    boundaries: string[];
+    automaticRollback: true;
+    recovery: string;
+  };
+}
+
 export interface ConsoleGuidance {
   nativeProxyAvailable: false;
   cockpit: { installed: boolean; active: boolean; enabled: boolean; port: 9090 };
@@ -441,6 +472,28 @@ export async function fetchVirtualization(): Promise<[VirtualizationStatus, Doma
 
 export async function fetchVmPlanningOptions(): Promise<VmPlanningOptions> {
   return readJson<VmPlanningOptions>(await fetch("/api/v1/virtualization/planning-options"));
+}
+
+export async function fetchLibvirtFoundation(): Promise<LibvirtFoundation> {
+  return readJson<LibvirtFoundation>(await fetch("/api/v1/virtualization/foundation"));
+}
+
+export async function createLibvirtFoundationPlan(csrfToken: string): Promise<LibvirtFoundationPlan> {
+  const response = await fetch("/api/v1/virtualization/foundation/plans", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: JSON.stringify({}),
+  });
+  return (await readJson<{ plan: LibvirtFoundationPlan }>(response)).plan;
+}
+
+export async function stageLibvirtFoundationPlan(planId: string, revision: string, csrfToken: string): Promise<VmCreationJob> {
+  const response = await fetch(`/api/v1/virtualization/foundation/plans/${encodeURIComponent(planId)}/stage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+    body: JSON.stringify({ revision }),
+  });
+  return (await readJson<{ job: VmCreationJob }>(response)).job;
 }
 
 export async function createVmPlan(input: VmPlanInput, csrfToken: string): Promise<VmCreationPlan> {

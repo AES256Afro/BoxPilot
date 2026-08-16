@@ -5,6 +5,7 @@ export function createJobService(store, helper, {
   validateApplicationJob = async () => {},
   validateKeelArtifactJob = async () => {},
   validatePrerequisiteRepairJob = async () => {},
+  validateLibvirtFoundationJob = async () => {},
   validateBackupJob = async () => {},
   validateApplicationProtectionJob = async () => {},
   validateControllerProtectionJob = async () => {},
@@ -64,8 +65,9 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
+    const validatedLibvirtFoundation = job.type === "virtualization.foundation.initialize" ? await validateLibvirtFoundationJob(job) : null;
     const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.stage", "application.keel.install"].includes(job.type) ? await validateApplicationJob(job) : null;
     const validatedKeelArtifactPlan = job.type === "application.keel.artifact.acquire" ? await validateKeelArtifactJob(job) : null;
     if (["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup"].includes(job.type)) await validateBackupJob(job);
@@ -92,6 +94,7 @@ export function createJobService(store, helper, {
     if (job.type === "application.backup.protect" && !validatedApplicationProtectionPlan?.input) throw new Error("The staged application protection plan is unavailable or changed");
     if (job.type === "controller.database.backup.retention.apply" && !validatedControllerRetentionPlan?.input) throw new Error("The staged controller retention plan is unavailable or changed");
     if (["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh"].includes(job.type) && !validatedPrerequisiteRepair?.plan?.input) throw new Error("The staged prerequisite repair plan is unavailable or changed");
+    if (job.type === "virtualization.foundation.initialize" && !validatedLibvirtFoundation?.plan?.input) throw new Error("The staged libvirt foundation plan is unavailable or changed");
     if (job.type === "migration.bundle.transfer" && !validatedMigrationTransferPlan?.input) throw new Error("The staged migration transfer plan is unavailable or changed");
     if (job.type === "virtualization.domain.export.create" && !validatedVmExportPlan?.input) throw new Error("The staged VM export plan is unavailable or changed");
     if (job.type === "virtualization.export.backup.create" && !validatedVmProtectionPlan?.input) throw new Error("The staged VM protection plan is unavailable or changed");
@@ -212,6 +215,30 @@ export function createJobService(store, helper, {
         && result?.boundary?.networkCreated === false
         && result?.boundary?.storagePoolCreated === false
         && result?.boundary?.virtualMachineCreated === false,
+    } : job.type === "virtualization.foundation.initialize" ? {
+      operation: "virtualization.foundation.initialize",
+      parameters: { foundationId: validatedLibvirtFoundation.plan.input.foundationId, expectedRevision: validatedLibvirtFoundation.plan.input.expectedRevision },
+      timeoutMs: 5 * 60 * 1000,
+      applying: "Starting the fixed no-argument root unit to define, start, and enable only missing or inactive canonical default libvirt resources",
+      applied: "The fixed default NAT network and default directory storage pool initialization completed",
+      verified: "The canonical persistent default network and pool are active with autostart; no non-default resource, VM, disk, ISO, operator group, LAN route, firewall, or Tailscale setting changed",
+      failed: "The fixed libvirt foundation failed and requested rollback of only changes made by this job; inspect the dedicated unit and default resources before creating a new plan",
+      validate: (result) => result?.initialized === true
+        && result?.foundationId === validatedLibvirtFoundation.plan.input.foundationId
+        && result?.revisionBefore === validatedLibvirtFoundation.plan.input.expectedRevision
+        && result?.ready === true
+        && result?.network?.name === "default"
+        && result?.pool?.name === "default"
+        && result?.pool?.targetPath === "/var/lib/libvirt/images"
+        && result?.rollback?.automatic === true
+        && result?.rollback?.limitedToJobChanges === true
+        && result?.boundary?.resourceNamesFixed === true
+        && result?.boundary?.otherNetworksChanged === false
+        && result?.boundary?.otherPoolsChanged === false
+        && result?.boundary?.virtualMachineCreated === false
+        && result?.boundary?.diskCreated === false
+        && result?.boundary?.bridgeModeEnabled === false
+        && result?.boundary?.browserResourceAccepted === false,
     } : job.type === "prerequisite.apt-metadata.refresh" ? {
       operation: "prerequisite.apt-metadata.refresh",
       parameters: { expectedUpdatedAt: validatedPrerequisiteRepair.plan.input.expectedUpdatedAt },

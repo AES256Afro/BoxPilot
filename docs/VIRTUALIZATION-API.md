@@ -29,15 +29,29 @@ Agents and interfaces should read capabilities before showing an operation. `vmC
 GET /api/v1/virtualization/status
 GET /api/v1/virtualization/domains
 GET /api/v1/virtualization/resources
+GET /api/v1/virtualization/foundation
 GET /api/v1/virtualization/console-guidance
 GET /api/v1/virtualization/setup-plan
 ```
 
 `status`, `domains`, and `resources` are collected through fixed read-only helper scopes. The web service has no `libvirt` or `kvm` supplementary group. `status` reports host preflight, the fixed `qemu:///system` connection, lifecycle-action availability, and Tailscale information. `domains` reports guest state, resources, lease- and guest-agent-known addresses, disks, interfaces, bounded snapshot metadata, guest-agent availability, and filesystem-freeze state. `resources` reports libvirt networks and pools without changing either.
 
+`foundation` accepts no parameters and reports only the compatibility, persistent state, active state, autostart state, fixed identity, exact state revision, and conflict class for the canonical `default` NAT network and `default` directory pool. It returns no general XML and cannot inspect a browser-selected resource.
+
 `console-guidance` uses a parameter-free helper operation to inspect only `cockpit.socket`. If Cockpit is already active and Tailscale reports a DNS name, the response includes an HTTPS port `9090` handoff on that private hostname. BoxPilot does not install, enable, reconfigure, authenticate to, or proxy Cockpit. Cockpit remains a separate security boundary.
 
 A `503` from `domains` or `resources` is a structured discovery result when libvirt is unavailable. The web interface renders the partial result rather than treating the entire console as failed.
+
+## Initialize the canonical libvirt foundation
+
+```text
+POST /api/v1/virtualization/foundation/plans
+POST /api/v1/virtualization/foundation/plans/:id/stage
+```
+
+Planning accepts exactly `{}`. It fails when both fixed resources are already ready, the system URI is unavailable, a noncanonical resource occupies either `default` name, `virbr0` exists without the canonical network, the fixed subnet already has a host route, or `/var/lib/libvirt/images` is an unsafe target. A successful draft pins one server-generated foundation UUID and a SHA-256 state revision. It always fixes the network to `default`, NAT, `virbr0`, and `192.168.122.0/24`, and the pool to `default`, `dir`, and `/var/lib/libvirt/images`.
+
+Staging accepts only the immutable plan revision and rechecks live state. Password approval sends only the generated UUID and exact state revision to `virtualization.foundation.initialize`. The helper writes a five-minute root-only marker and starts static `boxpilot-libvirt-foundation.service`, which accepts no arguments. The unit independently rechecks state, applies only missing definitions and inactive or non-autostart compatible fixed resources, verifies both through `qemu:///system`, and automatically reverses only its own changes on failure. No non-default resource, VM, disk, ISO, operator group, LAN route, firewall, or Tailscale setting is changed.
 
 ## VM planning options
 
