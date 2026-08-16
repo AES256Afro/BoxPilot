@@ -114,7 +114,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.33.0",
+    version: "0.34.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -178,7 +178,7 @@ app.use("/api/v1", (request, response, next) => {
 
 app.get("/api/v1/capabilities", (_request, response) => {
   response.json({
-    inventory: "sanitized-host-storage-ext4-error-counters-filesystem-smart-local-ups-docker-services-network-and-dns-topology",
+    inventory: "sanitized-host-maintenance-storage-ext4-error-counters-filesystem-smart-local-ups-docker-services-network-and-dns-topology",
     composeInspection: "browser-only",
     applications: "curated-uptime-kuma-and-no-cutover-pi-hole-staging-recovery-and-direct-dns-acceptance",
     supportBundle: "authenticated-server-generated-fixed-source-configurably-redacted",
@@ -204,6 +204,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     actionCenter: { generation: "authenticated-read-only", guidance: "fixed-local-destinations", automaticRepair: false, persistence: false, externalDelivery: false },
     filesystemErrors: { ext4: "mounted-kernel-errors-count-read-only", unsupportedFilesystems: "explicit", filesystemCheck: false, repair: false },
     upsEvidence: { source: "fixed-upsc-localhost-only", devices: "single-locally-enumerated", powerCommands: false, shutdownPolicyMutation: false, remoteTargets: false },
+    maintenanceEvidence: { source: "fixed-local-systemd-reboot-dpkg-apt-and-unattended-upgrades-state", namesIncluded: false, aptOperations: false, serviceControl: false, reboot: false },
     prerequisiteRepairs: { smartmontools: "exact-version-durable-approved-fixed-package-service", arbitraryPackages: false, aptUpdate: false, automaticRemoval: false },
   });
 });
@@ -728,7 +729,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.33.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.34.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

@@ -4,11 +4,11 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.33.0` adds optional read-only UPS evidence from Network UPS Tools. The unprivileged collector runs only fixed `upsc` queries against `localhost`, accepts exactly one locally enumerated bounded device identity, and returns only derived power state, fixed status tokens, battery charge, estimated runtime, and load. Missing NUT is reported as not configured rather than healthy. Device names, serials, alarms, raw output, remote targets, power commands, and shutdown-policy changes remain unavailable.
+Version `0.34.0` adds bounded host-maintenance readiness evidence. Fixed unprivileged collectors report derived systemd health, failed-service count, reboot-required presence, interrupted dpkg fragment count, APT metadata age, and the fixed unattended-upgrades unit state. Package names, unit names, reboot reasons, command output, and errors are excluded. Overview and Action Center provide fixed manual guidance, but BoxPilot cannot run APT, install or remove a package, restart a service, change automatic updates, or reboot the server.
 
 ### What works now
 
-| Area | Status in `0.33.0` | Capability |
+| Area | Status in `0.34.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
@@ -17,7 +17,7 @@ Version `0.33.0` adds optional read-only UPS evidence from Network UPS Tools. Th
 | Local Action Center | Authenticated read-only guidance | Correlates the recovery kit and recent failed-job count into fixed prioritized notices, sanitized evidence, three-step manual guidance, and fixed in-product destinations. It stores no notice state and cannot repair, execute, schedule, send, or mutate anything. |
 | Disaster recovery kit | Authenticated read-only export | Correlates sanitized job, application-backup, protected-VM-backup, router-checkpoint, migration, fleet, DNS, and prerequisite evidence. JSON and Markdown downloads remain evidence only: no database, application data, configuration file, backup payload, credential, or mutation is included. |
 | Restricted helper | Live typed operations | Uses a versioned, allowlisted protocol over a local Unix socket for the fixed `smartmontools` inspection and exact-version install, canary, bounded inventory and logs, Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, guarded VM creation and lifecycle, read-only libvirt inventory, offline snapshots, stopped-VM exports, mounted-restic VM copies, isolated restore drills, stopped no-network recovery clones, and exact no-prune retention. It accepts no general package name, repository, command string, binary selection, libvirt URI, argument array, operator path, Compose source path, migration destination, SSH credential, repository password, backup mount, repository path, export destination, restore destination, recovery directory, prune flag, selector such as `latest`, or arbitrary root path from the browser. |
-| Host, storage, power, and Docker inventory | Live | Reports authenticated host identity, CPU, memory, root storage, sanitized real mounts and block topology, mounted ext4 kernel error counters, timer-generated bounded SMART evidence, optional fixed-localhost NUT state, uptime, selected services, LAN addresses, Tailscale self-state, and sanitized Docker resources. Unsupported and unavailable evidence remains explicit. Serial numbers, UPS identities, UUIDs, raw SMART or NUT output, mount option values, private home paths, container environments, commands, labels, and host mount sources are excluded. |
+| Host, maintenance, storage, power, and Docker inventory | Live | Reports authenticated host identity, CPU, memory, bounded maintenance state, root storage, sanitized real mounts and block topology, mounted ext4 kernel error counters, timer-generated SMART evidence, optional fixed-localhost NUT state, uptime, selected services, LAN addresses, Tailscale self-state, and sanitized Docker resources. Unsupported and unavailable evidence remains explicit. Package and failed-unit names, reboot reasons, serial numbers, UPS identities, UUIDs, raw command output, mount option values, private home paths, container environments, labels, and host mount sources are excluded. |
 | Network and DNS Center | Live planning and guarded fixed tests | Reports validated default gateways, host LAN CIDRs, sanitized systemd-resolved servers, scoped TCP and UDP port 53 listeners, and Tailscale resolver observations. It creates immutable topology assessments and can separately stage four fixed direct Pi-hole DNS checks after exact deployment and restore evidence match. A separately enrolled signed agent can repeat only those fixed checks after a fresh passing Bigbox record. Router writes and DNS cutover have no execution route. |
 | Router readiness and checkpoints | Live address correlation plus operator checks | Shows Bigbox's observed gateway address without claiming router identity, recommends one routing/DHCP authority, provides fixed vendor-grounded setup and rollback checklists, and correlates browser-local backup-hash evidence. Configuration uploads, credentials, neighbor discovery, live device probes, API sessions, writes, restore claims, and DNS cutover are unavailable. |
 | GitHub provenance | Live fixed public metadata | Reads sanitized commit, verification, latest-release, and asset-digest metadata for BoxPilot and Keel through GitHub's unauthenticated public API. No token, repository input, clone, download, write, webhook, workflow dispatch, local digest verification, or installation route exists. |
@@ -225,6 +225,12 @@ This explicitly disclosed `0.32.0` mock shows independent capacity and ext4 erro
 ![BoxPilot fixed-localhost UPS power evidence](docs/screenshots/ups-evidence-mock.jpg)
 
 This explicitly disclosed `0.33.0` mock shows the allowlisted local NUT state, charge, runtime, load, and read-only Action Center handoff. No UPS was contacted, remote target was probed, raw output or device identity was collected, power command ran, shutdown policy changed, or host state changed for the capture.
+
+### Host maintenance evidence mockup
+
+![BoxPilot bounded host-maintenance readiness evidence](docs/screenshots/maintenance-evidence-mock.jpg)
+
+This explicitly disclosed `0.34.0` mock shows derived system state, failed-service count, reboot marker presence, dpkg fragment count, APT metadata age, unattended-upgrades state, and the read-only Action Center handoff. No package or unit name was read into the mock, APT or dpkg operation ran, package changed, service restarted, update policy changed, reboot occurred, or host state changed for the capture.
 
 ## Safety contract
 

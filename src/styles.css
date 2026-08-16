@@ -526,6 +526,15 @@ main {
 .power-boundary { display: grid; gap: 3px; margin: 0 15px 15px; padding: 10px 11px; color: #a9c9c1; background: #102a25; border: 1px solid #28584c; border-radius: 8px; }
 .power-boundary strong { font-size: 9px; }
 .power-boundary span { font-size: 8px; line-height: 1.5; }
+.maintenance-evidence-panel { display: grid; gap: 0; margin-bottom: 14px; }
+.maintenance-evidence-panel .panel-header > div { display: grid; gap: 3px; }
+.maintenance-evidence-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 9px; padding: 13px 15px; }
+.maintenance-evidence-summary > div { display: grid; gap: 4px; padding: 11px; background: #0a151e; border: 1px solid var(--line-soft); border-radius: 9px; }
+.maintenance-evidence-summary strong { font-size: 11px; text-transform: capitalize; }
+.maintenance-evidence-summary small { color: var(--muted); font-size: 8px; }
+.maintenance-boundary { display: grid; gap: 3px; margin: 0 15px 15px; padding: 10px 11px; color: #a9c9c1; background: #102a25; border: 1px solid #28584c; border-radius: 8px; }
+.maintenance-boundary strong { font-size: 9px; }
+.maintenance-boundary span { font-size: 8px; line-height: 1.5; }
 
 .panel {
   overflow: hidden;
@@ -2748,6 +2757,7 @@ textarea {
 
   .storage-evidence-summary,
   .power-evidence-summary,
+  .maintenance-evidence-summary,
   .mount-grid,
   .smart-grid { grid-template-columns: 1fr; }
 
