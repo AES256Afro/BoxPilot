@@ -35,6 +35,8 @@ Both units expect the verified Node.js runtime at `/usr/local/bin/node`. Do not 
 
 The storage timer is separate from the web service and helper protocol. If `/usr/sbin/smartctl` is absent, its successful evidence file says `smartctl-not-installed`; it does not install a package or invent disk health. Version `0.31.0` adds a dedicated Repair Center workflow that resolves only the configured `smartmontools` candidate, stores an immutable plan, requires separate staging and owner-password approval, revalidates the exact version, starts a static root package unit, and verifies a fresh scan. See [Exact prerequisite repair boundary](PREREQUISITE-REPAIRS.md).
 
+Version `0.33.0` optionally reads an already configured local Network UPS Tools service through fixed `/usr/bin/upsc` localhost queries. BoxPilot does not install NUT, configure a driver, select a UPS, issue power commands, or change shutdown policy. If NUT is absent, Overview and Action Center report it as optional setup still required.
+
 The manual console fallback remains:
 
 ```bash

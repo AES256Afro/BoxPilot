@@ -4,6 +4,7 @@ import { statfs } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { normalizeMountEvidence, normalizeSmartEvidence, parseBlockInventory } from "./storage-evidence.mjs";
+import { createUpsService, unavailableUpsEvidence } from "./ups.mjs";
 
 const execFile = promisify(execFileCallback);
 const serviceUnits = ["boxpilot.service", "boxpilot-helper.service", "docker.service", "tailscaled.service", "libvirtd.service", "virtqemud.service"];
@@ -40,6 +41,7 @@ export function createInventoryService({
   getFilesystem = statfs,
   getNetworkInterfaces = os.networkInterfaces,
   readStorageHealth = () => readFile(process.env.BOXPILOT_STORAGE_HEALTH_PATH ?? storageHealthPath, "utf8"),
+  ups = createUpsService(),
   now = () => new Date(),
 } = {}) {
   async function inspectService(unit) {
@@ -74,11 +76,12 @@ export function createInventoryService({
 
     let docker = { available: false, containers: [], images: [], networks: [], volumes: [], projects: [] };
     try { docker = await helper.request("container.docker.inventory", {}); } catch { docker = { ...docker, error: "Docker inventory is unavailable through the restricted helper" }; }
-    const [services, tailscale, blockResult, smartResult] = await Promise.all([
+    const [services, tailscale, blockResult, smartResult, upsResult] = await Promise.all([
       Promise.all(serviceUnits.map(inspectService)),
       inspectTailscale(),
       runCommand("lsblk", ["--json", "--bytes", "--paths", "--output", "NAME,TYPE,FSTYPE,SIZE,MOUNTPOINTS,ROTA,RO,TRAN,MODEL"]),
       readStorageHealth().then((contents) => ({ ok: true, contents })).catch(() => ({ ok: false, contents: "" })),
+      ups.inspect().catch(() => unavailableUpsEvidence()),
     ]);
     const blockDevices = blockResult.ok ? parseBlockInventory(blockResult.stdout) : parseBlockInventory("");
     let smartValue = null;
@@ -109,6 +112,7 @@ export function createInventoryService({
         memoryUsedPercent: totalMemoryBytes ? Math.round(((totalMemoryBytes - freeMemoryBytes) / totalMemoryBytes) * 100) : 0,
       },
       storage: { root: rootStorage, filesystems, blockDevices, smart },
+      power: { ups: upsResult },
       network: { addresses, tailscale },
       services,
       docker,

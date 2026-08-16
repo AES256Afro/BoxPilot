@@ -1,6 +1,6 @@
 # Sanitized live inventory
 
-BoxPilot `0.7.0` replaced the demonstration overview with authenticated host, service, network, Docker, and log inventory. Version `0.30.1` adds sanitized host-mount and block-device topology, a separate fixed root-only storage evidence timer, and a server-generated support bundle with a final configurable redaction pass. Version `0.31.0` adds a separately named exact `smartmontools` repair. Version `0.32.0` adds mounted ext4 kernel error counters to the same fixed evidence document. Every collector remains bounded so discovery does not become arbitrary command execution.
+BoxPilot `0.7.0` replaced the demonstration overview with authenticated host, service, network, Docker, and log inventory. Version `0.30.1` adds sanitized host-mount and block-device topology, a separate fixed root-only storage evidence timer, and a server-generated support bundle with a final configurable redaction pass. Version `0.31.0` adds a separately named exact `smartmontools` repair. Version `0.32.0` adds mounted ext4 kernel error counters. Version `0.33.0` adds optional bounded local NUT evidence. Every collector remains bounded so discovery does not become arbitrary command execution.
 
 ## Host inventory
 
@@ -13,6 +13,7 @@ BoxPilot `0.7.0` replaced the demonstration overview with authenticated host, se
 - Real filesystem mounts with capacity state, safe option names, read-only state, sanitized source and target, and fail-closed ext4 error-counter evidence
 - Block-device topology without serial numbers, UUIDs, labels, or raw udev properties
 - Bounded SMART health fields from a separate root-only timer when current evidence exists
+- Optional local UPS state, fixed status tokens, battery charge, estimated runtime, and load from a fixed localhost NUT query
 - Non-loopback IPv4 addresses and interface names
 - Tailscale connection state and the local device DNS name
 - Load, active, substate, and enablement for a fixed service list
@@ -48,6 +49,14 @@ Block sanitization includes device name, parent, type, filesystem, size, sanitiz
 The evidence excludes serials, UUIDs, firmware, raw output, stderr, arbitrary attributes, and command arguments. The web service treats missing, malformed, more than 24-hour-old, or future-dated evidence as unavailable or stale. It never turns collector failure into a healthy claim.
 
 The timer itself never installs `smartmontools`. Until the package and timer are present, Overview honestly reports `smartctl not installed` or missing evidence. BoxPilot `0.31.0` exposes a separate durable Repair Center plan for only the fixed configured `smartmontools` candidate. It requires staging, password approval, exact-version revalidation, the static `boxpilot-smartmontools-install.service`, and a fresh scan. The inventory route cannot trigger it. See [Exact prerequisite repair boundary](PREREQUISITE-REPAIRS.md).
+
+## UPS power evidence
+
+The optional `0.33.0` collector checks only `/usr/bin/upsc`. It first runs the fixed arguments `-l localhost`. If and only if one locally enumerated name matches the bounded NUT identity syntax, it runs one fixed `<derived-name>@localhost` query. It accepts no browser input and cannot select a remote server, port, device, command, or argument.
+
+Only `ups.status`, `battery.charge`, `battery.runtime`, and `ups.load` are parsed. Status is reduced to a fixed token set and derived `online`, `on-battery`, `low-battery`, `forced-shutdown`, `bypass`, `offline`, or `unavailable` state. Numeric fields are range checked. Device names, descriptions, manufacturers, models, serials, alarms, raw output, and errors are never returned. Multiple devices fail closed to a count and unavailable state.
+
+Missing NUT, no local configuration, a stopped local NUT service, and invalid or unknown evidence remain distinct non-healthy reasons. The collector does not install or configure NUT, run a driver, switch power, request shutdown, alter NUT policy, or probe a remote device. Bigbox had no NUT client or local configuration before this release, so its expected first live state is `nut-client-not-installed`.
 
 ## Docker inventory
 
