@@ -27,5 +27,6 @@ These images include historical local captures and explicitly disclosed release 
 - `recovery-kit-mock.png`: explicitly disclosed `0.26.0` disaster recovery readiness mock rendered from `docs/mockups/recovery-kit.html`; no database, application data, backup payload, router configuration, credential, key, signature, arbitrary log, host, VM, application, network, or router state was copied or changed
 - `action-center-mock.png`: explicitly disclosed `0.29.0` local Action Center mock rendered from `docs/mockups/action-center.html`; no repair, command, schedule, notification, credential access, or host state was triggered or changed
 - `storage-evidence-mock.png`: explicitly disclosed `0.30.0` storage and filesystem evidence mock rendered from `docs/mockups/storage-evidence.html`; no SMART scan, device read, package installation, mount, filesystem, disk, service, or host state was triggered or changed
+- `prerequisite-repair-mock.png`: explicitly disclosed `0.31.0` exact smartmontools repair mock rendered from `docs/mockups/prerequisite-repair.html`; no package metadata query, APT operation, package install or removal, storage scan, service, disk, mount, filesystem, network, or SMART change occurred
 
 Do not crop out the data-source notice when replacing these screenshots. It is part of the product's capability disclosure.

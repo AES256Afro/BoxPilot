@@ -59,6 +59,20 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("revalidates and executes only the exact smartmontools repair plan", async () => {
+    const result = { package: "smartmontools", installed: true, version: "7.5-2", packageChanged: true, scan: { completed: true, evidenceRefreshed: true }, boundary: { fixedPackage: true, arbitraryPackageAccepted: false, aptUpdatePerformed: false, packageRemovalPerformed: false } };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const validatePrerequisiteRepairJob = vi.fn(async () => ({ plan: { input: { expectedVersion: "7.5-2" } }, state: { installed: false } }));
+    const jobs = createJobService(store, helper, { validatePrerequisiteRepairJob });
+    const job = store.createJob({ type: "prerequisite.smartmontools.install", title: "Install smartmontools", risk: "system-package", parameters: { expectedVersion: "7.5-2" }, recovery: { automaticRollback: false }, createdBy: owner.id });
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+    expect(validatePrerequisiteRepairJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("prerequisite.smartmontools.install", { expectedVersion: "7.5-2" }, { timeoutMs: 15 * 60 * 1000 });
+    expect(completed).toMatchObject({ state: "completed", result: { package: "smartmontools", installed: true, packageChanged: true } });
+    store.close();
+  });
+
   it("revalidates and executes a typed Uptime Kuma deployment job", async () => {
     const helper = { request: vi.fn(async () => ({ installed: true, healthy: true, dataPreserved: true, hostPort: 3101 })) };
     const { store, owner } = await setup(helper);

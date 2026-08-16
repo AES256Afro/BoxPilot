@@ -11,9 +11,10 @@ import { createVmRecoveryHelper, validateVmRecoveryInput } from "./vm-recovery-h
 import { createVmRetentionHelper, validateVmRetentionInput } from "./vm-retention-helper.mjs";
 import { createVmRestoreDrillHelper, validateVmRestoreDrillInput } from "./vm-restore-drill-helper.mjs";
 import { createMigrationTransferHelper, validateMigrationTransferInput } from "./migration-transfer-helper.mjs";
+import { createPrerequisiteHelper } from "./prerequisite-helper.mjs";
 
 export const helperProtocolVersion = 1;
-export const helperOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "application.pi-hole.inspect", "application.pi-hole.deploy", "application.pi-hole.backup", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
+export const helperOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.smartmontools.install", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "application.pi-hole.inspect", "application.pi-hole.deploy", "application.pi-hole.backup", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
 const vmCreationKeys = ["autostart", "diskGiB", "firmware", "isoFile", "memoryMiB", "name", "network", "osProfile", "vcpus"];
 const vmLifecycleKeys = ["action", "expectedAutostart", "expectedState", "name"];
 const vmSnapshotKeys = ["expectedDiskRevision", "expectedSnapshotRevision", "expectedState", "expectedUuid", "name", "snapshotName"];
@@ -36,6 +37,11 @@ export function validateHelperRequest(value) {
   if (!helperOperations.has(value.operation)) return "Operation is not allowlisted";
   if (!value.parameters || typeof value.parameters !== "object" || Array.isArray(value.parameters)) return "Parameters must be an object";
   if (value.operation === "canary.verify" && Object.keys(value.parameters).length !== 0) return "Canary operation accepts no parameters";
+  if (value.operation === "prerequisite.smartmontools.inspect" && Object.keys(value.parameters).length !== 0) return "Smartmontools inspection accepts no parameters";
+  if (value.operation === "prerequisite.smartmontools.install") {
+    const keys = Object.keys(value.parameters);
+    if (keys.length !== 1 || keys[0] !== "expectedVersion" || typeof value.parameters.expectedVersion !== "string" || !/^[0-9A-Za-z.+:~_-]{1,64}$/.test(value.parameters.expectedVersion)) return "Smartmontools installation accepts only one exact expectedVersion";
+  }
   if (value.operation === "container.docker.inspect" && Object.keys(value.parameters).length !== 0) return "Docker inspection accepts no parameters";
   if (value.operation === "container.docker.inventory" && Object.keys(value.parameters).length !== 0) return "Docker inventory accepts no parameters";
   if (value.operation === "system.logs.inspect") {
@@ -138,7 +144,7 @@ export function validateHelperRequest(value) {
   return null;
 }
 
-export async function executeHelperOperation(request, { applications = createApplicationHelper(), migrations = createMigrationTransferHelper(), virtualization = createVmHelper(), vmProtection = createVmProtectionHelper(), vmRetention = createVmRetentionHelper(), vmRestoreDrill = createVmRestoreDrillHelper(), vmRecovery = createVmRecoveryHelper() } = {}) {
+export async function executeHelperOperation(request, { applications = createApplicationHelper(), migrations = createMigrationTransferHelper(), prerequisites = createPrerequisiteHelper(), virtualization = createVmHelper(), vmProtection = createVmProtectionHelper(), vmRetention = createVmRetentionHelper(), vmRestoreDrill = createVmRestoreDrillHelper(), vmRecovery = createVmRecoveryHelper() } = {}) {
   const error = validateHelperRequest(request);
   if (error) return { version: helperProtocolVersion, id: request?.id ?? null, ok: false, error, code: "invalid_request" };
   if (request.operation === "canary.verify") {
@@ -146,8 +152,14 @@ export async function executeHelperOperation(request, { applications = createApp
       version: helperProtocolVersion,
       id: request.id,
       ok: true,
-      result: { verified: true, helperVersion: "0.15.0", mutationPerformed: false },
+      result: { verified: true, helperVersion: "0.16.0", mutationPerformed: false },
     };
+  }
+  if (request.operation === "prerequisite.smartmontools.inspect") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await prerequisites.inspectSmartmontools() };
+  }
+  if (request.operation === "prerequisite.smartmontools.install") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await prerequisites.installSmartmontools(request.parameters) };
   }
   if (request.operation === "container.docker.inspect") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await applications.inspectDocker() };

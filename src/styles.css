@@ -2114,6 +2114,14 @@ textarea {
 .recovery-boundary strong { font-size: 9px; }
 .recovery-boundary span { font-size: 8px; line-height: 1.5; }
 .recovery-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.prerequisite-repair-plan { display: grid; gap: 13px; padding: 18px; border-color: #66502e; }
+.prerequisite-repair-plan .panel-header > div { display: grid; gap: 3px; }
+.prerequisite-repair-plan > p { margin: 0; color: var(--muted-strong); font-size: 9px; line-height: 1.55; }
+.prerequisite-repair-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.prerequisite-repair-grid > div { display: grid; gap: 4px; padding: 10px 11px; background: #0a151e; border: 1px solid var(--line); border-radius: 8px; }
+.prerequisite-repair-grid span { color: var(--muted); font-size: 7px; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+.prerequisite-repair-grid strong { font-size: 9px; line-height: 1.45; }
+.repair-plan-button { justify-self: start; margin-top: 6px; }
 
 .repair-readiness {
   display: flex;
@@ -2647,6 +2655,7 @@ textarea {
   }
 
   .recovery-check-grid { grid-template-columns: 1fr; }
+  .prerequisite-repair-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
   .vm-plan-form {
     border-right: 0;
@@ -2750,6 +2759,8 @@ textarea {
   }
 
   .recovery-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .prerequisite-repair-grid { grid-template-columns: 1fr; }
 
   .action-list { grid-template-columns: 1fr; }
 

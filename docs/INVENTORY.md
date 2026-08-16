@@ -1,6 +1,6 @@
 # Sanitized live inventory
 
-BoxPilot `0.7.0` replaced the demonstration overview with authenticated host, service, network, Docker, and log inventory. Version `0.30.1` adds sanitized host-mount and block-device topology, a separate fixed root-only storage evidence timer, and a server-generated support bundle with a final configurable redaction pass. Every collector remains bounded so discovery does not become arbitrary command execution.
+BoxPilot `0.7.0` replaced the demonstration overview with authenticated host, service, network, Docker, and log inventory. Version `0.30.1` adds sanitized host-mount and block-device topology, a separate fixed root-only storage evidence timer, and a server-generated support bundle with a final configurable redaction pass. Version `0.31.0` adds a separately named exact `smartmontools` repair without changing the read-only inventory endpoints. Every collector remains bounded so discovery does not become arbitrary command execution.
 
 ## Host inventory
 
@@ -45,7 +45,7 @@ Block sanitization includes device name, parent, type, filesystem, size, sanitiz
 
 The evidence excludes serials, UUIDs, firmware, raw output, stderr, arbitrary attributes, and command arguments. The web service treats missing, malformed, more than 24-hour-old, or future-dated evidence as unavailable or stale. It never turns collector failure into a healthy claim.
 
-The timer does not install `smartmontools`. Until the package and timer are present, Overview honestly reports `smartctl not installed` or missing evidence. BoxPilot `0.30.1` does not expose a package-install repair.
+The timer itself never installs `smartmontools`. Until the package and timer are present, Overview honestly reports `smartctl not installed` or missing evidence. BoxPilot `0.31.0` exposes a separate durable Repair Center plan for only the fixed configured `smartmontools` candidate. It requires staging, password approval, exact-version revalidation, the static `boxpilot-smartmontools-install.service`, and a fresh scan. The inventory route cannot trigger it. See [Exact prerequisite repair boundary](PREREQUISITE-REPAIRS.md).
 
 ## Docker inventory
 

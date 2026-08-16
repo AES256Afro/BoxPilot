@@ -69,7 +69,21 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.15.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.16.0", mutationPerformed: false } });
+  });
+
+  it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
+    expect(validateHelperRequest(request({ operation: "prerequisite.smartmontools.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "prerequisite.smartmontools.inspect", parameters: { package: "curl" } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "prerequisite.smartmontools.install", parameters: { expectedVersion: "7.5-2" } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "prerequisite.smartmontools.install", parameters: { expectedVersion: "7.5-2", package: "curl" } }))).toContain("only one exact expectedVersion");
+    expect(validateHelperRequest(request({ operation: "prerequisite.smartmontools.install", parameters: { expectedVersion: "$(id)" } }))).toContain("only one exact expectedVersion");
+    const prerequisites = {
+      inspectSmartmontools: async () => ({ package: "smartmontools", installed: false, candidateVersion: "7.5-2", mutationPerformed: false }),
+      installSmartmontools: async ({ expectedVersion }) => ({ package: "smartmontools", installed: true, version: expectedVersion, boundary: { arbitraryPackageAccepted: false } }),
+    };
+    await expect(executeHelperOperation(request({ operation: "prerequisite.smartmontools.inspect", parameters: {} }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { candidateVersion: "7.5-2", mutationPerformed: false } });
+    await expect(executeHelperOperation(request({ operation: "prerequisite.smartmontools.install", parameters: { expectedVersion: "7.5-2" } }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { installed: true, version: "7.5-2", boundary: { arbitraryPackageAccepted: false } } });
   });
 
   it("rejects arbitrary operation names and parameters", () => {

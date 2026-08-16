@@ -58,6 +58,23 @@ interface ActionCenter {
   boundary: { mutationPerformed: boolean; automaticRepair: boolean; persistence: boolean; browserNotifications: boolean; externalDelivery: boolean; credentialsIncluded: boolean; arbitraryLogsIncluded: boolean };
 }
 
+interface SmartRepairPlan {
+  id: string;
+  revision: string;
+  expiresAt: string;
+  output: {
+    package: "smartmontools";
+    selectedVersion: string;
+    currentState: string;
+    action: string;
+    networkAccess: boolean;
+    aptUpdatePerformed: boolean;
+    arbitraryPackageSelection: boolean;
+    automaticRollback: boolean;
+    recovery: string;
+  };
+}
+
 async function readJson<T>(response: Response): Promise<T> {
   const body = await response.json() as T & { error?: string };
   if (!response.ok) throw new Error(body.error ?? `Request failed with status ${response.status}`);
@@ -75,6 +92,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
   const [actionError, setActionError] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
+  const [smartRepairPlan, setSmartRepairPlan] = useState<SmartRepairPlan | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -132,6 +150,42 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
     }
   };
 
+  const createSmartRepairPlan = async () => {
+    setPending(true);
+    setError(null);
+    try {
+      const result = await readJson<{ plan: SmartRepairPlan }>(await fetch("/api/v1/prerequisite-repairs/smartmontools/plans", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({}),
+      }));
+      setSmartRepairPlan(result.plan);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to create the smartmontools repair plan");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const stageSmartRepairPlan = async () => {
+    if (!smartRepairPlan) return;
+    setPending(true);
+    setError(null);
+    try {
+      await readJson(await fetch(`/api/v1/prerequisite-repair-plans/${smartRepairPlan.id}/stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ revision: smartRepairPlan.revision }),
+      }));
+      setSmartRepairPlan(null);
+      await refresh();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to stage the smartmontools repair plan");
+    } finally {
+      setPending(false);
+    }
+  };
+
   const approve = async () => {
     if (!awaitingApproval) return;
     setPending(true);
@@ -172,6 +226,20 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       </section>
 
       {error && <div className="auth-error" role="alert">{error}</div>}
+      {smartRepairPlan && (
+        <section className="panel prerequisite-repair-plan">
+          <header className="panel-header"><div><span className="eyebrow">Exact prerequisite repair plan</span><strong>smartmontools {smartRepairPlan.output.selectedVersion}</strong><span>Revision {smartRepairPlan.revision} | expires {new Date(smartRepairPlan.expiresAt).toLocaleString()}</span></div><span className="status-pill status-warning">system package</span></header>
+          <div className="prerequisite-repair-grid">
+            <div><span>Current state</span><strong>{smartRepairPlan.output.currentState}</strong></div>
+            <div><span>Network access</span><strong>{smartRepairPlan.output.networkAccess ? "Required for the fixed APT install" : "Not required"}</strong></div>
+            <div><span>APT update</span><strong>{smartRepairPlan.output.aptUpdatePerformed ? "Planned" : "Not permitted"}</strong></div>
+            <div><span>Automatic removal</span><strong>{smartRepairPlan.output.automaticRollback ? "Planned" : "Never"}</strong></div>
+          </div>
+          <p>{smartRepairPlan.output.action}</p>
+          <div className="recovery-boundary"><strong>Fixed boundary</strong><span>No package name, repository, command, argument, disk, mount, or SMART setting comes from the browser. {smartRepairPlan.output.recovery}</span></div>
+          <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => setSmartRepairPlan(null)} disabled={pending}>Discard plan</button><button className="primary-button" type="button" onClick={() => void stageSmartRepairPlan()} disabled={pending}>{pending ? "Staging..." : "Stage exact repair for password approval"}</button></footer>
+        </section>
+      )}
       {recoveryError && <div className="notice warning-notice" role="status"><strong>Recovery kit unavailable</strong><span>{recoveryError}. Prerequisite checks and durable jobs remain available.</span></div>}
       {actionError && <div className="notice warning-notice" role="status"><strong>Action Center unavailable</strong><span>{actionError}. No all-clear state is being claimed.</span></div>}
 
@@ -235,7 +303,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
           {checks.map((item) => (
             <article className="repair-check" key={item.id}>
               <span className={`repair-state repair-${item.status}`}>{item.status}</span>
-              <div><small>{item.group}</small><strong>{item.name}</strong><p>{item.summary}</p>{item.repair && <em>{item.repair.description}</em>}</div>
+              <div><small>{item.group}</small><strong>{item.name}</strong><p>{item.summary}</p>{item.repair && <em>{item.repair.description}</em>}{item.id === "storage.smartmontools" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createSmartRepairPlan()} disabled={pending || smartRepairPlan !== null}>Review exact repair</button>}</div>
             </article>
           ))}
         </section>
@@ -252,7 +320,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
               <strong>Approval required</strong>
               <span>Re-enter your owner password. It is verified in memory and never stored in the job.</span>
               <input aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
-              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? (["network.dns.acceptance.run", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(awaitingApproval.type) ? "Starting..." : "Running...") : "Approve and run"}</button>
+              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? (["prerequisite.smartmontools.install", "network.dns.acceptance.run", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(awaitingApproval.type) ? "Starting..." : "Running...") : "Approve and run"}</button>
             </div>
           )}
         </aside>

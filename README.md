@@ -4,19 +4,19 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.30.1` expands the authenticated host inventory with sanitized host-mount capacity, block-device topology, and bounded SMART evidence from a separate fixed root-only systemd timer. The timer reads the host PID 1 mount table so the hardened web service's private mount namespace cannot be mistaken for host state. It also replaces the browser-assembled support preview with an authenticated server-generated bundle over fixed inventory, prerequisites, Action Center, audit, and log sources. A final redaction engine always removes built-in secret patterns and can add bounded literal and path-prefix rules from `/etc/boxpilot/redaction.json`. The browser cannot choose a device, run `smartctl`, select arbitrary logs, submit a regex, or trigger the root scanner.
+Version `0.31.0` adds BoxPilot's first executable prerequisite repair: an immutable exact-version plan for the fixed `smartmontools` package, separate staging, password reauthentication, a typed helper operation, a static root package unit, and a verified post-install storage scan. It cannot install any other package, select a repository, run `apt update`, accept a command or argument array, remove a package automatically, or change a disk, mount, filesystem, or SMART setting. The Action Center remains read-only; execution exists only in the dedicated Repair Center workflow.
 
 ### What works now
 
-| Area | Status in `0.30.1` | Capability |
+| Area | Status in `0.31.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
 | Operations Core | Live foundation | Persists plans, steps, approvals, results, recovery guidance, and audit attribution in SQLite. Interrupted applying or verifying jobs fail closed for review after restart. |
-| Repair Center | Live foundation plus recovery kit | Checks Node.js, state storage, the helper, Docker, libvirt, Tailscale, and DNS port availability without returning peer details or raw command output. It also builds a read-only secret-free recovery readiness view and ordered exportable runbook. |
+| Repair Center | Live foundation plus one exact repair | Checks Node.js, state storage, `smartmontools`, the helper, Docker, libvirt, Tailscale, and DNS port availability without returning peer details or raw command output. The fixed `smartmontools` repair uses an immutable plan, separate staging, password approval, durable steps, exact-version revalidation, and a verified storage scan. It also builds a read-only secret-free recovery readiness view and ordered exportable runbook. |
 | Local Action Center | Authenticated read-only guidance | Correlates the recovery kit and recent failed-job count into fixed prioritized notices, sanitized evidence, three-step manual guidance, and fixed in-product destinations. It stores no notice state and cannot repair, execute, schedule, send, or mutate anything. |
 | Disaster recovery kit | Authenticated read-only export | Correlates sanitized job, application-backup, protected-VM-backup, router-checkpoint, migration, fleet, DNS, and prerequisite evidence. JSON and Markdown downloads remain evidence only: no database, application data, configuration file, backup payload, credential, or mutation is included. |
-| Restricted helper | Live typed operations | Uses a versioned, allowlisted protocol over a local Unix socket for the canary, bounded inventory and logs, Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, guarded VM creation and lifecycle, read-only libvirt inventory, offline snapshots, stopped-VM exports, mounted-restic VM copies, isolated restore drills, stopped no-network recovery clones, and exact no-prune retention. It accepts no command strings, binary selection, libvirt URI, argument arrays, operator paths, Compose source path, migration destination, SSH credential, repository password, backup mount, repository path, export destination, restore destination, recovery directory, prune flag, selector such as `latest`, or arbitrary root paths from the browser. |
+| Restricted helper | Live typed operations | Uses a versioned, allowlisted protocol over a local Unix socket for the fixed `smartmontools` inspection and exact-version install, canary, bounded inventory and logs, Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, guarded VM creation and lifecycle, read-only libvirt inventory, offline snapshots, stopped-VM exports, mounted-restic VM copies, isolated restore drills, stopped no-network recovery clones, and exact no-prune retention. It accepts no general package name, repository, command string, binary selection, libvirt URI, argument array, operator path, Compose source path, migration destination, SSH credential, repository password, backup mount, repository path, export destination, restore destination, recovery directory, prune flag, selector such as `latest`, or arbitrary root path from the browser. |
 | Host, storage, and Docker inventory | Live | Reports authenticated host identity, CPU, memory, root storage, sanitized real mounts and block topology, timer-generated bounded SMART evidence, uptime, selected services, LAN addresses, Tailscale self-state, and sanitized Docker resources. Serial numbers, UUIDs, raw SMART output, mount option values, private home paths, container environments, commands, labels, and host mount sources are excluded. |
 | Network and DNS Center | Live planning and guarded fixed tests | Reports validated default gateways, host LAN CIDRs, sanitized systemd-resolved servers, scoped TCP and UDP port 53 listeners, and Tailscale resolver observations. It creates immutable topology assessments and can separately stage four fixed direct Pi-hole DNS checks after exact deployment and restore evidence match. A separately enrolled signed agent can repeat only those fixed checks after a fresh passing Bigbox record. Router writes and DNS cutover have no execution route. |
 | Router readiness and checkpoints | Live address correlation plus operator checks | Shows Bigbox's observed gateway address without claiming router identity, recommends one routing/DHCP authority, provides fixed vendor-grounded setup and rollback checklists, and correlates browser-local backup-hash evidence. Configuration uploads, credentials, neighbor discovery, live device probes, API sessions, writes, restore claims, and DNS cutover are unavailable. |
@@ -42,7 +42,7 @@ Version `0.30.1` expands the authenticated host inventory with sanitized host-mo
 | Guarded VM backup retention | Guarded high-risk background job | Keeps at least three active copies per VM, keeps every copy under 30 days old, keeps untested copies, and keeps every backup referenced by a recovery clone or active restore/recovery job. It processes at most 100 exact old protected snapshots per approved batch, revalidates the complete snapshot set, forgets only approved ids, reads all remaining repository data, and records exact evidence. Prune, arbitrary policies, schedules, and automatic execution remain unavailable. |
 | VM event log | Limited live foundation | Writes and displays redacted JSONL events for VM plans and enabled lifecycle requests. It is not the final authenticated job ledger. |
 | Compose inspector | Browser-only preview | Performs a lightweight structural and risk scan. It is not a full YAML parser and cannot deploy. |
-| Support bundle | Browser-generated preview | Downloads release metadata and available redacted VM audit events. It is not yet a general host support bundle. |
+| Support bundle | Authenticated fixed-source export | Generates a server-side bundle from sanitized inventory, prerequisites, Action Center, bounded audit entries, and four fixed log groups, then applies built-in and bounded site-specific redaction. It accepts no arbitrary source, unit, path, command, regex, or environment value. |
 | Settings | UI demonstration | Shows the intended operator workflow using sample data. This page does not collect or change host state. |
 | Docker deployment | Safe preview | Runs loopback-only without capabilities, host mounts, or the Docker socket. This container cannot inspect host libvirt. |
 
@@ -51,10 +51,10 @@ The repository also includes a read-only Ubuntu deployment doctor and a USB-to-h
 ### Not implemented yet
 
 - VM delete, force-off, console proxy, online snapshot, snapshot revert/delete, bridge creation, passthrough, in-place restore, recovered-VM network attachment, application-level restore tests, cloud-init, Windows TPM/Secure Boot creation, or VM migration transfer
-- General Docker mutation, custom Compose deployment, additional application installation beyond the curated adapters, package updates, firewall changes, storage changes, or arbitrary command execution
+- General Docker mutation, custom Compose deployment, additional application installation beyond the curated adapters, general package installation or updates, firewall changes, storage changes, or arbitrary command execution
 - Backup schedules, application-backup independent or offsite destinations, restic prune and space reclamation, configurable retention policies, remote restic/cloud backends, Keel Notes export, SSH source discovery or transport, general application-aware volume/database capture, staged-workload activation, or migration cutover
 - Keel Notes deployment, executable AdGuard Home, Jellyfin, Home Assistant, PostgreSQL, Pi-hole router cutover, private or write-capable GitHub integration, signed adapter installation, general remote-agent operations, automatic remediation, persistent alerts, or external notification delivery
-- WebAuthn, recovery codes, multiple owners, Tailscale identity headers, tamper-evident audit chaining, automatic `smartmontools` installation, filesystem-specific error counters, or general-purpose mutation handlers
+- WebAuthn, recovery codes, multiple owners, Tailscale identity headers, tamper-evident audit chaining, filesystem-specific error counters, UPS state, or general-purpose mutation handlers
 
 ## Screenshots
 
@@ -208,6 +208,12 @@ This explicitly disclosed `0.29.0` mock shows fixed severity, sanitized evidence
 
 This explicitly disclosed `0.30.0` mock shows real-mount capacity, sanitized block topology, fail-closed missing SMART evidence, the separate root-only timer boundary, and server-generated support redaction. No SMART scan, device read, package installation, mount, filesystem, disk, service, or host state was triggered or changed for the capture.
 
+### Exact smartmontools repair mockup
+
+![BoxPilot exact-version smartmontools repair plan](docs/screenshots/prerequisite-repair-mock.png)
+
+This explicitly disclosed `0.31.0` mock shows the fixed package candidate, immutable revision, network and rollback disclosures, separate staging, and password-approval handoff. No package metadata was queried, package was installed or removed, APT operation ran, storage scan occurred, or host, disk, mount, filesystem, service, network, or SMART setting changed for the capture.
+
 ## Safety contract
 
 Every future host change must follow:
@@ -219,7 +225,7 @@ Every future host change must follow:
 5. Apply with streamed logs
 6. Verify or roll back
 
-Pi-hole staging and backup, migration staging, VM creation, lifecycle changes, offline snapshots, stopped-VM exports, encrypted independent VM copies, isolated restore drills, guarded recovery clones, and exact retention batches use the durable job executor and separate typed helper operations. The helper derives its own application, secret, backup, migration inbox, staging, binary, libvirt URI, managed-media, disk, export, restore-workspace, recovery, UEFI NVRAM, mount, repository, cache, and password-file roots, verbs, and argument arrays; the web process cannot supply them. Direct DNS acceptance also uses a durable password approval, but its four fixed network reads run in the unprivileged controller so the root helper keeps `PrivateNetwork=true`. The signed fleet agent accepts only the same fixed four-query contract and never exposes a shell or arbitrary target. Every supported mutation requires an immutable plan and owner password reauthentication. Higher-impact operations remain locked until each handler has authorization, path confinement, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
+The exact `smartmontools` repair, Pi-hole staging and backup, migration staging, VM creation, lifecycle changes, offline snapshots, stopped-VM exports, encrypted independent VM copies, isolated restore drills, guarded recovery clones, and exact retention batches use the durable job executor and separate typed helper operations. The helper derives its own package unit, application, secret, backup, migration inbox, staging, binary, libvirt URI, managed-media, disk, export, restore-workspace, recovery, UEFI NVRAM, mount, repository, cache, and password-file roots, verbs, and argument arrays; the web process cannot supply them. Direct DNS acceptance also uses a durable password approval, but its four fixed network reads run in the unprivileged controller so the root helper keeps `PrivateNetwork=true`. The signed fleet agent accepts only the same fixed four-query contract and never exposes a shell or arbitrary target. Every supported mutation requires an immutable plan and owner password reauthentication. Higher-impact operations remain locked until each handler has authorization, path confinement, rollback, and negative tests. BoxPilot will not provide an arbitrary root shell.
 
 ## Run for development
 
@@ -302,6 +308,7 @@ docker build -t boxpilot:local .
 
 - [Architecture and security boundaries](docs/ARCHITECTURE.md)
 - [Operations Core setup and recovery](docs/OPERATIONS-CORE.md)
+- [Exact prerequisite repair boundary](docs/PREREQUISITE-REPAIRS.md)
 - [Curated application planning and deployment](docs/APPLICATIONS.md)
 - [Verified backup and isolated restore workflow](docs/BACKUPS.md)
 - [Sanitized host, Docker, service, and log inventory](docs/INVENTORY.md)
