@@ -28,6 +28,7 @@ sudo install -m 0644 deploy/boxpilot-storage-scan.service /etc/systemd/system/bo
 sudo install -m 0644 deploy/boxpilot-storage-scan.timer /etc/systemd/system/boxpilot-storage-scan.timer
 sudo install -m 0644 deploy/boxpilot-smartmontools-install.service /etc/systemd/system/boxpilot-smartmontools-install.service
 sudo install -m 0644 deploy/boxpilot-apt-refresh.service /etc/systemd/system/boxpilot-apt-refresh.service
+sudo install -m 0644 deploy/boxpilot-keel-artifact.service /etc/systemd/system/boxpilot-keel-artifact.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now boxpilot-helper.service boxpilot.service boxpilot-storage-scan.timer
 ```
@@ -45,6 +46,8 @@ Version `0.35.0` adds one separately named executable maintenance repair: refres
 Version `0.38.0` adds a separately approved backup of BoxPilot's fixed live SQLite database. The helper captures committed WAL state with SQLite `VACUUM INTO` without stopping the service, verifies the snapshot and a separate copy, writes a root-only manifest, and accepts only a server-generated UUID. It does not provide download, scheduling, retention, off-host transport, or automatic restore. See [BoxPilot controller database backups](CONTROLLER-BACKUPS.md).
 
 Version `0.39.0` adds a separate encrypted independent copy and exact restore drill for that local controller snapshot. Version `0.40.0` adds one high-risk fixed retention batch that preserves at least three snapshots, every snapshot under 30 days old, unprotected or failed-restore evidence, and active controller-operation references. The helper can receive only the server-generated retention UUID, repository and destination revisions, the complete snapshot-set revision, and one to 100 exact sorted snapshot ids. It revalidates the approved evidence, forgets only those ids, runs a complete repository data read, proves reviewed noncandidates remain, and records confirmed partial removal before a failed job is shown. It never prunes, reclaims space, removes local artifacts, schedules itself, or accepts a browser policy. See [BoxPilot controller database backups](CONTROLLER-BACKUPS.md).
+
+Version `0.42.0` adds a static Keel artifact one-shot. Install its unit, but do not enable it: it has no `[Install]` section and starts only after a fresh durable plan, staging, password approval, exact state revalidation, and a short-lived root-only marker. The main helper remains network-isolated. See [Keel Notes discovery and inert artifact adapter](KEEL.md).
 
 The manual console fallback remains:
 

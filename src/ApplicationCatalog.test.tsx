@@ -69,7 +69,7 @@ describe("curated application catalog", () => {
     const application = {
       id: "keel", name: "Keel Notes", category: "Knowledge", description: "Self-hosted notebook", execution: "planning-only", risk: "stateful", targets: ["native-service"],
       image: { version: "1.2.5", digestPinned: false }, artifact, integrity: `sha256:${"c".repeat(64)}`,
-      live: { installed: false, state: "not-installed", healthy: false, kind: null, version: null, listener: "none", healthIdentityVerified: false, risks: [], native: { candidateCount: 0 }, docker: { available: true, candidateCount: 0 }, provenance: { status: "matched", checkedAt: "2026-08-16T04:00:00Z" }, detail: "No supported Keel installation was found", boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false } },
+      live: { installed: false, state: "not-installed", healthy: false, kind: null, version: null, listener: "none", healthIdentityVerified: false, risks: [], native: { candidateCount: 0 }, docker: { available: true, candidateCount: 0 }, provenance: { status: "matched", checkedAt: "2026-08-16T04:00:00Z" }, artifact: { state: "absent", readyToAcquire: true, artifactPresent: false, locallyVerified: false, partialPresent: false, detail: "The fixed Keel release archive is not present" }, detail: "No supported Keel installation was found", boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false } },
     };
     const plan = {
       id: "keel-plan", subjectId: "keel", revision: "revision789", input: { target: "native-service", hostPort: 3000 }, expiresAt: "2026-08-16T04:00:00Z",
@@ -81,8 +81,15 @@ describe("curated application catalog", () => {
         warnings: ["Keep the managed-secret key with the database"], recovery: { summary: "Preserve workspace data", preservesData: true },
       },
     };
+    const artifactPlan = {
+      id: "keel-artifact-plan", revision: "artifact-revision", input: { acquisitionId: "11111111-1111-4111-8111-111111111111", expectedArtifactState: "absent" }, expiresAt: "2026-08-16T04:00:00Z",
+      output: { executable: true, currentState: "absent", partialPresent: false, provenanceMatched: true, artifact, changes: ["Download only the fixed archive", "Keep it unextracted and uninstalled"], blockers: [], recovery: { summary: "Remove only fixed partial files on failure" } },
+    };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (input.toString().endsWith("/api/v1/applications")) return new Response(JSON.stringify({ applications: [application] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      const url = input.toString();
+      if (url.endsWith("/api/v1/applications")) return new Response(JSON.stringify({ applications: [application] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url.endsWith("/api/v1/applications/keel/artifact-plans")) return new Response(JSON.stringify({ plan: artifactPlan }), { status: 201, headers: { "Content-Type": "application/json" } });
+      if (url.endsWith("/api/v1/keel-artifact-plans/keel-artifact-plan/stage")) return new Response(JSON.stringify({ job: { id: "job-one", state: "awaiting_approval" } }), { status: 201, headers: { "Content-Type": "application/json" } });
       expect(JSON.parse(String(init?.body))).toEqual({ target: "native-service", hostPort: 3000 });
       return new Response(JSON.stringify({ plan }), { status: 201, headers: { "Content-Type": "application/json" } });
     });
@@ -91,13 +98,19 @@ describe("curated application catalog", () => {
 
     expect(await screen.findByText("Keel Notes")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Plan deployment" }));
-    expect(screen.getByText("Discovery only")).toBeTruthy();
+    expect(screen.getByText("Artifact gate enabled")).toBeTruthy();
     expect(screen.getByText(/Native candidates: 0 \| Docker candidates: 0/)).toBeTruthy();
     expect(screen.getByText(/Release asset digest pinned/)).toBeTruthy();
+    expect(screen.getByText(/State: absent \| local bytes verified: no/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Plan fixed artifact acquisition" }));
+    expect(await screen.findByText("Artifact ready to stage")).toBeTruthy();
+    expect(screen.getByText("Keep it unextracted and uninstalled")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stage artifact verification for approval" }));
+    expect(await screen.findByText(/Keel artifact job staged/)).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Deployment target" })).toHaveProperty("value", "native-service");
     fireEvent.click(screen.getByRole("button", { name: "Generate live plan" }));
     expect(await screen.findByText("Planning result")).toBeTruthy();
-    expect(screen.getByText(/bcf872e2cee5/)).toBeTruthy();
+    expect(screen.getAllByText(/bcf872e2cee5/)).toHaveLength(2);
     expect(screen.getByText(/verified from local bytes: no/)).toBeTruthy();
     expect(screen.getByText("Plan-time discovery")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Stage for approval" })).toBeNull();

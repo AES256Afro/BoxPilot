@@ -1,18 +1,11 @@
 import { createHash } from "node:crypto";
 import net from "node:net";
+import { keelArtifactSpec } from "./keel-artifact-spec.mjs";
 
 const uptimeKumaImage = "louislam/uptime-kuma@sha256:a8610b3b4c38077922ba51b036691e06887d7cefd91fe620fd3d6d23d03dc240";
 const piholeImage = "pihole/pihole@sha256:f7d1be836e3bc608b56d82fc9904f5a831cdfbc0dc9c6d58f94e4c985c70038b";
 const keelArtifact = {
-  repository: "AES256Afro/Keel",
-  releaseTag: "v1.2.5",
-  releaseCommitSha: "bcf872e2cee5820bdeb74685f5573cc6beb0a28f",
-  name: "keel-1.2.5-linux-x64.tar.gz",
-  platform: "linux",
-  architecture: "x64",
-  sizeBytes: 47655144,
-  digest: "sha256:4b24067aa219bc00bf4f7c1846f78945e8abda3f5b68353e4967570d5b57e6ee",
-  archiveMembersObservedDuringAdapterReview: 2900,
+  ...keelArtifactSpec,
   locallyVerifiedByBoxPilot: false,
 };
 
@@ -128,10 +121,16 @@ export function createApplicationService({ store, prerequisites, helper, network
       }
       if (manifest.id === "keel") {
         let discovery;
+        let artifact;
         try {
           discovery = await helper.request("application.keel.inspect", {});
         } catch {
           discovery = { installed: false, state: "discovery-unavailable", healthy: false, kind: null, version: null, listener: "unknown", healthIdentityVerified: false, risks: ["helper-unavailable"], detail: "Keel host discovery is unavailable" };
+        }
+        try {
+          artifact = await helper.request("application.keel.artifact.inspect", {});
+        } catch {
+          artifact = { state: "unavailable", readyToAcquire: false, artifactPresent: false, locallyVerified: false, partialPresent: false, detail: "Keel artifact evidence is unavailable" };
         }
         try {
           const provenance = await githubProvenance?.inspect();
@@ -141,11 +140,12 @@ export function createApplicationService({ store, prerequisites, helper, network
           const matches = repository?.status === "available" && release?.tagName === keelArtifact.releaseTag && release?.commit?.sha === keelArtifact.releaseCommitSha && asset?.digest === keelArtifact.digest && asset?.sizeBytes === keelArtifact.sizeBytes;
           live = {
             ...discovery,
+            artifact,
             provenance: { status: matches ? "matched" : "changed", checkedAt: provenance?.fetchedAt ?? null },
             detail: matches ? `${discovery.detail}; exact public v1.2.5 release metadata matched` : `${discovery.detail}; pinned Keel release provenance is unavailable or changed`,
           };
         } catch {
-          live = { ...discovery, provenance: { status: "unavailable", checkedAt: null }, detail: `${discovery.detail}; GitHub release provenance is unavailable` };
+          live = { ...discovery, artifact, provenance: { status: "unavailable", checkedAt: null }, detail: `${discovery.detail}; GitHub release provenance is unavailable` };
         }
       }
       return { ...publicManifest(manifest), live };
@@ -208,6 +208,12 @@ export function createApplicationService({ store, prerequisites, helper, network
 
     let artifact = manifest.artifact ? { ...manifest.artifact } : null;
     if (manifest.id === "keel") {
+      try {
+        const localArtifact = await helper.request("application.keel.artifact.inspect", {});
+        artifact = { ...artifact, locallyVerifiedByBoxPilot: localArtifact.locallyVerified === true, localState: localArtifact.state, acquiredAt: localArtifact.acquiredAt ?? null };
+      } catch {
+        artifact = { ...artifact, locallyVerifiedByBoxPilot: false, localState: "unavailable", acquiredAt: null };
+      }
       if (hostPlatform !== keelArtifact.platform || hostArchitecture !== keelArtifact.architecture) {
         blockers.push({ id: "keel.platform", summary: `Pinned Keel artifact requires ${keelArtifact.platform}-${keelArtifact.architecture}; this host reports ${hostPlatform}-${hostArchitecture}`, repair: { kind: "manual", description: "Use a separately reviewed artifact for this host architecture" } });
       }
@@ -222,7 +228,7 @@ export function createApplicationService({ store, prerequisites, helper, network
       } catch (error) {
         blockers.push({ id: "github.provenance", summary: error instanceof Error ? error.message : "Keel GitHub provenance is unavailable", repair: { kind: "guided", description: "Open GitHub provenance, verify the fixed Keel release, and regenerate this plan" } });
       }
-      blockers.push({ id: "keel.execution", summary: "Keel release download, local verification, extraction, service installation, ownership claim, backup, and restore execution remain disabled", repair: { kind: "future-adapter", description: "Complete and test the restricted Keel artifact and service helper operations before installation" } });
+      blockers.push({ id: "keel.execution", summary: "Keel extraction, service installation, ownership claim, backup, restore, import, and exposure remain disabled; artifact acquisition is a separate inert approval workflow", repair: { kind: "future-adapter", description: "Acquire and locally verify the fixed artifact separately, then complete the confined extraction and service helper before installation" } });
     }
 
     const warnings = [];

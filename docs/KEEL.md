@@ -1,6 +1,6 @@
-# Keel Notes discovery and planning adapter
+# Keel Notes discovery and inert artifact adapter
 
-BoxPilot `0.25.0` introduced a non-executable exact-release plan for [Keel Notes](https://github.com/AES256Afro/Keel). Version `0.41.0` adds bounded parameter-free discovery for supported Linux user-service and exact Docker evidence. It still does not install, adopt, import, start, claim, back up, restore, or expose Keel.
+BoxPilot `0.25.0` introduced a non-executable exact-release plan for [Keel Notes](https://github.com/AES256Afro/Keel). Version `0.41.0` adds bounded parameter-free discovery for supported Linux user-service and exact Docker evidence. Version `0.42.0` adds a separate guarded download and complete local digest check for one fixed archive. It still does not extract, execute, install, adopt, import, start, claim, back up, restore, or expose Keel.
 
 ## Fixed release identity
 
@@ -17,11 +17,33 @@ The adapter accepts no repository, URL, tag, filename, digest, path, service nam
 | Size | `47,655,144` bytes |
 | SHA-256 | `4b24067aa219bc00bf4f7c1846f78945e8abda3f5b68353e4967570d5b57e6ee` |
 | Intended listener | `127.0.0.1:3000` by default |
+| BoxPilot artifact root | `/var/lib/boxpilot-managed/artifacts/keel` |
 | Future BoxPilot-managed state root | `/var/lib/keel` |
 | Supported upstream Linux default | `~/keel` with `~/.config/systemd/user/keel.service` |
 | Health identity | JSON from `/api/health` identifying Keel and a healthy result |
 
-During adapter authoring, the exact archive was inspected outside BoxPilot's execution path. It contained 2,900 entries and no absolute paths, parent traversal, symbolic links, hard links, block devices, character devices, or FIFOs. That review does not make the running product a verifier. BoxPilot `0.41.0` never downloads this asset and never recomputes its digest from local bytes.
+During adapter authoring, the exact archive was inspected outside BoxPilot's execution path. It contained 2,900 entries and no absolute paths, parent traversal, symbolic links, hard links, block devices, character devices, or FIFOs. Version `0.42.0` verifies the compressed archive length and full SHA-256 from local bytes. It does not yet inspect or trust archive membership at runtime, and it never extracts or executes the archive.
+
+## Guarded artifact acquisition
+
+Artifact planning accepts only an empty JSON object. The immutable plan captures a server-generated acquisition UUID, current fixed artifact state, the compiled release identity, host platform and architecture, clean discovery evidence, required BoxPilot prerequisites, and a fresh exact public GitHub metadata match. Staging rechecks every observation. Approval requires the owner password again.
+
+The main root helper remains `PrivateNetwork=true` and accepts only `application.keel.artifact.acquire` with the acquisition UUID. It creates `/var/lib/boxpilot-managed/artifacts/keel` as a real mode `0700` directory, writes a five-minute root-only marker containing only compiled identity fields, and starts `boxpilot-keel-artifact.service`. The marker is removed whether the one-shot succeeds or fails.
+
+The separate static one-shot:
+
+1. Accepts no command-line arguments.
+2. Requires the exact marker keys, values, UUID, and freshness.
+3. Starts from the compiled `https://github.com/AES256Afro/Keel/releases/download/...` URL.
+4. Allows only HTTPS with no credentials or port and only the reviewed `github.com` to `release-assets.githubusercontent.com` release-asset redirect shape.
+5. Requires the final `Content-Length` and streamed byte count to equal `47,655,144`.
+6. Hashes every byte and requires the compiled SHA-256 before publication.
+7. Uses exclusive mode `0600` partial files and no-follow file-type checks.
+8. Publishes the archive and evidence only after verification, without overwriting an existing final artifact.
+9. Removes its exact partial files on any failure.
+10. Records no signed redirect query, response body, archive byte, browser input, secret, or command in the API result.
+
+An interrupted regular partial file can be removed by a fresh approved job. A mismatched final archive, symbolic link, directory, device, orphaned evidence file, or otherwise invalid fixed state blocks automatic acquisition for terminal inspection. BoxPilot will not overwrite it.
 
 ## Read-only discovery boundary
 
@@ -56,14 +78,14 @@ When an authenticated owner generates the Keel plan, BoxPilot:
 9. Stores the resulting plan as an immutable, owner-attributable revision.
 10. Adds the `keel.execution` blocker even when every observation matches.
 
-The Applications screen shows GitHub metadata matching and local-byte verification as separate facts. A matching GitHub digest is never shown as a local digest check.
+The Applications screen shows GitHub metadata matching and local-byte verification as separate facts. A matching GitHub digest is never shown as a local digest check. The deployment plan remains non-executable even after the separate artifact plan succeeds.
 
 ## Operations that remain unavailable
 
-The adapter has one read-only helper operation and no executable job type. It cannot:
+The adapter has parameter-free discovery and artifact inspection plus one UUID-only executable artifact job. It cannot:
 
-- Download, clone, or update Keel
-- Hash, extract, copy, or execute a release asset
+- Download an arbitrary asset, clone a repository, or update Keel
+- Extract, copy into an application tree, or execute a release asset
 - Install Node.js or another package
 - Create a Keel service account, application tree, state directory, or systemd unit
 - Start, stop, restart, enable, or expose a Keel service
@@ -71,7 +93,7 @@ The adapter has one read-only helper operation and no executable job type. It ca
 - Read, export, import, back up, restore, or migrate Keel data
 - Change Tailscale Serve, a reverse proxy, firewall, DNS, DHCP, or router state
 
-Because the plan is always non-executable, `Stage for approval` is absent and the API refuses direct staging.
+The Keel deployment plan is always non-executable, so its `Stage for approval` control remains absent. Only the separately labeled artifact verification plan can be staged.
 
 ## Stateful data contract
 
@@ -84,7 +106,7 @@ A future executable adapter must treat the Keel workspace as one recovery unit. 
 
 Copying a live SQLite file is not an accepted backup. The future adapter must coordinate writes through an application-aware export or clean stop, preserve the managed-secret key companion, restart and verify the source, then test the artifact in an isolated no-network restore environment. A successful archive alone cannot mark Keel protected.
 
-Version `0.41.0` deliberately does not read `.env`, database URLs, or replication credentials, so it cannot yet identify PostgreSQL or Litestream configuration. A later secret-safe configuration classifier must detect those states before proposing any database operation. BoxPilot must not silently layer a second replication mechanism over an existing one.
+Version `0.42.0` deliberately does not read `.env`, database URLs, or replication credentials, so it cannot yet identify PostgreSQL or Litestream configuration. A later secret-safe configuration classifier must detect those states before proposing any database operation. BoxPilot must not silently layer a second replication mechanism over an existing one.
 
 ## Claim and exposure contract
 
@@ -97,7 +119,7 @@ Tailscale access does not replace Keel authentication. BoxPilot will never expos
 The Keel plan can become executable only after all of these are implemented and tested:
 
 1. Completed in `0.41.0`: a parameter-free read-only helper operation that accepts no URL, path, port, command, service, container, or argument array.
-2. A bounded download to a helper-owned staging file with exact byte-count and full local SHA-256 verification.
+2. Completed in `0.42.0`: a separately sandboxed bounded download to a helper-owned staging file with exact byte-count and full local SHA-256 verification.
 3. Archive validation that rejects path traversal, links, devices, unexpected roots, changed membership, and extraction races.
 4. A dedicated unprivileged account, root-owned immutable application release tree, private writable state, and hardened loopback-only systemd unit.
 5. Exact `/api/health` identity checks before any access handoff.
@@ -105,6 +127,6 @@ The Keel plan can become executable only after all of these are implemented and 
 7. Application-aware backup that preserves database, uploads, backups, and the managed-secret key together.
 8. An isolated restore drill with no published port and no route to production data.
 9. Upgrade checkpoint and automatic rollback to the previous exact release without deleting state.
-10. Negative tests for digest mismatch, archive attacks, partial download, interrupted extraction, wrong ownership, port collision, failed claim, failed health, failed restart, and failed restore. Discovery already has negative coverage for stale or changed units, duplicate installs, wildcard exposure, missing Docker persistence, traversal-like user-unit paths, and secret or private-path non-disclosure.
+10. Negative tests for archive attacks, interrupted extraction, wrong ownership, port collision, failed claim, failed health, failed restart, and failed restore. Version `0.42.0` covers stale or changed markers, URL and redirect escape, response length and digest mismatch, partial cleanup, extra browser input, mismatched existing artifacts, changed plan state, and no extraction or installation. Discovery already covers stale or changed units, duplicate installs, wildcard exposure, missing Docker persistence, traversal-like user-unit paths, and secret or private-path non-disclosure.
 
 The published source uses BUSL-1.1. Personal self-hosting and internal organizational use are within the repository's stated grant. Anyone offering Keel as a hosted service for third parties should review the license and obtain any required separate permission.

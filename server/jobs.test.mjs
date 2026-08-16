@@ -141,6 +141,25 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("revalidates and acquires only the immutable fixed Keel artifact without installing it", async () => {
+    const acquisitionId = "11111111-1111-4111-8111-111111111111";
+    const result = {
+      acquired: true, acquisitionId, releaseTag: "v1.2.5", releaseCommitSha: "bcf872e2cee5820bdeb74685f5573cc6beb0a28f", name: "keel-1.2.5-linux-x64.tar.gz", sizeBytes: 47655144,
+      sha256: "sha256:4b24067aa219bc00bf4f7c1846f78945e8abda3f5b68353e4967570d5b57e6ee", locallyVerified: true, evidenceRecorded: true,
+      boundary: { networkAccess: true, extractionPerformed: false, archiveExecuted: false, applicationInstalled: false, serviceChanged: false, registrationChanged: false, arbitraryUrlAccepted: false, arbitraryPathAccepted: false, browserDigestAccepted: false, artifactBytesReturned: false },
+    };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const validateKeelArtifactJob = vi.fn(async () => ({ input: { acquisitionId } }));
+    const jobs = createJobService(store, helper, { validateKeelArtifactJob });
+    const job = store.createJob({ type: "application.keel.artifact.acquire", title: "Acquire Keel artifact", risk: "networked-artifact", parameters: { acquisitionId }, recovery: { automaticRollback: true }, createdBy: owner.id });
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+    expect(validateKeelArtifactJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("application.keel.artifact.acquire", { acquisitionId }, { timeoutMs: 15 * 60 * 1000 });
+    expect(completed).toMatchObject({ state: "completed", result: { locallyVerified: true, boundary: { extractionPerformed: false, applicationInstalled: false } } });
+    store.close();
+  });
+
   it("records a backup only after the isolated restore evidence passes", async () => {
     const backupId = "11111111-1111-4111-8111-111111111111";
     const result = { backupId, applicationId: "uptime-kuma", sourceRestartVerified: true, restoreDrill: { passed: true } };
