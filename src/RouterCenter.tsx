@@ -41,6 +41,21 @@ type RouterReadiness = {
   sourceReviewedAt: string;
   boundary: { credentialsAccepted: boolean; routerSessionsOpened: boolean; neighborDiscoveryPerformed: boolean; arbitraryTargetsProbed: boolean; configurationUploaded: boolean; routerMutationSupported: boolean; dhcpMutationSupported: boolean; dnsCutoverSupported: boolean; tailscaleMutationSupported: boolean };
 };
+type Flint2Assertions = { adguardHomeEnabled: boolean; emergencyResolverTested: boolean; handleClientRequestsReviewed: boolean; routerModeConfirmed: boolean; singleDhcpAuthorityConfirmed: boolean; vpnPolicyImpactReviewed: boolean };
+type Flint2AcceptanceStatus = {
+  observedGateway: { gateway: string; interface: string; protocol: string } | null;
+  checkpoint: RouterCheckpoint | null;
+  acceptances: Array<{ id: string; resolverAddress: string; checkpointId: string; checks: Array<{ protocol: string; name: string; latencyMs?: number }>; passed: boolean; createdAt: string }>;
+  sourceReviewedAt: string;
+  officialSources: string[];
+  boundary: { credentialsAccepted: boolean; routerSessionOpened: boolean; arbitraryTargetAccepted: boolean; routerMutationSupported: boolean; dnsCutoverSupported: boolean };
+};
+type Flint2Plan = {
+  id: string; revision: string; expiresAt: string;
+  output: { executable: boolean; routerModel: string; resolverAddress: string | null; checkpointId: string | null; checkpointFirmware: string | null; blockers: Array<{ id: string; summary: string }>; tests: Array<{ id: string; protocol: string; name: string; port: number }>; vendorWarnings: string[]; changes: string[]; recovery: string };
+};
+
+const initialFlint2Assertions: Flint2Assertions = { adguardHomeEnabled: false, emergencyResolverTested: false, handleClientRequestsReviewed: false, routerModeConfirmed: false, singleDhcpAuthorityConfirmed: false, vpnPolicyImpactReviewed: false };
 
 async function readJson<T>(response: Response): Promise<T> {
   const body = await response.json() as T & { error?: string };
@@ -70,16 +85,21 @@ export default function RouterCenter({ csrfToken }: { csrfToken: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [flint2Status, setFlint2Status] = useState<Flint2AcceptanceStatus | null>(null);
+  const [flint2Assertions, setFlint2Assertions] = useState<Flint2Assertions>(initialFlint2Assertions);
+  const [flint2Plan, setFlint2Plan] = useState<Flint2Plan | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [nextStatus, nextReadiness] = await Promise.all([
+      const [nextStatus, nextReadiness, nextFlint2Status] = await Promise.all([
         readJson<RouterStatus>(await fetch("/api/v1/network/router-checkpoints")),
         readJson<RouterReadiness>(await fetch("/api/v1/network/router-readiness")),
+        readJson<Flint2AcceptanceStatus>(await fetch("/api/v1/network/flint2-adguard-acceptance")),
       ]);
       setStatus(nextStatus);
       setReadiness(nextReadiness);
+      setFlint2Status(nextFlint2Status);
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Router checkpoints are unavailable");
@@ -113,8 +133,27 @@ export default function RouterCenter({ csrfToken }: { csrfToken: string }) {
     }
   };
 
-  if ((!status || !readiness) && loading) return <section className="vm-loading">Loading router readiness evidence...</section>;
-  if (!status || !readiness) return <p className="form-error" role="alert">{error}</p>;
+  const createFlint2Plan = async () => {
+    setSubmitting(true); setError(null); setMessage(null);
+    try {
+      const result = await readJson<{ plan: Flint2Plan }>(await fetch("/api/v1/network/flint2-adguard-acceptance/plans", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify(flint2Assertions) }));
+      setFlint2Plan(result.plan);
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to create Flint 2 acceptance plan"); }
+    finally { setSubmitting(false); }
+  };
+
+  const stageFlint2Plan = async () => {
+    if (!flint2Plan) return;
+    setSubmitting(true); setError(null); setMessage(null);
+    try {
+      await readJson(await fetch(`/api/v1/network/flint2-adguard-acceptance/plans/${flint2Plan.id}/stage`, { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ revision: flint2Plan.revision }) }));
+      setFlint2Plan(null); setFlint2Assertions(initialFlint2Assertions); setMessage("Flint 2 DNS acceptance staged. Open Repair Center to review the job and re-enter the owner password."); await refresh();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to stage Flint 2 acceptance"); }
+    finally { setSubmitting(false); }
+  };
+
+  if ((!status || !readiness || !flint2Status) && loading) return <section className="vm-loading">Loading router readiness evidence...</section>;
+  if (!status || !readiness || !flint2Status) return <p className="form-error" role="alert">{error}</p>;
 
   return (
     <div className="router-center">
@@ -123,7 +162,7 @@ export default function RouterCenter({ csrfToken }: { csrfToken: string }) {
         <div className="readiness-actions"><span className="status-pill status-good">No file upload</span><button className="secondary-button" type="button" onClick={() => void refresh()} disabled={loading}>{loading ? "Refreshing..." : "Refresh"}</button></div>
       </section>
       {error && <p className="form-error" role="alert">{error}</p>}
-      {message && <div className="notice"><strong>Checkpoint recorded</strong><span>{message}</span></div>}
+      {message && <div className="notice"><strong>Router workflow updated</strong><span>{message}</span></div>}
 
       <section className="panel router-topology">
         <header className="panel-header"><strong>Recommended production topology</strong><span>Live gateway address, operator-verified device identity</span></header>
@@ -146,6 +185,32 @@ export default function RouterCenter({ csrfToken }: { csrfToken: string }) {
         <header className="panel-header"><strong>Router integration boundary</strong><span>Recovery evidence before API access</span></header>
         <div className="network-lock"><span className="status-pill status-good">Browser-local SHA-256</span><span className="status-pill status-good">Credentials rejected</span><span className="status-pill status-warning">Router writes locked</span><span className="status-pill status-warning">DNS cutover locked</span></div>
         <p>BoxPilot hashes a backup selected from this browser and sends only metadata. It never uploads the configuration, logs in to the router, opens a router session, or claims the backup can be restored.</p>
+      </section>
+
+      <section className="panel router-checkpoint-form flint2-acceptance">
+        <header className="panel-header"><div><strong>Flint 2 AdGuard Home direct acceptance</strong><span>Guided declarations, immutable plan, owner-password approval, fixed gateway DNS tests</span></div><span className="status-pill status-warning">No router writes</span></header>
+        <div className="notice"><strong>Observed target only</strong><span>{flint2Status.observedGateway ? `${flint2Status.observedGateway.gateway} via ${flint2Status.observedGateway.interface}` : "One live gateway is not available"}. BoxPilot does not accept an address or claim the physical model. {flint2Status.checkpoint ? `Checkpoint ${flint2Status.checkpoint.id} covers firmware ${flint2Status.checkpoint.firmwareVersion}.` : "Record a retained Flint 2 checkpoint first."}</span></div>
+        <div className="flint2-declarations">
+          {([
+            ["routerModeConfirmed", "Flint 2 shows Router mode; it is the selected edge router."],
+            ["singleDhcpAuthorityConfirmed", "Flint 2 is the only production NAT and DHCP authority."],
+            ["adguardHomeEnabled", "APPLICATIONS > AdGuard Home is enabled and applied locally."],
+            ["handleClientRequestsReviewed", "I reviewed Handle Client Requests and its client-policy impact."],
+            ["vpnPolicyImpactReviewed", "I reviewed VPN and upstream-DNS interaction before testing."],
+            ["emergencyResolverTested", "The independent emergency resolver works from a LAN device."],
+          ] as Array<[keyof Flint2Assertions, string]>).map(([key, label]) => <label className="router-retention" key={key}><input type="checkbox" checked={flint2Assertions[key]} onChange={(event) => setFlint2Assertions((current) => ({ ...current, [key]: event.target.checked }))} /> {label}</label>)}
+        </div>
+        <div className="network-plan-actions"><button className="primary-button" type="button" onClick={() => void createFlint2Plan()} disabled={submitting || Object.values(flint2Assertions).some((value) => !value)}>{submitting ? "Inspecting..." : "Review fixed DNS acceptance"}</button><span>Four fixed queries only. No login, credential, router session, address field, arbitrary hostname, DHCP change, DNS cutover, or client setting.</span></div>
+        {flint2Plan && <div className="flint2-plan">
+          <div><span className="eyebrow">Immutable acceptance plan</span><strong>{flint2Plan.output.routerModel} at {flint2Plan.output.resolverAddress ?? "unavailable"}</strong><small>Revision {flint2Plan.revision} | expires {new Date(flint2Plan.expiresAt).toLocaleString()}</small></div>
+          {flint2Plan.output.blockers.length > 0 && <ul className="dns-acceptance-limitations">{flint2Plan.output.blockers.map((blocker) => <li key={`${blocker.id}-${blocker.summary}`}>{blocker.summary}</li>)}</ul>}
+          <div className="network-lock">{flint2Plan.output.tests.map((test) => <span className="status-pill status-good" key={test.id}>{test.protocol.toUpperCase()} {test.name}:53</span>)}</div>
+          <ul className="dns-acceptance-limitations">{flint2Plan.output.vendorWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+          <div className="recovery-boundary"><strong>No-change recovery</strong><span>{flint2Plan.output.recovery}</span></div>
+          <div className="network-plan-actions"><button className="secondary-button" type="button" onClick={() => setFlint2Plan(null)} disabled={submitting}>Discard plan</button><button className="primary-button" type="button" onClick={() => void stageFlint2Plan()} disabled={submitting || !flint2Plan.output.executable}>{submitting ? "Staging..." : "Stage for password approval"}</button></div>
+        </div>}
+        <div className="flint2-evidence"><strong>{flint2Status.acceptances.length} passing direct gateway acceptance record{flint2Status.acceptances.length === 1 ? "" : "s"}</strong>{flint2Status.acceptances.slice(0, 5).map((item) => <span key={item.id}>{new Date(item.createdAt).toLocaleString()} | {item.resolverAddress} | {item.checks.length} fixed checks | model not remotely attested</span>)}</div>
+        <div className="router-sources"><span>GL.iNet sources reviewed {flint2Status.sourceReviewedAt}</span>{flint2Status.officialSources.map((source, index) => <a href={source} target="_blank" rel="noreferrer" key={source}>{index === 0 ? "AdGuard Home guide" : "Network mode guide"}</a>)}</div>
       </section>
 
       <div className="router-model-grid">{status.catalog.map((model) => {

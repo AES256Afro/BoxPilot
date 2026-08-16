@@ -9,6 +9,13 @@ const acceptanceChecks = Object.freeze([
   { id: "negative-udp", protocol: "udp", name: "boxpilot.invalid", expectedRcode: 3, requireAnswers: false },
 ]);
 
+const flint2AdguardChecks = Object.freeze([
+  { id: "gateway-public-udp", protocol: "udp", name: "example.com", expectedRcode: 0, requireAnswers: true },
+  { id: "gateway-public-tcp", protocol: "tcp", name: "example.com", expectedRcode: 0, requireAnswers: true },
+  { id: "gateway-second-public-udp", protocol: "udp", name: "example.net", expectedRcode: 0, requireAnswers: true },
+  { id: "gateway-negative-udp", protocol: "udp", name: "boxpilot.invalid", expectedRcode: 3, requireAnswers: false },
+]);
+
 function encodeDnsName(name) {
   const labels = name.split(".");
   if (!labels.length || labels.some((label) => !/^[a-z0-9-]{1,63}$/i.test(label))) throw new Error("DNS acceptance uses only fixed valid names");
@@ -110,7 +117,11 @@ function tcpExchange(server, packet, { timeoutMs = 2500 } = {}) {
 
 async function queryDns(server, check, { udp = udpExchange, tcp = tcpExchange, clock = () => Date.now() } = {}) {
   if (net.isIP(server) !== 4) throw new Error("DNS acceptance target must be an exact IPv4 address");
-  if (!acceptanceChecks.some((candidate) => candidate.id === check.id && candidate.protocol === check.protocol && candidate.name === check.name)) throw new Error("DNS acceptance check is not allowlisted");
+  if (![...acceptanceChecks, ...flint2AdguardChecks].some((candidate) => candidate.id === check.id
+    && candidate.protocol === check.protocol
+    && candidate.name === check.name
+    && candidate.expectedRcode === check.expectedRcode
+    && candidate.requireAnswers === check.requireAnswers)) throw new Error("DNS acceptance check is not allowlisted");
   const transactionId = randomInt(0, 65536);
   const packet = buildDnsQuery(check.name, transactionId);
   const startedAt = clock();
@@ -135,9 +146,32 @@ async function queryDns(server, check, { udp = udpExchange, tcp = tcpExchange, c
   };
 }
 
+function passingEvidenceMatches(result, expected) {
+  return result?.id === expected.id
+    && result?.protocol === expected.protocol
+    && result?.name === expected.name
+    && result?.type === "A"
+    && result?.expectedRcode === expected.expectedRcode
+    && result?.rcode === expected.expectedRcode
+    && Number.isInteger(result?.answers)
+    && result.answers >= 0
+    && (!expected.requireAnswers || result.answers > 0)
+    && typeof result?.recursionAvailable === "boolean"
+    && result?.truncated === false
+    && Number.isFinite(result?.latencyMs)
+    && result.latencyMs >= 0
+    && result?.passed === true;
+}
+
 export async function runDnsAcceptanceProbeSuite(server, dependencies = {}) {
   const results = [];
   for (const check of acceptanceChecks) results.push(await queryDns(server, check, dependencies));
+  return results;
+}
+
+export async function runFlint2AdguardProbeSuite(server, dependencies = {}) {
+  const results = [];
+  for (const check of flint2AdguardChecks) results.push(await queryDns(server, check, dependencies));
   return results;
 }
 
@@ -297,7 +331,7 @@ export function createDnsAcceptanceService({ store, helper, network, probeResolv
 
   async function executeJob(job, plan) {
     const checks = await probeResolver(plan.output.resolverAddress);
-    const passed = checks.length === acceptanceChecks.length && checks.every((check) => check.passed === true);
+    const passed = checks.length === acceptanceChecks.length && checks.every((check, index) => passingEvidenceMatches(check, acceptanceChecks[index]));
     if (!passed) throw new Error("One or more fixed DNS acceptance checks failed; router and client DNS remain unchanged");
     return {
       acceptanceId: job.parameters.acceptanceId,
@@ -331,7 +365,7 @@ export function createDnsAcceptanceService({ store, helper, network, probeResolv
       || result.dnsCutoverPerformed !== false
       || result.clientSettingsChanged !== false
       || result.checks?.length !== acceptanceChecks.length
-      || !result.checks.every((check, index) => check.passed === true && check.id === acceptanceChecks[index].id && check.protocol === acceptanceChecks[index].protocol && check.name === acceptanceChecks[index].name)) throw new Error("DNS acceptance result failed evidence validation");
+      || !result.checks.every((check, index) => passingEvidenceMatches(check, acceptanceChecks[index]))) throw new Error("DNS acceptance result failed evidence validation");
     return store.recordDnsAcceptance({
       id: result.acceptanceId,
       jobId: job.id,
@@ -351,4 +385,4 @@ export function createDnsAcceptanceService({ store, helper, network, probeResolv
   return { inspect, plan, stage, validateJob, executeJob, recordResult };
 }
 
-export const dnsAcceptanceInternals = { acceptanceChecks, buildDnsQuery, encodeDnsName, parseDnsResponse, queryDns };
+export const dnsAcceptanceInternals = { acceptanceChecks, flint2AdguardChecks, buildDnsQuery, encodeDnsName, parseDnsResponse, queryDns, passingEvidenceMatches };
