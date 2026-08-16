@@ -313,7 +313,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.37.0 signed Flint 2 proof<br />Node-local gateway match</div>
+        <div className="prototype-label">v0.38.0 controller recovery<br />WAL-aware verified backup</div>
       </aside>
 
       <main>

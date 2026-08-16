@@ -1,4 +1,4 @@
-const productVersion = "0.37.0";
+const productVersion = "0.38.0";
 
 function latestBy(items, key) {
   const result = new Map();
@@ -33,7 +33,7 @@ function renderRunbook(kit) {
   }
   lines.push("## Recovery order", "");
   for (const item of kit.recoveryOrder) lines.push(`${item.order}. ${item.title}: ${item.instruction}`);
-  lines.push("", "## Evidence inventory", "", `Recent jobs: ${kit.evidence.jobs.length}`, `Application backups: ${kit.evidence.applicationBackups.length}`, `Retained VM backups: ${kit.evidence.vmBackups.length}`, `Router checkpoints: ${kit.evidence.routerCheckpoints.length}`, `Verified migration transfers: ${kit.evidence.migrationTransfers.length}`, `Fleet agents: ${kit.evidence.fleet.activeAgents} active, ${kit.evidence.fleet.revokedAgents} revoked`, "", "## External items BoxPilot cannot prove", "");
+  lines.push("", "## Evidence inventory", "", `Recent jobs: ${kit.evidence.jobs.length}`, `Controller backups: ${kit.evidence.controllerBackups.length}`, `Application backups: ${kit.evidence.applicationBackups.length}`, `Retained VM backups: ${kit.evidence.vmBackups.length}`, `Router checkpoints: ${kit.evidence.routerCheckpoints.length}`, `Verified migration transfers: ${kit.evidence.migrationTransfers.length}`, `Fleet agents: ${kit.evidence.fleet.activeAgents} active, ${kit.evidence.fleet.revokedAgents} revoked`, "", "## External items BoxPilot cannot prove", "");
   for (const item of kit.externalItems) lines.push(`- ${item}`);
   lines.push("", "## Export boundary", "");
   for (const item of kit.boundary.excluded) lines.push(`- Excluded: ${item}`);
@@ -54,7 +54,9 @@ export function createRecoveryKitService({ store, prerequisites, applications, l
     const prerequisiteInventoryAvailable = prerequisiteResult.status === "fulfilled";
     const applicationInventoryAvailable = applicationResult.status === "fulfilled";
     const jobs = store.listJobs(100);
-    const applicationBackups = store.listBackups(200);
+    const allBackups = store.listBackups(200);
+    const controllerBackups = allBackups.filter((item) => item.applicationId === "boxpilot-controller");
+    const applicationBackups = allBackups.filter((item) => item.applicationId !== "boxpilot-controller");
     const vmBackups = store.listVmBackups(200).filter((item) => item.retained !== false);
     const routerCheckpoints = store.listRouterCheckpoints(200);
     const migrationTransfers = store.listMigrationTransfers(200);
@@ -76,7 +78,9 @@ export function createRecoveryKitService({ store, prerequisites, applications, l
     const nonReadyPrerequisites = prerequisiteInventory.checks.filter((item) => item.status !== "ready");
 
     const checks = [
-      check("controller.database", "operator-check", "Independent BoxPilot database copy", "BoxPilot cannot prove that its own live SQLite database has been copied off Bigbox.", "Stop the web service, checkpoint and integrity-check SQLite, copy the database to independent storage, record its SHA-256, then restart and verify BoxPilot."),
+      controllerBackups[0]?.restoreDrill?.passed === true
+        ? check("controller.database", "operator-check", "Independent BoxPilot database copy", `A WAL-aware local controller snapshot passed its isolated copy-open drill at ${controllerBackups[0].verifiedAt}, but it remains on Bigbox.`, "Copy the complete root-only backup directory and manifest to encrypted independent storage, verify both recorded SHA-256 values there, and retain the restore procedure.")
+        : check("controller.database", "action-required", "Verified BoxPilot database snapshot", "No WAL-aware local controller snapshot with passing isolated copy-open evidence is recorded.", "Open Backups and run the BoxPilot controller workflow. Then copy the verified directory and manifest to encrypted independent storage."),
       check("controller.source", "operator-check", "Exact BoxPilot source and install notes", `This kit records BoxPilot ${version}, but the running controller does not attest its Git commit or retain an independent source archive.`, "Keep the exact release archive, file manifest, Ubuntu bootstrap notes, systemd units, and Tailscale Serve command outside Bigbox."),
       !applicationInventoryAvailable
         ? check("applications.backup", "unavailable", "Managed application recovery", "Application inventory is unavailable, so managed workload backup coverage cannot be evaluated.", "Restore application inventory and regenerate the kit.")
@@ -148,6 +152,7 @@ export function createRecoveryKitService({ store, prerequisites, applications, l
       ],
       evidence: {
         jobs: jobs.map((item) => ({ id: item.id, type: item.type, title: item.title, state: item.state, risk: item.risk, createdAt: item.createdAt })),
+        controllerBackups: controllerBackups.map((item) => ({ id: item.id, destination: item.destination, checksumSha256: item.checksumSha256, sizeBytes: item.sizeBytes, downtimeMs: item.downtimeMs, restorePassed: item.restoreDrill?.passed === true, integrityCheck: item.restoreDrill?.integrityCheck ?? null, foreignKeyIssues: item.restoreDrill?.foreignKeyIssues ?? null, schemaVerified: item.restoreDrill?.schemaVerified === true, manifestChecksumSha256: item.restoreDrill?.manifestChecksumSha256 ?? null, createdAt: item.createdAt, verifiedAt: item.verifiedAt })),
         applications: applicationInventory.applications.map((item) => ({ id: item.id, name: item.name, execution: item.execution, installed: item.live?.installed === true, state: item.live?.state ?? "unknown", backupState: item.live?.backup?.state ?? null })),
         applicationBackups: applicationBackups.map((item) => ({ id: item.id, applicationId: item.applicationId, destination: item.destination, checksumSha256: item.checksumSha256, sizeBytes: item.sizeBytes, downtimeMs: item.downtimeMs, restorePassed: item.restoreDrill?.passed === true, createdAt: item.createdAt, verifiedAt: item.verifiedAt })),
         virtualMachines: { inventoryAvailable: domainInventory.connected === true, domains: domains.map((item) => ({ name: item.name, state: item.state, autostart: item.autostart === true })) },

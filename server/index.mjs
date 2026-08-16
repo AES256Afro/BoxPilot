@@ -121,7 +121,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.37.0",
+    version: "0.38.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -189,12 +189,12 @@ app.get("/api/v1/capabilities", (_request, response) => {
     composeInspection: "browser-only",
     applications: "curated-uptime-kuma-and-no-cutover-pi-hole-staging-recovery-and-direct-dns-acceptance",
     supportBundle: "authenticated-server-generated-fixed-source-configurably-redacted",
-    backups: "uptime-kuma-local-restore-drill-and-vm-independent-restic-copy-with-isolated-boot-validation-recovery-clones-and-guarded-retention",
+    backups: "wal-aware-controller-and-application-local-restore-drills-plus-vm-independent-restic-copy-with-isolated-boot-validation-recovery-clones-and-guarded-retention",
     migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
     network: "read-only-topology-approved-fixed-pi-hole-and-observed-gateway-direct-dns-acceptance-plus-signed-second-device-evidence",
-    privilegedHelper: "typed-canary-exact-smartmontools-repair-fixed-apt-metadata-refresh-curated-applications-backups-migration-staging-inventory-logs-vm-creation-lifecycle-snapshots-exports-mounted-restic-isolated-restore-drills-recovery-clones-and-retention",
+    privilegedHelper: "typed-canary-exact-smartmontools-repair-fixed-apt-metadata-refresh-controller-backup-curated-applications-backups-migration-staging-inventory-logs-vm-creation-lifecycle-snapshots-exports-mounted-restic-isolated-restore-drills-recovery-clones-and-retention",
     identity: "owner-password-foundation",
-    durableJobs: "sqlite-approved-prerequisite-application-backup-pi-hole-and-flint2-gateway-dns-acceptance-migration-transfer-vm-creation-lifecycle-snapshot-export-protection-restore-drill-recovery-and-retention-workflows",
+    durableJobs: "sqlite-approved-prerequisite-controller-and-application-backup-pi-hole-and-flint2-gateway-dns-acceptance-migration-transfer-vm-creation-lifecycle-snapshot-export-protection-restore-drill-recovery-and-retention-workflows",
     virtualization: "live-libvirt-via-restricted-helper",
     vmCreationPlanning: "validated-durable-approved",
     audit: "redacted-jsonl-foundation",
@@ -204,6 +204,7 @@ app.get("/api/v1/capabilities", (_request, response) => {
     vmProtection: { destination: "fixed-independent-mounted-restic", encrypted: true, repositoryReadVerified: true, isolatedRestoreDrill: "transient-no-network-guest-agent", protectedBackup: "after-passing-restore-drill", retentionMutation: "exact-protected-old-snapshot-forget-without-prune" },
     vmRecovery: { create: "protected-snapshot-to-new-stopped-persistent-domain", network: "none", autostart: false, inPlaceRestore: false, sourceDeletion: false },
     vmConsole: { nativeProxy: false, cockpitHandoff: "detect-existing-only" },
+    controllerBackup: { source: "fixed-live-sqlite", snapshot: "vacuum-into-wal-aware", destination: "root-only-local-managed", restoreDrill: "isolated-copy-open-integrity-foreign-key-schema", downtime: false, independent: false, retention: false, browserPath: false },
     fleet: { enrollment: "one-time-digest-stored-token", identity: "ed25519-signed-replay-protected", execution: "node-local-allowlisted-pi-hole-or-default-gateway-dns-probe-only", scheduling: "password-approved-one-shot-fixed-delay-only", recurrence: false, controllerShellAccess: false, arbitraryTarget: false },
     routers: { checkpoints: "browser-local-sha256-metadata-only", guidance: "fixed-model-operator-checklists-with-live-gateway-address-correlation", directGatewayDnsAcceptance: "durable-approved-four-fixed-queries", signedSecondDeviceDnsAcceptance: "owner-approved-one-shot-agent-with-local-default-gateway-match", gatewayIdentityVerified: false, adguardConfigurationVerified: false, dhcpAdvertisementVerified: false, configurationUpload: false, credentials: false, discovery: false, mutations: false },
     github: { repositories: "fixed-public-read-only-allowlist", authentication: false, writes: false, cloneOrDownload: false, localDigestVerification: false },
@@ -513,7 +514,7 @@ app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = ["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.pi-hole.deploy", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
+    const background = ["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.pi-hole.deploy", "controller.database.backup", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, request.body?.password)
       : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
@@ -774,7 +775,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.37.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.38.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

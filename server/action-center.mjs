@@ -1,13 +1,13 @@
-const productVersion = "0.37.0";
+const productVersion = "0.38.0";
 
 const guidance = {
   "controller.database": {
     category: "Controller recovery",
-    view: "repairs",
+    view: "backups",
     steps: [
-      "Use local console access and stop BoxPilot before copying its SQLite database.",
-      "Run a SQLite integrity check, copy the database to independent storage, and record its SHA-256.",
-      "Restart BoxPilot and verify authentication, inventory, and the recovery kit.",
+      "Open Backups and create the WAL-aware controller snapshot with its isolated copy-open drill.",
+      "Copy the complete root-only backup directory and manifest to encrypted independent storage.",
+      "Verify both recorded SHA-256 values on the independent copy and retain the restore procedure.",
     ],
   },
   "controller.source": {

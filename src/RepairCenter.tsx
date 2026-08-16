@@ -34,7 +34,7 @@ interface RecoveryKit {
   product: { name: string; version: string };
   summary: { status: string; verified: number; actionRequired: number; operatorChecks: number; notApplicable: number; total: number };
   checks: Array<{ id: string; state: "verified" | "action-required" | "operator-check" | "not-applicable" | "unavailable"; title: string; evidence: string; action: string }>;
-  evidence: { jobs: unknown[]; applicationBackups: unknown[]; vmBackups: unknown[]; routerCheckpoints: unknown[]; migrationTransfers: unknown[]; fleet: { activeAgents: number; revokedAgents: number } };
+  evidence: { jobs: unknown[]; controllerBackups: unknown[]; applicationBackups: unknown[]; vmBackups: unknown[]; routerCheckpoints: unknown[]; migrationTransfers: unknown[]; fleet: { activeAgents: number; revokedAgents: number } };
   boundary: { mutationsPerformed: boolean; databaseCopied: boolean; backupDataIncluded: boolean; configurationFilesIncluded: boolean; credentialsIncluded: boolean; excluded: string[] };
   runbookMarkdown: string;
 }
@@ -357,6 +357,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
             ))}
           </div>
           <div className="recovery-evidence-strip">
+            <span>{recoveryKit.evidence.controllerBackups.length} controller backups</span>
             <span>{recoveryKit.evidence.applicationBackups.length} app backups</span>
             <span>{recoveryKit.evidence.vmBackups.length} VM backups</span>
             <span>{recoveryKit.evidence.routerCheckpoints.length} router checkpoints</span>
@@ -391,7 +392,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
               <strong>Approval required</strong>
               <span>Re-enter your owner password. It is verified in memory and never stored in the job.</span>
               <input aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
-              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? (["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "network.dns.acceptance.run", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(awaitingApproval.type) ? "Starting..." : "Running...") : "Approve and run"}</button>
+              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? (["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "controller.database.backup", "network.dns.acceptance.run", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(awaitingApproval.type) ? "Starting..." : "Running...") : "Approve and run"}</button>
             </div>
           )}
         </aside>
