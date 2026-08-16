@@ -16,8 +16,8 @@
     nav div { padding: 8px 9px; color: #88a1ae; border-radius: 7px; font-size: 10px; }
     nav .active { color: #dff9f0; background: #17352f; border: 1px solid #2c5b50; }
     .private { margin-top: 150px; padding: 10px; color: #9bb0b9; background: #0d1d26; border: 1px solid #243b46; border-radius: 8px; font-size: 9px; line-height: 1.55; }
-    main { padding: 22px 28px 28px; }
-    .top { display: flex; justify-content: space-between; align-items: start; margin-bottom: 14px; }
+    main { padding: 16px 28px; }
+    .top { display: flex; justify-content: space-between; align-items: start; margin-bottom: 9px; }
     .eyebrow { color: #69cfb0; font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
     h1 { margin: 4px 0; font-size: 26px; }
     h2 { margin: 3px 0 5px; font-size: 15px; }
@@ -26,14 +26,14 @@
     .pill { display: inline-block; padding: 5px 8px; border-radius: 999px; font-size: 8px; font-weight: 800; }
     .good { color: #9eefd5; background: #133c32; border: 1px solid #286e5b; }
     .warn { color: #ffe195; background: #463510; border: 1px solid #795d1c; }
-    .notice { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 13px; padding: 11px 14px; border: 1px solid #795d1c; border-radius: 9px; background: #2a220e; }
+    .notice { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 9px; padding: 8px 14px; border: 1px solid #795d1c; border-radius: 9px; background: #2a220e; }
     .notice strong { display: block; font-size: 12px; }
     .notice span { color: #dfc873; font-size: 9px; }
-    .layout { display: grid; grid-template-columns: 1.25fr .75fr; gap: 12px; }
-    .panel { padding: 14px; border: 1px solid #213945; border-radius: 9px; background: #0b1821; }
+    .layout { display: grid; grid-template-columns: 1.25fr .75fr; gap: 8px; }
+    .panel { padding: 10px 14px; border: 1px solid #213945; border-radius: 9px; background: #0b1821; }
     .wide { grid-column: 1 / -1; }
     .head { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
-    .proof { display: grid; gap: 7px; margin-top: 10px; padding: 11px; border: 1px solid #2b4c55; border-radius: 7px; background: #071118; }
+    .proof { display: grid; gap: 6px; margin-top: 7px; padding: 8px 11px; border: 1px solid #2b4c55; border-radius: 7px; background: #071118; }
     .proof-row { display: flex; justify-content: space-between; gap: 12px; color: #9bb0b9; font-size: 9px; }
     code { color: #9ce5cf; font: 9px ui-monospace, Menlo, monospace; word-break: break-all; }
     ol, ul { margin: 7px 0 0; padding-left: 19px; }
@@ -44,17 +44,18 @@
   </style>
 </head>
 <body>
-  <div class="disclosure">MOCKED 0.25.0 PRODUCT STATE. No Keel download, local byte verification, install, service, account, backup, restore, port, or data change occurred.</div>
+  <div class="disclosure">MOCKED 0.41.0 PRODUCT STATE. No .env, database, secret, download, install, service, container, claim, backup, restore, port, or data change occurred.</div>
   <div class="shell">
-    <aside><div class="brand"><b>B</b>BoxPilot</div><nav><div>OV Overview</div><div class="active">AP Applications</div><div>NW Network</div><div>RT Routers</div><div>RX Repair Center</div><div>VM Virtual Machines</div><div>BK Backups</div><div>MG Migrations</div><div>FL Fleet</div><div>GH GitHub</div><div>LG Logs</div><div>ST Settings</div></nav><div class="private"><strong>Private administration</strong><br>Tailscale HTTPS<br>Funnel off<br><br>v0.25.0 Keel preflight</div></aside>
+    <aside><div class="brand"><b>B</b>BoxPilot</div><nav><div>OV Overview</div><div class="active">AP Applications</div><div>NW Network</div><div>RT Routers</div><div>RX Repair Center</div><div>VM Virtual Machines</div><div>BK Backups</div><div>MG Migrations</div><div>FL Fleet</div><div>GH GitHub</div><div>LG Logs</div><div>ST Settings</div></nav><div class="private"><strong>Private administration</strong><br>Tailscale HTTPS<br>Funnel off<br><br>v0.41.0 Keel discovery</div></aside>
     <main>
-      <div class="top"><div><span class="eyebrow">Curated adapter</span><h1>Plan Keel Notes</h1><p>Exact-release native-service preflight with state, claim, backup, and recovery gates.</p></div><span class="pill warn">Planning only</span></div>
-      <div class="notice"><strong>Execution is permanently locked in this release</strong><span>No stage, approval, helper operation, download, or installation route exists</span></div>
+      <div class="top"><div><span class="eyebrow">Curated adapter</span><h1>Plan Keel Notes</h1><p>Read-only host discovery plus exact-release native-service planning.</p></div><span class="pill warn">Discovery only</span></div>
+      <div class="notice"><strong>No supported Keel installation found</strong><span>Fixed helper inspection passed with no candidate, listener, or risk; execution remains locked</span></div>
       <div class="layout">
+        <section class="panel wide"><div class="head"><div><span class="eyebrow">Current Bigbox evidence</span><h2>Parameter-free discovery</h2></div><span class="pill good">No risks</span></div><div class="proof"><div class="proof-row"><span>Supported native user-service candidates</span><code>0</code></div><div class="proof-row"><span>Exact Keel Docker candidates</span><code>0</code></div><div class="proof-row"><span>Fixed port 3000 listener / Keel health identity</span><code>none / not requested</code></div><div class="proof-row"><span>Read-only boundary</span><code>no .env, database, or secret read; no browser path or mutation</code></div></div></section>
         <section class="panel wide"><div class="head"><div><span class="eyebrow">Pinned release artifact</span><h2>AES256Afro/Keel v1.2.5</h2></div><span class="pill good">GitHub metadata matched</span></div><div class="proof"><div class="proof-row"><span>Release commit</span><code>bcf872e2cee5820bdeb74685f5573cc6beb0a28f</code></div><div class="proof-row"><span>Linux x64 asset</span><code>keel-1.2.5-linux-x64.tar.gz | 47,655,144 bytes</code></div><div class="proof-row"><span>GitHub-reported SHA-256</span><code>4b24067aa219bc00bf4f7c1846f78945e8abda3f5b68353e4967570d5b57e6ee</code></div><div class="proof-row"><span>Verified by BoxPilot from local bytes</span><span class="pill warn">No</span></div></div></section>
-        <section class="panel"><span class="eyebrow">Proposed future service</span><h2>Private native deployment</h2><ul><li>Dedicated unprivileged Keel account</li><li>Loopback listener at 127.0.0.1:3000</li><li>Private state at /var/lib/keel/.keel</li><li>Exact /api/health identity proof</li><li>Five-minute one-use terminal claim</li></ul></section>
-        <section class="panel"><span class="eyebrow">Recovery unit</span><h2>State must move together</h2><ul><li>keel.db with coordinated writes</li><li>uploads and Keel backups</li><li>.keel-server-secrets.key companion</li><li>Isolated no-network restore drill</li><li>Previous exact release rollback</li></ul></section>
-        <section class="panel wide"><div class="head"><div><span class="eyebrow">Fail-closed result</span><h2>Planning result</h2></div><span class="pill warn">1 permanent blocker</span></div><div class="blocker"><strong>keel.execution</strong><br>Release download, local verification, extraction, service installation, ownership claim, backup, and restore execution remain disabled. Complete and test the restricted Keel artifact and service helper operations before installation.</div><div class="locks"><span class="pill good">Linux x64 matched</span><span class="pill good">Loopback port free</span><span class="pill good">Prerequisites ready</span><span class="pill warn">Local digest absent</span><span class="pill warn">Install locked</span></div><span class="button">Stage for approval unavailable</span></section>
+        <section class="panel"><span class="eyebrow">Supported external layout</span><h2>Native and Docker signals</h2><ul><li>~/keel plus systemd user unit</li><li>Custom unit roots confined to the same home</li><li>Exact Keel Docker name or service label</li><li>Writable persistent /data coverage</li><li>Loopback 127.0.0.1:3000 health</li></ul></section>
+        <section class="panel"><span class="eyebrow">Recovery unit</span><h2>State must move together</h2><ul><li>data/keel.db with coordinated writes</li><li>uploads and Keel backups</li><li>.keel-server-secrets.key companion</li><li>Isolated no-network restore drill</li><li>Previous exact release rollback</li></ul></section>
+        <section class="panel wide"><div class="head"><div><span class="eyebrow">Fail-closed result</span><h2>Planning result</h2></div><span class="pill warn">1 permanent blocker</span></div><div class="blocker"><strong>keel.execution</strong><br>Release download, local verification, extraction, installation, adoption, ownership claim, backup, import, and restore execution remain disabled.</div><div class="locks"><span class="pill good">Host discovery clean</span><span class="pill good">Linux x64 matched</span><span class="pill good">Loopback port free</span><span class="pill warn">Local digest absent</span><span class="pill warn">Install locked</span></div><span class="button">Stage for approval unavailable</span></section>
       </div>
     </main>
   </div>

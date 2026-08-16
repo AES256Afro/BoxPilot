@@ -22,6 +22,8 @@ Version `0.40.0` adds one fixed controller-retention policy. It keeps the three 
 
 Version `0.40.1` corrects the Backups data-source disclosure to describe the already shipped controller protection and retention boundary while leaving independent application destinations and scheduling explicitly pending. No helper, job, state, API, or mutation contract changes.
 
+Version `0.41.0` adds parameter-free Keel Notes discovery across the supported per-user Linux layout and exact Docker identity signals. The root helper returns fixed labels, counts, booleans, version, listener posture, health identity, and risk ids while excluding usernames, private paths, unit contents, container ids, images, environments, mount sources, databases, and secrets. It performs no write, service, container, database, claim, exposure, or network mutation. Discovery evidence is refreshed in both catalog and plan views; ambiguity and unsafe exposure fail closed.
+
 ## Target components
 
 ```text
@@ -178,7 +180,7 @@ Each managed application adapter owns:
 - Upgrade plan and rollback instructions
 - Log sources and support-bundle redaction rules
 
-Uptime Kuma is the low-risk canary adapter because it proves fixed Docker arguments, local persistent storage, loopback exposure, health checks, and rollback. Pi-hole is the first network-critical staging adapter. It adds an owner-attributable live network assessment, exact LAN bindings, helper-owned secret generation, least tested capabilities, no-cutover result evidence, and rollback while keeping every router and client unchanged. Keel Notes is the first stateful native-service planning adapter. Version `0.25.0` binds its plan to an exact release identity and documents database, managed-secret, upload, private-claim, health, backup, restore, and rollback gates, but provides no execution route.
+Uptime Kuma is the low-risk canary adapter because it proves fixed Docker arguments, local persistent storage, loopback exposure, health checks, and rollback. Pi-hole is the first network-critical staging adapter. It adds an owner-attributable live network assessment, exact LAN bindings, helper-owned secret generation, least tested capabilities, no-cutover result evidence, and rollback while keeping every router and client unchanged. Keel Notes is the first stateful native-service planning adapter. Version `0.25.0` binds its plan to an exact release identity and documents database, managed-secret, upload, private-claim, health, backup, restore, and rollback gates. Version `0.41.0` adds bounded read-only native and Docker discovery, but still provides no execution route.
 
 ## Data model target
 
@@ -207,7 +209,7 @@ A successful copy is not a verified backup. The controller adapter requires a co
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.40.1 limitations
+## Version 0.41.0 limitations
 
 - The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
@@ -219,7 +221,7 @@ A successful copy is not a verified backup. The controller adapter requires a co
 - Managed media discovery lists regular `.iso` files only and does not upload or download installation media.
 - Operations Core jobs and attribution use SQLite. The older VM JSONL planning log remains a separate bounded log. Tamper evidence remains pending.
 - Public GitHub provenance is held only in a 15-minute memory cache. GitHub-reported signature and asset-digest fields are not local verification. Tokens, private repositories, arbitrary repository paths, downloads, writes, webhooks, workflow dispatch, and installation are unavailable.
-- The Keel Notes adapter is planning-only. It does not discover an existing install, download or hash an asset, validate an archive locally, install Node or Keel, create a service account, write a unit, open a port, start a process, claim an owner, restrict registration, back up or restore data, or activate a migration.
+- The Keel Notes adapter discovers only bounded supported per-user service and exact Docker signals. It does not read `.env`, open a database, read a managed-secret key, follow user-supplied paths, detect PostgreSQL or Litestream configuration, download or hash an asset, validate an archive locally, install Node or Keel, create an account, write a unit, open a port, start a process, adopt an install, claim an owner, restrict registration, back up or restore data, or activate a migration.
 - The recovery kit is evidence and guidance, not a backup. It can now report stored encrypted independent controller evidence only after the exact snapshot restore passes, but it cannot prove that the operator retained the repository password in a separate failure domain. It also cannot prove an independent source archive, router configuration file, application credential, or Tailscale account recovery path.
 - The Action Center is a transient read-only projection of recovery evidence. It has fixed guidance and view navigation only. It cannot dismiss or persist notices, repair a condition, run a command, install a package, schedule work, request browser notifications, or deliver messages externally. The separately named `smartmontools` workflow exists only in Repair Center.
 - Only the exact `smartmontools` repair, fixed local controller backup, fixed mounted-restic controller protection, exact no-prune controller retention batch, fixed Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune VM retention batches can execute mutations. Network assessments and router checkpoints cannot execute. Pi-hole and Flint 2 direct DNS acceptance are approved fixed read-only jobs in the unprivileged web process and never cross the root helper. Signed agents can repeat only the four fixed Pi-hole checks or four fixed Flint 2 checks, with a mandatory node-local default-gateway match for Flint 2. Controller scheduling, configurable retention, prune, remote/cloud adapters, browser download, and automatic production restore remain unavailable.
