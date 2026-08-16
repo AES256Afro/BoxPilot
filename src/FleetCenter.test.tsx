@@ -19,6 +19,11 @@ const status = {
     controllerShellAccess: false, arbitraryCommands: false, arbitraryTargets: false,
     supportedTasks: ["dns.pi-hole.acceptance.v1"], nodeLocalExecution: true, routerMutationSupported: false, dnsCutoverSupported: false,
   },
+  schedulingPolicy: {
+    mode: "owner-approved-one-shot", allowedDelayMinutes: [0, 5, 10], executionWindowMinutes: 10,
+    recurrenceSupported: false, unattendedExecutionSupported: false, cancellationSupported: false,
+    taskType: "dns.pi-hole.acceptance.v1", targetSource: "fresh-passing-controller-acceptance-only", passwordReauthenticationRequired: true,
+  },
 };
 
 describe("Fleet Center", () => {
@@ -35,6 +40,8 @@ describe("Fleet Center", () => {
 
     expect(await screen.findByText("No remote shell")).toBeTruthy();
     expect(screen.getByText("Commands unavailable")).toBeTruthy();
+    expect(screen.getByText("One-shot only")).toBeTruthy();
+    expect(screen.getByText("No recurrence")).toBeTruthy();
     expect(screen.getAllByText("macbook-lan")).toHaveLength(2);
     fireEvent.change(screen.getByLabelText("Device name"), { target: { value: "second-lan-device" } });
     fireEvent.change(screen.getByLabelText("Owner password"), { target: { value: "correct horse battery" } });

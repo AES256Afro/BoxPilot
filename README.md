@@ -4,11 +4,11 @@ BoxPilot is an early, safety-first control plane for an Ubuntu home server. The 
 
 ## Current status
 
-Version `0.27.0` adds credential-free router-readiness guidance for the GL.iNet Flint 2, TP-Link Archer BE400/BE6500, and Omada ER707-M2. It correlates Bigbox's live default-gateway address with the recommended single-router topology, but explicitly leaves device identity, cabling, operating mode, and DHCP authority as operator checks. Model-specific steps and vendor sources explain the recommended Flint 2 edge, TP-Link access-point, and disconnected Omada standby roles. No router login, neighbor discovery, arbitrary probe, configuration upload, DHCP or DNS change, router write, or Tailscale change exists.
+Version `0.28.0` adds policy-visible, owner-approved one-shot scheduling for the only supported signed agent task. An operator may choose only immediate, 5-minute, or 10-minute dispatch, and the task remains available for exactly 10 minutes. The target and four DNS checks still derive from fresh passing Bigbox Pi-hole evidence. Recurrence, unattended execution, arbitrary time, hostname, address, port, command, package, file, plugin, router, DHCP, DNS-cutover, firewall, and Tailscale controls remain unavailable.
 
 ### What works now
 
-| Area | Status in `0.27.0` | Capability |
+| Area | Status in `0.28.0` | Capability |
 | --- | --- | --- |
 | Health and capabilities API | Live | Reports release mode and available product boundaries. |
 | Owner authentication | Live | Requires a short-lived token generated from the server terminal for first-owner setup, then uses scrypt password hashes, expiring HTTP-only sessions, and CSRF protection. |
@@ -25,7 +25,7 @@ Version `0.27.0` adds credential-free router-readiness guidance for the GL.iNet 
 | Keel Notes adapter | Immutable planning only | Binds a native-service plan to the fixed Keel `v1.2.5` Linux x64 release metadata and checks platform, architecture, prerequisites, loopback port, public tag commit, asset size, and GitHub-reported digest. Download, local byte verification, extraction, installation, start, claim, backup, restore, exposure, and staging are locked. |
 | Uptime Kuma adapter | Executable deployment | Uses the official `2.5.0` image pinned by multi-platform digest, a loopback-only port, local persistent storage, Docker health, approval, and data-preserving rollback. The catalog shows whether restore-verified backup evidence exists. |
 | Pi-hole adapter | Guarded staging, recovery, and two-origin DNS proof | Starts a digest-pinned Docker service only after a fresh Pi-hole-on-Bigbox network assessment and separate approval. Separate workflows verify configuration recovery, fixed direct queries from Bigbox, and the same fixed queries from an enrolled signed LAN device. DHCP, NTP, router writes, client DNS advertisement, Tailscale changes, and cutover do not exist. The dedicated-VM target remains planning-only. |
-| Fleet agents | Signed narrow foundation | Creates password-gated one-time enrollment tokens, registers device-generated Ed25519 public keys, rejects stale or replayed requests, supports revocation, and records signed second-device Pi-hole evidence. It provides no shell, arbitrary command, arbitrary target, file access, package operation, or general plugin execution. |
+| Fleet agents | Signed one-shot policy | Creates password-gated enrollments, registers device-generated Ed25519 public keys, rejects stale or replayed requests, supports revocation, and requires owner reauthentication for immediate, 5-minute, or 10-minute one-shot windows for one fixed second-device Pi-hole proof. It provides no recurrence, unattended execution, shell, arbitrary command, arbitrary target, file access, package operation, or general plugin execution. |
 | Backup engine | Two live application adapters | Creates immutable local Uptime Kuma and Pi-hole archives after a clean stop, verifies source restart, records SHA-256 and measured downtime, and runs temporary restore containers with no network or published ports. Pi-hole evidence additionally requires configuration, secret, and no-cutover proof, and a strict startup reconciler recovers interrupted source stops and exact orphan drills. Local artifacts are not independent copies. |
 | Migration Center | Guarded local staging | Exports and imports fingerprinted sanitized source manifests, creates immutable destination compatibility plans, discovers root-only checksummed Compose bundles from one fixed inbox, and executes resumable password-approved copies into isolated managed staging. It records exact durable evidence, supports no-copy reconciliation after a restart edge case, preserves the source, and never activates the workload. Remote SSH transport and cutover remain locked. |
 | QEMU/KVM preflight | Live through the native helper | Checks Linux, KVM support reported by libvirt, QEMU, `virsh`, `virt-install`, `qemu:///system`, the helper boundary, the default NAT network, the default storage pool, and Tailscale access. |
@@ -158,6 +158,12 @@ This explicitly disclosed `0.21.0` mock shows the exact managed resolver, linked
 ![BoxPilot signed agent enrollment and independent DNS evidence](docs/screenshots/signed-fleet-agent-mock.png)
 
 This explicitly disclosed `0.22.0` mock shows one-time enrollment, device-owned Ed25519 identity, the no-shell execution boundary, one fixed Pi-hole task, replay-protected evidence, and the remaining router and cutover locks. No device was enrolled, no key or token was generated, no DNS query was sent, and no network setting was changed for the capture.
+
+### One-shot fleet policy mockup
+
+![BoxPilot owner-approved one-shot signed-agent policy](docs/screenshots/fleet-one-shot-policy-mock.png)
+
+This explicitly disclosed `0.28.0` mock shows the immediate, 5-minute, and 10-minute fixed delay policy, exact ten-minute execution window, owner reauthentication, derived target, task ledger, and the recurrence, unattended, command, target, package, router, and cutover locks. No agent was enrolled, no password entered, no task scheduled, and no DNS query or system change occurred for the capture.
 
 ### Router checkpoint mockup
 

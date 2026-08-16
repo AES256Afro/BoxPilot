@@ -267,6 +267,7 @@ export function createStateStore({
       state TEXT NOT NULL,
       created_by TEXT NOT NULL REFERENCES owners(id),
       created_at TEXT NOT NULL,
+      available_at TEXT NOT NULL,
       expires_at TEXT NOT NULL,
       completed_at TEXT
     );
@@ -317,6 +318,13 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_router_checkpoints_created_at ON router_checkpoints(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_events(created_at DESC);
   `);
+
+  const fleetTaskColumns = database.prepare("PRAGMA table_info(fleet_tasks)").all().map((column) => column.name);
+  if (!fleetTaskColumns.includes("available_at")) {
+    database.exec("ALTER TABLE fleet_tasks ADD COLUMN available_at TEXT");
+    database.exec("UPDATE fleet_tasks SET available_at = created_at WHERE available_at IS NULL");
+  }
+  database.exec("CREATE INDEX IF NOT EXISTS idx_fleet_tasks_agent_dispatch ON fleet_tasks(agent_id, state, available_at, expires_at)");
 
   function timestamp() {
     return iso(now());
@@ -986,24 +994,25 @@ export function createStateStore({
       state: row.state,
       createdBy: row.created_by,
       createdAt: row.created_at,
+      availableAt: row.available_at ?? row.created_at,
       expiresAt: row.expires_at,
       completedAt: row.completed_at,
     } : null;
   }
 
-  function createFleetTask({ agentId, type, payload, controllerAcceptanceId, createdBy, ttlMs = 10 * 60 * 1000 }) {
+  function createFleetTask({ agentId, type, payload, controllerAcceptanceId, createdBy, delayMs = 0, ttlMs = 10 * 60 * 1000 }) {
     const agent = getFleetAgent(agentId);
     if (!agent || agent.status !== "active") throw new Error("Active agent not found");
     const createdAt = now();
     const task = {
       id: randomUUID(), agentId, type, payload, controllerAcceptanceId, state: "pending", createdBy,
-      createdAt: iso(createdAt), expiresAt: iso(new Date(createdAt.getTime() + ttlMs)), completedAt: null,
+      createdAt: iso(createdAt), availableAt: iso(new Date(createdAt.getTime() + delayMs)), expiresAt: iso(new Date(createdAt.getTime() + delayMs + ttlMs)), completedAt: null,
     };
     database.prepare(`
-      INSERT INTO fleet_tasks (id, agent_id, type, payload_json, controller_acceptance_id, state, created_by, created_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(task.id, task.agentId, task.type, json(task.payload), task.controllerAcceptanceId, task.state, task.createdBy, task.createdAt, task.expiresAt);
-    recordAudit("fleet.task.created", { actorId: createdBy, subjectId: task.id, details: { agentId, type, controllerAcceptanceId } });
+      INSERT INTO fleet_tasks (id, agent_id, type, payload_json, controller_acceptance_id, state, created_by, created_at, available_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(task.id, task.agentId, task.type, json(task.payload), task.controllerAcceptanceId, task.state, task.createdBy, task.createdAt, task.availableAt, task.expiresAt);
+    recordAudit("fleet.task.created", { actorId: createdBy, subjectId: task.id, details: { agentId, type, controllerAcceptanceId, availableAt: task.availableAt, expiresAt: task.expiresAt, recurring: false } });
     return task;
   }
 
@@ -1014,7 +1023,7 @@ export function createStateStore({
   function getPendingFleetTask(agentId) {
     const at = timestamp();
     database.prepare("UPDATE fleet_tasks SET state = 'expired' WHERE agent_id = ? AND state = 'pending' AND expires_at <= ?").run(agentId, at);
-    return mapFleetTask(database.prepare("SELECT * FROM fleet_tasks WHERE agent_id = ? AND state = 'pending' AND expires_at > ? ORDER BY created_at LIMIT 1").get(agentId, at));
+    return mapFleetTask(database.prepare("SELECT * FROM fleet_tasks WHERE agent_id = ? AND state = 'pending' AND available_at <= ? AND expires_at > ? ORDER BY available_at LIMIT 1").get(agentId, at, at));
   }
 
   function listFleetTasks(limit = 100) {
@@ -1031,7 +1040,7 @@ export function createStateStore({
       const sequenceUpdate = database.prepare("UPDATE fleet_agents SET last_sequence = ?, last_seen_at = ? WHERE id = ? AND status = 'active' AND last_sequence < ?")
         .run(sequence, at, agentId, sequence);
       if (Number(sequenceUpdate.changes) !== 1) throw new Error("Agent request was replayed, revoked, or out of sequence");
-      const task = database.prepare("SELECT * FROM fleet_tasks WHERE id = ? AND agent_id = ? AND state = 'pending' AND expires_at > ?").get(taskId, agentId, at);
+      const task = database.prepare("SELECT * FROM fleet_tasks WHERE id = ? AND agent_id = ? AND state = 'pending' AND available_at <= ? AND expires_at > ?").get(taskId, agentId, at, at);
       if (!task) throw new Error("Fleet task is unavailable, expired, or already completed");
       database.prepare(`
         INSERT INTO fleet_evidence (id, task_id, agent_id, sequence, result_json, passed, signature, received_at)

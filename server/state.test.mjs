@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import { createStateStore } from "./state.mjs";
 
@@ -17,6 +18,31 @@ afterEach(async () => {
 });
 
 describe("BoxPilot state store", () => {
+  it("migrates existing fleet tasks to an immediate dispatch window", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-state-legacy-fleet-"));
+    directories.push(directory);
+    const databasePath = path.join(directory, "boxpilot.sqlite3");
+    const legacy = new DatabaseSync(databasePath);
+    legacy.exec(`
+      CREATE TABLE fleet_tasks (
+        id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL,
+        controller_acceptance_id TEXT, state TEXT NOT NULL, created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL, expires_at TEXT NOT NULL, completed_at TEXT
+      );
+      INSERT INTO fleet_tasks VALUES (
+        '11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222',
+        'dns.pi-hole.acceptance.v1', '{}', NULL, 'expired', '33333333-3333-4333-8333-333333333333',
+        '2026-08-16T01:00:00.000Z', '2026-08-16T01:10:00.000Z', NULL
+      );
+    `);
+    legacy.close();
+
+    const store = createStateStore({ databasePath, stateDirectory: directory, now: () => new Date("2026-08-16T02:00:00.000Z") });
+    expect(store.listFleetTasks()).toEqual([expect.objectContaining({ availableAt: "2026-08-16T01:00:00.000Z", createdAt: "2026-08-16T01:00:00.000Z", state: "expired" })]);
+    expect(store.listAudit()).toEqual([]);
+    store.close();
+  });
+
   it("requires a fresh server-local token to bootstrap one owner", async () => {
     const store = await testStore({ tokenBytes: () => Buffer.alloc(32, 7) });
     const bootstrap = store.createBootstrapToken();
