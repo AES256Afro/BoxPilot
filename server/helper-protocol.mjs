@@ -1,3 +1,4 @@
+import net from "node:net";
 import { createApplicationHelper } from "./application-helper.mjs";
 import { createVmHelper } from "./vm-helper.mjs";
 import { validateDomainName } from "./libvirt.mjs";
@@ -12,7 +13,7 @@ import { createVmRestoreDrillHelper, validateVmRestoreDrillInput } from "./vm-re
 import { createMigrationTransferHelper, validateMigrationTransferInput } from "./migration-transfer-helper.mjs";
 
 export const helperProtocolVersion = 1;
-export const helperOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
+export const helperOperations = new Set(["canary.verify", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "application.pi-hole.inspect", "application.pi-hole.deploy", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create"]);
 const vmCreationKeys = ["autostart", "diskGiB", "firmware", "isoFile", "memoryMiB", "name", "network", "osProfile", "vcpus"];
 const vmLifecycleKeys = ["action", "expectedAutostart", "expectedState", "name"];
 const vmSnapshotKeys = ["expectedDiskRevision", "expectedSnapshotRevision", "expectedState", "expectedUuid", "name", "snapshotName"];
@@ -21,6 +22,12 @@ const vmProtectionKeys = ["backupId", "domainName", "domainUuid", "expectedDesti
 const vmRestoreDrillKeys = ["backupId", "domainName", "domainUuid", "drillId", "expectedDestinationRevision", "expectedManifestChecksumSha256", "expectedSizeBytes", "exportId", "repositoryId", "snapshotId"];
 const vmRecoveryKeys = ["backupId", "expectedDestinationRevision", "expectedManifestChecksumSha256", "expectedSizeBytes", "exportId", "repositoryId", "restoreDrillId", "restoreId", "snapshotId", "sourceDomainName", "sourceDomainUuid", "targetDomainName"];
 const vmRetentionKeys = ["expectedDestinationRevision", "expectedSnapshotSetRevision", "forgetSnapshotIds", "repositoryId", "retentionId"];
+
+function privateIpv4(value) {
+  if (net.isIP(value) !== 4) return false;
+  const [first, second] = value.split(".").map(Number);
+  return first === 10 || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168);
+}
 
 export function validateHelperRequest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "Request must be an object";
@@ -46,6 +53,13 @@ export function validateHelperRequest(value) {
   if (value.operation === "application.uptime-kuma.backup") {
     if (Object.keys(value.parameters).length !== 1 || typeof value.parameters.backupId !== "string" || !/^[a-f0-9-]{36}$/.test(value.parameters.backupId)) {
       return "Uptime Kuma backup accepts only a backupId UUID";
+    }
+  }
+  if (value.operation === "application.pi-hole.inspect" && Object.keys(value.parameters).length !== 0) return "Pi-hole inspection accepts no parameters";
+  if (value.operation === "application.pi-hole.deploy") {
+    const keys = Object.keys(value.parameters).sort();
+    if (keys.length !== 2 || keys[0] !== "lanAddress" || keys[1] !== "webPort" || !privateIpv4(value.parameters.lanAddress) || !Number.isInteger(value.parameters.webPort) || value.parameters.webPort < 1024 || value.parameters.webPort > 65535) {
+      return "Pi-hole deployment accepts only a private lanAddress and a webPort between 1024 and 65535";
     }
   }
   if (value.operation === "migration.bundle.inspect" && Object.keys(value.parameters).length !== 0) return "Migration bundle inspection accepts no parameters";
@@ -127,7 +141,7 @@ export async function executeHelperOperation(request, { applications = createApp
       version: helperProtocolVersion,
       id: request.id,
       ok: true,
-      result: { verified: true, helperVersion: "0.13.0", mutationPerformed: false },
+      result: { verified: true, helperVersion: "0.14.0", mutationPerformed: false },
     };
   }
   if (request.operation === "container.docker.inspect") {
@@ -147,6 +161,12 @@ export async function executeHelperOperation(request, { applications = createApp
   }
   if (request.operation === "application.uptime-kuma.backup") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await applications.backup(request.parameters) };
+  }
+  if (request.operation === "application.pi-hole.inspect") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await applications.inspectPihole() };
+  }
+  if (request.operation === "application.pi-hole.deploy") {
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await applications.deployPihole(request.parameters) };
   }
   if (request.operation === "migration.bundle.inspect") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await migrations.inspect() };

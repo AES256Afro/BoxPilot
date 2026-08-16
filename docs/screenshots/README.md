@@ -15,5 +15,6 @@ These images are captured from the local `0.3.0` build. Each caption in the repo
 - `vm-retention-approval-mock.png`: explicitly disclosed `0.16.0` exact no-prune retention mock rendered from `docs/mockups/vm-retention-approval.html`; no restic snapshot was forgotten or pruned
 - `migration-transfer-approval-mock.png`: explicitly disclosed `0.17.0` guarded local migration-staging mock rendered from `docs/mockups/migration-transfer-approval.html`; no source workload or file was changed, no real bundle was copied, and no Compose project was activated
 - `network-dns-assessment-mock.png`: explicitly disclosed `0.18.0` read-only network and DNS assessment mock rendered from `docs/mockups/network-dns-assessment.html`; no router, DNS, DHCP, firewall, Tailscale, or application setting was read from a real browser session or changed
+- `pihole-staging-approval-mock.png`: explicitly disclosed `0.19.0` guarded Pi-hole staging mock rendered from `docs/mockups/pihole-staging-approval.html`; no container, router, DNS client, DHCP service, firewall, Tailscale setting, or traffic path was changed
 
 Do not crop out the data-source notice when replacing these screenshots. It is part of the product's capability disclosure.

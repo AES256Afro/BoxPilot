@@ -117,7 +117,7 @@ function parseDnsListeners(output, addresses) {
     else if (interfaceName) scope = interfaceName.startsWith("virbr") || interfaceName.startsWith("docker") || interfaceName.startsWith("br-") ? "virtual" : "host-address";
     listeners.push({ protocol: fields[0], address, port: 53, scope, interface: interfaceName });
   }
-  return listeners.slice(0, 32);
+  return listeners.sort((left, right) => `${left.address}:${left.protocol}`.localeCompare(`${right.address}:${right.protocol}`)).slice(0, 32);
 }
 
 function hostAddresses(getNetworkInterfaces) {
@@ -239,7 +239,7 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
     };
   }
 
-  async function plan(input, ownerId) {
+  async function buildAssessment(input) {
     const errors = validateNetworkPlanInput(input);
     if (errors.length) throw new Error(errors.join(" | "));
     const topology = await inspect();
@@ -304,10 +304,26 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
       routerMutationSupported: false,
       dnsCutoverSupported: false,
     };
+    return output;
+  }
+
+  async function plan(input, ownerId) {
+    const output = await buildAssessment(input);
     return store.createPlan({ type: "network.dns.assessment", subjectId: input.topology, input, output, createdBy: ownerId });
   }
 
-  return { inspect, plan };
+  async function validateAssessment(planId, ownerId, expectedDnsRole) {
+    const assessment = store.getPlan(planId);
+    if (!assessment || assessment.createdBy !== ownerId || assessment.type !== "network.dns.assessment") throw new Error("Network assessment not found");
+    if (assessment.expired) throw new Error("Network assessment expired; refresh topology and create a new assessment");
+    if (assessment.input.dnsRole !== expectedDnsRole) throw new Error(`Network assessment must use the ${expectedDnsRole} DNS role`);
+    if (assessment.output.readyForChangeWindow !== true || assessment.output.blockers?.length) throw new Error("Network assessment has unresolved recovery or topology blockers");
+    const current = await buildAssessment(assessment.input);
+    if (current.readyForChangeWindow !== true || JSON.stringify(current) !== JSON.stringify(assessment.output)) throw new Error("Live gateway, resolver, listener, address, Tailscale, or recovery evidence changed after the network assessment");
+    return assessment;
+  }
+
+  return { inspect, plan, validateAssessment };
 }
 
 export const networkInternals = { eligibleLanAddresses, hostAddresses, ipv4Number, parseDefaultRoutes, parseDnsListeners, parseIpAddresses, parseResolverStatus, sameIpv4Subnet, topologyGuidance };

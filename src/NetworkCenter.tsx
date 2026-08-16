@@ -36,7 +36,7 @@ async function readJson<T>(response: Response): Promise<T> {
   return body;
 }
 
-export default function NetworkCenter({ csrfToken }: { csrfToken: string }) {
+export default function NetworkCenter({ csrfToken, onAssessmentReady }: { csrfToken: string; onAssessmentReady?: (planId: string) => void }) {
   const [topology, setTopology] = useState<Topology | null>(null);
   const [selectedTopology, setSelectedTopology] = useState("flint2-edge-tplink-ap");
   const [dnsRole, setDnsRole] = useState("current-external");
@@ -95,6 +95,7 @@ export default function NetworkCenter({ csrfToken }: { csrfToken: string }) {
         }),
       }));
       setPlan(body.plan);
+      if (dnsRole === "pihole-on-bigbox" && body.plan.output.readyForChangeWindow) onAssessmentReady?.(body.plan.id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to generate network assessment");
     } finally {
@@ -158,7 +159,7 @@ export default function NetworkCenter({ csrfToken }: { csrfToken: string }) {
           <div><strong>Device roles</strong><ul>{plan.output.topology.devices.map((item) => <li key={item}>{item}</li>)}</ul><strong>Assessment only</strong><ul>{plan.output.changes.map((item) => <li key={item}>{item}</li>)}</ul></div>
           <div><strong>Recovery order</strong><ol>{plan.output.recovery.map((item) => <li key={item}>{item}</li>)}</ol>{plan.output.blockers.length > 0 && <><strong>Blockers</strong><ul className="warning-text">{plan.output.blockers.map((item) => <li key={item.id}>{item.summary}</li>)}</ul></>}{plan.output.warnings.length > 0 && <><strong>Warnings</strong><ul>{plan.output.warnings.map((item) => <li key={item}>{item}</li>)}</ul></>}</div>
         </div>
-        <div className="network-lock"><span className="status-pill status-warning">Router writes locked</span><span className="status-pill status-warning">DNS cutover locked</span><span>No stage or approval action exists in 0.18.0.</span></div>
+        <div className="network-lock"><span className="status-pill status-warning">Router writes locked</span><span className="status-pill status-warning">DNS cutover locked</span><span>{plan.output.readyForChangeWindow && plan.output.dns.role === "pihole-on-bigbox" ? `Assessment ${plan.id} is ready for the Applications staging gate.` : "This assessment never changes the network."}</span></div>
       </section>}
     </div>
   );

@@ -39,11 +39,11 @@ const prerequisites = createPrerequisiteService({
   stateDirectory: process.env.BOXPILOT_STATE_DIRECTORY ?? path.dirname(state.databasePath),
   helper,
 });
-const applications = createApplicationService({ store: state, prerequisites, helper });
+const network = createNetworkService({ store: state });
+const applications = createApplicationService({ store: state, prerequisites, helper, network });
 const backups = createBackupService({ store: state, prerequisites, helper });
 const inventory = createInventoryService({ helper });
 const migrations = createMigrationService({ store: state, inventory, helper });
-const network = createNetworkService({ store: state });
 const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, libvirt });
 const vmExports = createVmExportService({ store: state, libvirt, helper });
 const vmLifecycle = createVmLifecycleService({ store: state, libvirt });
@@ -94,7 +94,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.18.0",
+    version: "0.19.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -122,12 +122,12 @@ app.get("/api/v1/capabilities", (_request, response) => {
   response.json({
     inventory: "sanitized-host-docker-services-network-and-dns-topology",
     composeInspection: "browser-only",
-    applications: "curated-plans-and-uptime-kuma-adapter",
+    applications: "curated-uptime-kuma-and-no-cutover-pi-hole-staging-adapters",
     supportBundle: "browser-only",
     backups: "uptime-kuma-local-restore-drill-and-vm-independent-restic-copy-with-isolated-boot-validation-recovery-clones-and-guarded-retention",
     migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
-    network: "read-only-route-resolver-listener-and-router-role-assessment",
-    privilegedHelper: "typed-canary-applications-backups-migration-staging-inventory-logs-vm-creation-lifecycle-snapshots-exports-mounted-restic-isolated-restore-drills-recovery-clones-and-retention",
+    network: "read-only-route-resolver-listener-router-role-and-pi-hole-staging-assessment",
+    privilegedHelper: "typed-canary-curated-applications-backups-migration-staging-inventory-logs-vm-creation-lifecycle-snapshots-exports-mounted-restic-isolated-restore-drills-recovery-clones-and-retention",
     identity: "owner-password-foundation",
     durableJobs: "sqlite-approved-application-backup-migration-transfer-vm-creation-lifecycle-snapshot-export-protection-restore-drill-recovery-and-retention-workflows",
     virtualization: "live-libvirt-via-restricted-helper",
@@ -293,7 +293,7 @@ app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = ["migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
+    const background = ["application.pi-hole.deploy", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, request.body?.password)
       : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
@@ -554,7 +554,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.18.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.19.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

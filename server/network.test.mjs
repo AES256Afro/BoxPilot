@@ -96,12 +96,23 @@ describe("network topology and DNS assessment", () => {
   });
 
   it("creates an attributable assessment while keeping all network mutation disabled", async () => {
-    const { store, owner, service } = await fixture();
+    const { store, owner, runCommand, service } = await fixture();
     const plan = await service.plan(input(), owner.id);
     expect(plan.type).toBe("network.dns.assessment");
     expect(plan.output).toMatchObject({ executable: false, readyForChangeWindow: true, routerMutationSupported: false, dnsCutoverSupported: false, blockers: [] });
     expect(plan.output.topology.summary).toContain("Flint 2 as the only edge router");
     expect(plan.output.observed.defaultResolvers).toEqual(["94.140.14.49", "94.140.14.59"]);
+    await expect(service.validateAssessment(plan.id, owner.id, "current-external")).resolves.toMatchObject({ id: plan.id });
+    await expect(service.validateAssessment(plan.id, "different-owner", "current-external")).rejects.toThrow("not found");
+    await expect(service.validateAssessment(plan.id, owner.id, "pihole-on-bigbox")).rejects.toThrow("must use");
+    runCommand.mockImplementation(async (binary, args) => {
+      if (binary === "ip" && args.includes("address")) return { ok: true, stdout: ipAddresses };
+      if (binary === "ip") return { ok: true, stdout: routes };
+      if (binary === "resolvectl") return { ok: true, stdout: JSON.stringify([{ ifname: "eno1", defaultRoute: true, servers: [{ addressString: "1.1.1.1", port: 53, accessible: true }] }]) };
+      if (binary === "ss") return { ok: true, stdout: listeners };
+      return { ok: true, stdout: tailscale };
+    });
+    await expect(service.validateAssessment(plan.id, owner.id, "current-external")).rejects.toThrow("changed after");
     store.close();
   });
 
