@@ -206,6 +206,21 @@ describe("BoxPilot state store", () => {
     store.close();
   });
 
+  it("records independent encrypted application protection separately from its local boot-tested archive", async () => {
+    const store = await testStore();
+    const bootstrap = store.createBootstrapToken();
+    const owner = store.consumeBootstrapToken(bootstrap.token, { username: "operator", passwordHash: "hash" });
+    const backupId = "11111111-1111-4111-8111-111111111111";
+    store.recordBackup({ id: backupId, applicationId: "pi-hole", destination: "local-managed", artifactPath: `/var/lib/boxpilot-managed/backups/pi-hole/${backupId}.tar.gz`, checksumSha256: "a".repeat(64), sizeBytes: 4096, downtimeMs: 250, restoreDrill: { passed: true, network: "none", publishedPorts: 0 }, createdBy: owner.id });
+    const protection = store.recordApplicationBackupProtection({ id: "22222222-2222-4222-8222-222222222222", backupId, applicationId: "pi-hole", destination: "mounted-restic-applications", repositoryId: "c".repeat(64), snapshotId: "d".repeat(64), sizeBytes: 4096, encrypted: true, independent: true, repositoryVerified: true, protected: true, restoreDrill: { passed: true, mode: "exact-snapshot-artifact-restore", network: "none", workspaceRemoved: true }, createdBy: owner.id });
+    expect(protection).toMatchObject({ backupId, applicationId: "pi-hole", encrypted: true, independent: true, repositoryVerified: true, protected: true });
+    expect(store.getApplicationBackupProtectionByBackup(backupId)).toEqual(protection);
+    expect(store.listApplicationBackupProtections()).toEqual([protection]);
+    expect(() => store.recordApplicationBackupProtection({ ...protection, id: "33333333-3333-4333-8333-333333333333" })).toThrow();
+    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "application.backup.protected", subjectId: protection.id })]));
+    store.close();
+  });
+
   it("records a verified local VM export without promoting it to a protected backup", async () => {
     const store = await testStore();
     const bootstrap = store.createBootstrapToken();

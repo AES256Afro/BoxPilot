@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createActionCenterService } from "./action-center.mjs";
 import { createAuditLog } from "./audit.mjs";
 import { createApplicationService } from "./applications.mjs";
+import { createApplicationProtectionService } from "./application-protection.mjs";
 import { createBackupService } from "./backups.mjs";
 import { createControllerProtectionService } from "./controller-protection.mjs";
 import { createControllerRetentionService } from "./controller-retention.mjs";
@@ -59,6 +60,7 @@ const githubProvenance = createGithubProvenanceService();
 const applications = createApplicationService({ store: state, prerequisites, helper, network, githubProvenance });
 const keelArtifacts = createKeelArtifactService({ store: state, prerequisites, helper, githubProvenance });
 const backups = createBackupService({ store: state, prerequisites, helper });
+const applicationProtection = createApplicationProtectionService({ store: state, helper });
 const controllerProtection = createControllerProtectionService({ store: state, helper });
 const controllerRetention = createControllerRetentionService({ store: state, helper });
 const dnsAcceptance = createDnsAcceptanceService({ store: state, helper, network });
@@ -84,6 +86,8 @@ const jobs = createJobService(state, helper, {
   validateKeelArtifactJob: keelArtifacts.validateJob,
   validateBackupJob: backups.validateJob,
   recordBackupResult: backups.recordResult,
+  validateApplicationProtectionJob: applicationProtection.validateJob,
+  recordApplicationProtectionResult: applicationProtection.recordResult,
   validateControllerProtectionJob: controllerProtection.validateJob,
   recordControllerProtectionResult: controllerProtection.recordResult,
   validateControllerRetentionJob: controllerRetention.validateJob,
@@ -132,7 +136,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.43.0",
+    version: "0.44.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -546,6 +550,28 @@ app.post("/api/v1/backup-plans/:id/stage", async (request, response) => {
   }
 });
 
+app.get("/api/v1/application-backup-protection", async (_request, response) => {
+  response.json(await applicationProtection.list());
+});
+
+app.post("/api/v1/application-backups/:id/protection-plans", async (request, response) => {
+  try {
+    const plan = await applicationProtection.plan(request.params.id, request.boxpilotSession.owner.id);
+    response.status(201).json({ plan });
+  } catch (error) {
+    response.status(400).json({ error: error.message, code: "application_protection_plan_failed" });
+  }
+});
+
+app.post("/api/v1/application-protection-plans/:id/stage", async (request, response) => {
+  try {
+    const job = await applicationProtection.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
+    response.status(201).json({ job });
+  } catch (error) {
+    response.status(409).json({ error: error.message, code: "application_protection_stage_failed" });
+  }
+});
+
 app.get("/api/v1/controller-backup-protection", async (_request, response) => {
   response.json(await controllerProtection.list());
 });
@@ -607,7 +633,7 @@ app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = ["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.pi-hole.deploy", "application.keel.artifact.acquire", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
+    const background = ["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.pi-hole.deploy", "application.keel.artifact.acquire", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.pi-hole.backup", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, request.body?.password)
       : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
@@ -868,7 +894,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.43.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.44.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });
