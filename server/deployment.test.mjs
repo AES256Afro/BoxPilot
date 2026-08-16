@@ -52,7 +52,7 @@ describe("native systemd network boundaries", () => {
     expect(dockerfile).toContain("BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot");
     expect(dockerfile).toContain("BOXPILOT_COOKIE_SECURE=false");
     expect(dockerfile).toContain("USER node");
-    expect(compose).toContain("image: boxpilot:0.49.0");
+    expect(compose).toContain("image: boxpilot:0.50.0");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("/tmp:size=16m,mode=1777");
   });
@@ -268,6 +268,34 @@ describe("native systemd network boundaries", () => {
     expect(backup).toContain("networkAccessRequiredForDrill: false");
     expect(protocol).toContain("application.keel.backup");
     expect(protocol).not.toContain("application.keel.restore");
+  });
+
+  it("ships a static Keel recovery startup drill with a private network and read-only sources", async () => {
+    const service = await readFile("deploy/boxpilot-keel-recovery-drill.service", "utf8");
+    const drill = await readFile("scripts/boxpilot-keel-recovery-drill.mjs", "utf8");
+    const helperUnit = await readFile("deploy/boxpilot-helper.service", "utf8");
+    const protocol = await readFile("server/helper-protocol.mjs", "utf8");
+    const metadata = await stat("scripts/boxpilot-keel-recovery-drill.mjs");
+    expect(metadata.mode & 0o111).not.toBe(0);
+    expect(service).toContain("Type=oneshot");
+    expect(service).toContain("ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-recovery-drill.mjs");
+    expect(service).toContain("ConditionPathExists=/run/boxpilot/keel-recovery-drill-approval.json");
+    expect(service).toContain("PrivateNetwork=true");
+    expect(service).toContain("IPAddressDeny=any");
+    expect(service).toContain("IPAddressAllow=localhost");
+    expect(service).toContain("ReadOnlyPaths=/var/lib/boxpilot-managed/keel-recoveries");
+    expect(service).toContain("ReadOnlyPaths=-/var/lib/keel");
+    expect(service).toContain("ReadWritePaths=/var/lib/boxpilot-managed/keel-recovery-drills");
+    expect(service).not.toContain("[Install]");
+    expect(service).not.toContain("%i");
+    expect(helperUnit).toContain("PrivateNetwork=true");
+    expect(drill).toContain("process.argv.length !== 2");
+    expect(drill).not.toContain("process.argv[2]");
+    expect(drill).toContain("productionServiceChanged: false");
+    expect(drill).toContain("loginTested: false");
+    expect(drill).toContain("promotionPerformed: false");
+    expect(protocol).toContain("application.keel.recovery-drill.create");
+    expect(protocol).not.toContain("application.keel.promote");
   });
 
   it("ships a terminal-only migration packer without a browser-selectable inbox", async () => {

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BoxPilot Keel Recovery Drill Mock</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#07111f;color:#e8eef8;font:14px Inter,system-ui,sans-serif}aside{position:fixed;inset:0 auto 0 0;width:220px;background:#0c1727;border-right:1px solid #24334a;padding:26px 18px}.brand{font-size:23px;font-weight:800;margin-bottom:28px}.brand span{display:inline-grid;place-items:center;width:32px;height:32px;margin-right:9px;border-radius:10px;background:#55d8b2;color:#07111f}nav div{padding:11px 12px;margin:5px 0;border-radius:9px;color:#9fb0c9}nav .active{background:#1b3045;color:#fff}.private{position:absolute;bottom:22px;left:18px;right:18px;padding:13px;border:1px solid #2c425b;border-radius:10px;color:#9fb0c9;font-size:12px;line-height:1.5}.private strong{display:block;color:#55d8b2}main{margin-left:220px;padding:24px 30px 48px}.disclosure{background:#4b2d11;border:1px solid #d58a36;color:#ffdba8;padding:11px 15px;border-radius:9px;font-weight:800;margin-bottom:20px}.top{display:flex;justify-content:space-between;align-items:end}.eyebrow{color:#55d8b2;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}h1{font-size:30px;margin:5px 0 4px}.sub{color:#9fb0c9}.pill{padding:8px 12px;border-radius:999px;background:#432930;color:#ffb4bd;border:1px solid #733a45;font-weight:700}.card{margin-top:20px;background:#101e30;border:1px solid #2a3b53;border-radius:14px;padding:20px}.heading{display:flex;justify-content:space-between;gap:20px}.heading h2{margin:5px 0}.tag{align-self:start;background:#173d35;color:#72e1c0;padding:7px 10px;border-radius:999px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}.box{background:#0b1726;border:1px solid #24374f;border-radius:11px;padding:16px}.box strong{display:block;margin-bottom:10px}ol,ul{margin:0;padding-left:20px;color:#c1cee0;line-height:1.65}.evidence{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}.evidence div{padding:12px;background:#0b1726;border:1px solid #24374f;border-radius:9px}.evidence span{display:block;color:#8092ac;font-size:11px;text-transform:uppercase}.evidence b{display:block;margin-top:5px;color:#74e0bd}.warn{margin-top:18px;padding:13px;border-left:3px solid #f2a448;background:#2a2119;color:#ffdba8}.actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}.actions button{border:1px solid #38506d;border-radius:9px;padding:10px 16px;background:#101e30;color:#dce7f5}.actions .primary{background:#55d8b2;color:#07111f;border:0;font-weight:800}code{color:#a8c8ff;font-size:12px}
+  </style>
+</head>
+<body>
+  <aside><div class="brand"><span>B</span>BoxPilot</div><nav><div>Overview</div><div>Applications</div><div>Network</div><div>Routers</div><div>Repair Center</div><div>Virtual Machines</div><div class="active">Backups</div><div>Migrations</div><div>Fleet</div><div>Logs</div><div>Settings</div></nav><div class="private"><strong>Private administration</strong>Tailscale HTTPS | Funnel off<br><br>v0.50.0 private startup rehearsal</div></aside>
+  <main>
+    <div class="disclosure">MOCKED 0.50.0 PRODUCT STATE. No password was entered, plan or job created, recovery copied, process started, health request sent, port bound, workspace removed, or source, production, claim, registration, network, Tailscale, firewall, DNS, DHCP, router, or host state changed.</div>
+    <div class="top"><div><span class="eyebrow">Backups / Keel Notes</span><h1>Isolated startup rehearsal</h1><div class="sub">Prove a stopped recovery can start without promoting or exposing it.</div></div><span class="pill">High risk approval</span></div>
+    <section class="card">
+      <div class="heading"><div><span class="eyebrow">Immutable plan 41bb8b9f</span><h2>Stopped recovery is ready for a guarded drill</h2><div class="sub">Recovery <code>e6b9d718-785a-4b88-98a0-31ceeb738f12</code></div></div><span class="tag">private namespace | port 3100</span></div>
+      <div class="grid">
+        <div class="box"><strong>Exact workflow</strong><ol><li>Pin the evidence checksum and complete tree digest</li><li>Copy state into one generated disposable workspace</li><li>Run Keel 1.2.6 as the non-login <code>keel</code> identity</li><li>Require exact <code>/api/health</code> identity</li><li>Stop the process and recheck SQLite</li><li>Remove the disposable workspace</li></ol></div>
+        <div class="box"><strong>Isolation boundary</strong><ul><li><code>PrivateNetwork=true</code></li><li>Loopback exists only inside the unit namespace</li><li>Zero host or LAN published ports</li><li>Source recovery and release are read-only</li><li>Production <code>/var/lib/keel</code> is read-only</li><li>No login, claim, registration, promotion, or exposure</li></ul></div>
+      </div>
+      <div class="evidence"><div><span>Health identity</span><b>exact Keel response</b></div><div><span>SQLite</span><b>integrity + FK + schema</b></div><div><span>Process</span><b>started + stopped</b></div><div><span>Source</span><b>digest unchanged</b></div></div>
+      <div class="warn"><strong>Passing is not promotion approval.</strong> Owner login is not tested. Production replacement, network exposure, import, and deletion remain separate locked operations.</div>
+      <div class="actions"><button>Discard plan</button><button class="primary">Stage isolated startup rehearsal</button></div>
+    </section>
+  </main>
+</body>
+</html>

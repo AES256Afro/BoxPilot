@@ -1,10 +1,10 @@
 # Verified application backups
 
-BoxPilot provides deliberately narrow recovery-evidence paths: the `0.38.0` WAL-aware controller database snapshot, `0.39.0` encrypted independent exact-restore stage, and `0.40.0` fixed evidence-gated retention; the restore-verified local Uptime Kuma and Pi-hole adapters plus their `0.44.0` encrypted independent exact-archive restore stage; the `0.48.0` consistent Keel export, guaranteed source restart, and isolated SQLite-open drill using that same independent application protection stage; the `0.49.0` stopped Keel recovery clone; and the VM export, encrypted independent-copy, isolated restore-drill, guarded recovery-clone, and evidence-gated retention chain completed through `0.16.0`. It does not report a workload as protected merely because a file was copied.
+BoxPilot provides deliberately narrow recovery-evidence paths: the `0.38.0` WAL-aware controller database snapshot, `0.39.0` encrypted independent exact-restore stage, and `0.40.0` fixed evidence-gated retention; the restore-verified local Uptime Kuma and Pi-hole adapters plus their `0.44.0` encrypted independent exact-archive restore stage; the `0.48.0` consistent Keel export, guaranteed source restart, and isolated SQLite-open drill using that same independent application protection stage; the `0.49.0` stopped Keel recovery clone and `0.50.0` disposable private-namespace startup rehearsal; and the VM export, encrypted independent-copy, isolated restore-drill, guarded recovery-clone, and evidence-gated retention chain completed through `0.16.0`. It does not report a workload as protected merely because a file was copied.
 
 ## Safety boundary
 
-The browser can request immutable local plans for `boxpilot-controller`, `uptime-kuma`, `pi-hole`, or `keel`. Independent application protection and stopped Keel recovery can select only a durable verified local application backup id. Approval requires the owner password. The restricted root helper derives every source, artifact, repository, password-file, recovery, and restore path itself.
+The browser can request immutable local plans for `boxpilot-controller`, `uptime-kuma`, `pi-hole`, or `keel`. Independent application protection and stopped Keel recovery can select only a durable verified local application backup id. The Keel startup rehearsal can select only a durable stopped recovery id. Approval requires the owner password. The restricted root helper derives every source, artifact, repository, password-file, recovery, drill, and restore path itself.
 
 It never accepts a path, archive command, container name, image name, destination, repository selector, password, restic argument, or shell string from the browser.
 
@@ -112,6 +112,14 @@ After separate staging and owner-password approval, the helper:
 7. Records the clone in controller SQLite only after all evidence passes.
 
 The clone is data at rest. No Keel process is started, no port is bound, and no network is attached. `/var/lib/keel` and the source archive are never replaced, edited, renamed, or removed. Failure before publication removes only the generated partial directory. A published clone is preserved for explicit operator review. Promotion, application startup, login proof, deletion, and production restore are not part of this workflow.
+
+### Isolated Keel startup rehearsal
+
+Version `0.50.0` can select only a durable stopped Keel recovery record. A read-only helper inspection revalidates its root-owned evidence, complete tree digest, SQLite health, and exact 1.2.6 release. The immutable plan pins one generated drill id, the recovery id, evidence SHA-256, and state-tree SHA-256. It accepts no browser path, command, environment, port, network, login, claim, registration, or promotion input.
+
+After separate staging and owner-password approval, a static no-argument one-shot copies the recovery to one generated disposable workspace. It runs the exact release as the dedicated `keel` uid and gid with a fixed environment whose database, uploads, and backup paths point only into that copy. The unit has `PrivateNetwork=true`, loopback-only IP policy, zero published ports, and read-only mounts for the source recovery, fixed release, and production `/var/lib/keel`.
+
+Passing evidence requires the exact Keel health identity on internal port 3100, clean process stop, SQLite integrity, zero foreign-key issues, required schema, unchanged source evidence and tree digest, unchanged production service state, and removed workspace. Failure kills the generated process and removes only the generated partial. It does not prove owner login, start or attach the source recovery, replace production, change claim or registration, expose Tailscale or LAN access, or authorize promotion.
 
 ## Encrypted independent application protection
 
