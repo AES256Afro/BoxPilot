@@ -36,6 +36,7 @@ Environment=BOXPILOT_FINDMNT_BINARY=/usr/bin/findmnt
 Environment=BOXPILOT_TAILSCALE_BINARY=/usr/bin/tailscale
 Environment=BOXPILOT_SYSTEMCTL_BINARY=/usr/bin/systemctl
 Environment=BOXPILOT_VM_IMAGE_ROOT=/var/lib/libvirt/images
+Environment=BOXPILOT_VM_MEDIA_INBOX=/var/lib/boxpilot-managed/vm-media-inbox
 Environment=BOXPILOT_VM_EXPORT_ROOT=/var/lib/boxpilot-managed/vm-exports
 Environment=BOXPILOT_VM_BACKUP_MOUNT=/mnt/boxpilot-backup
 Environment=BOXPILOT_VM_RESTORE_DRILL_ROOT=/var/lib/libvirt/images/boxpilot-restore-drills
@@ -52,6 +53,7 @@ StateDirectory=boxpilot-managed boxpilot-migration
 StateDirectoryMode=0700
 CacheDirectory=boxpilot-restic boxpilot-controller-restic boxpilot-application-restic
 CacheDirectoryMode=0700
+ExecStartPre=/usr/bin/install -d -o boxpilot -g boxpilot -m 0700 /var/lib/boxpilot-managed/vm-media-inbox
 ExecStart=/usr/local/bin/node /opt/boxpilot/server/helper-server.mjs
 Restart=on-failure
 RestartSec=5s
@@ -70,6 +72,7 @@ ProtectKernelTunables=true
 ProtectSystem=strict
 ReadOnlyPaths=/var/lib/boxpilot
 ReadWritePaths=/var/lib/libvirt/images
+ReadWritePaths=-/var/lib/libvirt/boot
 ReadWritePaths=/var/lib/libvirt/qemu/nvram
 ReadWritePaths=-/mnt/boxpilot-backup
 RestrictAddressFamilies=AF_UNIX

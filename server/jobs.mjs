@@ -19,6 +19,7 @@ export function createJobService(store, helper, {
   executeFlint2AdguardJob = async () => {},
   validateMigrationTransferJob = async () => {},
   validateVmCreationJob = async () => {},
+  validateVmMediaImportJob = async () => {},
   validateVmExportJob = async () => {},
   validateVmProtectionJob = async () => {},
   validateVmRetentionJob = async () => {},
@@ -69,7 +70,7 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.uptime-kuma.deploy", "application.uptime-kuma.action", "application.uptime-kuma.private-access", "application.pi-hole.deploy", "application.pi-hole.action", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.uptime-kuma.deploy", "application.uptime-kuma.action", "application.uptime-kuma.private-access", "application.pi-hole.deploy", "application.pi-hole.action", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.media.import", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
     const validatedLibvirtFoundation = job.type === "virtualization.foundation.initialize" ? await validateLibvirtFoundationJob(job) : null;
     const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.stage", "application.keel.install"].includes(job.type) ? await validateApplicationJob(job) : null;
@@ -85,6 +86,7 @@ export function createJobService(store, helper, {
     const validatedFlint2AdguardPlan = job.type === "network.flint2-adguard.acceptance.run" ? await validateFlint2AdguardJob(job) : null;
     const validatedMigrationTransferPlan = job.type === "migration.bundle.transfer" ? await validateMigrationTransferJob(job) : null;
     const validatedVmPlan = job.type === "virtualization.domain.create" ? await validateVmCreationJob(job) : null;
+    const validatedVmMediaImportPlan = job.type === "virtualization.media.import" ? await validateVmMediaImportJob(job) : null;
     const validatedVmExportPlan = job.type === "virtualization.domain.export.create" ? await validateVmExportJob(job) : null;
     const validatedVmProtectionPlan = job.type === "virtualization.export.backup.create" ? await validateVmProtectionJob(job) : null;
     const validatedVmRetentionPlan = job.type === "virtualization.export.backup.retention.apply" ? await validateVmRetentionJob(job) : null;
@@ -97,6 +99,7 @@ export function createJobService(store, helper, {
     const validatedVmLifecyclePlan = job.type === "virtualization.domain.action" ? await validateVmLifecycleJob(job) : null;
     const validatedVmSnapshotPlan = job.type === "virtualization.domain.snapshot.create" ? await validateVmSnapshotJob(job) : null;
     if (job.type === "virtualization.domain.create" && !validatedVmPlan?.input) throw new Error("The staged VM creation plan is unavailable or changed");
+    if (job.type === "virtualization.media.import" && !validatedVmMediaImportPlan?.input) throw new Error("The staged VM media import plan is unavailable or changed");
     if (job.type === "controller.database.backup.protect" && !validatedControllerProtectionPlan?.input) throw new Error("The staged controller protection plan is unavailable or changed");
     if (job.type === "application.backup.protect" && !validatedApplicationProtectionPlan?.input) throw new Error("The staged application protection plan is unavailable or changed");
     if (job.type === "application.backup.retention.apply" && !validatedApplicationRetentionPlan?.input) throw new Error("The staged application retention plan is unavailable or changed");
@@ -720,6 +723,23 @@ export function createJobService(store, helper, {
       verified: "Every staged file passed SHA-256 and complete inventory verification; activation and source deletion remain disabled",
       failed: "Migration staging did not complete; the source remains unchanged and an isolated partial destination may be resumable",
       validate: (result) => result?.created && result?.transferId === validatedMigrationTransferPlan.input.transferId && result?.bundleId === validatedMigrationTransferPlan.input.bundleId && result?.contentVerified === true && result?.sourcePreserved === true && result?.activationPerformed === false && result?.networkCutoverPerformed === false && result?.sourceDeletionPerformed === false,
+    } : job.type === "virtualization.media.import" ? {
+      operation: "virtualization.media.import",
+      parameters: validatedVmMediaImportPlan.input,
+      timeoutMs: 6 * 60 * 60 * 1000,
+      applying: "Copying the exact staged ISO into the fixed libvirt media library through the restricted helper",
+      applied: "The helper published the new ISO atomically after complete source and destination SHA-256 verification",
+      verified: "Filename, byte count, SHA-256, destination confinement, non-overwrite, and no-libvirt-mutation boundaries passed",
+      failed: "VM media import or final verification did not complete; existing media remains unchanged and the staged upload should remain available",
+      validate: (result) => result?.imported === true && result?.verified === true
+        && result?.importId === validatedVmMediaImportPlan.input.importId
+        && result?.filename === validatedVmMediaImportPlan.input.filename
+        && result?.sizeBytes === validatedVmMediaImportPlan.input.expectedSizeBytes
+        && result?.sha256 === validatedVmMediaImportPlan.input.expectedSha256
+        && result?.boundary?.existingMediaOverwritten === false
+        && result?.boundary?.arbitraryPathAccepted === false
+        && result?.boundary?.virtualMachineCreated === false
+        && result?.boundary?.libvirtChanged === false,
     } : job.type === "virtualization.domain.create" ? {
       operation: "virtualization.domain.create",
       parameters: validatedVmPlan.input,
@@ -842,6 +862,9 @@ export function createJobService(store, helper, {
         }
         if (job.type === "virtualization.domain.create" && error.message.includes("Automated rollback completed")) {
           store.addJobStep(jobId, "rollback", "completed", "The newly created exact-name domain and its allocated storage were removed");
+        }
+        if (job.type === "virtualization.media.import" && error.message.includes("Existing managed media was unchanged")) {
+          store.addJobStep(jobId, "rollback", "completed", "Only the generated import partial or newly published exact-name ISO was removed; the staged upload and existing managed media were preserved");
         }
         if (job.type === "virtualization.domain.export.create" && error.message.includes("Automated export cleanup completed")) {
           store.addJobStep(jobId, "rollback", "completed", "The incomplete new export directory was removed; the source domain and disks were not changed");
