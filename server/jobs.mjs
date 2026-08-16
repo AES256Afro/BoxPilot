@@ -55,8 +55,8 @@ export function createJobService(store, helper, {
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
-    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.artifact.acquire", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
-    const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
+    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh", "application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.artifact.acquire", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.uptime-kuma.backup", "application.pi-hole.backup", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
     const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy"].includes(job.type) ? await validateApplicationJob(job) : null;
     const validatedKeelArtifactPlan = job.type === "application.keel.artifact.acquire" ? await validateKeelArtifactJob(job) : null;
     if (["controller.database.backup", "application.uptime-kuma.backup", "application.pi-hole.backup"].includes(job.type)) await validateBackupJob(job);
@@ -78,7 +78,7 @@ export function createJobService(store, helper, {
     if (job.type === "controller.database.backup.protect" && !validatedControllerProtectionPlan?.input) throw new Error("The staged controller protection plan is unavailable or changed");
     if (job.type === "application.backup.protect" && !validatedApplicationProtectionPlan?.input) throw new Error("The staged application protection plan is unavailable or changed");
     if (job.type === "controller.database.backup.retention.apply" && !validatedControllerRetentionPlan?.input) throw new Error("The staged controller retention plan is unavailable or changed");
-    if (["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh"].includes(job.type) && !validatedPrerequisiteRepair?.plan?.input) throw new Error("The staged prerequisite repair plan is unavailable or changed");
+    if (["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh"].includes(job.type) && !validatedPrerequisiteRepair?.plan?.input) throw new Error("The staged prerequisite repair plan is unavailable or changed");
     if (job.type === "migration.bundle.transfer" && !validatedMigrationTransferPlan?.input) throw new Error("The staged migration transfer plan is unavailable or changed");
     if (job.type === "virtualization.domain.export.create" && !validatedVmExportPlan?.input) throw new Error("The staged VM export plan is unavailable or changed");
     if (job.type === "virtualization.export.backup.create" && !validatedVmProtectionPlan?.input) throw new Error("The staged VM protection plan is unavailable or changed");
@@ -124,6 +124,27 @@ export function createJobService(store, helper, {
         && result?.boundary?.arbitraryPackageAccepted === false
         && result?.boundary?.aptUpdatePerformed === false
         && result?.boundary?.packageRemovalPerformed === false,
+    } : job.type === "prerequisite.restic.install" ? {
+      operation: "prerequisite.restic.install",
+      parameters: { expectedVersion: validatedPrerequisiteRepair.plan.input.expectedVersion },
+      timeoutMs: 15 * 60 * 1000,
+      applying: validatedPrerequisiteRepair.state.installed ? "Verifying the already installed approved restic package and fixed binary" : "Starting the fixed package service to install only the approved restic version without apt update or browser-selected arguments",
+      applied: "The fixed restic package state and binary version probe completed",
+      verified: "The approved exact restic package is installed without mounting storage, creating a password, initializing a repository, starting a backup, changing retention, or altering unrelated packages",
+      failed: "The fixed restic package or binary verification failed; inspect APT, dpkg, and the dedicated installation service before creating a new plan",
+      validate: (result) => result?.package === "restic"
+        && result?.installed === true
+        && result?.version === validatedPrerequisiteRepair.plan.input.expectedVersion
+        && result?.binaryVerified === true
+        && result?.next?.automaticSetupPerformed === false
+        && result?.boundary?.fixedPackage === true
+        && result?.boundary?.arbitraryPackageAccepted === false
+        && result?.boundary?.aptUpdatePerformed === false
+        && result?.boundary?.packageUpgradePerformed === false
+        && result?.boundary?.packageRemovalPerformed === false
+        && result?.boundary?.mountChanged === false
+        && result?.boundary?.passwordCreated === false
+        && result?.boundary?.repositoryInitialized === false,
     } : job.type === "prerequisite.apt-metadata.refresh" ? {
       operation: "prerequisite.apt-metadata.refresh",
       parameters: { expectedUpdatedAt: validatedPrerequisiteRepair.plan.input.expectedUpdatedAt },

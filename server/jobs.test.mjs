@@ -94,6 +94,24 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("revalidates and executes only the exact restic repair plan", async () => {
+    const result = {
+      package: "restic", installed: true, version: "0.18.1-1", packageChanged: true, binaryVerified: true,
+      next: { mountConfigured: false, recoveryKeyCreated: false, repositoryInitialized: false, automaticSetupPerformed: false },
+      boundary: { fixedPackage: true, arbitraryPackageAccepted: false, aptUpdatePerformed: false, packageUpgradePerformed: false, packageRemovalPerformed: false, mountChanged: false, passwordCreated: false, repositoryInitialized: false },
+    };
+    const helper = { request: vi.fn(async () => result) };
+    const { store, owner } = await setup(helper);
+    const validatePrerequisiteRepairJob = vi.fn(async () => ({ plan: { input: { expectedVersion: "0.18.1-1" } }, state: { installed: false } }));
+    const jobs = createJobService(store, helper, { validatePrerequisiteRepairJob });
+    const job = store.createJob({ type: "prerequisite.restic.install", title: "Install restic", risk: "system-package", parameters: { expectedVersion: "0.18.1-1" }, recovery: { automaticRollback: false }, createdBy: owner.id });
+    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
+    expect(validatePrerequisiteRepairJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
+    expect(helper.request).toHaveBeenCalledWith("prerequisite.restic.install", { expectedVersion: "0.18.1-1" }, { timeoutMs: 15 * 60 * 1000 });
+    expect(completed).toMatchObject({ state: "completed", result: { package: "restic", installed: true, binaryVerified: true, next: { automaticSetupPerformed: false } } });
+    store.close();
+  });
+
   it("revalidates and executes a typed Uptime Kuma deployment job", async () => {
     const helper = { request: vi.fn(async () => ({ installed: true, healthy: true, dataPreserved: true, hostPort: 3101 })) };
     const { store, owner } = await setup(helper);

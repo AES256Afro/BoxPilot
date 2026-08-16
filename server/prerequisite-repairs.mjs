@@ -7,6 +7,10 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
     return helper.request("prerequisite.apt-metadata.inspect", {});
   }
 
+  async function inspectRestic() {
+    return helper.request("prerequisite.restic.inspect", {});
+  }
+
   function matchingSmartmontoolsState(plan, state) {
     return plan.input.expectedVersion === state.selectedVersion && plan.input.installedBefore === state.installed;
   }
@@ -16,6 +20,10 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
       && plan.input.expectedState === state.state
       && state.packageManagerState === "ready"
       && state.refreshAvailable === true;
+  }
+
+  function matchingResticState(plan, state) {
+    return plan.input.expectedVersion === state.selectedVersion && plan.input.installedBefore === state.installed;
   }
 
   async function planSmartmontools(ownerId, input = {}) {
@@ -71,9 +79,34 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
     });
   }
 
+  async function planRestic(ownerId, input = {}) {
+    if (!input || typeof input !== "object" || Array.isArray(input) || Object.keys(input).length !== 0) throw new Error("Restic repair planning accepts only an empty object");
+    const state = await inspectRestic();
+    if (!state.supported || !state.selectedVersion) throw new Error("No fixed restic candidate is available from the configured package metadata");
+    return store.createPlan({
+      type: "prerequisite.repair",
+      subjectId: "restic",
+      input: { expectedVersion: state.selectedVersion, installedBefore: state.installed },
+      output: {
+        executable: true,
+        package: "restic",
+        selectedVersion: state.selectedVersion,
+        currentState: state.installed ? `Installed ${state.installedVersion}` : "Not installed",
+        action: state.installed ? "Verify the fixed restic package and binary" : "Install only restic from the configured APT candidate, then verify its fixed binary",
+        networkAccess: !state.installed,
+        aptUpdatePerformed: false,
+        arbitraryPackageSelection: false,
+        automaticRollback: false,
+        storageSetupPerformed: false,
+        recovery: "If APT fails, inspect dpkg and APT state from the server console before retrying. BoxPilot never removes restic automatically and this repair never mounts storage, creates a recovery key, or initializes a repository.",
+      },
+      createdBy: ownerId,
+    });
+  }
+
   async function stage(planId, revision, ownerId) {
     const plan = store.getPlan(planId);
-    if (!plan || plan.createdBy !== ownerId || plan.type !== "prerequisite.repair" || !["smartmontools", "apt-metadata"].includes(plan.subjectId)) throw new Error("Prerequisite repair plan not found");
+    if (!plan || plan.createdBy !== ownerId || plan.type !== "prerequisite.repair" || !["smartmontools", "restic", "apt-metadata"].includes(plan.subjectId)) throw new Error("Prerequisite repair plan not found");
     if (plan.revision !== revision) throw new Error("Prerequisite repair plan revision does not match");
 
     if (plan.subjectId === "smartmontools") {
@@ -94,6 +127,28 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
         initialSteps: [
           { name: "preflight", state: "completed", detail: `The fixed smartmontools package and exact version ${plan.input.expectedVersion} were resolved without accepting a package name, repository, command, or argument from the browser` },
           { name: "checkpoint", state: "completed", detail: "The operation will not run apt update, remove a package, change a disk, mount a filesystem, or alter a SMART setting; package removal is never automatic" },
+        ],
+      });
+    }
+
+    if (plan.subjectId === "restic") {
+      const state = await inspectRestic();
+      if (!matchingResticState(plan, state)) throw new Error("Host state changed: create a new restic repair plan");
+      store.stagePlan(plan.id, ownerId);
+      return store.createJob({
+        type: "prerequisite.restic.install",
+        title: state.installed ? "Verify the fixed restic package" : "Install and verify restic",
+        risk: "system-package",
+        parameters: { planId: plan.id, revision: plan.revision, expectedVersion: plan.input.expectedVersion, installedBefore: plan.input.installedBefore },
+        recovery: {
+          automaticRollback: false,
+          reason: "Package installation is intentionally not reversed automatically because removal could disable existing backup tooling or alter administrator-managed package state.",
+          manual: "If the job fails, inspect boxpilot-restic-install.service, dpkg, and APT state from the server console. Repair interrupted package configuration before creating a fresh plan. Do not remove restic merely to match the old state.",
+        },
+        createdBy: ownerId,
+        initialSteps: [
+          { name: "preflight", state: "completed", detail: `The fixed restic package and exact version ${plan.input.expectedVersion} were resolved without accepting a package name, repository, command, or argument from the browser` },
+          { name: "checkpoint", state: "completed", detail: "The operation will not run apt update, upgrade or remove a package, mount storage, create a password, initialize a repository, start a backup, or alter retention" },
         ],
       });
     }
@@ -120,8 +175,8 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
   }
 
   async function validateJob(job) {
-    if (!["prerequisite.smartmontools.install", "prerequisite.apt-metadata.refresh"].includes(job.type)) throw new Error("Unsupported prerequisite repair job");
-    const subjectId = job.type === "prerequisite.smartmontools.install" ? "smartmontools" : "apt-metadata";
+    if (!["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.apt-metadata.refresh"].includes(job.type)) throw new Error("Unsupported prerequisite repair job");
+    const subjectId = job.type === "prerequisite.smartmontools.install" ? "smartmontools" : job.type === "prerequisite.restic.install" ? "restic" : "apt-metadata";
     const plan = store.getPlan(job.parameters.planId);
     if (!plan || plan.status !== "staged" || plan.type !== "prerequisite.repair" || plan.subjectId !== subjectId || plan.revision !== job.parameters.revision) throw new Error("The staged prerequisite repair plan is unavailable or changed");
     if (subjectId === "smartmontools") {
@@ -130,11 +185,17 @@ export function createPrerequisiteRepairService({ store, helper } = {}) {
       if (!matchingSmartmontoolsState(plan, state)) throw new Error("Host state changed: the smartmontools package state or candidate changed");
       return { plan, state };
     }
+    if (subjectId === "restic") {
+      if (plan.input.expectedVersion !== job.parameters.expectedVersion || plan.input.installedBefore !== job.parameters.installedBefore) throw new Error("The staged restic repair plan does not match the job");
+      const state = await inspectRestic();
+      if (!matchingResticState(plan, state)) throw new Error("Host state changed: the restic package state or candidate changed");
+      return { plan, state };
+    }
     if (plan.input.expectedUpdatedAt !== job.parameters.expectedUpdatedAt || plan.input.expectedState !== job.parameters.expectedState) throw new Error("The staged APT metadata refresh plan does not match the job");
     const state = await inspectAptMetadata();
     if (!matchingAptMetadataState(plan, state)) throw new Error("Host state changed: APT metadata or package manager state changed");
     return { plan, state };
   }
 
-  return { inspect: inspectSmartmontools, inspectAptMetadata, planSmartmontools, planAptMetadata, stage, validateJob };
+  return { inspect: inspectSmartmontools, inspectRestic, inspectAptMetadata, planSmartmontools, planRestic, planAptMetadata, stage, validateJob };
 }

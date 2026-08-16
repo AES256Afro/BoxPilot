@@ -61,6 +61,35 @@ describe("fixed prerequisite helper", () => {
     expect(clearApproval).toHaveBeenCalledTimes(2);
   });
 
+  it("reports only bounded restic package state", async () => {
+    const run = vi.fn(async (binary) => binary.endsWith("dpkg-query")
+      ? { ok: false, stdout: "" }
+      : { ok: true, stdout: "restic:\n  Installed: (none)\n  Candidate: 0.18.1-1\n        secret=must-not-leak" });
+    const result = await createPrerequisiteHelper({ run }).inspectRestic();
+    expect(result).toEqual({ package: "restic", installed: false, installedVersion: null, candidateVersion: "0.18.1-1", selectedVersion: "0.18.1-1", supported: true, repairAvailable: true, source: "configured-apt-candidate", mutationPerformed: false, arbitraryPackageAccepted: false });
+    expect(JSON.stringify(result)).not.toContain("must-not-leak");
+    expect(run).toHaveBeenCalledWith("/usr/bin/dpkg-query", ["--show", "--showformat=${Status}\\t${Version}", "restic"], { timeout: 10000 });
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-cache", ["policy", "restic"], { timeout: 10000 });
+  });
+
+  it("delegates a missing restic package only to the fixed unit and performs no repository setup", async () => {
+    let installed = false;
+    const run = vi.fn(async (binary, args) => {
+      if (binary.endsWith("dpkg-query")) return installed ? { ok: true, stdout: "install ok installed\t0.18.1-1" } : { ok: false, stdout: "" };
+      if (binary.endsWith("apt-cache")) return { ok: true, stdout: "  Candidate: 0.18.1-1" };
+      if (binary.endsWith("systemctl")) { expect(args).toEqual(["start", "boxpilot-restic-install.service"]); installed = true; return { ok: true, stdout: "" }; }
+      if (binary.endsWith("restic")) { expect(args).toEqual(["version"]); return { ok: true, stdout: "restic 0.18.1 compiled with go1.24" }; }
+      throw new Error("unexpected binary");
+    });
+    const clearResticApproval = vi.fn(async () => undefined);
+    const writeResticApproval = vi.fn(async () => undefined);
+    const helper = createPrerequisiteHelper({ run, clearResticApproval, writeResticApproval, now: () => new Date("2026-08-16T12:01:00.000Z") });
+    const result = await helper.installRestic({ expectedVersion: "0.18.1-1" });
+    expect(result).toMatchObject({ package: "restic", installed: true, version: "0.18.1-1", packageChanged: true, binaryVerified: true, next: { automaticSetupPerformed: false }, boundary: { fixedPackage: true, aptUpdatePerformed: false, packageUpgradePerformed: false, packageRemovalPerformed: false, mountChanged: false, passwordCreated: false, repositoryInitialized: false } });
+    expect(writeResticApproval).toHaveBeenCalledWith({ expectedVersion: "0.18.1-1", approvedAt: "2026-08-16T12:01:00.000Z" });
+    expect(clearResticApproval).toHaveBeenCalledTimes(2);
+  });
+
   it("reports bounded APT metadata evidence without mutating the host", async () => {
     const maintenance = { inspect: vi.fn(async () => ({
       aptMetadata: { available: true, state: "stale", updatedAt: "2026-08-01T00:00:00.000Z", ageHours: 360 },

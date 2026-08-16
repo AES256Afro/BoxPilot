@@ -30,6 +30,8 @@ Version `0.43.0` adds a read-only archive-membership boundary. The helper accept
 
 Version `0.44.0` adds a separate application disaster-protection boundary. The browser selects only a durable verified Uptime Kuma or Pi-hole backup record. The immutable plan pins its application id, two UUIDs, SHA-256, size, and the inspected destination revision. The helper derives the fixed local archive, `restic-applications` repository, separate root-only password file, cache, and generated drill path. It performs a complete repository data read and restores the exact snapshot for byte-for-byte size and hash verification. The earlier adapter-aware no-network container drill remains part of the durable source evidence. No application, router, DNS, local archive, retention, prune, or production restore mutation occurs.
 
+Version `0.45.0` adds a narrow package prerequisite boundary for the hard-coded `restic` package. The browser can create only an empty-input plan and later submit its immutable revision plus the normal owner-password approval. The main helper accepts only a bounded exact version, rechecks configured APT evidence, writes one short-lived root-only marker, and starts one static no-argument package unit. That unit independently rechecks the candidate, installs only the pinned `restic` version, verifies dpkg state, and probes the fixed binary. It has no storage, password, repository, backup, restore, retention, prune, or removal operation. The main helper retains `PrivateNetwork=true`; only the package oneshot can reach configured repositories.
+
 ## Target components
 
 ```text
@@ -62,6 +64,7 @@ BoxPilot web and API process (unprivileged)
           +---- Fixed public GitHub repository and release provenance (0.24.0)
           +---- Keel discovery, inert exact-release acquisition, and blocked runtime archive gate (0.43.0)
           +---- Encrypted independent Uptime Kuma and Pi-hole exact-archive protection (0.44.0)
+          +---- Exact-version restic package prerequisite repair without repository setup (0.45.0)
           +---- Secret-free recovery readiness and ordered runbook export (0.26.0)
           +---- Fixed-model router guidance and gateway-address correlation (0.27.0)
           +---- Owner-approved one-shot signed DNS proof windows (0.28.0)
@@ -89,6 +92,7 @@ Restricted helper over a local Unix socket (0.4.0 canary foundation)
           |
           +---- typed no-mutation canary (0.4.0)
           +---- fixed smartmontools inspect and exact-version package-unit handoff (0.31.0)
+          +---- fixed restic inspect and exact-version package-unit handoff without repository setup (0.45.0)
           +---- fixed APT metadata inspect and static update-only unit handoff (0.35.0)
           +---- fixed controller database inspect, snapshot, manifest, and isolated copy-open drill (0.38.0)
           +---- fixed controller mounted-restic inspect, full read, exact restore, and copy-open drill (0.39.0)
@@ -108,7 +112,7 @@ Restricted helper over a local Unix socket (0.4.0 canary foundation)
           +---- fixed root-only migration bundle inspect, resume, verify, and reconcile (0.17.0)
           +---- fixed digest-pinned exact-LAN Pi-hole deploy, secret, health, and rollback (0.19.0)
           +---- fixed Pi-hole config and secret archive, source restart, no-network restore, and strict interrupted-job reconciliation (0.20.0)
-          +---- other typed package operations (future)
+          +---- additional typed package operations (future)
           +---- typed systemd operations
           +---- typed firewall operations
           +---- typed storage and backup operations
@@ -216,7 +220,7 @@ A successful copy is not a verified backup. The controller adapter requires a co
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.44.0 limitations
+## Version 0.45.0 limitations
 
 - The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
@@ -230,8 +234,8 @@ A successful copy is not a verified backup. The controller adapter requires a co
 - Public GitHub provenance is held only in a 15-minute memory cache. GitHub-reported signature and asset-digest fields are not local verification. Keel has a separate fixed-release locally verified artifact job. Tokens, private repositories, arbitrary repository paths or downloads, browser downloads, writes, webhooks, workflow dispatch, and installation are unavailable.
 - The Keel Notes adapter discovers only bounded supported per-user service and exact Docker signals, can acquire only the fixed inert release archive, and validates its membership without extraction. The exact 1.2.5 asset is blocked by one absolute-target symbolic link. It does not read `.env`, open a database, read a managed-secret key, follow user-supplied paths, detect PostgreSQL or Litestream configuration, extract an archive, install Node or Keel, create an account, write a unit, open a port, start a process, adopt an install, claim an owner, restrict registration, back up or restore data, or activate a migration.
 - The recovery kit is evidence and guidance, not a backup. It can report stored encrypted independent controller and application evidence only after their exact restore gates pass, but it cannot prove that the operator retained each repository password in a separate failure domain. It also cannot prove an independent source archive, router configuration file, application credential, or Tailscale account recovery path.
-- The Action Center is a transient read-only projection of recovery evidence. It has fixed guidance and view navigation only. It cannot dismiss or persist notices, repair a condition, run a command, install a package, schedule work, request browser notifications, or deliver messages externally. The separately named `smartmontools` workflow exists only in Repair Center.
-- Only the exact `smartmontools` repair, fixed local controller backup, fixed mounted-restic controller and application protection, exact no-prune controller retention batch, fixed Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune VM retention batches can execute mutations. Network assessments and router checkpoints cannot execute. Pi-hole and Flint 2 direct DNS acceptance are approved fixed read-only jobs in the unprivileged web process and never cross the root helper. Signed agents can repeat only the four fixed Pi-hole checks or four fixed Flint 2 checks, with a mandatory node-local default-gateway match for Flint 2. Backup scheduling, application retention, configurable controller retention, prune, remote/cloud adapters, browser download, and automatic production restore remain unavailable.
+- The Action Center is a transient read-only projection of recovery evidence. It has fixed guidance and view navigation only. It cannot dismiss or persist notices, repair a condition, run a command, install a package, schedule work, request browser notifications, or deliver messages externally. The separately named `smartmontools`, `restic`, and APT metadata workflows exist only in Repair Center.
+- Only the exact `smartmontools` and `restic` repairs, fixed local controller backup, fixed mounted-restic controller and application protection, exact no-prune controller retention batch, fixed Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune VM retention batches can execute mutations. The restic repair installs and verifies only the package; it cannot configure storage, keys, or repositories. Network assessments and router checkpoints cannot execute. Pi-hole and Flint 2 direct DNS acceptance are approved fixed read-only jobs in the unprivileged web process and never cross the root helper. Signed agents can repeat only the four fixed Pi-hole checks or four fixed Flint 2 checks, with a mandatory node-local default-gateway match for Flint 2. Backup scheduling, application retention, configurable controller retention, prune, remote/cloud adapters, browser download, and automatic production restore remain unavailable.
 - A VM snapshot is never counted as an independent backup. The snapshot workflow rejects running guests, non-file disks, disks outside the managed image root, non-qcow2 disks, backing chains, symlinks, and changed inventory.
 - Controller, Uptime Kuma, and Pi-hole backups begin as root-only local artifacts on Bigbox. A controller record is protected only after its separate encrypted repository copy, complete read, and exact database restore drill pass. An application record is protected only after its local no-network container drill plus the separate encrypted repository copy, complete read, and exact restored archive hash pass. The fixed controller-retention policy can later mark exact old controller references as forgotten while retaining every local controller artifact; application retention does not exist. These workflows require an operator-provided independent mounted filesystem. No such destination is currently configured on Bigbox, so no live controller or application protection or retention mutation exists there.
 - VM exports are root-only local integrity artifacts. They are unencrypted and are not reported as protected until a later independent copy and isolated restore boot pass.

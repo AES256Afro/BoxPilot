@@ -69,7 +69,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.44.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.45.0", mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
@@ -84,6 +84,20 @@ describe("restricted helper protocol", () => {
     };
     await expect(executeHelperOperation(request({ operation: "prerequisite.smartmontools.inspect", parameters: {} }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { candidateVersion: "7.5-2", mutationPerformed: false } });
     await expect(executeHelperOperation(request({ operation: "prerequisite.smartmontools.install", parameters: { expectedVersion: "7.5-2" } }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { installed: true, version: "7.5-2", boundary: { arbitraryPackageAccepted: false } } });
+  });
+
+  it("accepts only fixed restic inspection and exact-version installation", async () => {
+    expect(validateHelperRequest(request({ operation: "prerequisite.restic.inspect", parameters: {} }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "prerequisite.restic.inspect", parameters: { repository: "/tmp/repo" } }))).toContain("no parameters");
+    expect(validateHelperRequest(request({ operation: "prerequisite.restic.install", parameters: { expectedVersion: "0.18.1-1" } }))).toBeNull();
+    expect(validateHelperRequest(request({ operation: "prerequisite.restic.install", parameters: { expectedVersion: "0.18.1-1", package: "curl" } }))).toContain("only one exact expectedVersion");
+    expect(validateHelperRequest(request({ operation: "prerequisite.restic.install", parameters: { expectedVersion: "$(id)" } }))).toContain("only one exact expectedVersion");
+    const prerequisites = {
+      inspectRestic: async () => ({ package: "restic", installed: false, candidateVersion: "0.18.1-1", mutationPerformed: false }),
+      installRestic: async ({ expectedVersion }) => ({ package: "restic", installed: true, version: expectedVersion, binaryVerified: true, boundary: { arbitraryPackageAccepted: false } }),
+    };
+    await expect(executeHelperOperation(request({ operation: "prerequisite.restic.inspect", parameters: {} }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { candidateVersion: "0.18.1-1", mutationPerformed: false } });
+    await expect(executeHelperOperation(request({ operation: "prerequisite.restic.install", parameters: { expectedVersion: "0.18.1-1" } }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { installed: true, version: "0.18.1-1", binaryVerified: true } });
   });
 
   it("accepts only exact APT metadata evidence and no package or command input", async () => {

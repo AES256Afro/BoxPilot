@@ -78,3 +78,27 @@ describe("APT metadata prerequisite repair planning", () => {
     store.close();
   });
 });
+
+describe("restic prerequisite repair planning", () => {
+  it("creates, stages, and revalidates an immutable fixed-package repair", async () => {
+    const state = { package: "restic", installed: false, installedVersion: null, candidateVersion: "0.18.1-1", selectedVersion: "0.18.1-1", supported: true, repairAvailable: true };
+    const { store, owner, service } = await setup(state);
+    const plan = await service.planRestic(owner.id, {});
+    expect(plan).toMatchObject({ type: "prerequisite.repair", subjectId: "restic", input: { expectedVersion: "0.18.1-1", installedBefore: false }, output: { arbitraryPackageSelection: false, aptUpdatePerformed: false, storageSetupPerformed: false, automaticRollback: false } });
+    const job = await service.stage(plan.id, plan.revision, owner.id);
+    expect(job).toMatchObject({ type: "prerequisite.restic.install", state: "awaiting_approval", risk: "system-package", parameters: { expectedVersion: "0.18.1-1", installedBefore: false }, recovery: { automaticRollback: false } });
+    await expect(service.validateJob(job)).resolves.toMatchObject({ plan: { id: plan.id }, state: { selectedVersion: "0.18.1-1" } });
+    store.close();
+  });
+
+  it("rejects input fields and a package-state change before staging", async () => {
+    const state = { installed: false, candidateVersion: "0.18.1-1", selectedVersion: "0.18.1-1", supported: true, repairAvailable: true };
+    const { store, owner, helper, service } = await setup(state);
+    await expect(service.planRestic(owner.id, { package: "curl" })).rejects.toThrow("empty object");
+    const plan = await service.planRestic(owner.id, {});
+    helper.request.mockResolvedValueOnce({ ...state, candidateVersion: "0.18.2-1", selectedVersion: "0.18.2-1" });
+    await expect(service.stage(plan.id, plan.revision, owner.id)).rejects.toThrow("Host state changed");
+    expect(store.getPlan(plan.id).status).toBe("draft");
+    store.close();
+  });
+});

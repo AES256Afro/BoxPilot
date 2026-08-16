@@ -97,7 +97,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   repairs: {
     label: "Live Operations Core",
     tone: "live",
-    description: "Prerequisite checks, durable approvals, the helper canary, the fixed Keel artifact job, and a secret-free recovery readiness kit come from Bigbox. General package and application mutation remains locked.",
+    description: "Prerequisite checks, durable approvals, the exact smartmontools and restic package repairs, fixed APT metadata refresh, helper canary, fixed Keel artifact job, and secret-free recovery readiness kit come from Bigbox. Restic storage and repository setup remains terminal-only; general package and application mutation remains locked.",
   },
   virtualization: {
     label: "Host-backed module",
@@ -313,7 +313,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.44.0 application protection<br />exact encrypted archive restore gate</div>
+        <div className="prototype-label">v0.45.0 backup prerequisites<br />exact restic package repair gate</div>
       </aside>
 
       <main>
