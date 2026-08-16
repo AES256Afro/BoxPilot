@@ -44,11 +44,11 @@ const prerequisites = createPrerequisiteService({
   helper,
 });
 const network = createNetworkService({ store: state });
-const applications = createApplicationService({ store: state, prerequisites, helper, network });
+const githubProvenance = createGithubProvenanceService();
+const applications = createApplicationService({ store: state, prerequisites, helper, network, githubProvenance });
 const backups = createBackupService({ store: state, prerequisites, helper });
 const dnsAcceptance = createDnsAcceptanceService({ store: state, helper, network });
 const fleet = createFleetService({ store: state });
-const githubProvenance = createGithubProvenanceService();
 const routerCheckpoints = createRouterCheckpointService({ store: state });
 const inventory = createInventoryService({ helper });
 const migrations = createMigrationService({ store: state, inventory, helper });
@@ -105,7 +105,7 @@ app.get("/api/v1/health", (_request, response) => {
   response.json({
     status: "ok",
     product: "BoxPilot",
-    version: "0.24.0",
+    version: "0.25.0",
     mode: "host-aware",
     safeMode: true,
     hostMutationsEnabled: true,
@@ -675,7 +675,7 @@ app.use((_request, response) => {
 });
 
 app.listen(port, host, () => {
-  console.log(`BoxPilot 0.24.0 listening on http://${host}:${port}`);
+  console.log(`BoxPilot 0.25.0 listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
   console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });
