@@ -7,7 +7,7 @@ import { createStateStore } from "./state.mjs";
 
 const directories = [];
 
-async function setup({ statuses = {}, portInUse = false, assessmentError = null, keelProvenanceMatches = true, hostPlatform = "linux", hostArchitecture = "x64" } = {}) {
+async function setup({ statuses = {}, portInUse = false, assessmentError = null, keelProvenanceMatches = true, keelDiscovery = null, keelDiscoveryError = null, hostPlatform = "linux", hostArchitecture = "x64" } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-apps-"));
   directories.push(directory);
   const store = createStateStore({ stateDirectory: directory });
@@ -36,17 +36,30 @@ async function setup({ statuses = {}, portInUse = false, assessmentError = null,
       }],
     })),
   };
+  const defaultKeelDiscovery = keelDiscovery ?? {
+    installed: false, state: "not-installed", healthy: false, kind: null, version: null, port: 3000, listener: "none", healthIdentityVerified: false,
+    native: { candidateCount: 0, candidates: [] }, docker: { available: true, candidateCount: 0, candidates: [] }, risks: [],
+    detail: "No supported Keel native-service or Docker installation was found",
+    boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false, arbitraryPathAccepted: false },
+  };
+  const helperRequest = vi.fn(async (operation) => {
+    if (operation === "application.keel.inspect") {
+      if (keelDiscoveryError) throw new Error(keelDiscoveryError);
+      return defaultKeelDiscovery;
+    }
+    return { installed: false, state: "not-installed", detail: "Ready to plan" };
+  });
   const service = createApplicationService({
     store,
     prerequisites: { inspect: vi.fn(async () => ({ checks })) },
-    helper: { request: vi.fn(async () => ({ installed: false, state: "not-installed", detail: "Ready to plan" })) },
+    helper: { request: helperRequest },
     network: { validateAssessment },
     githubProvenance,
     inspectPort: vi.fn(async () => portInUse),
     hostPlatform,
     hostArchitecture,
   });
-  return { store, owner, service, validateAssessment, githubProvenance };
+  return { store, owner, service, validateAssessment, githubProvenance, helperRequest };
 }
 
 afterEach(async () => {
@@ -62,14 +75,18 @@ describe("application manifests and plans", () => {
     expect(catalog[2]).toMatchObject({ execution: "planning-only", risk: "stateful", targets: ["native-service"], artifact: { releaseTag: "v1.2.5", releaseCommitSha: "bcf872e2cee5820bdeb74685f5573cc6beb0a28f", name: "keel-1.2.5-linux-x64.tar.gz", digest: "sha256:4b24067aa219bc00bf4f7c1846f78945e8abda3f5b68353e4967570d5b57e6ee", locallyVerifiedByBoxPilot: false } });
   });
 
-  it("reports Keel planning readiness without inspecting or installing a local service", async () => {
-    const { store, service, githubProvenance } = await setup();
+  it("reports fixed read-only Keel host discovery together with release provenance", async () => {
+    const { store, service, githubProvenance, helperRequest } = await setup();
     const catalog = await service.list();
-    expect(catalog.applications.find((item) => item.id === "keel")?.live).toEqual({
+    expect(catalog.applications.find((item) => item.id === "keel")?.live).toMatchObject({
       installed: false,
-      state: "planning-ready",
-      detail: "Exact public release metadata is ready for an immutable planning-only preflight",
+      state: "not-installed",
+      listener: "none",
+      provenance: { status: "matched", checkedAt: "2026-08-16T03:00:00.000Z" },
+      boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false },
     });
+    expect(catalog.applications.find((item) => item.id === "keel")?.live.detail).toContain("No supported Keel");
+    expect(helperRequest).toHaveBeenCalledWith("application.keel.inspect", {});
     expect(githubProvenance.inspect).toHaveBeenCalled();
     store.close();
   });
@@ -123,11 +140,43 @@ describe("application manifests and plans", () => {
         githubReportedDigestMatched: true, locallyVerifiedByBoxPilot: false,
       },
       blockers: [expect.objectContaining({ id: "keel.execution" })],
+      discovery: { installed: false, state: "not-installed", listener: "none", risks: [] },
     });
     expect(plan.output.changes.join(" ")).toContain("five-minute one-use terminal claim");
     expect(plan.output.warnings.join(" ")).toContain(".keel-server-secrets.key");
     expect(githubProvenance.inspect).toHaveBeenCalled();
     await expect(service.stage(plan.id, plan.revision, owner.id)).rejects.toThrow("unresolved blockers");
+    store.close();
+  });
+
+  it("fails closed when Keel discovery finds an existing unsafe or ambiguous installation", async () => {
+    const { store, owner, service } = await setup({
+      portInUse: true,
+      keelDiscovery: {
+        installed: true, state: "ambiguous", healthy: false, kind: "multiple", version: "1.2.5", port: 3000, listener: "wildcard", healthIdentityVerified: true,
+        native: { candidateCount: 1, candidates: [] }, docker: { available: true, candidateCount: 1, candidates: [] },
+        risks: ["multiple-installations", "non-loopback-listener"], detail: "Keel discovery found conflicting, incomplete, or unrecognized evidence",
+        boundary: { mutationPerformed: false, environmentRead: false, databaseOpened: false, secretRead: false },
+      },
+    });
+    const plan = await service.plan("keel", { target: "native-service", hostPort: 3000 }, owner.id);
+    expect(plan.output.blockers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "keel.existing-install" }),
+      expect.objectContaining({ id: "keel.discovery-risk", summary: expect.stringContaining("non-loopback-listener") }),
+      expect.objectContaining({ id: "keel.execution" }),
+    ]));
+    expect(plan.output.blockers.find((item) => item.id === "port.3000")).toBeUndefined();
+    expect(plan.output.discovery.boundary.secretRead).toBe(false);
+    store.close();
+  });
+
+  it("fails closed when the Keel discovery helper is unavailable", async () => {
+    const { store, owner, service } = await setup({ keelDiscoveryError: "helper offline" });
+    const catalog = await service.list();
+    expect(catalog.applications.find((item) => item.id === "keel")?.live).toMatchObject({ state: "discovery-unavailable", listener: "unknown", risks: ["helper-unavailable"] });
+    const plan = await service.plan("keel", { target: "native-service", hostPort: 3000 }, owner.id);
+    expect(plan.output.blockers).toEqual(expect.arrayContaining([expect.objectContaining({ id: "keel.discovery" }), expect.objectContaining({ id: "keel.execution" })]));
+    expect(plan.output.discovery).toBeNull();
     store.close();
   });
 

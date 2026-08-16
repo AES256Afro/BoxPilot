@@ -76,7 +76,7 @@ const manifests = [
     image: { reference: "not-applicable-native-release", version: "1.2.5", digestPinned: false },
     artifact: keelArtifact,
     ports: [{ id: "web", protocol: "tcp", containerPort: null, defaultHostPort: 3000, exposure: "loopback" }],
-    storage: [{ id: "workspace", containerPath: null, hostPath: "/var/lib/keel/.keel", backupRequired: true, localFilesystemRequired: true }],
+    storage: [{ id: "workspace", containerPath: null, hostPath: "/var/lib/keel", backupRequired: true, localFilesystemRequired: true }],
     prerequisites: ["runtime.node", "storage.state", "helper.boundary"],
     targetPrerequisites: { "native-service": ["runtime.node", "storage.state", "helper.boundary"] },
     health: { kind: "http-json", path: "/api/health", expectedIdentity: { app: "keel", ok: true } },
@@ -127,15 +127,25 @@ export function createApplicationService({ store, prerequisites, helper, network
         live.backup = latestBackup ? { state: "verified", verifiedAt: latestBackup.verifiedAt } : { state: live.installed ? "required" : "not-applicable", verifiedAt: null };
       }
       if (manifest.id === "keel") {
+        let discovery;
+        try {
+          discovery = await helper.request("application.keel.inspect", {});
+        } catch {
+          discovery = { installed: false, state: "discovery-unavailable", healthy: false, kind: null, version: null, listener: "unknown", healthIdentityVerified: false, risks: ["helper-unavailable"], detail: "Keel host discovery is unavailable" };
+        }
         try {
           const provenance = await githubProvenance?.inspect();
           const repository = provenance?.repositories?.find((item) => item.id === "keel");
           const release = repository?.latestRelease;
           const asset = release?.assets?.find((item) => item.name === keelArtifact.name);
           const matches = repository?.status === "available" && release?.tagName === keelArtifact.releaseTag && release?.commit?.sha === keelArtifact.releaseCommitSha && asset?.digest === keelArtifact.digest && asset?.sizeBytes === keelArtifact.sizeBytes;
-          live = { installed: false, state: matches ? "planning-ready" : "provenance-blocked", detail: matches ? "Exact public release metadata is ready for an immutable planning-only preflight" : "Pinned Keel release provenance is unavailable or changed" };
+          live = {
+            ...discovery,
+            provenance: { status: matches ? "matched" : "changed", checkedAt: provenance?.fetchedAt ?? null },
+            detail: matches ? `${discovery.detail}; exact public v1.2.5 release metadata matched` : `${discovery.detail}; pinned Keel release provenance is unavailable or changed`,
+          };
         } catch {
-          live = { installed: false, state: "provenance-unavailable", detail: "GitHub release provenance is unavailable; installation discovery is not implemented" };
+          live = { ...discovery, provenance: { status: "unavailable", checkedAt: null }, detail: `${discovery.detail}; GitHub release provenance is unavailable` };
         }
       }
       return { ...publicManifest(manifest), live };
@@ -172,9 +182,27 @@ export function createApplicationService({ store, prerequisites, helper, network
         blockers.push({ id: "network.assessment", summary: error.message, repair: { kind: "guided", description: "Open Network Center, select Pi-hole on Bigbox, complete the recovery checklist, and generate a fresh assessment" } });
       }
     }
+    let keelDiscovery = null;
+    if (manifest.id === "keel") {
+      try {
+        keelDiscovery = await helper.request("application.keel.inspect", {});
+        if (keelDiscovery.state === "discovery-unavailable" || keelDiscovery.listener === "unknown" || keelDiscovery.risks?.includes("listener-inspection-incomplete")) {
+          blockers.push({ id: "keel.discovery", summary: "Keel host discovery could not establish the fixed listener and installation boundary", repair: { kind: "manual", description: "Restore the restricted helper and regenerate the plan before any Keel work" } });
+        }
+        if (keelDiscovery.installed || keelDiscovery.state === "ambiguous") {
+          blockers.push({ id: "keel.existing-install", summary: keelDiscovery.detail, repair: { kind: "guided", description: "Review the discovered native-service or Docker installation before selecting import, adoption, or a separate deployment" } });
+        }
+        if (keelDiscovery.risks?.length) {
+          blockers.push({ id: "keel.discovery-risk", summary: `Keel discovery reported: ${keelDiscovery.risks.join(", ")}`, repair: { kind: "manual", description: "Resolve changed units, duplicate installs, persistence gaps, or unsafe listener exposure before continuing" } });
+        }
+      } catch {
+        blockers.push({ id: "keel.discovery", summary: "The restricted helper could not inspect existing Keel native-service and Docker evidence", repair: { kind: "manual", description: "Restore the helper and regenerate the plan" } });
+      }
+    }
     if (hostPort !== null) {
       const portInUse = await inspectPort(hostPort, lanAddress ?? "127.0.0.1");
-      if (portInUse === true) blockers.push({ id: `port.${hostPort}`, summary: `TCP port ${hostPort} is already in use`, repair: { kind: "manual", description: `Choose another ${lanAddress ? "LAN" : "loopback"} web port` } });
+      const recognizedExistingKeel = manifest.id === "keel" && hostPort === 3000 && keelDiscovery?.healthIdentityVerified === true;
+      if (portInUse === true && !recognizedExistingKeel) blockers.push({ id: `port.${hostPort}`, summary: `TCP port ${hostPort} is already in use`, repair: { kind: "manual", description: `Choose another ${lanAddress ? "LAN" : "loopback"} web port` } });
       if (portInUse === null) blockers.push({ id: `port.${hostPort}`, summary: `BoxPilot could not verify TCP port ${hostPort}`, repair: { kind: "manual", description: "Verify the listener state before approval" } });
     }
 
@@ -206,6 +234,7 @@ export function createApplicationService({ store, prerequisites, helper, network
     if (manifest.id === "uptime-kuma") warnings.push("After deployment, open Backups and complete the integrity and isolated restore workflow before treating this application as protected.");
     if (manifest.id === "keel") {
       warnings.push("The published release is source-available under BUSL-1.1. Personal self-hosting and internal organizational use are allowed; managed third-party hosting requires separate license review.");
+      warnings.push("The upstream Linux installer uses a per-user install tree and systemd user unit. BoxPilot discovery recognizes that supported layout and fixed Docker evidence without reading .env or accepting a path from the browser.");
       warnings.push("Registration starts open. A future install must stay loopback-only, use the five-minute one-use terminal claim, and close or restrict registration before any broader exposure.");
       warnings.push("Keel backup and migration must coordinate SQLite writes and keep keel.db with any .keel-server-secrets.key companion. Copying a live database is not an accepted backup.");
     }
@@ -243,6 +272,7 @@ export function createApplicationService({ store, prerequisites, helper, network
       networkAssessmentId: networkAssessment?.id ?? input?.networkAssessmentId ?? null,
       image: manifest.image,
       artifact,
+      discovery: manifest.id === "keel" ? keelDiscovery : undefined,
       changes,
       blockers,
       warnings,

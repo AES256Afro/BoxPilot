@@ -313,7 +313,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.40.1 controller retention<br />correct capability disclosure</div>
+        <div className="prototype-label">v0.41.0 Keel discovery<br />read-only native and Docker evidence</div>
       </aside>
 
       <main>

@@ -3038,6 +3038,10 @@ textarea {
 .keel-artifact-proof { display: grid; gap: 7px; padding: 12px; background: #09141d; border: 1px solid var(--line); border-radius: 9px; }
 .keel-artifact-proof span { color: var(--muted); font-size: 0.8rem; }
 .keel-artifact-proof code { overflow-wrap: anywhere; color: #aee7d6; font: 0.76rem ui-monospace, SFMono-Regular, Menlo, monospace; }
+.keel-discovery-proof { display: grid; gap: 7px; padding: 12px; background: #0d1821; border: 1px solid var(--line); border-radius: 9px; }
+.keel-discovery-proof span { color: var(--muted); font-size: 0.8rem; }
+.keel-discovery-proof .good-text { color: var(--good); }
+.keel-discovery-proof .warning-text { color: var(--warning); }
 @media (max-width: 900px) {
   .fleet-revoke { align-items: stretch; flex-direction: column; }
   .fleet-revoke label { min-width: 0; }

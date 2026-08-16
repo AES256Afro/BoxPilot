@@ -1,6 +1,6 @@
 # Curated applications
 
-BoxPilot `0.26.0` provides integrity-addressed manifests, two executable deployment adapters, two application-aware backup adapters, one planning-only Keel Notes adapter, fixed direct DNS acceptance for managed Pi-hole, and signed repetition of those checks from an enrolled LAN device. The read-only recovery kit summarizes this evidence without copying application data or credentials. The Keel adapter binds an immutable plan to exact public release metadata but cannot download, locally verify, extract, install, start, claim, back up, restore, or expose Keel. The web process never receives the Docker socket. Docker readiness, executable application inspection, deployment, backup, and restore-drill execution cross the restricted local helper as typed operations. Direct DNS checks run in the unprivileged controller or the separately enrolled node-local agent.
+BoxPilot `0.41.0` provides integrity-addressed manifests, two executable deployment adapters, two application-aware backup adapters, and a read-only discovery plus planning-only Keel Notes adapter. The Keel adapter combines bounded host evidence with exact public release metadata but cannot download, locally verify, extract, install, adopt, start, claim, back up, restore, import, or expose Keel. The web process never receives the Docker socket. Docker readiness, executable application inspection, deployment, backup, restore-drill execution, and parameter-free Keel discovery cross the restricted local helper as typed operations.
 
 ## Install the Docker prerequisite on Ubuntu
 
@@ -72,9 +72,11 @@ If deployment or health verification fails, BoxPilot stops the managed stack and
 
 After deployment, the Backups page can record artifact integrity and an isolated restore test for the Uptime Kuma data directory. A local-only verified artifact still needs an independent destination before it qualifies as resilient 3-2-1 protection.
 
-## Keel Notes exact-release planning adapter
+## Keel Notes discovery and exact-release planning adapter
 
-The Keel Notes entry is deliberately non-executable in `0.25.0`. It accepts only the declared `native-service` target and loopback web port, rejects undeclared fields, checks the Linux x64 host identity and prerequisite state, and compares the fixed release tag, commit, asset name, byte count, and GitHub-reported SHA-256 value with the live fixed public GitHub metadata view. Every generated plan includes `keel.execution` as an unresolved blocker, so no stage or approval route can be created.
+Version `0.41.0` adds the parameter-free `application.keel.inspect` helper operation. It checks only bounded fixed locations and identities: supported per-user Linux install trees and systemd user units, the fixed `/opt/keel` and future BoxPilot-managed roots, Docker containers with the exact Keel service label or name, persistent `/data` coverage, fixed port 3000 exposure, and exact JSON identity from `127.0.0.1:3000/api/health`. Candidate usernames, private paths, container ids, image names, unit contents, `.env`, database contents, secret contents, mount sources, and raw command output never reach the browser. Duplicate, stale, changed, unsafe, or incomplete evidence becomes an explicit risk and blocks the plan.
+
+The Keel Notes entry remains deliberately non-executable. It accepts only the declared `native-service` target and loopback web port, rejects undeclared fields, checks the Linux x64 host identity and prerequisite state, and compares the fixed release tag, commit, asset name, byte count, and GitHub-reported SHA-256 value with the live fixed public GitHub metadata view. Every generated plan includes `keel.execution` as an unresolved blocker, so no stage or approval route can be created. Existing or ambiguous installation evidence adds separate blockers for adoption or migration review.
 
 This is not local artifact verification. BoxPilot does not download the asset or hash its bytes. The exact identity and the full set of remaining execution gates are documented in [Keel Notes planning](KEEL.md).
 
