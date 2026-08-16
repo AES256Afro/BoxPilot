@@ -264,6 +264,7 @@ export function createStateStore({
       type TEXT NOT NULL,
       payload_json TEXT NOT NULL,
       controller_acceptance_id TEXT REFERENCES dns_acceptances(id),
+      router_acceptance_id TEXT REFERENCES router_dns_acceptances(id),
       state TEXT NOT NULL,
       created_by TEXT NOT NULL REFERENCES owners(id),
       created_at TEXT NOT NULL,
@@ -337,6 +338,9 @@ export function createStateStore({
   if (!fleetTaskColumns.includes("available_at")) {
     database.exec("ALTER TABLE fleet_tasks ADD COLUMN available_at TEXT");
     database.exec("UPDATE fleet_tasks SET available_at = created_at WHERE available_at IS NULL");
+  }
+  if (!fleetTaskColumns.includes("router_acceptance_id")) {
+    database.exec("ALTER TABLE fleet_tasks ADD COLUMN router_acceptance_id TEXT REFERENCES router_dns_acceptances(id)");
   }
   database.exec("CREATE INDEX IF NOT EXISTS idx_fleet_tasks_agent_dispatch ON fleet_tasks(agent_id, state, available_at, expires_at)");
 
@@ -1005,6 +1009,7 @@ export function createStateStore({
       type: row.type,
       payload: parseJson(row.payload_json),
       controllerAcceptanceId: row.controller_acceptance_id,
+      routerAcceptanceId: row.router_acceptance_id,
       state: row.state,
       createdBy: row.created_by,
       createdAt: row.created_at,
@@ -1014,19 +1019,19 @@ export function createStateStore({
     } : null;
   }
 
-  function createFleetTask({ agentId, type, payload, controllerAcceptanceId, createdBy, delayMs = 0, ttlMs = 10 * 60 * 1000 }) {
+  function createFleetTask({ agentId, type, payload, controllerAcceptanceId = null, routerAcceptanceId = null, createdBy, delayMs = 0, ttlMs = 10 * 60 * 1000 }) {
     const agent = getFleetAgent(agentId);
     if (!agent || agent.status !== "active") throw new Error("Active agent not found");
     const createdAt = now();
     const task = {
-      id: randomUUID(), agentId, type, payload, controllerAcceptanceId, state: "pending", createdBy,
+      id: randomUUID(), agentId, type, payload, controllerAcceptanceId, routerAcceptanceId, state: "pending", createdBy,
       createdAt: iso(createdAt), availableAt: iso(new Date(createdAt.getTime() + delayMs)), expiresAt: iso(new Date(createdAt.getTime() + delayMs + ttlMs)), completedAt: null,
     };
     database.prepare(`
-      INSERT INTO fleet_tasks (id, agent_id, type, payload_json, controller_acceptance_id, state, created_by, created_at, available_at, expires_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(task.id, task.agentId, task.type, json(task.payload), task.controllerAcceptanceId, task.state, task.createdBy, task.createdAt, task.availableAt, task.expiresAt);
-    recordAudit("fleet.task.created", { actorId: createdBy, subjectId: task.id, details: { agentId, type, controllerAcceptanceId, availableAt: task.availableAt, expiresAt: task.expiresAt, recurring: false } });
+      INSERT INTO fleet_tasks (id, agent_id, type, payload_json, controller_acceptance_id, router_acceptance_id, state, created_by, created_at, available_at, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(task.id, task.agentId, task.type, json(task.payload), task.controllerAcceptanceId, task.routerAcceptanceId, task.state, task.createdBy, task.createdAt, task.availableAt, task.expiresAt);
+    recordAudit("fleet.task.created", { actorId: createdBy, subjectId: task.id, details: { agentId, type, controllerAcceptanceId, routerAcceptanceId, availableAt: task.availableAt, expiresAt: task.expiresAt, recurring: false } });
     return task;
   }
 
@@ -1141,9 +1146,8 @@ export function createStateStore({
     return listRouterDnsAcceptances(1)[0];
   }
 
-  function listRouterDnsAcceptances(limit = 50) {
-    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
-    return database.prepare("SELECT * FROM router_dns_acceptances ORDER BY created_at DESC LIMIT ?").all(safeLimit).map((row) => ({
+  function mapRouterDnsAcceptance(row) {
+    return row ? {
       id: row.id,
       jobId: row.job_id,
       planId: row.plan_id,
@@ -1155,7 +1159,16 @@ export function createStateStore({
       passed: Boolean(row.passed),
       createdBy: row.created_by,
       createdAt: row.created_at,
-    }));
+    } : null;
+  }
+
+  function getRouterDnsAcceptance(id) {
+    return mapRouterDnsAcceptance(database.prepare("SELECT * FROM router_dns_acceptances WHERE id = ?").get(id));
+  }
+
+  function listRouterDnsAcceptances(limit = 50) {
+    const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
+    return database.prepare("SELECT * FROM router_dns_acceptances ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapRouterDnsAcceptance);
   }
 
   function recoverInterruptedJobs() {
@@ -1237,6 +1250,7 @@ export function createStateStore({
     getRouterCheckpoint,
     listRouterCheckpoints,
     recordRouterDnsAcceptance,
+    getRouterDnsAcceptance,
     listRouterDnsAcceptances,
     recoverInterruptedJobs,
     close,

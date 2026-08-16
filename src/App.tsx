@@ -117,7 +117,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   fleet: {
     label: "Signed one-shot agent policy",
     tone: "live",
-    description: "One-time enrollment, Ed25519 requests, replay protection, and owner-approved one-shot windows for one fixed second-device Pi-hole proof are live. Recurrence, unattended jobs, arbitrary commands, targets, plugins, router writes, and DNS cutover remain unavailable.",
+    description: "One-time enrollment, Ed25519 requests, replay protection, and owner-approved one-shot windows for fixed Pi-hole or Flint 2 gateway proof are live. Flint 2 tasks must match the agent's own local default gateway. Recurrence, unattended jobs, arbitrary commands, targets, plugins, router writes, and DNS cutover remain unavailable.",
   },
   github: {
     label: "Credential-free public provenance",
@@ -313,7 +313,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v0.36.0 Flint 2 DNS acceptance<br />Fixed probes, no router write</div>
+        <div className="prototype-label">v0.37.0 signed Flint 2 proof<br />Node-local gateway match</div>
       </aside>
 
       <main>

@@ -29,7 +29,7 @@ const readiness = {
   boundary: { credentialsAccepted: false, routerSessionsOpened: false, neighborDiscoveryPerformed: false, arbitraryTargetsProbed: false, configurationUploaded: false, routerMutationSupported: false, dhcpMutationSupported: false, dnsCutoverSupported: false, tailscaleMutationSupported: false },
 };
 const flint2Status = {
-  observedGateway: { gateway: "192.168.8.1", interface: "eno1", protocol: "static" }, checkpoint: null, acceptances: [], sourceReviewedAt: "2026-08-16",
+  observedGateway: { gateway: "192.168.8.1", interface: "eno1", protocol: "static" }, checkpoint: null, acceptances: [], secondDeviceEvidence: [], sourceReviewedAt: "2026-08-16",
   officialSources: ["https://docs.gl-inet.com/router/en/4/interface_guide/adguardhome/", "https://docs.gl-inet.com/router/en/4/interface_guide/network_mode/"],
   boundary: { credentialsAccepted: false, routerSessionOpened: false, arbitraryTargetAccepted: false, routerMutationSupported: false, dnsCutoverSupported: false },
 };

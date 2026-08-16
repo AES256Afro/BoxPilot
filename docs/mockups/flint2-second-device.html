@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BoxPilot signed Flint 2 second-device mock</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #07100f; color: #f4f7f6; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-width: 1180px; background: radial-gradient(circle at 74% 0, #16392f 0, #07100f 38%, #050a09 100%); }
+    .disclosure { padding: 12px 34px; color: #ffe3ad; background: #5a3c08; border-bottom: 1px solid #9b6913; font-size: 14px; font-weight: 750; }
+    .shell { display: grid; grid-template-columns: 230px 1fr; min-height: 920px; }
+    aside { border-right: 1px solid #1d302d; padding: 26px 18px; background: rgba(5,12,11,.94); }
+    .brand { font-size: 24px; font-weight: 800; margin: 0 10px 30px; }.brand b { display: inline-grid; place-items: center; width: 35px; height: 35px; margin-right: 10px; border-radius: 10px; background: #4de1b0; color: #06100e; }
+    nav { display: grid; gap: 7px; color: #90a8a2; font-size: 14px; } nav div { padding: 11px 13px; border-radius: 9px; } nav .active { color: #effbf7; background: #16322d; border: 1px solid #275047; }
+    .private { margin-top: 230px; border: 1px solid #214139; border-radius: 12px; padding: 13px; color: #96aaa5; font-size: 12px; line-height: 1.55; }.private strong { color: #59dfb6; }
+    main { padding: 28px 36px 44px; }.top { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; }.eyebrow { color: #57d8b1; font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; } h1 { margin: 7px 0; font-size: 34px; }.top p { margin: 0; color: #9bb0aa; }.pill { border: 1px solid #285047; border-radius: 999px; padding: 8px 13px; color: #64e1bc; background: #102721; font-size: 12px; }
+    .source { margin: 24px 0 18px; padding: 13px 16px; border: 1px solid #24604f; border-radius: 11px; background: #102b24; color: #b8d0c9; font-size: 13px; }.source strong { color: #6ce2be; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }.panel { border: 1px solid #203a35; border-radius: 14px; padding: 18px; background: rgba(12,25,22,.93); }.panel h2 { margin: 5px 0; font-size: 19px; }.panel p { margin: 0; color: #98aba6; font-size: 13px; line-height: 1.5; }
+    .proof { grid-column: 1 / -1; }.proof-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 15px; }.field { padding: 12px; border: 1px solid #29443e; border-radius: 10px; display: grid; gap: 5px; }.field span { color: #8da39d; font-size: 11px; text-transform: uppercase; letter-spacing: .07em; }.field strong { font-size: 14px; }.field code { color: #65e2bc; font-size: 13px; }
+    .contract { display: grid; gap: 9px; margin-top: 14px; }.contract div { padding: 12px; border: 1px solid #29433e; border-left: 3px solid #4de1b0; border-radius: 9px; display: grid; gap: 4px; }.contract strong { font-size: 13px; }.contract span { color: #95aaa4; font-size: 12px; }
+    .schedule { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }.schedule span { padding: 7px 10px; border: 1px solid #2a4b43; border-radius: 999px; color: #a9dace; font-size: 12px; }.schedule .selected { background: #16382f; color: #66e6bf; border-color: #35705f; }
+    .tests { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }.test { border: 1px solid #2b4a43; border-radius: 8px; padding: 10px; color: #afe5d5; background: #0b1d19; font: 12px ui-monospace, monospace; }
+    .warning { margin-top: 14px; padding: 13px; border-left: 3px solid #eeb855; border-radius: 8px; background: #2b220f; color: #efd59f; font-size: 12px; line-height: 1.5; }
+    .approval { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; gap: 20px; border-color: #5b4923; background: #211b0f; }.approval strong { display: block; margin-bottom: 4px; }.approval span { color: #cbbd9e; font-size: 12px; }.button { border-radius: 9px; padding: 11px 15px; background: #4de1b0; color: #06100d !important; font-weight: 800; }
+  </style>
+</head>
+<body>
+  <div class="disclosure">MOCKED 0.37.0 PRODUCT STATE. No agent was enrolled, password entered, task scheduled, gateway inspected, DNS query sent, or network setting read or changed.</div>
+  <div class="shell"><aside><div class="brand"><b>B</b>BoxPilot</div><nav><div>OV Overview</div><div>AP Applications</div><div>NW Network</div><div>RT Routers</div><div>RX Repair Center</div><div>VM Virtual Machines</div><div>BK Backups</div><div>MG Migrations</div><div class="active">FL Fleet</div><div>GH GitHub</div><div>LG Logs</div></nav><div class="private"><strong>Private administration</strong><br>Tailscale HTTPS<br>Funnel off<br><br>v0.37.0 signed gateway proof</div></aside>
+    <main><div class="top"><div><span class="eyebrow">BoxPilot</span><h1>Fleet and agents</h1><p>Collect narrow node-local evidence without granting remote shell access.</p></div><span class="pill">No remote shell</span></div>
+      <div class="source"><strong>Signed one-shot policy</strong> | The controller derives the target from a fresh passing Bigbox record. The agent must independently match its own default gateway.</div>
+      <div class="grid">
+        <section class="panel proof"><span class="eyebrow">Independent DNS proof</span><h2>Flint 2 observed gateway</h2><p>Illustrative ready-to-schedule state. No address, query, port, command, or schedule expression is accepted from the operator.</p><div class="proof-row"><div class="field"><span>Signed agent</span><strong>macbook-lan</strong><code>ed25519 9f3a...2c81</code></div><div class="field"><span>Fresh controller evidence</span><strong>4 fixed checks passed</strong><code>192.168.8.1:53 | 4m old</code></div><div class="field"><span>Recovery link</span><strong>Checkpoint retained</strong><code>firmware 4.8.2</code></div></div><div class="schedule"><span class="selected">Immediately</span><span>In 5 minutes</span><span>In 10 minutes</span><span>10-minute window</span><span>No recurrence</span></div></section>
+        <section class="panel"><span class="eyebrow">Node-local gate</span><h2>Target must equal this device's gateway</h2><p>The agent uses one fixed local read before DNS. Linux uses <code>ip -j -4 route show default</code>; macOS uses <code>route -n get default</code>.</p><div class="contract"><div><strong>One gateway only</strong><span>Missing or ambiguous route evidence fails closed.</span></div><div><strong>Exact address match</strong><span>The local gateway must equal the linked Bigbox target.</span></div><div><strong>No model claim</strong><span>The route proves an address path, not physical Flint 2 identity.</span></div></div></section>
+        <section class="panel"><span class="eyebrow">Fixed task contract</span><h2>Four A-record queries only</h2><p>The signed evidence remains linked to the agent, task, controller acceptance, and retained checkpoint.</p><div class="tests"><div class="test">UDP example.com :53</div><div class="test">TCP example.com :53</div><div class="test">UDP example.net :53</div><div class="test">UDP boxpilot.invalid :53</div></div><div class="warning"><strong>Still not cutover.</strong> No router, AdGuard Home, DHCP, DNS advertisement, VPN, client, firewall, or Tailscale write exists.</div></section>
+        <section class="panel approval"><div><strong>Owner password required for this one-shot task</strong><span>The password, target, queries, and private agent key are never stored in the task payload together.</span></div><span class="button">Schedule fixed Flint 2 proof</span></section>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
