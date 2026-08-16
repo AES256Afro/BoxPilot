@@ -230,7 +230,9 @@ A successful copy is not a verified backup. The controller adapter requires a co
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.50.0 limitations
+Version `0.50.1` adds a build-output boundary after Vite. The fixed no-argument normalizer validates the complete generated `dist` tree before changing any mode, rejects links, special files, multiply linked regular files, and path escapes, then makes only generated directories traversable and generated files readable. This preserves hardened `umask 077` preflight execution without making application source, state, configuration, or secrets world-readable.
+
+## Version 0.50.1 limitations
 
 - The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
