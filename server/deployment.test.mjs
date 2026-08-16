@@ -52,7 +52,7 @@ describe("native systemd network boundaries", () => {
     expect(dockerfile).toContain("BOXPILOT_STATE_DIRECTORY=/tmp/boxpilot");
     expect(dockerfile).toContain("BOXPILOT_COOKIE_SECURE=false");
     expect(dockerfile).toContain("USER node");
-    expect(compose).toContain("image: boxpilot:0.51.0");
+    expect(compose).toContain("image: boxpilot:0.52.0");
     expect(compose).toContain("read_only: true");
     expect(compose).toContain("/tmp:size=16m,mode=1777");
   });
@@ -334,6 +334,31 @@ describe("native systemd network boundaries", () => {
     expect(helper).toContain("accepts only the fixed promotion, installation, recovery, and drill evidence fields");
     expect(protocol).toContain("application.keel.promotion.create");
     expect(protocol).not.toContain("application.keel.restore-path");
+  });
+
+  it("ships a static Keel operator rollback with immutable source evidence and displaced-state recovery", async () => {
+    const service = await readFile("deploy/boxpilot-keel-rollback.service", "utf8");
+    const rollback = await readFile("scripts/boxpilot-keel-rollback.mjs", "utf8");
+    const helper = await readFile("server/keel-rollback-helper.mjs", "utf8");
+    const protocol = await readFile("server/helper-protocol.mjs", "utf8");
+    const metadata = await stat("scripts/boxpilot-keel-rollback.mjs");
+    expect(metadata.mode & 0o111).not.toBe(0);
+    expect(service).toContain("Type=oneshot");
+    expect(service).toContain("ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-rollback.mjs");
+    expect(service).toContain("ReadOnlyPaths=/var/lib/boxpilot-managed/keel-promotion-rollbacks");
+    expect(service).toContain("ReadWritePaths=/var/lib");
+    expect(service).toContain("IPAddressDeny=any");
+    expect(service).toContain("IPAddressAllow=localhost");
+    expect(service).not.toContain("[Install]");
+    expect(service).not.toContain("%i");
+    expect(rollback).toContain("process.argv.length !== 2");
+    expect(rollback).not.toContain("process.argv[2]");
+    expect(rollback).toContain("automatic recovery restored the displaced healthy Keel production state");
+    expect(rollback).toContain("sourceRollbackCheckpointUnchanged: true");
+    expect(rollback).toContain("browserPathAccepted: false");
+    expect(helper).toContain("accepts only the fixed rollback, installation, promotion, and checkpoint evidence fields");
+    expect(protocol).toContain("application.keel.rollback.create");
+    expect(protocol).not.toContain("application.keel.rollback-path");
   });
 
   it("ships a terminal-only migration packer without a browser-selectable inbox", async () => {

@@ -223,6 +223,39 @@ type KeelPromotionPlan = {
   };
 };
 
+type KeelRollbackRecord = {
+  id: string;
+  promotionId: string;
+  applicationId: "keel";
+  releaseVersion: "1.2.6";
+  displacedStatePath: string;
+  displacedEvidencePath: string;
+  healthIdentityVerified: boolean;
+  databaseIntegrity: "ok";
+  displacedStateRetained: boolean;
+  sourceRollbackCheckpointUnchanged: boolean;
+  ownerLoginTested: false;
+  createdAt: string;
+};
+
+type KeelRollbackPlan = {
+  id: string;
+  revision: string;
+  subjectId: string;
+  output: {
+    executable: boolean;
+    releaseVersion: "1.2.6";
+    network: "host-loopback-only";
+    displacedDestination: "managed-keel-rollback-checkpoint";
+    sourceCheckpointPreserved: boolean;
+    blockers: string[];
+    changes: string[];
+    verification: string[];
+    warnings: string[];
+    recovery: string;
+  };
+};
+
 async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, options);
   const body = await response.json() as T & { error?: string };
@@ -255,6 +288,8 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
   const [keelRecoveryDrillPlan, setKeelRecoveryDrillPlan] = useState<KeelRecoveryDrillPlan | null>(null);
   const [keelPromotions, setKeelPromotions] = useState<KeelPromotionRecord[]>([]);
   const [keelPromotionPlan, setKeelPromotionPlan] = useState<KeelPromotionPlan | null>(null);
+  const [keelRollbacks, setKeelRollbacks] = useState<KeelRollbackRecord[]>([]);
+  const [keelRollbackPlan, setKeelRollbackPlan] = useState<KeelRollbackPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -262,7 +297,7 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [body, protection, applicationProtection, retention, recovery, recoveryDrills, promotions] = await Promise.all([
+      const [body, protection, applicationProtection, retention, recovery, recoveryDrills, promotions, rollbacks] = await Promise.all([
         requestJson<{ coverage: Coverage[]; backups: BackupRecord[]; limitations: string[] }>("/api/v1/backups"),
         requestJson<{ destination: ControllerDestination; protections: ControllerProtectionRecord[] }>("/api/v1/controller-backup-protection"),
         requestJson<{ destination: ApplicationDestination; protections: ApplicationProtectionRecord[] }>("/api/v1/application-backup-protection"),
@@ -270,6 +305,7 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
         requestJson<{ recoveries: KeelRecoveryRecord[] }>("/api/v1/keel-recoveries").catch(() => ({ recoveries: [] })),
         requestJson<{ drills: KeelRecoveryDrillRecord[] }>("/api/v1/keel-recovery-drills").catch(() => ({ drills: [] })),
         requestJson<{ promotions: KeelPromotionRecord[] }>("/api/v1/keel-recovery-promotions").catch(() => ({ promotions: [] })),
+        requestJson<{ rollbacks: KeelRollbackRecord[] }>("/api/v1/keel-rollbacks").catch(() => ({ rollbacks: [] })),
       ]);
       setCoverage(body.coverage ?? []);
       setBackups(body.backups ?? []);
@@ -282,6 +318,7 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
       setKeelRecoveries(recovery.recoveries ?? []);
       setKeelRecoveryDrills(recoveryDrills.drills ?? []);
       setKeelPromotions(promotions.promotions ?? []);
+      setKeelRollbacks(rollbacks.rollbacks ?? []);
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Backup inventory is unavailable");
@@ -537,6 +574,41 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
     }
   };
 
+  const createKeelRollbackPlan = async (promotionId: string) => {
+    setPending(true);
+    try {
+      const body = await requestJson<{ plan: KeelRollbackPlan }>(`/api/v1/keel-promotions/${promotionId}/rollback-plans`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: "{}",
+      });
+      setKeelRollbackPlan(body.plan);
+      setError(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Keel operator rollback planning failed");
+    } finally {
+      setPending(false);
+    }
+  };
+
+  const stageKeelRollback = async () => {
+    if (!keelRollbackPlan) return;
+    setPending(true);
+    try {
+      await requestJson(`/api/v1/keel-rollback-plans/${keelRollbackPlan.id}/stage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ revision: keelRollbackPlan.revision }),
+      });
+      setKeelRollbackPlan(null);
+      onOpenRepair();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Keel operator rollback staging failed");
+    } finally {
+      setPending(false);
+    }
+  };
+
   const verifiedCount = coverage.filter((entry) => entry.latestBackup?.restoreDrill?.passed).length;
   const protectedCount = coverage.filter((entry) => entry.protected).length;
   const plannedSource = coverage.find((entry) => entry.applicationId === plan?.subjectId);
@@ -604,7 +676,8 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
             const latestDrill = keelRecoveryDrills.find((drill) => drill.recoveryId === recovery.id);
             const passingDrill = latestDrill?.passed ? latestDrill : undefined;
             const promotion = keelPromotions.find((entry) => entry.recoveryId === recovery.id);
-            return <li key={recovery.id}><details><summary className="good-text">Stopped, no network, {formatBytes(recovery.sizeBytes)}</summary><small>State path</small><code className="backup-evidence-value">{recovery.statePath}</code><small>Source backup</small><code className="backup-evidence-value">{recovery.backupId}</code>{passingDrill ? <><p className="good-text">Startup rehearsal passed {new Date(passingDrill.createdAt).toLocaleString()}: private loopback health, SQLite, clean stop, unchanged source, workspace removed.</p>{promotion ? <><p className="good-text">Promoted {new Date(promotion.createdAt).toLocaleString()}; production health passed and previous production remains available for rollback.</p><small>Rollback checkpoint</small><code className="backup-evidence-value">{promotion.rollbackPath}</code></> : <button className="text-button" type="button" disabled={pending} onClick={() => void createKeelPromotionPlan(recovery.id)}>Plan production promotion</button>}</> : <button className="text-button" type="button" disabled={pending} onClick={() => void createKeelRecoveryDrillPlan(recovery.id)}>Plan isolated startup rehearsal</button>}</details></li>;
+            const rollback = promotion ? keelRollbacks.find((entry) => entry.promotionId === promotion.id) : undefined;
+            return <li key={recovery.id}><details><summary className="good-text">Stopped, no network, {formatBytes(recovery.sizeBytes)}</summary><small>State path</small><code className="backup-evidence-value">{recovery.statePath}</code><small>Source backup</small><code className="backup-evidence-value">{recovery.backupId}</code>{passingDrill ? <><p className="good-text">Startup rehearsal passed {new Date(passingDrill.createdAt).toLocaleString()}: private loopback health, SQLite, clean stop, unchanged source, workspace removed.</p>{promotion ? <><p className="good-text">Promoted {new Date(promotion.createdAt).toLocaleString()}; production health passed and the original checkpoint remains preserved.</p><small>Original rollback checkpoint</small><code className="backup-evidence-value">{promotion.rollbackPath}</code>{rollback ? <><p className="good-text">Operator rollback completed {new Date(rollback.createdAt).toLocaleString()}; the original checkpoint is unchanged and displaced production is retained.</p><small>Displaced production checkpoint</small><code className="backup-evidence-value">{rollback.displacedStatePath}</code></> : <button className="text-button" type="button" disabled={pending} onClick={() => void createKeelRollbackPlan(promotion.id)}>Plan operator rollback</button>}</> : <button className="text-button" type="button" disabled={pending} onClick={() => void createKeelPromotionPlan(recovery.id)}>Plan production promotion</button>}</> : <button className="text-button" type="button" disabled={pending} onClick={() => void createKeelRecoveryDrillPlan(recovery.id)}>Plan isolated startup rehearsal</button>}</details></li>;
           })}</ul> : <p>No stopped clone has been published.</p>}</div>
         </div>
         <div className="notice warning-notice"><strong>Promotion is a critical separate job</strong><span>Only a clone with matching passing startup evidence can replace <code>/var/lib/keel</code>. The fixed job preserves prior production as a root-only local rollback checkpoint and does not test owner login.</span></div>
@@ -672,6 +745,16 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
           <div className="backup-plan-columns"><div><strong>Exact workflow</strong><ol>{keelPromotionPlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol><strong>Required evidence</strong><ol>{keelPromotionPlan.output.verification.map((check) => <li key={check}>{check}</li>)}</ol></div><div><strong>Warnings and recovery</strong><ul>{keelPromotionPlan.output.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><p>{keelPromotionPlan.output.recovery}</p></div></div>
           {keelPromotionPlan.output.blockers.map((blocker) => <div className="notice warning-notice" key={blocker}><strong>Promotion blocker</strong><span>{blocker}</span></div>)}
           <footer className="modal-actions"><button className="text-button" type="button" onClick={() => setKeelPromotionPlan(null)}>Discard plan</button><button className="primary-button" type="button" disabled={!keelPromotionPlan.output.executable || pending} onClick={() => void stageKeelPromotion()}>Stage critical production promotion</button></footer>
+        </section>
+      )}
+
+      {keelRollbackPlan && (
+        <section className="panel backup-plan-card" aria-label="Keel operator rollback plan">
+          <div className="section-heading"><div><span className="eyebrow">Immutable operator rollback {keelRollbackPlan.revision}</span><h3>{keelRollbackPlan.output.executable ? "Retained Keel checkpoint ready for critical approval" : "Operator rollback is blocked"}</h3></div><span className={`status-pill ${keelRollbackPlan.output.executable ? "status-good" : "status-warning"}`}>critical</span></div>
+          <p>Keel {keelRollbackPlan.output.releaseVersion} remains on {keelRollbackPlan.output.network}. This job restores the exact pre-promotion state, keeps the original checkpoint unchanged, and retains current production in {keelRollbackPlan.output.displacedDestination}.</p>
+          <div className="backup-plan-columns"><div><strong>Exact workflow</strong><ol>{keelRollbackPlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol><strong>Required evidence</strong><ol>{keelRollbackPlan.output.verification.map((check) => <li key={check}>{check}</li>)}</ol></div><div><strong>Warnings and recovery</strong><ul>{keelRollbackPlan.output.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul><p>{keelRollbackPlan.output.recovery}</p></div></div>
+          {keelRollbackPlan.output.blockers.map((blocker) => <div className="notice warning-notice" key={blocker}><strong>Rollback blocker</strong><span>{blocker}</span></div>)}
+          <footer className="modal-actions"><button className="text-button" type="button" onClick={() => setKeelRollbackPlan(null)}>Discard plan</button><button className="primary-button" type="button" disabled={!keelRollbackPlan.output.executable || pending} onClick={() => void stageKeelRollback()}>Stage critical operator rollback</button></footer>
         </section>
       )}
 
