@@ -26,6 +26,8 @@ Version `0.41.0` adds parameter-free Keel Notes discovery across the supported p
 
 Version `0.42.0` adds an inert Keel release acquisition boundary. The browser supplies only an empty planning object and immutable revision. After password approval, the network-isolated root helper accepts only a server-generated UUID, creates a fixed root-only directory and marker, and starts a static separately sandboxed network one-shot. The one-shot permits only the compiled HTTPS GitHub release and reviewed release-asset redirect shape, then requires exact response length, streamed byte count, and full SHA-256 before atomically publishing the mode `0600` archive and evidence. It accepts no browser URL, path, filename, digest, redirect, command, or argument. No extraction, execution, installation, service change, claim, registration change, exposure, backup, restore, or import is added.
 
+Version `0.43.0` adds a read-only archive-membership boundary. The helper accepts only an empty parameter object, opens only the fixed no-follow root-owned archive, rechecks its compressed identity, and streams bounded gzip and tar validation without creating an extraction tree. Aggregate counts and fixed risk identifiers are the only member evidence returned. The exact 1.2.5 archive is blocked because it contains one symbolic link with an absolute GitHub Actions build-workspace target. No link is followed, rewritten, omitted, or extracted, and no service or application state is created.
+
 ## Target components
 
 ```text
@@ -56,7 +58,7 @@ BoxPilot web and API process (unprivileged)
           +---- Signed replay-protected second-device Pi-hole evidence (0.22.0)
           +---- Browser-local router backup hashes and metadata ledger (0.23.0)
           +---- Fixed public GitHub repository and release provenance (0.24.0)
-          +---- Keel discovery plus inert exact-release acquisition (0.42.0)
+          +---- Keel discovery, inert exact-release acquisition, and blocked runtime archive gate (0.43.0)
           +---- Secret-free recovery readiness and ordered runbook export (0.26.0)
           +---- Fixed-model router guidance and gateway-address correlation (0.27.0)
           +---- Owner-approved one-shot signed DNS proof windows (0.28.0)
@@ -182,7 +184,7 @@ Each managed application adapter owns:
 - Upgrade plan and rollback instructions
 - Log sources and support-bundle redaction rules
 
-Uptime Kuma is the low-risk canary adapter because it proves fixed Docker arguments, local persistent storage, loopback exposure, health checks, and rollback. Pi-hole is the first network-critical staging adapter. It adds an owner-attributable live network assessment, exact LAN bindings, helper-owned secret generation, least tested capabilities, no-cutover result evidence, and rollback while keeping every router and client unchanged. Keel Notes is the first stateful native-service planning adapter. Version `0.25.0` binds its plan to an exact release identity and documents database, managed-secret, upload, private-claim, health, backup, restore, and rollback gates. Version `0.41.0` adds bounded read-only native and Docker discovery. Version `0.42.0` adds one inert root-only artifact job, but still provides no extraction or deployment route.
+Uptime Kuma is the low-risk canary adapter because it proves fixed Docker arguments, local persistent storage, loopback exposure, health checks, and rollback. Pi-hole is the first network-critical staging adapter. It adds an owner-attributable live network assessment, exact LAN bindings, helper-owned secret generation, least tested capabilities, no-cutover result evidence, and rollback while keeping every router and client unchanged. Keel Notes is the first stateful native-service planning adapter. Version `0.25.0` binds its plan to an exact release identity and documents database, managed-secret, upload, private-claim, health, backup, restore, and rollback gates. Version `0.41.0` adds bounded read-only native and Docker discovery. Version `0.42.0` adds one inert root-only artifact job. Version `0.43.0` adds the read-only membership gate and correctly blocks 1.2.5; it still provides no extraction or deployment route.
 
 ## Data model target
 
@@ -211,7 +213,7 @@ A successful copy is not a verified backup. The controller adapter requires a co
 - Encryption and recovery keys meet policy
 - A restore drill passed within the configured interval
 
-## Version 0.42.0 limitations
+## Version 0.43.0 limitations
 
 - The current Overview is authenticated live inventory. The retained `0.3.0` overview screenshot is demonstration data, and Settings remains guidance rather than an editable network configuration surface.
 - Compose inspection is a lightweight browser-only scan, not a full YAML policy engine.
@@ -223,7 +225,7 @@ A successful copy is not a verified backup. The controller adapter requires a co
 - Managed media discovery lists regular `.iso` files only and does not upload or download installation media.
 - Operations Core jobs and attribution use SQLite. The older VM JSONL planning log remains a separate bounded log. Tamper evidence remains pending.
 - Public GitHub provenance is held only in a 15-minute memory cache. GitHub-reported signature and asset-digest fields are not local verification. Keel has a separate fixed-release locally verified artifact job. Tokens, private repositories, arbitrary repository paths or downloads, browser downloads, writes, webhooks, workflow dispatch, and installation are unavailable.
-- The Keel Notes adapter discovers only bounded supported per-user service and exact Docker signals and can acquire only the fixed inert release archive. It does not read `.env`, open a database, read a managed-secret key, follow user-supplied paths, detect PostgreSQL or Litestream configuration, validate archive membership locally, extract an archive, install Node or Keel, create an account, write a unit, open a port, start a process, adopt an install, claim an owner, restrict registration, back up or restore data, or activate a migration.
+- The Keel Notes adapter discovers only bounded supported per-user service and exact Docker signals, can acquire only the fixed inert release archive, and validates its membership without extraction. The exact 1.2.5 asset is blocked by one absolute-target symbolic link. It does not read `.env`, open a database, read a managed-secret key, follow user-supplied paths, detect PostgreSQL or Litestream configuration, extract an archive, install Node or Keel, create an account, write a unit, open a port, start a process, adopt an install, claim an owner, restrict registration, back up or restore data, or activate a migration.
 - The recovery kit is evidence and guidance, not a backup. It can now report stored encrypted independent controller evidence only after the exact snapshot restore passes, but it cannot prove that the operator retained the repository password in a separate failure domain. It also cannot prove an independent source archive, router configuration file, application credential, or Tailscale account recovery path.
 - The Action Center is a transient read-only projection of recovery evidence. It has fixed guidance and view navigation only. It cannot dismiss or persist notices, repair a condition, run a command, install a package, schedule work, request browser notifications, or deliver messages externally. The separately named `smartmontools` workflow exists only in Repair Center.
 - Only the exact `smartmontools` repair, fixed local controller backup, fixed mounted-restic controller protection, exact no-prune controller retention batch, fixed Uptime Kuma deployment and backup, exact-address Pi-hole staging and backup, guarded local migration staging, fixed Linux VM creation, lifecycle actions, offline internal snapshots, stopped-VM exports, mounted-restic VM copies, exact-snapshot isolated restore drills, guarded recovery clones, and exact no-prune VM retention batches can execute mutations. Network assessments and router checkpoints cannot execute. Pi-hole and Flint 2 direct DNS acceptance are approved fixed read-only jobs in the unprivileged web process and never cross the root helper. Signed agents can repeat only the four fixed Pi-hole checks or four fixed Flint 2 checks, with a mandatory node-local default-gateway match for Flint 2. Controller scheduling, configurable retention, prune, remote/cloud adapters, browser download, and automatic production restore remain unavailable.

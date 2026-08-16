@@ -49,6 +49,8 @@ Version `0.39.0` adds a separate encrypted independent copy and exact restore dr
 
 Version `0.42.0` adds a static Keel artifact one-shot. Install its unit, but do not enable it: it has no `[Install]` section and starts only after a fresh durable plan, staging, password approval, exact state revalidation, and a short-lived root-only marker. The main helper remains network-isolated. See [Keel Notes discovery and inert artifact adapter](KEEL.md).
 
+Version `0.43.0` adds a parameter-free read-only Keel archive membership operation inside the network-isolated helper. It rechecks the fixed compressed identity and parses the archive in place under hard member and size ceilings. No extraction unit or installation unit exists. The current 1.2.5 result is blocked by one symbolic link with an absolute build-workspace target.
+
 The manual console fallback remains:
 
 ```bash

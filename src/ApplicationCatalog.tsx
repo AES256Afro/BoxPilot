@@ -16,6 +16,7 @@ interface ApplicationManifest {
     listener?: string; healthIdentityVerified?: boolean; risks?: string[];
     native?: { candidateCount: number }; docker?: { available: boolean; candidateCount: number };
     artifact?: { state: string; readyToAcquire: boolean; artifactPresent: boolean; locallyVerified: boolean; partialPresent: boolean; acquiredAt?: string | null; detail: string };
+    archive?: { state: string; safeToExtract: boolean; artifactLocallyVerified: boolean; memberCount: number; expectedMemberCount?: number; counts?: { regular: number; directory: number; symbolicLink: number; hardLink: number; blockDevice: number; characterDevice: number; fifo: number; extension: number; unknown: number }; risks: string[]; detail: string };
     provenance?: { status: string; checkedAt: string | null };
     boundary?: { mutationPerformed: boolean; environmentRead: boolean; databaseOpened: boolean; secretRead: boolean; arbitraryPathAccepted?: boolean };
     webUrl?: string | null; secretRetrievalCommand?: string; backup?: { state: string; verifiedAt: string | null };
@@ -62,6 +63,7 @@ interface ApplicationPlan {
     lanAddress?: string | null;
     networkAssessmentId?: string | null;
     discovery?: KeelDiscovery | null;
+    archiveInspection?: ApplicationManifest["live"]["archive"];
   };
   expiresAt: string;
 }
@@ -217,7 +219,7 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
             <div className="manifest-proof"><span>Manifest integrity</span><code>{selected.integrity}</code><span>{selected.artifact ? selected.live.artifact?.locallyVerified ? "Release asset digest pinned and verified from complete local bytes" : "Release asset digest pinned; approved local verification available" : selected.image.digestPinned ? "Image digest pinned" : "Version tag pinned; digest resolution pending"}</span></div>
             {selected.id === "pi-hole" && <div className={`notice ${networkAssessmentId ? "" : "warning-notice"}`}><strong>{networkAssessmentId ? "Network assessment linked" : "Network assessment required"}</strong><span>{networkAssessmentId ?? "Generate a ready Pi-hole on Bigbox assessment in Network Center before staging."}</span>{!networkAssessmentId && onOpenNetwork && <button className="text-button" type="button" onClick={onOpenNetwork}>Open Network Center</button>}</div>}
             {selected.id === "keel" && <>
-              <div className="notice warning-notice"><strong>Artifact gate enabled</strong><span>BoxPilot can inspect existing Keel evidence and separately acquire the fixed 1.2.5 archive after password approval. It still cannot extract, execute, install, start, claim, back up, restore, import, adopt, or expose Keel.</span></div>
+              <div className="notice warning-notice"><strong>Archive gate enforced</strong><span>Keel 1.2.5 is pinned and can be acquired as inert root-only evidence, but its verified release archive contains an unsafe absolute build-workspace link. BoxPilot will not extract, execute, install, start, claim, back up, restore, import, adopt, or expose it.</span></div>
               <div className="keel-discovery-proof">
                 <strong>Current Bigbox evidence</strong>
                 <span>State: {selected.live.state} | type: {selected.live.kind ?? "none"} | version: {selected.live.version ?? "not detected"}</span>
@@ -225,6 +227,13 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
                 <span>Native candidates: {selected.live.native?.candidateCount ?? 0} | Docker candidates: {selected.live.docker?.candidateCount ?? 0} | release metadata: {selected.live.provenance?.status ?? "unknown"}</span>
                 {(selected.live.risks?.length ?? 0) > 0 && <span className="warning-text">Review: {selected.live.risks?.join(", ")}</span>}
                 <span className="good-text">Read-only boundary: no .env, database, or secret read; no user-supplied path; no service or container change</span>
+              </div>
+              <div className="keel-artifact-proof">
+                <strong>Read-only membership inspection</strong>
+                <span>State: {selected.live.archive?.state ?? "unknown"} | safe to extract: {selected.live.archive?.safeToExtract ? "yes" : "no"} | members inspected: {selected.live.archive?.memberCount ?? 0}{selected.live.archive?.expectedMemberCount ? ` / ${selected.live.archive.expectedMemberCount}` : ""}</span>
+                <span>{selected.live.archive?.detail ?? "Archive inspection evidence is unavailable"}</span>
+                {(selected.live.archive?.risks?.length ?? 0) > 0 && <span className="warning-text">Blocked risks: {selected.live.archive?.risks.join(", ")}</span>}
+                <span className="good-text">No extraction, member names, link targets, or member contents are returned</span>
               </div>
               <div className="keel-artifact-proof">
                 <strong>Root-only artifact gate</strong>
@@ -253,6 +262,7 @@ export default function ApplicationCatalog({ csrfToken, onInspectCompose, onOpen
               <div><strong>Proposed changes</strong><ol>{plan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol></div>
               {plan.output.artifact && <div className="keel-artifact-proof"><strong>Pinned release artifact</strong><span>{plan.output.artifact.repository} {plan.output.artifact.releaseTag} at <code>{plan.output.artifact.releaseCommitSha.slice(0, 12)}</code></span><span>{plan.output.artifact.name} | {(plan.output.artifact.sizeBytes / (1024 * 1024)).toFixed(1)} MiB</span><code>{plan.output.artifact.digest}</code><span className={plan.output.artifact.locallyVerifiedByBoxPilot ? "good-text" : "warning-text"}>GitHub metadata matched: {plan.output.artifact.githubReportedDigestMatched ? "yes" : "no"} | verified from local bytes: {plan.output.artifact.locallyVerifiedByBoxPilot ? "yes" : "no"}</span></div>}
               {plan.output.discovery && <div className="keel-discovery-proof"><strong>Plan-time discovery</strong><span>{plan.output.discovery.detail}</span><span>Listener: {plan.output.discovery.listener} | health identity: {plan.output.discovery.healthIdentityVerified ? "verified" : "not verified"}</span><span>Native candidates: {plan.output.discovery.native.candidateCount} | Docker candidates: {plan.output.discovery.docker.candidateCount}</span>{plan.output.discovery.risks.length > 0 && <span className="warning-text">Review: {plan.output.discovery.risks.join(", ")}</span>}</div>}
+              {plan.output.archiveInspection && <div className="keel-artifact-proof"><strong>Plan-time archive gate</strong><span>State: {plan.output.archiveInspection.state} | safe to extract: {plan.output.archiveInspection.safeToExtract ? "yes" : "no"} | members: {plan.output.archiveInspection.memberCount}</span><span>{plan.output.archiveInspection.detail}</span>{plan.output.archiveInspection.risks.length > 0 && <span className="warning-text">Blocked risks: {plan.output.archiveInspection.risks.join(", ")}</span>}</div>}
               {plan.output.blockers.length > 0 && <div className="plan-blockers"><strong>Blockers</strong>{plan.output.blockers.map((blocker) => <span key={blocker.id}>{blocker.summary}{blocker.repair?.description ? `: ${blocker.repair.description}` : ""}</span>)}</div>}
               {plan.output.warnings.length > 0 && <div className="plan-warnings"><strong>Warnings</strong>{plan.output.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div>}
               <p className="plan-recovery"><strong>Recovery:</strong> {plan.output.recovery.summary}</p>
