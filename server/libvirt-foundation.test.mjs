@@ -1,5 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { createStateStore } from "./state.mjs";
 import { createLibvirtFoundationService } from "./libvirt-foundation.mjs";
 
@@ -7,7 +10,8 @@ const foundationId = "123e4567-e89b-42d3-a456-426614174000";
 const revision = "a".repeat(64);
 
 function setup(state = {}) {
-  const store = createStateStore({ databasePath: ":memory:" });
+  const stateDirectory = mkdtempSync(path.join(tmpdir(), "boxpilot-libvirt-foundation-plan-"));
+  const store = createStateStore({ databasePath: ":memory:", stateDirectory });
   const token = store.createBootstrapToken();
   const owner = store.consumeBootstrapToken(token.token, { username: "owner", passwordHash: "hash" });
   const inspection = {
