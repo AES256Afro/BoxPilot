@@ -17,6 +17,7 @@ import RouterCenter from "./RouterCenter";
 import SystemLogs from "./SystemLogs";
 import UpdatesCenter from "./UpdatesCenter";
 import AppCatalog from "./AppCatalog";
+import ServicesCenter from "./ServicesCenter";
 import ApprovalSettings from "./ApprovalSettings";
 import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import VirtualMachines from "./VirtualMachines";
@@ -35,6 +36,10 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   catalog: {
     title: "App catalog",
     description: "Install, update, configure, and remove applications with one click.",
+  },
+  services: {
+    title: "Services",
+    description: "See what systemd is running, start or stop it, and read its journal.",
   },
   applications: {
     title: "Applications",
@@ -99,6 +104,11 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     label: "Catalog manifests + live Docker state",
     tone: "live",
     description: "Apps are defined by YAML manifests shipped with BoxPilot. Installs, updates, and settings changes run as audited jobs through the helper; data stays under /var/lib/boxpilot-managed/catalog.",
+  },
+  services: {
+    label: "Live systemd state",
+    tone: "live",
+    description: "Units and timers come from systemd on this server. Start/stop/restart/enable/disable run through the helper after a confirmation; BoxPilot, SSH, systemd, D-Bus, and Tailscale units cannot be stopped from here.",
   },
   applications: {
     label: "Curated application engine",
@@ -288,6 +298,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     }
     if (view === "updates") return <UpdatesCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "catalog") return <AppCatalog csrfToken={authStatus.csrfToken ?? ""} />;
+    if (view === "services") return <ServicesCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "applications") {
       return (
         <ApplicationCatalog

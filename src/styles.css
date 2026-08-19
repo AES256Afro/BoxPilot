@@ -3195,3 +3195,6 @@ textarea {
 .approval-option input { margin-top: 4px; }
 .approval-option strong { display: block; }
 .approval-option span { color: var(--muted); font-size: 13px; }
+
+.services-center { display: grid; gap: 16px; }
+.services-center .panel-header .recovery-actions input { min-width: 180px; }
