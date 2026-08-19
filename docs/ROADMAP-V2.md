@@ -173,7 +173,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 
 ### Phase 7 — VMs & projects (2 weeks, builds on the existing strength)
 - **M7.1** VM delete, force-off, revert/delete snapshot (high risk) — the four missing verbs.
-- **M7.2** **cloud-init** templates: Ubuntu/Debian/Fedora cloud images auto-downloaded + checksummed; name, CPU, RAM, disk, SSH key (from GitHub), packages, `runcmd` → VM in one dialog. Done when "Project VM" is 1 form + 1 click.
+- ✅ (v1) **M7.2** "New project VM" on the Virtual Machines page: Ubuntu 24.04/22.04, Debian 13/12 cloud images downloaded + checksum-verified by the root runner and cached by digest; name/vCPU/RAM/disk, user, SSH keys (paste or import from GitHub), extra packages, autostart → `vm.cloud.create` clones the image, seeds cloud-init (guest agent, passwordless sudo), `virt-install --import`, waits for the DHCP lease, rolls back on failure. Remaining: Fedora, `runcmd`, choose network/bridge.
 - **M7.3** Bridged networking option (`br0`) with a guarded netplan change + rollback timer; static leases via libvirt.
 - **M7.4** Web console via noVNC/SPICE proxy through BoxPilot (behind auth) — stop punting to Cockpit.
 - **M7.5** VM templates & clone; "Dev box" template with Docker + code-server inside.

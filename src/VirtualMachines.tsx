@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import CloudVmForm from "./CloudVmForm";
 import {
   createLibvirtFoundationPlan,
   createVmLifecyclePlan,
@@ -396,6 +397,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
 
   return (
     <div className="vm-page">
+      {status.ready && <CloudVmForm csrfToken={csrfToken} onCreated={() => { void refresh(); }} />}
       <section className={`vm-readiness ${status.ready ? "vm-ready" : "vm-setup-required"}`}>
         <div>
           <span className="eyebrow">Live host inspection</span>

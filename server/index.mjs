@@ -292,6 +292,21 @@ app.get("/api/v1/catalog", async (_request, response) => {
   response.json({ applications, problems: [...problems, ...(live?.problems ?? [])], liveError, host });
 });
 
+// Fetch a GitHub user's public SSH keys (server-side because github.com has no CORS for browsers).
+app.get("/api/v1/ssh-keys/github/:user", async (request, response) => {
+  const user = request.params.user;
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/.test(user)) return response.status(400).json({ error: "Invalid GitHub user name", code: "invalid_user" });
+  try {
+    const upstream = await fetch(`https://github.com/${user}.keys`, { headers: { "User-Agent": `BoxPilot/${productVersion}` }, signal: AbortSignal.timeout(10_000) });
+    if (upstream.status === 404) return response.status(404).json({ error: `GitHub user ${user} was not found`, code: "github_user_not_found" });
+    if (!upstream.ok) return response.status(502).json({ error: `GitHub returned ${upstream.status}`, code: "github_unavailable" });
+    const keys = (await upstream.text()).split("\n").map((line) => line.trim()).filter((line) => /^(ssh-|ecdsa-|sk-)/.test(line)).slice(0, 20);
+    return response.json({ user, keys });
+  } catch (error) {
+    return response.status(502).json({ error: `Could not reach GitHub: ${error.message}`, code: "github_unavailable" });
+  }
+});
+
 // Precheck an install/reconfigure: validates values against the manifest and reports host port conflicts.
 app.post("/api/v1/catalog/:id/precheck", auth.requireCsrf, async (request, response) => {
   const manifest = await catalogService.get(request.params.id);
