@@ -4,6 +4,7 @@ import path from "node:path";
 import { productVersion } from "./version.mjs";
 import { registry } from "./ops/index.mjs";
 import { createRunUnitClient } from "./run-unit.mjs";
+import { createAppHelper } from "./app-helper.mjs";
 import { createApplicationHelper } from "./application-helper.mjs";
 import { createApplicationProtectionHelper } from "./application-protection-helper.mjs";
 import { executeHelperOperation } from "./helper-protocol.mjs";
@@ -44,6 +45,7 @@ const applicationProtection = createApplicationProtectionHelper();
 const applicationRetention = createApplicationRetentionHelper({ inspectDestination: applicationProtection.inspect });
 const prerequisites = createPrerequisiteHelper();
 const runUnit = createRunUnitClient();
+const apps = createAppHelper();
 const foundation = createLibvirtFoundationHelper();
 const controllerBackups = createControllerBackupHelper();
 const controllerProtection = createControllerProtectionHelper();
@@ -68,7 +70,7 @@ const keelBackupRecovery = await keelBackups.recoverInterrupted();
 const keelDrillRecovery = await keelRecoveryDrill.recoverInterrupted();
 const keelPromotionRecovery = await keelPromotion.recoverInterrupted();
 const keelRollbackRecovery = await keelRollback.recoverInterrupted();
-const helperDependencies = { runUnit, applications, applicationProtection, applicationRetention, controllerBackups, controllerProtection, controllerRetention, keelDiscovery, keelArtifacts, keelArchive, keelStage, keelInstall, keelBackups, keelRecovery, keelRecoveryDrill, keelPromotion, keelRollback, migrations, prerequisites, foundation, vmMedia, vmRestoreDrill, vmRecovery, vmRetention };
+const helperDependencies = { runUnit, apps, applications, applicationProtection, applicationRetention, controllerBackups, controllerProtection, controllerRetention, keelDiscovery, keelArtifacts, keelArchive, keelStage, keelInstall, keelBackups, keelRecovery, keelRecoveryDrill, keelPromotion, keelRollback, migrations, prerequisites, foundation, vmMedia, vmRestoreDrill, vmRecovery, vmRetention };
 if (recovery.stoppedDomains > 0 || recovery.removedNvramFiles > 0 || recovery.normalizedWorkspaces > 0) {
   console.log(`BoxPilot restore drill recovery stopped=${recovery.stoppedDomains} nvram=${recovery.removedNvramFiles} workspaces=${recovery.normalizedWorkspaces}`);
 }

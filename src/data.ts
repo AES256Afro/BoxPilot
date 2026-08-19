@@ -1,6 +1,7 @@
 export type ViewName =
   | "overview"
   | "updates"
+  | "catalog"
   | "applications"
   | "network"
   | "routers"
@@ -16,6 +17,7 @@ export type ViewName =
 export const navItems: Array<{ id: ViewName; label: string; short: string }> = [
   { id: "overview", label: "Overview", short: "OV" },
   { id: "updates", label: "Updates & packages", short: "UP" },
+  { id: "catalog", label: "App catalog", short: "AC" },
   { id: "applications", label: "Applications", short: "AP" },
   { id: "network", label: "Network", short: "NW" },
   { id: "routers", label: "Routers", short: "RT" },

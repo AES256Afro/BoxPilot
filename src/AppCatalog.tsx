@@ -1,0 +1,188 @@
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useOperation } from "./ApproveDialog";
+
+/** Types mirror server/catalog/schema.mjs (normalized manifest) and server/app-helper.mjs (live state). */
+interface ManifestPort { id: string; label: string; container: number; host: number; protocol: "tcp" | "udp"; exposure: "lan" | "loopback"; fixed: boolean }
+interface ManifestVolume { id: string; label: string; container: string; path: string | null; hostPath: string | null; readOnly: boolean; backup: boolean; configurable: boolean; description: string | null }
+interface ManifestEnv { name: string; label: string; description: string | null; type: "string" | "password" | "number" | "boolean" | "timezone" | "path"; default: string | number | boolean | null; required: boolean; secret: boolean; generate: boolean; options: string[] | null; fixed: boolean }
+export interface Manifest {
+  id: string; name: string; category: string; description: string; website: string | null; icon: string | null; risk: "low" | "medium" | "high"; notes: string | null;
+  image: { reference: string; version: string | null; digestPinned: boolean };
+  ports: ManifestPort[]; volumes: ManifestVolume[]; env: ManifestEnv[];
+  health: { kind: string; stableSeconds: number; timeoutSeconds: number };
+  sha256: string;
+}
+interface LiveState {
+  id: string; installed: boolean; dataPresent: boolean;
+  state: { installedAt: string; updatedAt: string; manifestSha256: string | null; image: { reference: string; id: string | null } | null; values: { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string> }; pinnedRollback: boolean; uninstalledAt: string | null } | null;
+  container: { exists: boolean; running: boolean; status: string; health: string; restarts: number; image: string | null };
+  urls: Array<{ id: string; label: string; host: number; exposure: string }>;
+}
+interface CatalogResponse {
+  applications: Array<{ manifest: Manifest; live: LiveState | null }>;
+  problems: Array<{ file: string; errors: string[] }>;
+  liveError: string | null;
+  host: { lanAddress: string | null; tailscaleDnsName: string | null };
+}
+
+type Values = { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string> };
+
+function initialValues(manifest: Manifest, live: LiveState | null): Values {
+  const stored = live?.state?.values;
+  return {
+    ports: Object.fromEntries(manifest.ports.map((port) => [port.id, stored?.ports?.[port.id] ?? port.host])),
+    env: Object.fromEntries(manifest.env.filter((entry) => !entry.fixed && !entry.generate).map((entry) => [entry.name, stored?.env?.[entry.name] ?? (entry.default === null ? "" : String(entry.default))])),
+    volumes: Object.fromEntries(manifest.volumes.filter((volume) => volume.configurable).map((volume) => [volume.id, stored?.volumes?.[volume.id] ?? volume.hostPath ?? ""])),
+  };
+}
+
+/** Strip values that equal the manifest default so the server applies defaults and future manifest changes flow through. */
+function compactValues(manifest: Manifest, values: Values): Values {
+  const ports = Object.fromEntries(Object.entries(values.ports).filter(([id, host]) => manifest.ports.find((port) => port.id === id)?.host !== host));
+  const env = Object.fromEntries(Object.entries(values.env).filter(([name, value]) => value !== "" && String(manifest.env.find((entry) => entry.name === name)?.default ?? "") !== value));
+  const volumes = Object.fromEntries(Object.entries(values.volumes).filter(([id, path]) => path !== "" && manifest.volumes.find((volume) => volume.id === id)?.hostPath !== path));
+  return { ports, env, volumes };
+}
+
+function ConfigForm({ manifest, live, mode, onSubmit, onCancel }: { manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure"; onSubmit: (values: Values) => void; onCancel: () => void }) {
+  const [values, setValues] = useState<Values>(() => initialValues(manifest, live));
+  const setPort = (id: string, value: string) => setValues((current) => ({ ...current, ports: { ...current.ports, [id]: Number.parseInt(value, 10) || 0 } }));
+  const setEnv = (name: string, value: string) => setValues((current) => ({ ...current, env: { ...current.env, [name]: value } }));
+  const setVolume = (id: string, value: string) => setValues((current) => ({ ...current, volumes: { ...current.volumes, [id]: value } }));
+  const editablePorts = manifest.ports.filter((port) => !port.fixed);
+  const editableEnv = manifest.env.filter((entry) => !entry.fixed && !entry.generate);
+  const generated = manifest.env.filter((entry) => entry.generate);
+  const editableVolumes = manifest.volumes.filter((volume) => volume.configurable);
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onCancel}>
+      <section className="modal" role="dialog" aria-modal="true" aria-labelledby="config-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header className="modal-header"><div><span className="eyebrow">{mode === "install" ? "Install" : "Settings"}</span><h2 id="config-title">{manifest.name}</h2></div><button className="icon-button" type="button" onClick={onCancel} aria-label="Close dialog">X</button></header>
+        <form className="modal-copy app-config-form" onSubmit={(event) => { event.preventDefault(); onSubmit(compactValues(manifest, values)); }}>
+          {editablePorts.length > 0 && <fieldset><legend>Ports</legend>{editablePorts.map((port) => <label key={port.id}>{port.label} <span className="muted">(container {port.container}/{port.protocol}, {port.exposure === "loopback" ? "this server only" : "LAN"})</span><input type="number" min={1} max={65535} value={values.ports[port.id] ?? port.host} onChange={(event) => setPort(port.id, event.target.value)} aria-label={`${port.label} port`} /></label>)}</fieldset>}
+          {editableVolumes.length > 0 && <fieldset><legend>Folders</legend>{editableVolumes.map((volume) => <label key={volume.id}>{volume.label}{volume.description && <span className="muted"> — {volume.description}</span>}<input type="text" value={values.volumes[volume.id] ?? ""} onChange={(event) => setVolume(volume.id, event.target.value)} aria-label={`${volume.label} path`} placeholder={volume.hostPath ?? "/srv/..."} /></label>)}</fieldset>}
+          {editableEnv.length > 0 && <fieldset><legend>Settings</legend>{editableEnv.map((entry) => (
+            <label key={entry.name}>{entry.label}{entry.required && " *"}{entry.description && <span className="muted"> — {entry.description}</span>}
+              {entry.options ? <select value={values.env[entry.name] ?? ""} onChange={(event) => setEnv(entry.name, event.target.value)} aria-label={entry.label}>{entry.options.map((option) => <option key={option} value={option}>{option}</option>)}</select>
+                : entry.type === "boolean" ? <select value={values.env[entry.name] || "false"} onChange={(event) => setEnv(entry.name, event.target.value)} aria-label={entry.label}><option value="true">Yes</option><option value="false">No</option></select>
+                : <input type={entry.type === "password" ? "password" : entry.type === "number" ? "number" : "text"} value={values.env[entry.name] ?? ""} onChange={(event) => setEnv(entry.name, event.target.value)} aria-label={entry.label} required={entry.required} />}
+            </label>
+          ))}</fieldset>}
+          {generated.length > 0 && <p className="muted">Generated for you: {generated.map((entry) => entry.label).join(", ")} (stored in the app's .env on the server).</p>}
+          {manifest.volumes.filter((volume) => volume.path).length > 0 && <p className="muted">Data lives under <code>/var/lib/boxpilot-managed/catalog/{manifest.id}/</code> and is kept on uninstall unless you delete it explicitly.</p>}
+          <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={onCancel}>Cancel</button><button className="primary-button" type="submit">{mode === "install" ? "Continue to install" : "Apply settings"}</button></footer>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
+  const [data, setData] = useState<CatalogResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [config, setConfig] = useState<{ manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure" } | null>(null);
+  const [logs, setLogs] = useState<{ id: string; lines: string[] } | null>(null);
+  const [filter, setFilter] = useState("");
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/v1/catalog");
+      const body = (await response.json()) as CatalogResponse & { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Could not load the catalog");
+      setData(body);
+      setError(null);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not load the catalog");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const { start, dialog } = useOperation(csrfToken, () => { void refresh(); });
+
+  const showLogs = async (id: string) => {
+    try {
+      const response = await fetch("/api/v1/operations/app.logs/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id, lines: 200 } }) });
+      const body = (await response.json()) as { result?: { lines: string[] }; error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Could not read logs");
+      setLogs({ id, lines: body.result?.lines ?? [] });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not read logs");
+    }
+  };
+
+  const categories = useMemo(() => [...new Set((data?.applications ?? []).map((entry) => entry.manifest.category))].sort(), [data]);
+  const visible = useMemo(() => (data?.applications ?? []).filter((entry) => !filter || entry.manifest.category === filter), [data, filter]);
+  const hostForLinks = data?.host.lanAddress ?? window.location.hostname;
+
+  const openUrl = (port: { host: number; exposure: string }, manifest: Manifest) => `${manifest.id === "portainer" ? "https" : "http"}://${port.exposure === "loopback" ? "127.0.0.1" : hostForLinks}:${port.host}`;
+
+  const statusPill = (live: LiveState | null): ReactNode => {
+    if (!live) return <span className="status-pill status-neutral">Unknown</span>;
+    if (!live.installed) return live.dataPresent ? <span className="status-pill status-neutral">Not installed · data kept</span> : <span className="status-pill status-neutral">Not installed</span>;
+    if (live.container.running) return <span className={`status-pill ${live.container.health === "unhealthy" ? "status-warning" : "status-good"}`}>{live.container.health === "unhealthy" ? "Running · unhealthy" : "Running"}</span>;
+    return <span className="status-pill status-warning">Stopped</span>;
+  };
+
+  return (
+    <div className="app-catalog">
+      {dialog}
+      {config && <ConfigForm manifest={config.manifest} live={config.live} mode={config.mode} onCancel={() => setConfig(null)} onSubmit={(values) => {
+        const { manifest, mode } = config;
+        setConfig(null);
+        start({ operationId: mode === "install" ? "app.install" : "app.reconfigure", title: mode === "install" ? `Install ${manifest.name}` : `Change ${manifest.name} settings`, parameters: { id: manifest.id, values }, preview: <span>{mode === "install" ? `Pulls ${manifest.image.reference}, starts it with the settings you chose, and waits until it is healthy. Rolled back automatically if it fails.` : "Recreates the container with the new settings; the previous configuration is restored if it fails."}</span> });
+      }} />}
+      {logs && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setLogs(null)}>
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="logs-title" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="modal-header"><div><span className="eyebrow">Logs</span><h2 id="logs-title">{logs.id}</h2></div><button className="icon-button" type="button" onClick={() => setLogs(null)} aria-label="Close dialog">X</button></header>
+            <pre className="app-logs">{logs.lines.join("\n") || "(no output)"}</pre>
+          </section>
+        </div>
+      )}
+
+      <div className="recovery-actions app-catalog-toolbar">
+        <button className={`secondary-button${filter === "" ? " is-active" : ""}`} type="button" onClick={() => setFilter("")}>All</button>
+        {categories.map((category) => <button key={category} className={`secondary-button${filter === category ? " is-active" : ""}`} type="button" onClick={() => setFilter(category)}>{category}</button>)}
+        <span className="muted">{loading ? "Loading…" : `${data?.applications.length ?? 0} apps in catalog`}</span>
+        <button className="text-button" type="button" onClick={() => void refresh()}>Refresh</button>
+      </div>
+      {error && <div className="auth-error" role="alert">{error}</div>}
+      {data?.liveError && <div className="notice warning-notice"><strong>Live state unavailable</strong><span>{data.liveError}</span></div>}
+      {data?.problems.map((problem) => <div key={problem.file} className="notice warning-notice"><strong>Catalog file {problem.file} was skipped</strong><span>{problem.errors.join("; ")}</span></div>)}
+
+      <div className="app-grid">
+        {visible.map(({ manifest, live }) => {
+          const installed = Boolean(live?.installed);
+          const running = Boolean(live?.container.running);
+          return (
+            <article key={manifest.id} className="panel app-card">
+              <header className="app-card-header">
+                <div><span className="app-icon" aria-hidden="true">{manifest.icon ?? "📦"}</span></div>
+                <div><strong>{manifest.name}</strong><span className="muted">{manifest.category} · {manifest.image.version ?? manifest.image.reference}</span></div>
+                {statusPill(live)}
+              </header>
+              <p>{manifest.description}</p>
+              {installed && live?.urls.length ? <div className="recovery-actions">{live.urls.map((port) => <a key={port.id} className="secondary-button" href={openUrl(port, manifest)} target="_blank" rel="noreferrer">Open {port.label}</a>)}</div> : null}
+              <footer className="recovery-actions">
+                {!installed && <button className="primary-button" type="button" onClick={() => setConfig({ manifest, live, mode: "install" })}>Install</button>}
+                {installed && (running
+                  ? <><button className="secondary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Restart ${manifest.name}`, parameters: { id: manifest.id, action: "restart" } })}>Restart</button><button className="secondary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Stop ${manifest.name}`, parameters: { id: manifest.id, action: "stop" } })}>Stop</button></>
+                  : <button className="primary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Start ${manifest.name}`, parameters: { id: manifest.id, action: "start" } })}>Start</button>)}
+                {installed && <button className="secondary-button" type="button" onClick={() => setConfig({ manifest, live, mode: "reconfigure" })}>Settings</button>}
+                {installed && <button className="secondary-button" type="button" onClick={() => start({ operationId: "app.update", title: `Update ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Pulls {manifest.image.reference} and recreates the container. The previous image is restored if the new one fails to become healthy.</span> })}>Update</button>}
+                {installed && <button className="text-button" type="button" onClick={() => void showLogs(manifest.id)}>Logs</button>}
+                {installed && <button className="text-button" type="button" onClick={() => start({ operationId: "app.uninstall", title: `Uninstall ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Stops and removes the container. Data under the app directory is kept so you can reinstall later.</span> })}>Uninstall</button>}
+                {live?.dataPresent && <button className="text-button danger-text" type="button" onClick={() => start({ operationId: "app.purge", title: `Delete ${manifest.name} and its data`, parameters: { id: manifest.id }, preview: <span>Removes the container <strong>and deletes everything</strong> under the app's data directory. This cannot be undone.</span> })}>Delete data</button>}
+                {manifest.website && <a className="text-button" href={manifest.website} target="_blank" rel="noreferrer">Website</a>}
+              </footer>
+              {manifest.notes && installed && <p className="muted app-notes">{manifest.notes}</p>}
+            </article>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

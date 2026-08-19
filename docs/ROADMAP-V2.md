@@ -137,8 +137,8 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - **M2.9** Docker Engine from the official repo (not `docker.io`), compose plugin, log rotation defaults, `docker system prune` button, Portainer/Dockge as optional catalog items.
 
 ### Phase 3 — Data-driven catalog with install/uninstall/config/update (3 weeks)
-- **M3.1** Manifest v2 schema (YAML) + loader + signature check; migrate Uptime Kuma, Pi-hole, Keel to files.
-- **M3.2** Generic compose deployer (`install`, `uninstall --keep-data|--purge`, `update` (pull new digest, recreate, health-check, auto-rollback), `reconfigure` (env form → recreate)). Done when Uptime Kuma and Pi-hole have **zero** app-specific JS.
+- ✅ (v1) **M3.1** Manifest v2 schema (`server/catalog/schema.mjs`, strict, unknown keys rejected) + YAML loader (`catalog/*.yaml`, sha256 per file, invalid files reported in UI). Remaining: signature check; migrate legacy Uptime Kuma/Pi-hole/Keel adapters to manifests.
+- ✅ (v1) **M3.2** Generic compose deployer `server/app-helper.mjs`: install (rollback on failure), uninstall keep-data, purge (high), update (pull + recreate + rollback to previous image), reconfigure (rollback to previous compose), start/stop/restart, logs, inspect — as registry ops `app.*`. **App catalog** page with generated config forms. First manifests: Jellyfin, Homepage, Portainer. Remaining: port-in-use precheck, retire legacy adapters.
 - **M3.3** Auto-generated **Config form** from manifest env schema; show effective `.env`/compose; "Edit raw" for power users (medium risk).
 - **M3.4** Secrets store (AES-GCM with key in `/var/lib/boxpilot/keys`, root-only) for app passwords; "Reveal" button (audited) instead of terminal commands.
 - **M3.5** Catalog wave 1 (≈15): Jellyfin, Home Assistant, AdGuard Home, Nextcloud, Immich, Vaultwarden, Gitea/Forgejo, Portainer, Dockge, Nginx Proxy Manager / Caddy, Homepage/Homarr, Grafana+Prometheus+node-exporter, Uptime Kuma, Pi-hole, Watchtower-style update checker (or Diun), Syncthing, Plex, Paperless-ngx, n8n, code-server.

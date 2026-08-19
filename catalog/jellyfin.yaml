@@ -1,0 +1,46 @@
+schemaVersion: 2
+id: jellyfin
+name: Jellyfin
+category: Media
+icon: "🎬"
+description: Free media server for movies, shows, music, and photos with apps for every TV and phone.
+website: https://jellyfin.org
+risk: medium
+image:
+  reference: jellyfin/jellyfin:10.10.7
+  version: 10.10.7
+ports:
+  - id: web
+    label: Web UI
+    container: 8096
+    host: 8096
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /config
+    path: config
+  - id: cache
+    label: Cache
+    container: /cache
+    path: cache
+    backup: false
+  - id: media
+    label: Media library
+    container: /media
+    hostPath: /srv/media
+    readOnly: true
+    configurable: true
+    description: Folder on this server that holds your movies, shows, and music. Mounted read-only.
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: JELLYFIN_PublishedServerUrl
+    label: Published server URL
+    description: Optional. The address clients should use to reach Jellyfin, for example http://192.168.1.10:8096.
+health:
+  kind: healthcheck
+  timeoutSeconds: 240
+notes: First run opens a setup wizard in the browser. Add /media as a library.
