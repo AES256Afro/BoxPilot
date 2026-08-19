@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { productVersion } from "./version.mjs";
 import { registry } from "./ops/index.mjs";
+import { approvalModes, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "./ops/risk.mjs";
 import { createActionCenterService } from "./action-center.mjs";
 import { createAuditLog } from "./audit.mjs";
 import { createApplicationService } from "./applications.mjs";
@@ -17,7 +18,7 @@ import { createDnsAcceptanceService } from "./dns-acceptance.mjs";
 import { createFleetService } from "./fleet.mjs";
 import { createFlint2AdguardService } from "./flint2-adguard.mjs";
 import { createGithubProvenanceService } from "./github-provenance.mjs";
-import { createAuthService } from "./security.mjs";
+import { createAuthService, verifyPassword } from "./security.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { buildConsoleGuidanceResponse, createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
@@ -184,6 +185,8 @@ app.get("/api/v1/auth/status", auth.status);
 app.post("/api/v1/auth/bootstrap", auth.bootstrap);
 app.post("/api/v1/auth/login", auth.login);
 app.post("/api/v1/auth/logout", auth.requireSession, auth.requireCsrf, auth.logout);
+app.post("/api/v1/auth/elevate", auth.requireSession, auth.requireCsrf, auth.elevate);
+app.delete("/api/v1/auth/elevate", auth.requireSession, auth.requireCsrf, auth.dropElevation);
 
 app.post("/api/v1/agent/enroll", (request, response) => {
   try {
@@ -868,14 +871,38 @@ app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response)
   try {
     const candidate = state.getJob(request.params.id);
     const background = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
+    const approval = { password: typeof request.body?.password === "string" ? request.body.password : null, session: request.boxpilotSession };
     const job = background
-      ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, request.body?.password)
-      : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, request.body?.password);
-    response.status(background ? 202 : 200).json({ job });
+      ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, approval)
+      : await jobs.approveAndRun(request.params.id, request.boxpilotSession.owner.id, approval);
+    const session = auth.requestSession(request);
+    response.status(background ? 202 : 200).json({ job, elevatedUntil: session?.elevatedUntil ?? null });
   } catch (error) {
     const status = error.message === "Job not found" ? 404 : error.message.includes("reauthentication") ? 401 : 409;
     response.status(status).json({ error: error.message, code: "job_approval_failed" });
   }
+});
+
+app.get("/api/v1/jobs/:id/approval", (request, response) => {
+  const policy = jobs.describeApproval(request.params.id, request.boxpilotSession);
+  if (!policy) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
+  return response.json({ jobId: request.params.id, ...policy });
+});
+
+app.get("/api/v1/settings/approval-mode", (_request, response) => {
+  response.json({ approvalMode: normalizeApprovalMode(state.getSetting("approvalMode", null) ?? process.env.BOXPILOT_APPROVAL_MODE ?? defaultApprovalMode), modes: approvalModes, elevationTtlMs });
+});
+
+app.put("/api/v1/settings/approval-mode", auth.requireCsrf, async (request, response) => {
+  const mode = request.body?.approvalMode;
+  if (!approvalModes.includes(mode)) return response.status(400).json({ error: `approvalMode must be one of ${approvalModes.join(", ")}`, code: "invalid_setting" });
+  const owner = state.findOwnerById(request.boxpilotSession.owner.id);
+  if (!owner || typeof request.body?.password !== "string" || !(await verifyPassword(request.body.password, owner.passwordHash))) {
+    return response.status(401).json({ error: "Owner password required to change the approval mode", code: "reauthentication_required" });
+  }
+  state.setSetting("approvalMode", mode, { updatedBy: owner.id });
+  state.recordAudit("settings.approval-mode.changed", { actorId: owner.id, subjectId: owner.id, details: { approvalMode: mode } });
+  return response.json({ approvalMode: mode, modes: approvalModes, elevationTtlMs });
 });
 
 app.get("/api/v1/virtualization/status", async (_request, response) => {

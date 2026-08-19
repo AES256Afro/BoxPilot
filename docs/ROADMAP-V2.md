@@ -118,9 +118,9 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - ✅ **M0.5** Write `docs/DECISIONS.md` ADR-001: "Risk tiers replace universal password approval" so future Codex runs stop re-adding ceremony. Add a `CLAUDE.md`/`AGENTS.md` that states the product goal in one paragraph.
 
 ### Phase 1 — Registry + risk tiers (2 weeks)
-- **M1.1** `server/ops/registry.mjs` with JSON-schema param validation; port the 5 existing repairs + start/stop/restart as registry entries. Done when `helper-protocol.mjs:36` one-liner and the `helper-server` timeout ladder are deleted.
+- ✅ (partial) **M1.1** `server/ops/registry.mjs` (declarative param spec; JSON Schema can replace it later). Canary + 10 prerequisite ops ported; allowlist, read-only set, and timeouts derive from registry ∪ legacy lists with a no-overlap test. `GET /api/v1/operations`. Remaining: port the other ~64 legacy ops module by module, then delete the legacy lists.
 - **M1.2** Generic `boxpilot-run@.service` template unit + signed job spec file; retire 13 of 15 named units. Done when a new op needs zero new unit files.
-- **M1.3** Risk tiers + sudo-mode session flag + `ApproveAction` React component. Done when "Restart Uptime Kuma" is one click and "Install Docker" is one confirm.
+- ✅ (server + Repair Center) **M1.3** Risk tiers (`server/ops/risk.mjs`: per-job-type tier, unknown → high), approval policy (low/medium = no password, high = password unless session elevated ≤10 min, `always-password` setting), `POST/DELETE /api/v1/auth/elevate`, `GET /api/v1/jobs/:id/approval`, `GET/PUT /api/v1/settings/approval-mode`, approvals record `method`+`tier`. Repair Center desk is tier-aware ("Run" one-click for low). Remaining: shared `ApproveAction` component in every center (today other screens still hop to Repair Center), Settings UI for the mode toggle.
 - **M1.4** `jobs.mjs` ≤ 200 lines; `index.mjs` split into `routes/*.mjs` with an Express `Router` per area.
 - **M1.5** SSE `/api/v1/events` + Activity drawer (live step log, job history). Done when you can watch an install stream without refresh.
 - **M1.6** `capabilities` endpoint returns booleans/enums, not prose.

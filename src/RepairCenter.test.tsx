@@ -64,6 +64,39 @@ describe("Repair Center", () => {
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/operations/canary", expect.objectContaining({ method: "POST" })));
   });
 
+  it("approves a low-risk job with one click and asks for the password only when the policy requires it", async () => {
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+    const job = { id: "job-low", title: "Restart Uptime Kuma", type: "application.uptime-kuma.action", state: "awaiting_approval", risk: "low", error: null, steps: [], recovery: { reason: "Reversible" } };
+    let approved: RequestInit | undefined;
+    let policy = { jobId: "job-low", tier: "low", passwordRequired: false, elevated: false, mode: "tiered", reason: "low risk" };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.includes("prerequisites")) return json({ checks: [] });
+      if (url.includes("action-center") || url.includes("recovery-kit")) return json({ error: "unavailable" }, 503);
+      if (url.endsWith("/approval")) return json(policy);
+      if (url.endsWith("/approve")) { approved = init; return json({ job: { ...job, state: "completed" } }); }
+      return json({ jobs: [job] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { unmount } = render(<RepairCenter csrfToken="csrf-token" />);
+
+    expect(await screen.findByText("Low risk · one click")).toBeTruthy();
+    expect(screen.queryByLabelText("Approval password")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    await vi.waitFor(() => expect(approved).toBeTruthy());
+    expect(approved?.body).toBe("{}");
+    unmount();
+
+    policy = { jobId: "job-low", tier: "high", passwordRequired: true, elevated: false, mode: "tiered", reason: "high risk" };
+    render(<RepairCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText("High risk · password required")).toBeTruthy();
+    const input = screen.getByLabelText("Approval password");
+    const button = screen.getByRole("button", { name: "Approve and run" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.change(input, { target: { value: "correct horse battery" } });
+    expect(button.disabled).toBe(false);
+  });
+
   it("keeps prerequisites and jobs available when recovery-kit collection fails", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();

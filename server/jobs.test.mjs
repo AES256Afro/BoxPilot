@@ -37,6 +37,54 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("approves low-risk jobs with one click, records the method, and keeps a wrong password rejected", async () => {
+    const helper = { request: vi.fn(async () => ({ verified: true, helperVersion: "0.1.0", mutationPerformed: false })) };
+    const { store, owner, jobs } = await setup(helper);
+    const session = store.getSession(store.createSession(owner.id).token);
+    expect(jobs.describeApproval(jobs.createCanary(owner.id).id, session)).toMatchObject({ tier: "low", passwordRequired: false, mode: "tiered" });
+    const job = jobs.createCanary(owner.id);
+    await expect(jobs.approveAndRun(job.id, owner.id, { password: "wrong password", session })).rejects.toThrow("reauthentication failed");
+    const completed = await jobs.approveAndRun(job.id, owner.id, { session });
+    expect(completed.state).toBe("completed");
+    expect(completed.approvals[0]).toMatchObject({ ownerId: owner.id, method: "confirm", tier: "low" });
+    expect(completed.steps.find((step) => step.name === "approval").detail).toContain("low risk, confirm");
+    expect(store.getSession(session.tokenHash) ?? session).toBeTruthy();
+    store.close();
+  });
+
+  it("requires the password for high-risk jobs unless the session was elevated by a recent password", async () => {
+    const helper = { request: vi.fn(async () => ({ verified: true, helperVersion: "0.1.0", mutationPerformed: false })) };
+    const { store, owner, jobs } = await setup(helper);
+    const token = store.createSession(owner.id).token;
+    const session = store.getSession(token);
+    const job = store.createJob({ type: "application.pi-hole.deploy", title: "high", parameters: {}, recovery: {}, createdBy: owner.id });
+    expect(jobs.describeApproval(job.id, session)).toMatchObject({ tier: "high", passwordRequired: true, elevated: false });
+    await expect(jobs.approveAndRun(job.id, owner.id, { session })).rejects.toThrow("reauthentication required: high-risk");
+    expect(store.getJob(job.id).state).toBe("awaiting_approval");
+    // A password on a low-risk job elevates the session...
+    const canary = jobs.createCanary(owner.id);
+    await jobs.approveAndRun(canary.id, owner.id, { password: "correct horse battery", session });
+    const elevated = store.getSession(token);
+    expect(Date.parse(elevated.elevatedUntil)).toBeGreaterThan(Date.now());
+    // ...so the high-risk job no longer needs it.
+    expect(jobs.describeApproval(job.id, elevated)).toMatchObject({ tier: "high", passwordRequired: false, elevated: true });
+    store.close();
+  });
+
+  it("honours always-password mode for every tier", async () => {
+    const helper = { request: vi.fn(async () => ({ verified: true, helperVersion: "0.1.0", mutationPerformed: false })) };
+    const { store, owner, jobs } = await setup(helper);
+    store.setSetting("approvalMode", "always-password", { updatedBy: owner.id });
+    const session = store.getSession(store.createSession(owner.id).token);
+    const job = jobs.createCanary(owner.id);
+    expect(jobs.describeApproval(job.id, session)).toMatchObject({ mode: "always-password", passwordRequired: true });
+    await expect(jobs.approveAndRun(job.id, owner.id, { session })).rejects.toThrow("reauthentication required");
+    const completed = await jobs.approveAndRun(job.id, owner.id, { password: "correct horse battery", session });
+    expect(completed.approvals[0]).toMatchObject({ method: "password", tier: "low" });
+    expect(store.getSetting("approvalMode")).toBe("always-password");
+    store.close();
+  });
+
   it("records the complete approved canary lifecycle", async () => {
     const helper = { request: vi.fn(async () => ({ verified: true, helperVersion: "0.1.0", mutationPerformed: false })) };
     const { store, owner, jobs } = await setup(helper);

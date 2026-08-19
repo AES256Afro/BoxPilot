@@ -28,6 +28,20 @@ interface Job {
   recovery: { reason?: string; manual?: string };
 }
 
+interface ApprovalPolicy {
+  tier: "low" | "medium" | "high";
+  passwordRequired: boolean;
+  elevated: boolean;
+  mode: "tiered" | "always-password";
+  reason: string;
+}
+
+const tierCopy: Record<ApprovalPolicy["tier"], { label: string; description: string }> = {
+  low: { label: "Low risk", description: "One click. The action is audited and reversible." },
+  medium: { label: "Medium risk", description: "Confirm to run. Review the preflight and recovery steps below first." },
+  high: { label: "High risk", description: "Re-enter your owner password. It is verified in memory and never stored in the job." },
+};
+
 interface RecoveryKit {
   schemaVersion: number;
   generatedAt: string;
@@ -172,6 +186,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [password, setPassword] = useState("");
+  const [approvalPolicy, setApprovalPolicy] = useState<ApprovalPolicy | null>(null);
   const [pending, setPending] = useState(false);
   const [smartRepairPlan, setSmartRepairPlan] = useState<SmartRepairPlan | null>(null);
   const [resticRepairPlan, setResticRepairPlan] = useState<ResticRepairPlan | null>(null);
@@ -214,6 +229,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
 
   useEffect(() => { void refresh(); }, [refresh]);
 
+
   useEffect(() => {
     if (!jobs.some((job) => ["applying", "verifying"].includes(job.state))) return undefined;
     const interval = window.setInterval(() => { void refresh(); }, 3000);
@@ -221,6 +237,16 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
   }, [jobs, refresh]);
 
   const awaitingApproval = useMemo(() => jobs.find((job) => job.state === "awaiting_approval"), [jobs]);
+
+  useEffect(() => {
+    if (!awaitingApproval) { setApprovalPolicy(null); return; }
+    let cancelled = false;
+    fetch(`/api/v1/jobs/${awaitingApproval.id}/approval`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((policy: ApprovalPolicy | null) => { if (!cancelled) setApprovalPolicy(policy); })
+      .catch(() => { if (!cancelled) setApprovalPolicy(null); });
+    return () => { cancelled = true; };
+  }, [awaitingApproval]);
   const prerequisitePlanOpen = smartRepairPlan !== null || resticRepairPlan !== null || dockerRepairPlan !== null || virtualizationRepairPlan !== null || aptRefreshPlan !== null;
 
   const createCanary = async () => {
@@ -424,8 +450,9 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       await readJson(await fetch(`/api/v1/jobs/${awaitingApproval.id}/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify(password ? { password } : {}),
       }));
+      if (password) window.dispatchEvent(new Event("boxpilot:auth-changed"));
       setPassword("");
       await refresh();
     } catch (requestError) {
@@ -603,16 +630,25 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
         <aside className="panel helper-canary">
           <span className="eyebrow">{awaitingApproval ? "Approval desk" : "Operations Core canary"}</span>
           <h3>{awaitingApproval ? awaitingApproval.title : "Prove the restricted helper"}</h3>
-          <p>{awaitingApproval ? "Review the recorded preflight and recovery steps below, then reauthenticate to execute this exact typed job." : "This job uses the real durable workflow and local Unix socket. Its allowlisted operation cannot mutate the host."}</p>
+          <p>{awaitingApproval ? "Review the recorded preflight and recovery steps below, then approve this exact typed job." : "This job uses the real durable workflow and local Unix socket. Its allowlisted operation cannot mutate the host."}</p>
           {awaitingApproval && <p className="job-recovery"><strong>{awaitingApproval.risk} risk:</strong> {awaitingApproval.recovery.reason ?? "Follow the recorded recovery instructions if verification fails."}</p>}
           {!awaitingApproval ? (
             <button className="primary-button" type="button" onClick={() => void createCanary()} disabled={pending}>Create verification job</button>
           ) : (
             <div className="approval-box">
-              <strong>Approval required</strong>
-              <span>Re-enter your owner password. It is verified in memory and never stored in the job.</span>
-              <input aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
-              <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || password.length < 12}>{pending ? (["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "application.keel.backup", "controller.database.backup", "controller.database.backup.protect", "application.backup.protect", "application.pi-hole.backup", "network.dns.acceptance.run", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(awaitingApproval.type) ? "Starting..." : "Running...") : "Approve and run"}</button>
+              {(() => {
+                const tier = approvalPolicy?.tier ?? "high";
+                const passwordRequired = approvalPolicy ? approvalPolicy.passwordRequired : true;
+                const copy = tierCopy[tier];
+                return (
+                  <>
+                    <strong>{passwordRequired ? `${copy.label} · password required` : `${copy.label} · ${tier === "low" ? "one click" : "confirm to run"}`}</strong>
+                    <span>{passwordRequired ? tierCopy.high.description : copy.description}{approvalPolicy?.elevated && tier === "high" ? " Your session is elevated, so no password is needed right now." : ""}</span>
+                    {passwordRequired && <input aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />}
+                    <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || (passwordRequired && password.length < 12)}>{pending ? "Working..." : tier === "low" && !passwordRequired ? "Run" : "Approve and run"}</button>
+                  </>
+                );
+              })()}
             </div>
           )}
         </aside>

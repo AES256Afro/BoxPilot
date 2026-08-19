@@ -1,4 +1,5 @@
 import { verifyPassword } from "./security.mjs";
+import { approvalRequirement, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "./ops/risk.mjs";
 import { keelArtifactSpec } from "./keel-artifact-spec.mjs";
 
 export function createJobService(store, helper, {
@@ -64,12 +65,37 @@ export function createJobService(store, helper, {
     });
   }
 
-  async function prepareApproval(jobId, ownerId, password) {
+  /**
+   * Decide how a job must be approved for this session (ADR-001 risk tiers).
+   * Pure with respect to the store except reading the approval-mode setting.
+   */
+  function approvalPolicy(job, session = null) {
+    const mode = normalizeApprovalMode(store.getSetting?.("approvalMode", null) ?? process.env.BOXPILOT_APPROVAL_MODE ?? defaultApprovalMode);
+    return { mode, ...approvalRequirement({ jobType: job.type, mode, elevatedUntil: session?.elevatedUntil ?? null }) };
+  }
+
+  /**
+   * @param {string} jobId
+   * @param {string} ownerId
+   * @param {string | { password?: string, session?: { tokenHash?: string, elevatedUntil?: string | null } }} approval
+   *   A bare string is treated as a password (legacy callers).
+   */
+  async function prepareApproval(jobId, ownerId, approval = {}) {
+    const { password = null, session = null } = typeof approval === "string" ? { password: approval } : approval ?? {};
     const owner = store.findOwnerById(ownerId);
-    if (!owner || !(await verifyPassword(password, owner.passwordHash))) throw new Error("Approval reauthentication failed");
+    if (!owner) throw new Error("Approval reauthentication failed");
+    const passwordProvided = typeof password === "string" && password.length > 0;
+    if (passwordProvided && !(await verifyPassword(password, owner.passwordHash))) throw new Error("Approval reauthentication failed");
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
+    const policy = approvalPolicy(job, session);
+    if (policy.passwordRequired && !passwordProvided) throw new Error(`Approval reauthentication required: ${policy.tier}-risk job needs the owner password`);
+    let elevatedUntil = session?.elevatedUntil ?? null;
+    if (passwordProvided && session?.tokenHash && typeof store.elevateSession === "function") {
+      elevatedUntil = store.elevateSession(session.tokenHash, new Date(Date.now() + elevationTtlMs)) ?? elevatedUntil;
+    }
+    const approvalMethod = passwordProvided ? "password" : policy.elevated && policy.tier === "high" ? "elevated" : "confirm";
     if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.uptime-kuma.deploy", "application.uptime-kuma.action", "application.uptime-kuma.private-access", "application.pi-hole.deploy", "application.pi-hole.action", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.media.import", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
     const validatedLibvirtFoundation = job.type === "virtualization.foundation.initialize" ? await validateLibvirtFoundationJob(job) : null;
@@ -810,12 +836,12 @@ export function createJobService(store, helper, {
       failed: "Snapshot creation or offline consistency verification did not complete successfully; leave the VM stopped for inspection",
       validate: (result) => result?.created && result?.verified && result?.domain === validatedVmSnapshotPlan.input.name && result?.snapshotName === validatedVmSnapshotPlan.input.snapshotName && result?.consistency === "offline-consistent" && result?.independentBackup === false,
     };
-    store.addApproval(jobId, ownerId);
-    store.recordAudit("job.approved", { actorId: ownerId, subjectId: jobId, details: { type: job.type } });
+    store.addApproval(jobId, ownerId, { method: approvalMethod, tier: policy.tier });
+    store.recordAudit("job.approved", { actorId: ownerId, subjectId: jobId, details: { type: job.type, tier: policy.tier, method: approvalMethod } });
     store.transitionJob(jobId, "awaiting_approval", "applying");
-    store.addJobStep(jobId, "approval", "completed", `Approved by ${owner.username}`);
+    store.addJobStep(jobId, "approval", "completed", `Approved by ${owner.username} (${policy.tier} risk, ${approvalMethod})`);
     store.addJobStep(jobId, "apply", "running", execution.applying);
-    return { job, owner, execution };
+    return { job, owner, execution, approval: { tier: policy.tier, method: approvalMethod, elevatedUntil } };
   }
 
   async function executePrepared({ job, owner, execution }) {
@@ -888,15 +914,22 @@ export function createJobService(store, helper, {
     }
   }
 
-  async function approveAndRun(jobId, ownerId, password) {
-    return executePrepared(await prepareApproval(jobId, ownerId, password));
+  async function approveAndRun(jobId, ownerId, approval) {
+    return executePrepared(await prepareApproval(jobId, ownerId, approval));
   }
 
-  async function approveAndStart(jobId, ownerId, password) {
-    const prepared = await prepareApproval(jobId, ownerId, password);
+  async function approveAndStart(jobId, ownerId, approval) {
+    const prepared = await prepareApproval(jobId, ownerId, approval);
     void executePrepared(prepared).catch(() => {});
     return store.getJob(jobId);
   }
 
-  return { createCanary, approveAndRun, approveAndStart };
+  /** Read-only: what approving this job would require for the given session. */
+  function describeApproval(jobId, session = null) {
+    const job = store.getJob(jobId);
+    if (!job) return null;
+    return approvalPolicy(job, session);
+  }
+
+  return { createCanary, approveAndRun, approveAndStart, describeApproval, approvalPolicy };
 }
