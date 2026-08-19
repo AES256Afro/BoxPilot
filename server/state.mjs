@@ -118,6 +118,11 @@ export function createStateStore({
       owner_id TEXT NOT NULL REFERENCES owners(id),
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS job_output (
+      job_id TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+      output TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value_json TEXT NOT NULL,
@@ -606,6 +611,15 @@ export function createStateStore({
   function clearSessionElevation(tokenHash) {
     if (typeof tokenHash !== "string") return;
     database.prepare("UPDATE sessions SET elevated_until = NULL WHERE token_hash = ?").run(tokenHash);
+  }
+
+  function saveJobOutput(jobId, output) {
+    database.prepare("INSERT INTO job_output (job_id, output, created_at) VALUES (?, ?, ?) ON CONFLICT(job_id) DO UPDATE SET output = excluded.output").run(jobId, String(output ?? "").slice(-2 * 1024 * 1024), timestamp());
+  }
+
+  function getJobOutput(jobId) {
+    const row = database.prepare("SELECT output FROM job_output WHERE job_id = ?").get(jobId);
+    return row ? row.output : null;
   }
 
   function getSetting(key, fallback = null) {
@@ -1847,6 +1861,8 @@ export function createStateStore({
     clearSessionElevation,
     getSetting,
     setSetting,
+    saveJobOutput,
+    getJobOutput,
     deleteSession,
     deleteExpiredSessions,
     recordAudit,

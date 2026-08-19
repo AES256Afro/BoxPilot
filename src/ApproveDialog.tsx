@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { approveJob, stageOperation, waitForJob, type ApprovalPolicy, type Job, type RiskTier } from "./operations";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { approveJob, followJobOutput, stageOperation, waitForJob, type ApprovalPolicy, type Job, type RiskTier } from "./operations";
 
 /**
  * The one approval surface for registered operations (ADR-001 risk tiers):
@@ -33,6 +33,13 @@ export function ApproveDialog({ operationId, title, parameters, preview, csrfTok
   const [policy, setPolicy] = useState<ApprovalPolicy | null>(null);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [output, setOutput] = useState("");
+  const [showOutput, setShowOutput] = useState(true);
+  const outputRef = useRef<HTMLPreElement | null>(null);
+  const stopFollowing = useRef<(() => void) | null>(null);
+
+  useEffect(() => { if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight; }, [output]);
+  useEffect(() => () => { stopFollowing.current?.(); }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +58,11 @@ export function ApproveDialog({ operationId, title, parameters, preview, csrfTok
       if (password) window.dispatchEvent(new Event("boxpilot:auth-changed"));
       setPassword("");
       setPhase("running");
+      setOutput("");
+      stopFollowing.current?.();
+      stopFollowing.current = followJobOutput(job.id, { onOutput: (text) => setOutput((current) => current + text), onState: () => {} });
       const finished = await waitForJob(job.id);
+      stopFollowing.current?.(); stopFollowing.current = null;
       setJob(finished);
       setPhase(finished.state === "completed" ? "done" : "error");
       if (finished.state !== "completed") setError(finished.error ?? "The operation did not complete");
@@ -84,7 +95,13 @@ export function ApproveDialog({ operationId, title, parameters, preview, csrfTok
           {phase === "ready" && passwordRequired && (
             <label>Owner password<input aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
           )}
-          {phase === "running" && <p>Working. This dialog follows the job and will show the result here.</p>}
+          {phase === "running" && <p>Working. Output from the server appears below as it happens.</p>}
+          {(phase === "running" || ((phase === "done" || phase === "error") && output)) && (
+            <div className="job-terminal">
+              <div className="job-terminal-bar"><span>{phase === "running" ? "Live output" : "Output"}</span><button className="text-button" type="button" onClick={() => setShowOutput((value) => !value)}>{showOutput ? "Hide" : "Show"}</button></div>
+              {showOutput && <pre ref={outputRef} aria-label="Job output">{output || (phase === "running" ? "Waiting for output..." : "")}</pre>}
+            </div>
+          )}
           {phase === "done" && job && <p className="good-text">Completed. {job.steps.filter((step) => step.name === "verify").at(-1)?.detail ?? ""}</p>}
           {error && <div className="auth-error" role="alert">{error}</div>}
           {job && (phase === "done" || phase === "error") && (

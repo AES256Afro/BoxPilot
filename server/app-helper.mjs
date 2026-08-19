@@ -3,25 +3,18 @@
  * manifest: install, uninstall, purge, update, reconfigure, start/stop/restart, inspect, logs.
  * Layout per app: <catalogRoot>/<id>/{compose.yaml,.env,boxpilot.json,<managed volume dirs>}.
  */
-import { execFile as execFileCallback } from "node:child_process";
 import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
+import { fixedRun } from "./exec.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { renderCompose, projectNameFor } from "./catalog/compose.mjs";
 import { resolveValues } from "./catalog/schema.mjs";
 
-const execFile = promisify(execFileCallback);
 const actions = Object.freeze(["start", "stop", "restart"]);
 const idPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
 
-async function defaultDockerRunner(binary, args, { timeout = 120_000, cwd } = {}) {
-  try {
-    const result = await execFile(binary, args, { timeout, cwd, maxBuffer: 4 * 1024 * 1024, encoding: "utf8", env: { PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" } });
-    return { ok: true, stdout: result.stdout.trim(), stderr: result.stderr.trim() };
-  } catch (error) {
-    return { ok: false, stdout: typeof error.stdout === "string" ? error.stdout.trim() : "", stderr: typeof error.stderr === "string" ? error.stderr.trim() : error.message };
-  }
+async function defaultDockerRunner(binary, args, { timeout = 120_000, cwd, onLine = null } = {}) {
+  return fixedRun(binary, args, { timeout, cwd, onLine, maxBuffer: 4 * 1024 * 1024, env: { PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" } });
 }
 
 function redact(value) {
@@ -69,12 +62,14 @@ export function createAppHelper({
     try { return { exists: true, ...JSON.parse(result.stdout) }; } catch { return { exists: true, running: false, status: "unknown", health: "none", restarts: 0, image: null, startedAt: null }; }
   }
 
-  async function waitHealthy(manifest) {
+  async function waitHealthy(manifest, progress = null) {
     const deadline = clock().getTime() + manifest.health.timeoutSeconds * 1000;
-    let stableSince = null; let lastRestarts = null; let last = "starting";
+    let stableSince = null; let lastRestarts = null; let last = "starting"; let reported = null;
+    progress?.(manifest.health.kind === "healthcheck" ? "Waiting for the container healthcheck to pass..." : `Waiting for the container to run steadily for ${manifest.health.stableSeconds}s...`, "stdout");
     while (clock().getTime() < deadline) {
       const status = await containerStatus(manifest.id);
       last = `${status.status}/${status.health}`;
+      if (last !== reported) { progress?.(`container: ${last}`, "stdout"); reported = last; }
       if (status.running) {
         if (manifest.health.kind === "healthcheck") {
           if (status.health === "healthy") return status;
@@ -97,9 +92,10 @@ export function createAppHelper({
     throw new Error(`Application did not become healthy within ${manifest.health.timeoutSeconds}s (last state ${last})`);
   }
 
-  async function compose(id, args, options = {}) {
+  async function compose(id, args, { progress = null, ...options } = {}) {
     const directory = dirFor(id);
-    return docker(["compose", "--project-name", projectNameFor(id), "--file", path.join(directory, "compose.yaml"), "--env-file", path.join(directory, ".env"), ...args], { timeout: 300_000, cwd: directory, ...options });
+    progress?.(`$ docker compose ${args.join(" ")}`, "stdout");
+    return docker(["compose", "--project-name", projectNameFor(id), "--file", path.join(directory, "compose.yaml"), "--env-file", path.join(directory, ".env"), ...args], { timeout: 300_000, cwd: directory, ...(progress ? { onLine: progress } : {}), ...options });
   }
 
   async function ensureManifest(id) {
@@ -143,7 +139,7 @@ export function createAppHelper({
     return { applications, problems, catalogRoot: root };
   }
 
-  async function install({ id, values: rawValues = {} }) {
+  async function install({ id, values: rawValues = {} }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
     const existing = await readState(id);
     if (existing?.installed) throw new Error(`${manifest.name} is already installed; use reconfigure or update`);
@@ -153,26 +149,29 @@ export function createAppHelper({
     if (!probe.ok) throw new Error("Docker Engine is not available; install it from Repair Center first");
     let directoryExisted = true;
     try { await stat(dirFor(id)); } catch { directoryExisted = false; }
+    progress?.(`Writing compose project for ${manifest.name} (${manifest.image.reference})`, "stdout");
     const rendered = await writeProject(manifest, values, { existingEnv: await readEnv(id) });
-    const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000 });
+    const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
     try {
       if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
-      const status = await waitHealthy(manifest);
+      const status = await waitHealthy(manifest, progress);
+      progress?.(`${manifest.name} is up`, "stdout");
       await writeState(id, { id, installed: true, installedAt: clock().toISOString(), updatedAt: clock().toISOString(), manifestSha256: manifest.sha256 ?? null, image: { reference: manifest.image.reference, id: status.image }, values: { ports: values.ports, env: Object.fromEntries(Object.entries(rendered.env).filter(([name]) => !manifest.env.find((entry) => entry.name === name)?.secret)), volumes: values.volumes }, pinnedRollback: false });
       return { installed: true, id, name: manifest.name, image: status.image, hostPorts: rendered.hostPorts, health: status.health, secretsGenerated: manifest.env.filter((entry) => entry.generate).map((entry) => entry.name) };
     } catch (error) {
-      await compose(id, ["down", "--remove-orphans"], { timeout: 120_000 }).catch(() => {});
+      progress?.(`Install failed: ${error.message}. Rolling back...`, "stderr");
+      await compose(id, ["down", "--remove-orphans"], { timeout: 120_000, progress }).catch(() => {});
       if (!directoryExisted) await rm(dirFor(id), { recursive: true, force: true }).catch(() => {});
       throw new Error(`${manifest.name} installation failed and was rolled back. ${error.message}`);
     }
   }
 
-  async function uninstall({ id, purge = false }) {
+  async function uninstall({ id, purge = false }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
     const status = await containerStatus(id);
     if (!state && !status.exists) throw new Error(`${manifest.name} is not installed`);
-    const down = await compose(id, ["down", "--remove-orphans"], { timeout: 180_000 });
+    const down = await compose(id, ["down", "--remove-orphans"], { timeout: 180_000, progress });
     if (!down.ok && status.exists) throw new Error(`docker compose down failed: ${redact(down.stderr).split("\n").slice(-3).join(" ")}`);
     if (purge) {
       await rm(dirFor(id), { recursive: true, force: true });
@@ -183,7 +182,7 @@ export function createAppHelper({
     return { uninstalled: true, purged: false, id, dataRemoved: false, dataDirectory: dirFor(id) };
   }
 
-  async function update({ id }) {
+  async function update({ id }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
@@ -191,12 +190,12 @@ export function createAppHelper({
     const { values, errors } = resolveValues(manifest, state.values ?? {});
     if (errors.length) throw new Error(`Stored settings no longer match the manifest: ${errors.join("; ")}`);
     await writeProject(manifest, values, { existingEnv: await readEnv(id) }); // picks up manifest changes (new image tag)
-    const pull = await compose(id, ["pull"], { timeout: 30 * 60_000 });
+    const pull = await compose(id, ["pull"], { timeout: 30 * 60_000, progress });
     if (!pull.ok) throw new Error(`docker compose pull failed: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
-    const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000 });
+    const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
     try {
       if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
-      const status = await waitHealthy(manifest);
+      const status = await waitHealthy(manifest, progress);
       await writeState(id, { ...state, updatedAt: clock().toISOString(), manifestSha256: manifest.sha256 ?? null, image: { reference: manifest.image.reference, id: status.image }, values, pinnedRollback: false });
       return { updated: true, id, previousImage: before.image, image: status.image, changed: before.image !== status.image };
     } catch (error) {
@@ -204,7 +203,8 @@ export function createAppHelper({
       if (before.image) {
         const pinned = { ...manifest, image: { ...manifest.image, reference: before.image } };
         await writeProject(pinned, values, { existingEnv: await readEnv(id) }).catch(() => {});
-        const rollback = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000 });
+        progress?.(`Update failed: ${error.message}. Restoring previous image...`, "stderr");
+        const rollback = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000, progress });
         rolledBack = rollback.ok;
         if (rolledBack) await writeState(id, { ...state, pinnedRollback: true, image: { reference: before.image, id: before.image } }).catch(() => {});
       }
@@ -212,7 +212,7 @@ export function createAppHelper({
     }
   }
 
-  async function reconfigure({ id, values: rawValues = {} }) {
+  async function reconfigure({ id, values: rawValues = {} }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
@@ -221,10 +221,10 @@ export function createAppHelper({
     const previousCompose = await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => null);
     const previousEnv = await readFile(path.join(dirFor(id), ".env"), "utf8").catch(() => "");
     const rendered = await writeProject(manifest, values, { existingEnv: parseEnvFile(previousEnv) });
-    const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000 });
+    const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
     try {
       if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
-      await waitHealthy(manifest);
+      await waitHealthy(manifest, progress);
       await writeState(id, { ...state, updatedAt: clock().toISOString(), values: { ports: values.ports, env: Object.fromEntries(Object.entries(rendered.env).filter(([name]) => !manifest.env.find((entry) => entry.name === name)?.secret)), volumes: values.volumes } });
       return { reconfigured: true, id, hostPorts: rendered.hostPorts };
     } catch (error) {
@@ -232,18 +232,19 @@ export function createAppHelper({
       if (previousCompose !== null) {
         await writeFile(path.join(dirFor(id), "compose.yaml"), previousCompose, { mode: 0o600 });
         await writeFile(path.join(dirFor(id), ".env"), previousEnv, { mode: 0o600 });
-        rolledBack = (await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000 })).ok;
+        progress?.(`Reconfiguration failed: ${error.message}. Restoring previous configuration...`, "stderr");
+        rolledBack = (await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000, progress })).ok;
       }
       throw new Error(`${manifest.name} reconfiguration failed${rolledBack ? "; the previous configuration was restored" : ""}. ${error.message}`);
     }
   }
 
-  async function action({ id, action: verb }) {
+  async function action({ id, action: verb }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
     if (!actions.includes(verb)) throw new Error("Action must be start, stop, or restart");
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
-    const result = await compose(id, [verb], { timeout: 180_000 });
+    const result = await compose(id, [verb], { timeout: 180_000, progress });
     if (!result.ok) throw new Error(`docker compose ${verb} failed: ${redact(result.stderr).split("\n").slice(-3).join(" ")}`);
     const status = await containerStatus(id);
     return { id, action: verb, running: status.running, status: status.status };

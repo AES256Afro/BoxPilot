@@ -11,6 +11,15 @@ const aptGet = "/usr/bin/apt-get";
 const dpkgQuery = "/usr/bin/dpkg-query";
 const rebootRequiredPath = "/run/reboot-required";
 
+/** Wrap a runner so every command streams its output to `log` (if given). */
+function withLog(run, log) {
+  if (typeof log !== "function") return run;
+  return (binary, args, options = {}) => {
+    log(`$ ${[binary, ...args].join(" ")}`, "stdout");
+    return run(binary, args, { ...options, onLine: log });
+  };
+}
+
 export function validPackageList(value, { min = 1, max = 50 } = {}) {
   if (!Array.isArray(value)) return "must be an array of package names";
   if (value.length < min) return `must list at least ${min} package${min === 1 ? "" : "s"}`;
@@ -44,7 +53,8 @@ function summarizeAptOutput(stdout) {
  * healthy system). apt refuses to upgrade/install while packages are half-configured or broken,
  * so every mutation runs this first instead of telling the operator to use a terminal.
  */
-export async function repairPackageState({ run = fixedRun } = {}) {
+export async function repairPackageState({ run: baseRun = fixedRun, log = null } = {}) {
+  const run = withLog(baseRun, log);
   const configure = await run("/usr/bin/dpkg", ["--configure", "-a"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024 });
   const fixBroken = await run(aptGet, ["install", "--fix-broken", "--yes"], { timeout: 60 * 60_000, maxBuffer: 8 * 1024 * 1024 });
   return {
@@ -57,14 +67,16 @@ export async function repairPackageState({ run = fixedRun } = {}) {
 
 
 /** `apt-get update`. */
-export async function aptUpdate(_parameters = {}, { run = fixedRun } = {}) {
+export async function aptUpdate(_parameters = {}, { run: baseRun = fixedRun, log = null } = {}) {
+  const run = withLog(baseRun, log);
   const result = await run(aptGet, ["update"], { timeout: 10 * 60_000 });
   if (!result.ok) throw new Error(`apt-get update failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   return { updated: true, rebootRequired: await rebootRequired() };
 }
 
 /** Upgrade everything (`--with-new-pkgs upgrade`) or only the listed packages (`install --only-upgrade`). */
-export async function aptUpgrade({ packages = null, refreshFirst = true } = {}, { run = fixedRun } = {}) {
+export async function aptUpgrade({ packages = null, refreshFirst = true } = {}, { run: baseRun = fixedRun, log = null } = {}) {
+  const run = withLog(baseRun, log);
   if (packages !== null) { const problem = validPackageList(packages); if (problem) throw new Error(`packages ${problem}`); }
   const repair = await repairPackageState({ run });
   if (refreshFirst) await aptUpdate({}, { run });
@@ -77,7 +89,8 @@ export async function aptUpgrade({ packages = null, refreshFirst = true } = {}, 
 }
 
 /** Install packages without recommends. */
-export async function aptInstall({ packages, refreshFirst = true } = {}, { run = fixedRun } = {}) {
+export async function aptInstall({ packages, refreshFirst = true } = {}, { run: baseRun = fixedRun, log = null } = {}) {
+  const run = withLog(baseRun, log);
   const problem = validPackageList(packages); if (problem) throw new Error(`packages ${problem}`);
   await repairPackageState({ run });
   if (refreshFirst) await aptUpdate({}, { run });
@@ -91,7 +104,8 @@ export async function aptInstall({ packages, refreshFirst = true } = {}, { run =
 }
 
 /** Remove (or purge) packages, then autoremove what they pulled in. */
-export async function aptRemove({ packages, purge = false, autoremove = true } = {}, { run = fixedRun } = {}) {
+export async function aptRemove({ packages, purge = false, autoremove = true } = {}, { run: baseRun = fixedRun, log = null } = {}) {
+  const run = withLog(baseRun, log);
   const problem = validPackageList(packages); if (problem) throw new Error(`packages ${problem}`);
   await repairPackageState({ run });
   const before = await installedVersions(run, packages);
@@ -104,7 +118,8 @@ export async function aptRemove({ packages, purge = false, autoremove = true } =
 }
 
 /** `apt-get autoremove --purge`. */
-export async function aptAutoremove(_parameters = {}, { run = fixedRun } = {}) {
+export async function aptAutoremove(_parameters = {}, { run: baseRun = fixedRun, log = null } = {}) {
+  const run = withLog(baseRun, log);
   const result = await run(aptGet, ["autoremove", "--yes", "--purge"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024 });
   if (!result.ok) throw new Error(`apt-get autoremove failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   return { autoremoved: true, summary: summarizeAptOutput(result.stdout), rebootRequired: await rebootRequired() };

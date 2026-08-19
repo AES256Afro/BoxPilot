@@ -83,3 +83,16 @@ export async function waitForJob(jobId: string, { intervalMs = 2000, timeoutMs =
     await sleep(intervalMs);
   }
 }
+
+/**
+ * Follow a job's live output. Calls `onOutput` with appended text and `onState` once when the job
+ * reaches a terminal state. Returns a function that stops following.
+ */
+export function followJobOutput(jobId: string, { onOutput, onState }: { onOutput: (text: string) => void; onState: (state: { state: string; error: string | null }) => void }): () => void {
+  if (typeof EventSource === "undefined") return () => {};
+  const source = new EventSource(`/api/v1/jobs/${encodeURIComponent(jobId)}/stream`);
+  source.addEventListener("output", (event) => { try { onOutput((JSON.parse((event as MessageEvent).data) as { text: string }).text); } catch { /* ignore malformed */ } });
+  source.addEventListener("state", (event) => { try { onState(JSON.parse((event as MessageEvent).data) as { state: string; error: string | null }); } catch { /* ignore */ } source.close(); });
+  source.onerror = () => { /* the poller in waitForJob still finishes the job; the stream is best-effort */ };
+  return () => source.close();
+}
