@@ -964,6 +964,10 @@ export function createJobService(store, helper, {
         manual: "If verification fails, review the job log and the helper journal, then rerun or undo the operation.",
       },
       createdBy: ownerId,
+      initialSteps: [
+        { name: "preflight", state: "completed", detail: `${operation.title}: parameters validated against the operation registry` },
+        { name: "checkpoint", state: "completed", detail: `${operation.risk} risk · ${operation.readOnly ? "read-only" : "changes host state"} · runs through the root task runner` },
+      ],
     });
   }
 

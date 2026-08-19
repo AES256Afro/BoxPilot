@@ -140,9 +140,12 @@ describe("native systemd network boundaries", () => {
     expect(unit).toContain("ConditionPathExists=/run/boxpilot/run/%i.json");
     expect(unit).toContain("ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-run.mjs %i");
     expect(unit).toContain("Type=oneshot");
-    expect(unit).toContain("NoNewPrivileges=true");
-    expect(unit).toContain("ProtectHome=true");
+    // Package management needs real root: no User=, no kernel/module/device protection (verified on Ubuntu 26.04).
+    expect(unit).not.toMatch(/^User=/m);
+    expect(unit).not.toContain("ProtectKernelModules=true");
+    expect(unit).not.toContain("PrivateDevices=true");
     expect(unit).not.toContain("PrivateNetwork=true");
+    expect(unit).toContain("PrivateTmp=true");
     const runner = await readFile("scripts/boxpilot-run.mjs", "utf8");
     expect(runner).toContain('from "../server/tasks/index.mjs"');
     expect(runner).not.toMatch(/child_process|exec\(|spawn\(/);

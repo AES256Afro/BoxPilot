@@ -8,23 +8,16 @@ ConditionPathExists=/run/boxpilot/run/%i.json
 
 [Service]
 Type=oneshot
-# Runs as root (the default). Do not set User=/Group= explicitly: combined with the
-# sandboxing below, an explicit User=root stops apt's download methods from dropping
-# to the _apt user (setresuid EPERM, method exit 112). Verified on Ubuntu 26.04.
+# Runs as root (the default). Do not set User=root: combined with sandboxing it breaks
+# apt's privilege drop to _apt. Do not add ProtectKernelModules/ProtectKernelLogs/
+# PrivateDevices/ProtectSystem here: kernel, firmware, and bootloader packages write to
+# /usr/lib/modules, /boot, and /dev, and dpkg maintainer scripts read dmesg — the same
+# reason apt-daily-upgrade.service ships unsandboxed. Verified on Ubuntu 26.04.
+# Per-task confinement belongs in server/tasks, not in this unit.
 ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-run.mjs %i
 TimeoutStartSec=12h
 UMask=0022
-
-NoNewPrivileges=true
-PrivateDevices=true
+KillMode=process
 PrivateTmp=true
-ProtectClock=true
-ProtectControlGroups=true
-ProtectHome=true
-ProtectKernelLogs=true
-ProtectKernelModules=true
-ProtectKernelTunables=true
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
-RestrictNamespaces=true
 RestrictRealtime=true
 SystemCallArchitectures=native

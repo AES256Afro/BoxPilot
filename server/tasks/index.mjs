@@ -4,6 +4,7 @@
  * Keep this list explicit — it is the only thing the template unit will execute.
  */
 import { aptAutoremove, aptInstall, aptRemove, aptUpdate, aptUpgrade } from "./apt.mjs";
+import { systemReboot } from "./system.mjs";
 
 export const tasks = Object.freeze({
   "apt.update": aptUpdate,
@@ -11,6 +12,7 @@ export const tasks = Object.freeze({
   "apt.install": aptInstall,
   "apt.remove": aptRemove,
   "apt.autoremove": aptAutoremove,
+  "system.reboot": systemReboot,
 });
 
 export function taskIds() {
