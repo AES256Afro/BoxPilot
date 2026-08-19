@@ -260,6 +260,14 @@ export function createAppHelper({
     return { id, lines: entries };
   }
 
+  /** Generated/secret settings for an installed app, read from its .env. Only exposed to an elevated session; never stored in a job. */
+  async function secrets({ id }) {
+    const manifest = await ensureManifest(id);
+    const env = await readEnv(id);
+    const entries = manifest.env.filter((entry) => entry.secret && entry.name in env).map((entry) => ({ name: entry.name, label: entry.label, value: env[entry.name] }));
+    return { id, secrets: entries };
+  }
+
   async function checkUpdates() {
     const { manifests } = await catalog.all();
     const results = [];
@@ -271,5 +279,5 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { inspect, install, uninstall, update, reconfigure, action, logs, checkUpdates, catalogRoot: root, internals: { containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { inspect, install, uninstall, update, reconfigure, action, logs, secrets, checkUpdates, catalogRoot: root, internals: { containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

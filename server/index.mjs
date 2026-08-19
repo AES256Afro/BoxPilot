@@ -265,6 +265,11 @@ app.post("/api/v1/operations/:id/run", auth.requireCsrf, async (request, respons
   const parameters = request.body?.parameters ?? {};
   const problem = registry.validate(operation.id, parameters);
   if (problem) return response.status(400).json({ error: problem, code: "invalid_parameters" });
+  if (operation.elevatedOnly) {
+    const elevatedUntil = request.boxpilotSession.elevatedUntil ? Date.parse(request.boxpilotSession.elevatedUntil) : Number.NaN;
+    if (!(Number.isFinite(elevatedUntil) && elevatedUntil > Date.now())) return response.status(401).json({ error: "Enter your password to unlock this for 10 minutes", code: "elevation_required" });
+    state.recordAudit("operation.elevated-read", { actorId: request.boxpilotSession.owner.id, subjectId: operation.id, details: { parameters } });
+  }
   try {
     return response.json({ operation: operation.id, result: await helper.request(operation.id, parameters, { timeoutMs: operation.timeoutMs }) });
   } catch (error) {

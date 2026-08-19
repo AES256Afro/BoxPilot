@@ -17,6 +17,7 @@ import RouterCenter from "./RouterCenter";
 import SystemLogs from "./SystemLogs";
 import UpdatesCenter from "./UpdatesCenter";
 import AppCatalog from "./AppCatalog";
+import ApprovalSettings from "./ApprovalSettings";
 import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import VirtualMachines from "./VirtualMachines";
 
@@ -201,7 +202,7 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
   );
 }
 
-function Settings({ apiMode }: { apiMode: string }) {
+function Settings({ apiMode, csrfToken }: { apiMode: string; csrfToken: string }) {
   const rows = [
     ["LAN address", "Deployment specific", "Use a router DHCP reservation"],
     ["Private access", "Tailscale Serve recommended", "Keep Funnel disabled"],
@@ -213,6 +214,7 @@ function Settings({ apiMode }: { apiMode: string }) {
 
   return (
     <div className="settings-grid">
+      <ApprovalSettings csrfToken={csrfToken} />
       <Panel className="settings-panel">
         <header className="panel-header"><strong>Server and access</strong><span>Deployment guidance</span></header>
         <dl>
@@ -306,7 +308,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "fleet") return <FleetCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "github") return <GitHubCenter />;
     if (view === "logs") return <SystemLogs />;
-    return <Settings apiMode={apiMode} />;
+    return <Settings apiMode={apiMode} csrfToken={authStatus.csrfToken ?? ""} />;
   }, [apiMode, authStatus.csrfToken, networkAssessmentId, view]);
 
   const downloadSupportBundle = async () => {

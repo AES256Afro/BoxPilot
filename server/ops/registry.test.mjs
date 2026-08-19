@@ -42,8 +42,8 @@ describe("operation registry", () => {
     await expect(instance.execute("demo.run", {}, {})).rejects.toThrow("requires parameter");
     await expect(instance.execute("missing", {}, {})).rejects.toThrow("not registered");
     expect(instance.describe()).toEqual([
-      { id: "demo.run", title: "Demo", description: "", risk: "medium", readOnly: false, timeoutMs: 5000, parameterNames: ["name"] },
-      { id: "demo.inspect", title: "Demo inspect", description: "", risk: "low", readOnly: true, timeoutMs: 180000, parameterNames: [] },
+      { id: "demo.run", title: "Demo", description: "", risk: "medium", readOnly: false, elevatedOnly: false, timeoutMs: 5000, parameterNames: ["name"] },
+      { id: "demo.inspect", title: "Demo inspect", description: "", risk: "low", readOnly: true, elevatedOnly: false, timeoutMs: 180000, parameterNames: [] },
     ]);
     expect(createRegistry([() => [defineOperation({ id: "x.y", title: "x", risk: "low", run() {} })]]).ids()).toEqual(["x.y"]);
   });

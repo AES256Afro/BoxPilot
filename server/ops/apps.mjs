@@ -15,6 +15,12 @@ export function appOperations() {
       run: (parameters, { apps }) => apps.logs(parameters),
     }),
     defineOperation({
+      id: "app.secrets", title: "Reveal application secrets", risk: "low", readOnly: true, elevatedOnly: true, timeoutMs: 30_000,
+      description: "Shows the generated passwords and tokens stored in the application's .env. Requires a recent password (elevated session) and is audited.",
+      parameters: { fields: { id: idField } },
+      run: (parameters, { apps }) => apps.secrets(parameters),
+    }),
+    defineOperation({
       id: "app.install", title: "Install application", risk: "medium", timeoutMs: minutes(25),
       description: "Writes the compose project, pulls the image, starts the container, and waits for it to be healthy; rolls back on failure.",
       parameters: { fields: { id: idField, values: valuesField } },
