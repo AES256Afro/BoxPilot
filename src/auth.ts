@@ -48,3 +48,36 @@ export async function dropElevation(csrfToken: string): Promise<void> {
   const response = await fetch("/api/v1/auth/elevate", { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } });
   if (!response.ok && response.status !== 204) throw new Error("Could not lock the session");
 }
+
+export interface IdentityOptions {
+  tailscale: { available: boolean; login: string | null; displayName: string | null; node: string | null; linked: boolean };
+  github: { configured: boolean; linkedLogins: string[] };
+}
+
+export function fetchIdentityOptions(): Promise<IdentityOptions> {
+  return fetch("/api/v1/auth/identity").then(async (response) => {
+    const body = (await response.json()) as IdentityOptions & { error?: string };
+    if (!response.ok) throw new Error(body.error ?? "Could not read sign-in options");
+    return body;
+  });
+}
+
+export function loginWithTailscale(): Promise<AuthStatus> {
+  return authRequest("/api/v1/auth/tailscale", {}).then((result) => ({ ...result, bootstrapRequired: false }));
+}
+
+export interface GithubFlow { flowId: string; userCode: string; verificationUri: string; expiresIn: number; intervalSeconds: number }
+
+export async function startGithubSignIn(): Promise<GithubFlow> {
+  const response = await fetch("/api/v1/auth/github/start", { method: "POST" });
+  const body = (await response.json()) as GithubFlow & { error?: string };
+  if (!response.ok) throw new Error(body.error ?? "Could not start GitHub sign-in");
+  return body;
+}
+
+export async function pollGithubSignIn(flowId: string): Promise<{ status: string; error?: string | null; session?: AuthStatus; linked?: boolean; login?: string; githubLogins?: string[] }> {
+  const response = await fetch("/api/v1/auth/github/poll", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ flowId }) });
+  const body = (await response.json()) as { status: string; error?: string | null; session?: AuthStatus; linked?: boolean; login?: string; githubLogins?: string[] };
+  if (!response.ok && !body.status) throw new Error(body.error ?? "GitHub sign-in failed");
+  return body;
+}

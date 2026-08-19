@@ -23,6 +23,8 @@ import { createFleetService } from "./fleet.mjs";
 import { createFlint2AdguardService } from "./flint2-adguard.mjs";
 import { createGithubProvenanceService } from "./github-provenance.mjs";
 import { createAuthService, verifyPassword } from "./security.mjs";
+import { createIdentityService } from "./identity.mjs";
+import { createIdentityRouter } from "./routes/identity.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { buildConsoleGuidanceResponse, createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
@@ -187,6 +189,8 @@ app.get("/api/v1/health", (_request, response) => {
   });
 });
 
+const identity = createIdentityService({ store: state });
+app.use("/api/v1", createIdentityRouter({ store: state, auth, identity }));
 app.get("/api/v1/auth/status", auth.status);
 app.post("/api/v1/auth/bootstrap", auth.bootstrap);
 app.post("/api/v1/auth/login", auth.login);

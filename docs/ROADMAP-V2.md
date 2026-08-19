@@ -156,8 +156,8 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - **M4.5** Self-update from GitHub Releases with rollback (reuse Keel promotion/rollback logic on BoxPilot itself).
 
 ### Phase 5 — Identity (1–2 weeks)
-- **M5.1** Tailscale identity: `whois` on tailnet requests; "Allow these tailnet users" list; no-password sign-in.
-- **M5.2** GitHub OAuth device flow: link account, sign in, import SSH keys, optional private-repo deploys.
+- ✅ **M5.1** Tailscale identity: `tailscale whois` on the tailnet source (direct, or X-Forwarded-For from Tailscale Serve trusted only from loopback); owner links the login once in Settings (password); sign-in screen then offers "Continue as …". Audited.
+- ✅ (v1) **M5.2** GitHub OAuth device flow (no callback/secret): paste OAuth App client ID in Settings, link a GitHub login, then "Sign in with GitHub" shows code + link and polls. SSH key import from GitHub exists for VMs. Remaining: private-repo deploys.
 - **M5.3** WebAuthn/passkeys + recovery codes for the local account.
 - **M5.4** Multiple operators with roles (owner / operator / viewer); audit shows who.
 - **M5.5** Optional OIDC (Authentik/Authelia/Pocket-ID as catalog items) for all installed apps via forward-auth in the proxy.

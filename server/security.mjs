@@ -118,6 +118,14 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     response.json({ authenticated: true, owner: { id: owner.id, username: owner.username }, csrfToken: session.csrfToken, expiresAt: session.expiresAt });
   }
 
+  /** Issue a session for an owner authenticated by an external identity (Tailscale, GitHub). */
+  function issueSession(request, response, owner, { method = "identity", detail = null } = {}) {
+    const session = store.createSession(owner.id, { ttlMs: sessionTtlMs });
+    store.recordAudit("session.created", { actorId: owner.id, subjectId: owner.id, details: { method, ...(detail ? { detail } : {}) } });
+    response.setHeader("Set-Cookie", cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000)));
+    return { authenticated: true, owner: { id: owner.id, username: owner.username }, csrfToken: session.csrfToken, expiresAt: session.expiresAt, elevatedUntil: null, method };
+  }
+
   function status(request, response) {
     const session = requestSession(request);
     response.json({
@@ -157,7 +165,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     response.status(204).end();
   }
 
-  return { bootstrap, login, status, logout, elevate, dropElevation, requestSession, requireSession, requireCsrf };
+  return { bootstrap, login, status, logout, elevate, dropElevation, issueSession, requestSession, requireSession, requireCsrf };
 }
 
 export const securityInternals = { cookieName, parseCookies, safeEqual, validateCredentials };

@@ -566,6 +566,11 @@ export function createStateStore({
     return row ? { id: row.id, username: row.username, passwordHash: row.password_hash, createdAt: row.created_at } : null;
   }
 
+  function findFirstOwner() {
+    const row = database.prepare("SELECT * FROM owners ORDER BY created_at ASC LIMIT 1").get();
+    return row ? { id: row.id, username: row.username, passwordHash: row.password_hash, createdAt: row.created_at } : null;
+  }
+
   function findOwnerById(id) {
     const row = database.prepare("SELECT * FROM owners WHERE id = ?").get(id);
     return row ? { id: row.id, username: row.username, passwordHash: row.password_hash, createdAt: row.created_at } : null;
@@ -1854,6 +1859,7 @@ export function createStateStore({
     createBootstrapToken,
     consumeBootstrapToken,
     findOwnerByUsername,
+    findFirstOwner,
     findOwnerById,
     createSession,
     getSession,
