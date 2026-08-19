@@ -36,6 +36,11 @@ export function aptOperations() {
       },
     }),
     defineOperation({
+      id: "apt.refresh", title: "Refresh package lists", risk: "low", timeoutMs: minutes(15),
+      description: "Runs apt-get update so the list of available updates is current. Installs nothing.",
+      run: (_parameters, { runUnit }) => runUnit.runTask("apt.update", {}, { timeoutMs: minutes(10) }),
+    }),
+    defineOperation({
       id: "apt.upgrade", title: "Install package updates", risk: "medium", timeoutMs: minutes(70),
       description: "Runs apt-get update then upgrades every package, or only the selected ones.",
       parameters: { fields: { packages: optionalPackagesField, refreshFirst: refreshField } },
