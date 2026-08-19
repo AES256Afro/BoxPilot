@@ -2,8 +2,8 @@
 
 This runbook covers the complete process from inserting the USB installer through a verified headless Ubuntu Server with:
 
-- Target reserved LAN address `192.168.8.10`
-- AdGuard DNS
+- A reserved LAN address (`<server-ip>`)
+- Upstream DNS of your choice (AdGuard DNS used as the example)
 - OpenSSH
 - Tailscale
 - UFW firewall
@@ -14,23 +14,29 @@ This runbook covers the complete process from inserting the USB installer throug
 
 It is written for Ubuntu Server 24.04 LTS or 26.04 LTS. Some screen wording may differ slightly, but the choices are the same.
 
-## Known network settings
+## Fill in your network settings first
+
+This runbook uses placeholders so it can live in a public repository. Before you start, decide the values below and substitute them wherever the placeholder appears. Keep your filled-in copy private (for example as `UBUNTU-SERVER-INSTALL-RUNBOOK.local.md`, which `.gitignore` already excludes).
+
+| Placeholder | Meaning | Example |
+| --- | --- | --- |
+| `<hostname>` | Server hostname and, in this runbook, the Ubuntu username | `homebox` |
+| `<router-ip>` | Router LAN address and default gateway | `192.168.1.1` |
+| `<server-ip>` | The fixed LAN address you reserve for the server | `192.168.1.10` |
+| `<lan-cidr>` | LAN subnet | `192.168.1.0/24` |
+| `<server-mac>` | MAC address of the server's wired Ethernet interface (printed on the board or shown in the installer) | `aa:bb:cc:dd:ee:ff` |
+| `<dns-1>`, `<dns-2>` | Upstream DNS servers you trust | `94.140.14.49`, `94.140.14.59` (AdGuard) or `1.1.1.1`, `9.9.9.9` |
+| `<your-key-comment>` | Comment for the SSH key you create on your workstation | `laptop-to-homebox` |
+
+Fixed choices assumed throughout:
 
 | Setting | Value |
 | --- | --- |
-| Hostname | `bigbox` |
-| Router | GL.iNet GL-MT6000 Flint 2 |
-| Router LAN address | `192.168.8.1` |
-| Address method | DHCP with router reservation |
-| Target reserved IPv4 address | `192.168.8.10` |
-| LAN subnet | `192.168.8.0/24` |
-| Reserved Ethernet MAC | `A0:AD:9F:87:AD:EE` |
-| AdGuard DNS 1 | `94.140.14.49` |
-| AdGuard DNS 2 | `94.140.14.59` |
+| Address method | DHCP with a router reservation for `<server-mac>` → `<server-ip>` |
 | Tailscale DNS Override | Off during installation and recovery |
 | MagicDNS | On |
 
-The Flint 2 DHCP reservation provides the fixed address. Leave Ubuntu on automatic DHCP so the router continues providing the correct gateway and routes. Until that reservation is saved and the lease is renewed, Bigbox may receive another `192.168.8.x` address. Use the address shown by `ip -br address` for immediate SSH access.
+The router's DHCP reservation provides the fixed address. Leave Ubuntu on automatic DHCP so the router continues providing the correct gateway and routes. Until that reservation is saved and the lease is renewed, the server may receive another address in `<lan-cidr>`. Use the address shown by `ip -br address` for immediate SSH access.
 
 ## Stage 0: Prepare the machine safely
 
@@ -44,7 +50,7 @@ The Flint 2 DHCP reservation provides the fixed address. Leave Ubuntu on automat
    - Wired Ethernet cable
    - Ubuntu Server installer USB stick
 5. Connect the Ethernet cable directly to the normal LAN.
-6. In the Flint 2 interface at `http://192.168.8.1`, make sure the reservation for `192.168.8.10` is enabled and uses MAC address `A0:AD:9F:87:AD:EE`.
+6. In the router's administration interface at `http://<router-ip>`, make sure the DHCP reservation for `<server-ip>` is enabled and uses MAC address `<server-mac>`.
 7. If entering the firmware setup is convenient, enable the relevant virtualization options:
    - Intel: Intel Virtualization Technology, VT-x, and preferably VT-d
    - AMD: SVM or AMD-V, and preferably IOMMU
@@ -105,14 +111,14 @@ Use the keyboard identification tool only if the physical keyboard is not a norm
 
 1. Highlight the wired Ethernet interface.
 2. Open its information or edit screen.
-3. Confirm its MAC address is `A0:AD:9F:87:AD:EE`.
+3. Confirm its MAC address is `<server-mac>`.
 4. Select **Edit IPv4**.
 5. Set IPv4 Method to **Automatic (DHCP)**.
 6. Save the setting.
 7. Leave IPv6 at its existing automatic setting.
 8. Do not create a bond, bridge, or VLAN during installation.
 9. Wait up to 30 seconds for DHCP.
-10. If the Flint reservation is already active, confirm the interface displays `192.168.8.10/24`. Otherwise, record the temporary `192.168.8.x/24` address shown by the installer.
+10. If the router reservation is already active, confirm the interface displays `<server-ip>` with your LAN prefix. Otherwise, record the temporary address shown by the installer.
 11. Select **Done**.
 
 If the installer receives a different address:
@@ -120,16 +126,16 @@ If the installer receives a different address:
 1. Recheck the interface MAC address.
 2. Correct the router reservation if the shown MAC differs.
 3. Disconnect and reconnect the Ethernet cable or return to the interface and reselect automatic DHCP.
-4. A temporary DHCP address can complete installation and provide immediate SSH access, but correct the Flint reservation before relying on a permanent LAN address.
+4. A temporary DHCP address can complete installation and provide immediate SSH access, but correct the router reservation before relying on a permanent LAN address.
 
 Use manual addressing only if DHCP is unavailable. The manual fields would be:
 
 | Field | Value |
 | --- | --- |
-| Subnet | `192.168.8.0/24` |
-| Address | `192.168.8.10` |
-| Gateway | Confirm the router LAN address, likely `192.168.8.1` |
-| Name servers | `94.140.14.49,94.140.14.59` |
+| Subnet | `<lan-cidr>` |
+| Address | `<server-ip>` |
+| Gateway | `<router-ip>` |
+| Name servers | `<dns-1>,<dns-2>` |
 | Search domains | Leave blank |
 
 Do not guess the gateway. The DHCP reservation is the recommended configuration.
@@ -173,9 +179,9 @@ On the storage summary screen:
 
 Fill in the profile screen:
 
-1. Your name: `Chris`, or the display name you prefer.
-2. Server name: `bigbox`.
-3. Username: `bigbox`.
+1. Your name: the display name you prefer.
+2. Server name: `<hostname>`.
+3. Username: `<hostname>` (or any username you prefer; the rest of this runbook assumes they match).
 4. Password: create a unique, strong password.
 5. Confirm the password.
 6. Record the username and password in your password manager.
@@ -221,7 +227,7 @@ If the computer returns to the installer, remove the USB and select the internal
 
 ## Stage 3: First console login
 
-1. Wait for the `bigbox login:` prompt.
+1. Wait for the `<hostname> login:` prompt.
 2. Enter the username created during installation.
 3. Enter the password. Linux does not display password characters while typing.
 4. Confirm the hostname and timezone:
@@ -253,7 +259,7 @@ getent ahostsv4 example.com
 Expected results:
 
 - The wired interface is up.
-- It has `192.168.8.10/24`.
+- It has `<server-ip>/24`.
 - A default route exists through the home router.
 - DNS resolution returns addresses for `example.com`.
 
@@ -267,16 +273,16 @@ The wired interface should show `a0:ad:9f:87:ad:ee`.
 
 ### Override only this server's DNS if necessary
 
-If `resolvectl status` already lists `94.140.14.49` and `94.140.14.59`, skip this section.
+If `resolvectl status` already lists `<dns-1>` and `<dns-2>`, skip this section.
 
-If the router supplies different DNS servers and this server must explicitly use AdGuard, run these commands at the physical console:
+If the router supplies different DNS servers and this server must explicitly use your chosen upstream resolvers, run these commands at the physical console:
 
 ```bash
 wired_if=$(ip -o route show default | awk '{print $5; exit}')
 echo "$wired_if"
 sudo cp -a /etc/netplan "/etc/netplan.backup-$(date +%Y%m%d-%H%M%S)"
 sudo netplan set "ethernets.${wired_if}.dhcp4-overrides.use-dns=false"
-sudo netplan set "ethernets.${wired_if}.nameservers.addresses=[94.140.14.49,94.140.14.59]"
+sudo netplan set "ethernets.${wired_if}.nameservers.addresses=[<dns-1>,<dns-2>]"
 sudo netplan try
 ```
 
@@ -327,17 +333,17 @@ ls -l ~/.ssh/*.pub 2>/dev/null
 If `id_ed25519.pub` exists, use it. If the existing key has another filename, substitute that filename in the copy command below. If no public key exists, create one:
 
 ```bash
-ssh-keygen -t ed25519 -C "chris-mac-to-bigbox"
+ssh-keygen -t ed25519 -C "<your-key-comment>"
 ```
 
 Press Enter to accept the default filename. Use a key passphrase and store it in the Mac Keychain when offered.
 
 ### 6.2 Install the Mac public key on Ubuntu
 
-These commands use the configured Ubuntu username `bigbox`:
+These commands use the configured Ubuntu username `<hostname>`:
 
 ```bash
-ssh bigbox@192.168.8.10 'umask 077; mkdir -p ~/.ssh; cat >> ~/.ssh/authorized_keys' < ~/.ssh/id_ed25519.pub
+ssh <hostname>@<server-ip> 'umask 077; mkdir -p ~/.ssh; cat >> ~/.ssh/authorized_keys' < ~/.ssh/id_ed25519.pub
 ```
 
 Enter the Ubuntu password once.
@@ -345,7 +351,7 @@ Enter the Ubuntu password once.
 Test a new connection:
 
 ```bash
-ssh bigbox@192.168.8.10
+ssh <hostname>@<server-ip>
 ```
 
 Do not disable password authentication until this key-based login succeeds in a completely separate Terminal window.
@@ -369,7 +375,7 @@ sudo systemctl reload ssh
 Open another Mac Terminal window and test again:
 
 ```bash
-ssh bigbox@192.168.8.10
+ssh <hostname>@<server-ip>
 ```
 
 If the test fails, keep the original session open and remove or correct `/etc/ssh/sshd_config.d/10-headless-hardening.conf` before reloading SSH again.
@@ -383,7 +389,7 @@ In the Tailscale admin console:
 3. Keep MagicDNS on.
 4. Find the dead global nameserver `100.104.88.63`.
 5. Open its three-dot menu and remove it.
-6. Do not add `192.168.8.10` as a DNS server unless a real DNS service is later installed and tested on this machine.
+6. Do not add `<server-ip>` as a DNS server unless a real DNS service is later installed and tested on this machine.
 7. Do not enable an exit node during the rebuild.
 
 The failed server's old exit-node role and its old DNS-server role are separate dependencies. Neither should be restored until the replacement server is stable and a failure fallback exists.
@@ -394,7 +400,7 @@ On Ubuntu:
 
 ```bash
 curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up --hostname=bigbox --accept-dns=false
+sudo tailscale up --hostname=<hostname> --accept-dns=false
 ```
 
 1. Copy the displayed authentication URL.
@@ -413,16 +419,16 @@ The new server will receive a new `100.x.x.x` Tailscale address. Do not assume i
 From the Mac, test:
 
 ```bash
-tailscale ping bigbox
-ssh bigbox@bigbox
+tailscale ping <hostname>
+ssh <hostname>@<hostname>
 ```
 
-If the Mac cannot resolve `bigbox`, SSH to the new `100.x.x.x` address shown by `tailscale ip -4` and verify MagicDNS remains enabled on the tailnet.
+If the Mac cannot resolve `<hostname>`, SSH to the new `100.x.x.x` address shown by `tailscale ip -4` and verify MagicDNS remains enabled on the tailnet.
 
 After the new server survives a reboot and remote access is proven:
 
 1. Open Tailscale **Machines**.
-2. Confirm `bigbox` is connected.
+2. Confirm `<hostname>` is connected.
 3. Remove the previous offline node associated with the failed installation when it is no longer needed. Compare the node's last-seen time and Tailscale address before removing it.
 4. Optionally disable key expiry for the new trusted always-on server. This improves continuity but increases the importance of revoking the node promptly if the server is lost or compromised.
 
@@ -436,10 +442,10 @@ Run:
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
 
-sudo ufw allow from 192.168.8.0/24 to any port 22 proto tcp
+sudo ufw allow from <lan-cidr> to any port 22 proto tcp
 sudo ufw allow in on tailscale0 to any port 22 proto tcp
 
-sudo ufw allow from 192.168.8.0/24 to any port 9090 proto tcp
+sudo ufw allow from <lan-cidr> to any port 9090 proto tcp
 sudo ufw allow in on tailscale0 to any port 9090 proto tcp
 
 sudo ufw logging low
@@ -450,8 +456,8 @@ sudo ufw status verbose
 From the Mac, test both paths before leaving the physical console:
 
 ```bash
-ssh bigbox@192.168.8.10
-ssh bigbox@bigbox
+ssh <hostname>@<server-ip>
+ssh <hostname>@<hostname>
 ```
 
 Emergency firewall rollback from the physical console:
@@ -518,7 +524,7 @@ services:
 
 Then publish it privately with Tailscale Serve. Keep Tailscale Funnel disabled.
 
-For a service intentionally available only on the home LAN, bind it explicitly to `192.168.8.10` instead of `0.0.0.0`.
+For a service intentionally available only on the home LAN, bind it explicitly to `<server-ip>` instead of `0.0.0.0`.
 
 ## Stage 11: Install KVM, libvirt, and Cockpit
 
@@ -573,8 +579,8 @@ Log out and back in so the new group memberships apply.
 
 Use either:
 
-- `https://192.168.8.10:9090`
-- `https://bigbox:9090`
+- `https://<server-ip>:9090`
+- `https://<hostname>:9090`
 - `https://NEW-TAILSCALE-IP:9090`
 
 1. Accept the initial self-signed certificate warning only after confirming the address is the new server.
@@ -683,15 +689,15 @@ sudo reboot
 Wait two minutes. From the Mac, test:
 
 ```bash
-ssh bigbox@192.168.8.10
-tailscale ping bigbox
-ssh bigbox@bigbox
+ssh <hostname>@<server-ip>
+tailscale ping <hostname>
+ssh <hostname>@<hostname>
 ```
 
 Open Cockpit:
 
 ```text
-https://bigbox:9090
+https://<hostname>:9090
 ```
 
 On Ubuntu, run the final checks:
@@ -717,7 +723,7 @@ df -ih
 
 Acceptance criteria:
 
-- After the Flint reservation is configured, the host returns as `192.168.8.10` after reboot. Before then, use the current address reported by `ip -br address`.
+- After the router reservation is configured, the host returns as `<server-ip>` after reboot. Before then, use the current address reported by `ip -br address`.
 - SSH works from the LAN using a key.
 - SSH also works over Tailscale.
 - DNS resolves normally without depending on the failed server's old Tailscale address.

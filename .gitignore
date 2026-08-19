@@ -7,3 +7,7 @@ dist/
 !.env.example
 coverage/
 *.tsbuildinfo
+
+# Private, filled-in copies of the install runbook
+UBUNTU-SERVER-INSTALL-RUNBOOK.local.md
+*.local.md
