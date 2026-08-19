@@ -9,6 +9,8 @@ export interface AuthStatus {
   owner: Owner | null;
   csrfToken: string | null;
   expiresAt: string | null;
+  /** ISO time until which high-risk approvals need no password (set by a recent password entry). */
+  elevatedUntil?: string | null;
 }
 
 async function authRequest(path: string, body?: Record<string, string>): Promise<AuthStatus> {
@@ -39,4 +41,10 @@ export function loginOwner(username: string, password: string): Promise<AuthStat
 export async function logoutOwner(csrfToken: string): Promise<void> {
   const response = await fetch("/api/v1/auth/logout", { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } });
   if (!response.ok && response.status !== 204) throw new Error("Logout failed");
+}
+
+/** Drop the elevated window early so high-risk approvals ask for the password again. */
+export async function dropElevation(csrfToken: string): Promise<void> {
+  const response = await fetch("/api/v1/auth/elevate", { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } });
+  if (!response.ok && response.status !== 204) throw new Error("Could not lock the session");
 }

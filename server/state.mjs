@@ -118,6 +118,12 @@ export function createStateStore({
       owner_id TEXT NOT NULL REFERENCES owners(id),
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL,
+      updated_by TEXT,
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS backups (
       id TEXT PRIMARY KEY,
       application_id TEXT NOT NULL,
@@ -495,6 +501,11 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_events(created_at DESC);
   `);
 
+  const sessionColumns = database.prepare("PRAGMA table_info(sessions)").all().map((column) => column.name);
+  if (!sessionColumns.includes("elevated_until")) database.exec("ALTER TABLE sessions ADD COLUMN elevated_until TEXT");
+  const approvalColumns = database.prepare("PRAGMA table_info(approvals)").all().map((column) => column.name);
+  if (!approvalColumns.includes("method")) database.exec("ALTER TABLE approvals ADD COLUMN method TEXT NOT NULL DEFAULT 'password'");
+  if (!approvalColumns.includes("tier")) database.exec("ALTER TABLE approvals ADD COLUMN tier TEXT");
   const fleetTaskColumns = database.prepare("PRAGMA table_info(fleet_tasks)").all().map((column) => column.name);
   if (!fleetTaskColumns.includes("available_at")) {
     database.exec("ALTER TABLE fleet_tasks ADD COLUMN available_at TEXT");
@@ -580,7 +591,32 @@ export function createStateStore({
       owner: { id: row.owner_id, username: row.username },
       csrfToken: row.csrf_token,
       expiresAt: row.expires_at,
+      elevatedUntil: row.elevated_until ?? null,
     };
+  }
+
+  /** Mark a session as recently password-verified until `until` (ISO string or Date). Returns the new value or null if the session is gone. */
+  function elevateSession(tokenHash, until) {
+    const value = until instanceof Date ? iso(until) : until;
+    if (typeof tokenHash !== "string" || typeof value !== "string") return null;
+    const changes = Number(database.prepare("UPDATE sessions SET elevated_until = ? WHERE token_hash = ?").run(value, tokenHash).changes);
+    return changes > 0 ? value : null;
+  }
+
+  function clearSessionElevation(tokenHash) {
+    if (typeof tokenHash !== "string") return;
+    database.prepare("UPDATE sessions SET elevated_until = NULL WHERE token_hash = ?").run(tokenHash);
+  }
+
+  function getSetting(key, fallback = null) {
+    const row = database.prepare("SELECT value_json FROM settings WHERE key = ?").get(key);
+    return row ? parseJson(row.value_json, fallback) : fallback;
+  }
+
+  function setSetting(key, value, { updatedBy = null } = {}) {
+    database.prepare("INSERT INTO settings (key, value_json, updated_by, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_by = excluded.updated_by, updated_at = excluded.updated_at")
+      .run(key, json(value), updatedBy, timestamp());
+    return value;
   }
 
   function deleteSession(token) {
@@ -683,10 +719,10 @@ export function createStateStore({
       .run(randomUUID(), jobId, name, state, detail, timestamp());
   }
 
-  function addApproval(jobId, ownerId) {
-    const approval = { id: randomUUID(), jobId, ownerId, createdAt: timestamp() };
-    database.prepare("INSERT INTO approvals (id, job_id, owner_id, created_at) VALUES (?, ?, ?, ?)")
-      .run(approval.id, approval.jobId, approval.ownerId, approval.createdAt);
+  function addApproval(jobId, ownerId, { method = "password", tier = null } = {}) {
+    const approval = { id: randomUUID(), jobId, ownerId, method, tier, createdAt: timestamp() };
+    database.prepare("INSERT INTO approvals (id, job_id, owner_id, method, tier, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(approval.id, approval.jobId, approval.ownerId, approval.method, approval.tier, approval.createdAt);
     return approval;
   }
 
@@ -704,7 +740,7 @@ export function createStateStore({
     const row = database.prepare("SELECT * FROM jobs WHERE id = ?").get(id);
     if (!row) return null;
     const steps = database.prepare("SELECT name, state, detail, created_at AS createdAt FROM job_steps WHERE job_id = ? ORDER BY created_at").all(id);
-    const approvals = database.prepare("SELECT owner_id AS ownerId, created_at AS createdAt FROM approvals WHERE job_id = ? ORDER BY created_at").all(id);
+    const approvals = database.prepare("SELECT owner_id AS ownerId, method, tier, created_at AS createdAt FROM approvals WHERE job_id = ? ORDER BY created_at").all(id);
     return normalizeJob(row, steps, approvals);
   }
 
@@ -1807,6 +1843,10 @@ export function createStateStore({
     findOwnerById,
     createSession,
     getSession,
+    elevateSession,
+    clearSessionElevation,
+    getSetting,
+    setSetting,
     deleteSession,
     deleteExpiredSessions,
     recordAudit,

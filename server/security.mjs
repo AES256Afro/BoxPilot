@@ -1,5 +1,6 @@
 import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
+import { elevationTtlMs } from "./ops/risk.mjs";
 
 const scrypt = promisify(scryptCallback);
 const usernamePattern = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{2,31}$/;
@@ -125,7 +126,27 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
       owner: session?.owner ?? null,
       csrfToken: session?.csrfToken ?? null,
       expiresAt: session?.expiresAt ?? null,
+      elevatedUntil: session?.elevatedUntil ?? null,
     });
+  }
+
+  /** Re-enter the owner password to unlock a short elevated window for high-risk approvals. */
+  async function elevate(request, response) {
+    const session = request.boxpilotSession;
+    const owner = store.findOwnerById(session.owner.id);
+    const password = request.body?.password;
+    if (!owner || typeof password !== "string" || !(await verifyPassword(password, owner.passwordHash))) {
+      response.status(401).json({ error: "Invalid password", code: "invalid_credentials" });
+      return;
+    }
+    const elevatedUntil = store.elevateSession(session.tokenHash, new Date(Date.now() + elevationTtlMs));
+    store.recordAudit("session.elevated", { actorId: owner.id, subjectId: owner.id });
+    response.json({ elevatedUntil });
+  }
+
+  function dropElevation(request, response) {
+    store.clearSessionElevation(request.boxpilotSession.tokenHash);
+    response.status(204).end();
   }
 
   function logout(request, response) {
@@ -136,7 +157,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     response.status(204).end();
   }
 
-  return { bootstrap, login, status, logout, requestSession, requireSession, requireCsrf };
+  return { bootstrap, login, status, logout, elevate, dropElevation, requestSession, requireSession, requireCsrf };
 }
 
 export const securityInternals = { cookieName, parseCookies, safeEqual, validateCredentials };

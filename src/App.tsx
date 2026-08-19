@@ -15,7 +15,7 @@ import NetworkCenter from "./NetworkCenter";
 import RepairCenter from "./RepairCenter";
 import RouterCenter from "./RouterCenter";
 import SystemLogs from "./SystemLogs";
-import { fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
+import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import VirtualMachines from "./VirtualMachines";
 
 type DialogName = "compose" | null;
@@ -220,8 +220,24 @@ function Settings({ apiMode }: { apiMode: string }) {
   );
 }
 
-function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSignedOut: () => void }) {
+function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthStatus; onSignedOut: () => void; onAuthChanged?: (status: AuthStatus) => void }) {
   const [view, setView] = useState<ViewName>("overview");
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    if (!authStatus.elevatedUntil) return undefined;
+    const interval = window.setInterval(() => setClock(Date.now()), 15000);
+    return () => window.clearInterval(interval);
+  }, [authStatus.elevatedUntil]);
+  const elevatedTime = authStatus.elevatedUntil ? Date.parse(authStatus.elevatedUntil) : Number.NaN;
+  const elevated = Number.isFinite(elevatedTime) && elevatedTime > clock;
+  const elevatedLabel = elevated ? new Date(elevatedTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+  const refreshAuth = () => fetchAuthStatus().then((status) => onAuthChanged?.(status)).catch(() => undefined);
+  useEffect(() => {
+    const listener = () => { void refreshAuth(); };
+    window.addEventListener("boxpilot:auth-changed", listener);
+    return () => window.removeEventListener("boxpilot:auth-changed", listener);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [dialog, setDialog] = useState<DialogName>(null);
   const [apiMode, setApiMode] = useState("browser preview");
   const [composeSource, setComposeSource] = useState(sampleCompose);
@@ -322,7 +338,7 @@ function Console({ authStatus, onSignedOut }: { authStatus: AuthStatus; onSigned
             <div><strong>BoxPilot control plane</strong><span>Authenticated, sanitized live inventory</span></div>
             <StatusPill tone="neutral">Mixed data</StatusPill>
           </div>
-          <div className="topbar-right"><StatusPill tone="warning">Guarded mode</StatusPill><span className="signed-in-user">{authStatus.owner?.username}</span><button className="text-button" type="button" onClick={() => void logoutOwner(authStatus.csrfToken ?? "").then(onSignedOut)}>Sign out</button></div>
+          <div className="topbar-right">{elevated ? <button className="text-button" type="button" title="High-risk approvals skip the password until this time. Click to lock now." onClick={() => void dropElevation(authStatus.csrfToken ?? "").then(refreshAuth)}>Elevated until {elevatedLabel} · Lock</button> : <StatusPill tone="neutral">Tiered approvals</StatusPill>}<span className="signed-in-user">{authStatus.owner?.username}</span><button className="text-button" type="button" onClick={() => void logoutOwner(authStatus.csrfToken ?? "").then(onSignedOut)}>Sign out</button></div>
         </header>
 
         <div className="content">
@@ -384,7 +400,7 @@ function App() {
   if (!authStatus.authenticated) {
     return <AuthScreen bootstrapRequired={authStatus.bootstrapRequired} onAuthenticated={setAuthStatus} />;
   }
-  return <Console authStatus={authStatus} onSignedOut={() => setAuthStatus({ ...authStatus, authenticated: false, owner: null, csrfToken: null, expiresAt: null })} />;
+  return <Console authStatus={authStatus} onAuthChanged={setAuthStatus} onSignedOut={() => setAuthStatus({ ...authStatus, authenticated: false, owner: null, csrfToken: null, expiresAt: null })} />;
 }
 
 export default App;
