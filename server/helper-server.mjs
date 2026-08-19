@@ -2,6 +2,7 @@ import { chmod, mkdir, unlink } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import { productVersion } from "./version.mjs";
+import { registry } from "./ops/index.mjs";
 import { createApplicationHelper } from "./application-helper.mjs";
 import { createApplicationProtectionHelper } from "./application-protection-helper.mjs";
 import { executeHelperOperation } from "./helper-protocol.mjs";
@@ -29,7 +30,8 @@ import { createVmMediaHelper } from "./vm-media-helper.mjs";
 
 const socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock";
 const maxRequestBytes = 8192;
-const readOnlyOperations = new Set(["canary.verify", "prerequisite.smartmontools.inspect", "prerequisite.restic.inspect", "prerequisite.docker.inspect", "prerequisite.virtualization.inspect", "prerequisite.apt-metadata.inspect", "container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.protection.inspect", "controller.database.protection.retention.inspect", "application.backup.protection.inspect", "application.backup.protection.retention.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.lifecycle.inspect", "application.uptime-kuma.private-access.inspect", "application.pi-hole.inspect", "application.pi-hole.lifecycle.inspect", "application.keel.inspect", "application.keel.artifact.inspect", "application.keel.archive.inspect", "application.keel.stage.inspect", "application.keel.install.inspect", "application.keel.recovery.inspect", "application.keel.recovery-drill.inspect", "application.keel.promotion.inspect", "application.keel.rollback.inspect", "virtualization.foundation.inspect", "virtualization.media.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
+const legacyReadOnlyOperations = new Set(["container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.protection.inspect", "controller.database.protection.retention.inspect", "application.backup.protection.inspect", "application.backup.protection.retention.inspect", "application.uptime-kuma.inspect", "application.uptime-kuma.lifecycle.inspect", "application.uptime-kuma.private-access.inspect", "application.pi-hole.inspect", "application.pi-hole.lifecycle.inspect", "application.keel.inspect", "application.keel.artifact.inspect", "application.keel.archive.inspect", "application.keel.stage.inspect", "application.keel.install.inspect", "application.keel.recovery.inspect", "application.keel.recovery-drill.inspect", "application.keel.promotion.inspect", "application.keel.rollback.inspect", "virtualization.foundation.inspect", "virtualization.media.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
+const readOnlyOperations = new Set([...registry.readOnlyIds(), ...legacyReadOnlyOperations]);
 let operationQueue = Promise.resolve();
 const vmRestoreDrill = createVmRestoreDrillHelper();
 const vmRecovery = createVmRecoveryHelper({ restoreEngine: vmRestoreDrill });
@@ -106,6 +108,8 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       return;
     }
     try {
+      const registeredTimeout = registry.timeoutFor(request.operation);
+      if (registeredTimeout) connection.setTimeout(registeredTimeout);
       if (request.operation === "virtualization.domain.export.create") connection.setTimeout(6 * 60 * 60 * 1000);
       if (request.operation === "virtualization.export.backup.create") connection.setTimeout(12 * 60 * 60 * 1000);
       if (request.operation === "virtualization.export.backup.retention.apply") connection.setTimeout(12 * 60 * 60 * 1000);
@@ -120,9 +124,6 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       if (request.operation === "application.backup.protection.create") connection.setTimeout(12 * 60 * 60 * 1000);
       if (request.operation === "application.backup.protection.retention.apply") connection.setTimeout(12 * 60 * 60 * 1000);
       if (request.operation === "controller.database.protection.retention.apply") connection.setTimeout(12 * 60 * 60 * 1000);
-      if (request.operation === "prerequisite.smartmontools.install") connection.setTimeout(15 * 60 * 1000);
-      if (request.operation === "prerequisite.restic.install") connection.setTimeout(15 * 60 * 1000);
-      if (request.operation === "prerequisite.apt-metadata.refresh") connection.setTimeout(15 * 60 * 1000);
       if (request.operation === "virtualization.foundation.initialize") connection.setTimeout(5 * 60 * 1000);
       if (request.operation === "virtualization.media.import") connection.setTimeout(6 * 60 * 60 * 1000);
       if (request.operation === "application.keel.stage") connection.setTimeout(15 * 60 * 1000);
