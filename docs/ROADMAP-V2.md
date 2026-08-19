@@ -110,12 +110,12 @@ Add a real router (`react-router` or a tiny hash router), a shared `<ApproveActi
 
 Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are growth. Numbers are for reference, not strict order inside a phase.
 
-### Phase 0 — Stop the bleeding (1 week)
-- **M0.1** Fix time-bomb test (`storage-evidence.test.mjs:40-41` — pass `{ now }`); add `vi.useFakeTimers` policy. Done when CI green on any date.
-- **M0.2** Single `VERSION` source (package.json) read by server, helper, protocol. Done when 4 literals become 1.
-- **M0.3** `settings.hostAlias`; replace "Bigbox" strings; migration for `pihole-on-bigbox`. Done when `grep -ri bigbox server src` = 0 (docs excepted).
-- **M0.4** Strip personal data from `UBUNTU-SERVER-INSTALL-RUNBOOK.md` (MAC, reservation, router model) into placeholders.
-- **M0.5** Write `docs/DECISIONS.md` ADR-001: "Risk tiers replace universal password approval" so future Codex runs stop re-adding ceremony. Add a `CLAUDE.md`/`AGENTS.md` that states the product goal in one paragraph.
+### Phase 0 — Stop the bleeding (1 week) — **done 2026-08-19 on branch `phase-0`**
+- ✅ **M0.1** Fix time-bomb test (`storage-evidence.test.mjs:40-41` — pass `{ now }`); add `vi.useFakeTimers` policy. Done when CI green on any date.
+- ✅ **M0.2** Single `VERSION` source (package.json) read by server, helper, protocol. Done when 4 literals become 1.
+- ✅ **M0.3** Replace "Bigbox" strings; `pihole-on-bigbox` → `pihole-on-host` with a read-side alias (no SQL migration needed — plans expire in 30 min). Chose neutral wording over a `hostAlias` setting; the authenticated UI already shows the real hostname from inventory.
+- ✅ **M0.4** Strip personal data from `UBUNTU-SERVER-INSTALL-RUNBOOK.md` (MAC, reservation, router model) into placeholders.
+- ✅ **M0.5** Write `docs/DECISIONS.md` ADR-001: "Risk tiers replace universal password approval" so future Codex runs stop re-adding ceremony. Add a `CLAUDE.md`/`AGENTS.md` that states the product goal in one paragraph.
 
 ### Phase 1 — Registry + risk tiers (2 weeks)
 - **M1.1** `server/ops/registry.mjs` with JSON-schema param validation; port the 5 existing repairs + start/stop/restart as registry entries. Done when `helper-protocol.mjs:36` one-liner and the `helper-server` timeout ladder are deleted.
