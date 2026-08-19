@@ -129,7 +129,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - ✅ (v1) **M2.1** Registry ops `apt.upgradable.inspect`, `apt.refresh`, `apt.upgrade` (all/selected), `apt.install`, `apt.remove`, `apt.purge` (high), `apt.autoremove` → root runner. New **Updates & packages** page (`src/UpdatesCenter.tsx`) with count/security/reboot tiles, select-and-upgrade, free-text install/remove, autoremove. Remaining: changelog links, reboot op + button, unattended-upgrades toggle (M2.3).
 - **M2.2** `apt.install/remove/search` with a curated **Packages** page (common tools: htop, git, curl, zsh, tmux, ncdu, smartmontools, restic, nfs-common, cifs-utils, zfsutils, cockpit, etc.) + free-text install for any apt package (medium risk).
 - **M2.3** Unattended-upgrades toggle + schedule, `needrestart` integration.
-- **M2.4** **Services** page: systemd unit list (filtered), start/stop/restart/enable/disable, journal tail per unit.
+- ✅ **M2.4** **Services** page: systemd units/timers (Common/Active/Failed/All + filter), start/stop/restart/enable/disable via `service.action` (confirm), journal per unit; BoxPilot/SSH/systemd/D-Bus/Tailscale units cannot be stopped or disabled from the UI.
 - **M2.5** Users & SSH: add user, import SSH keys from GitHub (`https://github.com/<user>.keys`), disable password SSH, change port (high risk with rollback timer).
 - **M2.6** Firewall (ufw): profile presets (LAN-only, Tailscale-only, Open), per-app rules auto-added on install, removed on uninstall.
 - **M2.7** Hostname, timezone, locale, swap, `fstrim` timer, `vm.swappiness` — a **System** page.
