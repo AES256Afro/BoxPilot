@@ -16,6 +16,7 @@ import RepairCenter from "./RepairCenter";
 import RouterCenter from "./RouterCenter";
 import SystemLogs from "./SystemLogs";
 import UpdatesCenter from "./UpdatesCenter";
+import AppCatalog from "./AppCatalog";
 import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import VirtualMachines from "./VirtualMachines";
 
@@ -29,6 +30,10 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   updates: {
     title: "Updates and packages",
     description: "See what Ubuntu wants to update, install it, and add or remove packages.",
+  },
+  catalog: {
+    title: "App catalog",
+    description: "Install, update, configure, and remove applications with one click.",
   },
   applications: {
     title: "Applications",
@@ -88,6 +93,11 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     label: "Live APT state",
     tone: "live",
     description: "Upgradable packages come from APT on this server. Refresh, upgrade, install, and remove run as audited root tasks after a one-click or confirm approval.",
+  },
+  catalog: {
+    label: "Catalog manifests + live Docker state",
+    tone: "live",
+    description: "Apps are defined by YAML manifests shipped with BoxPilot. Installs, updates, and settings changes run as audited jobs through the helper; data stays under /var/lib/boxpilot-managed/catalog.",
   },
   applications: {
     label: "Curated application engine",
@@ -275,6 +285,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
       return <HostOverview />;
     }
     if (view === "updates") return <UpdatesCenter csrfToken={authStatus.csrfToken ?? ""} />;
+    if (view === "catalog") return <AppCatalog csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "applications") {
       return (
         <ApplicationCatalog

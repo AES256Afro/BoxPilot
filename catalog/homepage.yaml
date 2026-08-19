@@ -1,0 +1,44 @@
+schemaVersion: 2
+id: homepage
+name: Homepage
+category: Dashboard
+icon: "🏠"
+description: A fast, static dashboard for everything running on this server, configured with simple YAML files.
+website: https://gethomepage.dev
+risk: low
+image:
+  reference: ghcr.io/gethomepage/homepage:v1.4.6
+  version: v1.4.6
+ports:
+  - id: web
+    label: Dashboard
+    container: 3000
+    host: 3000
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /app/config
+    path: config
+  - id: docker
+    label: Docker socket (read-only, for container widgets)
+    container: /var/run/docker.sock
+    hostPath: /var/run/docker.sock
+    readOnly: true
+env:
+  - name: HOMEPAGE_ALLOWED_HOSTS
+    label: Allowed hosts
+    description: Comma-separated host names or addresses the dashboard may be opened from (Homepage requires this). Use * to allow any.
+    default: "*"
+  - name: PUID
+    type: number
+    default: 0
+    fixed: true
+  - name: PGID
+    type: number
+    default: 0
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 10
+notes: Edit the YAML files under the config directory to add services and widgets.

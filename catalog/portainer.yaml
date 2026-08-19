@@ -1,0 +1,31 @@
+schemaVersion: 2
+id: portainer
+name: Portainer CE
+category: Docker
+icon: "🐳"
+description: Web UI for managing Docker containers, images, volumes, and stacks on this server.
+website: https://www.portainer.io
+risk: medium
+image:
+  reference: portainer/portainer-ce:2.27.9-alpine
+  version: 2.27.9
+ports:
+  - id: web
+    label: Web UI (HTTPS)
+    container: 9443
+    host: 9443
+    exposure: lan
+volumes:
+  - id: data
+    label: Portainer data
+    container: /data
+    path: data
+  - id: docker
+    label: Docker socket
+    container: /var/run/docker.sock
+    hostPath: /var/run/docker.sock
+    description: Portainer needs the Docker socket to manage containers. This grants it full control of Docker.
+health:
+  kind: running
+  stableSeconds: 10
+notes: Open the web UI within a few minutes of install to create the admin account, or Portainer locks itself for security (restart it to get another window).

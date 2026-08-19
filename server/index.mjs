@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { productVersion } from "./version.mjs";
 import { registry } from "./ops/index.mjs";
 import { approvalModes, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "./ops/risk.mjs";
+import { createCatalogService } from "./catalog/index.mjs";
 import { createActionCenterService } from "./action-center.mjs";
 import { createAuditLog } from "./audit.mjs";
 import { createApplicationService } from "./applications.mjs";
@@ -249,6 +250,36 @@ app.get("/api/v1/operations/:id/inspect", async (request, response) => {
   } catch (error) {
     return response.status(503).json({ error: error.message, code: "operation_failed" });
   }
+});
+
+// Read-only registered operations that take parameters (e.g. logs) run immediately via POST.
+app.post("/api/v1/operations/:id/run", auth.requireCsrf, async (request, response) => {
+  const operation = registry.get(request.params.id);
+  if (!operation) return response.status(404).json({ error: "Operation not found", code: "operation_not_found" });
+  if (!operation.readOnly) return response.status(405).json({ error: "This operation changes the host; stage it as a job", code: "operation_not_read_only" });
+  const parameters = request.body?.parameters ?? {};
+  const problem = registry.validate(operation.id, parameters);
+  if (problem) return response.status(400).json({ error: problem, code: "invalid_parameters" });
+  try {
+    return response.json({ operation: operation.id, result: await helper.request(operation.id, parameters, { timeoutMs: operation.timeoutMs }) });
+  } catch (error) {
+    return response.status(503).json({ error: error.message, code: "operation_failed" });
+  }
+});
+
+// Catalog: manifests come from the working tree; live state comes from the helper (tolerated when unavailable).
+const catalogService = createCatalogService();
+app.get("/api/v1/catalog", async (_request, response) => {
+  const { manifests, problems } = await catalogService.all();
+  let live = null; let liveError = null;
+  try { live = await helper.request("app.inspect", {}, { timeoutMs: 30_000 }); } catch (error) { liveError = error.message; }
+  let host = { lanAddress: null, tailscaleDnsName: null };
+  try {
+    const snapshot = await inventory.inspect();
+    host = { lanAddress: snapshot?.network?.addresses?.find((entry) => /^\d+\.\d+\.\d+\.\d+$/.test(entry.address))?.address ?? null, tailscaleDnsName: snapshot?.network?.tailscale?.dnsName ?? null };
+  } catch { /* host addresses are a convenience only */ }
+  const applications = manifests.map((manifest) => ({ manifest, live: live?.applications?.find((entry) => entry.id === manifest.id) ?? null }));
+  response.json({ applications, problems: [...problems, ...(live?.problems ?? [])], liveError, host });
 });
 
 // Mutating registered operations are staged as jobs and approved through /api/v1/jobs/:id/approve (risk-tiered).

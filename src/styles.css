@@ -3163,3 +3163,23 @@ textarea {
 @media (max-width: 900px) {
   .network-summary-grid, .network-form-grid, .network-checklist, .network-plan-columns, .dns-acceptance-summary { grid-template-columns: 1fr; }
 }
+
+/* App catalog */
+.app-catalog { display: grid; gap: 16px; }
+.app-catalog-toolbar { align-items: center; }
+.app-catalog-toolbar .secondary-button.is-active { border-color: var(--mint); color: var(--mint); }
+.app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.app-card { display: flex; flex-direction: column; gap: 12px; }
+.app-card p { margin: 0; }
+.app-card-header { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; }
+.app-card-header strong { display: block; }
+.app-icon { font-size: 28px; line-height: 1; }
+.app-notes { font-size: 12px; }
+.app-config-form { display: grid; gap: 14px; }
+.app-config-form fieldset { border: 1px solid var(--line); border-radius: 10px; padding: 12px; display: grid; gap: 10px; }
+.app-config-form legend { padding: 0 6px; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.app-config-form label { display: grid; gap: 4px; font-size: 13px; }
+.app-config-form input, .app-config-form select { width: 100%; }
+.app-logs { max-height: 60vh; overflow: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all; background: var(--surface-raised); padding: 12px; border-radius: 8px; }
+.muted { color: var(--muted); }
+.danger-text { color: var(--danger); }
