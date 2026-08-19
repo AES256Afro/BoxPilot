@@ -18,36 +18,36 @@ export function appOperations() {
       id: "app.install", title: "Install application", risk: "medium", timeoutMs: minutes(25),
       description: "Writes the compose project, pulls the image, starts the container, and waits for it to be healthy; rolls back on failure.",
       parameters: { fields: { id: idField, values: valuesField } },
-      run: (parameters, { apps }) => apps.install({ id: parameters.id, values: parameters.values ?? {} }),
+      run: (parameters, { apps, progress }) => apps.install({ id: parameters.id, values: parameters.values ?? {} }, { progress }),
     }),
     defineOperation({
       id: "app.uninstall", title: "Uninstall application (keep data)", risk: "medium", timeoutMs: minutes(10),
       description: "Stops and removes the container; the application's data directory is kept for reinstall.",
       parameters: { fields: { id: idField } },
-      run: (parameters, { apps }) => apps.uninstall({ id: parameters.id, purge: false }),
+      run: (parameters, { apps, progress }) => apps.uninstall({ id: parameters.id, purge: false }, { progress }),
     }),
     defineOperation({
       id: "app.purge", title: "Uninstall application and delete its data", risk: "high", timeoutMs: minutes(10),
       description: "Stops and removes the container and deletes everything under the application's data directory.",
       parameters: { fields: { id: idField } },
-      run: (parameters, { apps }) => apps.uninstall({ id: parameters.id, purge: true }),
+      run: (parameters, { apps, progress }) => apps.uninstall({ id: parameters.id, purge: true }, { progress }),
     }),
     defineOperation({
       id: "app.update", title: "Update application", risk: "medium", timeoutMs: minutes(40),
       description: "Pulls the catalog's current image and recreates the container; restores the previous image if it fails to become healthy.",
       parameters: { fields: { id: idField } },
-      run: (parameters, { apps }) => apps.update({ id: parameters.id }),
+      run: (parameters, { apps, progress }) => apps.update({ id: parameters.id }, { progress }),
     }),
     defineOperation({
       id: "app.reconfigure", title: "Change application settings", risk: "medium", timeoutMs: minutes(15),
       description: "Rewrites ports, settings, and volume paths and recreates the container; restores the previous configuration on failure.",
       parameters: { fields: { id: idField, values: valuesField } },
-      run: (parameters, { apps }) => apps.reconfigure({ id: parameters.id, values: parameters.values ?? {} }),
+      run: (parameters, { apps, progress }) => apps.reconfigure({ id: parameters.id, values: parameters.values ?? {} }, { progress }),
     }),
     defineOperation({
       id: "app.action", title: "Start, stop, or restart application", risk: "low", timeoutMs: minutes(5),
       parameters: { fields: { id: idField, action: { type: "string", enum: ["start", "stop", "restart"] } } },
-      run: (parameters, { apps }) => apps.action(parameters),
+      run: (parameters, { apps, progress }) => apps.action(parameters, { progress }),
     }),
   ];
 }

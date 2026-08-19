@@ -4,6 +4,7 @@ import { registry } from "./ops/index.mjs";
 import { keelArtifactSpec } from "./keel-artifact-spec.mjs";
 
 export function createJobService(store, helper, {
+  jobLog = null,
   validateApplicationJob = async () => {},
   validateApplicationLifecycleJob = async () => {},
   validateApplicationPrivateAccessJob = async () => {},
@@ -867,14 +868,24 @@ export function createJobService(store, helper, {
     return { job, owner, execution, approval: { tier: policy.tier, method: approvalMethod, elevatedUntil } };
   }
 
+  /** Move the live job log (written by root-side processes) into SQLite and remove the file. */
+  async function persistJobOutput(jobId) {
+    if (!jobLog) return;
+    try {
+      const { text, exists } = await jobLog.read(jobId, 0);
+      if (exists && typeof store.saveJobOutput === "function") store.saveJobOutput(jobId, text);
+      await jobLog.remove(jobId);
+    } catch { /* output is best-effort */ }
+  }
+
   async function executePrepared({ job, owner, execution }) {
     const jobId = job.id;
     try {
       const result = execution.run
         ? await execution.run()
         : execution.timeoutMs
-          ? await helper.request(execution.operation, execution.parameters, { timeoutMs: execution.timeoutMs })
-          : await helper.request(execution.operation, execution.parameters);
+          ? await helper.request(execution.operation, execution.parameters, { timeoutMs: execution.timeoutMs, jobId })
+          : await helper.request(execution.operation, execution.parameters, { jobId });
       store.transitionJob(jobId, "applying", "verifying", { result });
       store.addJobStep(jobId, "apply", "completed", execution.applied);
       if (job.type === "virtualization.export.backup.retention.apply" && result?.applied === true) recordVmRetentionResult(job, result);
@@ -898,6 +909,7 @@ export function createJobService(store, helper, {
       store.addJobStep(jobId, "verify", "completed", execution.verified);
       const completed = store.transitionJob(jobId, "verifying", "completed", { result });
       store.recordAudit("job.completed", { actorId: owner.id, subjectId: jobId, details: { type: job.type } });
+      await persistJobOutput(jobId);
       return completed;
     } catch (error) {
       const current = store.getJob(jobId);
@@ -933,6 +945,7 @@ export function createJobService(store, helper, {
         store.transitionJob(jobId, current.state, "failed", { error: error.message });
       }
       store.recordAudit("job.failed", { actorId: owner.id, subjectId: jobId, details: { type: job.type } });
+      await persistJobOutput(jobId);
       throw error;
     }
   }

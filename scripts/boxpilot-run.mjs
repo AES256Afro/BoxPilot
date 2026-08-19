@@ -8,21 +8,35 @@
  * /run/boxpilot/run/<id>.result.json = { ok, task, result } | { ok: false, task, error }.
  * It refuses anything not in the task table, a malformed id, or a stale approval.
  */
+import { readFileSync } from "node:fs";
 import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { tasks } from "../server/tasks/index.mjs";
+import { createJobLogWriter, defaultJobLogDirectory, jobIdPattern } from "../server/job-log.mjs";
 
 export const runDirectory = process.env.BOXPILOT_RUN_DIRECTORY ?? "/run/boxpilot/run";
 const idPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const maxApprovalAgeMs = 5 * 60 * 1000;
 
+function serviceGroupId() {
+  try {
+    const line = readFileSync("/etc/group", "utf8").split("\n").find((entry) => entry.startsWith("boxpilot:"));
+    const gid = line ? Number.parseInt(line.split(":")[2], 10) : Number.NaN;
+    return Number.isInteger(gid) ? gid : null;
+  } catch { return null; }
+}
+
 export function parseSpec(raw, now = new Date()) {
   let value;
   try { value = JSON.parse(raw); } catch { throw new Error("Task spec is not valid JSON"); }
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Task spec must be an object");
-  const keys = Object.keys(value).sort().join(",");
+  const keys = Object.keys(value).filter((key) => key !== "logPath").sort().join(",");
   if (keys !== "approvedAt,parameters,task,timeoutMs") throw new Error("Task spec has unexpected fields");
+  if (value.logPath !== undefined) {
+    const match = typeof value.logPath === "string" && value.logPath.match(/^(.*)\/([a-f0-9-]{36})\.log$/);
+    if (!match || path.resolve(match[1]) !== path.resolve(defaultJobLogDirectory) || !jobIdPattern.test(match[2])) throw new Error("Task log path is not inside the job log directory");
+  }
   if (typeof value.task !== "string" || !Object.prototype.hasOwnProperty.call(tasks, value.task)) throw new Error("Task is not in the root task table");
   if (!value.parameters || typeof value.parameters !== "object" || Array.isArray(value.parameters)) throw new Error("Task parameters must be an object");
   if (!Number.isInteger(value.timeoutMs) || value.timeoutMs < 1000 || value.timeoutMs > 24 * 60 * 60 * 1000) throw new Error("Task timeout is out of range");
@@ -44,10 +58,13 @@ export async function runTask(id, { now = () => new Date(), taskTable = tasks } 
   const specPath = path.join(runDirectory, `${id}.json`);
   const spec = parseSpec(await readFile(specPath, "utf8"), now());
   const task = taskTable[spec.task];
+  const jobId = spec.logPath ? path.basename(spec.logPath, ".log") : null;
+  const writer = createJobLogWriter({ jobId, directory: defaultJobLogDirectory, gid: serviceGroupId() });
+  const log = (line, stream) => { void writer.append(line, stream); };
   let payload;
   const timer = new Promise((_resolve, reject) => setTimeout(() => reject(new Error(`Task ${spec.task} exceeded ${spec.timeoutMs} ms`)), spec.timeoutMs).unref?.());
   try {
-    const result = await Promise.race([task(spec.parameters), timer]);
+    const result = await Promise.race([task(spec.parameters, { log }), timer]);
     payload = { ok: true, task: spec.task, result };
   } catch (error) {
     payload = { ok: false, task: spec.task, error: error instanceof Error ? error.message : String(error) };

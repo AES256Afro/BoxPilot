@@ -18,14 +18,14 @@ export function createRunUnitClient({
 } = {}) {
   const knownTasks = new Set(taskIds());
 
-  async function runTask(task, parameters = {}, { timeoutMs = 15 * 60 * 1000 } = {}) {
+  async function runTask(task, parameters = {}, { timeoutMs = 15 * 60 * 1000, logPath = null } = {}) {
     if (!knownTasks.has(task)) throw new Error(`Root task ${task} is not in the task table`);
     if (!parameters || typeof parameters !== "object" || Array.isArray(parameters)) throw new Error("Root task parameters must be an object");
     const id = randomUUID();
     await mkdir(runDirectory, { recursive: true, mode: 0o700 });
     const specPath = path.join(runDirectory, `${id}.json`);
     const resultPath = path.join(runDirectory, `${id}.result.json`);
-    await writeFile(specPath, JSON.stringify({ task, parameters, approvedAt: now().toISOString(), timeoutMs }), { mode: 0o600, flag: "wx" });
+    await writeFile(specPath, JSON.stringify({ task, parameters, approvedAt: now().toISOString(), timeoutMs, ...(logPath ? { logPath } : {}) }), { mode: 0o600, flag: "wx" });
     let start;
     try {
       start = await run(systemctlBinary, ["start", `${unitTemplate}${id}.service`], { timeout: timeoutMs + 60_000 });

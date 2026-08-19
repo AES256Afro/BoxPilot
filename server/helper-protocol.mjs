@@ -3,6 +3,8 @@ import { registry } from "./ops/index.mjs";
 import { fixedRun } from "./exec.mjs";
 import { createRunUnitClient } from "./run-unit.mjs";
 import { createAppHelper } from "./app-helper.mjs";
+import { createJobLogWriter, jobIdPattern } from "./job-log.mjs";
+import { readFileSync } from "node:fs";
 import { createApplicationHelper } from "./application-helper.mjs";
 import { createApplicationProtectionHelper, validateApplicationProtectionInput } from "./application-protection-helper.mjs";
 import { createApplicationRetentionHelper, validateApplicationRetentionInput } from "./application-retention-helper.mjs";
@@ -55,11 +57,29 @@ function privateIpv4(value) {
   return first === 10 || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168);
 }
 
+let cachedServiceGroupId = null;
+/** gid of the unprivileged web service group (boxpilot) so job logs are group-readable; null when unknown. */
+export function serviceGroupId() {
+  if (cachedServiceGroupId !== null) return cachedServiceGroupId === -1 ? null : cachedServiceGroupId;
+  try {
+    const line = readFileSync("/etc/group", "utf8").split("\n").find((entry) => entry.startsWith("boxpilot:"));
+    const gid = line ? Number.parseInt(line.split(":")[2], 10) : Number.NaN;
+    cachedServiceGroupId = Number.isInteger(gid) ? gid : -1;
+  } catch { cachedServiceGroupId = -1; }
+  return cachedServiceGroupId === -1 ? null : cachedServiceGroupId;
+}
+
 export function validateHelperRequest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "Request must be an object";
   if (value.version !== helperProtocolVersion) return "Unsupported helper protocol version";
   if (typeof value.id !== "string" || !/^[a-f0-9-]{36}$/.test(value.id)) return "Request id must be a UUID";
   if (!helperOperations.has(value.operation)) return "Operation is not allowlisted";
+  if (value.context !== undefined) {
+    if (!value.context || typeof value.context !== "object" || Array.isArray(value.context)) return "Request context must be an object";
+    const keys = Object.keys(value.context);
+    if (keys.some((key) => key !== "jobId")) return "Request context accepts only jobId";
+    if (value.context.jobId !== undefined && (typeof value.context.jobId !== "string" || !jobIdPattern.test(value.context.jobId))) return "Request context jobId must be a UUID";
+  }
   if (!value.parameters || typeof value.parameters !== "object" || Array.isArray(value.parameters)) return "Parameters must be an object";
   if (registry.has(value.operation)) return registry.validate(value.operation, value.parameters);
   if (value.operation === "virtualization.foundation.inspect" && Object.keys(value.parameters).length !== 0) return "Libvirt foundation inspection accepts no parameters";
@@ -279,7 +299,9 @@ export async function executeHelperOperation(request, dependencies = {}) {
   const error = validateHelperRequest(request);
   if (error) return { version: helperProtocolVersion, id: request?.id ?? null, ok: false, error, code: "invalid_request" };
   if (registry.has(request.operation)) {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await registry.execute(request.operation, request.parameters, { run: fixedRun, runUnit: dependencies.runUnit ?? createRunUnitClient({ run: fixedRun }), apps: dependencies.apps ?? createAppHelper(), ...dependencies, prerequisites }) };
+    const jobLog = createJobLogWriter({ jobId: request.context?.jobId ?? null, gid: serviceGroupId() });
+    const progress = (line, stream) => { void jobLog.append(line, stream); };
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await registry.execute(request.operation, request.parameters, { run: fixedRun, runUnit: dependencies.runUnit ?? createRunUnitClient({ run: fixedRun }), apps: dependencies.apps ?? createAppHelper(), ...dependencies, prerequisites, progress, jobLog }) };
   }
   if (request.operation === "container.docker.inspect") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await applications.inspectDocker() };

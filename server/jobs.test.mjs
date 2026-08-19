@@ -96,7 +96,7 @@ describe("durable job executor", () => {
     expect(job).toMatchObject({ type: "op:apt.upgrade", title: "Install package updates", risk: "medium", state: "awaiting_approval" });
     expect(jobs.describeApproval(job.id, session)).toMatchObject({ tier: "medium", passwordRequired: false });
     const completed = await jobs.approveAndRun(job.id, owner.id, { session });
-    expect(helper.request).toHaveBeenCalledWith("apt.upgrade", { packages: ["htop"] }, { timeoutMs: 70 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("apt.upgrade", { packages: ["htop"] }, expect.objectContaining({ timeoutMs: 70 * 60 * 1000 }));
     expect(completed.state).toBe("completed");
     expect(completed.result).toMatchObject({ upgraded: true });
     const purge = jobs.createOperationJob("apt.purge", { packages: ["htop"] }, owner.id);
@@ -111,7 +111,7 @@ describe("durable job executor", () => {
     const job = jobs.createCanary(owner.id);
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
 
-    expect(helper.request).toHaveBeenCalledWith("canary.verify", {});
+    expect(helper.request).toHaveBeenCalledWith("canary.verify", {}, expect.objectContaining({ jobId: expect.any(String) }));
     expect(completed.state).toBe("completed");
     expect(completed.steps.map((step) => step.name)).toEqual(["preflight", "checkpoint", "approval", "apply", "apply", "verify"]);
     expect(store.listAudit().map((event) => event.type)).toContain("job.completed");
@@ -137,7 +137,7 @@ describe("durable job executor", () => {
     const job = store.createJob({ type: "prerequisite.smartmontools.install", title: "Install smartmontools", risk: "system-package", parameters: { expectedVersion: "7.5-2" }, recovery: { automaticRollback: false }, createdBy: owner.id });
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
     expect(validatePrerequisiteRepairJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("prerequisite.smartmontools.install", { expectedVersion: "7.5-2" }, { timeoutMs: 15 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("prerequisite.smartmontools.install", { expectedVersion: "7.5-2" }, expect.objectContaining({ timeoutMs: 15 * 60 * 1000 }));
     expect(completed).toMatchObject({ state: "completed", result: { package: "smartmontools", installed: true, packageChanged: true } });
     store.close();
   });
@@ -158,7 +158,7 @@ describe("durable job executor", () => {
     const job = store.createJob({ type: "prerequisite.apt-metadata.refresh", title: "Refresh APT package metadata", risk: "system-package-metadata", parameters: { expectedUpdatedAt: updatedAt }, recovery: { automaticRollback: false }, createdBy: owner.id });
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
     expect(validatePrerequisiteRepairJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("prerequisite.apt-metadata.refresh", { expectedUpdatedAt: updatedAt }, { timeoutMs: 15 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("prerequisite.apt-metadata.refresh", { expectedUpdatedAt: updatedAt }, expect.objectContaining({ timeoutMs: 15 * 60 * 1000 }));
     expect(completed).toMatchObject({ state: "completed", result: { refreshed: true, state: "current", boundary: { packageInstallPerformed: false, packageUpgradePerformed: false, packageRemovalPerformed: false } } });
     store.close();
   });
@@ -176,7 +176,7 @@ describe("durable job executor", () => {
     const job = store.createJob({ type: "prerequisite.restic.install", title: "Install restic", risk: "system-package", parameters: { expectedVersion: "0.18.1-1" }, recovery: { automaticRollback: false }, createdBy: owner.id });
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
     expect(validatePrerequisiteRepairJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("prerequisite.restic.install", { expectedVersion: "0.18.1-1" }, { timeoutMs: 15 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("prerequisite.restic.install", { expectedVersion: "0.18.1-1" }, expect.objectContaining({ timeoutMs: 15 * 60 * 1000 }));
     expect(completed).toMatchObject({ state: "completed", result: { package: "restic", installed: true, binaryVerified: true, next: { automaticSetupPerformed: false } } });
     store.close();
   });
@@ -193,7 +193,7 @@ describe("durable job executor", () => {
     const job = store.createJob({ type: "prerequisite.docker.install", title: "Install Docker Engine", risk: "system-package-service", parameters: { expectedVersion: "28.2.2-0ubuntu1" }, recovery: { automaticRollback: false }, createdBy: owner.id });
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
     expect(validatePrerequisiteRepairJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("prerequisite.docker.install", { expectedVersion: "28.2.2-0ubuntu1" }, { timeoutMs: 15 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("prerequisite.docker.install", { expectedVersion: "28.2.2-0ubuntu1" }, expect.objectContaining({ timeoutMs: 15 * 60 * 1000 }));
     expect(completed).toMatchObject({ state: "completed", result: { package: "docker.io", installed: true, engineVersion: "28.2.2", serviceActive: true, engineVerified: true } });
     store.close();
   });
@@ -211,7 +211,7 @@ describe("durable job executor", () => {
     const job = store.createJob({ type: "prerequisite.virtualization.install", title: "Install virtualization", risk: "system-package-service-virtualization", parameters: { expectedPackages }, recovery: { automaticRollback: false }, createdBy: owner.id });
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
     expect(validatePrerequisiteRepairJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("prerequisite.virtualization.install", { expectedPackages }, { timeoutMs: 21 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("prerequisite.virtualization.install", { expectedPackages }, expect.objectContaining({ timeoutMs: 21 * 60 * 1000 }));
     expect(completed).toMatchObject({ state: "completed", result: { installed: true, packages: expectedPackages, connectionUri: "qemu:///system", kvmDeviceVerified: true } });
     store.close();
   });
@@ -233,7 +233,7 @@ describe("durable job executor", () => {
     const job = store.createJob({ type: "virtualization.foundation.initialize", title: "Initialize libvirt foundation", risk: "virtualization-network-storage", parameters: { foundationId, expectedRevision }, recovery: { automaticRollback: true }, createdBy: owner.id });
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
     expect(validateLibvirtFoundationJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("virtualization.foundation.initialize", { foundationId, expectedRevision }, { timeoutMs: 5 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("virtualization.foundation.initialize", { foundationId, expectedRevision }, expect.objectContaining({ timeoutMs: 5 * 60 * 1000 }));
     expect(completed).toMatchObject({ state: "completed", result: { initialized: true, ready: true, network: { name: "default" }, pool: { name: "default" } } });
     store.close();
   });
@@ -253,7 +253,7 @@ describe("durable job executor", () => {
 
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
     expect(validateApplicationJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("application.uptime-kuma.deploy", { hostPort: 3101 });
+    expect(helper.request).toHaveBeenCalledWith("application.uptime-kuma.deploy", { hostPort: 3101 }, expect.objectContaining({ jobId: expect.any(String) }));
     expect(completed).toMatchObject({ state: "completed", result: { healthy: true, hostPort: 3101 } });
     store.close();
   });
@@ -280,7 +280,7 @@ describe("durable job executor", () => {
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
 
     expect(validateApplicationLifecycleJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("application.uptime-kuma.action", input);
+    expect(helper.request).toHaveBeenCalledWith("application.uptime-kuma.action", input, expect.objectContaining({ jobId: expect.any(String) }));
     expect(completed).toMatchObject({ state: "completed", result: { action: "restart", state: "running", dataPreserved: true } });
     store.close();
   });
@@ -307,7 +307,7 @@ describe("durable job executor", () => {
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
 
     expect(validateApplicationPrivateAccessJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("application.uptime-kuma.private-access.configure", input);
+    expect(helper.request).toHaveBeenCalledWith("application.uptime-kuma.private-access.configure", input, expect.objectContaining({ jobId: expect.any(String) }));
     expect(completed).toMatchObject({ state: "completed", result: { published: true, tailnetOnly: true, url: result.url, boundary: { publicExposure: false, otherServeConfigurationChanged: false } } });
     store.close();
   });
@@ -340,7 +340,7 @@ describe("durable job executor", () => {
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
 
     expect(validateApplicationLifecycleJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("application.pi-hole.action", input);
+    expect(helper.request).toHaveBeenCalledWith("application.pi-hole.action", input, expect.objectContaining({ jobId: expect.any(String) }));
     expect(completed).toMatchObject({ state: "completed", result: { action: "restart", state: "running", dataPreserved: true, secretPreserved: true, routerMutationPerformed: false, dnsCutoverPerformed: false } });
     store.close();
   });
@@ -367,7 +367,7 @@ describe("durable job executor", () => {
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
 
     expect(validateApplicationJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("application.pi-hole.deploy", { lanAddress: "192.168.8.10", webPort: 8080 }, { timeoutMs: 10 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("application.pi-hole.deploy", { lanAddress: "192.168.8.10", webPort: 8080 }, expect.objectContaining({ timeoutMs: 10 * 60 * 1000 }));
     expect(completed).toMatchObject({ state: "completed", result: { healthy: true, routerMutationPerformed: false, dnsCutoverPerformed: false, dhcpEnabled: false } });
     store.close();
   });
@@ -386,7 +386,7 @@ describe("durable job executor", () => {
     const job = store.createJob({ type: "application.keel.artifact.acquire", title: "Acquire Keel artifact", risk: "networked-artifact", parameters: { acquisitionId }, recovery: { automaticRollback: true }, createdBy: owner.id });
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
     expect(validateKeelArtifactJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("application.keel.artifact.acquire", { acquisitionId }, { timeoutMs: 15 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("application.keel.artifact.acquire", { acquisitionId }, expect.objectContaining({ timeoutMs: 15 * 60 * 1000 }));
     expect(completed).toMatchObject({ state: "completed", result: { locallyVerified: true, boundary: { extractionPerformed: false, applicationInstalled: false } } });
     store.close();
   });
@@ -415,7 +415,7 @@ describe("durable job executor", () => {
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
 
     expect(validateApplicationJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("application.keel.stage", { stageId }, { timeoutMs: 15 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("application.keel.stage", { stageId }, expect.objectContaining({ timeoutMs: 15 * 60 * 1000 }));
     expect(completed).toMatchObject({ state: "completed", result: { staged: true, version: "1.2.6", boundary: { applicationInstalled: false, serviceChanged: false, listenerChanged: false } } });
     store.close();
   });
@@ -448,7 +448,7 @@ describe("durable job executor", () => {
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
 
     expect(validateApplicationJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("application.keel.install", { installId }, { timeoutMs: 15 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("application.keel.install", { installId }, expect.objectContaining({ timeoutMs: 15 * 60 * 1000 }));
     expect(completed).toMatchObject({ state: "completed", result: { installed: true, healthy: true, listener: "127.0.0.1:3000", claimRequired: true, privateAccessConfigured: false } });
     store.close();
   });
@@ -472,7 +472,7 @@ describe("durable job executor", () => {
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
 
     expect(validateBackupJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("application.uptime-kuma.backup", { backupId });
+    expect(helper.request).toHaveBeenCalledWith("application.uptime-kuma.backup", { backupId }, expect.objectContaining({ jobId: expect.any(String) }));
     expect(recordBackupResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
     expect(completed.state).toBe("completed");
     store.close();
@@ -500,7 +500,7 @@ describe("durable job executor", () => {
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
 
     expect(validateBackupJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("controller.database.backup.create", { backupId }, { timeoutMs: 10 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("controller.database.backup.create", { backupId }, expect.objectContaining({ timeoutMs: 10 * 60 * 1000 }));
     expect(recordBackupResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
     expect(completed).toMatchObject({ state: "completed", result: { consistentSnapshot: true, sourceServiceStopped: false, downtimeMs: 0 } });
     store.close();
@@ -519,7 +519,7 @@ describe("durable job executor", () => {
     const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
     expect(started.state).toBe("applying");
     expect(validateControllerProtectionJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("controller.database.protection.create", input, { timeoutMs: 12 * 60 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("controller.database.protection.create", input, expect.objectContaining({ timeoutMs: 12 * 60 * 60 * 1000 }));
     const result = { created: true, protectionId: input.protectionId, backupId: input.backupId, encrypted: true, independent: true, repositoryVerified: true, protected: true, restoreDrill: { passed: true, mode: "exact-snapshot-isolated-copy-open", network: "none", productionDatabaseReplaced: false } };
     finish(result);
     await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
@@ -540,7 +540,7 @@ describe("durable job executor", () => {
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
 
     expect(validateControllerRetentionJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("controller.database.protection.retention.apply", input, { timeoutMs: 12 * 60 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("controller.database.protection.retention.apply", input, expect.objectContaining({ timeoutMs: 12 * 60 * 60 * 1000 }));
     expect(recordControllerRetentionResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
     expect(completed).toMatchObject({ state: "completed", result: { prunePerformed: false, spaceReclaimed: false } });
     store.close();
@@ -557,7 +557,7 @@ describe("durable job executor", () => {
     const job = store.createJob({ type: "application.backup.protect", title: "Protect Pi-hole", parameters: { input }, recovery: {}, createdBy: owner.id });
     const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
     expect(started.state).toBe("applying");
-    expect(helper.request).toHaveBeenCalledWith("application.backup.protection.create", input, { timeoutMs: 12 * 60 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("application.backup.protection.create", input, expect.objectContaining({ timeoutMs: 12 * 60 * 60 * 1000 }));
     const result = { created: true, protectionId: input.protectionId, backupId: input.backupId, applicationId: input.applicationId, encrypted: true, independent: true, repositoryVerified: true, protected: true, restoreDrill: { passed: true, mode: "exact-snapshot-artifact-restore", network: "none", artifactChecksumMatched: true, applicationStarted: false, productionStateReplaced: false } };
     finish(result);
     await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
@@ -601,7 +601,7 @@ describe("durable job executor", () => {
     const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
 
     expect(validateBackupJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("application.pi-hole.backup", { backupId }, { timeoutMs: 10 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("application.pi-hole.backup", { backupId }, expect.objectContaining({ timeoutMs: 10 * 60 * 1000 }));
     expect(started.state).toBe("applying");
     finish(result);
     await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
@@ -630,7 +630,7 @@ describe("durable job executor", () => {
 
     const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
     expect(validateBackupJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("application.keel.backup", { backupId }, { timeoutMs: 20 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("application.keel.backup", { backupId }, expect.objectContaining({ timeoutMs: 20 * 60 * 1000 }));
     expect(started.state).toBe("applying");
     finish(result);
     await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
@@ -663,7 +663,7 @@ describe("durable job executor", () => {
     const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
     expect(started.state).toBe("applying");
     expect(validateKeelPromotionJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("application.keel.promotion.create", input, { timeoutMs: 20 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("application.keel.promotion.create", input, expect.objectContaining({ timeoutMs: 20 * 60 * 1000 }));
     finish(result);
     await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
     expect(recordKeelPromotionResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
@@ -696,7 +696,7 @@ describe("durable job executor", () => {
     const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
     expect(started.state).toBe("applying");
     expect(validateKeelRollbackJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("application.keel.rollback.create", input, { timeoutMs: 20 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("application.keel.rollback.create", input, expect.objectContaining({ timeoutMs: 20 * 60 * 1000 }));
     finish(result);
     await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
     expect(recordKeelRollbackResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
@@ -730,7 +730,7 @@ describe("durable job executor", () => {
       contentRevision: input.contentRevision,
       expectedDestinationState: "empty",
       expectedRemainingBytes: 8192,
-    }, { timeoutMs: 12 * 60 * 60 * 1000 });
+    }, expect.objectContaining({ timeoutMs: 12 * 60 * 60 * 1000 }));
     const result = {
       created: true,
       transferId: input.transferId,
@@ -764,7 +764,7 @@ describe("durable job executor", () => {
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
 
     expect(validateVmCreationJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("virtualization.domain.create", input);
+    expect(helper.request).toHaveBeenCalledWith("virtualization.domain.create", input, expect.objectContaining({ jobId: expect.any(String) }));
     expect(completed).toMatchObject({ state: "completed", result: { verified: true, domain: "ubuntu-lab" } });
     store.close();
   });
@@ -779,7 +779,7 @@ describe("durable job executor", () => {
     const job = store.createJob({ type: "virtualization.media.import", title: "Import ubuntu.iso", parameters: { input }, recovery: { automaticRollback: true }, createdBy: owner.id });
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
     expect(validateVmMediaImportJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("virtualization.media.import", input, { timeoutMs: 6 * 60 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("virtualization.media.import", input, expect.objectContaining({ timeoutMs: 6 * 60 * 60 * 1000 }));
     expect(completed).toMatchObject({ state: "completed", result: { imported: true, verified: true, filename: "ubuntu.iso" } });
     store.close();
   });
@@ -795,7 +795,7 @@ describe("durable job executor", () => {
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
 
     expect(validateVmLifecycleJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("virtualization.domain.action", input);
+    expect(helper.request).toHaveBeenCalledWith("virtualization.domain.action", input, expect.objectContaining({ jobId: expect.any(String) }));
     expect(completed).toMatchObject({ state: "completed", result: { verified: true, action: "shutdown" } });
     store.close();
   });
@@ -811,7 +811,7 @@ describe("durable job executor", () => {
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
 
     expect(validateVmSnapshotJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("virtualization.domain.snapshot.create", input);
+    expect(helper.request).toHaveBeenCalledWith("virtualization.domain.snapshot.create", input, expect.objectContaining({ jobId: expect.any(String) }));
     expect(completed).toMatchObject({ state: "completed", result: { consistency: "offline-consistent", independentBackup: false } });
     store.close();
   });
@@ -828,7 +828,7 @@ describe("durable job executor", () => {
 
     const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
     expect(started.state).toBe("applying");
-    expect(helper.request).toHaveBeenCalledWith("virtualization.domain.export.create", input, { timeoutMs: 6 * 60 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("virtualization.domain.export.create", input, expect.objectContaining({ timeoutMs: 6 * 60 * 60 * 1000 }));
     const result = { created: true, contentVerified: true, domain: input.name, uuid: input.expectedUuid, exportId: input.exportId, protected: false, encrypted: false, restoreDrill: { passed: false } };
     finish(result);
     await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
@@ -860,7 +860,7 @@ describe("durable job executor", () => {
 
     const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
     expect(started.state).toBe("applying");
-    expect(helper.request).toHaveBeenCalledWith("virtualization.export.backup.create", input, { timeoutMs: 12 * 60 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("virtualization.export.backup.create", input, expect.objectContaining({ timeoutMs: 12 * 60 * 60 * 1000 }));
     const result = { created: true, backupId: input.backupId, exportId: input.exportId, encrypted: true, independent: true, repositoryVerified: true, protected: false, restoreDrill: { passed: false } };
     finish(result);
     await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
@@ -886,7 +886,7 @@ describe("durable job executor", () => {
 
     const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
     expect(started.state).toBe("applying");
-    expect(helper.request).toHaveBeenCalledWith("virtualization.export.backup.retention.apply", input, { timeoutMs: 12 * 60 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("virtualization.export.backup.retention.apply", input, expect.objectContaining({ timeoutMs: 12 * 60 * 60 * 1000 }));
     const result = { applied: true, complete: true, retentionId: input.retentionId, repositoryId: input.repositoryId, repositoryVerified: true, prunePerformed: false, spaceReclaimed: false };
     finish(result);
     await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
@@ -928,7 +928,7 @@ describe("durable job executor", () => {
 
     const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
     expect(started.state).toBe("applying");
-    expect(helper.request).toHaveBeenCalledWith("virtualization.export.backup.restore-drill", input, { timeoutMs: 12 * 60 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("virtualization.export.backup.restore-drill", input, expect.objectContaining({ timeoutMs: 12 * 60 * 60 * 1000 }));
     const result = { passed: true, drillId: input.drillId, backupId: input.backupId, network: "none", transient: true, persistentDomainCreated: false, guestAgentPing: true, temporaryQemuDiskAccessGranted: true, temporaryQemuDiskAccessRemoved: true, transientFirmwareStateRemoved: true, cleanupVerified: true, protected: true };
     finish(result);
     await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
@@ -953,7 +953,7 @@ describe("durable job executor", () => {
 
     const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
     expect(started.state).toBe("applying");
-    expect(helper.request).toHaveBeenCalledWith("virtualization.backup.recovery.create", input, { timeoutMs: 12 * 60 * 60 * 1000 });
+    expect(helper.request).toHaveBeenCalledWith("virtualization.backup.recovery.create", input, expect.objectContaining({ timeoutMs: 12 * 60 * 60 * 1000 }));
     const result = {
       created: true, restoreId: input.restoreId, backupId: input.backupId, domain: input.targetDomainName,
       persistent: true, state: "stopped", network: "none", autostart: false, sourceUnchanged: true, snapshotUnchanged: true,

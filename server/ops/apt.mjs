@@ -38,36 +38,36 @@ export function aptOperations() {
     defineOperation({
       id: "apt.refresh", title: "Refresh package lists", risk: "low", timeoutMs: minutes(15),
       description: "Runs apt-get update so the list of available updates is current. Installs nothing.",
-      run: (_parameters, { runUnit }) => runUnit.runTask("apt.update", {}, { timeoutMs: minutes(10) }),
+      run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("apt.update", {}, { timeoutMs: minutes(10), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "apt.upgrade", title: "Install package updates", risk: "medium", timeoutMs: minutes(70),
       description: "Runs apt-get update then upgrades every package, or only the selected ones.",
       parameters: { fields: { packages: optionalPackagesField, refreshFirst: refreshField } },
-      run: (parameters, { runUnit }) => runUnit.runTask("apt.upgrade", { packages: parameters.packages ?? null, refreshFirst: parameters.refreshFirst ?? true }, { timeoutMs: minutes(65) }),
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("apt.upgrade", { packages: parameters.packages ?? null, refreshFirst: parameters.refreshFirst ?? true }, { timeoutMs: minutes(65), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "apt.install", title: "Install packages", risk: "medium", timeoutMs: minutes(70),
       description: "Installs the listed APT packages without recommends.",
       parameters: { fields: { packages: packagesField, refreshFirst: refreshField } },
-      run: (parameters, { runUnit }) => runUnit.runTask("apt.install", { packages: parameters.packages, refreshFirst: parameters.refreshFirst ?? true }, { timeoutMs: minutes(65) }),
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("apt.install", { packages: parameters.packages, refreshFirst: parameters.refreshFirst ?? true }, { timeoutMs: minutes(65), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "apt.remove", title: "Remove packages", risk: "medium", timeoutMs: minutes(40),
       description: "Removes the listed packages and autoremoves what only they needed; configuration files are kept.",
       parameters: { fields: { packages: packagesField } },
-      run: (parameters, { runUnit }) => runUnit.runTask("apt.remove", { packages: parameters.packages, purge: false, autoremove: true }, { timeoutMs: minutes(35) }),
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("apt.remove", { packages: parameters.packages, purge: false, autoremove: true }, { timeoutMs: minutes(35), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "apt.purge", title: "Purge packages", risk: "high", timeoutMs: minutes(40),
       description: "Removes the listed packages including their configuration files.",
       parameters: { fields: { packages: packagesField } },
-      run: (parameters, { runUnit }) => runUnit.runTask("apt.remove", { packages: parameters.packages, purge: true, autoremove: true }, { timeoutMs: minutes(35) }),
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("apt.remove", { packages: parameters.packages, purge: true, autoremove: true }, { timeoutMs: minutes(35), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "apt.autoremove", title: "Remove unused packages", risk: "medium", timeoutMs: minutes(40),
       description: "Runs apt-get autoremove --purge.",
-      run: (_parameters, { runUnit }) => runUnit.runTask("apt.autoremove", {}, { timeoutMs: minutes(35) }),
+      run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("apt.autoremove", {}, { timeoutMs: minutes(35), logPath: jobLog?.path ?? null }),
     }),
   ];
 }

@@ -5,6 +5,7 @@ import { productVersion } from "./version.mjs";
 import { registry } from "./ops/index.mjs";
 import { approvalModes, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "./ops/risk.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
+import { createJobLogReader } from "./job-log.mjs";
 import { createActionCenterService } from "./action-center.mjs";
 import { createAuditLog } from "./audit.mjs";
 import { createApplicationService } from "./applications.mjs";
@@ -102,7 +103,9 @@ const recoveryKit = createRecoveryKitService({ store: state, prerequisites, appl
 const actionCenter = createActionCenterService({ recoveryKit, inventory });
 const supportBundle = createSupportBundleService({ inventory, prerequisites, actionCenter, audit, helper });
 const vmRestoreDrills = createVmRestoreDrillService({ store: state, helper });
+const jobLogReader = createJobLogReader();
 const jobs = createJobService(state, helper, {
+  jobLog: jobLogReader,
   validatePrerequisiteRepairJob: prerequisiteRepairs.validateJob,
   validateLibvirtFoundationJob: libvirtFoundation.validateJob,
   validateApplicationJob: applications.validateJob,
@@ -914,6 +917,44 @@ app.post("/api/v1/controller-retention-plans/:id/stage", async (request, respons
 
 app.get("/api/v1/jobs", (request, response) => {
   response.json({ jobs: state.listJobs(request.query.limit) });
+});
+
+// Job output: persisted once the job is finished, otherwise the live file being written by the helper/runner.
+app.get("/api/v1/jobs/:id/output", async (request, response) => {
+  const job = state.getJob(request.params.id);
+  if (!job || job.createdBy !== request.boxpilotSession.owner.id) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
+  const persisted = state.getJobOutput(job.id);
+  if (persisted !== null) return response.json({ jobId: job.id, state: job.state, output: persisted, live: false });
+  const live = await jobLogReader.read(job.id, 0).catch(() => ({ text: "", exists: false }));
+  return response.json({ jobId: job.id, state: job.state, output: live.text, live: true });
+});
+
+// Server-sent events: streams new output as it is written, then a final `state` event when the job finishes.
+app.get("/api/v1/jobs/:id/stream", async (request, response) => {
+  const initial = state.getJob(request.params.id);
+  if (!initial || initial.createdBy !== request.boxpilotSession.owner.id) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
+  response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive", "X-Accel-Buffering": "no" });
+  response.write(": connected\n\n");
+  let offset = 0; let closed = false;
+  request.on("close", () => { closed = true; });
+  const send = (event, data) => { if (!closed) response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
+  const persisted = state.getJobOutput(initial.id);
+  if (persisted !== null) { send("output", { text: persisted }); send("state", { state: initial.state, error: initial.error }); response.end(); return; }
+  const started = Date.now();
+  while (!closed && Date.now() - started < 3 * 60 * 60 * 1000) {
+    const chunk = await jobLogReader.read(initial.id, offset).catch(() => ({ text: "", offset, exists: false }));
+    if (chunk.text) { send("output", { text: chunk.text }); offset = chunk.offset; }
+    const current = state.getJob(initial.id);
+    if (!current || ["completed", "failed"].includes(current.state)) {
+      const final = state.getJobOutput(initial.id);
+      if (final !== null && final.length > offset) send("output", { text: final.slice(offset) });
+      send("state", { state: current?.state ?? "unknown", error: current?.error ?? null });
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 700));
+  }
+  if (!closed) response.end();
+  return undefined;
 });
 
 app.get("/api/v1/jobs/:id", (request, response) => {
