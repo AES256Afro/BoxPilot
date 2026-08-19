@@ -3203,3 +3203,9 @@ textarea {
 .cloud-vm-sizes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .cloud-vm-check { display: flex !important; align-items: center; gap: 8px; }
 .cloud-vm-form textarea { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+
+.identity-signin { display: grid; gap: 10px; margin: 12px 0; }
+.identity-divider { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; }
+.identity-divider::before, .identity-divider::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
+.github-device { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.github-code { font-size: 22px; letter-spacing: 0.12em; font-weight: 700; }

@@ -19,6 +19,7 @@ import UpdatesCenter from "./UpdatesCenter";
 import AppCatalog from "./AppCatalog";
 import ServicesCenter from "./ServicesCenter";
 import ApprovalSettings from "./ApprovalSettings";
+import SignInSettings from "./SignInSettings";
 import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import VirtualMachines from "./VirtualMachines";
 
@@ -225,6 +226,7 @@ function Settings({ apiMode, csrfToken }: { apiMode: string; csrfToken: string }
   return (
     <div className="settings-grid">
       <ApprovalSettings csrfToken={csrfToken} />
+      <SignInSettings csrfToken={csrfToken} />
       <Panel className="settings-panel">
         <header className="panel-header"><strong>Server and access</strong><span>Deployment guidance</span></header>
         <dl>
