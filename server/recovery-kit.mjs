@@ -1,4 +1,4 @@
-const productVersion = "0.61.0";
+import { productVersion } from "./version.mjs";
 
 function latestBy(items, key) {
   const result = new Map();

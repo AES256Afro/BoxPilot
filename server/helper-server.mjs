@@ -1,6 +1,7 @@
 import { chmod, mkdir, unlink } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
+import { productVersion } from "./version.mjs";
 import { createApplicationHelper } from "./application-helper.mjs";
 import { createApplicationProtectionHelper } from "./application-protection-helper.mjs";
 import { executeHelperOperation } from "./helper-protocol.mjs";
@@ -159,7 +160,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
 
 server.listen(socketPath, async () => {
   await chmod(socketPath, 0o660);
-  console.log(`BoxPilot helper 0.61.0 listening on ${socketPath}`);
+  console.log(`BoxPilot helper ${productVersion} listening on ${socketPath}`);
 });
 
 async function shutdown() {

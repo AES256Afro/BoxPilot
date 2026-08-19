@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { executeHelperOperation, validateHelperRequest } from "./helper-protocol.mjs";
+import { productVersion } from "./version.mjs";
 
 function request(overrides = {}) {
   return { version: 1, id: randomUUID(), operation: "canary.verify", parameters: {}, ...overrides };
@@ -73,7 +74,7 @@ function migrationTransferParameters(overrides = {}) {
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request());
-    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: "0.61.0", mutationPerformed: false } });
+    expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: productVersion, mutationPerformed: false } });
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {

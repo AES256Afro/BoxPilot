@@ -1,4 +1,5 @@
 import net from "node:net";
+import { productVersion } from "./version.mjs";
 import { createApplicationHelper } from "./application-helper.mjs";
 import { createApplicationProtectionHelper, validateApplicationProtectionInput } from "./application-protection-helper.mjs";
 import { createApplicationRetentionHelper, validateApplicationRetentionInput } from "./application-retention-helper.mjs";
@@ -309,7 +310,7 @@ export async function executeHelperOperation(request, { applications = createApp
       version: helperProtocolVersion,
       id: request.id,
       ok: true,
-      result: { verified: true, helperVersion: "0.61.0", mutationPerformed: false },
+      result: { verified: true, helperVersion: productVersion, mutationPerformed: false },
     };
   }
   if (request.operation === "prerequisite.smartmontools.inspect") {
