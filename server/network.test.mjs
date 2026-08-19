@@ -136,7 +136,7 @@ describe("network topology and DNS assessment", () => {
     expect(plan.output.observed.defaultResolvers).toEqual(["94.140.14.49", "94.140.14.59"]);
     await expect(service.validateAssessment(plan.id, owner.id, "current-external")).resolves.toMatchObject({ id: plan.id });
     await expect(service.validateAssessment(plan.id, "different-owner", "current-external")).rejects.toThrow("not found");
-    await expect(service.validateAssessment(plan.id, owner.id, "pihole-on-bigbox")).rejects.toThrow("must use");
+    await expect(service.validateAssessment(plan.id, owner.id, "pihole-on-host")).rejects.toThrow("must use");
     runCommand.mockImplementation(async (binary, args) => {
       if (binary === "ip" && args.includes("address")) return { ok: true, stdout: ipAddresses };
       if (binary === "ip") return { ok: true, stdout: routes };
@@ -167,9 +167,19 @@ describe("network topology and DNS assessment", () => {
     store.close();
   });
 
-  it("does not confuse loopback or libvirt DNS with the reviewed Bigbox LAN binding", async () => {
+  it("accepts the legacy hostname-specific DNS role id and normalizes it", async () => {
     const { store, owner, service } = await fixture();
     const plan = await service.plan(input({ dnsRole: "pihole-on-bigbox", dnsServiceAddress: "192.168.8.10" }), owner.id);
+    expect(plan.input.dnsRole).toBe("pihole-on-host");
+    expect(plan.output.dns.role).toBe("pihole-on-host");
+    await expect(service.validateAssessment(plan.id, owner.id, "pihole-on-host")).resolves.toMatchObject({ id: plan.id });
+    expect(validateNetworkPlanInput(input({ dnsRole: "pihole-on-bigbox" }))).toContain("DNS role is unsupported");
+    store.close();
+  });
+
+  it("does not confuse loopback or libvirt DNS with the reviewed server LAN binding", async () => {
+    const { store, owner, service } = await fixture();
+    const plan = await service.plan(input({ dnsRole: "pihole-on-host", dnsServiceAddress: "192.168.8.10" }), owner.id);
     expect(plan.output.readyForChangeWindow).toBe(true);
     expect(plan.output.blockers.map((item) => item.id)).not.toContain("dns-listener-collision");
     expect(plan.output.warnings.join(" ")).toContain("Loopback and virtual-network DNS listeners are present");
@@ -178,7 +188,7 @@ describe("network topology and DNS assessment", () => {
 
   it("revalidates a post-staging acceptance baseline with exact managed DNS listeners", async () => {
     const { store, owner, runCommand, service } = await fixture();
-    const plan = await service.plan(input({ dnsRole: "pihole-on-bigbox", dnsServiceAddress: "192.168.8.10" }), owner.id);
+    const plan = await service.plan(input({ dnsRole: "pihole-on-host", dnsServiceAddress: "192.168.8.10" }), owner.id);
     runCommand.mockImplementation(async (binary, args) => {
       if (binary === "ip" && args.includes("address")) return { ok: true, stdout: ipAddresses };
       if (binary === "ip") return { ok: true, stdout: routes };

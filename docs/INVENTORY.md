@@ -57,7 +57,7 @@ The optional `0.33.0` collector checks only `/usr/bin/upsc`. It first runs the f
 
 Only `ups.status`, `battery.charge`, `battery.runtime`, and `ups.load` are parsed. Status is reduced to a fixed token set and derived `online`, `on-battery`, `low-battery`, `forced-shutdown`, `bypass`, `offline`, or `unavailable` state. Numeric fields are range checked. Device names, descriptions, manufacturers, models, serials, alarms, raw output, and errors are never returned. Multiple devices fail closed to a count and unavailable state.
 
-Missing NUT, no local configuration, a stopped local NUT service, and invalid or unknown evidence remain distinct non-healthy reasons. The collector does not install or configure NUT, run a driver, switch power, request shutdown, alter NUT policy, or probe a remote device. Bigbox had no NUT client or local configuration before this release, so its expected first live state is `nut-client-not-installed`.
+Missing NUT, no local configuration, a stopped local NUT service, and invalid or unknown evidence remain distinct non-healthy reasons. The collector does not install or configure NUT, run a driver, switch power, request shutdown, alter NUT policy, or probe a remote device. The server had no NUT client or local configuration before this release, so its expected first live state is `nut-client-not-installed`.
 
 ## Host-maintenance evidence
 

@@ -97,13 +97,13 @@ export function createApplicationProtectionService({ store, helper }) {
       ],
       verification: ["Approved local archive SHA-256 and size", "Prior application-aware no-network restore drill", "Full restic repository data read", "Exact snapshot path and tag readback", "Exact restored archive SHA-256 and size"],
       warnings: [
-        "The application repository password is a separate recovery key. Keep a copy outside Bigbox and outside the backup filesystem.",
+        "The application repository password is a separate recovery key. Keep a copy outside this server and outside the backup filesystem.",
         source.applicationId === "pi-hole"
           ? "The encrypted archive contains the Pi-hole administrator secret. Router and client DNS are never changed by this workflow."
           : source.applicationId === "keel"
             ? "The encrypted archive contains Keel notes, users, sessions, configuration, uploads, and the managed-secret companion when present. Treat it as highly sensitive."
             : "The encrypted archive contains Uptime Kuma state and credentials.",
-        "A local USB disk is independent from Bigbox storage but is not offsite protection. A NAS or rotated encrypted disk is stronger.",
+        "A local USB disk is independent from this server's storage but is not offsite protection. A NAS or rotated encrypted disk is stronger.",
         "BoxPilot does not forget, prune, overwrite, or delete application restic snapshots in this workflow.",
       ],
       recovery: "The running application and verified local archive remain unchanged. If repository or restore verification fails, preserve the encrypted repository and generated root-only drill workspace for inspection. BoxPilot does not run retention or prune.",

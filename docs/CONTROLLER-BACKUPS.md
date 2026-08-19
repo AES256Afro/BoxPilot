@@ -2,7 +2,7 @@
 
 BoxPilot `0.38.0` adds a guarded local backup for its own SQLite controller state. Version `0.39.0` adds a separate encrypted independent protection stage for that verified snapshot. It reads the complete restic repository, restores the exact snapshot, verifies both files and the database again, and only then reports the controller snapshot as protected. Version `0.40.0` adds one fixed, separately approved retention policy for exact old protected snapshot references.
 
-A local snapshot is recovery evidence, not complete disaster protection. The `0.39.0` stage can make a verified independent copy, but only after an operator mounts storage in a different failure domain and keeps the separate recovery password outside Bigbox. The `0.40.0` retention workflow can remove exact repository snapshot references, but it never removes the local verified artifacts and never reclaims repository space.
+A local snapshot is recovery evidence, not complete disaster protection. The `0.39.0` stage can make a verified independent copy, but only after an operator mounts storage in a different failure domain and keeps the separate recovery password outside the server. The `0.40.0` retention workflow can remove exact repository snapshot references, but it never removes the local verified artifacts and never reclaims repository space.
 
 ## What the backup contains
 
@@ -50,9 +50,9 @@ sudo /opt/boxpilot/scripts/boxpilot-controller-restic-setup.sh
 sudo systemctl restart boxpilot-helper.service boxpilot.service
 ```
 
-The interactive script accepts no arguments. It asks for a new controller recovery password without echo, writes only `/etc/boxpilot/secrets/controller-backup-restic-password` as `root:root` mode `0600`, and initializes only `/mnt/boxpilot-backup/restic-controller`. It refuses a symbolic-link password file, a non-exact mount, a same-filesystem destination, a short password, or a repository it cannot read. The VM repository uses a different path and password. Keep an additional recovery copy of the controller password outside Bigbox and outside the mounted backup storage.
+The interactive script accepts no arguments. It asks for a new controller recovery password without echo, writes only `/etc/boxpilot/secrets/controller-backup-restic-password` as `root:root` mode `0600`, and initializes only `/mnt/boxpilot-backup/restic-controller`. It refuses a symbolic-link password file, a non-exact mount, a same-filesystem destination, a short password, or a repository it cannot read. The VM repository uses a different path and password. Keep an additional recovery copy of the controller password outside the server and outside the mounted backup storage.
 
-Bigbox does not currently have this independent mount configured. Until it does, Backups displays every blocker and disables staging. Inspection is read-only and does not create a repository or secret.
+The server does not currently have this independent mount configured. Until it does, Backups displays every blocker and disables staging. Inspection is read-only and does not create a repository or secret.
 
 ## Protect and restore-test one local snapshot
 

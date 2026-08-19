@@ -258,12 +258,12 @@ export function createApplicationService({ store, prerequisites, helper, network
     let fallbackDnsAddress = null;
     if (manifest.id === "pi-hole" && target === "docker") {
       try {
-        if (typeof input?.networkAssessmentId !== "string") throw new Error("Create a Pi-hole on Bigbox assessment in Network Center first");
-        networkAssessment = await network.validateAssessment(input.networkAssessmentId, ownerId, "pihole-on-bigbox");
+        if (typeof input?.networkAssessmentId !== "string") throw new Error("Create a Pi-hole on this server assessment in Network Center first");
+        networkAssessment = await network.validateAssessment(input.networkAssessmentId, ownerId, "pihole-on-host");
         lanAddress = networkAssessment.input.serverAddress;
         fallbackDnsAddress = networkAssessment.input.fallbackDnsAddress;
       } catch (error) {
-        blockers.push({ id: "network.assessment", summary: error.message, repair: { kind: "guided", description: "Open Network Center, select Pi-hole on Bigbox, complete the recovery checklist, and generate a fresh assessment" } });
+        blockers.push({ id: "network.assessment", summary: error.message, repair: { kind: "guided", description: "Open Network Center, select Pi-hole on this server, complete the recovery checklist, and generate a fresh assessment" } });
       }
       if (lanAddress) {
         const [dnsTcpInUse, dnsUdpInUse] = await Promise.all([inspectPort(53, lanAddress), inspectUdpPort(53, lanAddress)]);
@@ -373,7 +373,7 @@ export function createApplicationService({ store, prerequisites, helper, network
     const warnings = [];
     if (manifest.id === "pi-hole") {
       warnings.push("This job starts a testable DNS service only. It cannot change router DHCP, advertise DNS, enable Pi-hole DHCP, alter Tailscale DNS, or move any client to Pi-hole.");
-      if (target === "docker") warnings.push("Docker on Bigbox ties this DNS service to Bigbox uptime. Keep the recorded emergency resolver working and complete a protected backup before any later cutover.");
+      if (target === "docker") warnings.push("Docker on this server ties this DNS service to this server's uptime. Keep the recorded emergency resolver working and complete a protected backup before any later cutover.");
       if (target === "virtual-machine") warnings.push("The dedicated VM adapter remains planning-only; use Docker staging or complete the VM application adapter in a later release.");
     }
     if (manifest.id === "uptime-kuma") warnings.push("After deployment, open Backups and complete the integrity and isolated restore workflow before treating this application as protected.");
@@ -457,7 +457,7 @@ export function createApplicationService({ store, prerequisites, helper, network
     if (!["uptime-kuma", "pi-hole", "keel"].includes(plan.subjectId)) throw new Error("Application execution is not enabled for this adapter");
 
     if (plan.subjectId === "pi-hole") {
-      await network.validateAssessment(plan.input.networkAssessmentId, ownerId, "pihole-on-bigbox");
+      await network.validateAssessment(plan.input.networkAssessmentId, ownerId, "pihole-on-host");
       const [dnsTcpInUse, dnsUdpInUse] = await Promise.all([inspectPort(53, plan.input.lanAddress), inspectUdpPort(53, plan.input.lanAddress)]);
       if (dnsTcpInUse !== false || dnsUdpInUse !== false) throw new Error("Host state changed: exact-address TCP and UDP port 53 are no longer verified free");
     }
@@ -471,7 +471,7 @@ export function createApplicationService({ store, prerequisites, helper, network
     const isKeelInstall = isKeel && plan.input.keelAction === "install";
     return store.createJob({
       type: isKeelInstall ? "application.keel.install" : isKeel ? "application.keel.stage" : isPihole ? "application.pi-hole.deploy" : "application.uptime-kuma.deploy",
-      title: isKeelInstall ? "Install private Keel 1.2.6 service" : isKeel ? "Stage Keel 1.2.6 release tree" : isPihole ? "Stage Pi-hole on Bigbox" : "Deploy Uptime Kuma",
+      title: isKeelInstall ? "Install private Keel 1.2.6 service" : isKeel ? "Stage Keel 1.2.6 release tree" : isPihole ? "Stage Pi-hole on this server" : "Deploy Uptime Kuma",
       risk: isKeelInstall ? "stateful-install" : isKeel ? "stateful-staging" : isPihole ? "network-critical" : "low",
       parameters: { planId: plan.id, revision: plan.revision, hostPort: plan.input.hostPort, ...(isPihole ? { lanAddress: plan.input.lanAddress, networkAssessmentId: plan.input.networkAssessmentId } : {}), ...(isKeelInstall ? { installId: plan.input.installId } : isKeel ? { stageId: plan.input.stageId } : {}) },
       recovery: {
@@ -500,7 +500,7 @@ export function createApplicationService({ store, prerequisites, helper, network
     const blocker = inventory.checks.find((item) => required.has(item.id) && item.status !== "ready");
     if (blocker) throw new Error(`Host state changed: ${blocker.summary}`);
     if (job.type === "application.pi-hole.deploy") {
-      const assessment = await network.validateAssessment(plan.input.networkAssessmentId, job.createdBy, "pihole-on-bigbox");
+      const assessment = await network.validateAssessment(plan.input.networkAssessmentId, job.createdBy, "pihole-on-host");
       if (assessment.input.serverAddress !== plan.input.lanAddress || job.parameters.lanAddress !== plan.input.lanAddress) throw new Error("Host state changed: the reviewed Pi-hole LAN address no longer matches");
       const [dnsTcpInUse, dnsUdpInUse] = await Promise.all([inspectPort(53, plan.input.lanAddress), inspectUdpPort(53, plan.input.lanAddress)]);
       if (dnsTcpInUse !== false || dnsUdpInUse !== false) throw new Error("Host state changed: exact-address TCP and UDP port 53 are no longer verified free");

@@ -20,7 +20,7 @@ The managed application and backup directory is root-only mode `0700`. Artifacts
 
 Version `0.38.0` creates a consistent standalone snapshot of the fixed live SQLite database with `VACUUM INTO`, so committed WAL state is included without stopping the controller. It computes SHA-256, requires integrity, foreign-key, schema, and owner-state checks to pass, copies the artifact into a generated root-only drill workspace, opens and verifies that copy again, removes the drill workspace, and writes a recovery manifest. The production database is never replaced or changed.
 
-The local artifact remains on Bigbox and contains sensitive authentication, agent, job, and audit state. It is not independently protected. Version `0.39.0` can bind that exact local evidence to the separate fixed `restic-controller` repository, run a complete repository read, restore the exact snapshot, rehash both files, and repeat the isolated database checks. Version `0.40.0` can later forget at most 100 exact old protected snapshot references after preserving the fixed three-copy, 30-day, failed-restore, and active-job floors. It then reads all remaining repository data and proves reviewed noncandidates remain. It does not prune or remove the local artifact. See [the controller backup and manual recovery runbook](CONTROLLER-BACKUPS.md) before configuring or operating it.
+The local artifact remains on the server and contains sensitive authentication, agent, job, and audit state. It is not independently protected. Version `0.39.0` can bind that exact local evidence to the separate fixed `restic-controller` repository, run a complete repository read, restore the exact snapshot, rehash both files, and repeat the isolated database checks. Version `0.40.0` can later forget at most 100 exact old protected snapshot references after preserving the fixed three-copy, 30-day, failed-restore, and active-job floors. It then reads all remaining repository data and proves reviewed noncandidates remain. It does not prune or remove the local artifact. See [the controller backup and manual recovery runbook](CONTROLLER-BACKUPS.md) before configuring or operating it.
 
 ## Uptime Kuma workflow
 
@@ -101,7 +101,7 @@ For one approved Keel backup, BoxPilot:
 
 The script and systemd unit both request source restart after failure. Helper startup can also recover a validated marker left by an interrupted request. It restarts only `keel.service` and removes only generated unrecorded backup paths after restart succeeds. It never deletes or replaces `/var/lib/keel`, changes claim or registration, exposes a listener, modifies Tailscale or a firewall, changes DNS or DHCP, or contacts a router.
 
-The archive may contain private notes, users, sessions, configuration, uploads, credentials, and the managed-secret companion. Keep it mode `0600` and treat it as highly sensitive. Local verification proves that the artifact can be opened and structurally recovered, but not that Bigbox storage failure is covered. Run the separate encrypted independent application protection workflow before marking it protected.
+The archive may contain private notes, users, sessions, configuration, uploads, credentials, and the managed-secret companion. Keep it mode `0600` and treat it as highly sensitive. Local verification proves that the artifact can be opened and structurally recovered, but not that the server's storage failure is covered. Run the separate encrypted independent application protection workflow before marking it protected.
 
 ### Stopped Keel recovery clone
 
@@ -155,14 +155,14 @@ Drills:     /var/lib/boxpilot-managed/application-independent-restore-drills
 
 The mount must be an exact writable mountpoint on a filesystem different from both `/var/lib/boxpilot-managed/apps` and `/var/lib/boxpilot-managed/backups`. The repository password must be a separate root-owned mode-0600 key. Do not reuse the controller or VM recovery password.
 
-After mounting independent storage, run only from an interactive Bigbox terminal:
+After mounting independent storage, run only from an interactive server terminal:
 
 ```bash
 sudo /opt/boxpilot/scripts/boxpilot-application-restic-setup.sh
 sudo systemctl restart boxpilot-helper.service boxpilot.service
 ```
 
-The script accepts no arguments, refuses a symlink or same-filesystem destination, reads the password without echo, and initializes only `restic-applications`. Keep a recovery copy of the password outside Bigbox and outside the mounted backup filesystem.
+The script accepts no arguments, refuses a symlink or same-filesystem destination, reads the password without echo, and initializes only `restic-applications`. Keep a recovery copy of the password outside the server and outside the mounted backup filesystem.
 
 For one approved protection job, BoxPilot:
 
@@ -211,9 +211,9 @@ The fixed locations are:
 /var/cache/boxpilot-restic
 ```
 
-The helper requires the mount to be an exact writable mountpoint and compares filesystem device identifiers against both `/var/lib/boxpilot-managed/vm-exports` and `/var/lib/libvirt/images`. A directory on the Bigbox root filesystem is rejected even if it has the expected name. The password file must be a regular non-symlink owned by root, mode `0600`, and 16 to 4096 bytes.
+The helper requires the mount to be an exact writable mountpoint and compares filesystem device identifiers against both `/var/lib/boxpilot-managed/vm-exports` and `/var/lib/libvirt/images`. A directory on the server root filesystem is rejected even if it has the expected name. The password file must be a regular non-symlink owned by root, mode `0600`, and 16 to 4096 bytes.
 
-Prepare a real external disk or separately mounted NAS filesystem first. Install restic, mount the destination, then run the interactive setup utility from the Bigbox terminal:
+Prepare a real external disk or separately mounted NAS filesystem first. Install restic, mount the destination, then run the interactive setup utility from the server terminal:
 
 ```bash
 sudo apt update
@@ -222,7 +222,7 @@ sudo /opt/boxpilot/scripts/boxpilot-restic-setup.sh
 sudo systemctl restart boxpilot-helper boxpilot
 ```
 
-The script refuses a same-filesystem destination and never accepts the repository password as a command-line argument. Store a separate recovery copy of that password outside Bigbox. Losing it makes the repository unrecoverable.
+The script refuses a same-filesystem destination and never accepts the repository password as a command-line argument. Store a separate recovery copy of that password outside the server. Losing it makes the repository unrecoverable.
 
 For an approved copy job, BoxPilot:
 
@@ -333,4 +333,4 @@ The controller repository uses the same evidence principle through a separate `0
 
 ## Current limitations
 
-Controller and application backups begin as local artifacts on Bigbox. Their separate fixed mounted-restic workflows can protect exact verified records, but an operator must first provide the independent filesystem and separately retain each repository key. The controller copy-open drill proves SQLite integrity and schema, not service startup or owner login. Application local restore containers prove basic no-network startup; the independent application drill proves exact archived bytes, not direct Pi-hole DNS service from another LAN device. Bigbox currently has no configured independent backup mount, so its live UI correctly reports setup blockers and no real VM restore drill, recovery clone, independent retention mutation, controller protection, or application protection has run there. Remote restic backends, offsite copies, schedules, local-archive retention, controller browser download or automatic restore, restic prune, configurable policies beyond the fixed evidence-gated policies, notification, in-place restore, recovered-VM network attachment, application-level VM restore tests, PostgreSQL, and Litestream-aware adapters remain future milestones.
+Controller and application backups begin as local artifacts on the server. Their separate fixed mounted-restic workflows can protect exact verified records, but an operator must first provide the independent filesystem and separately retain each repository key. The controller copy-open drill proves SQLite integrity and schema, not service startup or owner login. Application local restore containers prove basic no-network startup; the independent application drill proves exact archived bytes, not direct Pi-hole DNS service from another LAN device. The server currently has no configured independent backup mount, so its live UI correctly reports setup blockers and no real VM restore drill, recovery clone, independent retention mutation, controller protection, or application protection has run there. Remote restic backends, offsite copies, schedules, local-archive retention, controller browser download or automatic restore, restic prune, configurable policies beyond the fixed evidence-gated policies, notification, in-place restore, recovered-VM network attachment, application-level VM restore tests, PostgreSQL, and Litestream-aware adapters remain future milestones.

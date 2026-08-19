@@ -6,7 +6,7 @@ BoxPilot `0.37.0` combines credential-free router-readiness guidance, the recove
 - Omada ER707-M2
 - TP-Link Archer BE400
 
-This remains a bounded router integration gate. It does not log in to a router, accept credentials, call a vendor API, upload a configuration, discover firmware, change a setting, advertise DNS, or perform a restore. Bigbox can query only its one observed gateway after a separate immutable plan and password approval. A separately enrolled agent can repeat only the fixed query contract after matching that target to its own one local default gateway.
+This remains a bounded router integration gate. It does not log in to a router, accept credentials, call a vendor API, upload a configuration, discover firmware, change a setting, advertise DNS, or perform a restore. The server can query only its one observed gateway after a separate immutable plan and password approval. A separately enrolled agent can repeat only the fixed query contract after matching that target to its own one local default gateway.
 
 ## Recommended topology
 
@@ -20,7 +20,7 @@ This avoids double NAT and competing DHCP servers while keeping Flint 2's built-
 
 ## Live correlation and operator checks
 
-Authenticated `GET /api/v1/network/router-readiness` runs the same fixed route, address, resolver, DNS-listener, and Tailscale collectors used by Network Center. It can state that Bigbox observes a gateway address and interface. It cannot prove which physical device owns that address.
+Authenticated `GET /api/v1/network/router-readiness` runs the same fixed route, address, resolver, DNS-listener, and Tailscale collectors used by Network Center. It can state that the server observes a gateway address and interface. It cannot prove which physical device owns that address.
 
 The response therefore keeps these as explicit operator checks:
 
@@ -45,7 +45,7 @@ Firmware menus can change. The guide tells the operator what to verify and links
 ## Record a checkpoint
 
 1. Export the router configuration from the vendor interface.
-2. Store the original file somewhere that does not depend on Bigbox or that router.
+2. Store the original file somewhere that does not depend on the server or that router.
 3. Open **Routers** in BoxPilot.
 4. Choose the fixed model declaration and enter the firmware version shown by the router.
 5. Select the exported configuration file. Files must be between 64 bytes and 64 MiB.
@@ -97,7 +97,7 @@ The unprivileged BoxPilot controller sends exactly four A-record queries to the 
 3. `example.net` over UDP with a successful answer required.
 4. `boxpilot.invalid` over UDP with an NXDOMAIN response required.
 
-A passing run stores the checkpoint id, plan id, job id, observed resolver address, fixed declarations, protocol, response code, answer count, recursion flag, truncation flag, latency, owner, and timestamp. It proves only that Bigbox reached a DNS service at the one observed gateway and received the expected fixed responses. It does not prove the gateway is physically a Flint 2, that AdGuard Home produced the response, that **Handle Client Requests** or upstream filtering is configured correctly, that DHCP advertises the gateway, or that another client uses the same path.
+A passing run stores the checkpoint id, plan id, job id, observed resolver address, fixed declarations, protocol, response code, answer count, recursion flag, truncation flag, latency, owner, and timestamp. It proves only that the server reached a DNS service at the one observed gateway and received the expected fixed responses. It does not prove the gateway is physically a Flint 2, that AdGuard Home produced the response, that **Handle Client Requests** or upstream filtering is configured correctly, that DHCP advertises the gateway, or that another client uses the same path.
 
 The root helper is never invoked. No router, AdGuard Home, DHCP, DNS advertisement, VPN, firewall, client, or Tailscale setting is read or changed. If any query fails, no passing acceptance record is created. Keep or restore the independently tested resolver and inspect Flint 2 locally before creating a new plan.
 
@@ -107,7 +107,7 @@ Version `0.37.0` can create one signed agent task from a passing direct gateway 
 
 The Ed25519 agent accepts `dns.flint2-adguard.acceptance.v1` only on Linux or macOS. Before querying DNS, it runs one fixed node-local default-route read. Exactly one IPv4 gateway must exist and equal the controller target. The agent rejects changed query names, protocols, expected response codes, port, checkpoint boundary, arbitrary-target flag, router-write flag, model-attestation flag, or gateway mismatch. A signed result is linked to the exact controller acceptance and checkpoint.
 
-A passing result proves only that the enrolled key reported the fixed agent contract passed from a device whose locally derived gateway matched the fresh Bigbox target. It is not device or hardware attestation and does not prove physical Flint 2 identity, AdGuard Home state, filtering, DHCP advertisement, every client, or recovery. No router, AdGuard Home, DHCP, DNS advertisement, VPN, client, firewall, or Tailscale write exists.
+A passing result proves only that the enrolled key reported the fixed agent contract passed from a device whose locally derived gateway matched the fresh server target. It is not device or hardware attestation and does not prove physical Flint 2 identity, AdGuard Home state, filtering, DHCP advertisement, every client, or recovery. No router, AdGuard Home, DHCP, DNS advertisement, VPN, client, firewall, or Tailscale write exists.
 
 ## Why configuration files are not uploaded
 
@@ -123,7 +123,7 @@ A safe Flint 2 adapter still needs:
 4. A bounded configuration diff that cannot contain a command or arbitrary path
 5. Owner-password approval immediately before apply
 6. An independent Tailscale or console recovery path
-7. Post-change Bigbox and signed second-device DNS evidence
+7. Post-change the server and signed second-device DNS evidence
 8. A timed observation window
 9. One tested rollback operation tied to the exact checkpoint
 

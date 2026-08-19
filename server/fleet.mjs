@@ -156,7 +156,7 @@ export function createFleetService({ store, now = () => new Date() }) {
   function requireFreshAcceptance(acceptance, delayMs, label) {
     const createdAt = new Date(acceptance.createdAt).getTime();
     const ageMs = now().getTime() - createdAt;
-    if (!Number.isFinite(createdAt) || ageMs < 0 || ageMs + delayMs > controllerEvidenceMaxAgeMs) throw new Error(`The direct Bigbox ${label} acceptance would be older than 30 minutes when this task becomes available; run it again`);
+    if (!Number.isFinite(createdAt) || ageMs < 0 || ageMs + delayMs > controllerEvidenceMaxAgeMs) throw new Error(`The direct server-side ${label} acceptance would be older than 30 minutes when this task becomes available; run it again`);
   }
 
   async function createDnsProbeTask(ownerId, body) {
@@ -167,7 +167,7 @@ export function createFleetService({ store, now = () => new Date() }) {
     if (!agent || agent.status !== "active" || !agent.capabilities.includes("dns-probe-v1")) throw new Error("An active DNS probe agent is required");
     if (store.listFleetTasks(200).some((task) => task.agentId === agent.id && taskContract(task.type) && task.state === "pending")) throw new Error("This agent already has a pending DNS probe");
     const acceptance = store.listDnsAcceptances(200).find((item) => item.passed && item.origin === "boxpilot-controller" && item.secondDeviceTested === false);
-    if (!acceptance) throw new Error("A passing direct Bigbox Pi-hole acceptance is required first");
+    if (!acceptance) throw new Error("A passing direct server-side Pi-hole acceptance is required first");
     const delayMs = body.delayMinutes * 60 * 1000;
     requireFreshAcceptance(acceptance, delayMs, "Pi-hole");
     if (net.isIP(acceptance.resolverAddress) !== 4) throw new Error("The linked Pi-hole resolver is not an exact IPv4 address");
@@ -196,7 +196,7 @@ export function createFleetService({ store, now = () => new Date() }) {
     if (!agent || agent.status !== "active" || !agent.capabilities.includes("dns-probe-v1")) throw new Error("An active DNS probe agent is required");
     if (store.listFleetTasks(200).some((task) => task.agentId === agent.id && taskContract(task.type) && task.state === "pending")) throw new Error("This agent already has a pending DNS probe");
     const acceptance = store.listRouterDnsAcceptances(200).find((item) => item.passed && item.origin === "boxpilot-controller");
-    if (!acceptance) throw new Error("A passing direct Bigbox Flint 2 gateway acceptance is required first");
+    if (!acceptance) throw new Error("A passing direct server-side Flint 2 gateway acceptance is required first");
     const delayMs = body.delayMinutes * 60 * 1000;
     requireFreshAcceptance(acceptance, delayMs, "Flint 2 gateway");
     if (net.isIP(acceptance.resolverAddress) !== 4) throw new Error("The linked Flint 2 gateway resolver is not an exact IPv4 address");

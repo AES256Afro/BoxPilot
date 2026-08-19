@@ -66,7 +66,7 @@ export function createVmExportService({ store, libvirt, helper }) {
       encrypted: false,
       restoreDrill: { passed: false, reason: "An isolated restore boot has not run" },
       warnings: [
-        "This first destination is on Bigbox and does not protect against host or disk loss.",
+        "This first destination is on this server and does not protect against host or disk loss.",
         "The export is root-only but not encrypted at rest.",
         "Disk content is verified, but the VM is not protected until an independent encrypted copy and isolated restore boot pass.",
         "Existing internal snapshot history is flattened to the current disk state in the exported qcow2 files.",

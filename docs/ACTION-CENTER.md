@@ -29,7 +29,7 @@ The Action Center is guidance, not an automation system. Opening, refreshing, or
 | Reboot required, degraded systemd, or incomplete maintenance evidence | Overview |
 | Stale APT metadata or unattended-upgrades review | Repair Center or Overview |
 
-Verified and not-applicable checks do not create noise. If every mapped check is verified or not applicable, BoxPilot reports one informational readiness notice. Operator checks remain visible because they require human evidence outside Bigbox.
+Verified and not-applicable checks do not create noise. If every mapped check is verified or not applicable, BoxPilot reports one informational readiness notice. Operator checks remain visible because they require human evidence outside the server.
 
 ## Severity model
 

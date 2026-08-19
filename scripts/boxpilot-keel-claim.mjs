@@ -103,8 +103,8 @@ export async function claimInstalledKeel({
   runClaim,
 } = {}) {
   if (!claimPattern.test(String(token ?? ""))) throw new Error("Paste one current five-minute Keel claim token as the only argument");
-  if (uid !== 0 || !/^\d+$/.test(String(sudoUid ?? "")) || Number(sudoUid) <= 0) throw new Error("Run this command from a normal Bigbox administrator account through fresh sudo, not from a root login");
-  if (!stdinTty || !stdoutTty) throw new Error("Keel claim must run interactively in a Bigbox terminal");
+  if (uid !== 0 || !/^\d+$/.test(String(sudoUid ?? "")) || Number(sudoUid) <= 0) throw new Error("Run this command from a normal server administrator account through fresh sudo, not from a root login");
+  if (!stdinTty || !stdoutTty) throw new Error("Keel claim must run interactively in a server terminal");
   const account = await inspectAccount();
   if (!account) throw new Error("The dedicated Keel service account is unavailable or changed");
   await verifyBoundary({ paths, account, rootUid, serviceActive });

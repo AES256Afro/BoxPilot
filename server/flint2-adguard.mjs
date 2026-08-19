@@ -38,7 +38,7 @@ export function createFlint2AdguardService({ store, network, routerCheckpoints, 
           "A passing direct test proves the observed gateway answers DNS; it does not remotely attest the physical model, AdGuard configuration, DHCP advertisement, or every client path.",
         ],
         changes: [
-          "Send four fixed DNS queries from Bigbox directly to the one observed gateway on TCP and UDP port 53.",
+          "Send four fixed DNS queries from this server directly to the one observed gateway on TCP and UDP port 53.",
           "Record only response code, answer count, protocol, latency, and immutable evidence links.",
         ],
         recovery: "The probe changes no router, AdGuard Home, DHCP, DNS advertisement, VPN, firewall, client, or Tailscale setting. On failure, keep or restore the independent resolver and review Flint 2 locally.",
@@ -88,7 +88,7 @@ export function createFlint2AdguardService({ store, network, routerCheckpoints, 
     store.stagePlan(plan.id, ownerId);
     return store.createJob({
       type: "network.flint2-adguard.acceptance.run",
-      title: "Verify Flint 2 gateway DNS from Bigbox",
+      title: "Verify Flint 2 gateway DNS from this server",
       risk: "network-read",
       parameters: { acceptanceId: randomUUID(), planId: plan.id, revision: plan.revision, resolverAddress: plan.output.resolverAddress, checkpointId: plan.output.checkpointId },
       recovery: { automaticRollback: false, reason: "The four fixed direct DNS queries do not mutate router or client state.", manual: "If a check fails, keep or restore the independent resolver. Review Router mode, AdGuard Home state, Handle Client Requests, VPN interaction, and upstream DNS from the Flint 2 interface." },

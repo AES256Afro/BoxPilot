@@ -110,7 +110,7 @@ export function createVmProtectionHelper({
       const metadata = await statFile(resolvedPasswordFile);
       if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.uid !== 0 || (metadata.mode & 0o777) !== 0o600 || metadata.size < 16 || metadata.size > 4096) throw new Error("unsafe password file");
     } catch {
-      blockers.push("Create the root-owned mode-0600 restic password file from the Bigbox terminal");
+      blockers.push("Create the root-owned mode-0600 restic password file from the server terminal");
     }
 
     if (resticVersion && mount && blockers.length === 0) {

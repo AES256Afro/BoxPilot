@@ -169,7 +169,7 @@ export default function RouterCenter({ csrfToken }: { csrfToken: string }) {
         <header className="panel-header"><strong>Recommended production topology</strong><span>Live gateway address, operator-verified device identity</span></header>
         <div className="router-topology-summary">
           <div><span className="eyebrow">Recommended</span><strong>Flint 2 edge | TP-Link access point | ER707-M2 standby</strong><p>{readiness.recommendedTopology.summary}</p><small>{readiness.recommendedTopology.rationale}</small></div>
-          <div className="router-observed-gateway"><span>Bigbox observes</span><strong>{readiness.observedGateway ? `${readiness.observedGateway.address} via ${readiness.observedGateway.interface}` : "No unambiguous gateway"}</strong><small>Address observed. Router model not verified.</small></div>
+          <div className="router-observed-gateway"><span>This server observes</span><strong>{readiness.observedGateway ? `${readiness.observedGateway.address} via ${readiness.observedGateway.interface}` : "No unambiguous gateway"}</strong><small>Address observed. Router model not verified.</small></div>
         </div>
         <details><summary>Alternate: ER707-M2 as the only edge router</summary><p>{readiness.alternateTopology.summary}</p><small>{readiness.alternateTopology.gate}</small></details>
       </section>

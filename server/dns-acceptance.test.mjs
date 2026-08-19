@@ -35,7 +35,7 @@ async function fixture({ sourceInstalled = true, withBackup = true, probeResolve
     type: "network.dns.assessment",
     subjectId: "flint2-edge-tplink-ap",
     input: {
-      topology: "flint2-edge-tplink-ap", dnsRole: "pihole-on-bigbox", gatewayAddress: "192.168.8.1",
+      topology: "flint2-edge-tplink-ap", dnsRole: "pihole-on-host", gatewayAddress: "192.168.8.1",
       serverAddress: "192.168.8.10", dnsServiceAddress: "192.168.8.10", fallbackDnsAddress: "94.140.14.59",
       routerBackupRecorded: true, emergencyResolverTested: true, secondDeviceReady: true, tailscaleDnsOverride: false,
     },
@@ -118,7 +118,7 @@ describe("direct DNS acceptance", () => {
       executable: true,
       resolverAddress: "192.168.8.10",
       linkedAssessmentId: assessment.id,
-      evidenceBoundary: { provesBigboxPath: true, provesSecondDevicePath: false, routerMutationSupported: false, dnsCutoverSupported: false },
+      evidenceBoundary: { provesHostPath: true, provesSecondDevicePath: false, routerMutationSupported: false, dnsCutoverSupported: false },
       blockers: [],
     });
     expect(plan.output.tests).toHaveLength(4);

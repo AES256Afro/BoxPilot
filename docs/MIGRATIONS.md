@@ -56,7 +56,7 @@ The packer:
 - Labels secret-sensitive names in the root-only manifest without returning paths or contents to the browser
 - Preserves the original source tree
 
-For a local Bigbox workload, the completed bundle immediately appears in Migration Center. For a remote source, an administrator may transport the complete UUID directory into the fixed destination inbox using an out-of-band tool. BoxPilot `0.17.0` does not manage that remote transport, credentials, or SSH session. It fully revalidates the landed bundle before offering a plan.
+For a local the server workload, the completed bundle immediately appears in Migration Center. For a remote source, an administrator may transport the complete UUID directory into the fixed destination inbox using an out-of-band tool. BoxPilot `0.17.0` does not manage that remote transport, credentials, or SSH session. It fully revalidates the landed bundle before offering a plan.
 
 ## Plan, approve, and stage
 

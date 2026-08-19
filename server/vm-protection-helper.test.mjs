@@ -100,7 +100,7 @@ describe("encrypted independent VM backup helper", () => {
     });
   });
 
-  it("rejects a directory on the Bigbox source filesystem as independent protection", async () => {
+  it("rejects a directory on the server's source filesystem as independent protection", async () => {
     const { helper } = await fixture({ independent: false });
     const status = await helper.inspect();
     expect(status.ready).toBe(false);

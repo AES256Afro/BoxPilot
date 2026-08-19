@@ -178,7 +178,7 @@ export default function FleetCenter({ csrfToken }: { csrfToken: string }) {
         <section className="panel fleet-boundary">
           <header className="panel-header"><strong>Execution boundary</strong><span>Controller compromise cannot request a shell</span></header>
           <div className="network-lock"><span className="status-pill status-good">Commands unavailable</span><span className="status-pill status-good">Targets fixed</span><span className="status-pill status-warning">Router writes locked</span></div>
-          <ul><li>The only task contracts are four fixed Pi-hole checks or four fixed Flint 2 observed-gateway checks.</li><li>The resolver comes from a fresh matching Bigbox controller acceptance record, never this form.</li><li>The device executes locally and keeps functioning without the controller.</li><li>No router, DHCP, client DNS, firewall, or Tailscale setting can be changed.</li></ul>
+          <ul><li>The only task contracts are four fixed Pi-hole checks or four fixed Flint 2 observed-gateway checks.</li><li>The resolver comes from a fresh matching controller acceptance record, never this form.</li><li>The device executes locally and keeps functioning without the controller.</li><li>No router, DHCP, client DNS, firewall, or Tailscale setting can be changed.</li></ul>
         </section>
 
         <section className="panel fleet-enrollment">
@@ -193,7 +193,7 @@ export default function FleetCenter({ csrfToken }: { csrfToken: string }) {
       </div>
 
       <section className="panel fleet-probe">
-        <header className="panel-header"><strong>Independent DNS proof</strong><span>Owner-approved one-shot window after a fresh matching Bigbox proof</span></header>
+        <header className="panel-header"><strong>Independent DNS proof</strong><span>Owner-approved one-shot window after a fresh matching controller proof</span></header>
         <div className="fleet-schedule-policy"><div><span className="eyebrow">Scheduling policy</span><strong>One-shot only</strong><small>Immediate, 5-minute, or 10-minute delay | 10-minute execution window</small></div><div className="network-lock"><span className="status-pill status-good">Password required</span><span className="status-pill status-good">Fixed task</span><span className="status-pill status-warning">No recurrence</span><span className="status-pill status-warning">No unattended jobs</span></div></div>
         <div className="network-form-grid">
           <label>Proof source<select aria-label="Proof source" value={probeKind} onChange={(event) => setProbeKind(event.target.value as "pi-hole" | "flint2-adguard")}><option value="pi-hole">Managed Pi-hole</option><option value="flint2-adguard">Flint 2 observed gateway</option></select></label>

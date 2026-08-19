@@ -375,9 +375,9 @@ export async function runKeelOwnerLoginProof({
   persist = persistSanitizedProof,
 } = {}) {
   if (uid !== 0 || !/^\d+$/.test(String(sudoUid ?? "")) || Number(sudoUid) <= 0) {
-    throw new Error("Run this command from a normal Bigbox administrator account through fresh sudo, not from a root login");
+    throw new Error("Run this command from a normal server administrator account through fresh sudo, not from a root login");
   }
-  if (!stdinTty || !stdoutTty) throw new Error("Keel owner-login proof must run interactively in a Bigbox terminal");
+  if (!stdinTty || !stdoutTty) throw new Error("Keel owner-login proof must run interactively in a server terminal");
   const account = await inspectAccount();
   if (!account) throw new Error("The dedicated Keel service account is unavailable or changed");
   await keelClaimInternals.verifyBoundary({ paths, account, rootUid, serviceActive });

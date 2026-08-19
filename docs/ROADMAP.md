@@ -194,7 +194,7 @@ Acceptance:
 
 ## Phase 9: router integration and DNS cutover
 
-Status: `0.23.0` added a fixed three-model declaration catalog and browser-local SHA-256 checkpoint ledger. Version `0.27.0` added model-specific, vendor-grounded operator checklists and correlates the single default-gateway address observed by Bigbox without claiming router identity. Version `0.36.0` adds a password-approved four-query DNS acceptance against only that observed gateway after a retained Flint 2 checkpoint, Tailscale recovery, and six fixed operator declarations. Version `0.37.0` adds an owner-approved signed second-device task that re-derives and matches its local gateway before repeating those tests. The unprivileged controller and node-local agent store bounded evidence without a router login or helper call. Configuration upload, credentials, sessions, neighbor discovery, operator-supplied targets, live device-state claims, writes, restore claims, DHCP, DNS advertisement, and cutover remain unavailable.
+Status: `0.23.0` added a fixed three-model declaration catalog and browser-local SHA-256 checkpoint ledger. Version `0.27.0` added model-specific, vendor-grounded operator checklists and correlates the single default-gateway address observed by the server without claiming router identity. Version `0.36.0` adds a password-approved four-query DNS acceptance against only that observed gateway after a retained Flint 2 checkpoint, Tailscale recovery, and six fixed operator declarations. Version `0.37.0` adds an owner-approved signed second-device task that re-derives and matches its local gateway before repeating those tests. The unprivileged controller and node-local agent store bounded evidence without a router login or helper call. Configuration upload, credentials, sessions, neighbor discovery, operator-supplied targets, live device-state claims, writes, restore claims, DHCP, DNS advertisement, and cutover remain unavailable.
 
 - Browser-local configuration identity with external-file retention evidence included in `0.23.0`
 - Fixed intended-role guidance, live gateway-address correlation, explicit operator checks, and vendor handoff included in `0.27.0`
@@ -212,5 +212,5 @@ Acceptance:
 - A checkpoint is never described as restorable until an isolated or vendor-supported restore test passes.
 - Router credentials never enter ordinary job, audit, log, support-bundle, or browser response data.
 - Every change is tied to exact model, firmware, pre-change evidence, bounded fields, and a tested rollback.
-- Bigbox and signed second-device checks pass before cutover and throughout the observation window.
+- The server and signed second-device checks pass before cutover and throughout the observation window.
 - Loss of BoxPilot or Tailscale cannot prevent console-based recovery.

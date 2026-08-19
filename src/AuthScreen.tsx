@@ -29,14 +29,14 @@ export default function AuthScreen({ bootstrapRequired, onAuthenticated }: { boo
       <section className="auth-card">
         <div className="auth-brand"><span>B</span><div><strong>BoxPilot</strong><small>Private server control plane</small></div></div>
         <span className="eyebrow">{bootstrapRequired ? "Server-local owner setup" : "Private administration"}</span>
-        <h1>{bootstrapRequired ? "Claim this BoxPilot server" : "Sign in to Bigbox"}</h1>
+        <h1>{bootstrapRequired ? "Claim this BoxPilot server" : "Sign in to BoxPilot"}</h1>
         <p>{bootstrapRequired
-          ? "Generate a short-lived token from an SSH session on Bigbox, then create the first owner here."
+          ? "Generate a short-lived token from an SSH session on the server, then create the first owner here."
           : "Use the local BoxPilot owner account. Tailscale access does not replace application authentication."}</p>
 
         {bootstrapRequired && (
           <div className="bootstrap-command">
-            <strong>Run on Bigbox</strong>
+            <strong>Run on the server</strong>
             <code>sudo -u boxpilot env BOXPILOT_STATE_DIRECTORY=/var/lib/boxpilot /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-owner.mjs create-bootstrap-token</code>
             <span>The token expires in 15 minutes. Keep it out of chat and logs.</span>
           </div>

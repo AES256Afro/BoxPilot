@@ -100,7 +100,7 @@ export function createKeelArtifactService({
       recovery: {
         automaticRollback: true,
         reason: "Digest or transport failure removes only fixed helper-owned partial files. No archive is published until complete byte and SHA-256 verification passes.",
-        manual: "If a mismatched final archive or non-regular file is reported, inspect /var/lib/boxpilot-managed/artifacts/keel from the Bigbox terminal. BoxPilot will not overwrite it automatically.",
+        manual: "If a mismatched final archive or non-regular file is reported, inspect /var/lib/boxpilot-managed/artifacts/keel from the server terminal. BoxPilot will not overwrite it automatically.",
       },
       createdBy: ownerId,
       initialSteps: [

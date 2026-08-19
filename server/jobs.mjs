@@ -375,7 +375,7 @@ export function createJobService(store, helper, {
         && result?.clientSettingsChanged === false,
     } : job.type === "network.flint2-adguard.acceptance.run" ? {
       run: () => executeFlint2AdguardJob(job, validatedFlint2AdguardPlan),
-      applying: "Sending four fixed direct DNS queries from Bigbox to the one live observed gateway after immutable Flint 2 recovery declarations",
+      applying: "Sending four fixed direct DNS queries from this server to the one live observed gateway after immutable Flint 2 recovery declarations",
       applied: "The observed gateway answered the fixed TCP, UDP, public, and reserved-negative queries without opening a router session",
       verified: "Direct gateway DNS evidence passed; physical model identity, AdGuard settings, DHCP advertisement, and second-device paths remain operator or future acceptance checks",
       failed: "Direct gateway DNS acceptance failed; no router, DNS advertisement, DHCP, VPN, client, or Tailscale setting was changed",
@@ -480,7 +480,7 @@ export function createJobService(store, helper, {
       operation: "application.pi-hole.deploy",
       parameters: { lanAddress: validatedApplicationPlan.input.lanAddress, webPort: validatedApplicationPlan.input.hostPort },
       timeoutMs: 10 * 60 * 1000,
-      applying: "Starting the digest-pinned Pi-hole stack on the exact reviewed Bigbox LAN binding through the restricted helper",
+      applying: "Starting the digest-pinned Pi-hole stack on the exact reviewed server LAN binding through the restricted helper",
       applied: "Restricted helper started Pi-hole without DHCP, router writes, client DNS changes, Tailscale changes, NET_ADMIN, or wildcard host ports",
       verified: "Pi-hole container health, exact TCP and UDP DNS bindings, LAN web binding, and no-cutover evidence passed",
       failed: "Pi-hole staging or its binding verification did not complete; router and client DNS remain unchanged",
