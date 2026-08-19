@@ -1,0 +1,26 @@
+schemaVersion: 2
+id: uptime-kuma
+name: Uptime Kuma
+category: Monitoring
+icon: "📈"
+description: Self-hosted uptime monitoring with status pages and notifications for everything you run.
+website: https://uptime.kuma.pet
+risk: low
+image:
+  reference: louislam/uptime-kuma:2.5.0
+  version: 2.5.0
+ports:
+  - id: web
+    label: Web UI
+    container: 3001
+    host: 3001
+    exposure: lan
+volumes:
+  - id: data
+    label: Data
+    container: /app/data
+    path: data
+health:
+  kind: healthcheck
+  timeoutSeconds: 180
+notes: Create the admin account on first open. (The legacy Applications page's Uptime Kuma is a separate install on port 3001 via loopback; if that is present, choose a different port here.)

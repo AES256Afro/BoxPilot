@@ -1,0 +1,57 @@
+schemaVersion: 2
+id: code-server
+name: code-server
+category: Development
+icon: "💻"
+description: VS Code in the browser, running on this server — edit projects here from any device.
+website: https://github.com/coder/code-server
+risk: medium
+image:
+  reference: lscr.io/linuxserver/code-server:4.133.0
+  version: 4.133.0
+ports:
+  - id: web
+    label: Web UI
+    container: 8443
+    host: 8444
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration and workspace
+    container: /config
+    path: config
+  - id: projects
+    label: Projects folder
+    container: /projects
+    hostPath: /srv/projects
+    configurable: true
+    description: Folder on this server to open as your workspace.
+env:
+  - name: PUID
+    type: number
+    default: 1000
+    fixed: true
+  - name: PGID
+    type: number
+    default: 1000
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: PASSWORD
+    label: Login password
+    type: password
+    generate: true
+  - name: SUDO_PASSWORD
+    label: Sudo password inside the container
+    type: password
+    generate: true
+  - name: DEFAULT_WORKSPACE
+    type: path
+    default: /projects
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+notes: The login and sudo passwords were generated; read them from the app's .env on the server (Settings will show them in a later release).

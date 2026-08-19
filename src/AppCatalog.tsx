@@ -17,6 +17,8 @@ interface LiveState {
   state: { installedAt: string; updatedAt: string; manifestSha256: string | null; image: { reference: string; id: string | null } | null; values: { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string> }; pinnedRollback: boolean; uninstalledAt: string | null } | null;
   container: { exists: boolean; running: boolean; status: string; health: string; restarts: number; image: string | null };
   urls: Array<{ id: string; label: string; host: number; exposure: string }>;
+  updateAvailable?: boolean;
+  installedImage?: string | null;
 }
 interface CatalogResponse {
   applications: Array<{ manifest: Manifest; live: LiveState | null }>;
@@ -44,8 +46,28 @@ function compactValues(manifest: Manifest, values: Values): Values {
   return { ports, env, volumes };
 }
 
-function ConfigForm({ manifest, live, mode, onSubmit, onCancel }: { manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure"; onSubmit: (values: Values) => void; onCancel: () => void }) {
+function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure"; csrfToken: string; onSubmit: (values: Values) => void; onCancel: () => void }) {
   const [values, setValues] = useState<Values>(() => initialValues(manifest, live));
+  const [checking, setChecking] = useState(false);
+  const [problems, setProblems] = useState<string[]>([]);
+  const submit = async () => {
+    const compact = compactValues(manifest, values);
+    setChecking(true); setProblems([]);
+    try {
+      const response = await fetch(`/api/v1/catalog/${encodeURIComponent(manifest.id)}/precheck`, { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ values: compact }) });
+      const body = (await response.json()) as { ok: boolean; errors: string[]; conflicts: Array<{ label: string; port: number; protocol: string; listeners: string[] }>; error?: string };
+      if (!response.ok && body.errors?.length === 0) throw new Error(body.error ?? "Precheck failed");
+      const found = [...(body.errors ?? []), ...(body.conflicts ?? []).map((conflict) => `${conflict.label}: port ${conflict.port}/${conflict.protocol} is already in use on this server (${conflict.listeners.join(", ")}). Pick another port.`)];
+      if (found.length) { setProblems(found); return; }
+      onSubmit(compact);
+    } catch (requestError) {
+      // Precheck is advisory: if it cannot run, continue and let the install report the real error.
+      onSubmit(compact);
+      void requestError;
+    } finally {
+      setChecking(false);
+    }
+  };
   const setPort = (id: string, value: string) => setValues((current) => ({ ...current, ports: { ...current.ports, [id]: Number.parseInt(value, 10) || 0 } }));
   const setEnv = (name: string, value: string) => setValues((current) => ({ ...current, env: { ...current.env, [name]: value } }));
   const setVolume = (id: string, value: string) => setValues((current) => ({ ...current, volumes: { ...current.volumes, [id]: value } }));
@@ -57,7 +79,8 @@ function ConfigForm({ manifest, live, mode, onSubmit, onCancel }: { manifest: Ma
     <div className="modal-backdrop" role="presentation" onMouseDown={onCancel}>
       <section className="modal" role="dialog" aria-modal="true" aria-labelledby="config-title" onMouseDown={(event) => event.stopPropagation()}>
         <header className="modal-header"><div><span className="eyebrow">{mode === "install" ? "Install" : "Settings"}</span><h2 id="config-title">{manifest.name}</h2></div><button className="icon-button" type="button" onClick={onCancel} aria-label="Close dialog">X</button></header>
-        <form className="modal-copy app-config-form" onSubmit={(event) => { event.preventDefault(); onSubmit(compactValues(manifest, values)); }}>
+        <form className="modal-copy app-config-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+          {problems.length > 0 && <div className="auth-error" role="alert">{problems.map((problem) => <div key={problem}>{problem}</div>)}</div>}
           {editablePorts.length > 0 && <fieldset><legend>Ports</legend>{editablePorts.map((port) => <label key={port.id}>{port.label} <span className="muted">(container {port.container}/{port.protocol}, {port.exposure === "loopback" ? "this server only" : "LAN"})</span><input type="number" min={1} max={65535} value={values.ports[port.id] ?? port.host} onChange={(event) => setPort(port.id, event.target.value)} aria-label={`${port.label} port`} /></label>)}</fieldset>}
           {editableVolumes.length > 0 && <fieldset><legend>Folders</legend>{editableVolumes.map((volume) => <label key={volume.id}>{volume.label}{volume.description && <span className="muted"> — {volume.description}</span>}<input type="text" value={values.volumes[volume.id] ?? ""} onChange={(event) => setVolume(volume.id, event.target.value)} aria-label={`${volume.label} path`} placeholder={volume.hostPath ?? "/srv/..."} /></label>)}</fieldset>}
           {editableEnv.length > 0 && <fieldset><legend>Settings</legend>{editableEnv.map((entry) => (
@@ -69,7 +92,7 @@ function ConfigForm({ manifest, live, mode, onSubmit, onCancel }: { manifest: Ma
           ))}</fieldset>}
           {generated.length > 0 && <p className="muted">Generated for you: {generated.map((entry) => entry.label).join(", ")} (stored in the app's .env on the server).</p>}
           {manifest.volumes.filter((volume) => volume.path).length > 0 && <p className="muted">Data lives under <code>/var/lib/boxpilot-managed/catalog/{manifest.id}/</code> and is kept on uninstall unless you delete it explicitly.</p>}
-          <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={onCancel}>Cancel</button><button className="primary-button" type="submit">{mode === "install" ? "Continue to install" : "Apply settings"}</button></footer>
+          <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={onCancel}>Cancel</button><button className="primary-button" type="submit" disabled={checking}>{checking ? "Checking..." : mode === "install" ? "Continue to install" : "Apply settings"}</button></footer>
         </form>
       </section>
     </div>
@@ -129,7 +152,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   return (
     <div className="app-catalog">
       {dialog}
-      {config && <ConfigForm manifest={config.manifest} live={config.live} mode={config.mode} onCancel={() => setConfig(null)} onSubmit={(values) => {
+      {config && <ConfigForm manifest={config.manifest} live={config.live} mode={config.mode} csrfToken={csrfToken} onCancel={() => setConfig(null)} onSubmit={(values) => {
         const { manifest, mode } = config;
         setConfig(null);
         start({ operationId: mode === "install" ? "app.install" : "app.reconfigure", title: mode === "install" ? `Install ${manifest.name}` : `Change ${manifest.name} settings`, parameters: { id: manifest.id, values }, preview: <span>{mode === "install" ? `Pulls ${manifest.image.reference}, starts it with the settings you chose, and waits until it is healthy. Rolled back automatically if it fails.` : "Recreates the container with the new settings; the previous configuration is restored if it fails."}</span> });
@@ -172,7 +195,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                   ? <><button className="secondary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Restart ${manifest.name}`, parameters: { id: manifest.id, action: "restart" } })}>Restart</button><button className="secondary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Stop ${manifest.name}`, parameters: { id: manifest.id, action: "stop" } })}>Stop</button></>
                   : <button className="primary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Start ${manifest.name}`, parameters: { id: manifest.id, action: "start" } })}>Start</button>)}
                 {installed && <button className="secondary-button" type="button" onClick={() => setConfig({ manifest, live, mode: "reconfigure" })}>Settings</button>}
-                {installed && <button className="secondary-button" type="button" onClick={() => start({ operationId: "app.update", title: `Update ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Pulls {manifest.image.reference} and recreates the container. The previous image is restored if the new one fails to become healthy.</span> })}>Update</button>}
+                {installed && <button className={live?.updateAvailable ? "primary-button" : "secondary-button"} type="button" onClick={() => start({ operationId: "app.update", title: `Update ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>{live?.updateAvailable ? <>Updates from <code>{live.installedImage}</code> to <code>{manifest.image.reference}</code>. </> : null}Pulls the image and recreates the container. The previous image is restored if the new one fails to become healthy.</span> })}>{live?.updateAvailable ? "Update available" : "Update"}</button>}
                 {installed && <button className="text-button" type="button" onClick={() => void showLogs(manifest.id)}>Logs</button>}
                 {installed && <button className="text-button" type="button" onClick={() => start({ operationId: "app.uninstall", title: `Uninstall ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Stops and removes the container. Data under the app directory is kept so you can reinstall later.</span> })}>Uninstall</button>}
                 {live?.dataPresent && <button className="text-button danger-text" type="button" onClick={() => start({ operationId: "app.purge", title: `Delete ${manifest.name} and its data`, parameters: { id: manifest.id }, preview: <span>Removes the container <strong>and deletes everything</strong> under the app's data directory. This cannot be undone.</span> })}>Delete data</button>}

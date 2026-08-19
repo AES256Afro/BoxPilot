@@ -20,6 +20,7 @@ describe("App catalog", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === "/api/v1/catalog") return json({ applications: [{ manifest, live: { id: "jellyfin", installed: false, dataPresent: false, state: null, container: { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, urls: [] } }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      if (url.endsWith("/catalog/jellyfin/precheck")) return json({ ok: true, errors: [], conflicts: [] });
       if (url.endsWith("/operations/app.install/jobs")) { stagedBody = init?.body as string; return json({ job: { id: "job-9", type: "op:app.install", title: "Install application", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201); }
       return json({ error: `unexpected ${url}` }, 500);
     });

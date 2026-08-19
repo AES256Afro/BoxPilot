@@ -127,7 +127,8 @@ export function createAppHelper({
       state: state ? { installedAt: state.installedAt, updatedAt: state.updatedAt, manifestSha256: state.manifestSha256, image: state.image, values: { ports: state.values?.ports ?? {}, env: state.values?.env ?? {}, volumes: state.values?.volumes ?? {} }, pinnedRollback: state.pinnedRollback ?? false, uninstalledAt: state.uninstalledAt ?? null } : null,
       container: status,
       urls: state && state.installed ? manifest.ports.filter((port) => port.protocol === "tcp").map((port) => ({ id: port.id, label: port.label, host: state.values?.ports?.[port.id] ?? port.host, exposure: port.exposure })) : [],
-      updateAvailable: null,
+      updateAvailable: Boolean(state?.installed && state.image?.reference && state.image.reference !== manifest.image.reference),
+      installedImage: state?.image?.reference ?? null,
     };
   }
 

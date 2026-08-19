@@ -59,7 +59,7 @@ describe("generic app deployer", () => {
     expect(await readdir(path.join(catalogRoot, "demo"))).toEqual(expect.arrayContaining(["compose.yaml", ".env", "boxpilot.json", "data"]));
 
     const { applications } = await apps.inspect({});
-    expect(applications[0]).toMatchObject({ id: "demo", installed: true, container: { running: true }, urls: [{ id: "web", host: 9090 }] });
+    expect(applications[0]).toMatchObject({ id: "demo", installed: true, container: { running: true }, urls: [{ id: "web", host: 9090 }], updateAvailable: false, installedImage: "nginx:1.27" });
     expect(JSON.stringify(applications)).not.toContain(env.trim().split("=")[1]);
 
     await expect(apps.install({ id: "demo" })).rejects.toThrow("already installed");

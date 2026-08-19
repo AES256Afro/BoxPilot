@@ -1,0 +1,49 @@
+schemaVersion: 2
+id: forgejo
+name: Forgejo
+category: Development
+icon: "🌱"
+description: Self-hosted Git forge (community fork of Gitea) with issues, pull requests, and CI-friendly APIs.
+website: https://forgejo.org
+risk: medium
+image:
+  reference: codeberg.org/forgejo/forgejo:16.0.2
+  version: 16.0.2
+ports:
+  - id: web
+    label: Web UI
+    container: 3000
+    host: 3002
+    exposure: lan
+  - id: ssh
+    label: Git over SSH
+    container: 22
+    host: 2222
+    exposure: lan
+volumes:
+  - id: data
+    label: Repositories and data
+    container: /data
+    path: data
+  - id: timezone
+    label: Host time zone
+    container: /etc/timezone
+    hostPath: /etc/timezone
+    readOnly: true
+env:
+  - name: USER_UID
+    type: number
+    default: 1000
+    fixed: true
+  - name: USER_GID
+    type: number
+    default: 1000
+    fixed: true
+  - name: FORGEJO__server__SSH_PORT
+    label: Advertised SSH port
+    type: number
+    default: 2222
+health:
+  kind: running
+  stableSeconds: 15
+notes: The first visit opens the installation page; keep the SQLite default unless you run a database server.

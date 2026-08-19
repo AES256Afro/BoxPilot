@@ -1,0 +1,42 @@
+schemaVersion: 2
+id: n8n
+name: n8n
+category: Automation
+icon: "⚙️"
+description: Workflow automation with hundreds of integrations — the self-hosted alternative to Zapier.
+website: https://n8n.io
+risk: medium
+image:
+  reference: n8nio/n8n:1.123.73
+  version: 1.123.73
+ports:
+  - id: web
+    label: Editor UI
+    container: 5678
+    host: 5678
+    exposure: lan
+volumes:
+  - id: data
+    label: Data
+    container: /home/node/.n8n
+    path: data
+env:
+  - name: GENERIC_TIMEZONE
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: N8N_SECURE_COOKIE
+    type: boolean
+    default: false
+    fixed: true
+  - name: N8N_HOST
+    label: Host name
+    description: Optional. The host name or address you will open n8n at (used to build webhook URLs), e.g. 192.168.1.10.
+  - name: WEBHOOK_URL
+    label: Webhook base URL
+    description: Optional. Full URL n8n should advertise for webhooks, e.g. http://192.168.1.10:5678/.
+user: "1000:1000"
+health:
+  kind: running
+  stableSeconds: 15
+notes: N8N_SECURE_COOKIE is disabled so it works over plain http on the LAN; enable HTTPS via a proxy before exposing it further.
