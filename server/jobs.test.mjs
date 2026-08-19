@@ -85,6 +85,26 @@ describe("durable job executor", () => {
     store.close();
   });
 
+  it("stages and runs registered operations generically with the tier taken from the registry", async () => {
+    const helper = { request: vi.fn(async (operation, parameters) => ({ operation, parameters, upgraded: true })) };
+    const { store, owner, jobs } = await setup(helper);
+    const session = store.getSession(store.createSession(owner.id).token);
+    expect(() => jobs.createOperationJob("apt.upgradable.inspect", {}, owner.id)).toThrow("Read-only");
+    expect(() => jobs.createOperationJob("nope.op", {}, owner.id)).toThrow("Operation not found");
+    expect(() => jobs.createOperationJob("apt.install", { packages: ["bad name"] }, owner.id)).toThrow("invalid package name");
+    const job = jobs.createOperationJob("apt.upgrade", { packages: ["htop"] }, owner.id);
+    expect(job).toMatchObject({ type: "op:apt.upgrade", title: "Install package updates", risk: "medium", state: "awaiting_approval" });
+    expect(jobs.describeApproval(job.id, session)).toMatchObject({ tier: "medium", passwordRequired: false });
+    const completed = await jobs.approveAndRun(job.id, owner.id, { session });
+    expect(helper.request).toHaveBeenCalledWith("apt.upgrade", { packages: ["htop"] }, { timeoutMs: 70 * 60 * 1000 });
+    expect(completed.state).toBe("completed");
+    expect(completed.result).toMatchObject({ upgraded: true });
+    const purge = jobs.createOperationJob("apt.purge", { packages: ["htop"] }, owner.id);
+    expect(jobs.describeApproval(purge.id, session)).toMatchObject({ tier: "high", passwordRequired: true });
+    await expect(jobs.approveAndRun(purge.id, owner.id, { session })).rejects.toThrow("high-risk");
+    store.close();
+  });
+
   it("records the complete approved canary lifecycle", async () => {
     const helper = { request: vi.fn(async () => ({ verified: true, helperVersion: "0.1.0", mutationPerformed: false })) };
     const { store, owner, jobs } = await setup(helper);

@@ -1,0 +1,29 @@
+[Unit]
+Description=BoxPilot root task %i (generic runner, see server/tasks)
+Documentation=https://github.com/AES256Afro/BoxPilot
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/usr/local/bin/node
+ConditionPathExists=/run/boxpilot/run/%i.json
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-run.mjs %i
+TimeoutStartSec=12h
+UMask=0022
+
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=true
+RestrictRealtime=true
+SystemCallArchitectures=native

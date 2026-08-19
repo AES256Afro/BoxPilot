@@ -57,7 +57,17 @@ const jobRiskTiers = Object.freeze({
   "virtualization.backup.recovery.create": "medium",
 });
 
+let registryLookup = null;
+/** Lets the job layer resolve `op:<id>` job types from the operation registry without a circular import. */
+export function setRegistryLookup(lookup) {
+  registryLookup = typeof lookup === "function" ? lookup : null;
+}
+
 export function riskTierForJob(jobType) {
+  if (typeof jobType === "string" && jobType.startsWith("op:")) {
+    const operation = registryLookup?.(jobType.slice(3)) ?? null;
+    return operation && riskTiers.includes(operation.risk) ? operation.risk : "high";
+  }
   return jobRiskTiers[jobType] ?? "high";
 }
 

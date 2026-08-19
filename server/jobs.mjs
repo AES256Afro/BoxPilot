@@ -1,5 +1,6 @@
 import { verifyPassword } from "./security.mjs";
 import { approvalRequirement, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "./ops/risk.mjs";
+import { registry } from "./ops/index.mjs";
 import { keelArtifactSpec } from "./keel-artifact-spec.mjs";
 
 export function createJobService(store, helper, {
@@ -96,6 +97,28 @@ export function createJobService(store, helper, {
       elevatedUntil = store.elevateSession(session.tokenHash, new Date(Date.now() + elevationTtlMs)) ?? elevatedUntil;
     }
     const approvalMethod = passwordProvided ? "password" : policy.elevated && policy.tier === "high" ? "elevated" : "confirm";
+    const registeredOperation = job.type.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
+    if (job.type.startsWith("op:") && !registeredOperation) throw new Error("Job type is not supported by this executor");
+    if (registeredOperation) {
+      const parameterError = registry.validate(registeredOperation.id, job.parameters ?? {});
+      if (parameterError) throw new Error(`Job parameters are no longer valid: ${parameterError}`);
+      const execution = {
+        operation: registeredOperation.id,
+        parameters: job.parameters ?? {},
+        timeoutMs: registeredOperation.timeoutMs,
+        applying: `Running ${registeredOperation.title}`,
+        applied: `${registeredOperation.title} finished`,
+        verified: `${registeredOperation.title} completed`,
+        failed: `${registeredOperation.title} failed; review the recorded error and job log`,
+        validate: () => true,
+      };
+      store.addApproval(jobId, ownerId, { method: approvalMethod, tier: policy.tier });
+      store.recordAudit("job.approved", { actorId: ownerId, subjectId: jobId, details: { type: job.type, tier: policy.tier, method: approvalMethod } });
+      store.transitionJob(jobId, "awaiting_approval", "applying");
+      store.addJobStep(jobId, "approval", "completed", `Approved by ${owner.username} (${policy.tier} risk, ${approvalMethod})`);
+      store.addJobStep(jobId, "apply", "running", execution.applying);
+      return { job, owner, execution, approval: { tier: policy.tier, method: approvalMethod, elevatedUntil } };
+    }
     if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.uptime-kuma.deploy", "application.uptime-kuma.action", "application.uptime-kuma.private-access", "application.pi-hole.deploy", "application.pi-hole.action", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.media.import", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
     const validatedLibvirtFoundation = job.type === "virtualization.foundation.initialize" ? await validateLibvirtFoundationJob(job) : null;
@@ -924,6 +947,26 @@ export function createJobService(store, helper, {
     return store.getJob(jobId);
   }
 
+  /** Stage a job for any registered, non-read-only operation. Approval and execution are generic. */
+  function createOperationJob(operationId, parameters, ownerId) {
+    const operation = registry.get(operationId);
+    if (!operation) throw new Error("Operation not found");
+    if (operation.readOnly) throw new Error("Read-only operations run directly; they are not staged as jobs");
+    const parameterError = registry.validate(operationId, parameters ?? {});
+    if (parameterError) throw new Error(parameterError);
+    return store.createJob({
+      type: `op:${operationId}`,
+      title: operation.title,
+      risk: operation.risk,
+      parameters: parameters ?? {},
+      recovery: {
+        reason: operation.description || `${operation.title} is ${operation.risk} risk.`,
+        manual: "If verification fails, review the job log and the helper journal, then rerun or undo the operation.",
+      },
+      createdBy: ownerId,
+    });
+  }
+
   /** Read-only: what approving this job would require for the given session. */
   function describeApproval(jobId, session = null) {
     const job = store.getJob(jobId);
@@ -931,5 +974,5 @@ export function createJobService(store, helper, {
     return approvalPolicy(job, session);
   }
 
-  return { createCanary, approveAndRun, approveAndStart, describeApproval, approvalPolicy };
+  return { createCanary, createOperationJob, approveAndRun, approveAndStart, describeApproval, approvalPolicy };
 }
