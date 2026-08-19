@@ -71,7 +71,7 @@ type DnsAcceptancePlan = {
     linkedBackupId: string | null;
     blockers: Array<{ id: string; summary: string }>;
     tests: DnsCheck[];
-    evidenceBoundary: { provesBigboxPath: boolean; provesSecondDevicePath: boolean; routerMutationSupported: boolean; dnsCutoverSupported: boolean };
+    evidenceBoundary: { provesHostPath: boolean; provesSecondDevicePath: boolean; routerMutationSupported: boolean; dnsCutoverSupported: boolean };
     changes: string[];
     recovery: string;
   };
@@ -152,7 +152,7 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
         }),
       }));
       setPlan(body.plan);
-      if (dnsRole === "pihole-on-bigbox" && body.plan.output.readyForChangeWindow) onAssessmentReady?.(body.plan.id);
+      if (dnsRole === "pihole-on-host" && body.plan.output.readyForChangeWindow) onAssessmentReady?.(body.plan.id);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to generate network assessment");
     } finally {
@@ -211,7 +211,7 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
 
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="network-summary-grid">
-        <article className="panel network-summary"><span className="eyebrow">Bigbox LAN</span><strong>{topology.eligibleLanAddresses[0]?.address ?? "Unavailable"}</strong><span>{topology.eligibleLanAddresses[0]?.cidr ?? "No eligible LAN address"}</span></article>
+        <article className="panel network-summary"><span className="eyebrow">Server LAN</span><strong>{topology.eligibleLanAddresses[0]?.address ?? "Unavailable"}</strong><span>{topology.eligibleLanAddresses[0]?.cidr ?? "No eligible LAN address"}</span></article>
         <article className="panel network-summary"><span className="eyebrow">Default resolvers</span><strong>{topology.defaultResolvers.join(" + ") || "Unavailable"}</strong><span>Observed from systemd-resolved, not router configuration</span></article>
         <article className="panel network-summary"><span className="eyebrow">Tailscale DNS path</span><strong>{topology.tailscale.defaultDnsObserved ? "Default resolver observed" : "Split resolver only"}</strong><span>{topology.tailscale.dnsName ?? "No tailnet DNS name"}</span></article>
       </div>
@@ -231,9 +231,9 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
         <header className="panel-header"><strong>Router and DNS change-window assessment</strong><span>Creates an attributable immutable plan, never a router change</span></header>
         <div className="network-form-grid">
           <label>Intended topology<select value={selectedTopology} onChange={(event) => { setSelectedTopology(event.target.value); setPlan(null); }}><option value="flint2-edge-tplink-ap">Flint 2 edge + TP-Link AP</option><option value="omada-edge-access-points">ER707-M2 edge + wireless APs</option><option value="single-router">Single current router</option><option value="custom">Custom, manually verified</option></select></label>
-          <label>DNS role<select value={dnsRole} onChange={(event) => { setDnsRole(event.target.value); setPlan(null); }}><option value="current-external">Keep current external resolvers</option><option value="flint2-adguard-home">Flint 2 AdGuard Home</option><option value="pihole-on-bigbox">Pi-hole on Bigbox</option><option value="pihole-in-vm">Pi-hole in a dedicated VM</option><option value="other">Other resolver</option></select></label>
+          <label>DNS role<select value={dnsRole} onChange={(event) => { setDnsRole(event.target.value); setPlan(null); }}><option value="current-external">Keep current external resolvers</option><option value="flint2-adguard-home">Flint 2 AdGuard Home</option><option value="pihole-on-host">Pi-hole on this server</option><option value="pihole-in-vm">Pi-hole in a dedicated VM</option><option value="other">Other resolver</option></select></label>
           <label>Live gateway IPv4<input value={gatewayAddress} onChange={(event) => { setGatewayAddress(event.target.value); setPlan(null); }} inputMode="decimal" /></label>
-          <label>Bigbox LAN IPv4<input value={serverAddress} onChange={(event) => { setServerAddress(event.target.value); setPlan(null); }} inputMode="decimal" /></label>
+          <label>Server LAN IPv4<input value={serverAddress} onChange={(event) => { setServerAddress(event.target.value); setPlan(null); }} inputMode="decimal" /></label>
           <label>Proposed primary DNS IPv4<input value={dnsServiceAddress} onChange={(event) => { setDnsServiceAddress(event.target.value); setPlan(null); }} inputMode="decimal" /></label>
           <label>Emergency DNS IPv4<input value={fallbackDnsAddress} onChange={(event) => { setFallbackDnsAddress(event.target.value); setPlan(null); }} inputMode="decimal" /></label>
         </div>
@@ -253,11 +253,11 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
           <div><strong>Device roles</strong><ul>{plan.output.topology.devices.map((item) => <li key={item}>{item}</li>)}</ul><strong>Assessment only</strong><ul>{plan.output.changes.map((item) => <li key={item}>{item}</li>)}</ul></div>
           <div><strong>Recovery order</strong><ol>{plan.output.recovery.map((item) => <li key={item}>{item}</li>)}</ol>{plan.output.blockers.length > 0 && <><strong>Blockers</strong><ul className="warning-text">{plan.output.blockers.map((item) => <li key={item.id}>{item.summary}</li>)}</ul></>}{plan.output.warnings.length > 0 && <><strong>Warnings</strong><ul>{plan.output.warnings.map((item) => <li key={item}>{item}</li>)}</ul></>}</div>
         </div>
-        <div className="network-lock"><span className="status-pill status-warning">Router writes locked</span><span className="status-pill status-warning">DNS cutover locked</span><span>{plan.output.readyForChangeWindow && plan.output.dns.role === "pihole-on-bigbox" ? `Assessment ${plan.id} is ready for the Applications staging gate.` : "This assessment never changes the network."}</span></div>
+        <div className="network-lock"><span className="status-pill status-warning">Router writes locked</span><span className="status-pill status-warning">DNS cutover locked</span><span>{plan.output.readyForChangeWindow && plan.output.dns.role === "pihole-on-host" ? `Assessment ${plan.id} is ready for the Applications staging gate.` : "This assessment never changes the network."}</span></div>
       </section>}
 
       {acceptance && <section className="panel dns-acceptance-panel" aria-label="Direct DNS acceptance">
-        <div className="section-heading"><div><span className="eyebrow">Pi-hole acceptance gate</span><h3>Prove DNS directly from Bigbox</h3></div><span className={`status-pill ${acceptance.acceptances[0]?.passed ? "status-good" : "status-warning"}`}>{acceptance.acceptances[0]?.passed ? "Bigbox path passed" : acceptance.source.installed ? "Proof required" : "Pi-hole not installed"}</span></div>
+        <div className="section-heading"><div><span className="eyebrow">Pi-hole acceptance gate</span><h3>Prove DNS directly from this server</h3></div><span className={`status-pill ${acceptance.acceptances[0]?.passed ? "status-good" : "status-warning"}`}>{acceptance.acceptances[0]?.passed ? "Server path passed" : acceptance.source.installed ? "Proof required" : "Pi-hole not installed"}</span></div>
         <div className="dns-acceptance-summary">
           <div><strong>{acceptance.source.lanAddress ? `${acceptance.source.lanAddress}:53` : "No managed resolver"}</strong><span>{acceptance.source.detail}</span></div>
           <div><strong>{acceptance.linkedBackupId ? "Restore evidence linked" : "Restore evidence missing"}</strong><span>{acceptance.linkedBackupId ?? "Run the separate Pi-hole backup and isolated restore drill first"}</span></div>
@@ -271,13 +271,13 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
           <div className={`notice ${acceptancePlan.output.executable ? "" : "warning-notice"}`}><strong>{acceptancePlan.output.executable ? "Exact checks are ready to stage" : "Direct DNS acceptance is blocked"}</strong><span>Revision {acceptancePlan.revision} | expires {new Date(acceptancePlan.expiresAt).toLocaleTimeString()}</span></div>
           <div className="network-plan-columns">
             <div><strong>Fixed requests</strong><ol>{acceptancePlan.output.tests.map((test) => <li key={test.id}>{test.protocol.toUpperCase()} {test.name} {test.type} on port 53, expect response code {test.expectedRcode}</li>)}</ol></div>
-            <div><strong>Evidence boundary</strong><ul><li>Proves the Bigbox-to-resolver path only</li><li>Does not prove a second LAN device</li><li>Does not change router, DHCP, clients, firewall, or Tailscale</li></ul><p>{acceptancePlan.output.recovery}</p></div>
+            <div><strong>Evidence boundary</strong><ul><li>Proves the server-to-resolver path only</li><li>Does not prove a second LAN device</li><li>Does not change router, DHCP, clients, firewall, or Tailscale</li></ul><p>{acceptancePlan.output.recovery}</p></div>
           </div>
           {acceptancePlan.output.blockers.map((blocker) => <div className="notice warning-notice" key={blocker.id}><strong>{blocker.id}</strong><span>{blocker.summary}</span></div>)}
           <footer className="modal-actions"><button className="text-button" type="button" onClick={() => setAcceptancePlan(null)}>Discard plan</button><button className="primary-button" type="button" disabled={!acceptancePlan.output.executable || submitting} onClick={() => void stageAcceptancePlan()}>Stage fixed checks for approval</button></footer>
         </div>}
 
-        <div className="table-scroll"><table><thead><tr><th>Origin</th><th>Resolver</th><th>Created</th><th>Checks</th><th>Second device</th></tr></thead><tbody>{acceptance.acceptances.length ? acceptance.acceptances.map((record) => <tr key={record.id}><td>{record.origin === "boxpilot-controller" ? "Bigbox controller" : record.origin}</td><td>{record.resolverAddress}:53</td><td>{new Date(record.createdAt).toLocaleString()}</td><td className={record.passed ? "good-text" : "warning-text"}>{record.checks.filter((check) => check.passed).length}/{record.checks.length} passed</td><td className="warning-text">{record.secondDeviceTested ? "Proven" : "Pending"}</td></tr>) : <tr><td colSpan={5}>No direct DNS acceptance has been recorded.</td></tr>}</tbody></table></div>
+        <div className="table-scroll"><table><thead><tr><th>Origin</th><th>Resolver</th><th>Created</th><th>Checks</th><th>Second device</th></tr></thead><tbody>{acceptance.acceptances.length ? acceptance.acceptances.map((record) => <tr key={record.id}><td>{record.origin === "boxpilot-controller" ? "BoxPilot controller" : record.origin}</td><td>{record.resolverAddress}:53</td><td>{new Date(record.createdAt).toLocaleString()}</td><td className={record.passed ? "good-text" : "warning-text"}>{record.checks.filter((check) => check.passed).length}/{record.checks.length} passed</td><td className="warning-text">{record.secondDeviceTested ? "Proven" : "Pending"}</td></tr>) : <tr><td colSpan={5}>No direct DNS acceptance has been recorded.</td></tr>}</tbody></table></div>
         <ul className="dns-acceptance-limitations">{acceptance.limitations.map((limitation) => <li key={limitation}>{limitation}</li>)}</ul>
       </section>}
     </div>

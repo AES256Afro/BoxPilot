@@ -226,6 +226,6 @@ describe("Keel terminal-only owner-login proof", () => {
       serviceActive: () => true,
       runWorker,
       persist,
-    })).rejects.toThrow("normal Bigbox administrator");
+    })).rejects.toThrow("normal server administrator");
   });
 });

@@ -6,7 +6,7 @@ const guidance = {
     view: "backups",
     steps: [
       "Open Backups and create the WAL-aware controller snapshot with its isolated copy-open drill.",
-      "Mount independent storage and run the fixed controller restic setup from the Bigbox terminal.",
+      "Mount independent storage and run the fixed controller restic setup from the server terminal.",
       "In Backups, protect the verified local snapshot and require full repository-read plus exact isolated restore evidence.",
     ],
   },
@@ -14,7 +14,7 @@ const guidance = {
     category: "Controller recovery",
     view: "github",
     steps: [
-      "Keep the exact BoxPilot release archive and file manifest outside Bigbox.",
+      "Keep the exact BoxPilot release archive and file manifest outside this server.",
       "Keep the Ubuntu bootstrap notes, systemd units, and Tailscale Serve command with that archive.",
       "Compare the retained release identity with the fixed public GitHub provenance view.",
     ],
@@ -60,7 +60,7 @@ const guidance = {
     view: "network",
     steps: [
       "Keep router, DHCP, client, and Tailscale DNS settings unchanged.",
-      "Complete the guarded direct Bigbox checks against the exact staged Pi-hole address.",
+      "Complete the guarded direct server-side checks against the exact staged Pi-hole address.",
       "Use Fleet for one owner-approved signed second-device proof only after direct evidence passes.",
     ],
   },

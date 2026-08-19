@@ -23,7 +23,7 @@ type DialogName = "compose" | null;
 const viewCopy: Record<ViewName, { title: string; description: string; action?: string }> = {
   overview: {
     title: "Server overview",
-    description: "Inspect sanitized host, service, network, storage, and Docker state from Bigbox.",
+    description: "Inspect sanitized host, service, network, storage, and Docker state from this server.",
   },
   applications: {
     title: "Applications",
@@ -77,7 +77,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   overview: {
     label: "Live sanitized inventory",
     tone: "live",
-    description: "Host identity, compute, root storage, LAN addresses, Tailscale self-state, selected services, and Docker inventory come from Bigbox. Docker labels, commands, mount paths, and environment values are excluded.",
+    description: "Host identity, compute, root storage, LAN addresses, Tailscale self-state, selected services, and Docker inventory come from this server. Docker labels, commands, mount paths, and environment values are excluded.",
   },
   applications: {
     label: "Curated application engine",
@@ -87,17 +87,17 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   network: {
     label: "Network intelligence and guarded direct tests",
     tone: "live",
-    description: "Live topology remains read-only. A password-approved Pi-hole workflow can send four fixed direct DNS queries from Bigbox, and a signed enrolled agent can independently repeat them. Router credentials, router writes, and DNS cutover remain unavailable.",
+    description: "Live topology remains read-only. A password-approved Pi-hole workflow can send four fixed direct DNS queries from this server, and a signed enrolled agent can independently repeat them. Router credentials, router writes, and DNS cutover remain unavailable.",
   },
   routers: {
     label: "Guided router recovery and direct DNS evidence",
     tone: "live",
-    description: "BoxPilot correlates Bigbox's observed gateway address with fixed router guidance, records browser-local backup hashes, and can run four approved DNS queries to the observed gateway after Flint 2 recovery declarations. Model identity, AdGuard configuration, DHCP advertisement, operating modes, and cabling remain operator checks. Credentials, sessions, writes, and DNS cutover remain unavailable.",
+    description: "BoxPilot correlates this server's observed gateway address with fixed router guidance, records browser-local backup hashes, and can run four approved DNS queries to the observed gateway after Flint 2 recovery declarations. Model identity, AdGuard configuration, DHCP advertisement, operating modes, and cabling remain operator checks. Credentials, sessions, writes, and DNS cutover remain unavailable.",
   },
   repairs: {
     label: "Live Operations Core",
     tone: "live",
-    description: "Prerequisite checks, durable approvals, exact smartmontools, restic, and Ubuntu Docker Engine repairs, fixed APT metadata refresh, helper canary, fixed Keel artifact job, and secret-free recovery readiness kit come from Bigbox. Existing Docker providers are preserved; restic storage and repository setup remains terminal-only; general package mutation remains locked.",
+    description: "Prerequisite checks, durable approvals, exact smartmontools, restic, and Ubuntu Docker Engine repairs, fixed APT metadata refresh, helper canary, fixed Keel artifact job, and secret-free recovery readiness kit come from this server. Existing Docker providers are preserved; restic storage and repository setup remains terminal-only; general package mutation remains locked.",
   },
   virtualization: {
     label: "Host-backed module",
@@ -107,7 +107,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   backups: {
     label: "Controller and application backup engine",
     tone: "live",
-    description: "BoxPilot controller, Uptime Kuma, Pi-hole, and Keel backup planning plus durable SHA-256 evidence come from Bigbox. Controller state begins with a WAL-aware snapshot, and controller plus application state support separate encrypted independent exact-restore protection after terminal-only repository setup. The fixed no-prune retention policy is available for controller and per-application snapshots; scheduling remains pending.",
+    description: "BoxPilot controller, Uptime Kuma, Pi-hole, and Keel backup planning plus durable SHA-256 evidence come from this server. Controller state begins with a WAL-aware snapshot, and controller plus application state support separate encrypted independent exact-restore protection after terminal-only repository setup. The fixed no-prune retention policy is available for controller and per-application snapshots; scheduling remains pending.",
   },
   migrations: {
     label: "Guarded local transfer staging",

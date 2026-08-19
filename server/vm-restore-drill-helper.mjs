@@ -262,7 +262,7 @@ export function createVmRestoreDrillHelper({
       const capacity = await statFilesystem(resolvedImageRoot);
       restoreFreeBytes = Number(capacity.bavail) * Number(capacity.bsize);
       if (!Number.isSafeInteger(restoreFreeBytes) || restoreFreeBytes <= 0) throw new Error("invalid capacity");
-      if (restoreFreeBytes < parameters.expectedSizeBytes + 1024 ** 3) blockers.push("Bigbox does not report enough temporary space for the isolated restore drill");
+      if (restoreFreeBytes < parameters.expectedSizeBytes + 1024 ** 3) blockers.push("This server does not report enough temporary space for the isolated restore drill");
     } catch {
       blockers.push("Temporary restore capacity is unavailable");
     }

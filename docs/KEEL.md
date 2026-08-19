@@ -6,7 +6,7 @@ Ownership claim and owner-login proof remain separate terminal-only handoffs. Re
 
 ## Terminal-only instance-owner login proof
 
-After installation, registration, and the one-use ownership claim are complete, run this from a normal Bigbox administrator account:
+After installation, registration, and the one-use ownership claim are complete, run this from a normal server administrator account:
 
 ```bash
 sudo -k /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-owner-login-proof.mjs
@@ -187,7 +187,7 @@ Failure or interruption stops the candidate, restores the displaced current prod
 12. Wait for the background job. The completed result must show the exact version, dedicated service, boot enablement, `127.0.0.1:3000`, health identity, preserved state, and still-required terminal claim.
 13. After Keel contains data, open **Backups**, create the Keel Notes plan, stage the exact revision, and approve it in Repair Center.
 14. Require source restart, exact health, manifest and tree digest, SQLite checks, and removed isolated workspace evidence before treating the artifact as locally verified.
-15. Configure the separate application restic destination and run the independent protection plan before treating the local artifact as protected from Bigbox storage failure.
+15. Configure the separate application restic destination and run the independent protection plan before treating the local artifact as protected from the server's storage failure.
 16. To rehearse the data transformation, choose that verified local backup under **Stopped Keel recovery clones**, build the immutable plan, stage it, and approve it in Repair Center.
 17. Require exact source hashes, confined archive membership, repeated manifest, tree, managed-secret, and SQLite proof, a root-only published state path, `stopped` state, `none` network, and explicit no-production-replacement evidence.
 18. On that stopped clone, choose **Plan isolated startup rehearsal**, stage the exact plan, and approve it in Repair Center. Require private-namespace health, SQLite proof, clean stop, zero published ports, unchanged source evidence, and removed workspace.
@@ -219,7 +219,7 @@ Keel deliberately separates registration from instance ownership. BoxPilot does 
 
 1. From the client computer, create a private tunnel: `ssh -N -L 3000:127.0.0.1:3000 bigbox@bigbox`.
 2. Open `http://127.0.0.1:3000`, register the intended account, and generate Keel's five-minute one-use claim token.
-3. SSH to Bigbox as your normal administrator and run `sudo -k /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-claim.mjs 'PASTE_TOKEN'`.
+3. SSH to the server as your normal administrator and run `sudo -k /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-claim.mjs 'PASTE_TOKEN'`.
 4. The fixed terminal handoff rechecks the exact activation, environment, database ownership, install evidence, dedicated account, and active service before it drops permanently to the `keel` identity and calls Keel's claim transaction. `sudo -k` forces a fresh operating-system confirmation. The five-minute token never enters BoxPilot's API, database, job log, or browser storage.
 5. Run `sudo -k /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-owner-login-proof.mjs`. Require instance-owner authorization, forced logout, revoked-session evidence, and no credential or session storage.
 6. Restrict or close registration, verify that policy manually, and only then plan a future private Tailscale access route.

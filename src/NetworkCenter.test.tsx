@@ -24,7 +24,7 @@ const acceptanceStatus = {
   linkedDeploymentJobId: null,
   linkedBackupId: null,
   acceptances: [],
-  limitations: ["A passing Bigbox test proves only the controller path.", "A second device is required."],
+  limitations: ["A passing server-side test proves only the controller path.", "A second device is required."],
 };
 
 describe("Network Center", () => {
@@ -64,12 +64,12 @@ describe("Network Center", () => {
       if (input.toString().endsWith("/api/v1/network/topology")) return new Response(JSON.stringify(topology), { status: 200, headers: { "Content-Type": "application/json" } });
       if (input.toString().endsWith("/api/v1/network/dns-acceptance")) return new Response(JSON.stringify(acceptanceStatus), { status: 200, headers: { "Content-Type": "application/json" } });
       const submitted = JSON.parse(String(init?.body));
-      expect(submitted).toMatchObject({ dnsRole: "pihole-on-bigbox", dnsServiceAddress: "192.168.8.10", routerBackupRecorded: true, emergencyResolverTested: true, secondDeviceReady: true });
+      expect(submitted).toMatchObject({ dnsRole: "pihole-on-host", dnsServiceAddress: "192.168.8.10", routerBackupRecorded: true, emergencyResolverTested: true, secondDeviceReady: true });
       return new Response(JSON.stringify({ plan: {
         id: "pihole-assessment", revision: "b".repeat(64), expiresAt: "2026-08-16T01:00:00Z",
         output: {
           executable: false, readyForChangeWindow: true, topology: { summary: "Keep Flint 2 as the only edge router.", devices: ["Flint 2: edge router"] },
-          dns: { role: "pihole-on-bigbox", primary: "192.168.8.10", emergency: "94.140.14.59" }, blockers: [], warnings: [],
+          dns: { role: "pihole-on-host", primary: "192.168.8.10", emergency: "94.140.14.59" }, blockers: [], warnings: [],
           changes: ["No network setting will be changed"], recovery: ["Restore external DNS"], routerMutationSupported: false, dnsCutoverSupported: false,
         },
       } }), { status: 201, headers: { "Content-Type": "application/json" } });
@@ -78,7 +78,7 @@ describe("Network Center", () => {
     render(<NetworkCenter csrfToken="csrf" onAssessmentReady={onAssessmentReady} />);
 
     await screen.findByText("192.168.8.1");
-    fireEvent.change(screen.getByLabelText("DNS role"), { target: { value: "pihole-on-bigbox" } });
+    fireEvent.change(screen.getByLabelText("DNS role"), { target: { value: "pihole-on-host" } });
     fireEvent.change(screen.getByLabelText("Proposed primary DNS IPv4"), { target: { value: "192.168.8.10" } });
     fireEvent.click(screen.getByLabelText(/Router configuration backup/));
     fireEvent.click(screen.getByLabelText(/Emergency resolver tested/));
@@ -110,7 +110,7 @@ describe("Network Center", () => {
             { id: "local-udp", protocol: "udp", name: "pi.hole", type: "A", expectedRcode: 0 },
             { id: "local-tcp", protocol: "tcp", name: "pi.hole", type: "A", expectedRcode: 0 },
           ],
-          evidenceBoundary: { provesBigboxPath: true, provesSecondDevicePath: false, routerMutationSupported: false, dnsCutoverSupported: false },
+          evidenceBoundary: { provesHostPath: true, provesSecondDevicePath: false, routerMutationSupported: false, dnsCutoverSupported: false },
           changes: ["Send fixed queries"], recovery: "No settings are changed.",
         },
       } }), { status: 201, headers: { "Content-Type": "application/json" } });
@@ -120,7 +120,7 @@ describe("Network Center", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<NetworkCenter csrfToken="csrf" onOpenRepair={onOpenRepair} />);
 
-    expect(await screen.findByText("Prove DNS directly from Bigbox")).toBeTruthy();
+    expect(await screen.findByText("Prove DNS directly from this server")).toBeTruthy();
     expect(screen.getByText("Second device not proven")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Plan fixed direct DNS checks" }));
     expect(await screen.findByText("Exact checks are ready to stage")).toBeTruthy();

@@ -451,7 +451,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
   return (
     <div className="repair-page">
       <section className="repair-readiness">
-        <div><span className="eyebrow">Live prerequisite inventory</span><strong>{loading ? "Inspecting Bigbox..." : `${ready} of ${checks.length} checks ready`}</strong><p>Missing and conflicting requirements are reported independently, so one failed collector does not hide the others.</p></div>
+        <div><span className="eyebrow">Live prerequisite inventory</span><strong>{loading ? "Inspecting this server..." : `${ready} of ${checks.length} checks ready`}</strong><p>Missing and conflicting requirements are reported independently, so one failed collector does not hide the others.</p></div>
         <button className="secondary-button" type="button" onClick={() => void refresh()} disabled={loading}>{loading ? "Inspecting..." : "Run inspection"}</button>
       </section>
 

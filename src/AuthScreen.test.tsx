@@ -28,7 +28,7 @@ describe("owner authentication screen", () => {
 
   it("does not show bootstrap controls on an existing server", () => {
     render(<AuthScreen bootstrapRequired={false} onAuthenticated={vi.fn()} />);
-    expect(screen.getByRole("heading", { name: "Sign in to Bigbox" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Sign in to BoxPilot" })).toBeTruthy();
     expect(screen.queryByLabelText("Bootstrap token")).toBeNull();
   });
 });

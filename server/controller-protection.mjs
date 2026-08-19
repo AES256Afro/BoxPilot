@@ -79,8 +79,8 @@ export function createControllerProtectionService({ store, helper }) {
       ],
       verification: ["Local artifact and manifest SHA-256", "SQLite integrity, foreign keys, required schema, and owner state", "Full restic repository data read", "Exact snapshot path and tag readback", "Exact restored hashes and isolated database copy-open"],
       warnings: [
-        "The repository password is a controller recovery key. Keep a separate copy outside Bigbox and outside the backup filesystem.",
-        "A local USB disk is independent from Bigbox storage but is not offsite protection. A NAS or rotated encrypted disk is stronger.",
+        "The repository password is a controller recovery key. Keep a separate copy outside this server and outside the backup filesystem.",
+        "A local USB disk is independent from this server's storage but is not offsite protection. A NAS or rotated encrypted disk is stronger.",
         "The complete repository read is deliberate and may take longer as repository history grows.",
         "BoxPilot does not forget, prune, overwrite, or delete restic snapshots in this workflow.",
       ],

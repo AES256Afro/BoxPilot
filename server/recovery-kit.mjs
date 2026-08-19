@@ -90,9 +90,9 @@ export function createRecoveryKitService({ store, prerequisites, applications, l
       protectedControllerBackup
         ? check("controller.database", "verified", "Independent BoxPilot database recovery", `Controller backup ${protectedControllerBackup.id} has an encrypted independent restic snapshot, a complete repository read, and an exact isolated database restore drill.`, "Keep the repository and its separate recovery password in different failure domains. Repeat protection after material controller-state changes.")
         : controllerBackups[0]?.restoreDrill?.passed === true
-        ? check("controller.database", "operator-check", "Independent BoxPilot database copy", `A WAL-aware local controller snapshot passed its isolated copy-open drill at ${controllerBackups[0].verifiedAt}, but it remains on Bigbox.`, "Copy the complete root-only backup directory and manifest to encrypted independent storage, verify both recorded SHA-256 values there, and retain the restore procedure.")
+        ? check("controller.database", "operator-check", "Independent BoxPilot database copy", `A WAL-aware local controller snapshot passed its isolated copy-open drill at ${controllerBackups[0].verifiedAt}, but it remains on this server.`, "Copy the complete root-only backup directory and manifest to encrypted independent storage, verify both recorded SHA-256 values there, and retain the restore procedure.")
         : check("controller.database", "action-required", "Verified BoxPilot database snapshot", "No WAL-aware local controller snapshot with passing isolated copy-open evidence is recorded.", "Open Backups and run the BoxPilot controller workflow. Then copy the verified directory and manifest to encrypted independent storage."),
-      check("controller.source", "operator-check", "Exact BoxPilot source and install notes", `This kit records BoxPilot ${version}, but the running controller does not attest its Git commit or retain an independent source archive.`, "Keep the exact release archive, file manifest, Ubuntu bootstrap notes, systemd units, and Tailscale Serve command outside Bigbox."),
+      check("controller.source", "operator-check", "Exact BoxPilot source and install notes", `This kit records BoxPilot ${version}, but the running controller does not attest its Git commit or retain an independent source archive.`, "Keep the exact release archive, file manifest, Ubuntu bootstrap notes, systemd units, and Tailscale Serve command outside this server."),
       !applicationInventoryAvailable
         ? check("applications.backup", "unavailable", "Managed application recovery", "Application inventory is unavailable, so managed workload backup coverage cannot be evaluated.", "Restore application inventory and regenerate the kit.")
         : installedApplications.length === 0
@@ -111,7 +111,7 @@ export function createRecoveryKitService({ store, prerequisites, applications, l
             : check("virtualization.backup", "action-required", "Virtual-machine recovery", `${unprotectedDomains.length} of ${domains.length} VM(s) lack retained protected backup evidence.`, "Create a stopped export, encrypted independent restic copy, and isolated no-network restore drill for each uncovered VM."),
       routerCheckpoints.length > 0
         ? check("router.checkpoint", "verified", "Router configuration checkpoint", `${routerCheckpoints.length} browser-hashed router checkpoint record(s) exist; the actual files remain operator-held.`, "Confirm each original configuration file is readable on independent storage and export a new file after firmware or topology changes.")
-        : check("router.checkpoint", "action-required", "Router configuration checkpoint", "No router backup identity is recorded.", "Export the active router configuration, keep it outside Bigbox, and record its browser-computed SHA-256 in Router Checkpoints."),
+        : check("router.checkpoint", "action-required", "Router configuration checkpoint", "No router backup identity is recorded.", "Export the active router configuration, keep it outside this server, and record its browser-computed SHA-256 in Router Checkpoints."),
       migrationTransfers.length === 0
         ? check("migration.source", "not-applicable", "Migration source preservation", "No verified migration transfer is recorded.", "Keep every source workload unchanged until a future destination activation is separately accepted.")
         : migrationTransfers.every((item) => item.contentVerified && item.sourcePreserved && !item.activationPerformed)
@@ -119,9 +119,9 @@ export function createRecoveryKitService({ store, prerequisites, applications, l
           : check("migration.source", "action-required", "Migration source preservation", "At least one migration record lacks full source-preservation or no-activation evidence.", "Stop and review the affected transfer before any destination activation."),
       directDnsEvidence
         ? secondDeviceEvidence
-          ? check("dns.second-device", "verified", "Independent DNS proof", "Passing fixed DNS evidence exists from Bigbox and a signed enrolled device.", "Repeat both proofs after any Pi-hole, router, DHCP, or topology change.")
-          : check("dns.second-device", "action-required", "Independent DNS proof", "Bigbox direct DNS evidence exists, but no passing signed second-device record exists.", "Run the fixed DNS task from an enrolled LAN device before considering any router advertisement change.")
-        : check("dns.second-device", "not-applicable", "Independent DNS proof", "No passing Bigbox Pi-hole acceptance record exists.", "Keep current DNS unchanged. Complete deployment, backup, and direct Bigbox proof before second-device testing."),
+          ? check("dns.second-device", "verified", "Independent DNS proof", "Passing fixed DNS evidence exists from this server and a signed enrolled device.", "Repeat both proofs after any Pi-hole, router, DHCP, or topology change.")
+          : check("dns.second-device", "action-required", "Independent DNS proof", "Server-side direct DNS evidence exists, but no passing signed second-device record exists.", "Run the fixed DNS task from an enrolled LAN device before considering any router advertisement change.")
+        : check("dns.second-device", "not-applicable", "Independent DNS proof", "No passing server-side Pi-hole acceptance record exists.", "Keep current DNS unchanged. Complete deployment, backup, and direct server-side proof before second-device testing."),
       !prerequisiteInventoryAvailable
         ? check("host.prerequisites", "unavailable", "Host prerequisite review", "Prerequisite inventory is unavailable.", "Restore the read-only prerequisite collector and regenerate the kit before recovery work.")
         : nonReadyPrerequisites.length === 0
@@ -152,8 +152,8 @@ export function createRecoveryKitService({ store, prerequisites, applications, l
         { order: 4, title: "Inspect before mutation", instruction: "Run Repair Center and live inventory. Treat missing feature-specific prerequisites as scoped blockers, not permission for broad repair commands." },
         { order: 5, title: "Restore applications", instruction: "Use adapter-aware artifacts and isolated restore tests. Keep unclaimed services loopback-only and never copy a live SQLite database." },
         { order: 6, title: "Restore virtual machines", instruction: "Restore only exact protected restic snapshots into stopped no-network clones before deciding whether to attach networking." },
-        { order: 7, title: "Re-establish DNS", instruction: "Keep the independent resolver active, then require direct Bigbox and signed second-device evidence before any router or client DNS change." },
-        { order: 8, title: "Validate and record", instruction: "Verify application health, backup integrity, access boundaries, and rollback; generate a new kit and store it away from Bigbox." },
+        { order: 7, title: "Re-establish DNS", instruction: "Keep the independent resolver active, then require direct server-side and signed second-device evidence before any router or client DNS change." },
+        { order: 8, title: "Validate and record", instruction: "Verify application health, backup integrity, access boundaries, and rollback; generate a new kit and store it away from this server." },
       ],
       externalItems: [
         "Controller restic repository media and a separately stored repository password",

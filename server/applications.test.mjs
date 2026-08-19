@@ -17,7 +17,7 @@ async function setup({ statuses = {}, portInUse = false, dnsTcpInUse = false, dn
   const checks = ["runtime.node", "storage.state", "helper.boundary", "containers.docker", "dns.port53"].map((id) => ({ id, status: statuses[id] ?? "ready", summary: `${id} status`, repair: null }));
   const assessment = {
     id: "network-plan-one",
-    input: { serverAddress: "192.168.8.10", fallbackDnsAddress: "94.140.14.59", dnsRole: "pihole-on-bigbox" },
+    input: { serverAddress: "192.168.8.10", fallbackDnsAddress: "94.140.14.59", dnsRole: "pihole-on-host" },
     output: { readyForChangeWindow: true, blockers: [] },
   };
   const validateAssessment = vi.fn(async () => {

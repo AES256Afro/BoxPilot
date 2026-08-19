@@ -107,7 +107,7 @@ describe("Virtual Machines", () => {
         destinationFreeBytes: 20 * 1024 ** 3, blockers: [], changes: ["Write an encrypted restic snapshot"],
         verification: ["Full repository data check"], encrypted: true, independent: true, repositoryVerified: false,
         protected: false, restoreDrill: { passed: false, reason: "not run" },
-        warnings: ["Keep a recovery copy outside Bigbox."], recovery: "The local export remains unchanged.",
+        warnings: ["Keep a recovery copy outside this server."], recovery: "The local export remains unchanged.",
       },
     };
     const retentionStatus = {
@@ -206,7 +206,7 @@ describe("Virtual Machines", () => {
     fireEvent.click(screen.getByRole("button", { name: "Plan encrypted backup" }));
     expect(await screen.findByText("Encrypted independent VM backup")).toBeTruthy();
     expect(screen.getByText("Full repository data check")).toBeTruthy();
-    expect(screen.getByText("Keep a recovery copy outside Bigbox.")).toBeTruthy();
+    expect(screen.getByText("Keep a recovery copy outside this server.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stage for password approval" }));
     await vi.waitFor(() => expect(onOpenRepair).toHaveBeenCalledTimes(4));
     fireEvent.click(screen.getByRole("button", { name: "Review retention" }));

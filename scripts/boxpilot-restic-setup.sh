@@ -8,7 +8,7 @@ boxpilot_secret_directory="/etc/boxpilot/secrets"
 boxpilot_password_file="$boxpilot_secret_directory/vm-backup-restic-password"
 
 if [ "$(id -u)" -ne 0 ]; then
-  printf 'Run this setup from the Bigbox terminal with sudo.\n' >&2
+  printf 'Run this setup from the server terminal with sudo.\n' >&2
   exit 1
 fi
 
@@ -39,7 +39,7 @@ boxpilot_destination_device="$(stat -c %d "$boxpilot_mount")"
 boxpilot_state_device="$(stat -c %d /var/lib/boxpilot-managed)"
 boxpilot_image_device="$(stat -c %d /var/lib/libvirt/images)"
 if [ "$boxpilot_destination_device" = "$boxpilot_state_device" ] || [ "$boxpilot_destination_device" = "$boxpilot_image_device" ]; then
-  printf 'The destination is on the same filesystem as Bigbox data. It is not independent.\n' >&2
+  printf 'The destination is on the same filesystem as the server's data. It is not independent.\n' >&2
   exit 1
 fi
 
@@ -92,5 +92,5 @@ else
   restic --repo "$boxpilot_repository" --password-file "$boxpilot_password_file" init
 fi
 
-printf 'Store a separate recovery copy of the repository password outside Bigbox.\n'
+printf 'Store a separate recovery copy of the repository password outside this server.\n'
 printf 'Restart BoxPilot, then verify the destination in Virtual Machines.\n'

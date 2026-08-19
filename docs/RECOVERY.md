@@ -3,7 +3,7 @@
 BoxPilot `0.26.0` adds an authenticated read-only recovery kit to Repair Center. It answers two questions before an outage becomes an emergency:
 
 1. Which recovery claims are supported by current BoxPilot evidence?
-2. Which independent items must the operator still keep outside Bigbox?
+2. Which independent items must the operator still keep outside the server?
 
 The kit is available from `GET /api/v1/operations/recovery-kit` after owner authentication. The browser can download the structured response as JSON or the included ordered runbook as Markdown. Generation performs no write and requires no privileged helper mutation.
 
@@ -19,7 +19,7 @@ The service reads and sanitizes:
 - Router model, firmware, browser-reported checksum, size, and external-file retention assertion
 - Verified migration transfer size, file count, source-preservation, and no-activation evidence
 - Fleet agent counts and passing signed evidence counts
-- Passing direct Bigbox DNS acceptance counts
+- Passing direct server-side DNS acceptance counts
 - Fixed prerequisite status, summary, and guided repair description
 
 It turns those observations into eight explicit checks:
@@ -45,8 +45,8 @@ The Markdown runbook always preserves this order:
 4. Run Repair Center and live inventory before any mutation.
 5. Restore applications only with adapter-aware artifacts and isolated tests.
 6. Restore VMs only from exact protected snapshots into stopped no-network clones.
-7. Re-establish DNS only after direct Bigbox and signed second-device proof while the independent resolver remains active.
-8. Verify health and rollback, regenerate the kit, and store it outside Bigbox.
+7. Re-establish DNS only after direct server-side and signed second-device proof while the independent resolver remains active.
+8. Verify health and rollback, regenerate the kit, and store it outside the server.
 
 The kit does not execute these instructions. It supplies an ordering contract to reduce improvised recovery changes.
 

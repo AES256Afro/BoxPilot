@@ -112,15 +112,15 @@ export function createBackupService({ store, prerequisites, helper, inspectKeelH
       ],
       warnings: controller ? [
         "This artifact contains password hashes, sessions, agent identities, plans, jobs, and audit state. Keep the root-only mode and treat any copied file as sensitive.",
-        "The verified destination remains on Bigbox. Copy the complete backup directory and manifest to encrypted independent storage before treating it as disaster protection.",
+        "The verified destination remains on this server. Copy the complete backup directory and manifest to encrypted independent storage before treating it as disaster protection.",
         "The isolated drill proves database open, checksum, integrity, foreign keys, and schema. It does not start a second BoxPilot service or test owner login.",
       ] : keel ? [
         "Keel has brief measured downtime while the upstream export reads a stopped database. The source is restarted before the restore drill begins.",
         "The artifact can contain notes, users, sessions, encrypted credentials, the managed-secret companion, uploads, and private configuration. It remains root-only and must be treated as sensitive.",
-        "The isolated drill opens only the restored SQLite copy and starts no application process. A local artifact is not protection from failure of Bigbox itself until its separate encrypted restic copy also passes an exact restore.",
+        "The isolated drill opens only the restored SQLite copy and starts no application process. A local artifact is not protection from failure of this server itself until its separate encrypted restic copy also passes an exact restore.",
       ] : [
         "The source will have brief measured downtime while its consistent archive is created.",
-        "A local-only artifact is verified recovery evidence, but it is not yet protection from failure of Bigbox itself.",
+        "A local-only artifact is verified recovery evidence, but it is not yet protection from failure of this server itself.",
       ],
       recovery: controller
         ? "If snapshot or drill verification fails, the helper removes only the newly generated backup and drill paths. The production database is never replaced, stopped, checkpointed, truncated, or modified."

@@ -50,7 +50,7 @@ export function createVmProtectionService({ store, helper }) {
       protected: false,
       restoreDrill: { passed: false, reason: "An isolated restore boot has not run" },
       warnings: [
-        "Repository encryption does not help if the password is lost. Keep a recovery copy outside Bigbox.",
+        "Repository encryption does not help if the password is lost. Keep a recovery copy outside this server.",
         "This job reads the complete local export and every data pack in the repository, so it can run for hours and grows slower as the repository grows.",
         "The backup remains unprotected in BoxPilot until a later isolated restore boot and guest health check pass.",
         "BoxPilot never deletes an existing restic snapshot automatically when verification fails.",

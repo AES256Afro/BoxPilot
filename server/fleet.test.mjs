@@ -99,7 +99,7 @@ describe("signed fleet agent", () => {
     const keys = keyPair();
     expect(() => service.enroll({ token: enrollment.token, name: "unsafe-agent", publicKey: keys.publicKey.toString("base64url"), capabilities: ["remote-shell"] })).toThrow("dns-probe-v1");
     const agent = service.enroll({ token: enrollment.token, name: "safe-agent", publicKey: keys.publicKey.toString("base64url"), capabilities: ["dns-probe-v1"] });
-    await expect(service.createDnsProbeTask(owner.id, { agentId: agent.id, delayMinutes: 0, password })).rejects.toThrow("passing direct Bigbox");
+    await expect(service.createDnsProbeTask(owner.id, { agentId: agent.id, delayMinutes: 0, password })).rejects.toThrow("passing direct server-side");
     const forged = signedHeaders({ agentId: agent.id, privateKey: keyPair().privateKey, sequence: 1, method: "GET", requestPath: "/api/v1/agent/tasks/next" });
     expect(() => service.nextTask({ headers: forged })).toThrow("signature verification");
     const stale = signedHeaders({ agentId: agent.id, privateKey: keys.privateKey, sequence: 1, timestamp: "2026-08-16T01:00:00.000Z", method: "GET", requestPath: "/api/v1/agent/tasks/next" });

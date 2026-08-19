@@ -290,7 +290,7 @@ describe("durable job executor", () => {
     const jobs = createJobService(store, helper, { validateApplicationJob });
     const job = store.createJob({
       type: "application.pi-hole.deploy",
-      title: "Stage Pi-hole on Bigbox",
+      title: "Stage Pi-hole on this server",
       parameters: { hostPort: 8080, lanAddress: "192.168.8.10", networkAssessmentId: "network-plan-one" },
       recovery: { automaticRollback: true },
       createdBy: owner.id,

@@ -128,7 +128,7 @@ export function createControllerProtectionHelper({
       const metadata = await statFile(resolvedPasswordFile);
       if (!metadata.isFile() || metadata.isSymbolicLink() || metadata.uid !== 0 || (metadata.mode & 0o777) !== 0o600 || metadata.size < 16 || metadata.size > 4096) throw new Error("unsafe password file");
     } catch {
-      blockers.push("Create the separate root-owned mode-0600 controller recovery password from the Bigbox terminal");
+      blockers.push("Create the separate root-owned mode-0600 controller recovery password from the server terminal");
     }
 
     if (resticVersion && mount && blockers.length === 0) {

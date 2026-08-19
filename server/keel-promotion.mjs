@@ -52,7 +52,7 @@ export function createKeelPromotionService({ store, helper }) {
       warnings: [
         "This replaces production notes, users, sessions, credentials, uploads, registration state, and claim state with the selected recovery contents.",
         "Keel is briefly unavailable while the old state is stopped and checkpointed. Owner login is not tested by this job.",
-        "The rollback checkpoint is local to Bigbox and is not an independent encrypted backup.",
+        "The rollback checkpoint is local to this server and is not an independent encrypted backup.",
         "An interrupted directory exchange is reconciled by the same fixed no-argument unit, which restores previous production before new work is accepted.",
       ],
       recovery: "Any failed apply or verification stops the promoted service, restores the exact previous production directory, restarts it, requires its health identity, and removes only generated candidate and incomplete checkpoint paths.",

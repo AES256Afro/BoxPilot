@@ -157,4 +157,4 @@ sudo cp -a /var/lib/boxpilot/boxpilot.sqlite3* /var/backups/boxpilot/
 sudo systemctl start boxpilot-helper.service boxpilot.service
 ```
 
-This stopped-service database-family copy remains a manual incident checkpoint. For normal operations, use the `0.38.0` Backups workflow so committed WAL state, integrity, foreign keys, required schema, owner state, artifact checksum, manifest, and an isolated copy-open drill are verified. Neither method is independent protection until the complete result is stored outside Bigbox.
+This stopped-service database-family copy remains a manual incident checkpoint. For normal operations, use the `0.38.0` Backups workflow so committed WAL state, integrity, foreign keys, required schema, owner state, artifact checksum, manifest, and an isolated copy-open drill are verified. Neither method is independent protection until the complete result is stored outside the server.

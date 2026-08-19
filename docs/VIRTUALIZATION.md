@@ -228,7 +228,7 @@ This local export is not yet disaster recovery. Use the next workflow to create 
 
 ## 8. Configure an independent encrypted VM copy
 
-Do not create `/mnt/boxpilot-backup` as an ordinary directory on the Bigbox root disk. Attach and mount an external disk or a separately mounted NAS filesystem at that exact path. BoxPilot rejects the destination if its filesystem device matches either local exports or VM images.
+Do not create `/mnt/boxpilot-backup` as an ordinary directory on the server root disk. Attach and mount an external disk or a separately mounted NAS filesystem at that exact path. BoxPilot rejects the destination if its filesystem device matches either local exports or VM images.
 
 Install restic and run the interactive fixed-path setup utility:
 
@@ -239,7 +239,7 @@ sudo /opt/boxpilot/scripts/boxpilot-restic-setup.sh
 sudo systemctl restart boxpilot-helper boxpilot
 ```
 
-The utility prompts without echo, writes a root-owned mode-`0600` password file, and initializes `/mnt/boxpilot-backup/restic-vm`. It does not accept a password or repository path as an argument. Keep a separate recovery copy of the password outside Bigbox.
+The utility prompts without echo, writes a root-owned mode-`0600` password file, and initializes `/mnt/boxpilot-backup/restic-vm`. It does not accept a password or repository path as an argument. Keep a separate recovery copy of the password outside the server.
 
 Then:
 
@@ -365,7 +365,7 @@ sudo restic --repo /mnt/boxpilot-backup/restic-vm --password-file /etc/boxpilot/
 sudo systemctl restart boxpilot-helper boxpilot
 ```
 
-The first device number must differ from both Bigbox source locations. The password file must be `root:root`, mode `600`, and not a symlink. Restarting the helper after mounting ensures its hardened filesystem namespace sees the independent mount.
+The first device number must differ from both server source locations. The password file must be `root:root`, mode `600`, and not a symlink. Restarting the helper after mounting ensures its hardened filesystem namespace sees the independent mount.
 
 ## 14. Security boundary
 

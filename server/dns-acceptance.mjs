@@ -236,7 +236,7 @@ export function createDnsAcceptanceService({ store, helper, network, probeResolv
       tests: acceptanceChecks.map((check) => ({ ...check, type: "A", port: 53 })),
       evidenceBoundary: {
         origin: "boxpilot-controller",
-        provesBigboxPath: true,
+        provesHostPath: true,
         provesSecondDevicePath: false,
         routerMutationSupported: false,
         dnsCutoverSupported: false,
@@ -262,7 +262,7 @@ export function createDnsAcceptanceService({ store, helper, network, probeResolv
       linkedBackupId: backup?.id ?? null,
       acceptances: store.listDnsAcceptances(),
       limitations: [
-        "A passing Bigbox test proves only the controller-to-resolver path.",
+        "A passing server-side test proves only the controller-to-resolver path.",
         "A separately enrolled device must still supply independent LAN evidence before router DNS advertisement can be unlocked.",
         "Router, DHCP, client DNS, firewall, and Tailscale settings remain read-only.",
       ],
@@ -291,7 +291,7 @@ export function createDnsAcceptanceService({ store, helper, network, probeResolv
     store.stagePlan(plan.id, ownerId);
     return store.createJob({
       type: "network.dns.acceptance.run",
-      title: "Verify Pi-hole DNS directly from Bigbox",
+      title: "Verify Pi-hole DNS directly from this server",
       risk: "network-read",
       parameters: {
         acceptanceId: randomUUID(),

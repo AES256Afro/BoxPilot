@@ -99,7 +99,7 @@ describe("Keel terminal claim handoff", () => {
     const value = await fixture();
     const common = { paths: value.paths, rootUid: value.uid, inspectAccount: async () => ({ uid: value.uid, gid: value.gid }), serviceActive: () => true, setGroups: vi.fn(), setGid: vi.fn(), setUid: vi.fn(), runClaim: vi.fn() };
     await expect(claimInstalledKeel({ ...common, token: "changed", uid: 0, sudoUid: "1000", stdinTty: true, stdoutTty: true })).rejects.toThrow("five-minute");
-    await expect(claimInstalledKeel({ ...common, token: `keel_claim_${"a".repeat(43)}`, uid: 0, sudoUid: undefined, stdinTty: true, stdoutTty: true })).rejects.toThrow("normal Bigbox administrator");
+    await expect(claimInstalledKeel({ ...common, token: `keel_claim_${"a".repeat(43)}`, uid: 0, sudoUid: undefined, stdinTty: true, stdoutTty: true })).rejects.toThrow("normal server administrator");
     await expect(claimInstalledKeel({ ...common, token: `keel_claim_${"a".repeat(43)}`, uid: 0, sudoUid: "1000", stdinTty: false, stdoutTty: true })).rejects.toThrow("interactively");
     await writeFile(value.paths.environment, "DATABASE_URL=file:/tmp/changed.db\n", { mode: 0o640 });
     await expect(claimInstalledKeel({ ...common, token: `keel_claim_${"a".repeat(43)}`, uid: 0, sudoUid: "1000", stdinTty: true, stdoutTty: true })).rejects.toThrow("content changed");

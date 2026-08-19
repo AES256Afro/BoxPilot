@@ -13,7 +13,7 @@ BoxPilot `0.22.0` introduced the first deliberately narrow fleet slice. Version 
 - Owner-password reauthentication before every task window
 - Only three dispatch choices: immediate, 5 minutes, or 10 minutes
 - An exact ten-minute execution window with no recurrence or unattended retry
-- Four fixed A-record checks against the exact resolver from a fresh matching Bigbox acceptance record
+- Four fixed A-record checks against the exact resolver from a fresh matching server-side acceptance record
 - A fixed Linux or macOS local-default-gateway read for Flint 2 tasks; the agent rejects any mismatch
 - Durable task and signed evidence records in SQLite
 
@@ -36,14 +36,14 @@ There is no remote shell, arbitrary command, operator-provided probe target, plu
    npm run agent -- enroll --controller https://bigbox.example-tailnet.ts.net --token ONE_TIME_TOKEN --name second-lan-device
    ```
 
-The agent creates `~/.config/boxpilot-agent/agent.json` with mode `0600`. That file contains the Ed25519 private key. Do not copy it to Bigbox, GitHub, a support bundle, or another device. Enrollment fails closed if the token expires, is reused, requests another capability, or supplies a non-Ed25519 public key.
+The agent creates `~/.config/boxpilot-agent/agent.json` with mode `0600`. That file contains the Ed25519 private key. Do not copy it to the server, GitHub, a support bundle, or another device. Enrollment fails closed if the token expires, is reused, requests another capability, or supplies a non-Ed25519 public key.
 
 ## Collect independent DNS evidence
 
 The Fleet page can schedule a one-shot task only when all of these are true:
 
 - The agent is active and has the fixed `dns-probe-v1` capability.
-- The selected Pi-hole or Flint 2 path has a passing direct Bigbox acceptance record.
+- The selected Pi-hole or Flint 2 path has a passing direct server-side acceptance record.
 - That controller record is no more than 30 minutes old.
 - The selected agent has no other pending DNS probe.
 - The owner password is re-entered for this task.
@@ -76,7 +76,7 @@ Before the window opens, signed polls return no task. The result is signed and s
 
 ## What a passing result proves
 
-A passing Pi-hole result proves that the enrolled device could directly reach the exact managed Pi-hole resolver and complete the four fixed checks during the task window. A passing Flint 2 result proves that the enrolled device had one local default gateway matching the fresh Bigbox target and could complete the four fixed queries against it during the window.
+A passing Pi-hole result proves that the enrolled device could directly reach the exact managed Pi-hole resolver and complete the four fixed checks during the task window. A passing Flint 2 result proves that the enrolled device had one local default gateway matching the fresh server target and could complete the four fixed queries against it during the window.
 
 Neither result remotely attests the device, router model, AdGuard Home configuration, filters, DHCP advertisement, use by every client, or fallback recovery. The signed record proves which enrolled key submitted the evidence and that the current allowlisted agent contract was used; it is not hardware attestation.
 

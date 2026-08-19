@@ -5,7 +5,19 @@ import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
 const topologyIds = new Set(["flint2-edge-tplink-ap", "omada-edge-access-points", "single-router", "custom"]);
-const dnsRoleIds = new Set(["current-external", "flint2-adguard-home", "pihole-on-bigbox", "pihole-in-vm", "other"]);
+const dnsRoleIds = new Set(["current-external", "flint2-adguard-home", "pihole-on-host", "pihole-in-vm", "other"]);
+/** Older clients and stored plans used a hostname-specific role id; accept it and normalize. */
+const legacyDnsRoleAliases = { "pihole-on-bigbox": "pihole-on-host" };
+
+export function normalizeDnsRole(value) {
+  return typeof value === "string" && value in legacyDnsRoleAliases ? legacyDnsRoleAliases[value] : value;
+}
+
+function normalizeNetworkPlanInput(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || typeof value.dnsRole !== "string") return value;
+  const dnsRole = normalizeDnsRole(value.dnsRole);
+  return dnsRole === value.dnsRole ? value : { ...value, dnsRole };
+}
 const interfacePattern = /^[A-Za-z0-9_.:-]{1,32}$/;
 
 const routerCatalog = [
@@ -46,16 +58,16 @@ const routerGuides = [
       { label: "GL.iNet AdGuard Home", url: "https://docs.gl-inet.com/router/en/4/interface_guide/adguardhome/" },
     ],
     steps: [
-      "Export the current Flint 2 configuration, retain it away from Bigbox, and record its checksum in BoxPilot before changing the forwarding path.",
+      "Export the current Flint 2 configuration, retain it away from this server, and record its checksum in BoxPilot before changing the forwarding path.",
       "Use Router mode only if Flint 2 is the selected edge. Connect its WAN to the modem or upstream handoff and its LAN to the home switch or access points.",
       "Confirm Flint 2 is the only device providing NAT and DHCP before connecting downstream wireless equipment.",
       "For the later AdGuard Home change window, open APPLICATIONS > AdGuard Home. Review the vendor warning about Handle Client Requests before enabling anything.",
     ],
     verify: [
-      "From the router interface, confirm its LAN address equals the gateway Bigbox observes.",
+      "From the router interface, confirm its LAN address equals the gateway This server observes.",
       "From two LAN clients, confirm the same default gateway and only one DHCP authority.",
-      "Confirm ordinary internet access and the existing Bigbox Tailscale path before any DNS work.",
-      "Keep the current independent DNS resolvers active until separate Bigbox and second-device DNS acceptance passes.",
+      "Confirm ordinary internet access and the existing this server's Tailscale path before any DNS work.",
+      "Keep the current independent DNS resolvers active until separate server-side and second-device DNS acceptance passes.",
     ],
     rollback: "Disconnect Flint 2 from the forwarding path or restore its retained configuration using the vendor interface. Restore the previously working edge router and independent resolver before troubleshooting AdGuard Home.",
   },
@@ -68,7 +80,7 @@ const routerGuides = [
       { label: "TP-Link access-point mode guide", url: "https://www.tp-link.com/us/support/faq/3774/" },
     ],
     steps: [
-      "Export the current TP-Link configuration, retain it away from Bigbox, and record its checksum in BoxPilot.",
+      "Export the current TP-Link configuration, retain it away from this server, and record its checksum in BoxPilot.",
       "While connected locally, open tplinkwifi.net and choose Advanced > System > Operation Mode > Access Point, then save. The router reboots.",
       "After reboot, connect it by Ethernet to the Flint 2 LAN or the downstream switch, then reopen its management page and complete Advanced > Quick Setup for Wi-Fi.",
       "Do not configure a second WAN, NAT, DHCP server, DNS advertisement, or port-forwarding boundary on this access point.",
@@ -77,7 +89,7 @@ const routerGuides = [
       "Confirm the TP-Link interface reports Access Point mode.",
       "Confirm a connected client receives its gateway and DHCP lease from the selected edge router, not the TP-Link.",
       "Record the TP-Link management address assigned by the edge router so it can be reached after the mode change.",
-      "Confirm Wi-Fi, ordinary DNS, and Bigbox access before removing the prior wireless path.",
+      "Confirm Wi-Fi, ordinary DNS, and access to this server before removing the prior wireless path.",
     ],
     rollback: "Use a wired local connection and the retained vendor instructions or configuration to restore the prior mode. Reconnect the old wireless path before diagnosing coverage or roaming.",
   },
@@ -120,14 +132,14 @@ function buildRouterReadiness(topology, checkpointStatus) {
         : readinessCheck("gateway.observed", "unavailable", "One live default gateway", "The fixed default-route collector is unavailable.", "Repair the host route collector and refresh this page."),
     readinessCheck("gateway.identity", "operator-check", "Gateway model identity", route ? `${route.gateway} is observed, but BoxPilot does not inspect neighbor tables, MAC addresses, router pages, or credentials.` : "No gateway identity can be correlated without a live route.", "Compare the observed address with the LAN address shown in the Flint 2 interface."),
     flintCheckpoint
-      ? readinessCheck("flint.checkpoint", "verified", "Flint 2 recovery checkpoint", `Checkpoint ${flintCheckpoint.id} records firmware ${flintCheckpoint.firmwareVersion}, ${flintCheckpoint.sizeBytes} bytes, and a browser-reported SHA-256 digest.`, "Keep the original configuration file available away from Bigbox.")
+      ? readinessCheck("flint.checkpoint", "verified", "Flint 2 recovery checkpoint", `Checkpoint ${flintCheckpoint.id} records firmware ${flintCheckpoint.firmwareVersion}, ${flintCheckpoint.sizeBytes} bytes, and a browser-reported SHA-256 digest.`, "Keep the original configuration file available away from this server.")
       : readinessCheck("flint.checkpoint", "action-required", "Flint 2 recovery checkpoint", "No Flint 2 configuration checksum is recorded.", "Export the configuration, retain it externally, then hash and record it below."),
     readinessCheck("routing.single-authority", "operator-check", "One NAT and DHCP authority", "Host routes cannot prove which downstream devices are running DHCP or NAT.", "Confirm Flint 2 is the only production router and DHCP server."),
     readinessCheck("tplink.ap-mode", "operator-check", "TP-Link access-point mode", "BoxPilot does not log in to the TP-Link or claim its operating mode.", "Confirm Advanced > System > Operation Mode reports Access Point."),
     readinessCheck("omada.out-of-path", "operator-check", "ER707-M2 outside production", "BoxPilot performs no discovery or network probe against the Omada gateway.", "Confirm the ER707-M2 is disconnected from the production forwarding path."),
     topology.tailscale.connected
-      ? readinessCheck("recovery.tailscale", "verified", "Private recovery access", `${topology.tailscale.dnsName ?? "Bigbox"} reports a connected Tailscale state.`, "Keep console access available during physical router changes.")
-      : readinessCheck("recovery.tailscale", "action-required", "Private recovery access", "Bigbox does not report connected Tailscale state.", "Restore Tailscale and confirm console access before changing the edge router."),
+      ? readinessCheck("recovery.tailscale", "verified", "Private recovery access", `${topology.tailscale.dnsName ?? "This server"} reports a connected Tailscale state.`, "Keep console access available during physical router changes.")
+      : readinessCheck("recovery.tailscale", "action-required", "Private recovery access", "This server does not report connected Tailscale state.", "Restore Tailscale and confirm console access before changing the edge router."),
   ];
   const counts = Object.fromEntries(["verified", "action-required", "operator-check", "unavailable"].map((state) => [state, checks.filter((item) => item.state === state).length]));
   return {
@@ -365,7 +377,8 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
     };
   }
 
-  async function buildAssessment(input) {
+  async function buildAssessment(rawInput) {
+    const input = normalizeNetworkPlanInput(rawInput);
     const errors = validateNetworkPlanInput(input);
     if (errors.length) throw new Error(errors.join(" | "));
     const topology = await inspect();
@@ -386,17 +399,17 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
     if (topology.tailscale.defaultDnsObserved !== input.tailscaleDnsOverride) warnings.push("The operator declaration and the host's observed default resolver path differ. Verify Tailscale DNS policy before cutover.");
 
     if (input.dnsRole === "flint2-adguard-home" && input.dnsServiceAddress !== input.gatewayAddress) blockers.push({ id: "flint-dns-address", summary: "Flint 2 AdGuard Home must be planned at the declared Flint gateway address" });
-    if (input.dnsRole === "pihole-on-bigbox" && input.dnsServiceAddress !== input.serverAddress) blockers.push({ id: "bigbox-dns-address", summary: "Pi-hole on Bigbox must use the declared live Bigbox LAN address" });
+    if (input.dnsRole === "pihole-on-host" && input.dnsServiceAddress !== input.serverAddress) blockers.push({ id: "host-dns-address", summary: "Pi-hole on this server must use the declared live server LAN address" });
     if (input.dnsRole === "pihole-in-vm") {
-      if (!server?.cidr || !sameIpv4Subnet(input.dnsServiceAddress, server.cidr)) blockers.push({ id: "vm-dns-subnet", summary: "The dedicated Pi-hole VM address must be inside the live Bigbox LAN subnet" });
-      if ([input.serverAddress, input.gatewayAddress].includes(input.dnsServiceAddress)) blockers.push({ id: "vm-dns-address-collision", summary: "The dedicated Pi-hole VM address must differ from Bigbox and the gateway" });
+      if (!server?.cidr || !sameIpv4Subnet(input.dnsServiceAddress, server.cidr)) blockers.push({ id: "vm-dns-subnet", summary: "The dedicated Pi-hole VM address must be inside the live server LAN subnet" });
+      if ([input.serverAddress, input.gatewayAddress].includes(input.dnsServiceAddress)) blockers.push({ id: "vm-dns-address-collision", summary: "The dedicated Pi-hole VM address must differ from this server and the gateway" });
     }
-    if (["pihole-on-bigbox", "pihole-in-vm", "flint2-adguard-home"].includes(input.dnsRole) && net.isIP(input.fallbackDnsAddress) !== 4) blockers.push({ id: "fallback-dns", summary: "A valid emergency resolver is required" });
+    if (["pihole-on-host", "pihole-in-vm", "flint2-adguard-home"].includes(input.dnsRole) && net.isIP(input.fallbackDnsAddress) !== 4) blockers.push({ id: "fallback-dns", summary: "A valid emergency resolver is required" });
     if (input.dnsRole === "current-external" && topology.defaultResolvers.length && !topology.defaultResolvers.includes(input.dnsServiceAddress)) warnings.push("The declared primary external resolver is not one of the host's observed default resolvers.");
-    if (input.dnsRole === "pihole-on-bigbox") {
+    if (input.dnsRole === "pihole-on-host") {
       const collision = topology.dnsListeners.some((listener) => listener.scope === "wildcard" || listener.address === input.serverAddress);
-      if (collision) blockers.push({ id: "dns-listener-collision", summary: "A TCP or UDP port 53 listener already occupies the planned Bigbox LAN binding" });
-      if (topology.dnsListeners.some((listener) => listener.scope === "loopback" || listener.scope === "virtual")) warnings.push("Loopback and virtual-network DNS listeners are present. A future adapter must bind only the reviewed Bigbox LAN address, not every interface.");
+      if (collision) blockers.push({ id: "dns-listener-collision", summary: "A TCP or UDP port 53 listener already occupies the planned server LAN binding" });
+      if (topology.dnsListeners.some((listener) => listener.scope === "loopback" || listener.scope === "virtual")) warnings.push("Loopback and virtual-network DNS listeners are present. A future adapter must bind only the reviewed server LAN address, not every interface.");
     }
 
     const guidance = topologyGuidance(input.topology);
@@ -418,12 +431,12 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
         "No router, host, Tailscale, DNS, firewall, DHCP, or application setting will be changed by this assessment",
         "Capture an external router checkpoint and keep the current resolver available",
         `Prepare ${input.dnsServiceAddress} as the proposed primary resolver only after its own backup and health gates pass`,
-        "Test DNS from Bigbox and a second LAN device before advertising the new resolver",
+        "Test DNS from this server and a second LAN device before advertising the new resolver",
         `Keep ${input.fallbackDnsAddress} available while the new resolver proves stable`,
       ],
       recovery: [
         `Restore router DNS advertisement to ${input.fallbackDnsAddress}`,
-        "Verify ordinary DNS from the second device without relying on Bigbox",
+        "Verify ordinary DNS from the second device without relying on this server",
         "Keep Tailscale DNS override off or restore its independent resolver before troubleshooting the new service",
         "Do not stop or delete the previous DNS service until the rollback window closes",
       ],
@@ -437,7 +450,8 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
     return buildRouterReadiness(await inspect(), checkpointStatus);
   }
 
-  async function plan(input, ownerId) {
+  async function plan(rawInput, ownerId) {
+    const input = normalizeNetworkPlanInput(rawInput);
     const output = await buildAssessment(input);
     return store.createPlan({ type: "network.dns.assessment", subjectId: input.topology, input, output, createdBy: ownerId });
   }
@@ -446,7 +460,7 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
     const assessment = store.getPlan(planId);
     if (!assessment || assessment.createdBy !== ownerId || assessment.type !== "network.dns.assessment") throw new Error("Network assessment not found");
     if (assessment.expired) throw new Error("Network assessment expired; refresh topology and create a new assessment");
-    if (assessment.input.dnsRole !== expectedDnsRole) throw new Error(`Network assessment must use the ${expectedDnsRole} DNS role`);
+    if (normalizeDnsRole(assessment.input.dnsRole) !== expectedDnsRole) throw new Error(`Network assessment must use the ${expectedDnsRole} DNS role`);
     if (assessment.output.readyForChangeWindow !== true || assessment.output.blockers?.length) throw new Error("Network assessment has unresolved recovery or topology blockers");
     const current = await buildAssessment(assessment.input);
     if (current.readyForChangeWindow !== true || JSON.stringify(current) !== JSON.stringify(assessment.output)) throw new Error("Live gateway, resolver, listener, address, Tailscale, or recovery evidence changed after the network assessment");
@@ -456,7 +470,7 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
   async function validateAcceptanceBaseline(planId, ownerId, resolverAddress) {
     const assessment = store.getPlan(planId);
     if (!assessment || assessment.createdBy !== ownerId || assessment.type !== "network.dns.assessment") throw new Error("Linked network assessment was not found");
-    if (assessment.input.dnsRole !== "pihole-on-bigbox") throw new Error("Linked network assessment is not for Pi-hole on Bigbox");
+    if (normalizeDnsRole(assessment.input.dnsRole) !== "pihole-on-host") throw new Error("Linked network assessment is not for Pi-hole on this server");
     if (assessment.output.readyForChangeWindow !== true || assessment.output.blockers?.length) throw new Error("Linked network assessment did not pass its original recovery and topology gates");
     if (assessment.input.serverAddress !== resolverAddress || assessment.input.dnsServiceAddress !== resolverAddress) throw new Error("Managed Pi-hole no longer matches the reviewed resolver address");
     if (!assessment.input.routerBackupRecorded || !assessment.input.emergencyResolverTested || !assessment.input.secondDeviceReady) throw new Error("Linked network assessment is missing a required recovery declaration");
@@ -464,7 +478,7 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
 
     const topology = await inspect();
     if (!topology.defaultRoutes.some((route) => route.gateway === assessment.input.gatewayAddress)) throw new Error("The reviewed gateway no longer matches a live default route");
-    if (!topology.eligibleLanAddresses.some((address) => address.address === resolverAddress)) throw new Error("The reviewed Pi-hole address is no longer a live eligible Bigbox LAN address");
+    if (!topology.eligibleLanAddresses.some((address) => address.address === resolverAddress)) throw new Error("The reviewed Pi-hole address is no longer a live eligible server LAN address");
     if (!topology.tailscale.connected) throw new Error("Private Tailscale recovery access is unavailable");
     if (topology.tailscale.defaultDnsObserved !== assessment.input.tailscaleDnsOverride) throw new Error("The observed Tailscale default-DNS boundary changed after staging");
     const matchingListeners = topology.dnsListeners.filter((listener) => listener.address === resolverAddress && listener.port === 53);
