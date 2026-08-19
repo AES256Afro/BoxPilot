@@ -1,6 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 import { productVersion } from "./version.mjs";
+import { helperOperations } from "./helper-protocol.mjs";
 
 describe("native systemd network boundaries", () => {
   it("allows netlink only in the web inventory process", async () => {
@@ -150,7 +151,7 @@ describe("native systemd network boundaries", () => {
     expect(service).not.toContain("%i");
     expect(service).not.toContain("$PACKAGE");
     expect(service).not.toContain("[Install]");
-    expect(protocol).toContain("prerequisite.smartmontools.install");
+    expect(helperOperations.has("prerequisite.smartmontools.install")).toBe(true);
     expect(protocol).not.toContain("package.install");
   });
 
@@ -174,7 +175,7 @@ describe("native systemd network boundaries", () => {
     expect(service).not.toContain("%i");
     expect(service).not.toContain("$PACKAGE");
     expect(service).not.toContain("[Install]");
-    expect(protocol).toContain("prerequisite.restic.install");
+    expect(helperOperations.has("prerequisite.restic.install")).toBe(true);
     expect(protocol).not.toContain("package.install");
   });
 
@@ -200,7 +201,7 @@ describe("native systemd network boundaries", () => {
     expect(service).not.toContain("%i");
     expect(service).not.toContain("$PACKAGE");
     expect(service).not.toContain("[Install]");
-    expect(protocol).toContain("prerequisite.docker.install");
+    expect(helperOperations.has("prerequisite.docker.install")).toBe(true);
     expect(protocol).not.toContain("package.install");
   });
 
@@ -228,7 +229,7 @@ describe("native systemd network boundaries", () => {
     expect(installer).not.toContain("virt-install");
     expect(service).not.toContain("%i");
     expect(service).not.toContain("[Install]");
-    expect(protocol).toContain("prerequisite.virtualization.install");
+    expect(helperOperations.has("prerequisite.virtualization.install")).toBe(true);
     expect(protocol).not.toContain("package.install");
   });
 
@@ -277,7 +278,7 @@ describe("native systemd network boundaries", () => {
     expect(refresher).toContain("process.argv.length !== 2");
     expect(refresher).toContain("installed package database changed");
     expect(refresher).not.toMatch(/(?:install|upgrade|remove|autoremove|dist-upgrade)["']/);
-    expect(protocol).toContain("prerequisite.apt-metadata.refresh");
+    expect(helperOperations.has("prerequisite.apt-metadata.refresh")).toBe(true);
     expect(protocol).not.toContain("package.update");
   });
 

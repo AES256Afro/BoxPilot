@@ -81,8 +81,8 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ operation: "prerequisite.smartmontools.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "prerequisite.smartmontools.inspect", parameters: { package: "curl" } }))).toContain("no parameters");
     expect(validateHelperRequest(request({ operation: "prerequisite.smartmontools.install", parameters: { expectedVersion: "7.5-2" } }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "prerequisite.smartmontools.install", parameters: { expectedVersion: "7.5-2", package: "curl" } }))).toContain("only one exact expectedVersion");
-    expect(validateHelperRequest(request({ operation: "prerequisite.smartmontools.install", parameters: { expectedVersion: "$(id)" } }))).toContain("only one exact expectedVersion");
+    expect(validateHelperRequest(request({ operation: "prerequisite.smartmontools.install", parameters: { expectedVersion: "7.5-2", package: "curl" } }))).toContain('does not accept parameter "package"');
+    expect(validateHelperRequest(request({ operation: "prerequisite.smartmontools.install", parameters: { expectedVersion: "$(id)" } }))).toContain("invalid value");
     const prerequisites = {
       inspectSmartmontools: async () => ({ package: "smartmontools", installed: false, candidateVersion: "7.5-2", mutationPerformed: false }),
       installSmartmontools: async ({ expectedVersion }) => ({ package: "smartmontools", installed: true, version: expectedVersion, boundary: { arbitraryPackageAccepted: false } }),
@@ -95,8 +95,8 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ operation: "prerequisite.restic.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "prerequisite.restic.inspect", parameters: { repository: "/tmp/repo" } }))).toContain("no parameters");
     expect(validateHelperRequest(request({ operation: "prerequisite.restic.install", parameters: { expectedVersion: "0.18.1-1" } }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "prerequisite.restic.install", parameters: { expectedVersion: "0.18.1-1", package: "curl" } }))).toContain("only one exact expectedVersion");
-    expect(validateHelperRequest(request({ operation: "prerequisite.restic.install", parameters: { expectedVersion: "$(id)" } }))).toContain("only one exact expectedVersion");
+    expect(validateHelperRequest(request({ operation: "prerequisite.restic.install", parameters: { expectedVersion: "0.18.1-1", package: "curl" } }))).toContain('does not accept parameter "package"');
+    expect(validateHelperRequest(request({ operation: "prerequisite.restic.install", parameters: { expectedVersion: "$(id)" } }))).toContain("invalid value");
     const prerequisites = {
       inspectRestic: async () => ({ package: "restic", installed: false, candidateVersion: "0.18.1-1", mutationPerformed: false }),
       installRestic: async ({ expectedVersion }) => ({ package: "restic", installed: true, version: expectedVersion, binaryVerified: true, boundary: { arbitraryPackageAccepted: false } }),
@@ -109,8 +109,8 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ operation: "prerequisite.docker.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "prerequisite.docker.inspect", parameters: { repository: "example" } }))).toContain("no parameters");
     expect(validateHelperRequest(request({ operation: "prerequisite.docker.install", parameters: { expectedVersion: "28.2.2-0ubuntu1" } }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "prerequisite.docker.install", parameters: { expectedVersion: "28.2.2-0ubuntu1", package: "curl" } }))).toContain("only one exact expectedVersion");
-    expect(validateHelperRequest(request({ operation: "prerequisite.docker.install", parameters: { expectedVersion: "$(id)" } }))).toContain("only one exact expectedVersion");
+    expect(validateHelperRequest(request({ operation: "prerequisite.docker.install", parameters: { expectedVersion: "28.2.2-0ubuntu1", package: "curl" } }))).toContain('does not accept parameter "package"');
+    expect(validateHelperRequest(request({ operation: "prerequisite.docker.install", parameters: { expectedVersion: "$(id)" } }))).toContain("invalid value");
     const prerequisites = {
       inspectDocker: async () => ({ package: "docker.io", installed: false, candidateVersion: "28.2.2-0ubuntu1", mutationPerformed: false }),
       installDocker: async ({ expectedVersion }) => ({ package: "docker.io", installed: true, version: expectedVersion, engineVersion: "28.2.2", engineVerified: true, boundary: { arbitraryPackageAccepted: false, arbitraryRepositoryAccepted: false } }),
@@ -124,8 +124,8 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ operation: "prerequisite.virtualization.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "prerequisite.virtualization.inspect", parameters: { uri: "qemu:///session" } }))).toContain("no parameters");
     expect(validateHelperRequest(request({ operation: "prerequisite.virtualization.install", parameters: { expectedPackages } }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "prerequisite.virtualization.install", parameters: { expectedPackages: { ...expectedPackages, curl: "1.0" } } }))).toContain("exact fixed expectedPackages");
-    expect(validateHelperRequest(request({ operation: "prerequisite.virtualization.install", parameters: { expectedPackages: { ...expectedPackages, ovmf: "$(id)" } } }))).toContain("exact fixed expectedPackages");
+    expect(validateHelperRequest(request({ operation: "prerequisite.virtualization.install", parameters: { expectedPackages: { ...expectedPackages, curl: "1.0" } } }))).toContain("must list exactly");
+    expect(validateHelperRequest(request({ operation: "prerequisite.virtualization.install", parameters: { expectedPackages: { ...expectedPackages, ovmf: "$(id)" } } }))).toContain("exact Debian version");
     const prerequisites = {
       inspectVirtualization: async () => ({ installed: false, candidatePackages: expectedPackages, repairAvailable: true, mutationPerformed: false }),
       installVirtualization: async ({ expectedPackages: packages }) => ({ installed: true, packages, connectionUri: "qemu:///system", kvmDeviceVerified: true, boundary: { arbitraryPackageAccepted: false, virtualMachineCreated: false } }),
@@ -140,8 +140,8 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ operation: "prerequisite.apt-metadata.inspect", parameters: { command: "apt upgrade" } }))).toContain("no parameters");
     expect(validateHelperRequest(request({ operation: "prerequisite.apt-metadata.refresh", parameters: { expectedUpdatedAt: updatedAt } }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "prerequisite.apt-metadata.refresh", parameters: { expectedUpdatedAt: null } }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "prerequisite.apt-metadata.refresh", parameters: { expectedUpdatedAt: updatedAt, package: "curl" } }))).toContain("only one exact");
-    expect(validateHelperRequest(request({ operation: "prerequisite.apt-metadata.refresh", parameters: { expectedUpdatedAt: "yesterday" } }))).toContain("only one exact");
+    expect(validateHelperRequest(request({ operation: "prerequisite.apt-metadata.refresh", parameters: { expectedUpdatedAt: updatedAt, package: "curl" } }))).toContain('does not accept parameter "package"');
+    expect(validateHelperRequest(request({ operation: "prerequisite.apt-metadata.refresh", parameters: { expectedUpdatedAt: "yesterday" } }))).toContain("ISO-8601");
     const prerequisites = {
       inspectAptMetadata: async () => ({ state: "stale", updatedAt, refreshAvailable: true, mutationPerformed: false }),
       refreshAptMetadata: async () => ({ refreshed: true, state: "current", boundary: { fixedAptUpdateOnly: true, packageInstallPerformed: false } }),
@@ -152,7 +152,7 @@ describe("restricted helper protocol", () => {
 
   it("rejects arbitrary operation names and parameters", () => {
     expect(validateHelperRequest(request({ operation: "shell.exec" }))).toBe("Operation is not allowlisted");
-    expect(validateHelperRequest(request({ parameters: { command: "id" } }))).toBe("Canary operation accepts no parameters");
+    expect(validateHelperRequest(request({ parameters: { command: "id" } }))).toBe("Helper canary accepts no parameters");
   });
 
   it("accepts only the typed Uptime Kuma port parameter", () => {

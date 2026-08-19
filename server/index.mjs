@@ -2,6 +2,7 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { productVersion } from "./version.mjs";
+import { registry } from "./ops/index.mjs";
 import { createActionCenterService } from "./action-center.mjs";
 import { createAuditLog } from "./audit.mjs";
 import { createApplicationService } from "./applications.mjs";
@@ -229,6 +230,10 @@ app.use("/api/v1", (request, response, next) => {
     return;
   }
   auth.requireCsrf(request, response, next);
+});
+
+app.get("/api/v1/operations", (_request, response) => {
+  response.json({ operations: registry.describe(), riskTiers: ["low", "medium", "high"] });
 });
 
 app.get("/api/v1/capabilities", (_request, response) => {
