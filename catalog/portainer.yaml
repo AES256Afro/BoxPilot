@@ -7,8 +7,8 @@ description: Web UI for managing Docker containers, images, volumes, and stacks 
 website: https://www.portainer.io
 risk: medium
 image:
-  reference: portainer/portainer-ce:2.27.9-alpine
-  version: 2.27.9
+  reference: portainer/portainer-ce:2.44.0-alpine
+  version: 2.44.0
 ports:
   - id: web
     label: Web UI (HTTPS)

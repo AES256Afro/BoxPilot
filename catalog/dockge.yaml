@@ -1,0 +1,42 @@
+schemaVersion: 2
+id: dockge
+name: Dockge
+category: Docker
+icon: "🧩"
+description: Friendly web UI for writing and running your own docker-compose stacks, from the maker of Uptime Kuma.
+website: https://dockge.kuma.pet
+risk: medium
+image:
+  reference: louislam/dockge:1.5.0
+  version: 1.5.0
+ports:
+  - id: web
+    label: Web UI
+    container: 5001
+    host: 5001
+    exposure: lan
+volumes:
+  - id: data
+    label: Dockge data
+    container: /app/data
+    path: data
+  - id: stacks
+    label: Stacks directory
+    container: /opt/stacks
+    hostPath: /opt/stacks
+    configurable: true
+    description: Where your compose stacks live. Must be the same path inside and outside the container (Dockge requirement).
+  - id: docker
+    label: Docker socket
+    container: /var/run/docker.sock
+    hostPath: /var/run/docker.sock
+    description: Grants Dockge full control of Docker on this server.
+env:
+  - name: DOCKGE_STACKS_DIR
+    type: path
+    default: /opt/stacks
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 10
+notes: If you change the stacks folder, DOCKGE_STACKS_DIR must match it; the default pairing works out of the box.

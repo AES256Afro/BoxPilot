@@ -6,6 +6,8 @@ import { registry } from "./ops/index.mjs";
 import { approvalModes, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "./ops/risk.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { createJobLogReader } from "./job-log.mjs";
+import { findPortConflicts, listListeners } from "./ports.mjs";
+import { resolveValues } from "./catalog/schema.mjs";
 import { createActionCenterService } from "./action-center.mjs";
 import { createAuditLog } from "./audit.mjs";
 import { createApplicationService } from "./applications.mjs";
@@ -283,6 +285,25 @@ app.get("/api/v1/catalog", async (_request, response) => {
   } catch { /* host addresses are a convenience only */ }
   const applications = manifests.map((manifest) => ({ manifest, live: live?.applications?.find((entry) => entry.id === manifest.id) ?? null }));
   response.json({ applications, problems: [...problems, ...(live?.problems ?? [])], liveError, host });
+});
+
+// Precheck an install/reconfigure: validates values against the manifest and reports host port conflicts.
+app.post("/api/v1/catalog/:id/precheck", auth.requireCsrf, async (request, response) => {
+  const manifest = await catalogService.get(request.params.id);
+  if (!manifest) return response.status(404).json({ error: "Application not found", code: "application_not_found" });
+  const { values, errors } = resolveValues(manifest, request.body?.values ?? {});
+  if (errors.length) return response.status(400).json({ ok: false, errors, conflicts: [] });
+  const requested = manifest.ports.map((port) => ({ id: port.id, label: port.label, host: values.ports[port.id], protocol: port.protocol, exposure: port.exposure }));
+  let conflicts = [];
+  try {
+    const listeners = await listListeners();
+    const live = await helper.request("app.inspect", {}, { timeoutMs: 15_000 }).catch(() => null);
+    const own = live?.applications?.find((entry) => entry.id === manifest.id);
+    // When reconfiguring a running app, its own current ports are not conflicts.
+    const ownPorts = new Set((own?.urls ?? []).map((url) => `${url.host}/tcp`));
+    conflicts = findPortConflicts(requested, listeners).filter((conflict) => !(own?.installed && ownPorts.has(`${conflict.port}/${conflict.protocol}`)));
+  } catch { /* conflicts are advisory */ }
+  return response.json({ ok: conflicts.length === 0, errors: [], conflicts: conflicts.map((conflict) => ({ ...conflict, label: requested.find((port) => port.id === conflict.id)?.label ?? conflict.id })) });
 });
 
 // Mutating registered operations are staged as jobs and approved through /api/v1/jobs/:id/approve (risk-tiered).

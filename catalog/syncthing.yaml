@@ -1,0 +1,57 @@
+schemaVersion: 2
+id: syncthing
+name: Syncthing
+category: Files
+icon: "🔄"
+description: Continuous peer-to-peer file synchronisation between this server and your other devices.
+website: https://syncthing.net
+risk: low
+image:
+  reference: syncthing/syncthing:2.1.3
+  version: 2.1.3
+ports:
+  - id: web
+    label: Web UI
+    container: 8384
+    host: 8384
+    exposure: lan
+  - id: sync-tcp
+    label: Sync (TCP)
+    container: 22000
+    host: 22000
+    exposure: lan
+  - id: sync-udp
+    label: Sync (QUIC)
+    container: 22000
+    host: 22000
+    protocol: udp
+    exposure: lan
+  - id: discovery
+    label: Local discovery
+    container: 21027
+    host: 21027
+    protocol: udp
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /var/syncthing/config
+    path: config
+  - id: data
+    label: Synced folders root
+    container: /var/syncthing
+    hostPath: /srv/syncthing
+    configurable: true
+    description: Folder on this server where synced folders are created.
+env:
+  - name: PUID
+    type: number
+    default: 1000
+    fixed: true
+  - name: PGID
+    type: number
+    default: 1000
+    fixed: true
+health:
+  kind: healthcheck
+  timeoutSeconds: 120

@@ -7,8 +7,8 @@ description: Free media server for movies, shows, music, and photos with apps fo
 website: https://jellyfin.org
 risk: medium
 image:
-  reference: jellyfin/jellyfin:10.10.7
-  version: 10.10.7
+  reference: jellyfin/jellyfin:10.11.11
+  version: 10.11.11
 ports:
   - id: web
     label: Web UI

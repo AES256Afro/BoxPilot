@@ -1,0 +1,46 @@
+schemaVersion: 2
+id: adguard-home
+name: AdGuard Home
+category: DNS
+icon: "🛡️"
+description: Network-wide ad and tracker blocking DNS server with a clean web UI. Point your router's DNS at this server once it is running.
+website: https://adguard.com/adguard-home/overview.html
+risk: high
+image:
+  reference: adguard/adguardhome:v0.107.79
+  version: v0.107.79
+ports:
+  - id: dns-tcp
+    label: DNS (TCP)
+    container: 53
+    host: 53
+    exposure: lan
+  - id: dns-udp
+    label: DNS (UDP)
+    container: 53
+    host: 53
+    protocol: udp
+    exposure: lan
+  - id: setup
+    label: First-run setup UI
+    container: 3000
+    host: 3003
+    exposure: lan
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8083
+    exposure: lan
+volumes:
+  - id: work
+    label: Working data
+    container: /opt/adguardhome/work
+    path: work
+  - id: conf
+    label: Configuration
+    container: /opt/adguardhome/conf
+    path: conf
+health:
+  kind: running
+  stableSeconds: 10
+notes: Open the setup UI first and choose port 80 for the admin interface and 53 for DNS in the wizard (they are mapped to the ports shown here). Ubuntu's systemd-resolved stub on 127.0.0.53 does not conflict; if port 53 is busy, Pi-hole or another resolver is already installed.

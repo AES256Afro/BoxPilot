@@ -1,0 +1,40 @@
+schemaVersion: 2
+id: vaultwarden
+name: Vaultwarden
+category: Security
+icon: "🔐"
+description: Lightweight Bitwarden-compatible password manager server; use the official Bitwarden apps and extensions with it.
+website: https://github.com/dani-garcia/vaultwarden
+risk: medium
+image:
+  reference: vaultwarden/server:1.37.1-alpine
+  version: 1.37.1
+ports:
+  - id: web
+    label: Web vault
+    container: 80
+    host: 8222
+    exposure: lan
+volumes:
+  - id: data
+    label: Data
+    container: /data
+    path: data
+env:
+  - name: SIGNUPS_ALLOWED
+    label: Allow new sign-ups
+    type: boolean
+    default: true
+    description: Turn off after you have created your accounts.
+  - name: ADMIN_TOKEN
+    label: Admin page token
+    type: password
+    generate: true
+    description: Used to open /admin. Generated and stored in the app's .env on the server.
+  - name: DOMAIN
+    label: Public URL
+    description: Optional. The https URL clients will use (required for WebAuthn and attachments to work properly), e.g. https://vault.example.com.
+health:
+  kind: healthcheck
+  timeoutSeconds: 120
+notes: Browser extensions and mobile apps require HTTPS; put this behind Tailscale Serve or a reverse proxy before using it from devices.
