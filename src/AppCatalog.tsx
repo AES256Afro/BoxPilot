@@ -105,6 +105,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [error, setError] = useState<string | null>(null);
   const [config, setConfig] = useState<{ manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure" } | null>(null);
   const [logs, setLogs] = useState<{ id: string; lines: string[] } | null>(null);
+  const [secrets, setSecrets] = useState<{ id: string; name: string; items: Array<{ name: string; label: string; value: string }> | null; needsPassword: boolean; password: string; error: string | null } | null>(null);
   const [filter, setFilter] = useState("");
 
   const refresh = useCallback(async () => {
@@ -136,6 +137,23 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
     }
   };
 
+  const revealSecrets = async (manifest: Manifest, password?: string) => {
+    try {
+      if (password) {
+        const elevate = await fetch("/api/v1/auth/elevate", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ password }) });
+        if (!elevate.ok) { const body = (await elevate.json()) as { error?: string }; throw new Error(body.error ?? "Invalid password"); }
+        window.dispatchEvent(new Event("boxpilot:auth-changed"));
+      }
+      const response = await fetch("/api/v1/operations/app.secrets/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id: manifest.id } }) });
+      const body = (await response.json()) as { result?: { secrets: Array<{ name: string; label: string; value: string }> }; error?: string; code?: string };
+      if (response.status === 401 && body.code === "elevation_required") { setSecrets({ id: manifest.id, name: manifest.name, items: null, needsPassword: true, password: "", error: null }); return; }
+      if (!response.ok) throw new Error(body.error ?? "Could not read secrets");
+      setSecrets({ id: manifest.id, name: manifest.name, items: body.result?.secrets ?? [], needsPassword: false, password: "", error: null });
+    } catch (requestError) {
+      setSecrets((current) => ({ id: manifest.id, name: manifest.name, items: null, needsPassword: true, password: "", error: requestError instanceof Error ? requestError.message : "Could not read secrets", ...(current ? {} : {}) }));
+    }
+  };
+
   const categories = useMemo(() => [...new Set((data?.applications ?? []).map((entry) => entry.manifest.category))].sort(), [data]);
   const visible = useMemo(() => (data?.applications ?? []).filter((entry) => !filter || entry.manifest.category === filter), [data, filter]);
   const hostForLinks = data?.host.lanAddress ?? window.location.hostname;
@@ -162,6 +180,30 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="logs-title" onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Logs</span><h2 id="logs-title">{logs.id}</h2></div><button className="icon-button" type="button" onClick={() => setLogs(null)} aria-label="Close dialog">X</button></header>
             <pre className="app-logs">{logs.lines.join("\n") || "(no output)"}</pre>
+          </section>
+        </div>
+      )}
+
+      {secrets && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setSecrets(null)}>
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="secrets-title" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="modal-header"><div><span className="eyebrow">Secrets</span><h2 id="secrets-title">{secrets.name}</h2></div><button className="icon-button" type="button" onClick={() => setSecrets(null)} aria-label="Close dialog">X</button></header>
+            <div className="modal-copy">
+              {secrets.needsPassword ? (
+                <>
+                  <p>Enter your owner password to reveal generated passwords and tokens. This unlocks high-risk actions for 10 minutes and is recorded in the audit log.</p>
+                  <input aria-label="Owner password" type="password" autoComplete="current-password" value={secrets.password} onChange={(event) => setSecrets({ ...secrets, password: event.target.value })} />
+                  {secrets.error && <div className="auth-error" role="alert">{secrets.error}</div>}
+                  <footer className="recovery-actions"><button className="primary-button" type="button" disabled={secrets.password.length < 12} onClick={() => { const manifest = data?.applications.find((entry) => entry.manifest.id === secrets.id)?.manifest; if (manifest) void revealSecrets(manifest, secrets.password); }}>Reveal</button></footer>
+                </>
+              ) : (
+                <>
+                  {secrets.items && secrets.items.length === 0 && <p>This app has no generated secrets.</p>}
+                  {secrets.items?.map((item) => <label key={item.name}>{item.label}<input readOnly value={item.value} aria-label={item.label} onFocus={(event) => event.currentTarget.select()} /></label>)}
+                  <p className="muted">Stored in the app's <code>.env</code> on the server. Copy what you need, then close.</p>
+                </>
+              )}
+            </div>
           </section>
         </div>
       )}
@@ -197,6 +239,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                 {installed && <button className="secondary-button" type="button" onClick={() => setConfig({ manifest, live, mode: "reconfigure" })}>Settings</button>}
                 {installed && <button className={live?.updateAvailable ? "primary-button" : "secondary-button"} type="button" onClick={() => start({ operationId: "app.update", title: `Update ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>{live?.updateAvailable ? <>Updates from <code>{live.installedImage}</code> to <code>{manifest.image.reference}</code>. </> : null}Pulls the image and recreates the container. The previous image is restored if the new one fails to become healthy.</span> })}>{live?.updateAvailable ? "Update available" : "Update"}</button>}
                 {installed && <button className="text-button" type="button" onClick={() => void showLogs(manifest.id)}>Logs</button>}
+                {installed && manifest.env.some((entry) => entry.secret) && <button className="text-button" type="button" onClick={() => void revealSecrets(manifest)}>Secrets</button>}
                 {installed && <button className="text-button" type="button" onClick={() => start({ operationId: "app.uninstall", title: `Uninstall ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Stops and removes the container. Data under the app directory is kept so you can reinstall later.</span> })}>Uninstall</button>}
                 {live?.dataPresent && <button className="text-button danger-text" type="button" onClick={() => start({ operationId: "app.purge", title: `Delete ${manifest.name} and its data`, parameters: { id: manifest.id }, preview: <span>Removes the container <strong>and deletes everything</strong> under the app's data directory. This cannot be undone.</span> })}>Delete data</button>}
                 {manifest.website && <a className="text-button" href={manifest.website} target="_blank" rel="noreferrer">Website</a>}

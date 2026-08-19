@@ -3188,3 +3188,10 @@ textarea {
 .job-terminal { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #050a10; }
 .job-terminal-bar { display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); }
 .job-terminal pre { margin: 0; padding: 10px 12px; max-height: 40vh; overflow: auto; font-size: 12px; line-height: 1.45; white-space: pre-wrap; word-break: break-all; color: #cfe3dc; }
+
+/* Approval settings */
+.approval-settings { display: grid; gap: 12px; }
+.approval-option { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+.approval-option input { margin-top: 4px; }
+.approval-option strong { display: block; }
+.approval-option span { color: var(--muted); font-size: 13px; }

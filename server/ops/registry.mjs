@@ -59,14 +59,14 @@ export function validateParameters(spec, parameters, title = "Operation") {
 }
 
 export function defineOperation(definition) {
-  const { id, title, risk, readOnly = false, timeoutMs = defaultTimeoutMs, parameters = { fields: {} }, run, description = "" } = definition ?? {};
+  const { id, title, risk, readOnly = false, elevatedOnly = false, timeoutMs = defaultTimeoutMs, parameters = { fields: {} }, run, description = "" } = definition ?? {};
   if (typeof id !== "string" || !idPattern.test(id)) throw new Error(`Operation id "${id}" must be lower-case dotted segments`);
   if (typeof title !== "string" || !title.trim()) throw new Error(`Operation ${id} needs a title`);
   if (!riskTiers.includes(risk)) throw new Error(`Operation ${id} risk must be one of ${riskTiers.join(", ")}`);
   if (typeof run !== "function") throw new Error(`Operation ${id} needs a run(parameters, dependencies) function`);
   if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) throw new Error(`Operation ${id} timeoutMs must be a positive integer`);
   if (readOnly && risk !== "low") throw new Error(`Operation ${id} is read-only and must be low risk`);
-  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), timeoutMs, parameters, run });
+  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), timeoutMs, parameters, run });
 }
 
 export class OperationRegistry {
@@ -108,8 +108,8 @@ export class OperationRegistry {
 
   /** Public, serializable description for the API and UI (no run functions). */
   describe() {
-    return this.list().map(({ id, title, description, risk, readOnly, timeoutMs, parameters }) => ({
-      id, title, description, risk, readOnly, timeoutMs, parameterNames: Object.keys(parameters?.fields ?? {}),
+    return this.list().map(({ id, title, description, risk, readOnly, elevatedOnly, timeoutMs, parameters }) => ({
+      id, title, description, risk, readOnly, elevatedOnly, timeoutMs, parameterNames: Object.keys(parameters?.fields ?? {}),
     }));
   }
 }

@@ -54,4 +54,4 @@ env:
 health:
   kind: running
   stableSeconds: 15
-notes: The login and sudo passwords were generated; read them from the app's .env on the server (Settings will show them in a later release).
+notes: The login and sudo passwords were generated for you — use the Secrets button on this card to reveal them.
