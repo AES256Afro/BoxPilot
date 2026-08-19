@@ -417,6 +417,15 @@ main {
   background: #172535;
 }
 
+.status-danger {
+  border-color: #6b3a3a;
+  color: var(--danger);
+  background: #2d1717;
+}
+
+.updates-center { display: grid; gap: 16px; }
+.updates-center .recovery-actions input { min-width: 240px; flex: 1; }
+
 .readiness {
   display: flex;
   align-items: center;

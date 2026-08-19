@@ -15,6 +15,7 @@ import NetworkCenter from "./NetworkCenter";
 import RepairCenter from "./RepairCenter";
 import RouterCenter from "./RouterCenter";
 import SystemLogs from "./SystemLogs";
+import UpdatesCenter from "./UpdatesCenter";
 import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import VirtualMachines from "./VirtualMachines";
 
@@ -24,6 +25,10 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   overview: {
     title: "Server overview",
     description: "Inspect sanitized host, service, network, storage, and Docker state from this server.",
+  },
+  updates: {
+    title: "Updates and packages",
+    description: "See what Ubuntu wants to update, install it, and add or remove packages.",
   },
   applications: {
     title: "Applications",
@@ -78,6 +83,11 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     label: "Live sanitized inventory",
     tone: "live",
     description: "Host identity, compute, root storage, LAN addresses, Tailscale self-state, selected services, and Docker inventory come from this server. Docker labels, commands, mount paths, and environment values are excluded.",
+  },
+  updates: {
+    label: "Live APT state",
+    tone: "live",
+    description: "Upgradable packages come from APT on this server. Refresh, upgrade, install, and remove run as audited root tasks after a one-click or confirm approval.",
   },
   applications: {
     label: "Curated application engine",
@@ -264,6 +274,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "overview") {
       return <HostOverview />;
     }
+    if (view === "updates") return <UpdatesCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "applications") {
       return (
         <ApplicationCatalog

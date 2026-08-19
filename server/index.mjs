@@ -885,6 +885,12 @@ app.get("/api/v1/jobs", (request, response) => {
   response.json({ jobs: state.listJobs(request.query.limit) });
 });
 
+app.get("/api/v1/jobs/:id", (request, response) => {
+  const job = state.getJob(request.params.id);
+  if (!job || job.createdBy !== request.boxpilotSession.owner.id) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
+  return response.json({ job });
+});
+
 app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
   const job = jobs.createCanary(request.boxpilotSession.owner.id);
   response.status(201).json({ job });
