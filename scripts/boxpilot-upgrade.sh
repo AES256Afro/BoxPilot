@@ -112,14 +112,17 @@ done
 systemctl daemon-reload
 
 # 5. Restart and verify
+WEB_RESTARTED=0
 systemctl restart boxpilot-helper.service || { [ "$HAD_PREVIOUS" -eq 1 ] && rollback || fail "helper failed to start"; }
 if systemctl is-enabled boxpilot.service >/dev/null 2>&1; then
   systemctl restart boxpilot.service || { [ "$HAD_PREVIOUS" -eq 1 ] && rollback || fail "boxpilot failed to start"; }
+  WEB_RESTARTED=1
 else
-  log "boxpilot.service is not enabled; skipping web restart (first install: enable units per docs)"
+  log "boxpilot.service is not enabled yet; skipping web restart and health check (the installer enables it next)"
 fi
 
 attempt=0; HEALTHY=0
+[ "$WEB_RESTARTED" -eq 1 ] || HEALTHY=1
 while [ "$attempt" -lt 20 ]; do
   attempt=$((attempt + 1))
   body="$(curl -fsS --max-time 3 "$HEALTH_URL" 2>/dev/null || true)"

@@ -149,7 +149,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - **M3.10** Import existing compose projects found in `/opt`, `~/docker` etc. → adopt into catalog ("Adopt this stack").
 
 ### Phase 4 — Install experience (1–2 weeks)
-- **M4.1** `install.sh` (idempotent, re-runnable = upgrade) + GitHub Release tarballs + signature.
+- ◐ **M4.1** `scripts/boxpilot-install.sh`: one command on a fresh Ubuntu box — Node 24 (sha256-verified), user, config, build via the upgrade script, units, access mode (tailscale/lan/local), health check, first-owner token. Re-run = upgrade. Remaining: verify on a pristine VM, GitHub Release tarballs + signature.
 - **M4.2** First-run browser wizard with profiles (Home server, DNS appliance, Hypervisor, Dev box, NAS) and "Install everything" progress view.
 - **M4.3** Ubuntu **autoinstall** `user-data` generator (hostname, user, SSH key, static IP/DHCP, disk, BoxPilot bootstrap) + docs to flash USB. Done when fresh hardware → BoxPilot URL with no SSH.
 - **M4.4** `boxpilot` CLI (`boxpilot install jellyfin`, `boxpilot backup now`, `boxpilot doctor`) sharing the registry — same ops, scriptable.
