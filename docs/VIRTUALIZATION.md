@@ -73,6 +73,16 @@ If `/dev/kvm` is unavailable, enable Intel VT-x or AMD-V in the server firmware.
 
 ## 2. Install BoxPilot as a native service
 
+### One-command install (recommended)
+
+On a fresh Ubuntu Server (24.04 or newer) with `sudo`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh
+```
+
+The installer adds Node.js 24 (checksum-verified, under `/opt/node-v24.x`), creates the `boxpilot` user and `/etc/boxpilot`, builds BoxPilot into `/opt/boxpilot`, installs and enables the systemd units, and prints the URL plus a one-time owner bootstrap token. Access defaults to Tailscale Serve when `tailscaled` is running, otherwise plain HTTP on the LAN; pass `--access tailscale|lan|local`, `--ref <branch>`, or `--port <n>` to change that. Re-running it upgrades in place.
+
 ### Upgrading an existing native install
 
 Once BoxPilot is installed under `/opt/boxpilot`, later releases or branches can be deployed with one command. The script downloads the ref from GitHub, builds it in a staging directory, swaps `/opt/boxpilot` atomically, installs changed unit files, restarts the services, verifies `/api/v1/health`, and rolls back automatically if the new tree is unhealthy:
