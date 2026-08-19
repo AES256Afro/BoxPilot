@@ -1,0 +1,262 @@
+# BoxPilot v2 — from "safety-first control plane" to "point-and-click server setup"
+
+Assessment of the repo at `0.61.0` (93 commits, 2026-08-14 → 08-16) against the stated goal: *open the app, click install — updates, apps, platforms like Pi-hole, dashboards, VMs, auth via GitHub/Tailscale, backup/restore for fast redeploys, uninstall and config edits.*
+
+---
+
+## 1. Verdict in five lines
+
+1. The codebase is **large (39k LOC, 590 tests, 121 routes, 34 SQLite tables, 75 helper ops)** and **well-built at the primitive level** — auth, the root-helper socket, the systemd-oneshot-with-approval-file escalation pattern, durable jobs, and the SQLite layer are all genuinely solid.
+2. It is **not a setup tool**; it is a *provenance and evidence engine* that happens to install four things. Every capability is expressed as one fixed, parameter-free, password-approved operation with a page of English prose proving what it *didn't* do.
+3. The "safety" is **structural, not a setting**. It is baked into three hand-synced allowlists, a 752-line approval function, and per-op prose. You cannot flip a flag to unlock it — you have to change the shape.
+4. Cost of adding anything today: **~550–650 LOC across 13 files per privileged operation**, **~700–900 LOC per new app**. That is why there are 3 apps and 5 package repairs after 39k lines.
+5. The fix is not a rewrite. **Keep ~25% (security, helper transport, jobs/state primitives, systemd hardening, UI shell), replace the ceremony with a registry + risk tiers + data-driven catalog, and add the missing primitives** (apt, systemd, docker compose, uninstall, config, installer, wizard).
+
+---
+
+## 2. What is actually there (facts, not opinions)
+
+| Layer | Reality | Ref |
+|---|---|---|
+| Web/API | One flat `index.mjs`, 121 inline routes, no `Router`, ~48 `create*Service()` instantiations | `server/index.mjs:1-150, 167-1170` |
+| Auth | Single owner. Terminal-generated bootstrap token → scrypt password → HttpOnly cookie + CSRF header. No OAuth/OIDC, no Tailscale identity, no WebAuthn. | `server/security.mjs`, `src/AuthScreen.tsx:41` |
+| Jobs | plan (30-min TTL, hashed revision) → stage → **password re-entry** → run → verify. All enforcement in one 752-line `prepareApproval` with a 40-type allowlist on one line and a ~700-line ternary chain of per-type `execution` literals | `server/jobs.mjs:67-819` |
+| Helper | Root process on `/run/boxpilot/helper.sock`, `PrivateNetwork=true`, `ProtectSystem=strict`. Op allowlist is **three lists kept in sync by hand**: ops Set (75 on one line), read-only Set, timeout `if` ladder | `helper-protocol.mjs:36`, `helper-server.mjs:31,117-144` |
+| Privilege | No sudo/polkit. Helper writes a 0600 approval JSON to `/run/boxpilot/`, starts a **static argument-less oneshot unit** gated by `ConditionPathExists=`. 15 such units. | `deploy/*.service`, `prerequisite-helper.mjs:270-280` |
+| Apps | 3 manifests as JS literals (Uptime Kuma, Pi-hole, Keel). `deployUptimeKuma` and `deployPihole` are separate functions; a second per-app dict lives in `application-lifecycle.mjs`. **No uninstall. No config edit. No update.** | `server/applications.mjs:14-79`, `application-helper.mjs:1006,1054` |
+| Packages | 5 fixed repairs (smartmontools, restic, docker.io, KVM bundle, apt *metadata-only* refresh). No general install/upgrade/remove/reboot. | `src/RepairCenter.tsx:383-413` |
+| VMs | The strongest area: create, lifecycle, snapshot, export, restic copy, restore drill, recovery clone, retention, ISO import. Missing: delete, force-off, console, cloud-init, bridge. | `server/vm-*.mjs` |
+| Backups | restic-based, controller + 3 apps + VMs, with retention and isolated restore drills. No schedule, no prune, no remote destination, no one-click "restore to new box". | `server/*-protection*.mjs`, `*-retention*.mjs` |
+| Install UX | No installer. Runbook is 16 stages / ~150 manual steps *before* BoxPilot, then ~40 sudo commands incl. 17 `install` lines for units. Owner setup needs a terminal. | `UBUNTU-SERVER-INSTALL-RUNBOOK.md`, `docs/VIRTUALIZATION.md:44-107` |
+| Approve-with-password UX | Not a reusable component. Lives in Repair Center; other screens stage a plan then say "go to Repair Center". Fleet re-implements it 3×. Install = ~6 clicks + tab switch + password. | `src/RepairCenter.tsx:601-618`, `ApplicationCatalog.tsx:300,435` |
+| Router | Read-only checkpoints and "observed gateway" evidence. No router API, credentials, writes. | `server/router-checkpoints.mjs` |
+| GitHub | Unauthenticated read of 2 hard-coded repos' commits/releases. | `server/github-provenance.mjs:7-8` |
+| Tailscale | Read state; one `tailscale serve` publish for Uptime Kuma. | `server/application-private-access.mjs` |
+| UI | React 19, no router, `useState` view switch, 3156-line dark-only CSS, two giant prose dictionaries in `App.tsx:23-160` | `src/App.tsx`, `src/styles.css` |
+| Hard-coding | "Bigbox" in 102 files incl. a stored enum `pihole-on-bigbox`; version string in 4 places; libvirt subnet in 4 places | `network.mjs:8`, `index.mjs:173,1183` |
+| Health | Build ✅. Tests 589/590 — one time-bomb (fixture dated 08-16 vs 24h stale window, no injected clock) | `server/storage-evidence.test.mjs:40-41` |
+
+---
+
+## 3. Why it feels "built for safety" — the root causes
+
+These are the things that must change; everything else is polish.
+
+1. **Password-per-action, with no tiers.** Every mutation — even "restart Uptime Kuma" — is plan → stage → navigate → password → approve. There is no notion of risk level, no session "sudo mode", no one-click for low-risk actions.
+2. **Fixed, argument-less operations.** The helper refuses anything it wasn't hand-taught. `docker install` accepts exactly `{expectedVersion}`; apt refresh is metadata-only *by design*. General `apt install <pkg>` does not exist, nor does `systemctl restart <unit>`, nor `docker compose up` for anything unknown.
+3. **Prose as the product.** `/api/v1/capabilities` returns 300-character hyphenated slugs of what it *won't* do; every job carries four paragraphs of boundary prose; the README is 73 KB of disclaimers. This is overhead on every feature and noise in every screen.
+4. **Three-list allowlist + mega-ternary.** New op = touch protocol Set, read-only Set, timeout ladder, validator, dispatcher, helper module, script, unit, plan module, `jobs.mjs` (4 places), route, UI, tests. Nothing is data-driven.
+5. **Per-workflow ledgers.** 30 of 34 tables are "X_runs / X_members" for one workflow each. A generic installer needs ~6 tables.
+6. **No uninstall / no config / no update.** The three operations a setup tool lives on are all explicitly "pending".
+7. **No installer and no wizard.** First run requires SSH, ~40 sudo commands, and a terminal-only bootstrap token.
+8. **Single-host, single-owner, single-LAN assumptions** hard-coded as product copy ("Bigbox", Flint 2, 192.168.8.x, `pihole-on-bigbox`).
+
+---
+
+## 4. What to keep (don't throw these away)
+
+- `server/security.mjs` — scrypt, sessions, CSRF. Extend, don't replace.
+- `server/helper-client.mjs` + the Unix-socket framing + `operationQueue` serialization.
+- **The escalation pattern**: root helper + static oneshot units gated on a 0600 approval file. Generalize it: one `boxpilot-run.service` template (`boxpilot-run@<jobid>.service`) that reads a signed job spec instead of 15 named units.
+- `deploy/boxpilot-helper.service` hardening (`ProtectSystem=strict`, pinned binary env) — template for every new unit.
+- `state.mjs` primitives: `jobs`, `plans`, `job_steps`, `approvals`, `audit_events`, `recoverInterruptedJobs`, plan revision hashing, WAL SQLite.
+- The VM subsystem nearly whole (`vm-*.mjs`, `libvirt*.mjs`, `VmPlanner`, `VmMediaLibrary`).
+- restic backup/restore/drill machinery as a *library* — rewrap it behind a generic "protect this path set" API.
+- The manifest *shape* in `applications.mjs` (image+digest, ports, storage, prerequisites, health, rollback) — move it to files.
+- Redaction engine + support bundle.
+- UI shell: sidebar nav, `Panel`/`StatusPill`/`Modal`, the test harness (vitest + RTL), Vite build.
+
+---
+
+## 5. Where I would make changes (the architectural moves)
+
+### 5.1 One operation registry replaces three allowlists + the ternary chain
+`server/ops/registry.mjs`: an array of `{ id, title, risk: "low"|"medium"|"high", params: <JSON schema>, privileged: bool, readOnly: bool, timeoutMs, run(ctx, params), verify(ctx, result), rollback(ctx, result) }`. `helper-protocol` validates against `params` generically; `helper-server` derives the read-only set and timeouts from the registry; `jobs.mjs` becomes ~150 lines (approve → run → verify → record). Each op is **one file in `server/ops/*/`**, ~60–120 LOC including its unit test.
+
+### 5.2 Risk tiers instead of password-for-everything
+- **low** (read, start/stop/restart, refresh, view config): one click, audited.
+- **medium** (install app, apt install, create VM, edit config): confirm dialog with a plain-English diff/preview, audited.
+- **high** (uninstall with data, DNS cutover, wipe disk, delete VM, change firewall/SSH, restore-over-live): password (or WebAuthn) + typed confirmation.
+- **Sudo mode**: after any password, a 10-minute elevated session so batch setup doesn't re-prompt. Toggle in Settings: "Always ask" for the paranoid profile (preserves today's behaviour as an *option*).
+
+### 5.3 General primitives in the helper (the missing 20%)
+`apt.update/upgrade/install/remove/autoremove/search/changelog`, `dpkg.list`, `systemd.list/start/stop/restart/enable/disable/status/journal`, `reboot/poweroff`, `docker.compose.up/down/pull/logs/exec-readonly`, `docker.prune`, `ufw.status/allow/deny`, `sshd.config.get/set`, `users.add/key/add-to-group`, `netplan.get/set(validated)`, `tailscale.up/serve/funnel/status`, `fs.read/write` under a managed root, `hostnamectl.set`, `timedatectl.set`. Each one is a registry entry, parameter-validated, with `ProtectSystem` paths opened only as needed.
+
+### 5.4 Data-driven app catalog
+`catalog/<app>/manifest.yaml` + `compose.yaml.tmpl` + optional `hooks/{pre,post,backup,restore}.sh`. One generic **compose deployer** replaces `deployUptimeKuma`/`deployPihole`. Manifest carries: image+digest, ports, volumes, env schema (typed → auto-generated config form), health check, backup paths, secrets, prerequisites, Tailscale-serve default, uninstall policy (`keep-data|purge`), update policy (`digest-pinned|tag-track`). Catalog is loaded from disk, signed (reuse GitHub provenance code) and can be updated from GitHub without a BoxPilot release. Target: **Jellyfin in <100 lines of YAML**.
+
+### 5.5 Install + first-run wizard
+- `curl -fsSL https://get.boxpilot.dev | sudo bash` (or `sudo bash install.sh` from the repo): creates user, installs Node, clones/pulls a release tarball, installs **2** units + the template unit, opens the port, prints a one-time URL with the bootstrap token embedded (`http://<lan-ip>:8787/setup?token=…`).
+- Browser wizard: hostname, owner account, (optional) Tailscale join (auth-key or `tailscale up` QR), (optional) GitHub sign-in link, pick a **profile** (Home server / Dev box / NAS / DNS appliance / Hypervisor) → preselects apps and prereqs → one "Install everything" button with a live log.
+- Also ship an **autoinstall `user-data`** generator so a fresh Ubuntu USB can land with BoxPilot already running (replaces most of the 16-stage runbook).
+
+### 5.6 Identity
+- **Tailscale identity**: when the request arrives on the tailscale interface, call `tailscale whois <remote-ip>` via the local API; map login name → owner. Behind `tailscale serve` read `Tailscale-User-Login` header only from 127.0.0.1. Zero-password sign-in on the tailnet.
+- **GitHub OAuth device flow** (no redirect URL needed for a LAN box): link a GitHub account to the owner; optional "allow these GitHub logins". Also unlocks: private repo pulls for deploys, SSH key import (`gh keys`), Gist-backed config export.
+- Keep local password as fallback; add recovery codes.
+
+### 5.7 Collapse the ledgers
+`jobs, job_steps, plans, approvals, audit_events, installed_items (type, id, version, config_json, state), backups (target_type, target_id, snapshot_id, kind, verified), schedules, secrets (encrypted), settings`. Migrate VM/backup tables into `installed_items`/`backups`. Delete fleet/router/migration tables until those features are real.
+
+### 5.8 UI
+Add a real router (`react-router` or a tiny hash router), a shared `<ApproveAction risk=…>` component used everywhere (replaces the Repair-Center hop), a global **Activity drawer** (live job log, SSE), **Dashboard** (installed things, health, update badges, "what needs attention"), light theme, and delete the `viewCopy/viewStatus` prose dictionaries.
+
+### 5.9 De-Bigbox
+`settings.hostAlias` + remove hard-coded strings; migrate `pihole-on-bigbox` → `pihole-on-host`. Move the runbook's personal network table (it contains a MAC address and LAN layout) to a `.local` ignored file or a template with placeholders.
+
+---
+
+## 6. Milestones (long list)
+
+Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are growth. Numbers are for reference, not strict order inside a phase.
+
+### Phase 0 — Stop the bleeding (1 week)
+- **M0.1** Fix time-bomb test (`storage-evidence.test.mjs:40-41` — pass `{ now }`); add `vi.useFakeTimers` policy. Done when CI green on any date.
+- **M0.2** Single `VERSION` source (package.json) read by server, helper, protocol. Done when 4 literals become 1.
+- **M0.3** `settings.hostAlias`; replace "Bigbox" strings; migration for `pihole-on-bigbox`. Done when `grep -ri bigbox server src` = 0 (docs excepted).
+- **M0.4** Strip personal data from `UBUNTU-SERVER-INSTALL-RUNBOOK.md` (MAC, reservation, router model) into placeholders.
+- **M0.5** Write `docs/DECISIONS.md` ADR-001: "Risk tiers replace universal password approval" so future Codex runs stop re-adding ceremony. Add a `CLAUDE.md`/`AGENTS.md` that states the product goal in one paragraph.
+
+### Phase 1 — Registry + risk tiers (2 weeks)
+- **M1.1** `server/ops/registry.mjs` with JSON-schema param validation; port the 5 existing repairs + start/stop/restart as registry entries. Done when `helper-protocol.mjs:36` one-liner and the `helper-server` timeout ladder are deleted.
+- **M1.2** Generic `boxpilot-run@.service` template unit + signed job spec file; retire 13 of 15 named units. Done when a new op needs zero new unit files.
+- **M1.3** Risk tiers + sudo-mode session flag + `ApproveAction` React component. Done when "Restart Uptime Kuma" is one click and "Install Docker" is one confirm.
+- **M1.4** `jobs.mjs` ≤ 200 lines; `index.mjs` split into `routes/*.mjs` with an Express `Router` per area.
+- **M1.5** SSE `/api/v1/events` + Activity drawer (live step log, job history). Done when you can watch an install stream without refresh.
+- **M1.6** `capabilities` endpoint returns booleans/enums, not prose.
+
+### Phase 2 — Host primitives: updates, packages, services (2 weeks)
+- **M2.1** `apt.update`, `apt.list-upgradable` (parsed with changelog links), `apt.upgrade` (all / selected), `apt.autoremove`, reboot-required detection + **Reboot** button. Done when "Updates" page shows N pending → click → done → reboot prompt.
+- **M2.2** `apt.install/remove/search` with a curated **Packages** page (common tools: htop, git, curl, zsh, tmux, ncdu, smartmontools, restic, nfs-common, cifs-utils, zfsutils, cockpit, etc.) + free-text install for any apt package (medium risk).
+- **M2.3** Unattended-upgrades toggle + schedule, `needrestart` integration.
+- **M2.4** **Services** page: systemd unit list (filtered), start/stop/restart/enable/disable, journal tail per unit.
+- **M2.5** Users & SSH: add user, import SSH keys from GitHub (`https://github.com/<user>.keys`), disable password SSH, change port (high risk with rollback timer).
+- **M2.6** Firewall (ufw): profile presets (LAN-only, Tailscale-only, Open), per-app rules auto-added on install, removed on uninstall.
+- **M2.7** Hostname, timezone, locale, swap, `fstrim` timer, `vm.swappiness` — a **System** page.
+- **M2.8** Storage: mount additional disks (fstab via UUID, with dry-run), format (high risk, typed-confirm), SMB/NFS share creation (Samba/NFS-kernel-server as catalog items).
+- **M2.9** Docker Engine from the official repo (not `docker.io`), compose plugin, log rotation defaults, `docker system prune` button, Portainer/Dockge as optional catalog items.
+
+### Phase 3 — Data-driven catalog with install/uninstall/config/update (3 weeks)
+- **M3.1** Manifest v2 schema (YAML) + loader + signature check; migrate Uptime Kuma, Pi-hole, Keel to files.
+- **M3.2** Generic compose deployer (`install`, `uninstall --keep-data|--purge`, `update` (pull new digest, recreate, health-check, auto-rollback), `reconfigure` (env form → recreate)). Done when Uptime Kuma and Pi-hole have **zero** app-specific JS.
+- **M3.3** Auto-generated **Config form** from manifest env schema; show effective `.env`/compose; "Edit raw" for power users (medium risk).
+- **M3.4** Secrets store (AES-GCM with key in `/var/lib/boxpilot/keys`, root-only) for app passwords; "Reveal" button (audited) instead of terminal commands.
+- **M3.5** Catalog wave 1 (≈15): Jellyfin, Home Assistant, AdGuard Home, Nextcloud, Immich, Vaultwarden, Gitea/Forgejo, Portainer, Dockge, Nginx Proxy Manager / Caddy, Homepage/Homarr, Grafana+Prometheus+node-exporter, Uptime Kuma, Pi-hole, Watchtower-style update checker (or Diun), Syncthing, Plex, Paperless-ngx, n8n, code-server.
+- **M3.6** Catalog wave 2 (≈15): PostgreSQL, MariaDB, Redis, MinIO, Mealie, Audiobookshelf, Navidrome, Tautulli, qBittorrent+Gluetun, Radarr/Sonarr/Prowlarr stack, Frigate, Zigbee2MQTT+Mosquitto, WireGuard/wg-easy, Headscale, Ollama+Open WebUI.
+- **M3.7** "Stacks": bundle several catalog items (e.g., *Media server*, *Smart home*, *Dev forge*, *Observability*) into one install with shared network + proxy + dashboard entries.
+- **M3.8** Reverse proxy + TLS: Caddy (or NPM) as a managed platform service; every app gets `<app>.<host>.ts.net` via Tailscale serve *or* `<app>.lan` via local DNS + internal CA; auto-register on install.
+- **M3.9** Per-app health, logs, resource use (cgroup stats), update badge, backup status on one card.
+- **M3.10** Import existing compose projects found in `/opt`, `~/docker` etc. → adopt into catalog ("Adopt this stack").
+
+### Phase 4 — Install experience (1–2 weeks)
+- **M4.1** `install.sh` (idempotent, re-runnable = upgrade) + GitHub Release tarballs + signature.
+- **M4.2** First-run browser wizard with profiles (Home server, DNS appliance, Hypervisor, Dev box, NAS) and "Install everything" progress view.
+- **M4.3** Ubuntu **autoinstall** `user-data` generator (hostname, user, SSH key, static IP/DHCP, disk, BoxPilot bootstrap) + docs to flash USB. Done when fresh hardware → BoxPilot URL with no SSH.
+- **M4.4** `boxpilot` CLI (`boxpilot install jellyfin`, `boxpilot backup now`, `boxpilot doctor`) sharing the registry — same ops, scriptable.
+- **M4.5** Self-update from GitHub Releases with rollback (reuse Keel promotion/rollback logic on BoxPilot itself).
+
+### Phase 5 — Identity (1–2 weeks)
+- **M5.1** Tailscale identity: `whois` on tailnet requests; "Allow these tailnet users" list; no-password sign-in.
+- **M5.2** GitHub OAuth device flow: link account, sign in, import SSH keys, optional private-repo deploys.
+- **M5.3** WebAuthn/passkeys + recovery codes for the local account.
+- **M5.4** Multiple operators with roles (owner / operator / viewer); audit shows who.
+- **M5.5** Optional OIDC (Authentik/Authelia/Pocket-ID as catalog items) for all installed apps via forward-auth in the proxy.
+
+### Phase 6 — Backup & redeploy (2–3 weeks)
+- **M6.1** Generic "protect" API: any installed item declares backup paths/DB dumps; one restic repo per destination; **schedules** (hourly/daily/weekly) with a real scheduler table; prune with policy.
+- **M6.2** Destinations: local disk, USB, NFS/SMB, SFTP, **rclone** (B2, S3, Drive, Dropbox), Tailscale peer.
+- **M6.3** **Machine snapshot**: export full BoxPilot state (installed items, configs, secrets encrypted, netplan, ufw, users, cron, catalog versions) as one `boxpilot-machine.tar.age`.
+- **M6.4** **Redeploy wizard**: new Ubuntu + BoxPilot → "Restore from machine snapshot" → rehydrates everything (apps first, then data restore, then DNS/proxy) with a progress view. Done when a wiped box is back in <30 min from a snapshot.
+- **M6.5** Restore UX: browse snapshots, restore single app / single VM / single file, in-place (high risk) or side-by-side (today's "drill").
+- **M6.6** Backup health on dashboard; alert if stale.
+- **M6.7** Pre-change checkpoints: every medium/high op auto-snapshots the affected app before running (cheap, enables one-click undo).
+
+### Phase 7 — VMs & projects (2 weeks, builds on the existing strength)
+- **M7.1** VM delete, force-off, revert/delete snapshot (high risk) — the four missing verbs.
+- **M7.2** **cloud-init** templates: Ubuntu/Debian/Fedora cloud images auto-downloaded + checksummed; name, CPU, RAM, disk, SSH key (from GitHub), packages, `runcmd` → VM in one dialog. Done when "Project VM" is 1 form + 1 click.
+- **M7.3** Bridged networking option (`br0`) with a guarded netplan change + rollback timer; static leases via libvirt.
+- **M7.4** Web console via noVNC/SPICE proxy through BoxPilot (behind auth) — stop punting to Cockpit.
+- **M7.5** VM templates & clone; "Dev box" template with Docker + code-server inside.
+- **M7.6** LXD/Incus or `systemd-nspawn` as a lighter "project container" option.
+- **M7.7** GPU/USB passthrough (advanced, high risk).
+- **M7.8** Resource dashboard per VM (libvirt stats), autostart ordering.
+
+### Phase 8 — Dashboards & observability (1–2 weeks)
+- **M8.1** BoxPilot **Home**: installed things grid with health/updates/backup/URL, host vitals, alerts, recent activity.
+- **M8.2** Managed Homepage/Homarr auto-populated from installed items (icons, URLs, widgets).
+- **M8.3** Managed Grafana+Prometheus stack with node-exporter, cAdvisor, libvirt exporter; pre-built dashboards.
+- **M8.4** Notifications: ntfy/Gotify/Telegram/email/Discord webhooks for failed jobs, updates available, backup stale, disk >90%, SMART warnings, UPS on battery.
+- **M8.5** Log viewer: any unit / any container, search, tail, export (replace the 4-fixed-sources model).
+
+### Phase 9 — Network platform (2 weeks)
+- **M9.1** Pi-hole/AdGuard as a **DNS platform** role: install, set as host resolver, push to DHCP (via router API where available), rollback timer if resolution breaks.
+- **M9.2** Router integration for OpenWrt/GL.iNet (Flint 2 is OpenWrt: use `ubus`/LuCI RPC with stored credential in secrets store): read DHCP leases, set DNS/DHCP options, static leases, port forwards — each medium/high risk with checkpoint+rollback. Later: UniFi, MikroTik, pfSense/OPNsense adapters.
+- **M9.3** Local DNS names for every installed app (`*.lan` or `*.home.arpa`) via the DNS platform.
+- **M9.4** Tailscale: join/leave, serve/funnel per app, exit-node toggle, subnet router toggle, ACL hints; Headscale option.
+- **M9.5** WireGuard/wg-easy quick VPN as catalog item with QR.
+- **M9.6** Wake-on-LAN and network device inventory (arp/nmap-lite) on the dashboard.
+
+### Phase 10 — Dev/project workflows (ongoing)
+- **M10.1** "Deploy from GitHub repo": pick repo (OAuth), detect compose/Dockerfile, build & run, webhook or poll for auto-redeploy on push.
+- **M10.2** Environments per project (VM or container), with port/proxy/DNS auto-wired and teardown.
+- **M10.3** Cron/timer builder UI; managed scripts folder.
+- **M10.4** Terminal in browser (ttyd/xterm.js through BoxPilot auth) — escape hatch for everything not yet a button.
+- **M10.5** Plugin/adapter SDK: a catalog entry can ship a small UI panel and custom ops (signed).
+
+### Phase 11 — Multi-host (later)
+- **M11.1** Register a second Ubuntu box (agent = the same BoxPilot in agent mode over Tailscale); unified dashboard.
+- **M11.2** Move/copy an installed app or VM between hosts (the existing Migration Center code becomes useful here).
+- **M11.3** Fleet-wide updates and backup policy.
+
+### Phase 12 — Quality & project hygiene (continuous)
+- **M12.1** Integration test harness on a throwaway Ubuntu VM (GitHub Actions `ubuntu-latest` + KVM nested where available, or a self-hosted runner on the box itself) running real `install.sh` → install Jellyfin → backup → uninstall.
+- **M12.2** ESLint + typecheck on server (JSDoc or convert to TS), Prettier, pre-commit.
+- **M12.3** Release workflow: tag → build tarball → checksums → GitHub Release → self-update picks it up.
+- **M12.4** README rewrite: what it does, a 60-second install, screenshots of real UI (not mockups), capability matrix in 1 table; move the 73 KB of boundary prose to `docs/SAFETY.md`.
+- **M12.5** Delete or shelve: fleet agents (until Phase 11), router checkpoints (until M9.2), migration center (until M11.2), Keel-specific 11 modules (fold into catalog), ~25 per-workflow tables.
+
+---
+
+## 7. "Wish we could" / would be nice
+
+- **One URL from bare metal**: flash USB → boot → phone shows a QR → open BoxPilot. (M4.3 gets 90% there.)
+- **Undo for everything**: every change is a checkpoint; the Activity drawer has "Undo" on each item for 24h.
+- **Dry-run for everything**: show the exact commands/compose diff before any medium/high op — keeps the *spirit* of today's evidence model without the ceremony.
+- **Mobile-first approval**: push notification "Update available for Jellyfin — Approve?" → tap → done (ntfy + Tailscale).
+- **Profiles as code**: export the machine as `boxpilot.yaml` (like a Brewfile/NixOS config-lite); `boxpilot apply boxpilot.yaml` on a new box. Commit it to GitHub; the GitHub link makes this trivially versioned.
+- **Declarative drift detection**: "this box has 3 things installed that aren't in your profile, and 1 thing in your profile isn't installed."
+- **App marketplace from GitHub**: community catalog repo; star/fork → shows up in your BoxPilot (signed).
+- **Snapshot-before-upgrade with automatic rollback** on failed health (already half-built for Keel; generalize).
+- **Disk-aware installs**: pick which disk/pool an app's data lives on; ZFS/btrfs snapshots when available (instant checkpoints).
+- **Guided hardware setup**: detect GPU (Intel QSV/NVIDIA) and offer transcoding config for Jellyfin/Plex/Frigate automatically.
+- **Power**: UPS (NUT) install + shutdown policy with one toggle; scheduled wake/sleep for a lab box.
+- **Cost/energy panel**: power draw estimate, uptime, what's idle.
+- **AI assist**: paste a docker-compose from a blog → BoxPilot turns it into a catalog manifest with config form, flags risky bits, offers install.
+- **"Explain this"** on any job: plain-English narration of what it will do (this is where the existing prose-generation habit becomes a feature, not a tax).
+- **Windows/macOS client**: a tiny tray app that shows the box's health and opens BoxPilot over Tailscale.
+- **Family mode**: a second, read-only "status" view for non-admins ("Is Jellyfin up?").
+
+---
+
+## 8. Housekeeping found during the check
+
+- `server/storage-evidence.test.mjs:40-41` — failing since 08-17 (no `now` injection).
+- Version `0.61.0` hard-coded in `index.mjs:173`, `index.mjs:1183`, `helper-server.mjs:164`, helper canary.
+- `helper-protocol.mjs` instantiates helper factories as default params → some helpers constructed twice.
+- Failure classification via `error.message.includes("Automated rollback completed")` (`jobs.mjs:855-878`) — brittle.
+- `UBUNTU-SERVER-INSTALL-RUNBOOK.md` publishes a MAC address, DHCP reservation, router model/IP.
+- Three stale `codex/*` remote branches.
+- Dockerfile/compose are a demo only; README implies a deployment path.
+- `/api/v1/capabilities` returns prose slugs as values.
+- Zero TODO/FIXME anywhere — debt is structural duplication, not annotated.
+
+---
+
+## 9. Suggested first two weeks
+
+1. **Day 1–2**: M0.1–M0.5 (green CI, one version, de-Bigbox, ADR + `AGENTS.md` stating the new goal).
+2. **Day 3–7**: M1.1–M1.3 — registry, template unit, risk tiers, `ApproveAction`. Port the existing 5 repairs + lifecycle verbs to prove the shape.
+3. **Day 8–10**: M2.1 + M2.4 — Updates page and Services page. These are the first features that make it *feel* like a setup tool.
+4. **Day 11–14**: M3.1–M3.2 — manifest files + generic compose deployer; Uptime Kuma and Pi-hole with zero app-specific code; add Jellyfin as the proof (<100 lines YAML).
+
+After that, M4.1 (installer) and M4.2 (wizard) make it something you can hand to a fresh box.
