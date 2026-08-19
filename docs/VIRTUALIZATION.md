@@ -73,6 +73,19 @@ If `/dev/kvm` is unavailable, enable Intel VT-x or AMD-V in the server firmware.
 
 ## 2. Install BoxPilot as a native service
 
+### Upgrading an existing native install
+
+Once BoxPilot is installed under `/opt/boxpilot`, later releases or branches can be deployed with one command. The script downloads the ref from GitHub, builds it in a staging directory, swaps `/opt/boxpilot` atomically, installs changed unit files, restarts the services, verifies `/api/v1/health`, and rolls back automatically if the new tree is unhealthy:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-upgrade.sh | sudo sh -s -- main
+```
+
+Replace the trailing `main` with any branch or tag. It does not change `/etc/boxpilot`, `/var/lib/boxpilot`, systemd drop-ins, or the owner account.
+
+### First installation
+
+
 The default Docker deployment intentionally cannot reach host libvirt. Install the production build under `/opt/boxpilot` and run it with its own user:
 
 ```bash
