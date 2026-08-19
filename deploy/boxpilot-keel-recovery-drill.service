@@ -8,8 +8,9 @@ ConditionPathExists=/run/boxpilot/keel-recovery-drill-approval.json
 
 [Service]
 Type=oneshot
-User=root
-Group=root
+# Runs as root (the default). Do not set User=/Group= explicitly: combined with the
+# sandboxing below, an explicit User=root stops apt's download methods from dropping
+# to the _apt user (setresuid EPERM, method exit 112). Verified on Ubuntu 26.04.
 ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-recovery-drill.mjs
 TimeoutStartSec=15min
 UMask=0077
