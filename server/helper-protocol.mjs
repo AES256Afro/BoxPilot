@@ -1,5 +1,7 @@
 import net from "node:net";
 import { registry } from "./ops/index.mjs";
+import { fixedRun } from "./exec.mjs";
+import { createRunUnitClient } from "./run-unit.mjs";
 import { createApplicationHelper } from "./application-helper.mjs";
 import { createApplicationProtectionHelper, validateApplicationProtectionInput } from "./application-protection-helper.mjs";
 import { createApplicationRetentionHelper, validateApplicationRetentionInput } from "./application-retention-helper.mjs";
@@ -276,7 +278,7 @@ export async function executeHelperOperation(request, dependencies = {}) {
   const error = validateHelperRequest(request);
   if (error) return { version: helperProtocolVersion, id: request?.id ?? null, ok: false, error, code: "invalid_request" };
   if (registry.has(request.operation)) {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await registry.execute(request.operation, request.parameters, { ...dependencies, prerequisites }) };
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await registry.execute(request.operation, request.parameters, { run: fixedRun, runUnit: dependencies.runUnit ?? createRunUnitClient({ run: fixedRun }), ...dependencies, prerequisites }) };
   }
   if (request.operation === "container.docker.inspect") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await applications.inspectDocker() };

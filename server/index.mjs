@@ -239,6 +239,29 @@ app.get("/api/v1/operations", (_request, response) => {
   response.json({ operations: registry.describe(), riskTiers: ["low", "medium", "high"] });
 });
 
+// Read-only registered operations run immediately (no job, no approval); parameter-free only for now.
+app.get("/api/v1/operations/:id/inspect", async (request, response) => {
+  const operation = registry.get(request.params.id);
+  if (!operation) return response.status(404).json({ error: "Operation not found", code: "operation_not_found" });
+  if (!operation.readOnly) return response.status(405).json({ error: "This operation changes the host; stage it as a job", code: "operation_not_read_only" });
+  try {
+    return response.json({ operation: operation.id, result: await helper.request(operation.id, {}, { timeoutMs: operation.timeoutMs }) });
+  } catch (error) {
+    return response.status(503).json({ error: error.message, code: "operation_failed" });
+  }
+});
+
+// Mutating registered operations are staged as jobs and approved through /api/v1/jobs/:id/approve (risk-tiered).
+app.post("/api/v1/operations/:id/jobs", auth.requireCsrf, (request, response) => {
+  try {
+    const job = jobs.createOperationJob(request.params.id, request.body?.parameters ?? {}, request.boxpilotSession.owner.id);
+    return response.status(201).json({ job, approval: jobs.describeApproval(job.id, request.boxpilotSession) });
+  } catch (error) {
+    const status = error.message === "Operation not found" ? 404 : error.message.includes("Read-only") ? 405 : 400;
+    return response.status(status).json({ error: error.message, code: "operation_job_rejected" });
+  }
+});
+
 app.get("/api/v1/capabilities", (_request, response) => {
   response.json({
     inventory: "sanitized-host-maintenance-storage-ext4-error-counters-filesystem-smart-local-ups-docker-services-network-and-dns-topology",
@@ -870,7 +893,7 @@ app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type);
+    const background = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type) || (typeof candidate?.type === "string" && candidate.type.startsWith("op:"));
     const approval = { password: typeof request.body?.password === "string" ? request.body.password : null, session: request.boxpilotSession };
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, approval)

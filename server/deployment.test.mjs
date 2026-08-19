@@ -135,6 +135,19 @@ describe("native systemd network boundaries", () => {
     expect(protocol).not.toContain("storage.smart.scan");
   });
 
+  it("ships a hardened generic root-runner template unit gated on a per-run approval spec", async () => {
+    const unit = await readFile("deploy/boxpilot-run@.service", "utf8");
+    expect(unit).toContain("ConditionPathExists=/run/boxpilot/run/%i.json");
+    expect(unit).toContain("ExecStart=/usr/local/bin/node /opt/boxpilot/scripts/boxpilot-run.mjs %i");
+    expect(unit).toContain("Type=oneshot");
+    expect(unit).toContain("NoNewPrivileges=true");
+    expect(unit).toContain("ProtectHome=true");
+    expect(unit).not.toContain("PrivateNetwork=true");
+    const runner = await readFile("scripts/boxpilot-run.mjs", "utf8");
+    expect(runner).toContain('from "../server/tasks/index.mjs"');
+    expect(runner).not.toMatch(/child_process|exec\(|spawn\(/);
+  });
+
   it("ships a static exact-package smartmontools installer without a general package argument", async () => {
     const service = await readFile("deploy/boxpilot-smartmontools-install.service", "utf8");
     const protocol = await readFile("server/helper-protocol.mjs", "utf8");

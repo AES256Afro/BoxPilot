@@ -119,14 +119,14 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 
 ### Phase 1 — Registry + risk tiers (2 weeks)
 - ✅ (partial) **M1.1** `server/ops/registry.mjs` (declarative param spec; JSON Schema can replace it later). Canary + 10 prerequisite ops ported; allowlist, read-only set, and timeouts derive from registry ∪ legacy lists with a no-overlap test. `GET /api/v1/operations`. Remaining: port the other ~64 legacy ops module by module, then delete the legacy lists.
-- **M1.2** Generic `boxpilot-run@.service` template unit + signed job spec file; retire 13 of 15 named units. Done when a new op needs zero new unit files.
+- ✅ (foundation) **M1.2** `deploy/boxpilot-run@.service` template unit + `scripts/boxpilot-run.mjs` + root task table `server/tasks/` + helper client `server/run-unit.mjs`. New networked root work needs zero new unit files. Remaining: migrate the 13 named install/Keel units onto it.
 - ✅ (server + Repair Center) **M1.3** Risk tiers (`server/ops/risk.mjs`: per-job-type tier, unknown → high), approval policy (low/medium = no password, high = password unless session elevated ≤10 min, `always-password` setting), `POST/DELETE /api/v1/auth/elevate`, `GET /api/v1/jobs/:id/approval`, `GET/PUT /api/v1/settings/approval-mode`, approvals record `method`+`tier`. Repair Center desk is tier-aware ("Run" one-click for low). Remaining: shared `ApproveAction` component in every center (today other screens still hop to Repair Center), Settings UI for the mode toggle.
-- **M1.4** `jobs.mjs` ≤ 200 lines; `index.mjs` split into `routes/*.mjs` with an Express `Router` per area.
+- ◐ **M1.4** Generic job path exists: `POST /api/v1/operations/:id/jobs` stages any registered mutating op as `op:<id>`; approval/execution are generic (`jobs.createOperationJob`), `GET /api/v1/operations/:id/inspect` runs read-only ops directly. Remaining: port legacy job types, shrink `jobs.mjs`, split `index.mjs` into routers.
 - **M1.5** SSE `/api/v1/events` + Activity drawer (live step log, job history). Done when you can watch an install stream without refresh.
 - **M1.6** `capabilities` endpoint returns booleans/enums, not prose.
 
 ### Phase 2 — Host primitives: updates, packages, services (2 weeks)
-- **M2.1** `apt.update`, `apt.list-upgradable` (parsed with changelog links), `apt.upgrade` (all / selected), `apt.autoremove`, reboot-required detection + **Reboot** button. Done when "Updates" page shows N pending → click → done → reboot prompt.
+- ◐ **M2.1** Server side done: `apt.upgradable.inspect` (read-only), `apt.upgrade` (all/selected), `apt.install`, `apt.remove`, `apt.purge` (high), `apt.autoremove` as registry ops → root runner. Remaining: Updates page UI, changelog links, reboot op + button.
 - **M2.2** `apt.install/remove/search` with a curated **Packages** page (common tools: htop, git, curl, zsh, tmux, ncdu, smartmontools, restic, nfs-common, cifs-utils, zfsutils, cockpit, etc.) + free-text install for any apt package (medium risk).
 - **M2.3** Unattended-upgrades toggle + schedule, `needrestart` integration.
 - **M2.4** **Services** page: systemd unit list (filtered), start/stop/restart/enable/disable, journal tail per unit.
