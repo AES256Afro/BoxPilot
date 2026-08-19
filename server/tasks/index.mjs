@@ -5,6 +5,7 @@
  */
 import { aptAutoremove, aptInstall, aptRemove, aptUpdate, aptUpgrade } from "./apt.mjs";
 import { systemReboot } from "./system.mjs";
+import { ensureCloudImage } from "./cloud-images.mjs";
 
 export const tasks = Object.freeze({
   "apt.update": aptUpdate,
@@ -13,6 +14,7 @@ export const tasks = Object.freeze({
   "apt.remove": aptRemove,
   "apt.autoremove": aptAutoremove,
   "system.reboot": systemReboot,
+  "vm.cloud-image.ensure": ensureCloudImage,
 });
 
 export function taskIds() {

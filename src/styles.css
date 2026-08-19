@@ -3198,3 +3198,8 @@ textarea {
 
 .services-center { display: grid; gap: 16px; }
 .services-center .panel-header .recovery-actions input { min-width: 180px; }
+
+.cloud-vm-form .app-config-form { margin-top: 12px; }
+.cloud-vm-sizes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.cloud-vm-check { display: flex !important; align-items: center; gap: 8px; }
+.cloud-vm-form textarea { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }

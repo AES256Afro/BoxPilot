@@ -3,6 +3,7 @@ import { registry } from "./ops/index.mjs";
 import { fixedRun } from "./exec.mjs";
 import { createRunUnitClient } from "./run-unit.mjs";
 import { createAppHelper } from "./app-helper.mjs";
+import { createVmCloudHelper } from "./vm-cloud.mjs";
 import { createJobLogWriter, jobIdPattern } from "./job-log.mjs";
 import { readFileSync } from "node:fs";
 import { createApplicationHelper } from "./application-helper.mjs";
@@ -301,7 +302,7 @@ export async function executeHelperOperation(request, dependencies = {}) {
   if (registry.has(request.operation)) {
     const jobLog = createJobLogWriter({ jobId: request.context?.jobId ?? null, gid: serviceGroupId() });
     const progress = (line, stream) => { void jobLog.append(line, stream); };
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await registry.execute(request.operation, request.parameters, { run: fixedRun, runUnit: dependencies.runUnit ?? createRunUnitClient({ run: fixedRun }), apps: dependencies.apps ?? createAppHelper(), ...dependencies, prerequisites, progress, jobLog }) };
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await registry.execute(request.operation, request.parameters, { run: fixedRun, runUnit: dependencies.runUnit ?? createRunUnitClient({ run: fixedRun }), apps: dependencies.apps ?? createAppHelper(), vmCloud: dependencies.vmCloud ?? createVmCloudHelper(), ...dependencies, prerequisites, progress, jobLog }) };
   }
   if (request.operation === "container.docker.inspect") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await applications.inspectDocker() };
