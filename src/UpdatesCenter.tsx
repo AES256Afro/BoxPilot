@@ -51,7 +51,9 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
       {dialog}
       <div className="metric-grid">
         <article className="panel"><span className="eyebrow">Available updates</span><strong>{loading ? "…" : report?.count ?? "—"}</strong><span>{report?.securityCount ? `${report.securityCount} security` : "packages"}</span></article>
-        <article className="panel"><span className="eyebrow">Reboot</span><strong>{report?.rebootRequired ? "Required" : "Not needed"}</strong><span>{report?.rebootRequired ? "A kernel or core library changed" : "Nothing pending a restart"}</span></article>
+        <article className="panel"><span className="eyebrow">Reboot</span><strong>{report?.rebootRequired ? "Required" : "Not needed"}</strong><span>{report?.rebootRequired ? "A kernel or core library changed" : "Nothing pending a restart"}</span>
+          {report?.rebootRequired && <div className="recovery-actions"><button className="secondary-button" type="button" onClick={() => start({ operationId: "system.reboot", title: "Reboot the server", parameters: {}, preview: <span>Reboots in 5 seconds after approval. Running VMs and containers stop; reconnect when the host is back.</span> })}>Reboot now</button></div>}
+        </article>
         <article className="panel">
           <span className="eyebrow">Actions</span>
           <div className="recovery-actions">

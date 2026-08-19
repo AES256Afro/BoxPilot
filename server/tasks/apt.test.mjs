@@ -7,7 +7,9 @@ function fakeRun(versions = {}, { failApt = false } = {}) {
       const name = args[args.length - 1];
       return versions[name] ? { ok: true, stdout: `install ok installed\t${versions[name]}`, stderr: "" } : { ok: false, stdout: "", stderr: "not installed" };
     }
+    if (binary === "/usr/bin/dpkg") return { ok: true, stdout: "", stderr: "" };
     if (binary === "/usr/bin/apt-get") {
+      if (args[0] === "install" && args[1] === "--fix-broken") return { ok: true, stdout: "0 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.", stderr: "" };
       if (failApt) return { ok: false, stdout: "", stderr: "E: Unable to locate package nope" };
       if (args[0] === "install") for (const name of args.filter((arg) => !arg.startsWith("-") && arg !== "install")) versions[name] = versions[name] ?? "1.0";
       if (args[0] === "remove" || args[0] === "purge") for (const name of args.filter((arg) => !arg.startsWith("-") && arg !== args[0])) delete versions[name];
@@ -39,7 +41,9 @@ describe("root apt tasks", () => {
     await expect(aptUpdate({}, { run })).resolves.toMatchObject({ updated: true });
     expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["update"], expect.anything());
 
-    await expect(aptUpgrade({ packages: null, refreshFirst: false }, { run })).resolves.toMatchObject({ upgraded: true, scope: "all", summary: { upgraded: 1 } });
+    await expect(aptUpgrade({ packages: null, refreshFirst: false }, { run })).resolves.toMatchObject({ upgraded: true, scope: "all", summary: { upgraded: 1 }, packageStateRepaired: true });
+    expect(run).toHaveBeenCalledWith("/usr/bin/dpkg", ["--configure", "-a"], expect.anything());
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--fix-broken", "--yes"], expect.anything());
     expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["upgrade", "--yes", "--with-new-pkgs"], expect.anything());
     await expect(aptUpgrade({ packages: ["htop"], refreshFirst: false }, { run })).resolves.toMatchObject({ scope: "selected", before: { htop: "3.0" } });
     expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--yes", "--only-upgrade", "htop"], expect.anything());
@@ -58,5 +62,16 @@ describe("root apt tasks", () => {
     await expect(aptInstall({ packages: ["bad name"] }, { run: fakeRun() })).rejects.toThrow("invalid package name");
     await expect(aptInstall({ packages: ["nope"], refreshFirst: false }, { run: fakeRun({}, { failApt: true }) })).rejects.toThrow("Unable to locate package");
     await expect(aptUpgrade({ packages: "htop" }, { run: fakeRun() })).rejects.toThrow("array");
+  });
+});
+
+describe("root system tasks", () => {
+  it("schedules a delayed reboot via systemd-run so the result can be reported first", async () => {
+    const { systemReboot } = await import("./system.mjs");
+    const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
+    await expect(systemReboot({ delaySeconds: 7 }, { run })).resolves.toEqual({ scheduled: true, inSeconds: 7 });
+    expect(run).toHaveBeenCalledWith("/usr/bin/systemd-run", ["--quiet", "--on-active", "7", "--unit", "boxpilot-reboot", "/usr/bin/systemctl", "reboot"], expect.anything());
+    await expect(systemReboot({ delaySeconds: 99999 }, { run })).resolves.toMatchObject({ inSeconds: 5 });
+    await expect(systemReboot({}, { run: vi.fn(async () => ({ ok: false, stdout: "", stderr: "no dbus" })) })).rejects.toThrow("Could not schedule");
   });
 });
