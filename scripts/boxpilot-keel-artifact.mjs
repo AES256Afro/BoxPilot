@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import https from "node:https";
 import { chmod, link, lstat, open, readFile, unlink, writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
+import { productVersion } from "../server/version.mjs";
 import { keelArtifactPaths, keelArtifactSpec, validUuid } from "../server/keel-artifact-spec.mjs";
 
 const allowedRedirectHosts = new Set(["github.com", "release-assets.githubusercontent.com"]);
@@ -33,7 +34,7 @@ function validateRequestUrl(value, redirectNumber, spec = keelArtifactSpec) {
 function defaultRequest(url) {
   return new Promise((resolve, reject) => {
     const request = https.get(url, {
-      headers: { Accept: "application/octet-stream", "User-Agent": "BoxPilot-Keel-Artifact/0.61.0" },
+      headers: { Accept: "application/octet-stream", "User-Agent": `BoxPilot-Keel-Artifact/${productVersion}` },
       timeout: 30000,
     }, resolve);
     request.once("timeout", () => request.destroy(new Error("The Keel artifact request timed out")));

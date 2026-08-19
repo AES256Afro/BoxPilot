@@ -34,11 +34,12 @@ describe("sanitized storage evidence", () => {
   });
 
   it("fails stale, malformed, and future SMART evidence closed", () => {
-    const current = normalizeSmartEvidence({ schemaVersion: 1, generatedAt: "2026-08-16T04:00:00.000Z", available: true, reason: "fixed-root-scan", disks: [{ device: "/dev/nvme0n1", health: "healthy", passed: true, temperatureCelsius: 40, percentageUsed: 4, reason: "ok", serial: "never-export" }] }, { now: () => new Date("2026-08-16T05:00:00.000Z") });
+    const now = () => new Date("2026-08-16T05:00:00.000Z");
+    const current = normalizeSmartEvidence({ schemaVersion: 1, generatedAt: "2026-08-16T04:00:00.000Z", available: true, reason: "fixed-root-scan", disks: [{ device: "/dev/nvme0n1", health: "healthy", passed: true, temperatureCelsius: 40, percentageUsed: 4, reason: "ok", serial: "never-export" }] }, { now });
     expect(current).toMatchObject({ available: true, status: "healthy", stale: false, summary: { healthy: 1 } });
     expect(JSON.stringify(current)).not.toContain("never-export");
-    expect(normalizeSmartEvidence({ ...current, schemaVersion: 2 }).status).toBe("healthy");
-    expect(normalizeSmartEvidence({ ...current, schemaVersion: 3 }).status).toBe("unavailable");
-    expect(normalizeSmartEvidence({ schemaVersion: 1, generatedAt: "2026-08-17T05:00:00.000Z", available: true, disks: [] }, { now: () => new Date("2026-08-16T05:00:00.000Z") }).stale).toBe(true);
+    expect(normalizeSmartEvidence({ ...current, schemaVersion: 2 }, { now }).status).toBe("healthy");
+    expect(normalizeSmartEvidence({ ...current, schemaVersion: 3 }, { now }).status).toBe("unavailable");
+    expect(normalizeSmartEvidence({ schemaVersion: 1, generatedAt: "2026-08-17T05:00:00.000Z", available: true, disks: [] }, { now }).stale).toBe(true);
   });
 });
