@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { appOperations, parseServeStatus } from "./apps.mjs";
+import { aggregateAppStats, appOperations, parseDockerStats, parseServeStatus } from "./apps.mjs";
 
 const operations = Object.fromEntries(appOperations().map((operation) => [operation.id, operation]));
 
@@ -12,6 +12,24 @@ const serveJson = JSON.stringify({
 function fakeApps(installed = true, port = 8093) {
   return { inspect: vi.fn(async () => ({ applications: [{ id: "ntfy", installed, urls: installed && port ? [{ id: "web", host: port, exposure: "lan" }] : [] }] })) };
 }
+
+describe("app stats", () => {
+  it("parses docker stats lines and rolls sidecars up into their app", () => {
+    const output = [
+      JSON.stringify({ Name: "bp-paperless-ngx", CPUPerc: "2.50%", MemUsage: "512MiB / 31.2GiB" }),
+      JSON.stringify({ Name: "bp-paperless-ngx-broker", CPUPerc: "0.30%", MemUsage: "18.5MiB / 31.2GiB" }),
+      JSON.stringify({ Name: "bp-ntfy", CPUPerc: "0.05%", MemUsage: "22MiB / 31.2GiB" }),
+      JSON.stringify({ Name: "unrelated-container", CPUPerc: "9.99%", MemUsage: "1GiB / 31.2GiB" }),
+      "garbage line",
+    ].join("\n");
+    const rows = parseDockerStats(output);
+    expect(rows[0]).toEqual({ name: "bp-paperless-ngx", cpuPercent: 2.5, memBytes: 512 * 1024 ** 2 });
+    const stats = aggregateAppStats(rows, ["paperless-ngx", "ntfy"]);
+    expect(stats["paperless-ngx"]).toEqual({ cpuPercent: 2.8, memBytes: Math.round(512 * 1024 ** 2 + 18.5 * 1024 ** 2), containers: 2 });
+    expect(stats.ntfy.containers).toBe(1);
+    expect(Object.keys(stats)).toHaveLength(2);
+  });
+});
 
 describe("app serve operations", () => {
   it("parses tailscale serve status", () => {

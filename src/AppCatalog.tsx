@@ -111,6 +111,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [secrets, setSecrets] = useState<{ id: string; name: string; items: Array<{ name: string; label: string; value: string }> | null; needsPassword: boolean; password: string; error: string | null } | null>(null);
   const [filter, setFilter] = useState("");
   const [serves, setServes] = useState<Array<{ dnsName: string; port: number; target: string | null }> | null>(null);
+  const [stats, setStats] = useState<Record<string, { cpuPercent: number; memBytes: number; containers: number }> | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -125,10 +126,13 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
     } finally {
       setLoading(false);
     }
-    // Tailnet publishing state is optional garnish: absent tailscale hides the controls.
+    // Tailnet publishing and live resource use are optional garnish: failures hide them.
     inspectOperation<{ available: boolean; serves: Array<{ dnsName: string; port: number; target: string | null }> }>("app.serve.inspect")
       .then(({ result }) => setServes(result.available ? result.serves : null))
       .catch(() => setServes(null));
+    inspectOperation<{ available: boolean; stats: Record<string, { cpuPercent: number; memBytes: number; containers: number }> }>("app.stats.inspect")
+      .then(({ result }) => setStats(result.available ? result.stats : null))
+      .catch(() => setStats(null));
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -312,6 +316,9 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                 {statusPill(live)}
               </header>
               <p>{manifest.description}</p>
+              {installed && stats?.[manifest.id] && (
+                <p className="muted app-stats">CPU {stats[manifest.id].cpuPercent.toFixed(1)}% · {(stats[manifest.id].memBytes / 1024 / 1024).toFixed(0)} MiB{stats[manifest.id].containers > 1 ? ` · ${stats[manifest.id].containers} containers` : ""}</p>
+              )}
               {installed && live?.urls.length ? (
                 <div className="recovery-actions">
                   {live.urls.map((port) => <a key={port.id} className="secondary-button" href={openUrl(port, manifest)} target="_blank" rel="noreferrer">Open {port.label}</a>)}
