@@ -163,7 +163,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - **M5.5** Optional OIDC (Authentik/Authelia/Pocket-ID as catalog items) for all installed apps via forward-auth in the proxy.
 
 ### Phase 6 — Backup & redeploy (2–3 weeks)
-- **M6.1** Generic "protect" API: any installed item declares backup paths/DB dumps; one restic repo per destination; **schedules** (hourly/daily/weekly) with a real scheduler table; prune with policy.
+- ◐ **M6.1** Catalog apps back up generically: `app.backup` archives the compose project + backup-flagged volumes (stop → tar → restart, sha256 meta, keep-N pruning), with list/restore/delete ops and UI on each card; restore checksums the archive and saves a safety copy first. **Schedules** exist: a `schedules` table + `server/scheduler.mjs` runs any low/medium registered op hourly/daily/weekly, approved as the schedule's creator (skipped and recorded under Always-ask mode); System-page panel offers app backups, apt refresh/upgrade, and Docker cleanup. Remaining: restic destinations for catalog-app backups, DB-dump hooks, prune policy for restic repos.
 - **M6.2** Destinations: local disk, USB, NFS/SMB, SFTP, **rclone** (B2, S3, Drive, Dropbox), Tailscale peer.
 - **M6.3** **Machine snapshot**: export full BoxPilot state (installed items, configs, secrets encrypted, netplan, ufw, users, cron, catalog versions) as one `boxpilot-machine.tar.age`.
 - **M6.4** **Redeploy wizard**: new Ubuntu + BoxPilot → "Restore from machine snapshot" → rehydrates everything (apps first, then data restore, then DNS/proxy) with a progress view. Done when a wiped box is back in <30 min from a snapshot.

@@ -43,6 +43,7 @@ import { createPrerequisiteService } from "./prerequisites.mjs";
 import { createPrerequisiteRepairService } from "./prerequisite-repairs.mjs";
 import { createRouterCheckpointService } from "./router-checkpoints.mjs";
 import { createRecoveryKitService } from "./recovery-kit.mjs";
+import { createSchedulerService } from "./scheduler.mjs";
 import { createStateStore } from "./state.mjs";
 import { createSupportBundleService } from "./support-bundle.mjs";
 import { createVmCreationService } from "./vm-creation.mjs";
@@ -159,6 +160,8 @@ const jobs = createJobService(state, helper, {
 });
 state.deleteExpiredSessions();
 const interruptedJobs = state.recoverInterruptedJobs();
+const scheduler = createSchedulerService({ store: state, jobs });
+scheduler.start();
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "256kb", strict: true }));
@@ -354,7 +357,7 @@ app.get("/api/v1/capabilities", async (_request, response) => {
     services: { list: has("service.list"), control: has("service.action"), journal: has("service.journal") },
     catalog: { apps: catalogApps, install: has("app.install"), uninstall: has("app.uninstall"), purge: has("app.purge"), update: has("app.update"), reconfigure: has("app.reconfigure"), logs: has("app.logs"), secrets: has("app.secrets") },
     vms: { create: true, cloudImages: has("vm.cloud.create"), lifecycle: true, snapshots: true, exports: true, protection: true, restoreDrills: true, recovery: true, delete: false, console: false },
-    backups: { controller: true, applications: true, vms: true, restic: true, restoreDrills: true, retention: true, schedules: false },
+    backups: { controller: true, applications: true, vms: true, restic: true, restoreDrills: true, retention: true, schedules: true },
     identity: { password: true, tailscale: true, github: true, passkeys: false, roles: ["owner"] },
   });
 });
@@ -942,6 +945,39 @@ app.post("/api/v1/controller-retention-plans/:id/stage", async (request, respons
 
 app.get("/api/v1/jobs", (request, response) => {
   response.json({ jobs: state.listJobs(request.query.limit) });
+});
+
+// Scheduled operations (M6.1): low/medium registered ops on an hourly/daily/weekly cadence,
+// approved automatically as the schedule's creator. High-risk ops cannot be scheduled.
+app.get("/api/v1/schedules", (_request, response) => {
+  response.json({ schedules: scheduler.list() });
+});
+
+app.post("/api/v1/schedules", auth.requireCsrf, (request, response) => {
+  try {
+    const { operationId, parameters, frequency, minute, hour, weekday } = request.body ?? {};
+    const schedule = scheduler.create({ operationId, parameters: parameters ?? {}, frequency, minute, hour: hour ?? null, weekday: weekday ?? null, createdBy: request.boxpilotSession.owner.id });
+    response.status(201).json({ schedule });
+  } catch (error) {
+    response.status(400).json({ error: error.message, code: "schedule_rejected" });
+  }
+});
+
+app.put("/api/v1/schedules/:id", auth.requireCsrf, (request, response) => {
+  try {
+    response.json({ schedule: scheduler.setEnabled(request.params.id, Boolean(request.body?.enabled), request.boxpilotSession.owner.id) });
+  } catch (error) {
+    response.status(error.message.includes("not found") ? 404 : 400).json({ error: error.message, code: "schedule_update_failed" });
+  }
+});
+
+app.delete("/api/v1/schedules/:id", auth.requireCsrf, (request, response) => {
+  try {
+    scheduler.remove(request.params.id, request.boxpilotSession.owner.id);
+    response.json({ ok: true });
+  } catch (error) {
+    response.status(error.message.includes("not found") ? 404 : 400).json({ error: error.message, code: "schedule_delete_failed" });
+  }
 });
 
 // Server-sent events for the Activity drawer: recent jobs on connect, then a snapshot of each

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOperation } from "./ApproveDialog";
+import SchedulesPanel from "./SchedulesPanel";
 import { inspectOperation } from "./operations";
 
 interface DockerDisk { available: boolean; rows: Array<{ type: string; total: number | string | null; active: number | string | null; size: string | null; reclaimable: string | null }> }
@@ -129,6 +130,8 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
           <button className="secondary-button" type="button" disabled={loading} onClick={() => start({ operationId: "service.action", title: fstrimEnabled ? "Disable weekly trim" : "Enable weekly trim", parameters: { unit: "fstrim.timer", action: fstrimEnabled ? "disable" : "enable" }, preview: <span><code>systemctl {fstrimEnabled ? "disable" : "enable"} fstrim.timer</code></span> })}>{fstrimEnabled ? "Disable" : "Enable"}</button>
         </header>
       </section>
+
+      <SchedulesPanel csrfToken={csrfToken} />
     </div>
   );
 }
