@@ -78,6 +78,44 @@ export function rewriteSysctlDropIn(content, key, value) {
   return `${lines.join("\n")}\n`;
 }
 
+/** Set the system LANG to an already-generated locale. */
+export async function setLocale({ locale } = {}, { run = fixedRun, log = null } = {}) {
+  if (typeof locale !== "string" || !/^[A-Za-z][A-Za-z0-9_.@-]{1,31}$/.test(locale)) throw new Error("Locale is invalid");
+  const generated = await run("/usr/bin/locale", ["-a"], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 });
+  const available = generated.ok ? generated.stdout.split("\n").map((line) => line.trim()) : [];
+  if (!available.includes(locale)) throw new Error(`Locale ${locale} is not generated on this system`);
+  log?.(`$ update-locale LANG=${locale}`, "stdout");
+  const result = await run("/usr/sbin/update-locale", [`LANG=${locale}`], { timeout: 30_000 });
+  if (!result.ok) throw new Error(`update-locale failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
+  return { locale, appliesTo: "new sessions and services after their next restart" };
+}
+
+const dockerDaemonPath = "/etc/docker/daemon.json";
+
+/** Merge sane logging defaults into daemon.json without touching other keys; exported for tests. */
+export function mergeDockerLoggingDefaults(content) {
+  let config = {};
+  try { config = JSON.parse(content || "{}"); } catch { throw new Error(`${dockerDaemonPath} contains invalid JSON; fix it by hand first`); }
+  if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error(`${dockerDaemonPath} must contain a JSON object`);
+  return {
+    ...config,
+    "log-driver": "json-file",
+    "log-opts": { ...(config["log-opts"] ?? {}), "max-size": "10m", "max-file": "3" },
+    "live-restore": true,
+  };
+}
+
+/** Apply log rotation + live-restore defaults and restart dockerd. */
+export async function dockerLoggingDefaults(_parameters = {}, { run = fixedRun, log = null, files = { readFile, writeFile } } = {}) {
+  const existing = await files.readFile(dockerDaemonPath, "utf8").catch(() => "");
+  const merged = mergeDockerLoggingDefaults(existing);
+  await files.writeFile(dockerDaemonPath, `${JSON.stringify(merged, null, 2)}\n`);
+  log?.(`Wrote ${dockerDaemonPath}; restarting dockerd`, "stdout");
+  const restart = await run("/usr/bin/systemctl", ["restart", "docker.service"], { timeout: 3 * 60_000 });
+  if (!restart.ok) throw new Error(`docker restart failed: ${restart.stderr.split("\n").slice(-2).join(" ")}`);
+  return { applied: true, config: { logDriver: merged["log-driver"], logOpts: merged["log-opts"], liveRestore: merged["live-restore"] }, note: "Log limits apply to containers created from now on; live-restore keeps containers up through future daemon restarts" };
+}
+
 export async function setSwappiness({ value } = {}, { run = fixedRun, log = null, files = { readFile, writeFile } } = {}) {
   if (!Number.isInteger(value) || value < 0 || value > 100) throw new Error("Swappiness must be a whole number between 0 and 100");
   const existing = await files.readFile(sysctlDropInPath, "utf8").catch(() => "");

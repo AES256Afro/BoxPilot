@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { rewriteHostsFile, rewriteSysctlDropIn, setHostname, setSwappiness, setTimezone } from "./system.mjs";
+import { dockerLoggingDefaults, mergeDockerLoggingDefaults, rewriteHostsFile, rewriteSysctlDropIn, setHostname, setLocale, setSwappiness, setTimezone } from "./system.mjs";
 
 function fakeFiles(contents = {}) {
   const written = {};
@@ -50,6 +50,29 @@ describe("root system tasks", () => {
     expect(rewriteSysctlDropIn("", "vm.swappiness", 10)).toBe("# Managed by BoxPilot (System page). Other lines are preserved.\nvm.swappiness = 10\n");
     expect(rewriteSysctlDropIn("net.core.somaxconn = 1024\nvm.swappiness=60\n", "vm.swappiness", 10))
       .toBe("net.core.somaxconn = 1024\nvm.swappiness = 10\n");
+  });
+
+  it("sets only generated locales", async () => {
+    const run = vi.fn(async (binary) => (binary === "/usr/bin/locale" ? { ok: true, stdout: "C\nC.utf8\nen_US.utf8\n", stderr: "" } : { ok: true, stdout: "", stderr: "" }));
+    await expect(setLocale({ locale: "en_US.utf8" }, { run })).resolves.toMatchObject({ locale: "en_US.utf8" });
+    expect(run).toHaveBeenCalledWith("/usr/sbin/update-locale", ["LANG=en_US.utf8"], expect.anything());
+    await expect(setLocale({ locale: "xx_XX.utf8" }, { run })).rejects.toThrow("not generated");
+    await expect(setLocale({ locale: "bad locale" }, { run })).rejects.toThrow("invalid");
+  });
+
+  it("merges docker logging defaults without clobbering other daemon.json keys", async () => {
+    expect(mergeDockerLoggingDefaults("")).toEqual({ "log-driver": "json-file", "log-opts": { "max-size": "10m", "max-file": "3" }, "live-restore": true });
+    expect(mergeDockerLoggingDefaults('{"dns": ["1.1.1.1"], "log-opts": {"labels": "app"}}')).toEqual({
+      dns: ["1.1.1.1"], "log-driver": "json-file", "log-opts": { labels: "app", "max-size": "10m", "max-file": "3" }, "live-restore": true,
+    });
+    expect(() => mergeDockerLoggingDefaults("not json")).toThrow("invalid JSON");
+
+    const written = {};
+    const files = { readFile: vi.fn(async () => { throw new Error("ENOENT"); }), writeFile: vi.fn(async (path, content) => { written[path] = content; }) };
+    const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
+    await expect(dockerLoggingDefaults({}, { run, files })).resolves.toMatchObject({ applied: true });
+    expect(JSON.parse(written["/etc/docker/daemon.json"])).toMatchObject({ "live-restore": true });
+    expect(run).toHaveBeenCalledWith("/usr/bin/systemctl", ["restart", "docker.service"], expect.anything());
   });
 
   it("persists swappiness and applies it live", async () => {

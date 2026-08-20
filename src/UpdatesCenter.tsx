@@ -8,6 +8,7 @@ interface UpgradablePackage {
   candidate: string;
   installed: string;
   architecture: string;
+  source?: string;
 }
 
 interface UpgradableReport {
@@ -15,6 +16,8 @@ interface UpgradableReport {
   count: number;
   securityCount: number;
   rebootRequired: boolean;
+  needrestartPresent?: boolean;
+  servicesNeedingRestart?: string[] | null;
 }
 
 interface UnattendedReport { installed: boolean; enabled: boolean }
@@ -26,7 +29,7 @@ const curatedDescriptions: Record<string, string> = {
   ncdu: "disk usage explorer", tree: "directory trees", ripgrep: "fast text search (rg)", zsh: "Z shell",
   unzip: "zip extraction", "net-tools": "ifconfig and netstat", dnsutils: "dig and nslookup",
   iotop: "disk I/O monitor", smartmontools: "disk SMART health", restic: "backup engine",
-  "nfs-common": "NFS mounts", "cifs-utils": "SMB/CIFS mounts",
+  "nfs-common": "NFS mounts", "cifs-utils": "SMB/CIFS mounts", needrestart: "finds services running old libraries",
 };
 
 export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
@@ -102,6 +105,17 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
 
       {error && <div className="auth-error" role="alert">{error}</div>}
 
+      {report?.servicesNeedingRestart && report.servicesNeedingRestart.length > 0 && (
+        <section className="panel">
+          <header className="panel-header"><div><strong>Services running old libraries</strong><span>These kept the pre-upgrade code in memory. Restart them when convenient — or reboot to refresh everything.</span></div></header>
+          <div className="recovery-actions">
+            {report.servicesNeedingRestart.map((unit) => (
+              <button key={unit} className="secondary-button" type="button" onClick={() => start({ operationId: "service.action", title: `Restart ${unit}`, parameters: { unit, action: "restart" }, preview: <span><code>systemctl restart {unit}</code></span> })}>Restart {unit}</button>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="panel">
         <header className="panel-header"><div><strong>Upgradable packages</strong><span>Select some to upgrade only those, or install everything above.</span></div>
           <button className="secondary-button" type="button" disabled={selectedList.length === 0} onClick={() => start({ operationId: "apt.upgrade", title: `Upgrade ${selectedList.length} selected package${selectedList.length === 1 ? "" : "s"}`, parameters: { packages: selectedList }, preview: <span>{selectedList.join(", ")}</span> })}>Upgrade selected ({selectedList.length})</button>
@@ -115,7 +129,7 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
               {report?.upgradable.map((item) => (
                 <tr key={item.name}>
                   <td><input type="checkbox" aria-label={`Select ${item.name}`} checked={selected.has(item.name)} onChange={() => toggle(item.name)} /></td>
-                  <td><code>{item.name}</code></td>
+                  <td><a className="changelog-link" href={`https://launchpad.net/ubuntu/+source/${encodeURIComponent(item.source ?? item.name)}/+changelog`} target="_blank" rel="noreferrer" title="Changelog on Launchpad"><code>{item.name}</code></a></td>
                   <td>{item.installed}</td>
                   <td>{item.candidate}</td>
                   <td>{/security/i.test(item.suite) ? <span className="status-pill status-warning">{item.suite}</span> : item.suite}</td>

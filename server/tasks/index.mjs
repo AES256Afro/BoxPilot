@@ -4,7 +4,7 @@
  * Keep this list explicit — it is the only thing the template unit will execute.
  */
 import { aptAutoremove, aptInstall, aptRemove, aptUnattendedSet, aptUpdate, aptUpgrade } from "./apt.mjs";
-import { setHostname, setSwappiness, setTimezone, systemReboot } from "./system.mjs";
+import { dockerLoggingDefaults, setHostname, setLocale, setSwappiness, setTimezone, systemReboot } from "./system.mjs";
 import { sshPasswordAuthSet, userAdd, userKeysImport, userSudoSet } from "./users.mjs";
 import { firewallRuleAdd, firewallRuleDelete, firewallSet } from "./firewall.mjs";
 import { storageFormat, storageMount, storageUnmount, swapFileSet } from "./storage.mjs";
@@ -21,6 +21,8 @@ export const tasks = Object.freeze({
   "system.hostname": setHostname,
   "system.timezone": setTimezone,
   "system.swappiness": setSwappiness,
+  "system.locale": setLocale,
+  "docker.logging": dockerLoggingDefaults,
   "users.add": userAdd,
   "users.keys-import": userKeysImport,
   "users.sudo": userSudoSet,

@@ -3,12 +3,14 @@ import { useOperation } from "./ApproveDialog";
 import SchedulesPanel from "./SchedulesPanel";
 import { inspectOperation } from "./operations";
 
-interface DockerDisk { available: boolean; rows: Array<{ type: string; total: number | string | null; active: number | string | null; size: string | null; reclaimable: string | null }> }
+interface DockerDisk { available: boolean; rows: Array<{ type: string; total: number | string | null; active: number | string | null; size: string | null; reclaimable: string | null }>; logging?: { configured: boolean; logDriver: string | null; maxSize: string | null; liveRestore: boolean } }
 
 interface SystemSettings {
   hostname: { static: string | null; live: string | null };
   timezone: string | null;
   timezones: string[];
+  locale?: string | null;
+  locales?: string[];
   swappiness: number | null;
   swap: Array<{ device: string; type: string; sizeKiB: number; usedKiB: number; priority: number }>;
   memory: { memTotalKiB: number | null; memAvailableKiB: number | null; swapTotalKiB: number | null; swapFreeKiB: number | null };
@@ -26,6 +28,7 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
   const [error, setError] = useState<string | null>(null);
   const [hostname, setHostname] = useState("");
   const [timezone, setTimezone] = useState("");
+  const [locale, setLocale] = useState("");
   const [swappiness, setSwappiness] = useState("");
 
   const [dockerDisk, setDockerDisk] = useState<DockerDisk | null>(null);
@@ -42,6 +45,7 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
       setDockerDisk(docker?.result && Array.isArray(docker.result.rows) ? docker.result : null);
       setHostname(result.hostname.static ?? "");
       setTimezone(result.timezone ?? "");
+      setLocale(result.locale ?? "");
       setSwappiness(result.swappiness === null ? "" : String(result.swappiness));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read system settings");
@@ -97,6 +101,19 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
         </div>
       </section>
 
+      {settings && (settings.locales?.length ?? 0) > 0 && (
+        <section className="panel">
+          <header className="panel-header"><div><strong>System language</strong><span>LANG for services and shells. Only locales already generated on this system are offered.</span></div></header>
+          <div className="recovery-actions">
+            <select aria-label="System locale" value={locale} onChange={(event) => setLocale(event.target.value)}>
+              {settings.locale && !settings.locales?.includes(settings.locale) && <option value={settings.locale}>{settings.locale}</option>}
+              {settings.locales?.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
+            </select>
+            <button className="primary-button" type="button" disabled={loading || !locale || locale === settings.locale} onClick={() => start({ operationId: "system.locale.set", title: `Set the system language to ${locale}`, parameters: { locale }, preview: <span><code>update-locale LANG={locale}</code>. New sessions and restarted services pick it up.</span> })}>Change</button>
+          </div>
+        </section>
+      )}
+
       <section className="panel">
         <header className="panel-header"><div><strong>Swap and memory pressure</strong><span>Swappiness {settings?.swappiness ?? "—"} today. Lower values keep more in RAM; 10 suits most servers, 60 is the Ubuntu default.</span></div></header>
         <div className="recovery-actions">
@@ -135,6 +152,13 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
               <tbody>{dockerDisk.rows.map((row) => <tr key={row.type}><td>{row.type}</td><td>{row.total ?? "—"}</td><td>{row.active ?? "—"}</td><td>{row.size ?? "—"}</td><td>{row.reclaimable ?? "—"}</td></tr>)}</tbody>
             </table>
           </div>
+          {dockerDisk.logging && !dockerDisk.logging.configured && (
+            <div className="recovery-actions">
+              <span className="muted">Container logs are unlimited right now — a chatty container can fill the disk.</span>
+              <button className="secondary-button" type="button" disabled={loading} onClick={() => start({ operationId: "docker.logging.set", title: "Apply Docker log rotation defaults", parameters: {}, preview: <span>Caps container logs at 3 × 10 MB and turns on live-restore, then restarts dockerd. Running containers restart briefly this one time; future daemon restarts leave them running.</span> })}>Apply log rotation defaults</button>
+            </div>
+          )}
+          {dockerDisk.logging?.configured && <p className="muted">Log rotation: {dockerDisk.logging.maxSize} per file{dockerDisk.logging.liveRestore ? " · live-restore on" : ""}. Applies to containers created after it was set.</p>}
         </section>
       )}
 

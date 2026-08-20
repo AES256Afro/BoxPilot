@@ -3281,3 +3281,7 @@ textarea {
 .storage-center td .status-pill { margin-left: 8px; }
 .storage-mount-form { margin-top: 12px; flex-wrap: wrap; }
 .storage-mount-form input { min-width: 160px; }
+
+/* Changelog links (M2.1) */
+.changelog-link { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--muted); }
+.changelog-link:hover { border-bottom-color: var(--mint); }

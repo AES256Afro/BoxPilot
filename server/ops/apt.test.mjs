@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { aptOperations, curatedPackages, parseAutoUpgrades, parseDpkgQuery, parseUpgradable } from "./apt.mjs";
+import { aptOperations, curatedPackages, parseAutoUpgrades, parseDpkgQuery, parseNeedrestart, parseSourceMap, parseUpgradable } from "./apt.mjs";
 import { createRegistry } from "./registry.mjs";
 
 const registry = createRegistry([aptOperations]);
@@ -23,6 +23,13 @@ describe("apt operations", () => {
     await expect(registry.execute("apt.remove", { packages: ["git"] }, { runUnit })).resolves.toMatchObject({ task: "apt.remove", parameters: { purge: false } });
     await expect(registry.execute("apt.purge", { packages: ["git"] }, { runUnit })).resolves.toMatchObject({ task: "apt.remove", parameters: { purge: true } });
     await expect(registry.execute("apt.autoremove", {}, { runUnit })).resolves.toMatchObject({ task: "apt.autoremove" });
+  });
+
+  it("maps binary packages to sources and parses needrestart batch output", () => {
+    expect(parseSourceMap("libssl3t64\topenssl\nhtop\thtop\nweird\tsrc (1.2-3)\n")).toEqual({ libssl3t64: "openssl", htop: "htop", weird: "src" });
+    expect(parseNeedrestart("NEEDRESTART-VER: 3.6\nNEEDRESTART-KCUR: 6.8\nNEEDRESTART-SVC: ssh.service\nNEEDRESTART-SVC: cron.service\nNEEDRESTART-SVC: ssh.service\n"))
+      .toEqual(["cron.service", "ssh.service"]);
+    expect(parseNeedrestart("")).toEqual([]);
   });
 
   it("parses 20auto-upgrades and dpkg-query output", () => {

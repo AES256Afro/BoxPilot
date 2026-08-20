@@ -30,12 +30,12 @@ describe("system operations", () => {
       if (args[0] === "system" && args[1] === "prune") return { ok: true, stdout: "Deleted Containers:\nabc\n\nTotal reclaimed space: 1.9GB", stderr: "" };
       return { ok: false, stdout: "", stderr: "unknown" };
     });
-    await expect(operations["docker.disk.inspect"].run({}, { run })).resolves.toEqual({ available: true, rows: [{ type: "Images", total: 12, active: 8, size: "6.2GB", reclaimable: "1.9GB (30%)" }] });
+    await expect(operations["docker.disk.inspect"].run({}, { run })).resolves.toMatchObject({ available: true, rows: [{ type: "Images", total: 12, active: 8, size: "6.2GB", reclaimable: "1.9GB (30%)" }], logging: { configured: false } });
     await expect(operations["docker.prune"].run({}, { run })).resolves.toEqual({ pruned: true, reclaimed: "1.9GB" });
     expect(run).toHaveBeenCalledWith("/usr/bin/docker", ["system", "prune", "--force"], expect.anything());
     expect(run).not.toHaveBeenCalledWith("/usr/bin/docker", expect.arrayContaining(["--volumes"]), expect.anything());
     const down = vi.fn(async () => ({ ok: false, stdout: "", stderr: "cannot connect" }));
-    await expect(operations["docker.disk.inspect"].run({}, { run: down })).resolves.toEqual({ available: false, rows: [] });
+    await expect(operations["docker.disk.inspect"].run({}, { run: down })).resolves.toMatchObject({ available: false, rows: [] });
   });
 
   it("rejects malformed parameters at the registry boundary", () => {
