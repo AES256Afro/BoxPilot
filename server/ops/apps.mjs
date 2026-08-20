@@ -5,6 +5,35 @@ const valuesField = { type: "object", optional: true, validate: (value) => (Obje
 const minutes = (value) => value * 60_000;
 const tailscaleBinary = () => process.env.BOXPILOT_TAILSCALE_BINARY ?? "/usr/bin/tailscale";
 
+/** Parse one-JSON-per-line `docker stats --no-stream --format json` output. */
+export function parseDockerStats(output) {
+  const toBytes = (text) => {
+    const match = String(text ?? "").match(/^([\d.]+)\s*(B|KiB|MiB|GiB|TiB|kB|MB|GB|TB)/i);
+    if (!match) return null;
+    const scale = { b: 1, kib: 1024, mib: 1024 ** 2, gib: 1024 ** 3, tib: 1024 ** 4, kb: 1000, mb: 1000 ** 2, gb: 1000 ** 3, tb: 1000 ** 4 }[match[2].toLowerCase()] ?? 1;
+    return Math.round(Number(match[1]) * scale);
+  };
+  return String(output ?? "").split("\n").filter(Boolean).map((line) => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean)
+    .map((entry) => ({ name: entry.Name ?? "", cpuPercent: Number(String(entry.CPUPerc ?? "").replace("%", "")) || 0, memBytes: toBytes(String(entry.MemUsage ?? "").split("/")[0]) }));
+}
+
+/** Sum container stats per app id: bp-<id> and bp-<id>-<sidecar> roll up together. */
+export function aggregateAppStats(rows, appIds) {
+  const stats = {};
+  const sorted = [...appIds].sort((a, b) => b.length - a.length); // longest prefix wins (app ids can prefix each other)
+  for (const row of rows) {
+    if (!row.name.startsWith("bp-")) continue;
+    const rest = row.name.slice(3);
+    const id = sorted.find((candidate) => rest === candidate || rest.startsWith(`${candidate}-`));
+    if (!id) continue;
+    stats[id] ??= { cpuPercent: 0, memBytes: 0, containers: 0 };
+    stats[id].cpuPercent = Math.round((stats[id].cpuPercent + row.cpuPercent) * 100) / 100;
+    stats[id].memBytes += row.memBytes ?? 0;
+    stats[id].containers += 1;
+  }
+  return stats;
+}
+
 /** Parse `tailscale serve status --json`: HTTPS ports proxied to local targets. */
 export function parseServeStatus(json) {
   let parsed;
@@ -28,6 +57,19 @@ export function appOperations() {
       id: "app.logs", title: "Read application logs", risk: "low", readOnly: true, timeoutMs: 60_000,
       parameters: { fields: { id: idField, lines: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 1000 ? null : "must be 1-1000") } } },
       run: (parameters, { apps }) => apps.logs(parameters),
+    }),
+    defineOperation({
+      id: "app.stats.inspect", title: "Read application resource use", risk: "low", readOnly: true, timeoutMs: 60_000,
+      description: "Live CPU and memory per installed app (sidecars included), from docker stats.",
+      run: async (_parameters, { run, apps }) => {
+        const docker = process.env.BOXPILOT_DOCKER_BINARY ?? "/usr/bin/docker";
+        const [{ applications }, stats] = await Promise.all([
+          apps.inspect({}),
+          run(docker, ["stats", "--no-stream", "--format", "json"], { timeout: 30_000, maxBuffer: 2 * 1024 * 1024 }),
+        ]);
+        if (!stats.ok) return { available: false, stats: {} };
+        return { available: true, stats: aggregateAppStats(parseDockerStats(stats.stdout), applications.map((application) => application.id)) };
+      },
     }),
     defineOperation({
       id: "app.serve.inspect", title: "Read tailnet HTTPS publishing", risk: "low", readOnly: true, timeoutMs: 30_000,

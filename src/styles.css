@@ -3285,3 +3285,6 @@ textarea {
 /* Changelog links (M2.1) */
 .changelog-link { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--muted); }
 .changelog-link:hover { border-bottom-color: var(--mint); }
+
+/* Per-app stats (M3.9) */
+.app-stats { font-size: 12px; margin-top: -6px; }
