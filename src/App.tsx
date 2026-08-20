@@ -19,6 +19,7 @@ import UpdatesCenter from "./UpdatesCenter";
 import AppCatalog from "./AppCatalog";
 import ServicesCenter from "./ServicesCenter";
 import SystemCenter from "./SystemCenter";
+import UsersCenter from "./UsersCenter";
 import ActivityDrawer from "./ActivityDrawer";
 import ApprovalSettings from "./ApprovalSettings";
 import SignInSettings from "./SignInSettings";
@@ -47,6 +48,10 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   system: {
     title: "System",
     description: "Hostname, time zone, swap, and maintenance timers for this server.",
+  },
+  users: {
+    title: "Users & SSH",
+    description: "Add accounts, import SSH keys from GitHub, and control SSH password login.",
   },
   applications: {
     title: "Applications",
@@ -121,6 +126,11 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     label: "Live host settings",
     tone: "live",
     description: "Hostname, time zone, memory, swap, and the fstrim timer come from this server. Changes run as audited root tasks after a confirmation.",
+  },
+  users: {
+    label: "Live accounts and sshd state",
+    tone: "live",
+    description: "Accounts, sudo membership, key counts, and the effective sshd settings come from this server. Account changes confirm; sudo and password-login changes ask for the owner password.",
   },
   applications: {
     label: "Curated application engine",
@@ -313,6 +323,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "catalog") return <AppCatalog csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "services") return <ServicesCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "system") return <SystemCenter csrfToken={authStatus.csrfToken ?? ""} />;
+    if (view === "users") return <UsersCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "applications") {
       return (
         <ApplicationCatalog

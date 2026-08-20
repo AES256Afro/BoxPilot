@@ -5,6 +5,7 @@
  */
 import { aptAutoremove, aptInstall, aptRemove, aptUpdate, aptUpgrade } from "./apt.mjs";
 import { setHostname, setSwappiness, setTimezone, systemReboot } from "./system.mjs";
+import { sshPasswordAuthSet, userAdd, userKeysImport, userSudoSet } from "./users.mjs";
 import { ensureCloudImage } from "./cloud-images.mjs";
 
 export const tasks = Object.freeze({
@@ -17,6 +18,10 @@ export const tasks = Object.freeze({
   "system.hostname": setHostname,
   "system.timezone": setTimezone,
   "system.swappiness": setSwappiness,
+  "users.add": userAdd,
+  "users.keys-import": userKeysImport,
+  "users.sudo": userSudoSet,
+  "ssh.password-auth": sshPasswordAuthSet,
   "vm.cloud-image.ensure": ensureCloudImage,
 });
 

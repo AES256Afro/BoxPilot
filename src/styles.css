@@ -3233,3 +3233,8 @@ textarea {
 .system-center { display: grid; gap: 16px; }
 .system-center .recovery-actions input, .system-center .recovery-actions select { min-width: 240px; flex: 1; max-width: 380px; }
 .system-center select { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-muted); color: var(--text); }
+
+/* Users & SSH page (M2.5) */
+.users-center { display: grid; gap: 16px; }
+.users-center .recovery-actions input { min-width: 220px; flex: 1; max-width: 320px; }
+.users-center textarea { width: 100%; margin-top: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
