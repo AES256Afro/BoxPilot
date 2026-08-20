@@ -6,6 +6,7 @@ export type ViewName =
   | "system"
   | "users"
   | "firewall"
+  | "storage"
   | "applications"
   | "network"
   | "routers"
@@ -26,6 +27,7 @@ export const navItems: Array<{ id: ViewName; label: string; short: string }> = [
   { id: "system", label: "System", short: "SY" },
   { id: "users", label: "Users & SSH", short: "US" },
   { id: "firewall", label: "Firewall", short: "FW" },
+  { id: "storage", label: "Storage", short: "SG" },
   { id: "applications", label: "Applications", short: "AP" },
   { id: "network", label: "Network", short: "NW" },
   { id: "routers", label: "Routers", short: "RT" },

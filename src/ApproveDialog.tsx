@@ -17,6 +17,8 @@ export interface PendingOperation {
   title: string;
   parameters: Record<string, unknown>;
   preview?: ReactNode;
+  /** When set, the exact text must be typed before the operation can be approved (destructive actions). */
+  confirmText?: string;
 }
 
 interface Props extends PendingOperation {
@@ -27,11 +29,12 @@ interface Props extends PendingOperation {
 
 type Phase = "staging" | "ready" | "approving" | "running" | "done" | "error";
 
-export function ApproveDialog({ operationId, title, parameters, preview, csrfToken, onClose, onFinished }: Props) {
+export function ApproveDialog({ operationId, title, parameters, preview, confirmText, csrfToken, onClose, onFinished }: Props) {
   const [phase, setPhase] = useState<Phase>("staging");
   const [job, setJob] = useState<Job | null>(null);
   const [policy, setPolicy] = useState<ApprovalPolicy | null>(null);
   const [password, setPassword] = useState("");
+  const [typedConfirm, setTypedConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [output, setOutput] = useState("");
   const [showOutput, setShowOutput] = useState(true);
@@ -92,6 +95,9 @@ export function ApproveDialog({ operationId, title, parameters, preview, csrfTok
           {policy && <p><span className={`status-pill ${tierTone[tier]}`}>{tierLabel[tier]}</span>{policy.elevated && tier === "high" ? <span className="good-text"> Session elevated — no password needed right now.</span> : null}</p>}
           {preview && <div className="notice">{preview}</div>}
           {phase === "staging" && <p>Preparing...</p>}
+          {phase === "ready" && confirmText && (
+            <label>Type <code>{confirmText}</code> to confirm<input aria-label="Typed confirmation" autoComplete="off" spellCheck="false" value={typedConfirm} onChange={(event) => setTypedConfirm(event.target.value)} /></label>
+          )}
           {phase === "ready" && passwordRequired && (
             <label>Owner password<input aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
           )}
@@ -114,7 +120,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, csrfTok
           ) : (
             <>
               <button className="secondary-button" type="button" onClick={onClose} disabled={busy}>Cancel</button>
-              <button className="primary-button" type="button" onClick={() => void approve()} disabled={busy || phase !== "ready" || (passwordRequired && password.length < 12)}>{actionLabel}</button>
+              <button className="primary-button" type="button" onClick={() => void approve()} disabled={busy || phase !== "ready" || (passwordRequired && password.length < 12) || (Boolean(confirmText) && typedConfirm !== confirmText)}>{actionLabel}</button>
             </>
           )}
         </footer>

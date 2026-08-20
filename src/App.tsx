@@ -22,6 +22,7 @@ import ServicesCenter from "./ServicesCenter";
 import SystemCenter from "./SystemCenter";
 import UsersCenter from "./UsersCenter";
 import FirewallCenter from "./FirewallCenter";
+import StorageCenter from "./StorageCenter";
 import ActivityDrawer from "./ActivityDrawer";
 import ApprovalSettings from "./ApprovalSettings";
 import NotificationSettings from "./NotificationSettings";
@@ -59,6 +60,10 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   firewall: {
     title: "Firewall",
     description: "Turn ufw on or off and manage which ports are open.",
+  },
+  storage: {
+    title: "Storage",
+    description: "See disks and usage, mount filesystems permanently, and format empty disks.",
   },
   applications: {
     title: "Applications",
@@ -143,6 +148,11 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     label: "ufw configuration",
     tone: "live",
     description: "State and rules come from ufw's configuration files. Rule changes confirm; turning the firewall on or off asks for the owner password and always keeps SSH and the tailnet reachable.",
+  },
+  storage: {
+    label: "Live block devices and fstab",
+    tone: "live",
+    description: "Devices and usage come from this server. Mounts are added to fstab by UUID with nofail and verified before use; formatting asks for the owner password and the typed device name.",
   },
   applications: {
     label: "Curated application engine",
@@ -338,6 +348,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "system") return <SystemCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "users") return <UsersCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "firewall") return <FirewallCenter csrfToken={authStatus.csrfToken ?? ""} />;
+    if (view === "storage") return <StorageCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "applications") {
       return (
         <ApplicationCatalog
