@@ -1,0 +1,43 @@
+schemaVersion: 2
+id: navidrome
+name: Navidrome
+category: Media
+icon: "🎵"
+description: Lightweight music server and streamer compatible with Subsonic apps on every platform.
+website: https://www.navidrome.org
+risk: medium
+image:
+  reference: deluan/navidrome:0.63.2
+  version: 0.63.2
+ports:
+  - id: web
+    label: Web UI
+    container: 4533
+    host: 4533
+    exposure: lan
+volumes:
+  - id: data
+    label: Data
+    container: /data
+    path: data
+  - id: music
+    label: Music library
+    container: /music
+    hostPath: /srv/music
+    readOnly: true
+    configurable: true
+    description: Folder on this server that holds your music. Mounted read-only.
+env:
+  - name: ND_SCANSCHEDULE
+    label: Library scan interval
+    default: 1h
+    description: How often Navidrome rescans the music folder, for example 1h or @every 30m.
+  - name: ND_LOGLEVEL
+    label: Log level
+    default: info
+    options: ["error", "warn", "info", "debug"]
+health:
+  kind: running
+  stableSeconds: 10
+  timeoutSeconds: 180
+notes: The first account created becomes the administrator.

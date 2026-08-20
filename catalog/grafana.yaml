@@ -1,0 +1,41 @@
+schemaVersion: 2
+id: grafana
+name: Grafana
+category: Observability
+icon: "📈"
+description: Dashboards and charts for any metric source — Prometheus, databases, or simple JSON.
+website: https://grafana.com/oss/grafana/
+risk: medium
+image:
+  reference: grafana/grafana-oss:13.0.2
+  version: 13.0.2
+user: "0"
+ports:
+  - id: web
+    label: Web UI
+    container: 3000
+    host: 3030
+    exposure: lan
+volumes:
+  - id: data
+    label: Data
+    container: /var/lib/grafana
+    path: data
+env:
+  - name: GF_SECURITY_ADMIN_USER
+    label: Admin username
+    default: admin
+  - name: GF_SECURITY_ADMIN_PASSWORD
+    label: Admin password
+    type: password
+    secret: true
+    generate: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 10
+  timeoutSeconds: 180
+notes: Sign in with the admin username and the generated password (Secrets on this card). Runs as root so it can own its managed data folder.

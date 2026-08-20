@@ -1,0 +1,40 @@
+schemaVersion: 2
+id: freshrss
+name: FreshRSS
+category: News
+icon: "📰"
+description: Self-hosted RSS and Atom feed reader that is fast, light, and works with mobile reader apps.
+website: https://freshrss.org
+risk: medium
+image:
+  reference: freshrss/freshrss:1.29.1
+  version: 1.29.1
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8082
+    exposure: lan
+volumes:
+  - id: data
+    label: Data
+    container: /var/www/FreshRSS/data
+    path: data
+  - id: extensions
+    label: Extensions
+    container: /var/www/FreshRSS/extensions
+    path: extensions
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: CRON_MIN
+    label: Feed refresh minutes
+    default: "13,43"
+    description: Minutes of each hour when feeds refresh.
+health:
+  kind: running
+  stableSeconds: 10
+  timeoutSeconds: 180
+notes: First run opens the setup wizard; the built-in SQLite database is fine for one household.
