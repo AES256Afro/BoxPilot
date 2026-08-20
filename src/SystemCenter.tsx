@@ -54,6 +54,10 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
 
   const { start, dialog } = useOperation(csrfToken, () => { void refresh(); });
 
+  const [swapFileGiB, setSwapFileGiB] = useState("4");
+  const swapFileValue = Number.parseInt(swapFileGiB, 10);
+  const swapFileValid = Number.isInteger(swapFileValue) && swapFileValue >= 1 && swapFileValue <= 64;
+
   const fstrimEnabled = settings?.fstrim.enabled === "enabled";
   const swappinessValue = Number.parseInt(swappiness, 10);
   const swappinessValid = Number.isInteger(swappinessValue) && swappinessValue >= 0 && swappinessValue <= 100;
@@ -107,6 +111,16 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
             </table>
           </div>
         )}
+        {settings && (settings.swap.some((device) => device.device === "/swap.boxpilot") ? (
+          <div className="recovery-actions">
+            <button className="secondary-button" type="button" disabled={loading} onClick={() => start({ operationId: "storage.swapfile.set", title: "Remove the swap file", parameters: { remove: true }, preview: <span>Turns off and deletes <code>/swap.boxpilot</code> and removes its fstab entry. Other swap devices are untouched.</span> })}>Remove swap file</button>
+          </div>
+        ) : (
+          <div className="recovery-actions">
+            <input aria-label="Swap file size in GiB" inputMode="numeric" placeholder="4" value={swapFileGiB} onChange={(event) => setSwapFileGiB(event.target.value.trim())} />
+            <button className="secondary-button" type="button" disabled={loading || !swapFileValid} onClick={() => start({ operationId: "storage.swapfile.set", title: `Create a ${swapFileValue} GiB swap file`, parameters: { sizeGiB: swapFileValue }, preview: <span>Creates <code>/swap.boxpilot</code> ({swapFileValue} GiB), adds a nofail fstab entry, and enables it.</span> })}>Create swap file</button>
+          </div>
+        ))}
       </section>
 
       {dockerDisk?.available && (
