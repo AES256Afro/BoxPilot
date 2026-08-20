@@ -1,0 +1,44 @@
+schemaVersion: 2
+id: ntfy
+name: ntfy
+category: Alerts
+icon: "📬"
+description: Publish-subscribe push notifications to your phone or desktop with a simple HTTP call — no account needed.
+website: https://ntfy.sh
+risk: medium
+image:
+  reference: binwiederhier/ntfy:v2.27.0
+  version: 2.27.0
+command: ["serve"]
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8093
+    exposure: lan
+volumes:
+  - id: cache
+    label: Cache and attachments
+    container: /var/cache/ntfy
+    path: cache
+  - id: config
+    label: Configuration
+    container: /etc/ntfy
+    path: config
+env:
+  - name: NTFY_BASE_URL
+    label: Base URL
+    description: Optional. The address subscribers use, for example http://192.168.1.10:8093 — needed for attachments and iOS.
+  - name: NTFY_CACHE_FILE
+    label: Cache file
+    default: /var/cache/ntfy/cache.db
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 10
+  timeoutSeconds: 180
+notes: "Send a test from this server: curl -d 'hello' http://127.0.0.1:8093/test — then subscribe to the topic 'test' in the app."

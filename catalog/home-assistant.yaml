@@ -1,0 +1,34 @@
+schemaVersion: 2
+id: home-assistant
+name: Home Assistant
+category: Smart home
+icon: "🏠"
+description: Open-source home automation hub that talks to thousands of smart devices, with automations, dashboards, and voice control.
+website: https://www.home-assistant.io
+risk: medium
+image:
+  reference: homeassistant/home-assistant:2026.8.2
+  version: 2026.8.2
+network: host
+ports:
+  - id: web
+    label: Web UI
+    container: 8123
+    host: 8123
+    exposure: lan
+    fixed: true
+volumes:
+  - id: config
+    label: Configuration
+    container: /config
+    path: config
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 20
+  timeoutSeconds: 300
+notes: Runs on the host network so device discovery (mDNS, SSDP) works. First run opens the onboarding wizard on port 8123.

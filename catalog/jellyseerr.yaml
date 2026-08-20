@@ -1,0 +1,36 @@
+schemaVersion: 2
+id: jellyseerr
+name: Jellyseerr
+category: Media
+icon: "🍿"
+description: Request manager for Jellyfin — family members ask for movies and shows, you approve with one click.
+website: https://github.com/fallenbagel/jellyseerr
+risk: medium
+image:
+  reference: fallenbagel/jellyseerr:2.7.3
+  version: 2.7.3
+ports:
+  - id: web
+    label: Web UI
+    container: 5055
+    host: 5055
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /app/config
+    path: config
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: LOG_LEVEL
+    label: Log level
+    default: info
+    options: ["error", "warn", "info", "debug"]
+health:
+  kind: running
+  stableSeconds: 10
+  timeoutSeconds: 240
+notes: First run connects it to your Jellyfin server and media libraries.

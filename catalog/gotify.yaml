@@ -1,0 +1,40 @@
+schemaVersion: 2
+id: gotify
+name: Gotify
+category: Alerts
+icon: "🔔"
+description: Simple self-hosted push notification server with Android app and a clean web UI.
+website: https://gotify.net
+risk: medium
+image:
+  reference: gotify/server:3.0.0
+  version: 3.0.0
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8091
+    exposure: lan
+volumes:
+  - id: data
+    label: Data
+    container: /app/data
+    path: data
+env:
+  - name: GOTIFY_DEFAULTUSER_NAME
+    label: Admin username
+    default: admin
+  - name: GOTIFY_DEFAULTUSER_PASS
+    label: Admin password
+    type: password
+    secret: true
+    generate: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 10
+  timeoutSeconds: 180
+notes: Sign in with the admin username and the generated password (Secrets on this card), then create an application token for each sender.

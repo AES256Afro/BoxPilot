@@ -1,0 +1,43 @@
+schemaVersion: 2
+id: audiobookshelf
+name: Audiobookshelf
+category: Media
+icon: "🎧"
+description: Self-hosted audiobook and podcast server with progress sync and apps for iOS and Android.
+website: https://www.audiobookshelf.org
+risk: medium
+image:
+  reference: ghcr.io/advplyr/audiobookshelf:2.36.0
+  version: 2.36.0
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 13378
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /config
+    path: config
+  - id: metadata
+    label: Metadata
+    container: /metadata
+    path: metadata
+  - id: audiobooks
+    label: Audiobook library
+    container: /audiobooks
+    hostPath: /srv/audiobooks
+    readOnly: true
+    configurable: true
+    description: Folder on this server that holds your audiobooks and podcasts. Mounted read-only.
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 10
+  timeoutSeconds: 180
+notes: First run creates the root user. Add /audiobooks as a library.
