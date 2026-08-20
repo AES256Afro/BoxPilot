@@ -369,4 +369,30 @@ describe("BoxPilot state store", () => {
     expect(store.getJob(job.id)).toMatchObject({ state: "failed", error: expect.stringContaining("restarted") });
     store.close();
   });
+
+  it("notifies job subscribers with coalesced snapshots and stops after unsubscribe", async () => {
+    const store = await testStore();
+    const bootstrap = store.createBootstrapToken();
+    const owner = store.consumeBootstrapToken(bootstrap.token, { username: "operator", passwordHash: "hash" });
+    const events = [];
+    const unsubscribe = store.subscribeJobs((job) => events.push(job));
+
+    const job = store.createJob({ type: "helper.canary.verify", title: "Verify helper", createdBy: owner.id });
+    await Promise.resolve();
+    // Creation plus its initial steps deliver one snapshot, not one per write.
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ id: job.id, state: "awaiting_approval", steps: [expect.anything(), expect.anything()] });
+
+    store.transitionJob(job.id, "awaiting_approval", "applying");
+    store.addJobStep(job.id, "apply", "running", "Working");
+    await Promise.resolve();
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({ id: job.id, state: "applying", steps: expect.arrayContaining([expect.objectContaining({ name: "apply" })]) });
+
+    unsubscribe();
+    store.transitionJob(job.id, "applying", "completed");
+    await Promise.resolve();
+    expect(events).toHaveLength(2);
+    store.close();
+  });
 });

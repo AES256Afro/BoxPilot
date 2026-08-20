@@ -31,6 +31,8 @@ export interface Job {
   risk: string;
   error: string | null;
   result: unknown;
+  createdAt?: string;
+  updatedAt?: string;
   steps: JobStep[];
   approvals: Array<{ ownerId: string; method?: string; tier?: string; createdAt: string }>;
 }
@@ -82,6 +84,19 @@ export async function waitForJob(jobId: string, { intervalMs = 2000, timeoutMs =
     if (Date.now() - started > timeoutMs) throw new Error("Timed out waiting for the job to finish");
     await sleep(intervalMs);
   }
+}
+
+/**
+ * Follow all job activity for the Activity drawer: `onSnapshot` with recent jobs on (re)connect,
+ * then `onJob` with a fresh snapshot of each job as it changes. Returns a function that stops.
+ */
+export function followJobs({ onSnapshot, onJob }: { onSnapshot: (jobs: Job[]) => void; onJob: (job: Job) => void }): () => void {
+  if (typeof EventSource === "undefined") return () => {};
+  const source = new EventSource("/api/v1/events");
+  source.addEventListener("snapshot", (event) => { try { onSnapshot((JSON.parse((event as MessageEvent).data) as { jobs: Job[] }).jobs); } catch { /* ignore malformed */ } });
+  source.addEventListener("job", (event) => { try { onJob((JSON.parse((event as MessageEvent).data) as { job: Job }).job); } catch { /* ignore malformed */ } });
+  source.onerror = () => { /* EventSource reconnects on its own; each reconnect re-sends the snapshot */ };
+  return () => source.close();
 }
 
 /**
