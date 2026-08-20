@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useOperation } from "./ApproveDialog";
+import { inspectOperation } from "./operations";
 import type { ViewName } from "./data";
 
 interface Prerequisite {
@@ -72,104 +74,6 @@ interface ActionCenter {
   boundary: { mutationPerformed: boolean; automaticRepair: boolean; persistence: boolean; browserNotifications: boolean; externalDelivery: boolean; credentialsIncluded: boolean; arbitraryLogsIncluded: boolean };
 }
 
-interface SmartRepairPlan {
-  id: string;
-  revision: string;
-  expiresAt: string;
-  output: {
-    package: "smartmontools";
-    selectedVersion: string;
-    currentState: string;
-    action: string;
-    networkAccess: boolean;
-    aptUpdatePerformed: boolean;
-    arbitraryPackageSelection: boolean;
-    automaticRollback: boolean;
-    recovery: string;
-  };
-}
-
-interface ResticRepairPlan {
-  id: string;
-  revision: string;
-  expiresAt: string;
-  output: {
-    package: "restic";
-    selectedVersion: string;
-    currentState: string;
-    action: string;
-    networkAccess: boolean;
-    aptUpdatePerformed: boolean;
-    arbitraryPackageSelection: boolean;
-    automaticRollback: boolean;
-    storageSetupPerformed: boolean;
-    recovery: string;
-  };
-}
-
-interface DockerRepairPlan {
-  id: string;
-  revision: string;
-  expiresAt: string;
-  output: {
-    package: "docker.io";
-    selectedVersion: string;
-    currentState: string;
-    action: string;
-    networkAccess: boolean;
-    aptUpdatePerformed: boolean;
-    arbitraryPackageSelection: boolean;
-    arbitraryRepositorySelection: boolean;
-    daemonConfigurationChanged: boolean;
-    userGroupChanged: boolean;
-    containerCreated: boolean;
-    automaticRollback: boolean;
-    recovery: string;
-  };
-}
-
-interface VirtualizationRepairPlan {
-  id: string;
-  revision: string;
-  expiresAt: string;
-  output: {
-    packageSet: Array<{ name: string; version: string }>;
-    currentState: string;
-    action: string;
-    networkAccess: boolean;
-    aptUpdatePerformed: boolean;
-    dependencyChangesPossible: boolean;
-    arbitraryPackageSelection: boolean;
-    arbitraryRepositorySelection: boolean;
-    operatorUserGroupChanged: boolean;
-    networkCreated: boolean;
-    storagePoolCreated: boolean;
-    virtualMachineCreated: boolean;
-    automaticRollback: boolean;
-    recovery: string;
-  };
-}
-
-interface AptRefreshPlan {
-  id: string;
-  revision: string;
-  expiresAt: string;
-  output: {
-    currentState: string;
-    currentUpdatedAt: string | null;
-    currentAgeHours: number | null;
-    action: string;
-    networkAccess: boolean;
-    aptUpdatePerformed: boolean;
-    packageInstallPerformed: boolean;
-    packageUpgradePerformed: boolean;
-    packageRemovalPerformed: boolean;
-    arbitraryCommandAccepted: boolean;
-    automaticRollback: boolean;
-    recovery: string;
-  };
-}
-
 async function readJson<T>(response: Response): Promise<T> {
   const body = await response.json() as T & { error?: string };
   if (!response.ok) throw new Error(body.error ?? `Request failed with status ${response.status}`);
@@ -188,11 +92,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
   const [password, setPassword] = useState("");
   const [approvalPolicy, setApprovalPolicy] = useState<ApprovalPolicy | null>(null);
   const [pending, setPending] = useState(false);
-  const [smartRepairPlan, setSmartRepairPlan] = useState<SmartRepairPlan | null>(null);
-  const [resticRepairPlan, setResticRepairPlan] = useState<ResticRepairPlan | null>(null);
-  const [dockerRepairPlan, setDockerRepairPlan] = useState<DockerRepairPlan | null>(null);
-  const [virtualizationRepairPlan, setVirtualizationRepairPlan] = useState<VirtualizationRepairPlan | null>(null);
-  const [aptRefreshPlan, setAptRefreshPlan] = useState<AptRefreshPlan | null>(null);
+  const [canaryResult, setCanaryResult] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -247,196 +147,58 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       .catch(() => { if (!cancelled) setApprovalPolicy(null); });
     return () => { cancelled = true; };
   }, [awaitingApproval]);
-  const prerequisitePlanOpen = smartRepairPlan !== null || resticRepairPlan !== null || dockerRepairPlan !== null || virtualizationRepairPlan !== null || aptRefreshPlan !== null;
 
-  const createCanary = async () => {
+  const { start: startOperation, dialog: operationDialog } = useOperation(csrfToken, () => { void refresh(); });
+
+  // One generic review flow: read the live pinned versions from the registry inspect,
+  // then stage the matching install through the shared risk-tiered dialog.
+  const repairDefinitions: Record<string, { inspect: string; install: string; describe: (result: Record<string, unknown>) => { title: string; parameters: Record<string, unknown>; preview: ReactNode } }> = {
+    "storage.smartmontools": {
+      inspect: "prerequisite.smartmontools.inspect", install: "prerequisite.smartmontools.install",
+      describe: (result) => ({ title: `Install smartmontools ${result.selectedVersion}`, parameters: { expectedVersion: result.selectedVersion }, preview: <span>Installs <code>smartmontools {String(result.selectedVersion)}</code> from the configured Ubuntu source. The job re-checks the pinned version before it runs.</span> }),
+    },
+    "backup.restic": {
+      inspect: "prerequisite.restic.inspect", install: "prerequisite.restic.install",
+      describe: (result) => ({ title: `Install restic ${result.selectedVersion}`, parameters: { expectedVersion: result.selectedVersion }, preview: <span>Installs <code>restic {String(result.selectedVersion)}</code>. Repository setup stays a separate step.</span> }),
+    },
+    "containers.docker": {
+      inspect: "prerequisite.docker.inspect", install: "prerequisite.docker.install",
+      describe: (result) => ({ title: `Install Docker Engine ${result.selectedVersion}`, parameters: { expectedVersion: result.selectedVersion }, preview: <span>Installs Ubuntu's <code>docker.io {String(result.selectedVersion)}</code> and starts the service. Existing compatible Docker providers are never replaced.</span> }),
+    },
+    "virtualization.libvirt": {
+      inspect: "prerequisite.virtualization.inspect", install: "prerequisite.virtualization.install",
+      describe: (result) => ({ title: "Install KVM, QEMU, and libvirt", parameters: { expectedPackages: result.candidatePackages }, preview: <span>Installs the fixed Ubuntu bundle at its current exact versions: {Object.entries(result.candidatePackages as Record<string, string>).map(([name, version]) => `${name} ${version}`).join(", ")}.</span> }),
+    },
+    "host.apt-metadata": {
+      inspect: "prerequisite.apt-metadata.inspect", install: "prerequisite.apt-metadata.refresh",
+      describe: (result) => ({ title: "Refresh APT metadata", parameters: { expectedUpdatedAt: result.updatedAt ?? null }, preview: <span>Runs the fixed <code>apt-get update</code>; no package is installed, upgraded, or removed.</span> }),
+    },
+  };
+
+  const reviewRepair = async (checkId: string) => {
+    const definition = repairDefinitions[checkId];
+    if (!definition) return;
     setPending(true);
     setError(null);
     try {
-      await readJson(await fetch("/api/v1/operations/canary", { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } }));
-      await refresh();
+      const { result } = await inspectOperation<Record<string, unknown>>(definition.inspect);
+      startOperation({ operationId: definition.install, ...definition.describe(result) });
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to create canary job");
+      setError(requestError instanceof Error ? requestError.message : "Unable to inspect the prerequisite");
     } finally {
       setPending(false);
     }
   };
 
-  const createSmartRepairPlan = async () => {
+  const runCanary = async () => {
     setPending(true);
     setError(null);
+    setCanaryResult(null);
     try {
-      const result = await readJson<{ plan: SmartRepairPlan }>(await fetch("/api/v1/prerequisite-repairs/smartmontools/plans", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-        body: JSON.stringify({}),
-      }));
-      setSmartRepairPlan(result.plan);
+      const { result } = await inspectOperation<{ helperVersion: string }>("canary.verify");
+      setCanaryResult(`The helper answered over its socket: version ${result.helperVersion}. No host state was touched.`);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to create the smartmontools repair plan");
-    } finally {
-      setPending(false);
-    }
-  };
-
-  const stageSmartRepairPlan = async () => {
-    if (!smartRepairPlan) return;
-    setPending(true);
-    setError(null);
-    try {
-      await readJson(await fetch(`/api/v1/prerequisite-repair-plans/${smartRepairPlan.id}/stage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-        body: JSON.stringify({ revision: smartRepairPlan.revision }),
-      }));
-      setSmartRepairPlan(null);
-      await refresh();
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to stage the smartmontools repair plan");
-    } finally {
-      setPending(false);
-    }
-  };
-
-  const createResticRepairPlan = async () => {
-    setPending(true);
-    setError(null);
-    try {
-      const result = await readJson<{ plan: ResticRepairPlan }>(await fetch("/api/v1/prerequisite-repairs/restic/plans", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-        body: JSON.stringify({}),
-      }));
-      setResticRepairPlan(result.plan);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to create the restic repair plan");
-    } finally {
-      setPending(false);
-    }
-  };
-
-  const stageResticRepairPlan = async () => {
-    if (!resticRepairPlan) return;
-    setPending(true);
-    setError(null);
-    try {
-      await readJson(await fetch(`/api/v1/prerequisite-repair-plans/${resticRepairPlan.id}/stage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-        body: JSON.stringify({ revision: resticRepairPlan.revision }),
-      }));
-      setResticRepairPlan(null);
-      await refresh();
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to stage the restic repair plan");
-    } finally {
-      setPending(false);
-    }
-  };
-
-  const createDockerRepairPlan = async () => {
-    setPending(true);
-    setError(null);
-    try {
-      const result = await readJson<{ plan: DockerRepairPlan }>(await fetch("/api/v1/prerequisite-repairs/docker/plans", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-        body: JSON.stringify({}),
-      }));
-      setDockerRepairPlan(result.plan);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to create the Docker Engine repair plan");
-    } finally {
-      setPending(false);
-    }
-  };
-
-  const stageDockerRepairPlan = async () => {
-    if (!dockerRepairPlan) return;
-    setPending(true);
-    setError(null);
-    try {
-      await readJson(await fetch(`/api/v1/prerequisite-repair-plans/${dockerRepairPlan.id}/stage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-        body: JSON.stringify({ revision: dockerRepairPlan.revision }),
-      }));
-      setDockerRepairPlan(null);
-      await refresh();
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to stage the Docker Engine repair plan");
-    } finally {
-      setPending(false);
-    }
-  };
-
-  const createVirtualizationRepairPlan = async () => {
-    setPending(true);
-    setError(null);
-    try {
-      const result = await readJson<{ plan: VirtualizationRepairPlan }>(await fetch("/api/v1/prerequisite-repairs/virtualization/plans", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-        body: JSON.stringify({}),
-      }));
-      setVirtualizationRepairPlan(result.plan);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to create the virtualization repair plan");
-    } finally {
-      setPending(false);
-    }
-  };
-
-  const stageVirtualizationRepairPlan = async () => {
-    if (!virtualizationRepairPlan) return;
-    setPending(true);
-    setError(null);
-    try {
-      await readJson(await fetch(`/api/v1/prerequisite-repair-plans/${virtualizationRepairPlan.id}/stage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-        body: JSON.stringify({ revision: virtualizationRepairPlan.revision }),
-      }));
-      setVirtualizationRepairPlan(null);
-      await refresh();
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to stage the virtualization repair plan");
-    } finally {
-      setPending(false);
-    }
-  };
-
-  const createAptRefreshPlan = async () => {
-    setPending(true);
-    setError(null);
-    try {
-      const result = await readJson<{ plan: AptRefreshPlan }>(await fetch("/api/v1/prerequisite-repairs/apt-metadata/plans", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-        body: JSON.stringify({}),
-      }));
-      setAptRefreshPlan(result.plan);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to create the APT metadata refresh plan");
-    } finally {
-      setPending(false);
-    }
-  };
-
-  const stageAptRefreshPlan = async () => {
-    if (!aptRefreshPlan) return;
-    setPending(true);
-    setError(null);
-    try {
-      await readJson(await fetch(`/api/v1/prerequisite-repair-plans/${aptRefreshPlan.id}/stage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-        body: JSON.stringify({ revision: aptRefreshPlan.revision }),
-      }));
-      setAptRefreshPlan(null);
-      await refresh();
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to stage the APT metadata refresh plan");
+      setError(requestError instanceof Error ? requestError.message : "The helper did not answer");
     } finally {
       setPending(false);
     }
@@ -483,77 +245,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       </section>
 
       {error && <div className="auth-error" role="alert">{error}</div>}
-      {smartRepairPlan && (
-        <section className="panel prerequisite-repair-plan">
-          <header className="panel-header"><div><span className="eyebrow">Exact prerequisite repair plan</span><strong>smartmontools {smartRepairPlan.output.selectedVersion}</strong><span>Revision {smartRepairPlan.revision} | expires {new Date(smartRepairPlan.expiresAt).toLocaleString()}</span></div><span className="status-pill status-warning">system package</span></header>
-          <div className="prerequisite-repair-grid">
-            <div><span>Current state</span><strong>{smartRepairPlan.output.currentState}</strong></div>
-            <div><span>Network access</span><strong>{smartRepairPlan.output.networkAccess ? "Required for the fixed APT install" : "Not required"}</strong></div>
-            <div><span>APT update</span><strong>{smartRepairPlan.output.aptUpdatePerformed ? "Planned" : "Not permitted"}</strong></div>
-            <div><span>Automatic removal</span><strong>{smartRepairPlan.output.automaticRollback ? "Planned" : "Never"}</strong></div>
-          </div>
-          <p>{smartRepairPlan.output.action}</p>
-          <div className="recovery-boundary"><strong>Fixed boundary</strong><span>No package name, repository, command, argument, disk, mount, or SMART setting comes from the browser. {smartRepairPlan.output.recovery}</span></div>
-          <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => setSmartRepairPlan(null)} disabled={pending}>Discard plan</button><button className="primary-button" type="button" onClick={() => void stageSmartRepairPlan()} disabled={pending}>{pending ? "Staging..." : "Stage exact repair for password approval"}</button></footer>
-        </section>
-      )}
-      {resticRepairPlan && (
-        <section className="panel prerequisite-repair-plan">
-          <header className="panel-header"><div><span className="eyebrow">Exact prerequisite repair plan</span><strong>restic {resticRepairPlan.output.selectedVersion}</strong><span>Revision {resticRepairPlan.revision} | expires {new Date(resticRepairPlan.expiresAt).toLocaleString()}</span></div><span className="status-pill status-warning">system package</span></header>
-          <div className="prerequisite-repair-grid">
-            <div><span>Current state</span><strong>{resticRepairPlan.output.currentState}</strong></div>
-            <div><span>Network access</span><strong>{resticRepairPlan.output.networkAccess ? "Required for the fixed APT install" : "Not required"}</strong></div>
-            <div><span>APT update</span><strong>{resticRepairPlan.output.aptUpdatePerformed ? "Planned" : "Not permitted"}</strong></div>
-            <div><span>Storage setup</span><strong>{resticRepairPlan.output.storageSetupPerformed ? "Planned" : "Separate terminal step"}</strong></div>
-          </div>
-          <p>{resticRepairPlan.output.action}</p>
-          <div className="recovery-boundary"><strong>Fixed boundary</strong><span>No package name, repository, password, command, argument, mount, backup target, or retention rule comes from the browser. Installation does not mount a disk, create a recovery key, initialize a repository, or start a backup. {resticRepairPlan.output.recovery}</span></div>
-          <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => setResticRepairPlan(null)} disabled={pending}>Discard plan</button><button className="primary-button" type="button" onClick={() => void stageResticRepairPlan()} disabled={pending}>{pending ? "Staging..." : "Stage exact repair for password approval"}</button></footer>
-        </section>
-      )}
-      {dockerRepairPlan && (
-        <section className="panel prerequisite-repair-plan">
-          <header className="panel-header"><div><span className="eyebrow">Exact prerequisite repair plan</span><strong>Ubuntu docker.io {dockerRepairPlan.output.selectedVersion}</strong><span>Revision {dockerRepairPlan.revision} | expires {new Date(dockerRepairPlan.expiresAt).toLocaleString()}</span></div><span className="status-pill status-warning">system package + service</span></header>
-          <div className="prerequisite-repair-grid">
-            <div><span>Current state</span><strong>{dockerRepairPlan.output.currentState}</strong></div>
-            <div><span>Network access</span><strong>{dockerRepairPlan.output.networkAccess ? "Required for the fixed APT install" : "Not required"}</strong></div>
-            <div><span>APT update or repository</span><strong>{dockerRepairPlan.output.aptUpdatePerformed || dockerRepairPlan.output.arbitraryRepositorySelection ? "Planned" : "Not permitted"}</strong></div>
-            <div><span>Docker data or config</span><strong>{dockerRepairPlan.output.daemonConfigurationChanged || dockerRepairPlan.output.userGroupChanged || dockerRepairPlan.output.containerCreated ? "Changes planned" : "Untouched"}</strong></div>
-          </div>
-          <p>{dockerRepairPlan.output.action}</p>
-          <div className="recovery-boundary"><strong>Fixed boundary</strong><span>No package name, repository, command, daemon option, user, image, container, socket, or path comes from the browser. Existing compatible Docker providers are never replaced. {dockerRepairPlan.output.recovery}</span></div>
-          <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => setDockerRepairPlan(null)} disabled={pending}>Discard plan</button><button className="primary-button" type="button" onClick={() => void stageDockerRepairPlan()} disabled={pending}>{pending ? "Staging..." : "Stage Docker install for password approval"}</button></footer>
-        </section>
-      )}
-      {virtualizationRepairPlan && (
-        <section className="panel prerequisite-repair-plan">
-          <header className="panel-header"><div><span className="eyebrow">Exact prerequisite repair plan</span><strong>KVM, QEMU, and libvirt Ubuntu bundle</strong><span>Revision {virtualizationRepairPlan.revision} | expires {new Date(virtualizationRepairPlan.expiresAt).toLocaleString()}</span></div><span className="status-pill status-warning">system packages + service</span></header>
-          <div className="prerequisite-repair-grid">
-            <div><span>Current state</span><strong>{virtualizationRepairPlan.output.currentState}</strong></div>
-            <div><span>Fixed packages</span><strong>{virtualizationRepairPlan.output.packageSet.length} exact Ubuntu candidates</strong></div>
-            <div><span>APT behavior</span><strong>{virtualizationRepairPlan.output.aptUpdatePerformed ? "Metadata refresh planned" : "No metadata refresh; dependencies may change"}</strong></div>
-            <div><span>VM resources</span><strong>{virtualizationRepairPlan.output.networkCreated || virtualizationRepairPlan.output.storagePoolCreated || virtualizationRepairPlan.output.virtualMachineCreated ? "Changes planned" : "No network, pool, or VM creation"}</strong></div>
-          </div>
-          <div className="recovery-evidence-strip">{virtualizationRepairPlan.output.packageSet.map((item) => <span key={item.name}>{item.name} {item.version}</span>)}</div>
-          <p>{virtualizationRepairPlan.output.action}</p>
-          <div className="recovery-boundary"><strong>Fixed boundary</strong><span>No package name, version, repository, command, URI, user, group, network, pool, disk, ISO, or VM value comes from the browser. Existing or partial providers are never replaced. Ubuntu may install or update required dependencies for the fixed package roots. {virtualizationRepairPlan.output.recovery}</span></div>
-          <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => setVirtualizationRepairPlan(null)} disabled={pending}>Discard plan</button><button className="primary-button" type="button" onClick={() => void stageVirtualizationRepairPlan()} disabled={pending}>{pending ? "Staging..." : "Stage virtualization install for password approval"}</button></footer>
-        </section>
-      )}
-      {aptRefreshPlan && (
-        <section className="panel prerequisite-repair-plan">
-          <header className="panel-header"><div><span className="eyebrow">Exact prerequisite repair plan</span><strong>APT metadata refresh</strong><span>Revision {aptRefreshPlan.revision} | expires {new Date(aptRefreshPlan.expiresAt).toLocaleString()}</span></div><span className="status-pill status-warning">package metadata</span></header>
-          <div className="prerequisite-repair-grid">
-            <div><span>Current state</span><strong>{aptRefreshPlan.output.currentState}{aptRefreshPlan.output.currentAgeHours !== null ? ` (${aptRefreshPlan.output.currentAgeHours} hours old)` : ""}</strong></div>
-            <div><span>Previous timestamp</span><strong>{aptRefreshPlan.output.currentUpdatedAt ? new Date(aptRefreshPlan.output.currentUpdatedAt).toLocaleString() : "Unavailable"}</strong></div>
-            <div><span>Fixed APT update</span><strong>{aptRefreshPlan.output.aptUpdatePerformed ? "Required" : "Not planned"}</strong></div>
-            <div><span>Package changes</span><strong>{aptRefreshPlan.output.packageInstallPerformed || aptRefreshPlan.output.packageUpgradePerformed || aptRefreshPlan.output.packageRemovalPerformed ? "Planned" : "None permitted"}</strong></div>
-          </div>
-          <p>{aptRefreshPlan.output.action}</p>
-          <div className="recovery-boundary"><strong>Fixed boundary</strong><span>The browser supplies no package, repository, command, option, or target. The static root unit runs only apt-get update --error-on=any and verifies the installed package database is unchanged. {aptRefreshPlan.output.recovery}</span></div>
-          <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => setAptRefreshPlan(null)} disabled={pending}>Discard plan</button><button className="primary-button" type="button" onClick={() => void stageAptRefreshPlan()} disabled={pending}>{pending ? "Staging..." : "Stage metadata refresh for password approval"}</button></footer>
-        </section>
-      )}
+      {operationDialog}
       {recoveryError && <div className="notice warning-notice" role="status"><strong>Recovery kit unavailable</strong><span>{recoveryError}. Prerequisite checks and durable jobs remain available.</span></div>}
       {actionError && <div className="notice warning-notice" role="status"><strong>Action Center unavailable</strong><span>{actionError}. No all-clear state is being claimed.</span></div>}
 
@@ -622,7 +314,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
           {checks.map((item) => (
             <article className="repair-check" key={item.id}>
               <span className={`repair-state repair-${item.status}`}>{item.status}</span>
-              <div><small>{item.group}</small><strong>{item.name}</strong><p>{item.summary}</p>{item.repair && <em>{item.repair.description}</em>}{item.id === "storage.smartmontools" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createSmartRepairPlan()} disabled={pending || prerequisitePlanOpen}>Review exact repair</button>}{item.id === "backup.restic" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createResticRepairPlan()} disabled={pending || prerequisitePlanOpen}>Review restic repair</button>}{item.id === "containers.docker" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createDockerRepairPlan()} disabled={pending || prerequisitePlanOpen}>Review Docker install</button>}{item.id === "virtualization.libvirt" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createVirtualizationRepairPlan()} disabled={pending || prerequisitePlanOpen}>Review virtualization install</button>}{item.id === "host.apt-metadata" && item.repair?.kind === "approved" && <button className="secondary-button repair-plan-button" type="button" onClick={() => void createAptRefreshPlan()} disabled={pending || prerequisitePlanOpen}>Review metadata refresh</button>}</div>
+              <div><small>{item.group}</small><strong>{item.name}</strong><p>{item.summary}</p>{item.repair && <em>{item.repair.description}</em>}{item.repair?.kind === "approved" && repairDefinitions[item.id] && <button className="secondary-button repair-plan-button" type="button" onClick={() => void reviewRepair(item.id)} disabled={pending}>Review exact repair</button>}</div>
             </article>
           ))}
         </section>
@@ -633,7 +325,10 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
           <p>{awaitingApproval ? "Review the recorded preflight and recovery steps below, then approve this exact typed job." : "This job uses the real durable workflow and local Unix socket. Its allowlisted operation cannot mutate the host."}</p>
           {awaitingApproval && <p className="job-recovery"><strong>{awaitingApproval.risk} risk:</strong> {awaitingApproval.recovery.reason ?? "Follow the recorded recovery instructions if verification fails."}</p>}
           {!awaitingApproval ? (
-            <button className="primary-button" type="button" onClick={() => void createCanary()} disabled={pending}>Create verification job</button>
+            <>
+              <button className="primary-button" type="button" onClick={() => void runCanary()} disabled={pending}>{pending ? "Verifying..." : "Verify the helper"}</button>
+              {canaryResult && <p className="good-text">{canaryResult}</p>}
+            </>
           ) : (
             <div className="approval-box">
               {(() => {
