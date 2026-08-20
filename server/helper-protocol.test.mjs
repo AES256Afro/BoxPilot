@@ -558,15 +558,6 @@ describe("restricted helper protocol", () => {
     expect(result).toMatchObject({ ok: true, result: { nativeProxyAvailable: false, cockpit: { active: true, port: 9090 } } });
   });
 
-  it("accepts only exact offline snapshot plan fields", async () => {
-    expect(validateHelperRequest(request({ operation: "virtualization.domain.snapshot.create", parameters: snapshotParameters() }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "virtualization.domain.snapshot.create", parameters: snapshotParameters({ expectedState: "running" }) }))).toContain("requires a stopped VM");
-    expect(validateHelperRequest(request({ operation: "virtualization.domain.snapshot.create", parameters: snapshotParameters({ path: "/tmp/evil" }) }))).toContain("only the fixed typed plan fields");
-    const virtualization = { createSnapshot: async (parameters) => ({ created: true, verified: true, domain: parameters.name, snapshotName: parameters.snapshotName }) };
-    const result = await executeHelperOperation(request({ operation: "virtualization.domain.snapshot.create", parameters: snapshotParameters() }), { virtualization });
-    expect(result).toMatchObject({ ok: true, result: { created: true, verified: true, snapshotName: "pre-upgrade" } });
-  });
-
   it("accepts only exact stopped-VM export fields and keeps destination paths server-owned", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.domain.export.inspect", parameters: { name: "ubuntu-lab" } }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "virtualization.domain.export.inspect", parameters: { name: "../../etc" } }))).toContain("exact domain name");

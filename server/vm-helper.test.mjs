@@ -80,44 +80,6 @@ describe("restricted VM helper", () => {
     expect(run).toHaveBeenCalledWith("/usr/bin/systemctl", ["show", "cockpit.socket", "--property=LoadState,ActiveState,UnitFileState", "--no-pager"], { timeout: 10000 });
   });
 
-  it("creates and verifies only an offline internal snapshot of managed qcow2 disks", async () => {
-    let created = false;
-    const run = vi.fn(async (binary, args) => {
-      if (binary === "/usr/bin/qemu-img") return { stdout: '{"format":"qcow2"}', stderr: "" };
-      if (args[2] === "domstate") return { stdout: "shut off", stderr: "" };
-      if (args[2] === "dominfo") return { stdout: "Name: ubuntu-lab\nUUID: 11111111-1111-4111-8111-111111111111\nAutostart: disable", stderr: "" };
-      if (args[2] === "snapshot-list") return { stdout: created ? "pre-upgrade" : "", stderr: "" };
-      if (args[2] === "domblklist") return { stdout: "Type Device Target Source\n---------------------------------------------\nfile disk vda /var/lib/libvirt/images/ubuntu-lab.qcow2", stderr: "" };
-      if (args[2] === "snapshot-create-as") { created = true; return { stdout: "Domain snapshot pre-upgrade created", stderr: "" }; }
-      if (args[2] === "snapshot-info") return { stdout: "Name: pre-upgrade\nCurrent: yes\nState: shutoff\nLocation: internal", stderr: "" };
-      throw new Error("unexpected command");
-    });
-    const helper = createVmHelper({ run, statFile: async () => regularIso() });
-    const parameters = {
-      name: "ubuntu-lab", snapshotName: "pre-upgrade", expectedUuid: "11111111-1111-4111-8111-111111111111",
-      expectedState: "stopped", expectedDiskRevision: snapshotDiskRevision([{ type: "file", device: "disk", target: "vda", source: "/var/lib/libvirt/images/ubuntu-lab.qcow2" }]), expectedSnapshotRevision: snapshotInventoryRevision([]),
-    };
-
-    await expect(helper.createSnapshot(parameters)).resolves.toMatchObject({ created: true, verified: true, consistency: "offline-consistent", independentBackup: false, diskTargets: ["vda"] });
-    expect(run).toHaveBeenCalledWith("/usr/bin/virsh", ["--connect", "qemu:///system", "snapshot-create-as", "ubuntu-lab", "pre-upgrade", "--description", "Created by BoxPilot offline snapshot workflow", "--atomic"], { timeout: 180000 });
-  });
-
-  it("rejects a VM disk outside the managed image root before snapshot creation", async () => {
-    const run = vi.fn(async (_binary, args) => {
-      if (args[2] === "domstate") return { stdout: "shut off", stderr: "" };
-      if (args[2] === "dominfo") return { stdout: "UUID: 11111111-1111-4111-8111-111111111111\nAutostart: disable", stderr: "" };
-      if (args[2] === "snapshot-list") return { stdout: "", stderr: "" };
-      if (args[2] === "domblklist") return { stdout: "Type Device Target Source\n---------------------------------------------\nfile disk vda /tmp/escape.qcow2", stderr: "" };
-      throw new Error("unexpected command");
-    });
-    const helper = createVmHelper({ run, statFile: async () => regularIso() });
-    await expect(helper.createSnapshot({
-      name: "ubuntu-lab", snapshotName: "safe", expectedUuid: "11111111-1111-4111-8111-111111111111",
-      expectedState: "stopped", expectedDiskRevision: snapshotDiskRevision([{ type: "file", device: "disk", target: "vda", source: "/tmp/escape.qcow2" }]), expectedSnapshotRevision: snapshotInventoryRevision([]),
-    })).rejects.toThrow("escaped the managed default image directory");
-    expect(run.mock.calls.some(([, args]) => args[2] === "snapshot-create-as")).toBe(false);
-  });
-
   it("rejects an unsafe libvirt disk target before it can become an export filename", async () => {
     const run = vi.fn(async (binary, args) => {
       if (binary === "/usr/bin/qemu-img") return { stdout: JSON.stringify({ format: "qcow2", "actual-size": 4096, "virtual-size": 1024 ** 3 }), stderr: "" };

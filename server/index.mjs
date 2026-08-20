@@ -54,7 +54,6 @@ import { createVmProtectionService } from "./vm-protection.mjs";
 import { createVmRecoveryService } from "./vm-recovery.mjs";
 import { createVmRetentionService } from "./vm-retention.mjs";
 import { createVmRestoreDrillService } from "./vm-restore-drill.mjs";
-import { createVmSnapshotService } from "./vm-snapshot.mjs";
 
 const app = express();
 const host = process.env.BOXPILOT_HOST ?? "127.0.0.1";
@@ -97,7 +96,6 @@ const migrations = createMigrationService({ store: state, inventory, helper });
 const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, libvirt });
 const vmMedia = createVmMediaService({ store: state, helper });
 const vmExports = createVmExportService({ store: state, libvirt, helper });
-const vmSnapshots = createVmSnapshotService({ store: state, libvirt });
 const vmProtection = createVmProtectionService({ store: state, helper });
 const vmRecoveries = createVmRecoveryService({ store: state, helper });
 const vmRetention = createVmRetentionService({ store: state, helper });
@@ -151,7 +149,6 @@ const jobs = createJobService(state, helper, {
   recordVmRestoreDrillResult: vmRestoreDrills.recordResult,
   validateVmRecoveryJob: vmRecoveries.validateJob,
   recordVmRecoveryResult: vmRecoveries.recordResult,
-  validateVmSnapshotJob: vmSnapshots.validateJob,
 });
 state.deleteExpiredSessions();
 const interruptedJobs = state.recoverInterruptedJobs();
@@ -1175,26 +1172,6 @@ app.post("/api/v1/virtualization/plans/:id/stage", async (request, response) => 
   } catch (error) {
     const status = error.message.includes("unavailable") ? 503 : error.message.includes("not found") ? 404 : 409;
     response.status(status).json({ error: error.message, code: "vm_plan_stage_failed" });
-  }
-});
-
-app.post("/api/v1/virtualization/domains/:name/snapshot-plans", async (request, response) => {
-  try {
-    const plan = await vmSnapshots.plan(request.params.name, request.body?.snapshotName, request.boxpilotSession.owner.id);
-    response.status(201).json({ plan });
-  } catch (error) {
-    const status = error.message.includes("unavailable") ? 503 : error.message.includes("not found") ? 404 : 409;
-    response.status(status).json({ error: error.message, code: "vm_snapshot_plan_failed" });
-  }
-});
-
-app.post("/api/v1/virtualization/snapshot-plans/:id/stage", async (request, response) => {
-  try {
-    const job = await vmSnapshots.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
-    response.status(201).json({ job });
-  } catch (error) {
-    const status = error.message.includes("unavailable") ? 503 : error.message.includes("not found") ? 404 : 409;
-    response.status(status).json({ error: error.message, code: "vm_snapshot_stage_failed" });
   }
 });
 
