@@ -106,6 +106,35 @@ export function vmOperations() {
       },
     }),
     defineOperation({
+      id: "vm.snapshot.create", title: "Snapshot a stopped VM", risk: "medium", timeoutMs: 10 * 60_000,
+      description: "Creates an offline internal snapshot. Only stopped VMs with plain qcow2 disks qualify, and a snapshot is not an independent backup.",
+      parameters: { fields: { name: nameField, snapshotName: snapshotField } },
+      run: async (parameters, { run, progress }) => {
+        const { name, snapshotName } = parameters;
+        const state = await domainState(run, name);
+        if (state !== "shut off") throw new Error(`VM ${name} is ${state}; offline snapshots need a stopped VM`);
+        if (await snapshotExists(run, name, snapshotName)) throw new Error(`Snapshot ${snapshotName} already exists on ${name}`);
+        const blocks = await virsh(run, ["domblklist", name, "--details"], { timeout: 15_000 });
+        if (!blocks.ok) throw new Error(`Could not read the VM's disks: ${blocks.stderr.split("\n").slice(-2).join(" ")}`);
+        const disks = blocks.stdout.split("\n").map((line) => line.trim().split(/\s+/)).filter((fields) => fields[0] === "file" && fields[1] === "disk" && fields[3]);
+        if (!disks.length) throw new Error(`${name} has no file-backed disks to snapshot`);
+        for (const [, , target, source] of disks) {
+          const info = await run("/usr/bin/qemu-img", ["info", "--output=json", source], { timeout: 30_000, maxBuffer: 2 * 1024 * 1024 });
+          let parsed = null;
+          try { parsed = JSON.parse(info.stdout); } catch { parsed = null; }
+          if (!info.ok || parsed?.format !== "qcow2") throw new Error(`Disk ${target} (${source}) is not qcow2; internal snapshots need qcow2`);
+          if (parsed["backing-filename"] || parsed["full-backing-filename"]) throw new Error(`Disk ${target} has a backing chain; this snapshot workflow does not support it`);
+        }
+        progress?.(`$ virsh snapshot-create-as ${name} ${snapshotName} --atomic`, "stdout");
+        const create = await virsh(run, ["snapshot-create-as", name, snapshotName, "--description", "Created by BoxPilot offline snapshot workflow", "--atomic"], { timeout: 8 * 60_000 });
+        if (!create.ok) throw new Error(`virsh snapshot-create-as failed: ${create.stderr.split("\n").slice(-2).join(" ")}`);
+        const info = await virsh(run, ["snapshot-info", name, snapshotName], { timeout: 15_000 });
+        const verified = /^Current:\s+yes$/mi.test(info.stdout ?? "") && /^Location:\s+internal$/mi.test(info.stdout ?? "") && /^State:\s+shut\s?off$/mi.test(info.stdout ?? "");
+        if (!verified) throw new Error("The snapshot command returned, but offline internal verification failed. Leave the VM stopped and inspect it manually.");
+        return { name, snapshotName, created: true, verified: true, consistency: "offline-consistent", independentBackup: false, diskTargets: disks.map(([, , target]) => target) };
+      },
+    }),
+    defineOperation({
       id: "vm.snapshot.revert", title: "Revert a VM to a snapshot", risk: "high", timeoutMs: 10 * 60_000,
       description: "Reverts the offline VM to the named snapshot. Everything changed since that snapshot is discarded; the VM stays off.",
       parameters: { fields: { name: nameField, snapshotName: snapshotField } },

@@ -8,7 +8,6 @@ import {
   createVmRecoveryPlan,
   createVmRetentionPlan,
   createVmRestoreDrillPlan,
-  createVmSnapshotPlan,
   fetchVmExports,
   fetchLibvirtFoundation,
   fetchVmProtection,
@@ -27,7 +26,6 @@ import {
   stageVmRecoveryPlan,
   stageVmRetentionPlan,
   stageVmRestoreDrillPlan,
-  stageVmSnapshotPlan,
   type DomainList,
   type VirtualDomain,
   type VmExportArtifact,
@@ -40,7 +38,6 @@ import {
   type VmRetentionPlan,
   type VmRetentionStatus,
   type VmRestoreDrillPlan,
-  type VmSnapshotPlan,
   type VirtualizationStatus,
 } from "./virtualization";
 import VmPlanner from "./VmPlanner";
@@ -83,7 +80,6 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
   const [plannerOpen, setPlannerOpen] = useState(false);
   const [snapshotDomain, setSnapshotDomain] = useState<VirtualDomain | null>(null);
   const [snapshotName, setSnapshotName] = useState("");
-  const [snapshotPlan, setSnapshotPlan] = useState<VmSnapshotPlan | null>(null);
   const [exports, setExports] = useState<VmExportArtifact[]>([]);
   const [exportPlan, setExportPlan] = useState<VmExportPlan | null>(null);
   const [protectionDestination, setProtectionDestination] = useState<VmProtectionDestination | null>(null);
@@ -186,38 +182,20 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
 
   const openSnapshotPlanner = (domain: VirtualDomain) => {
     setSnapshotDomain(domain);
-    setSnapshotPlan(null);
     setSnapshotName(`checkpoint-${new Date().toISOString().slice(0, 10)}`);
     setMessage(null);
   };
 
-  const planSnapshot = async () => {
+  const createSnapshot = () => {
     if (!snapshotDomain) return;
-    setPending(`snapshot-plan:${snapshotDomain.name}`);
-    setMessage(null);
-    try {
-      setSnapshotPlan(await createVmSnapshotPlan(snapshotDomain.name, snapshotName, csrfToken));
-    } catch (snapshotError) {
-      setMessage(snapshotError instanceof Error ? snapshotError.message : "Unable to plan offline snapshot");
-    } finally {
-      setPending(null);
-    }
-  };
-
-  const stageSnapshot = async () => {
-    if (!snapshotPlan) return;
-    setPending(`snapshot-stage:${snapshotPlan.id}`);
-    setMessage(null);
-    try {
-      await stageVmSnapshotPlan(snapshotPlan.id, snapshotPlan.revision, csrfToken);
-      setSnapshotDomain(null);
-      setSnapshotPlan(null);
-      onOpenRepair();
-    } catch (snapshotError) {
-      setMessage(snapshotError instanceof Error ? snapshotError.message : "Unable to stage offline snapshot");
-    } finally {
-      setPending(null);
-    }
+    const domain = snapshotDomain;
+    setSnapshotDomain(null);
+    startOperation({
+      operationId: "vm.snapshot.create",
+      title: `Snapshot ${domain.name} as ${snapshotName}`,
+      parameters: { name: domain.name, snapshotName },
+      preview: <span>Creates an offline internal snapshot of the stopped VM. Only plain qcow2 disks qualify — checked before anything runs — and a snapshot is not an independent backup.</span>,
+    });
   };
 
   const planExport = async (domain: VirtualDomain) => {
@@ -599,24 +577,13 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       {snapshotDomain && (
         <div className="vm-planner-backdrop" role="presentation">
           <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-snapshot-title">
-            <header className="vm-planner-header"><div><span className="eyebrow">Guarded offline snapshot</span><h2 id="vm-snapshot-title">Snapshot {snapshotDomain.name}</h2><p>Only stopped, persistent VMs with managed qcow2 disks can use this workflow.</p></div><button type="button" className="modal-close" aria-label="Close snapshot plan" onClick={() => { setSnapshotDomain(null); setSnapshotPlan(null); }}>X</button></header>
+            <header className="vm-planner-header"><div><span className="eyebrow">Guarded offline snapshot</span><h2 id="vm-snapshot-title">Snapshot {snapshotDomain.name}</h2><p>Only stopped, persistent VMs with plain qcow2 disks can use this workflow.</p></div><button type="button" className="modal-close" aria-label="Close snapshot plan" onClick={() => setSnapshotDomain(null)}>X</button></header>
             <div className="vm-action-review">
-              {!snapshotPlan ? (
-                <form onSubmit={(event) => { event.preventDefault(); void planSnapshot(); }}>
-                  <label className="vm-snapshot-name">Snapshot name<input value={snapshotName} onChange={(event) => setSnapshotName(event.target.value)} pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,62}" maxLength={63} required autoComplete="off" /><span>Use 1-63 letters, numbers, dots, underscores, or hyphens.</span></label>
-                  <div className="vm-plan-warnings"><strong>Important boundary</strong><span>This creates an internal snapshot while the VM is stopped. It is not an independent backup. Revert and delete remain locked.</span></div>
-                  <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => setSnapshotDomain(null)}>Cancel</button><button type="submit" className="primary-button" disabled={pending !== null}>{pending ? "Inspecting..." : "Generate reviewed plan"}</button></div>
-                </form>
-              ) : (
-                <>
-                  <dl className="vm-plan-summary"><div><dt>Consistency</dt><dd>offline-consistent</dd></div><div><dt>Independent backup</dt><dd>No</dd></div><div><dt>Existing snapshots</dt><dd>{snapshotPlan.output.currentSnapshotCount}</dd></div><div><dt>Managed disks</dt><dd>{snapshotPlan.output.diskTargets.join(", ")}</dd></div></dl>
-                  <div className="vm-plan-gates"><strong>Exact changes</strong><ol>{snapshotPlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol></div>
-                  <div className="vm-plan-warnings"><strong>Warnings</strong>{snapshotPlan.output.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div>
-                  <div className="vm-plan-warnings"><strong>Recovery boundary</strong><span>{snapshotPlan.output.recovery}</span></div>
-                  <p className="vm-action-revision">Plan revision <code>{snapshotPlan.revision}</code>. Domain UUID, stopped state, disk confinement, and snapshot inventory will be checked again before execution.</p>
-                  <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => setSnapshotPlan(null)}>Back</button><button type="button" className="primary-button" onClick={() => void stageSnapshot()} disabled={pending !== null}>{pending ? "Revalidating..." : "Stage for password approval"}</button></div>
-                </>
-              )}
+              <form onSubmit={(event) => { event.preventDefault(); createSnapshot(); }}>
+                <label className="vm-snapshot-name">Snapshot name<input value={snapshotName} onChange={(event) => setSnapshotName(event.target.value)} pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,62}" maxLength={63} required autoComplete="off" /><span>Use 1-63 letters, numbers, dots, underscores, or hyphens.</span></label>
+                <div className="vm-plan-warnings"><strong>Important boundary</strong><span>This creates an internal snapshot while the VM is stopped. It is not an independent backup.</span></div>
+                <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => setSnapshotDomain(null)}>Cancel</button><button type="submit" className="primary-button" disabled={pending !== null}>Continue to confirm</button></div>
+              </form>
             </div>
           </section>
         </div>

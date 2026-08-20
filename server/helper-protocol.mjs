@@ -14,7 +14,6 @@ import { createVmMediaHelper, validateVmMediaImportInput } from "./vm-media-help
 import { validateDomainName } from "./libvirt.mjs";
 import { validateVmExportInput } from "./vm-export.mjs";
 import { validateVmPlanInput } from "./vm-plan.mjs";
-import { validateVmSnapshotInput } from "./vm-snapshot.mjs";
 import { createVmProtectionHelper, validateVmProtectionInput } from "./vm-protection-helper.mjs";
 import { createVmRecoveryHelper, validateVmRecoveryInput } from "./vm-recovery-helper.mjs";
 import { createVmRetentionHelper, validateVmRetentionInput } from "./vm-retention-helper.mjs";
@@ -40,10 +39,9 @@ import { validUuid } from "./keel-artifact-spec.mjs";
 
 export const helperProtocolVersion = 1;
 /** Operations still declared by hand. New operations go in server/ops/ (ADR-001). */
-export const legacyHelperOperations = new Set(["container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.backup.create", "controller.database.protection.inspect", "controller.database.protection.create", "controller.database.protection.retention.inspect", "controller.database.protection.retention.apply", "application.backup.protection.inspect", "application.backup.protection.create", "application.backup.protection.retention.inspect", "application.backup.protection.retention.apply", "application.uptime-kuma.inspect", "application.uptime-kuma.lifecycle.inspect", "application.uptime-kuma.action", "application.uptime-kuma.private-access.inspect", "application.uptime-kuma.private-access.configure", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "application.pi-hole.inspect", "application.pi-hole.lifecycle.inspect", "application.pi-hole.action", "application.pi-hole.deploy", "application.pi-hole.backup", "application.keel.inspect", "application.keel.artifact.inspect", "application.keel.artifact.acquire", "application.keel.archive.inspect", "application.keel.stage.inspect", "application.keel.stage", "application.keel.install.inspect", "application.keel.install", "application.keel.login-proof.inspect", "application.keel.backup", "application.keel.recovery.inspect", "application.keel.recovery.create", "application.keel.recovery-drill.inspect", "application.keel.recovery-drill.create", "application.keel.promotion.inspect", "application.keel.promotion.create", "application.keel.rollback.inspect", "application.keel.rollback.create", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.foundation.inspect", "virtualization.foundation.initialize", "virtualization.media.inspect", "virtualization.media.import", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create", "virtualization.domain.snapshot.create"]);
+export const legacyHelperOperations = new Set(["container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.backup.create", "controller.database.protection.inspect", "controller.database.protection.create", "controller.database.protection.retention.inspect", "controller.database.protection.retention.apply", "application.backup.protection.inspect", "application.backup.protection.create", "application.backup.protection.retention.inspect", "application.backup.protection.retention.apply", "application.uptime-kuma.inspect", "application.uptime-kuma.lifecycle.inspect", "application.uptime-kuma.action", "application.uptime-kuma.private-access.inspect", "application.uptime-kuma.private-access.configure", "application.uptime-kuma.deploy", "application.uptime-kuma.backup", "application.pi-hole.inspect", "application.pi-hole.lifecycle.inspect", "application.pi-hole.action", "application.pi-hole.deploy", "application.pi-hole.backup", "application.keel.inspect", "application.keel.artifact.inspect", "application.keel.artifact.acquire", "application.keel.archive.inspect", "application.keel.stage.inspect", "application.keel.stage", "application.keel.install.inspect", "application.keel.install", "application.keel.login-proof.inspect", "application.keel.backup", "application.keel.recovery.inspect", "application.keel.recovery.create", "application.keel.recovery-drill.inspect", "application.keel.recovery-drill.create", "application.keel.promotion.inspect", "application.keel.promotion.create", "application.keel.rollback.inspect", "application.keel.rollback.create", "migration.bundle.inspect", "migration.bundle.transfer", "virtualization.foundation.inspect", "virtualization.foundation.initialize", "virtualization.media.inspect", "virtualization.media.import", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.domain.export.create", "virtualization.export.backup.inspect", "virtualization.export.backup.create", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill.inspect", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.inspect", "virtualization.backup.recovery.create", "virtualization.domain.create"]);
 export const helperOperations = new Set([...registry.ids(), ...legacyHelperOperations]);
 const vmCreationKeys = ["autostart", "diskGiB", "firmware", "isoFile", "memoryMiB", "name", "network", "osProfile", "vcpus"];
-const vmSnapshotKeys = ["expectedDiskRevision", "expectedSnapshotRevision", "expectedState", "expectedUuid", "name", "snapshotName"];
 const vmExportKeys = ["expectedDiskRevision", "expectedSnapshotRevision", "expectedState", "expectedUuid", "exportId", "name"];
 const vmProtectionKeys = ["backupId", "domainName", "domainUuid", "expectedDestinationRevision", "expectedManifestChecksumSha256", "expectedSizeBytes", "exportId"];
 const vmRestoreDrillKeys = ["backupId", "domainName", "domainUuid", "drillId", "expectedDestinationRevision", "expectedManifestChecksumSha256", "expectedSizeBytes", "exportId", "repositoryId", "snapshotId"];
@@ -278,12 +276,6 @@ export function validateHelperRequest(value) {
     const errors = validateVmRecoveryInput(value.parameters);
     if (errors.length) return `Invalid VM recovery plan: ${errors.join(" | ")}`;
   }
-  if (value.operation === "virtualization.domain.snapshot.create") {
-    const keys = Object.keys(value.parameters).sort();
-    if (keys.length !== vmSnapshotKeys.length || keys.some((key, index) => key !== vmSnapshotKeys[index])) return "VM snapshot creation accepts only the fixed typed plan fields";
-    const errors = validateVmSnapshotInput(value.parameters);
-    if (errors.length) return `Invalid VM snapshot plan: ${errors.join(" | ")}`;
-  }
   return null;
 }
 
@@ -481,9 +473,6 @@ export async function executeHelperOperation(request, dependencies = {}) {
   }
   if (request.operation === "virtualization.domain.create") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await virtualization.create(request.parameters) };
-  }
-  if (request.operation === "virtualization.domain.snapshot.create") {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await virtualization.createSnapshot(request.parameters) };
   }
   return { version: helperProtocolVersion, id: request.id, ok: false, error: "Operation is not implemented", code: "not_implemented" };
 }

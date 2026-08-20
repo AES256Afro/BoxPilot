@@ -210,24 +210,6 @@ export interface VmCreationJob {
   title: string;
 }
 
-export interface VmSnapshotPlan {
-  id: string;
-  revision: string;
-  status: "draft" | "staged";
-  expiresAt: string;
-  input: { name: string; snapshotName: string; expectedUuid: string; expectedState: "stopped"; expectedDiskRevision: string; expectedSnapshotRevision: string };
-  output: {
-    executable: boolean;
-    consistency: "offline-consistent";
-    independentBackup: false;
-    currentSnapshotCount: number;
-    diskTargets: string[];
-    changes: string[];
-    warnings: string[];
-    recovery: string;
-  };
-}
-
 export interface VmExportPlan {
   id: string;
   revision: string;
@@ -575,25 +557,6 @@ export async function stageVmPlan(planId: string, revision: string, csrfToken: s
 }
 
 
-export async function createVmSnapshotPlan(domain: string, snapshotName: string, csrfToken: string): Promise<VmSnapshotPlan> {
-  const response = await fetch(`/api/v1/virtualization/domains/${encodeURIComponent(domain)}/snapshot-plans`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-    body: JSON.stringify({ snapshotName }),
-  });
-  const body = await readJson<{ plan: VmSnapshotPlan }>(response);
-  return body.plan;
-}
-
-export async function stageVmSnapshotPlan(planId: string, revision: string, csrfToken: string): Promise<VmCreationJob> {
-  const response = await fetch(`/api/v1/virtualization/snapshot-plans/${encodeURIComponent(planId)}/stage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-    body: JSON.stringify({ revision }),
-  });
-  const body = await readJson<{ job: VmCreationJob }>(response);
-  return body.job;
-}
 
 export async function fetchVmExports(): Promise<VmExportArtifact[]> {
   const body = await readJson<{ exports: VmExportArtifact[] }>(await fetch("/api/v1/virtualization/exports"));

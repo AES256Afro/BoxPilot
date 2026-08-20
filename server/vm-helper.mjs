@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { createLibvirtService } from "./libvirt.mjs";
 import { buildVirtInstallArguments, normalizeVmPlanInput, validateVmPlanInput } from "./vm-plan.mjs";
 import { validateVmExportInput } from "./vm-export.mjs";
-import { snapshotDiskRevision, snapshotInventoryRevision, validateVmSnapshotInput } from "./vm-snapshot.mjs";
+import { snapshotDiskRevision, snapshotInventoryRevision } from "./vm-snapshot.mjs";
 
 const execFile = promisify(execFileCallback);
 
@@ -192,41 +192,6 @@ export function createVmHelper({
     }
   }
 
-  async function createSnapshot(parameters) {
-    const errors = validateVmSnapshotInput(parameters);
-    if (errors.length) throw new Error(errors.join(" | "));
-    const previous = await domainSnapshot(parameters.name);
-    if (previous.uuid !== parameters.expectedUuid.toLowerCase() || previous.state !== parameters.expectedState) throw new Error("VM identity or state changed after approval");
-    const previousSnapshots = await snapshotNames(parameters.name);
-    if (previousSnapshots.includes(parameters.snapshotName)) throw new Error("The requested snapshot name already exists");
-    if (snapshotInventoryRevision(previousSnapshots) !== parameters.expectedSnapshotRevision) throw new Error("VM snapshot inventory changed after approval");
-    const disks = await verifySnapshotDisks(parameters.name);
-    if (disks.revision !== parameters.expectedDiskRevision) throw new Error("VM disk topology changed after approval");
-    await virsh([
-      "snapshot-create-as", parameters.name, parameters.snapshotName,
-      "--description", "Created by BoxPilot offline snapshot workflow",
-      "--atomic",
-    ], { timeout: 180000 });
-    const currentSnapshots = await snapshotNames(parameters.name);
-    const info = await virsh(["snapshot-info", parameters.name, parameters.snapshotName], { timeout: 15000 });
-    const verified = currentSnapshots.includes(parameters.snapshotName)
-      && /^Current:\s+yes$/mi.test(info.stdout)
-      && /^Location:\s+internal$/mi.test(info.stdout)
-      && /^State:\s+shut\s?off$/mi.test(info.stdout);
-    if (!verified) throw new Error("Snapshot command returned, but offline internal snapshot verification failed. Leave the VM stopped and inspect it manually.");
-    return {
-      created: true,
-      verified: true,
-      domain: parameters.name,
-      snapshotName: parameters.snapshotName,
-      consistency: "offline-consistent",
-      independentBackup: false,
-      diskTargets: disks.targets,
-      snapshotCount: currentSnapshots.length,
-      snapshotRevision: snapshotInventoryRevision(currentSnapshots),
-    };
-  }
-
   async function inspectExport({ name }) {
     const domain = await domainSnapshot(name);
     if (!domain.uuid || domain.state !== "stopped" || domain.persistent !== true) throw new Error("Offline export requires an exact stopped persistent domain");
@@ -383,7 +348,7 @@ export function createVmHelper({
     }
   }
 
-  return { create, inventory, consoleGuidance, createSnapshot, inspectExport, createExport };
+  return { create, inventory, consoleGuidance, inspectExport, createExport };
 }
 
 export const vmHelperInternals = { defaultRunner };
