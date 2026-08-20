@@ -185,7 +185,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - ✅ (v1) **M8.1** **Home dashboard** on the Overview page (`src/HomeDashboard.tsx`): clickable tiles (updates, failed services, apps running, VMs running), a "Needs attention" list (reboot pending, updates, failed units, stopped apps, app updates, failed jobs), installed-apps grid with health pill + URL + update badge, recent activity. Sources load independently; a down source leaves its tile quiet. Remaining: backup staleness, host vitals sparkline.
 - **M8.2** Managed Homepage/Homarr auto-populated from installed items (icons, URLs, widgets).
 - **M8.3** Managed Grafana+Prometheus stack with node-exporter, cAdvisor, libvirt exporter; pre-built dashboards.
-- **M8.4** Notifications: ntfy/Gotify/Telegram/email/Discord webhooks for failed jobs, updates available, backup stale, disk >90%, SMART warnings, UPS on battery.
+- ◐ **M8.4** Failed-job push notifications: `server/notifications.mjs` subscribes to the job-event stream and sends one push per failed job to ntfy, Gotify, or a webhook (both servers are catalog apps, so alerts can stay on-host); Settings panel with password-gated target + test button; deliveries and failures audited. Remaining triggers: updates available, backup stale, disk >90%, SMART, UPS — host-health alerting stays with the bigbox CLI per HANDOFF.md.
 - **M8.5** Log viewer: any unit / any container, search, tail, export (replace the 4-fixed-sources model).
 
 ### Phase 9 — Network platform (2 weeks)

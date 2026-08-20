@@ -43,6 +43,7 @@ import { createPrerequisiteService } from "./prerequisites.mjs";
 import { createPrerequisiteRepairService } from "./prerequisite-repairs.mjs";
 import { createRouterCheckpointService } from "./router-checkpoints.mjs";
 import { createRecoveryKitService } from "./recovery-kit.mjs";
+import { createNotificationService } from "./notifications.mjs";
 import { createSchedulerService } from "./scheduler.mjs";
 import { createStateStore } from "./state.mjs";
 import { createSupportBundleService } from "./support-bundle.mjs";
@@ -162,6 +163,8 @@ state.deleteExpiredSessions();
 const interruptedJobs = state.recoverInterruptedJobs();
 const scheduler = createSchedulerService({ store: state, jobs });
 scheduler.start();
+const notifications = createNotificationService({ store: state });
+notifications.start();
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "256kb", strict: true }));
@@ -1060,6 +1063,32 @@ app.get("/api/v1/jobs/:id/approval", (request, response) => {
   const policy = jobs.describeApproval(request.params.id, request.boxpilotSession);
   if (!policy) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
   return response.json({ jobId: request.params.id, ...policy });
+});
+
+// Failed-job push notifications (M8.4): where alerts go. Changing it needs the owner password.
+app.get("/api/v1/settings/notifications", (_request, response) => {
+  response.json(notifications.describe());
+});
+
+app.put("/api/v1/settings/notifications", auth.requireCsrf, async (request, response) => {
+  const owner = state.findOwnerById(request.boxpilotSession.owner.id);
+  if (!owner || typeof request.body?.password !== "string" || !(await verifyPassword(request.body.password, owner.passwordHash))) {
+    return response.status(401).json({ error: "Owner password required to change the notification target", code: "reauthentication_required" });
+  }
+  try {
+    notifications.setTarget(request.body?.target ?? null, { updatedBy: owner.id });
+    return response.json(notifications.describe());
+  } catch (error) {
+    return response.status(400).json({ error: error.message, code: "invalid_setting" });
+  }
+});
+
+app.post("/api/v1/settings/notifications/test", auth.requireCsrf, async (_request, response) => {
+  try {
+    response.json(await notifications.send({ title: "BoxPilot test notification", message: "Notifications are working. Failed jobs will arrive like this." }));
+  } catch (error) {
+    response.status(502).json({ error: error.message, code: "notification_test_failed" });
+  }
 });
 
 app.get("/api/v1/settings/approval-mode", (_request, response) => {
