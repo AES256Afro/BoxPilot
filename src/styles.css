@@ -3269,3 +3269,9 @@ textarea {
 .schedules-panel .schedule-form { margin-top: 12px; flex-wrap: wrap; }
 .schedules-panel .schedule-form select, .schedules-panel .schedule-form input { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-muted); color: var(--text); }
 .schedule-disabled td { opacity: 0.55; }
+
+/* Notification settings (M8.4) */
+.notification-settings { display: grid; gap: 10px; }
+.notification-settings .recovery-actions { flex-wrap: wrap; }
+.notification-settings select, .notification-settings input { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-muted); color: var(--text); }
+.notification-settings input { min-width: 200px; }

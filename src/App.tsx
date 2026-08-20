@@ -24,6 +24,7 @@ import UsersCenter from "./UsersCenter";
 import FirewallCenter from "./FirewallCenter";
 import ActivityDrawer from "./ActivityDrawer";
 import ApprovalSettings from "./ApprovalSettings";
+import NotificationSettings from "./NotificationSettings";
 import SignInSettings from "./SignInSettings";
 import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import VirtualMachines from "./VirtualMachines";
@@ -259,6 +260,7 @@ function Settings({ apiMode, csrfToken }: { apiMode: string; csrfToken: string }
     <div className="settings-grid">
       <ApprovalSettings csrfToken={csrfToken} />
       <SignInSettings csrfToken={csrfToken} />
+      <NotificationSettings csrfToken={csrfToken} />
       <Panel className="settings-panel">
         <header className="panel-header"><strong>Server and access</strong><span>Deployment guidance</span></header>
         <dl>
