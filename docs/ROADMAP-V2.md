@@ -182,7 +182,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - **M7.8** Resource dashboard per VM (libvirt stats), autostart ordering.
 
 ### Phase 8 — Dashboards & observability (1–2 weeks)
-- **M8.1** BoxPilot **Home**: installed things grid with health/updates/backup/URL, host vitals, alerts, recent activity.
+- ✅ (v1) **M8.1** **Home dashboard** on the Overview page (`src/HomeDashboard.tsx`): clickable tiles (updates, failed services, apps running, VMs running), a "Needs attention" list (reboot pending, updates, failed units, stopped apps, app updates, failed jobs), installed-apps grid with health pill + URL + update badge, recent activity. Sources load independently; a down source leaves its tile quiet. Remaining: backup staleness, host vitals sparkline.
 - **M8.2** Managed Homepage/Homarr auto-populated from installed items (icons, URLs, widgets).
 - **M8.3** Managed Grafana+Prometheus stack with node-exporter, cAdvisor, libvirt exporter; pre-built dashboards.
 - **M8.4** Notifications: ntfy/Gotify/Telegram/email/Discord webhooks for failed jobs, updates available, backup stale, disk >90%, SMART warnings, UPS on battery.

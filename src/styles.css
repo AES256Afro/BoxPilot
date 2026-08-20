@@ -3250,3 +3250,17 @@ textarea {
 .curated-tool > div { display: grid; gap: 2px; }
 .curated-tool span { color: var(--muted); font-size: 12px; }
 .curated-installed { border-color: rgb(67 211 170 / 35%); }
+
+/* Home dashboard (M8.1) */
+.home-dashboard { display: grid; gap: 16px; margin-bottom: 16px; }
+.metric-link { text-align: left; cursor: pointer; border: 1px solid var(--line); font: inherit; }
+.metric-link:hover { border-color: var(--mint); }
+.attention-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.attention-list .text-button { color: var(--amber); }
+.dashboard-apps { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.dashboard-app { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--surface-muted); }
+.dashboard-app-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; border: 0; background: none; padding: 0; cursor: pointer; text-align: left; font: inherit; }
+.dashboard-app a { color: var(--mint); font-size: 12px; text-decoration: none; }
+.dashboard-app a:hover { text-decoration: underline; }
+.dashboard-jobs { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.dashboard-jobs li { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
