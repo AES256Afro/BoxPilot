@@ -5,7 +5,7 @@ import { validPackageList } from "../tasks/apt.mjs";
 /** Common server tools offered on the Updates & packages page (M2.2). */
 export const curatedPackages = Object.freeze([
   "htop", "btop", "tmux", "git", "curl", "wget", "jq", "ncdu", "tree", "ripgrep", "zsh",
-  "unzip", "net-tools", "dnsutils", "iotop", "smartmontools", "restic", "nfs-common", "cifs-utils",
+  "unzip", "net-tools", "dnsutils", "iotop", "smartmontools", "restic", "nfs-common", "cifs-utils", "needrestart",
 ]);
 
 /** Parse `APT::Periodic::<name> "<value>";` lines from 20auto-upgrades. */
@@ -22,6 +22,26 @@ export function parseDpkgQuery(stdout) {
     if (name && status === "install ok installed") installed[name] = version ?? "";
   }
   return installed;
+}
+
+/** Parse `dpkg-query -W -f'${Package}\\t${source:Package}\\n'`: binary → source package. */
+export function parseSourceMap(stdout) {
+  const sources = {};
+  for (const line of String(stdout ?? "").split("\n")) {
+    const [name, source] = line.split("\t");
+    if (name) sources[name] = (source ?? name).split(" ")[0] || name;
+  }
+  return sources;
+}
+
+/** Parse `needrestart -b` batch output: services running outdated libraries. */
+export function parseNeedrestart(stdout) {
+  const services = [];
+  for (const line of String(stdout ?? "").split("\n")) {
+    const match = line.match(/^NEEDRESTART-SVC:\s*(\S+)/);
+    if (match && !services.includes(match[1])) services.push(match[1]);
+  }
+  return services.sort();
 }
 
 const minutes = (value) => value * 60_000;
@@ -47,14 +67,25 @@ async function rebootRequired() {
 export function aptOperations() {
   return [
     defineOperation({
-      id: "apt.upgradable.inspect", title: "List available package updates", risk: "low", readOnly: true,
-      description: "Reads APT's view of upgradable packages without touching the network or the system.",
+      id: "apt.upgradable.inspect", title: "List available package updates", risk: "low", readOnly: true, timeoutMs: 3 * 60_000,
+      description: "Reads APT's view of upgradable packages, plus which running services still use pre-upgrade libraries (needrestart, when installed).",
       run: async (_parameters, { run }) => {
         const result = await run("/usr/bin/apt", ["list", "--upgradable"], { timeout: 60_000, maxBuffer: 4 * 1024 * 1024 });
         if (!result.ok) throw new Error(`apt list failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
         const upgradable = parseUpgradable(result.stdout);
         const security = upgradable.filter((item) => /security/i.test(item.suite)).length;
-        return { upgradable, count: upgradable.length, securityCount: security, rebootRequired: await rebootRequired() };
+        if (upgradable.length) {
+          const sources = await run("/usr/bin/dpkg-query", ["-W", "-f", "${Package}\\t${source:Package}\\n", ...upgradable.map((item) => item.name)], { timeout: 30_000, maxBuffer: 2 * 1024 * 1024 });
+          const map = parseSourceMap(sources.stdout);
+          for (const item of upgradable) item.source = map[item.name] ?? item.name;
+        }
+        const needrestartPresent = await access("/usr/sbin/needrestart").then(() => true, () => false);
+        let servicesNeedingRestart = null;
+        if (needrestartPresent) {
+          const needrestart = await run("/usr/sbin/needrestart", ["-b"], { timeout: 90_000, maxBuffer: 2 * 1024 * 1024 });
+          servicesNeedingRestart = parseNeedrestart(needrestart.stdout);
+        }
+        return { upgradable, count: upgradable.length, securityCount: security, rebootRequired: await rebootRequired(), needrestartPresent, servicesNeedingRestart };
       },
     }),
     defineOperation({

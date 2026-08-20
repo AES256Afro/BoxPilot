@@ -47,16 +47,26 @@ export function systemOperations() {
         const show = await run(systemctl, ["show", "fstrim.timer", "--property=ActiveState,UnitFileState,NextElapseUSecRealtime"], { timeout: 15_000 });
         const timer = Object.fromEntries(show.stdout.split("\n").map((line) => line.split("=", 2)).filter((pair) => pair.length === 2));
         const zones = await run(timedatectl, ["list-timezones"], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 });
+        const localeDefault = await readText("/etc/default/locale");
+        const locales = await run("/usr/bin/locale", ["-a"], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 });
         return {
           hostname: { static: staticHostname, live: liveHostname },
           timezone,
           timezones: zones.ok ? zones.stdout.split("\n").filter((zone) => timezonePattern.test(zone)) : [],
+          locale: localeDefault?.match(/^LANG="?([^"\n]+)"?/m)?.[1] ?? null,
+          locales: locales.ok ? locales.stdout.split("\n").map((line) => line.trim()).filter(Boolean) : [],
           swappiness: swappiness === null ? null : Number(swappiness),
           swap: parseSwaps(swaps),
           memory: parseMeminfo(meminfo),
           fstrim: { active: timer.ActiveState ?? null, enabled: timer.UnitFileState ?? null, nextRun: timer.NextElapseUSecRealtime || null },
         };
       },
+    }),
+    defineOperation({
+      id: "system.locale.set", title: "Change the system language", risk: "medium", timeoutMs: 60_000,
+      description: "Sets LANG to an already-generated locale with update-locale. New sessions and restarted services pick it up.",
+      parameters: { fields: { locale: { type: "string", maxLength: 32, pattern: /^[A-Za-z][A-Za-z0-9_.@-]{1,31}$/ } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("system.locale", { locale: parameters.locale }, { timeoutMs: 45_000, logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "system.hostname.set", title: "Rename this server", risk: "medium", timeoutMs: 2 * 60_000,
@@ -78,15 +88,25 @@ export function systemOperations() {
     }),
     defineOperation({
       id: "docker.disk.inspect", title: "Read Docker disk use", risk: "low", readOnly: true, timeoutMs: 60_000,
-      description: "docker system df: how much space images, containers, and the build cache hold, and what is reclaimable.",
+      description: "docker system df plus the daemon's logging configuration from /etc/docker/daemon.json.",
       run: async (_parameters, { run }) => {
         const docker = process.env.BOXPILOT_DOCKER_BINARY ?? "/usr/bin/docker";
         const result = await run(docker, ["system", "df", "--format", "json"], { timeout: 45_000, maxBuffer: 2 * 1024 * 1024 });
-        if (!result.ok) return { available: false, rows: [] };
+        let logging = { configured: false, logDriver: null, maxSize: null, liveRestore: false };
+        try {
+          const daemon = JSON.parse(await readFile("/etc/docker/daemon.json", "utf8"));
+          logging = { configured: Boolean(daemon["log-opts"]?.["max-size"]), logDriver: daemon["log-driver"] ?? null, maxSize: daemon["log-opts"]?.["max-size"] ?? null, liveRestore: Boolean(daemon["live-restore"]) };
+        } catch { /* no daemon.json means docker defaults: unbounded json-file logs */ }
+        if (!result.ok) return { available: false, rows: [], logging };
         const rows = result.stdout.split("\n").filter(Boolean).map((line) => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean)
           .map((entry) => ({ type: entry.Type, total: entry.TotalCount ?? entry.Total ?? null, active: entry.Active ?? null, size: entry.Size ?? null, reclaimable: entry.Reclaimable ?? null }));
-        return { available: true, rows };
+        return { available: true, rows, logging };
       },
+    }),
+    defineOperation({
+      id: "docker.logging.set", title: "Apply Docker log rotation defaults", risk: "medium", timeoutMs: 5 * 60_000,
+      description: "Caps container logs at 3 files of 10 MB and turns on live-restore, then restarts dockerd. Running containers restart briefly this one time; with live-restore on, future daemon restarts leave them running.",
+      run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("docker.logging", {}, { timeoutMs: 4 * 60_000, logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "docker.prune", title: "Clean up Docker disk space", risk: "medium", timeoutMs: 15 * 60_000,
