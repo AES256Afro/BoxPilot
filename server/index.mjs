@@ -980,8 +980,6 @@ app.get("/api/v1/jobs/:id", (request, response) => {
   return response.json({ job });
 });
 
-);
-
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
