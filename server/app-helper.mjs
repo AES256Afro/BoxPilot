@@ -3,7 +3,9 @@
  * manifest: install, uninstall, purge, update, reconfigure, start/stop/restart, inspect, logs.
  * Layout per app: <catalogRoot>/<id>/{compose.yaml,.env,boxpilot.json,<managed volume dirs>}.
  */
-import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fixedRun } from "./exec.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
@@ -12,6 +14,13 @@ import { resolveValues } from "./catalog/schema.mjs";
 
 const actions = Object.freeze(["start", "stop", "restart"]);
 const idPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
+export const backupNamePattern = /^\d{8}T\d{6}Z\.tar\.gz$/;
+
+async function sha256File(target) {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(target)) hash.update(chunk);
+  return hash.digest("hex");
+}
 
 async function defaultDockerRunner(binary, args, { timeout = 120_000, cwd, onLine = null } = {}) {
   return fixedRun(binary, args, { timeout, cwd, onLine, maxBuffer: 4 * 1024 * 1024, env: { PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" } });
@@ -32,8 +41,11 @@ function parseEnvFile(text) {
 
 export function createAppHelper({
   catalogRoot = process.env.BOXPILOT_CATALOG_ROOT ?? "/var/lib/boxpilot-managed/catalog",
+  backupRoot = path.join(process.env.BOXPILOT_APPLICATION_BACKUP_ROOT ?? "/var/lib/boxpilot-managed/backups", "catalog"),
   dockerBinary = process.env.BOXPILOT_DOCKER_BINARY ?? "/usr/bin/docker",
+  tarBinary = process.env.BOXPILOT_TAR_BINARY ?? "/usr/bin/tar",
   runDocker = defaultDockerRunner,
+  runCommand = fixedRun,
   catalog = createCatalogService(),
   wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   clock = () => new Date(),
@@ -41,6 +53,7 @@ export function createAppHelper({
 } = {}) {
   const root = path.resolve(catalogRoot);
   const dirFor = (id) => path.join(root, id);
+  const backupDirFor = (id) => path.join(path.resolve(backupRoot), id);
   const docker = (args, options) => runDocker(dockerBinary, args, options);
 
   async function readState(id) {
@@ -273,6 +286,131 @@ export function createAppHelper({
     return { id, name: manifest.name, compose, env: entries, directory: dirFor(id) };
   }
 
+  /**
+   * Consistent backup of an app's managed data: stop, tar the compose project plus every
+   * backup-flagged managed volume, restart, then prune to `keep` copies. hostPath volumes
+   * (locations the operator manages) are listed as skipped, never silently included.
+   */
+  async function backup({ id, keep = 5 }, { progress = null } = {}) {
+    const manifest = await ensureManifest(id);
+    const state = await readState(id);
+    if (!state) throw new Error(`${manifest.name} has no data to back up`);
+    if (keep !== null && (!Number.isInteger(keep) || keep < 1 || keep > 30)) throw new Error("keep must be a whole number between 1 and 30");
+    const directory = dirFor(id);
+    const contents = ["boxpilot.json"];
+    for (const name of ["compose.yaml", ".env"]) { try { await stat(path.join(directory, name)); contents.push(name); } catch { /* uninstalled apps have no compose.yaml */ } }
+    const skippedHostPaths = [];
+    for (const volume of manifest.volumes) {
+      if (!volume.backup) continue;
+      if (volume.path) { try { await stat(path.join(directory, volume.path)); contents.push(volume.path); } catch { /* volume directory not created yet */ } }
+      else if (volume.hostPath) skippedHostPaths.push(volume.hostPath);
+    }
+    const status = await containerStatus(id);
+    const wasRunning = status.running;
+    const started = clock().getTime();
+    if (wasRunning) {
+      progress?.(`Stopping ${manifest.name} for a consistent backup...`, "stdout");
+      const stop = await compose(id, ["stop"], { timeout: 120_000, progress });
+      if (!stop.ok) throw new Error(`docker compose stop failed: ${redact(stop.stderr).split("\n").slice(-3).join(" ")}`);
+    }
+    const stamp = clock().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+    const backupDirectory = backupDirFor(id);
+    const artifact = path.join(backupDirectory, `${stamp}.tar.gz`);
+    let downtimeMs = null;
+    try {
+      await mkdir(backupDirectory, { recursive: true, mode: 0o700 });
+      progress?.(`$ tar -czf ${stamp}.tar.gz ${contents.join(" ")}`, "stdout");
+      const archive = await runCommand(tarBinary, ["-czf", artifact, "-C", directory, ...contents], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+      if (!archive.ok) throw new Error(`tar failed: ${archive.stderr.split("\n").slice(-2).join(" ")}`);
+    } catch (error) {
+      await rm(artifact, { force: true }).catch(() => {});
+      if (wasRunning) await compose(id, ["start"], { timeout: 180_000, progress }).catch(() => {});
+      throw error;
+    } finally {
+      if (wasRunning) downtimeMs = clock().getTime() - started;
+    }
+    if (wasRunning) {
+      const start = await compose(id, ["start"], { timeout: 180_000, progress });
+      if (!start.ok) throw new Error(`The backup succeeded (${path.basename(artifact)}), but ${manifest.name} did not start again: ${redact(start.stderr).split("\n").slice(-3).join(" ")}`);
+    }
+    const [checksumSha256, artifactStat] = await Promise.all([sha256File(artifact), stat(artifact)]);
+    const meta = { id, createdAt: clock().toISOString(), artifact: path.basename(artifact), checksumSha256, sizeBytes: artifactStat.size, downtimeMs, contents, skippedHostPaths, image: state.image?.reference ?? null };
+    await writeFile(path.join(backupDirectory, `${stamp}.json`), JSON.stringify(meta, null, 2), { mode: 0o600 });
+    let pruned = [];
+    if (keep !== null) {
+      const names = (await readdir(backupDirectory)).filter((name) => backupNamePattern.test(name)).sort().reverse();
+      pruned = names.slice(keep);
+      for (const name of pruned) {
+        await rm(path.join(backupDirectory, name), { force: true });
+        await rm(path.join(backupDirectory, name.replace(/\.tar\.gz$/, ".json")), { force: true });
+      }
+    }
+    progress?.(`Backup ${meta.artifact} written (${meta.sizeBytes} bytes)${pruned.length ? `; pruned ${pruned.length} old cop${pruned.length === 1 ? "y" : "ies"}` : ""}`, "stdout");
+    return { backedUp: true, ...meta, pruned };
+  }
+
+  /** Backups on disk for one app, newest first. The filesystem is the source of truth. */
+  async function listAppBackups({ id }) {
+    await ensureManifest(id);
+    const backupDirectory = backupDirFor(id);
+    let names = [];
+    try { names = (await readdir(backupDirectory)).filter((name) => backupNamePattern.test(name)).sort().reverse(); } catch { names = []; }
+    const backups = [];
+    for (const name of names) {
+      let meta = null;
+      try { meta = JSON.parse(await readFile(path.join(backupDirectory, name.replace(/\.tar\.gz$/, ".json")), "utf8")); } catch { meta = null; }
+      const artifactStat = await stat(path.join(backupDirectory, name)).catch(() => null);
+      backups.push({ artifact: name, createdAt: meta?.createdAt ?? artifactStat?.mtime?.toISOString() ?? null, sizeBytes: meta?.sizeBytes ?? artifactStat?.size ?? null, checksumSha256: meta?.checksumSha256 ?? null, downtimeMs: meta?.downtimeMs ?? null, skippedHostPaths: meta?.skippedHostPaths ?? [], image: meta?.image ?? null });
+    }
+    return { id, directory: backupDirectory, backups };
+  }
+
+  /** Restore a backup over the app directory: checksum check, safety backup, stop, extract, start. */
+  async function restoreAppBackup({ id, backup: backupName }, { progress = null } = {}) {
+    const manifest = await ensureManifest(id);
+    if (typeof backupName !== "string" || !backupNamePattern.test(backupName)) throw new Error("Backup name is invalid");
+    const backupDirectory = backupDirFor(id);
+    const artifact = path.join(backupDirectory, backupName);
+    await stat(artifact).catch(() => { throw new Error(`Backup ${backupName} does not exist`); });
+    let meta = null;
+    try { meta = JSON.parse(await readFile(path.join(backupDirectory, backupName.replace(/\.tar\.gz$/, ".json")), "utf8")); } catch { meta = null; }
+    if (meta?.checksumSha256) {
+      progress?.("Verifying the backup checksum...", "stdout");
+      const actual = await sha256File(artifact);
+      if (actual !== meta.checksumSha256) throw new Error(`Backup ${backupName} failed its checksum; it may be damaged. Nothing was changed.`);
+    }
+    try {
+      progress?.("Taking a safety backup of the current state first...", "stdout");
+      const safety = await backup({ id, keep: null }, { progress });
+      progress?.(`Current state saved as ${safety.artifact}`, "stdout");
+    } catch (error) {
+      progress?.(`Safety backup failed (${error.message}); continuing with the restore`, "stderr");
+    }
+    const status = await containerStatus(id);
+    if (status.running) {
+      const stop = await compose(id, ["stop"], { timeout: 120_000, progress });
+      if (!stop.ok) throw new Error(`docker compose stop failed: ${redact(stop.stderr).split("\n").slice(-3).join(" ")}`);
+    }
+    await mkdir(dirFor(id), { recursive: true, mode: 0o700 });
+    progress?.(`$ tar -xzf ${backupName}`, "stdout");
+    const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", dirFor(id)], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+    if (!extract.ok) throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. The safety backup above holds the pre-restore state.`);
+    const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
+    if (!up.ok) throw new Error(`Restored the files, but docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
+    const healthy = await waitHealthy(manifest, progress);
+    return { restored: true, id, backup: backupName, image: healthy.image, health: healthy.health };
+  }
+
+  async function deleteAppBackup({ id, backup: backupName }) {
+    await ensureManifest(id);
+    if (typeof backupName !== "string" || !backupNamePattern.test(backupName)) throw new Error("Backup name is invalid");
+    const backupDirectory = backupDirFor(id);
+    await stat(path.join(backupDirectory, backupName)).catch(() => { throw new Error(`Backup ${backupName} does not exist`); });
+    await rm(path.join(backupDirectory, backupName), { force: true });
+    await rm(path.join(backupDirectory, backupName.replace(/\.tar\.gz$/, ".json")), { force: true });
+    return { deleted: true, id, backup: backupName };
+  }
+
   /** Generated/secret settings for an installed app, read from its .env. Only exposed to an elevated session; never stored in a job. */
   async function secrets({ id }) {
     const manifest = await ensureManifest(id);
@@ -292,5 +430,5 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { inspect, install, uninstall, update, reconfigure, action, logs, config, secrets, checkUpdates, catalogRoot: root, internals: { containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { inspect, install, uninstall, update, reconfigure, action, logs, config, secrets, backup, listAppBackups, restoreAppBackup, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

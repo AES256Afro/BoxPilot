@@ -41,8 +41,10 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false 
   const clock = () => new Date(nowMs);
   const wait = vi.fn(async (ms) => { nowMs += ms; });
   const catalog = createCatalogService({ directory: catalogDirectory, ttlMs: 0 });
-  const apps = createAppHelper({ catalogRoot, runDocker, catalog, wait, clock, lanAddress: "192.168.1.10" });
-  return { apps, calls, containers, catalogRoot, catalogDirectory };
+  const backupRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-appbk-")); directories.push(backupRoot);
+  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, lanAddress: "192.168.1.10" });
+  const advance = (ms) => { nowMs += ms; };
+  return { apps, calls, containers, catalogRoot, catalogDirectory, backupRoot, advance };
 }
 
 describe("generic app deployer", () => {
@@ -104,5 +106,39 @@ describe("generic app deployer", () => {
     await expect(apps.install({ id: "demo", values: { ports: { web: 70000 } } })).rejects.toThrow("Invalid settings");
     await expect(apps.install({ id: "../x" })).rejects.toThrow("invalid");
     expect(calls.filter((call) => call.startsWith("compose"))).toEqual([]);
+  });
+
+  it("backs up, prunes, restores, and deletes app data with a real archive", async () => {
+    const { apps, calls, catalogRoot, backupRoot, advance } = await setup();
+    await apps.install({ id: "demo" });
+    await writeFile(path.join(catalogRoot, "demo", "data", "file.txt"), "precious");
+
+    const first = await apps.backup({ id: "demo" });
+    expect(first).toMatchObject({ backedUp: true, artifact: expect.stringMatching(/^\d{8}T\d{6}Z\.tar\.gz$/), contents: expect.arrayContaining(["boxpilot.json", "compose.yaml", ".env", "data"]), pruned: [] });
+    expect(typeof first.checksumSha256).toBe("string");
+    expect(first.downtimeMs).not.toBeNull(); // it was running: stop + start around the archive
+    expect(calls).toContainEqual(expect.stringMatching(/compose .* stop$/));
+    expect(calls).toContainEqual(expect.stringMatching(/compose .* start$/));
+    expect(await readdir(path.join(backupRoot, "demo"))).toEqual(expect.arrayContaining([first.artifact, first.artifact.replace(/\.tar\.gz$/, ".json")]));
+
+    advance(60_000);
+    await writeFile(path.join(catalogRoot, "demo", "data", "file.txt"), "changed since backup");
+    const second = await apps.backup({ id: "demo", keep: 1 });
+    expect(second.pruned).toEqual([first.artifact]);
+    const listed = await apps.listAppBackups({ id: "demo" });
+    expect(listed.backups).toHaveLength(1);
+    expect(listed.backups[0]).toMatchObject({ artifact: second.artifact, checksumSha256: second.checksumSha256 });
+
+    advance(60_000);
+    await writeFile(path.join(catalogRoot, "demo", "data", "file.txt"), "broken state");
+    const restored = await apps.restoreAppBackup({ id: "demo", backup: second.artifact });
+    expect(restored).toMatchObject({ restored: true, backup: second.artifact });
+    expect(await readFile(path.join(catalogRoot, "demo", "data", "file.txt"), "utf8")).toBe("changed since backup");
+    // The restore first saved the broken state as a safety copy alongside the restored one.
+    expect((await apps.listAppBackups({ id: "demo" })).backups.length).toBe(2);
+
+    await expect(apps.restoreAppBackup({ id: "demo", backup: "evil/../../x.tar.gz" })).rejects.toThrow("invalid");
+    await expect(apps.deleteAppBackup({ id: "demo", backup: second.artifact })).resolves.toMatchObject({ deleted: true });
+    await expect(apps.deleteAppBackup({ id: "demo", backup: second.artifact })).rejects.toThrow("does not exist");
   });
 });

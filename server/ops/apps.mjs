@@ -15,6 +15,28 @@ export function appOperations() {
       run: (parameters, { apps }) => apps.logs(parameters),
     }),
     defineOperation({
+      id: "app.backup", title: "Back up application data", risk: "medium", timeoutMs: minutes(70),
+      description: "Stops the app briefly, archives its compose project and managed data volumes, restarts it, and keeps the newest copies.",
+      parameters: { fields: { id: idField, keep: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 30 ? null : "must be a whole number between 1 and 30") } } },
+      run: (parameters, { apps, progress }) => apps.backup({ id: parameters.id, keep: parameters.keep ?? 5 }, { progress }),
+    }),
+    defineOperation({
+      id: "app.backups.inspect", title: "List application backups", risk: "low", readOnly: true, timeoutMs: 30_000,
+      parameters: { fields: { id: idField } },
+      run: (parameters, { apps }) => apps.listAppBackups(parameters),
+    }),
+    defineOperation({
+      id: "app.backup.restore", title: "Restore application data from a backup", risk: "high", timeoutMs: minutes(90),
+      description: "Checksums the backup, saves the current state as a safety copy, then replaces the app's data and configuration with the backup and starts it.",
+      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
+      run: (parameters, { apps, progress }) => apps.restoreAppBackup(parameters, { progress }),
+    }),
+    defineOperation({
+      id: "app.backup.delete", title: "Delete an application backup", risk: "medium", timeoutMs: 60_000,
+      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
+      run: (parameters, { apps }) => apps.deleteAppBackup(parameters),
+    }),
+    defineOperation({
       id: "app.config.inspect", title: "Read effective application configuration", risk: "low", readOnly: true, timeoutMs: 30_000,
       description: "The compose.yaml and .env BoxPilot wrote for the app. Secret values are masked; Reveal secrets shows them.",
       parameters: { fields: { id: idField } },
