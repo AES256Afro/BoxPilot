@@ -210,23 +210,6 @@ export interface VmCreationJob {
   title: string;
 }
 
-export interface VmLifecyclePlan {
-  id: string;
-  revision: string;
-  status: "draft" | "staged";
-  expiresAt: string;
-  input: { name: string; action: string; expectedState: string; expectedAutostart: boolean };
-  output: {
-    executable: boolean;
-    action: string;
-    label: string;
-    current: { state: string; autostart: boolean };
-    desired: { state: string; autostart: boolean };
-    changes: string[];
-    recovery: string;
-  };
-}
-
 export interface VmSnapshotPlan {
   id: string;
   revision: string;
@@ -591,28 +574,6 @@ export async function stageVmPlan(planId: string, revision: string, csrfToken: s
   return body.job;
 }
 
-export async function createVmLifecyclePlan(domain: string, action: string, csrfToken: string): Promise<VmLifecyclePlan> {
-  const response = await fetch(`/api/v1/virtualization/domains/${encodeURIComponent(domain)}/action-plans`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-BoxPilot-CSRF": csrfToken,
-    },
-    body: JSON.stringify({ action }),
-  });
-  const body = await readJson<{ plan: VmLifecyclePlan }>(response);
-  return body.plan;
-}
-
-export async function stageVmLifecyclePlan(planId: string, revision: string, csrfToken: string): Promise<VmCreationJob> {
-  const response = await fetch(`/api/v1/virtualization/action-plans/${encodeURIComponent(planId)}/stage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-    body: JSON.stringify({ revision }),
-  });
-  const body = await readJson<{ job: VmCreationJob }>(response);
-  return body.job;
-}
 
 export async function createVmSnapshotPlan(domain: string, snapshotName: string, csrfToken: string): Promise<VmSnapshotPlan> {
   const response = await fetch(`/api/v1/virtualization/domains/${encodeURIComponent(domain)}/snapshot-plans`, {

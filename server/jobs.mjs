@@ -31,7 +31,6 @@ export function createJobService(store, helper, {
   validateKeelRecoveryDrillJob = async () => {},
   validateKeelPromotionJob = async () => {},
   validateKeelRollbackJob = async () => {},
-  validateVmLifecycleJob = async () => {},
   validateVmSnapshotJob = async () => {},
   recordBackupResult = () => {},
   recordApplicationProtectionResult = () => {},
@@ -105,7 +104,7 @@ export function createJobService(store, helper, {
       store.addJobStep(jobId, "apply", "running", execution.applying);
       return { job, owner, execution, approval: { tier: policy.tier, method: approvalMethod, elevatedUntil } };
     }
-    if (!["virtualization.foundation.initialize", "application.uptime-kuma.deploy", "application.uptime-kuma.action", "application.uptime-kuma.private-access", "application.pi-hole.deploy", "application.pi-hole.action", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.media.import", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
+    if (!["virtualization.foundation.initialize", "application.uptime-kuma.deploy", "application.uptime-kuma.action", "application.uptime-kuma.private-access", "application.pi-hole.deploy", "application.pi-hole.action", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.media.import", "virtualization.domain.create", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedLibvirtFoundation = job.type === "virtualization.foundation.initialize" ? await validateLibvirtFoundationJob(job) : null;
     const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.stage", "application.keel.install"].includes(job.type) ? await validateApplicationJob(job) : null;
     const validatedApplicationLifecyclePlan = ["application.uptime-kuma.action", "application.pi-hole.action"].includes(job.type) ? await validateApplicationLifecycleJob(job) : null;
@@ -130,7 +129,6 @@ export function createJobService(store, helper, {
     const validatedKeelRecoveryDrillPlan = job.type === "application.keel.recovery-drill.run" ? await validateKeelRecoveryDrillJob(job) : null;
     const validatedKeelPromotionPlan = job.type === "application.keel.promotion" ? await validateKeelPromotionJob(job) : null;
     const validatedKeelRollbackPlan = job.type === "application.keel.rollback" ? await validateKeelRollbackJob(job) : null;
-    const validatedVmLifecyclePlan = job.type === "virtualization.domain.action" ? await validateVmLifecycleJob(job) : null;
     const validatedVmSnapshotPlan = job.type === "virtualization.domain.snapshot.create" ? await validateVmSnapshotJob(job) : null;
     if (job.type === "virtualization.domain.create" && !validatedVmPlan?.input) throw new Error("The staged VM creation plan is unavailable or changed");
     if (job.type === "virtualization.media.import" && !validatedVmMediaImportPlan?.input) throw new Error("The staged VM media import plan is unavailable or changed");
@@ -149,7 +147,6 @@ export function createJobService(store, helper, {
     if (job.type === "application.keel.recovery-drill.run" && !validatedKeelRecoveryDrillPlan?.input) throw new Error("The staged Keel recovery drill plan is unavailable or changed");
     if (job.type === "application.keel.promotion" && !validatedKeelPromotionPlan?.input) throw new Error("The staged Keel promotion plan is unavailable or changed");
     if (job.type === "application.keel.rollback" && !validatedKeelRollbackPlan?.input) throw new Error("The staged Keel rollback plan is unavailable or changed");
-    if (job.type === "virtualization.domain.action" && !validatedVmLifecyclePlan?.input) throw new Error("The staged VM lifecycle plan is unavailable or changed");
     if (job.type === "virtualization.domain.snapshot.create" && !validatedVmSnapshotPlan?.input) throw new Error("The staged VM snapshot plan is unavailable or changed");
     if (job.type === "application.pi-hole.deploy" && !validatedApplicationPlan?.input) throw new Error("The staged Pi-hole plan is unavailable or changed");
     if (["application.uptime-kuma.action", "application.pi-hole.action"].includes(job.type) && !validatedApplicationLifecyclePlan?.input) throw new Error("The staged application lifecycle plan is unavailable or changed");
@@ -713,14 +710,6 @@ export function createJobService(store, helper, {
       verified: "The recovery clone is stopped, persistent, non-autostarting, network-isolated, and tied to exact protected source evidence",
       failed: "The recovery clone did not complete; BoxPilot confined rollback to the new target name and server-generated recovery directory",
       validate: (result) => result?.created && result?.restoreId === validatedVmRecoveryPlan.input.restoreId && result?.backupId === validatedVmRecoveryPlan.input.backupId && result?.domain === validatedVmRecoveryPlan.input.targetDomainName && result?.persistent === true && result?.state === "stopped" && result?.network === "none" && result?.autostart === false && result?.sourceUnchanged === true && result?.snapshotUnchanged === true,
-    } : job.type === "virtualization.domain.action" ? {
-      operation: "virtualization.domain.action",
-      parameters: validatedVmLifecyclePlan.input,
-      applying: `Requesting the reviewed ${validatedVmLifecyclePlan.output.label.toLowerCase()} operation through the restricted libvirt helper`,
-      applied: "Restricted helper accepted the fixed lifecycle operation after independently matching current VM state",
-      verified: "Post-operation power and autostart state matched the reviewed lifecycle plan",
-      failed: "VM lifecycle execution or state verification did not complete successfully",
-      validate: (result) => result?.verified && result?.domain === validatedVmLifecyclePlan.input.name && result?.action === validatedVmLifecyclePlan.input.action,
     } : {
       operation: "virtualization.domain.snapshot.create",
       parameters: validatedVmSnapshotPlan.input,

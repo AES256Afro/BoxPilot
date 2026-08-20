@@ -48,7 +48,6 @@ import { createStateStore } from "./state.mjs";
 import { createSupportBundleService } from "./support-bundle.mjs";
 import { createVmCreationService } from "./vm-creation.mjs";
 import { createVmExportService } from "./vm-export.mjs";
-import { createVmLifecycleService } from "./vm-lifecycle.mjs";
 import { createVmMediaService } from "./vm-media.mjs";
 import { createVmPlanner, validateVmPlanInput } from "./vm-plan.mjs";
 import { createVmProtectionService } from "./vm-protection.mjs";
@@ -98,7 +97,6 @@ const migrations = createMigrationService({ store: state, inventory, helper });
 const vmCreation = createVmCreationService({ store: state, planner: vmPlanner, libvirt });
 const vmMedia = createVmMediaService({ store: state, helper });
 const vmExports = createVmExportService({ store: state, libvirt, helper });
-const vmLifecycle = createVmLifecycleService({ store: state, libvirt });
 const vmSnapshots = createVmSnapshotService({ store: state, libvirt });
 const vmProtection = createVmProtectionService({ store: state, helper });
 const vmRecoveries = createVmRecoveryService({ store: state, helper });
@@ -153,7 +151,6 @@ const jobs = createJobService(state, helper, {
   recordVmRestoreDrillResult: vmRestoreDrills.recordResult,
   validateVmRecoveryJob: vmRecoveries.validateJob,
   recordVmRecoveryResult: vmRecoveries.recordResult,
-  validateVmLifecycleJob: vmLifecycle.validateJob,
   validateVmSnapshotJob: vmSnapshots.validateJob,
 });
 state.deleteExpiredSessions();
@@ -1178,26 +1175,6 @@ app.post("/api/v1/virtualization/plans/:id/stage", async (request, response) => 
   } catch (error) {
     const status = error.message.includes("unavailable") ? 503 : error.message.includes("not found") ? 404 : 409;
     response.status(status).json({ error: error.message, code: "vm_plan_stage_failed" });
-  }
-});
-
-app.post("/api/v1/virtualization/domains/:name/action-plans", async (request, response) => {
-  try {
-    const plan = await vmLifecycle.plan(request.params.name, request.body?.action, request.boxpilotSession.owner.id);
-    response.status(201).json({ plan });
-  } catch (error) {
-    const status = error.message.includes("unavailable") ? 503 : error.message.includes("not found") ? 404 : 409;
-    response.status(status).json({ error: error.message, code: "vm_lifecycle_plan_failed" });
-  }
-});
-
-app.post("/api/v1/virtualization/action-plans/:id/stage", async (request, response) => {
-  try {
-    const job = await vmLifecycle.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
-    response.status(201).json({ job });
-  } catch (error) {
-    const status = error.message.includes("unavailable") ? 503 : error.message.includes("not found") ? 404 : 409;
-    response.status(status).json({ error: error.message, code: "vm_lifecycle_stage_failed" });
   }
 });
 

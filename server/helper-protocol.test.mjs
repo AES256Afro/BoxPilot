@@ -525,15 +525,6 @@ describe("restricted helper protocol", () => {
     await expect(executeHelperOperation(request({ operation: "virtualization.media.import", parameters: vmMediaParameters() }), { vmMedia })).resolves.toMatchObject({ ok: true, result: { imported: true, filename: "ubuntu.iso" } });
   });
 
-  it("accepts only fixed lifecycle state and action fields", async () => {
-    expect(validateHelperRequest(request({ operation: "virtualization.domain.action", parameters: lifecycleParameters() }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "virtualization.domain.action", parameters: lifecycleParameters({ action: "destroy" }) }))).toContain("Unsupported VM lifecycle action");
-    expect(validateHelperRequest(request({ operation: "virtualization.domain.action", parameters: lifecycleParameters({ arguments: ["destroy"] }) }))).toContain("only the fixed typed plan fields");
-    const virtualization = { action: async (parameters) => ({ verified: true, domain: parameters.name, action: parameters.action }) };
-    const result = await executeHelperOperation(request({ operation: "virtualization.domain.action", parameters: lifecycleParameters() }), { virtualization });
-    expect(result).toMatchObject({ ok: true, result: { verified: true, domain: "ubuntu-lab", action: "shutdown" } });
-  });
-
   it("accepts only fixed read-only virtualization inventory scopes", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "domains" } }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "domain", name: "ubuntu-lab" } }))).toContain("fixed status, domains, or resources scope");
