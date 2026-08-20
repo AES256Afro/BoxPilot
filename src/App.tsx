@@ -9,6 +9,7 @@ import ApplicationCatalog from "./ApplicationCatalog";
 import BackupCenter from "./BackupCenter";
 import FleetCenter from "./FleetCenter";
 import GitHubCenter from "./GitHubCenter";
+import HomeDashboard from "./HomeDashboard";
 import HostOverview from "./HostOverview";
 import MigrationCenter from "./MigrationCenter";
 import NetworkCenter from "./NetworkCenter";
@@ -327,7 +328,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
 
   const pageContent = useMemo(() => {
     if (view === "overview") {
-      return <HostOverview />;
+      return <><HomeDashboard onNavigate={setView} /><HostOverview /></>;
     }
     if (view === "updates") return <UpdatesCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "catalog") return <AppCatalog csrfToken={authStatus.csrfToken ?? ""} />;
