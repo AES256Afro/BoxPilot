@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import YAML from "yaml";
 import { fixedRun } from "./exec.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { renderCompose, projectNameFor } from "./catalog/compose.mjs";
@@ -265,6 +266,42 @@ export function createAppHelper({
     }
   }
 
+  /**
+   * Power-user escape hatch: replace the app's compose.yaml verbatim. Validated with
+   * `docker compose config`, applied with rollback to the previous file on failure.
+   * The next Settings change or Update regenerates the file from the manifest.
+   */
+  async function editCompose({ id, compose: composeText }, { progress = null } = {}) {
+    const manifest = await ensureManifest(id);
+    const state = await readState(id);
+    if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
+    if (typeof composeText !== "string" || !composeText.trim() || composeText.length > 65536) throw new Error("Compose text must be a non-empty string under 64 KB");
+    let parsed;
+    try { parsed = YAML.parse(composeText); } catch (parseError) { throw new Error(`Not valid YAML: ${parseError.message}`); }
+    if (!parsed || typeof parsed !== "object" || !parsed.services || typeof parsed.services !== "object") throw new Error("The compose file must define services");
+    const target = path.join(dirFor(id), "compose.yaml");
+    const previous = await readFile(target, "utf8").catch(() => null);
+    if (previous === null) throw new Error("There is no compose.yaml to edit");
+    await writeFile(target, composeText, { mode: 0o600 });
+    const check = await compose(id, ["config", "--quiet"], { timeout: 60_000, progress });
+    if (!check.ok) {
+      await writeFile(target, previous, { mode: 0o600 });
+      throw new Error(`docker compose rejected the file; the previous one was restored: ${redact(check.stderr).split("\n").slice(-3).join(" ")}`);
+    }
+    const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
+    try {
+      if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
+      await waitHealthy(manifest, progress);
+      await writeState(id, { ...state, updatedAt: clock().toISOString(), rawEdited: true });
+      return { edited: true, id, rawEdited: true };
+    } catch (error) {
+      progress?.(`Edit failed: ${error.message}. Restoring the previous compose file...`, "stderr");
+      await writeFile(target, previous, { mode: 0o600 });
+      const rolledBack = (await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000, progress })).ok;
+      throw new Error(`${manifest.name} rejected the edited compose file${rolledBack ? "; the previous one was restored" : " and automatic rollback also failed"}. ${error.message}`);
+    }
+  }
+
   async function action({ id, action: verb }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
     if (!actions.includes(verb)) throw new Error("Action must be start, stop, or restart");
@@ -448,5 +485,5 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { inspect, install, uninstall, update, reconfigure, action, logs, config, secrets, backup, listAppBackups, restoreAppBackup, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { inspect, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, backup, listAppBackups, restoreAppBackup, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

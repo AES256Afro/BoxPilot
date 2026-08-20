@@ -3288,3 +3288,6 @@ textarea {
 
 /* Per-app stats (M3.9) */
 .app-stats { font-size: 12px; margin-top: -6px; }
+
+/* Raw compose editor (M3.3) */
+.compose-editor { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
