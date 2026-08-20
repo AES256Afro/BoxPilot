@@ -172,7 +172,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - **M6.7** Pre-change checkpoints: every medium/high op auto-snapshots the affected app before running (cheap, enables one-click undo).
 
 ### Phase 7 — VMs & projects (2 weeks, builds on the existing strength)
-- **M7.1** VM delete, force-off, revert/delete snapshot (high risk) — the four missing verbs.
+- ✅ **M7.1** The four missing verbs as registry ops (`vm.force-off` medium, `vm.delete` high with stopped-only guard + optional storage removal, `vm.snapshot.revert` high offline-only, `vm.snapshot.delete` medium), surfaced on the Virtual Machines page through the shared ApproveDialog. Independent restic backups are never touched.
 - ✅ (v1) **M7.2** "New project VM" on the Virtual Machines page: Ubuntu 24.04/22.04, Debian 13/12 cloud images downloaded + checksum-verified by the root runner and cached by digest; name/vCPU/RAM/disk, user, SSH keys (paste or import from GitHub), extra packages, autostart → `vm.cloud.create` clones the image, seeds cloud-init (guest agent, passwordless sudo), `virt-install --import`, waits for the DHCP lease, rolls back on failure. Remaining: Fedora, `runcmd`, choose network/bridge.
 - **M7.3** Bridged networking option (`br0`) with a guarded netplan change + rollback timer; static leases via libvirt.
 - **M7.4** Web console via noVNC/SPICE proxy through BoxPilot (behind auth) — stop punting to Cockpit.
