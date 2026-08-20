@@ -21,7 +21,7 @@ GET /api/v1/health
 GET /api/v1/capabilities
 ```
 
-Agents and interfaces should read capabilities before showing an operation. `vmCreationPlanning: validated-durable-approved-with-authenticated-staged-iso-import` means supported plans can be staged as immutable jobs, but media import and VM creation each require their own separate password reauthentication.
+Agents and interfaces should read capabilities before showing an operation. The response is a matrix of booleans, enums, and registered operation ids (see `vms` and `operations`); media import and VM creation are staged as separate approved jobs.
 
 ## Host and domain discovery
 

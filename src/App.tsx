@@ -18,6 +18,7 @@ import SystemLogs from "./SystemLogs";
 import UpdatesCenter from "./UpdatesCenter";
 import AppCatalog from "./AppCatalog";
 import ServicesCenter from "./ServicesCenter";
+import ActivityDrawer from "./ActivityDrawer";
 import ApprovalSettings from "./ApprovalSettings";
 import SignInSettings from "./SignInSettings";
 import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
@@ -375,7 +376,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
             <div><strong>BoxPilot control plane</strong><span>Authenticated, sanitized live inventory</span></div>
             <StatusPill tone="neutral">Mixed data</StatusPill>
           </div>
-          <div className="topbar-right">{elevated ? <button className="text-button" type="button" title="High-risk approvals skip the password until this time. Click to lock now." onClick={() => void dropElevation(authStatus.csrfToken ?? "").then(refreshAuth)}>Elevated until {elevatedLabel} · Lock</button> : <StatusPill tone="neutral">Tiered approvals</StatusPill>}<span className="signed-in-user">{authStatus.owner?.username}</span><button className="text-button" type="button" onClick={() => void logoutOwner(authStatus.csrfToken ?? "").then(onSignedOut)}>Sign out</button></div>
+          <div className="topbar-right"><ActivityDrawer />{elevated ? <button className="text-button" type="button" title="High-risk approvals skip the password until this time. Click to lock now." onClick={() => void dropElevation(authStatus.csrfToken ?? "").then(refreshAuth)}>Elevated until {elevatedLabel} · Lock</button> : <StatusPill tone="neutral">Tiered approvals</StatusPill>}<span className="signed-in-user">{authStatus.owner?.username}</span><button className="text-button" type="button" onClick={() => void logoutOwner(authStatus.csrfToken ?? "").then(onSignedOut)}>Sign out</button></div>
         </header>
 
         <div className="content">

@@ -2,7 +2,7 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { productVersion } from "./version.mjs";
-import { registry } from "./ops/index.mjs";
+import { registry, riskTiers } from "./ops/index.mjs";
 import { approvalModes, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "./ops/risk.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { createJobLogReader } from "./job-log.mjs";
@@ -246,7 +246,7 @@ app.use("/api/v1", (request, response, next) => {
 });
 
 app.get("/api/v1/operations", (_request, response) => {
-  response.json({ operations: registry.describe(), riskTiers: ["low", "medium", "high"] });
+  response.json({ operations: registry.describe(), riskTiers });
 });
 
 // Read-only registered operations run immediately (no job, no approval); parameter-free only for now.
@@ -341,41 +341,21 @@ app.post("/api/v1/operations/:id/jobs", auth.requireCsrf, (request, response) =>
   }
 });
 
-app.get("/api/v1/capabilities", (_request, response) => {
+// Capability matrix: booleans, enums, and counts derived from the operation registry (M1.6).
+app.get("/api/v1/capabilities", async (_request, response) => {
+  const has = (id) => registry.has(id);
+  const catalogApps = await catalogService.all().then(({ manifests }) => manifests.length).catch(() => 0);
   response.json({
-    inventory: "sanitized-host-maintenance-storage-ext4-error-counters-filesystem-smart-local-ups-docker-services-network-and-dns-topology",
-    composeInspection: "browser-only",
-    applications: "curated-uptime-kuma-deploy-start-stop-restart-backup-and-tailnet-only-private-access-plus-no-cutover-pi-hole-deploy-start-stop-restart-and-backup-plus-fixed-keel-artifact-stage-native-install-terminal-claim-consistent-backup-stopped-recovery-clone-isolated-startup-rehearsal-rollback-backed-promotion-and-operator-rollback",
-    supportBundle: "authenticated-server-generated-fixed-source-configurably-redacted",
-    backups: "wal-aware-controller-local-restore-plus-encrypted-independent-restic-copy-uptime-kuma-pi-hole-and-keel-local-restore-drills-stopped-keel-recovery-clones-isolated-keel-startup-rehearsals-rollback-backed-keel-promotion-operator-rollback-and-vm-protection",
-    migrations: "sanitized-manifests-compatibility-plans-and-checksummed-local-bundle-staging",
-    network: "read-only-topology-approved-fixed-pi-hole-and-observed-gateway-direct-dns-acceptance-plus-signed-second-device-evidence",
-    privilegedHelper: "typed-canary-exact-smartmontools-restic-docker-and-virtualization-repairs-fixed-apt-metadata-refresh-fixed-libvirt-foundation-controller-local-backup-independent-restic-protection-curated-applications-fixed-keel-artifact-stage-install-backup-stopped-recovery-isolated-recovery-drill-rollback-backed-promotion-and-operator-rollback-migration-inventory-logs-and-vm-workflows",
-    identity: "owner-password-foundation",
-    durableJobs: "sqlite-approved-prerequisite-libvirt-foundation-controller-local-backup-controller-independent-protection-application-backup-keel-artifact-stage-install-backup-stopped-recovery-isolated-recovery-drill-rollback-backed-promotion-and-operator-rollback-dns-migration-and-vm-workflows",
-    virtualization: "live-libvirt-via-restricted-helper",
-    libvirtFoundation: { inspect: "parameter-free-canonical-default-only", initialize: "durable-approved-static-unit", network: "default-nat-192.168.122.0/24", pool: "default-dir-var-lib-libvirt-images", automaticRollback: "job-changes-only", browserResourceInput: false },
-    vmCreationPlanning: "validated-durable-approved-with-authenticated-staged-iso-import",
-    vmMedia: { upload: "authenticated-csrf-fixed-staging-only", import: "durable-approved-sha256-verified-atomic-non-overwrite", maximumIsoBytes: 17179869184, browserPath: false, arbitraryDestination: false, existingOverwrite: false },
-    audit: "redacted-jsonl-foundation",
-    vmActions: { enabled: true, mode: "durable-approved-helper-jobs" },
-    applicationActions: { uptimeKuma: ["start", "stop", "restart"], pihole: ["start", "stop", "restart"], privateAccess: { uptimeKuma: ["publish", "unpublish"], mode: "tailscale-serve-tailnet-only", funnel: false, arbitraryTarget: false }, mode: "durable-approved-exact-managed-container-only", routerCutover: false, remove: false, arbitraryContainer: false },
-    vmSnapshots: { create: "offline-stopped-managed-qcow2-only", revert: false, delete: false, countsAsBackup: false },
-    vmExports: { create: "offline-stopped-managed-qcow2-only", destination: "local-managed", integrityVerified: true, encrypted: false, protectedBackup: false, restoreDrill: false },
-    vmProtection: { destination: "fixed-independent-mounted-restic", encrypted: true, repositoryReadVerified: true, isolatedRestoreDrill: "transient-no-network-guest-agent", protectedBackup: "after-passing-restore-drill", retentionMutation: "exact-protected-old-snapshot-forget-without-prune" },
-    vmRecovery: { create: "protected-snapshot-to-new-stopped-persistent-domain", network: "none", autostart: false, inPlaceRestore: false, sourceDeletion: false },
-    keelRecovery: { create: "verified-local-archive-to-new-root-only-stopped-state", startupDrill: "disposable-copy-private-loopback-health-and-sqlite", network: "none-until-drill-private-namespace-then-existing-production-loopback", applicationStartedInSource: false, ownerLoginTested: false, productionRestore: "exact-passing-drill-only", promotion: "atomic-old-state-checkpoint-with-automatic-failure-rollback", operatorRequestedRollback: "exact-retained-checkpoint-with-displaced-state-preservation", rollbackRetention: false, sourceChanged: false },
-    vmConsole: { nativeProxy: false, cockpitHandoff: "detect-existing-only" },
-    controllerBackup: { source: "fixed-live-sqlite", snapshot: "vacuum-into-wal-aware", localDestination: "root-only-local-managed", independentDestination: "fixed-mounted-restic-controller", repositoryReadVerified: true, restoreDrill: "exact-snapshot-isolated-copy-open-integrity-foreign-key-schema", downtime: false, encrypted: true, independent: "after-passing-restic-restore-drill", retention: "exact-protected-old-snapshot-forget-without-prune", prune: false, browserPath: false, browserPassword: false },
-    fleet: { enrollment: "one-time-digest-stored-token", identity: "ed25519-signed-replay-protected", execution: "node-local-allowlisted-pi-hole-or-default-gateway-dns-probe-only", scheduling: "password-approved-one-shot-fixed-delay-only", recurrence: false, controllerShellAccess: false, arbitraryTarget: false },
-    routers: { checkpoints: "browser-local-sha256-metadata-only", guidance: "fixed-model-operator-checklists-with-live-gateway-address-correlation", directGatewayDnsAcceptance: "durable-approved-four-fixed-queries", signedSecondDeviceDnsAcceptance: "owner-approved-one-shot-agent-with-local-default-gateway-match", gatewayIdentityVerified: false, adguardConfigurationVerified: false, dhcpAdvertisementVerified: false, configurationUpload: false, credentials: false, discovery: false, mutations: false },
-    github: { repositories: "fixed-public-read-only-allowlist", authentication: false, writes: false, clone: false, arbitraryDownload: false, keelFixedReleaseAcquisition: "approved-root-only-locally-verified-inert-archive", keelArchiveGate: "read-only-bounded-membership-validation", browserDownload: false, extraction: "separate-approved-exact-keel-release-only", installation: "separate-approved-exact-keel-native-service-only" },
-    recoveryKit: { generation: "authenticated-read-only", formats: ["json", "markdown"], mutations: false, secretsIncluded: false, backupPayloadIncluded: false },
-    actionCenter: { generation: "authenticated-read-only", guidance: "fixed-local-destinations", automaticRepair: false, persistence: false, externalDelivery: false },
-    filesystemErrors: { ext4: "mounted-kernel-errors-count-read-only", unsupportedFilesystems: "explicit", filesystemCheck: false, repair: false },
-    upsEvidence: { source: "fixed-upsc-localhost-only", devices: "single-locally-enumerated", powerCommands: false, shutdownPolicyMutation: false, remoteTargets: false },
-    maintenanceEvidence: { source: "fixed-local-systemd-reboot-dpkg-apt-and-unattended-upgrades-state", namesIncluded: false, aptOperations: "fixed-approved-metadata-update-only", serviceControl: false, reboot: false },
-    prerequisiteRepairs: { smartmontools: "exact-version-durable-approved-fixed-package-service", restic: "exact-version-durable-approved-fixed-package-service-without-repository-setup", aptMetadata: "durable-approved-static-update-only-service", arbitraryPackages: false, packageInstall: "smartmontools-or-restic-only", packageUpgrade: false, packageRemoval: false, browserCommands: false, automaticRemoval: false, repositorySetup: false },
+    version: productVersion,
+    approvals: { modes: approvalModes, riskTiers, elevationTtlMs },
+    jobs: { durable: true, liveOutput: true, events: true },
+    operations: registry.ids(),
+    packages: { refresh: has("apt.refresh"), upgrade: has("apt.upgrade"), install: has("apt.install"), remove: has("apt.remove"), purge: has("apt.purge"), autoremove: has("apt.autoremove"), reboot: has("system.reboot") },
+    services: { list: has("service.list"), control: has("service.action"), journal: has("service.journal") },
+    catalog: { apps: catalogApps, install: has("app.install"), uninstall: has("app.uninstall"), purge: has("app.purge"), update: has("app.update"), reconfigure: has("app.reconfigure"), logs: has("app.logs"), secrets: has("app.secrets") },
+    vms: { create: true, cloudImages: has("vm.cloud.create"), lifecycle: true, snapshots: true, exports: true, protection: true, restoreDrills: true, recovery: true, delete: false, console: false },
+    backups: { controller: true, applications: true, vms: true, restic: true, restoreDrills: true, retention: true, schedules: false },
+    identity: { password: true, tailscale: true, github: true, passkeys: false, roles: ["owner"] },
   });
 });
 
@@ -962,6 +942,17 @@ app.post("/api/v1/controller-retention-plans/:id/stage", async (request, respons
 
 app.get("/api/v1/jobs", (request, response) => {
   response.json({ jobs: state.listJobs(request.query.limit) });
+});
+
+// Server-sent events for the Activity drawer: recent jobs on connect, then a snapshot of each
+// job as it is created, approved, stepped, or finished. Output text stays on /jobs/:id/stream.
+app.get("/api/v1/events", (request, response) => {
+  response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive", "X-Accel-Buffering": "no" });
+  const send = (event, data) => response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  send("snapshot", { jobs: state.listJobs(30) });
+  const unsubscribe = state.subscribeJobs((job) => send("job", { job }));
+  const heartbeat = setInterval(() => response.write(": ping\n\n"), 25_000);
+  request.on("close", () => { clearInterval(heartbeat); unsubscribe(); });
 });
 
 // Job output: persisted once the job is finished, otherwise the live file being written by the helper/runner.

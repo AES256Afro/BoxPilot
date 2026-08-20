@@ -666,6 +666,29 @@ export function createStateStore({
     }));
   }
 
+  // Job-change subscription for the SSE events feed. Emissions are coalesced per job and
+  // microtask so a burst of step writes delivers one snapshot with the final state.
+  const jobSubscribers = new Set();
+  const pendingJobEmits = new Set();
+
+  function subscribeJobs(listener) {
+    jobSubscribers.add(listener);
+    return () => jobSubscribers.delete(listener);
+  }
+
+  function emitJobChanged(jobId) {
+    if (jobSubscribers.size === 0 || pendingJobEmits.has(jobId)) return;
+    pendingJobEmits.add(jobId);
+    queueMicrotask(() => {
+      pendingJobEmits.delete(jobId);
+      const job = getJob(jobId);
+      if (!job) return;
+      for (const listener of [...jobSubscribers]) {
+        try { listener(job); } catch { /* a broken subscriber must not affect job execution */ }
+      }
+    });
+  }
+
   function createJob({
     type,
     title,
@@ -686,6 +709,7 @@ export function createStateStore({
     `).run(job.id, job.type, job.title, job.state, job.risk, json(job.parameters), json(job.recovery), job.createdBy, at, at);
     for (const step of initialSteps) addJobStep(job.id, step.name, step.state, step.detail);
     recordAudit("job.created", { actorId: createdBy, subjectId: job.id, details: { type, risk } });
+    emitJobChanged(job.id);
     return getJob(job.id);
   }
 
@@ -736,12 +760,14 @@ export function createStateStore({
   function addJobStep(jobId, name, state, detail) {
     database.prepare("INSERT INTO job_steps (id, job_id, name, state, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)")
       .run(randomUUID(), jobId, name, state, detail, timestamp());
+    emitJobChanged(jobId);
   }
 
   function addApproval(jobId, ownerId, { method = "password", tier = null } = {}) {
     const approval = { id: randomUUID(), jobId, ownerId, method, tier, createdAt: timestamp() };
     database.prepare("INSERT INTO approvals (id, job_id, owner_id, method, tier, created_at) VALUES (?, ?, ?, ?, ?, ?)")
       .run(approval.id, approval.jobId, approval.ownerId, approval.method, approval.tier, approval.createdAt);
+    emitJobChanged(jobId);
     return approval;
   }
 
@@ -752,6 +778,7 @@ export function createStateStore({
     if (!current) throw new Error("Job is not in an allowed state");
     database.prepare("UPDATE jobs SET state = ?, result_json = ?, error = ?, updated_at = ? WHERE id = ?")
       .run(state, result === undefined ? null : json(result), error ?? null, timestamp(), jobId);
+    emitJobChanged(jobId);
     return getJob(jobId);
   }
 
@@ -1873,6 +1900,7 @@ export function createStateStore({
     deleteExpiredSessions,
     recordAudit,
     listAudit,
+    subscribeJobs,
     createJob,
     createPlan,
     getPlan,
