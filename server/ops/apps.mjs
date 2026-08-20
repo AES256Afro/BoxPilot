@@ -126,6 +126,12 @@ export function appOperations() {
       run: (parameters, { apps }) => apps.deleteAppBackup(parameters),
     }),
     defineOperation({
+      id: "app.compose.edit", title: "Edit application compose file", risk: "high", timeoutMs: minutes(20),
+      description: "Replaces the app's compose.yaml verbatim — full control, full responsibility. Validated by docker compose, applied with rollback; the next Settings change or Update regenerates the file from the manifest.",
+      parameters: { fields: { id: idField, compose: { type: "string", maxLength: 65536 } } },
+      run: (parameters, { apps, progress }) => apps.editCompose(parameters, { progress }),
+    }),
+    defineOperation({
       id: "app.config.inspect", title: "Read effective application configuration", risk: "low", readOnly: true, timeoutMs: 30_000,
       description: "The compose.yaml and .env BoxPilot wrote for the app. Secret values are masked; Reveal secrets shows them.",
       parameters: { fields: { id: idField } },

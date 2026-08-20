@@ -96,6 +96,22 @@ describe("generic app deployer", () => {
     await expect(readdir(path.join(catalogRoot, "demo"))).rejects.toThrow();
   });
 
+  it("edits the raw compose file with validation and rollback", async () => {
+    const { apps, catalogRoot } = await setup();
+    await apps.install({ id: "demo" });
+    const composePath = path.join(catalogRoot, "demo", "compose.yaml");
+    const original = await readFile(composePath, "utf8");
+
+    await expect(apps.editCompose({ id: "demo", compose: "not: [valid" })).rejects.toThrow("Not valid YAML");
+    await expect(apps.editCompose({ id: "demo", compose: "just: scalars" })).rejects.toThrow("must define services");
+    expect(await readFile(composePath, "utf8")).toBe(original);
+
+    const edited = original.replace("restart: unless-stopped", "restart: always");
+    await expect(apps.editCompose({ id: "demo", compose: edited })).resolves.toMatchObject({ edited: true, rawEdited: true });
+    expect(await readFile(composePath, "utf8")).toBe(edited);
+    expect(JSON.parse(await readFile(path.join(catalogRoot, "demo", "boxpilot.json"), "utf8")).rawEdited).toBe(true);
+  });
+
   it("updates an app whose stored state echoes values the manifest does not accept", async () => {
     // Older releases persisted every hostPath volume (docker socket included) into
     // boxpilot.json; updates then failed validation. Stored state is sanitized instead.

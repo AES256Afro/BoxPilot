@@ -107,6 +107,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [config, setConfig] = useState<{ manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure" } | null>(null);
   const [logs, setLogs] = useState<{ id: string; lines: string[] } | null>(null);
   const [effectiveConfig, setEffectiveConfig] = useState<{ id: string; name: string; compose: string | null; env: Array<{ name: string; value: string; secret: boolean }>; directory: string } | null>(null);
+  const [composeDraft, setComposeDraft] = useState<string | null>(null);
   const [appBackups, setAppBackups] = useState<{ id: string; name: string; backups: Array<{ artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; image: string | null }> } | null>(null);
   const [secrets, setSecrets] = useState<{ id: string; name: string; items: Array<{ name: string; label: string; value: string }> | null; needsPassword: boolean; password: string; error: string | null } | null>(null);
   const [filter, setFilter] = useState("");
@@ -252,19 +253,33 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
       )}
 
       {effectiveConfig && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => setEffectiveConfig(null)}>
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => { setEffectiveConfig(null); setComposeDraft(null); }}>
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="config-title" onMouseDown={(event) => event.stopPropagation()}>
-            <header className="modal-header"><div><span className="eyebrow">Effective configuration</span><h2 id="config-title">{effectiveConfig.name}</h2></div><button className="icon-button" type="button" onClick={() => setEffectiveConfig(null)} aria-label="Close dialog">X</button></header>
+            <header className="modal-header"><div><span className="eyebrow">Effective configuration</span><h2 id="config-title">{effectiveConfig.name}</h2></div><button className="icon-button" type="button" onClick={() => { setEffectiveConfig(null); setComposeDraft(null); }} aria-label="Close dialog">X</button></header>
             <div className="modal-copy">
               <p>What BoxPilot wrote under <code>{effectiveConfig.directory}</code>. Secret values are masked; use Secrets to reveal them.</p>
-              {effectiveConfig.env.length > 0 && (
+              {effectiveConfig.env.length > 0 && composeDraft === null && (
                 <>
                   <strong>.env</strong>
                   <pre className="app-logs">{effectiveConfig.env.map((entry) => `${entry.name}=${entry.value}`).join("\n")}</pre>
                 </>
               )}
               <strong>compose.yaml</strong>
-              <pre className="app-logs">{effectiveConfig.compose ?? "(missing)"}</pre>
+              {composeDraft === null ? (
+                <>
+                  <pre className="app-logs">{effectiveConfig.compose ?? "(missing)"}</pre>
+                  {effectiveConfig.compose && <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => setComposeDraft(effectiveConfig.compose)}>Edit raw</button></footer>}
+                </>
+              ) : (
+                <>
+                  <p className="muted">Full control, full responsibility: docker compose validates the file and BoxPilot rolls back if the app does not come up — but the next Settings change or Update regenerates it from the manifest.</p>
+                  <textarea aria-label="Compose file" className="compose-editor" spellCheck="false" rows={16} value={composeDraft} onChange={(event) => setComposeDraft(event.target.value)} />
+                  <footer className="recovery-actions">
+                    <button className="secondary-button" type="button" onClick={() => setComposeDraft(null)}>Cancel</button>
+                    <button className="primary-button" type="button" disabled={!composeDraft.trim() || composeDraft === effectiveConfig.compose} onClick={() => { const draft = composeDraft; const target = effectiveConfig; setEffectiveConfig(null); setComposeDraft(null); start({ operationId: "app.compose.edit", title: `Apply edited compose file to ${target.name}`, parameters: { id: target.id, compose: draft }, preview: <span>Replaces <code>compose.yaml</code> verbatim and recreates the containers. Rolled back if {target.name} does not come up.</span> }); }}>Apply</button>
+                  </footer>
+                </>
+              )}
             </div>
           </section>
         </div>
