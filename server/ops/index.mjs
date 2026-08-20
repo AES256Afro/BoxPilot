@@ -6,10 +6,11 @@ import { systemOperations } from "./system.mjs";
 import { appOperations } from "./apps.mjs";
 import { serviceOperations } from "./services.mjs";
 import { userOperations } from "./users.mjs";
+import { firewallOperations } from "./firewall.mjs";
 import { vmOperations } from "./vms.mjs";
 
 /** The default registry used by the helper and the web service. Add new operation modules here. */
-export const operationModules = [prerequisiteOperations, aptOperations, systemOperations, appOperations, serviceOperations, userOperations, vmOperations];
+export const operationModules = [prerequisiteOperations, aptOperations, systemOperations, appOperations, serviceOperations, userOperations, firewallOperations, vmOperations];
 export const registry = createRegistry(operationModules);
 setRegistryLookup((id) => registry.get(id));
 export { createRegistry, defineOperation, validateParameters, riskTiers } from "./registry.mjs";

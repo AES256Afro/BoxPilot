@@ -3238,3 +3238,8 @@ textarea {
 .users-center { display: grid; gap: 16px; }
 .users-center .recovery-actions input { min-width: 220px; flex: 1; max-width: 320px; }
 .users-center textarea { width: 100%; margin-top: 10px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+
+/* Firewall page (M2.6) */
+.firewall-center { display: grid; gap: 16px; }
+.firewall-center .recovery-actions input { min-width: 140px; }
+.firewall-center .recovery-actions select { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-muted); color: var(--text); }

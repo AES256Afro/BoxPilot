@@ -6,6 +6,7 @@
 import { aptAutoremove, aptInstall, aptRemove, aptUpdate, aptUpgrade } from "./apt.mjs";
 import { setHostname, setSwappiness, setTimezone, systemReboot } from "./system.mjs";
 import { sshPasswordAuthSet, userAdd, userKeysImport, userSudoSet } from "./users.mjs";
+import { firewallRuleAdd, firewallRuleDelete, firewallSet } from "./firewall.mjs";
 import { ensureCloudImage } from "./cloud-images.mjs";
 
 export const tasks = Object.freeze({
@@ -22,6 +23,9 @@ export const tasks = Object.freeze({
   "users.keys-import": userKeysImport,
   "users.sudo": userSudoSet,
   "ssh.password-auth": sshPasswordAuthSet,
+  "firewall.set": firewallSet,
+  "firewall.rule-add": firewallRuleAdd,
+  "firewall.rule-delete": firewallRuleDelete,
   "vm.cloud-image.ensure": ensureCloudImage,
 });
 
