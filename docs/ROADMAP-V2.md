@@ -132,7 +132,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - ✅ **M2.4** **Services** page: systemd units/timers (Common/Active/Failed/All + filter), start/stop/restart/enable/disable via `service.action` (confirm), journal per unit; BoxPilot/SSH/systemd/D-Bus/Tailscale units cannot be stopped or disabled from the UI.
 - **M2.5** Users & SSH: add user, import SSH keys from GitHub (`https://github.com/<user>.keys`), disable password SSH, change port (high risk with rollback timer).
 - **M2.6** Firewall (ufw): profile presets (LAN-only, Tailscale-only, Open), per-app rules auto-added on install, removed on uninstall.
-- **M2.7** Hostname, timezone, locale, swap, `fstrim` timer, `vm.swappiness` — a **System** page.
+- ✅ (v1) **M2.7** **System** page (`src/SystemCenter.tsx`): hostname rename (hostnamectl + /etc/hosts), time zone picker (timedatectl), memory/swap tiles, `vm.swappiness` with a persisted sysctl drop-in, fstrim.timer toggle via `service.action`. Ops `system.settings.inspect` + `system.{hostname,timezone,swappiness}.set` → root tasks in `server/tasks/system.mjs`. Remaining: locale, swap-file creation.
 - **M2.8** Storage: mount additional disks (fstab via UUID, with dry-run), format (high risk, typed-confirm), SMB/NFS share creation (Samba/NFS-kernel-server as catalog items).
 - **M2.9** Docker Engine from the official repo (not `docker.io`), compose plugin, log rotation defaults, `docker system prune` button, Portainer/Dockge as optional catalog items.
 

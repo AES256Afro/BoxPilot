@@ -3228,3 +3228,8 @@ textarea {
 .activity-time { color: var(--muted); font-size: 12px; }
 .activity-detail { display: grid; gap: 10px; padding: 0 8px 14px; }
 .activity-steps { margin: 0; padding: 0 0 0 16px; color: var(--muted-strong); font-size: 12px; display: grid; gap: 4px; }
+
+/* System page (M2.7) */
+.system-center { display: grid; gap: 16px; }
+.system-center .recovery-actions input, .system-center .recovery-actions select { min-width: 240px; flex: 1; max-width: 380px; }
+.system-center select { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-muted); color: var(--text); }
