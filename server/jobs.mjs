@@ -9,7 +9,6 @@ export function createJobService(store, helper, {
   validateApplicationLifecycleJob = async () => {},
   validateApplicationPrivateAccessJob = async () => {},
   validateKeelArtifactJob = async () => {},
-  validatePrerequisiteRepairJob = async () => {},
   validateLibvirtFoundationJob = async () => {},
   validateBackupJob = async () => {},
   validateApplicationProtectionJob = async () => {},
@@ -52,20 +51,6 @@ export function createJobService(store, helper, {
   recordKeelPromotionResult = () => {},
   recordKeelRollbackResult = () => {},
 } = {}) {
-  function createCanary(ownerId) {
-    return store.createJob({
-      type: "helper.canary.verify",
-      title: "Verify restricted helper boundary",
-      risk: "none",
-      parameters: {},
-      recovery: {
-        automaticRollback: false,
-        reason: "The canary performs no host mutation, so no rollback is required.",
-        manual: "If the helper is unavailable, inspect boxpilot-helper.service and retry after it is healthy.",
-      },
-      createdBy: ownerId,
-    });
-  }
 
   /**
    * Decide how a job must be approved for this session (ADR-001 risk tiers).
@@ -120,8 +105,7 @@ export function createJobService(store, helper, {
       store.addJobStep(jobId, "apply", "running", execution.applying);
       return { job, owner, execution, approval: { tier: policy.tier, method: approvalMethod, elevatedUntil } };
     }
-    if (!["helper.canary.verify", "prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.uptime-kuma.deploy", "application.uptime-kuma.action", "application.uptime-kuma.private-access", "application.pi-hole.deploy", "application.pi-hole.action", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.media.import", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
-    const validatedPrerequisiteRepair = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh"].includes(job.type) ? await validatePrerequisiteRepairJob(job) : null;
+    if (!["virtualization.foundation.initialize", "application.uptime-kuma.deploy", "application.uptime-kuma.action", "application.uptime-kuma.private-access", "application.pi-hole.deploy", "application.pi-hole.action", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.uptime-kuma.backup", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "network.flint2-adguard.acceptance.run", "migration.bundle.transfer", "virtualization.media.import", "virtualization.domain.create", "virtualization.domain.action", "virtualization.domain.snapshot.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedLibvirtFoundation = job.type === "virtualization.foundation.initialize" ? await validateLibvirtFoundationJob(job) : null;
     const validatedApplicationPlan = ["application.uptime-kuma.deploy", "application.pi-hole.deploy", "application.keel.stage", "application.keel.install"].includes(job.type) ? await validateApplicationJob(job) : null;
     const validatedApplicationLifecyclePlan = ["application.uptime-kuma.action", "application.pi-hole.action"].includes(job.type) ? await validateApplicationLifecycleJob(job) : null;
@@ -154,7 +138,6 @@ export function createJobService(store, helper, {
     if (job.type === "application.backup.protect" && !validatedApplicationProtectionPlan?.input) throw new Error("The staged application protection plan is unavailable or changed");
     if (job.type === "application.backup.retention.apply" && !validatedApplicationRetentionPlan?.input) throw new Error("The staged application retention plan is unavailable or changed");
     if (job.type === "controller.database.backup.retention.apply" && !validatedControllerRetentionPlan?.input) throw new Error("The staged controller retention plan is unavailable or changed");
-    if (["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh"].includes(job.type) && !validatedPrerequisiteRepair?.plan?.input) throw new Error("The staged prerequisite repair plan is unavailable or changed");
     if (job.type === "virtualization.foundation.initialize" && !validatedLibvirtFoundation?.plan?.input) throw new Error("The staged libvirt foundation plan is unavailable or changed");
     if (job.type === "migration.bundle.transfer" && !validatedMigrationTransferPlan?.input) throw new Error("The staged migration transfer plan is unavailable or changed");
     if (job.type === "virtualization.domain.export.create" && !validatedVmExportPlan?.input) throw new Error("The staged VM export plan is unavailable or changed");
@@ -184,101 +167,7 @@ export function createJobService(store, helper, {
       expectedDestinationState: validatedMigrationTransferPlan.input.expectedDestinationState,
       expectedRemainingBytes: validatedMigrationTransferPlan.input.expectedRemainingBytes,
     } : null;
-    const execution = job.type === "helper.canary.verify" ? {
-      operation: "canary.verify",
-      parameters: {},
-      applying: "Sending typed canary request over the local Unix socket",
-      applied: "Restricted helper accepted the typed request",
-      verified: "Helper identity and no-mutation guarantee verified",
-      failed: "The helper canary did not complete successfully",
-      validate: (result) => result?.verified && result?.mutationPerformed === false,
-    } : job.type === "prerequisite.smartmontools.install" ? {
-      operation: "prerequisite.smartmontools.install",
-      parameters: { expectedVersion: validatedPrerequisiteRepair.plan.input.expectedVersion },
-      timeoutMs: 15 * 60 * 1000,
-      applying: validatedPrerequisiteRepair.state.installed ? "Running the fixed root-only storage evidence scan against the already installed approved smartmontools version" : "Starting the fixed package service to install only the approved smartmontools version without apt update or browser-selected arguments",
-      applied: "The fixed smartmontools package state was verified and the separate root-only storage evidence scan completed",
-      verified: "The approved exact smartmontools version is installed and current bounded storage evidence was produced without changing disks, mounts, SMART settings, or unrelated packages",
-      failed: "The fixed smartmontools package or storage evidence verification failed; inspect APT, dpkg, and the dedicated installation service before creating a new plan",
-      validate: (result) => result?.package === "smartmontools"
-        && result?.installed === true
-        && result?.version === validatedPrerequisiteRepair.plan.input.expectedVersion
-        && result?.scan?.completed === true
-        && result?.scan?.evidenceRefreshed === true
-        && result?.boundary?.fixedPackage === true
-        && result?.boundary?.arbitraryPackageAccepted === false
-        && result?.boundary?.aptUpdatePerformed === false
-        && result?.boundary?.packageRemovalPerformed === false,
-    } : job.type === "prerequisite.restic.install" ? {
-      operation: "prerequisite.restic.install",
-      parameters: { expectedVersion: validatedPrerequisiteRepair.plan.input.expectedVersion },
-      timeoutMs: 15 * 60 * 1000,
-      applying: validatedPrerequisiteRepair.state.installed ? "Verifying the already installed approved restic package and fixed binary" : "Starting the fixed package service to install only the approved restic version without apt update or browser-selected arguments",
-      applied: "The fixed restic package state and binary version probe completed",
-      verified: "The approved exact restic package is installed without mounting storage, creating a password, initializing a repository, starting a backup, changing retention, or altering unrelated packages",
-      failed: "The fixed restic package or binary verification failed; inspect APT, dpkg, and the dedicated installation service before creating a new plan",
-      validate: (result) => result?.package === "restic"
-        && result?.installed === true
-        && result?.version === validatedPrerequisiteRepair.plan.input.expectedVersion
-        && result?.binaryVerified === true
-        && result?.next?.automaticSetupPerformed === false
-        && result?.boundary?.fixedPackage === true
-        && result?.boundary?.arbitraryPackageAccepted === false
-        && result?.boundary?.aptUpdatePerformed === false
-        && result?.boundary?.packageUpgradePerformed === false
-        && result?.boundary?.packageRemovalPerformed === false
-        && result?.boundary?.mountChanged === false
-        && result?.boundary?.passwordCreated === false
-        && result?.boundary?.repositoryInitialized === false,
-    } : job.type === "prerequisite.docker.install" ? {
-      operation: "prerequisite.docker.install",
-      parameters: { expectedVersion: validatedPrerequisiteRepair.plan.input.expectedVersion },
-      timeoutMs: 15 * 60 * 1000,
-      applying: "Starting the fixed root-only package unit to install the exact approved docker.io candidate, then enabling and verifying only docker.service",
-      applied: "The fixed docker.io package installation and Docker daemon start completed",
-      verified: "The exact approved docker.io package and active daemon were verified without repository setup, provider replacement, daemon configuration, user-group changes, image pulls, or containers",
-      failed: "The fixed Docker Engine package or daemon verification failed; inspect the dedicated installation unit, docker.service, APT, and dpkg before creating a new plan",
-      validate: (result) => result?.package === "docker.io"
-        && result?.installed === true
-        && result?.version === validatedPrerequisiteRepair.plan.input.expectedVersion
-        && typeof result?.engineVersion === "string"
-        && result?.serviceActive === true
-        && result?.engineVerified === true
-        && result?.boundary?.fixedPackage === true
-        && result?.boundary?.arbitraryPackageAccepted === false
-        && result?.boundary?.arbitraryRepositoryAccepted === false
-        && result?.boundary?.aptUpdatePerformed === false
-        && result?.boundary?.packageUpgradePerformed === false
-        && result?.boundary?.packageRemovalPerformed === false
-        && result?.boundary?.daemonConfigurationChanged === false
-        && result?.boundary?.userGroupChanged === false
-        && result?.boundary?.containerCreated === false
-        && result?.boundary?.imagePulled === false,
-    } : job.type === "prerequisite.virtualization.install" ? {
-      operation: "prerequisite.virtualization.install",
-      parameters: { expectedPackages: validatedPrerequisiteRepair.plan.input.expectedPackages },
-      timeoutMs: 21 * 60 * 1000,
-      applying: "Starting the fixed root-only package unit to install the exact approved Ubuntu KVM, QEMU, libvirt, virt-install, and OVMF bundle, then verifying only the system libvirt service and URI",
-      applied: "The fixed virtualization package installation and libvirtd start completed",
-      verified: "Every approved package version, /dev/kvm, QEMU, libvirtd.service, and qemu:///system was verified without provider replacement, operator group changes, networks, pools, VMs, or browser-selected commands",
-      failed: "The fixed virtualization package, hardware, service, QEMU, or system-URI verification failed; inspect the dedicated installation unit, libvirtd.service, /dev/kvm, APT, and dpkg before creating a new plan",
-      validate: (result) => result?.installed === true
-        && Object.keys(validatedPrerequisiteRepair.plan.input.expectedPackages).every((name) => result?.packages?.[name] === validatedPrerequisiteRepair.plan.input.expectedPackages[name])
-        && result?.serviceActive === true
-        && result?.connectionUri === "qemu:///system"
-        && result?.qemuVerified === true
-        && result?.kvmDeviceVerified === true
-        && result?.boundary?.fixedPackageSet === true
-        && result?.boundary?.arbitraryPackageAccepted === false
-        && result?.boundary?.arbitraryRepositoryAccepted === false
-        && result?.boundary?.aptUpdatePerformed === false
-        && result?.boundary?.packageRemovalPerformed === false
-        && result?.boundary?.existingProviderReplaced === false
-        && result?.boundary?.operatorUserGroupChanged === false
-        && result?.boundary?.networkCreated === false
-        && result?.boundary?.storagePoolCreated === false
-        && result?.boundary?.virtualMachineCreated === false,
-    } : job.type === "virtualization.foundation.initialize" ? {
+    const execution = job.type === "virtualization.foundation.initialize" ? {
       operation: "virtualization.foundation.initialize",
       parameters: { foundationId: validatedLibvirtFoundation.plan.input.foundationId, expectedRevision: validatedLibvirtFoundation.plan.input.expectedRevision },
       timeoutMs: 5 * 60 * 1000,
@@ -302,25 +191,6 @@ export function createJobService(store, helper, {
         && result?.boundary?.diskCreated === false
         && result?.boundary?.bridgeModeEnabled === false
         && result?.boundary?.browserResourceAccepted === false,
-    } : job.type === "prerequisite.apt-metadata.refresh" ? {
-      operation: "prerequisite.apt-metadata.refresh",
-      parameters: { expectedUpdatedAt: validatedPrerequisiteRepair.plan.input.expectedUpdatedAt },
-      timeoutMs: 15 * 60 * 1000,
-      applying: "Starting the fixed root-only APT metadata unit with the exact approved previous timestamp and no browser-selected package, repository, command, option, or target",
-      applied: "The fixed APT metadata refresh completed and the installed package database was verified unchanged",
-      verified: "APT metadata is current, dpkg is ready, and no package install, upgrade, removal, service mutation, or reboot occurred",
-      failed: "The fixed APT metadata refresh or immutable package-state verification failed; inspect the dedicated unit and repository availability before creating a new plan",
-      validate: (result) => result?.refreshed === true
-        && result?.state === "current"
-        && result?.packageManagerState === "ready"
-        && result?.boundary?.fixedAptUpdateOnly === true
-        && result?.boundary?.packageInstallPerformed === false
-        && result?.boundary?.packageUpgradePerformed === false
-        && result?.boundary?.packageRemovalPerformed === false
-        && result?.boundary?.serviceMutationPerformed === false
-        && result?.boundary?.rebootPerformed === false
-        && result?.boundary?.arbitraryCommandAccepted === false
-        && result?.boundary?.browserArgumentAccepted === false,
     } : job.type === "application.keel.artifact.acquire" ? {
       operation: "application.keel.artifact.acquire",
       parameters: { acquisitionId: validatedKeelArtifactPlan.input.acquisitionId },
@@ -991,5 +861,5 @@ export function createJobService(store, helper, {
     return approvalPolicy(job, session);
   }
 
-  return { createCanary, createOperationJob, approveAndRun, approveAndStart, describeApproval, approvalPolicy };
+  return { createOperationJob, approveAndRun, approveAndStart, describeApproval, approvalPolicy };
 }

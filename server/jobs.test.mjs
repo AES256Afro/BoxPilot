@@ -29,7 +29,7 @@ describe("durable job executor", () => {
   it("requires password reauthentication before invoking the helper", async () => {
     const helper = { request: vi.fn() };
     const { store, owner, jobs } = await setup(helper);
-    const job = jobs.createCanary(owner.id);
+    const job = jobs.createOperationJob("apt.refresh", {}, owner.id);
 
     await expect(jobs.approveAndRun(job.id, owner.id, "wrong password")).rejects.toThrow("reauthentication failed");
     expect(helper.request).not.toHaveBeenCalled();
@@ -41,8 +41,8 @@ describe("durable job executor", () => {
     const helper = { request: vi.fn(async () => ({ verified: true, helperVersion: "0.1.0", mutationPerformed: false })) };
     const { store, owner, jobs } = await setup(helper);
     const session = store.getSession(store.createSession(owner.id).token);
-    expect(jobs.describeApproval(jobs.createCanary(owner.id).id, session)).toMatchObject({ tier: "low", passwordRequired: false, mode: "tiered" });
-    const job = jobs.createCanary(owner.id);
+    expect(jobs.describeApproval(jobs.createOperationJob("apt.refresh", {}, owner.id).id, session)).toMatchObject({ tier: "low", passwordRequired: false, mode: "tiered" });
+    const job = jobs.createOperationJob("apt.refresh", {}, owner.id);
     await expect(jobs.approveAndRun(job.id, owner.id, { password: "wrong password", session })).rejects.toThrow("reauthentication failed");
     const completed = await jobs.approveAndRun(job.id, owner.id, { session });
     expect(completed.state).toBe("completed");
@@ -62,7 +62,7 @@ describe("durable job executor", () => {
     await expect(jobs.approveAndRun(job.id, owner.id, { session })).rejects.toThrow("reauthentication required: high-risk");
     expect(store.getJob(job.id).state).toBe("awaiting_approval");
     // A password on a low-risk job elevates the session...
-    const canary = jobs.createCanary(owner.id);
+    const canary = jobs.createOperationJob("apt.refresh", {}, owner.id);
     await jobs.approveAndRun(canary.id, owner.id, { password: "correct horse battery", session });
     const elevated = store.getSession(token);
     expect(Date.parse(elevated.elevatedUntil)).toBeGreaterThan(Date.now());
@@ -76,7 +76,7 @@ describe("durable job executor", () => {
     const { store, owner, jobs } = await setup(helper);
     store.setSetting("approvalMode", "always-password", { updatedBy: owner.id });
     const session = store.getSession(store.createSession(owner.id).token);
-    const job = jobs.createCanary(owner.id);
+    const job = jobs.createOperationJob("apt.refresh", {}, owner.id);
     expect(jobs.describeApproval(job.id, session)).toMatchObject({ mode: "always-password", passwordRequired: true });
     await expect(jobs.approveAndRun(job.id, owner.id, { session })).rejects.toThrow("reauthentication required");
     const completed = await jobs.approveAndRun(job.id, owner.id, { password: "correct horse battery", session });
@@ -105,13 +105,13 @@ describe("durable job executor", () => {
     store.close();
   });
 
-  it("records the complete approved canary lifecycle", async () => {
+  it("records the complete approved low-risk operation lifecycle", async () => {
     const helper = { request: vi.fn(async () => ({ verified: true, helperVersion: "0.1.0", mutationPerformed: false })) };
     const { store, owner, jobs } = await setup(helper);
-    const job = jobs.createCanary(owner.id);
+    const job = jobs.createOperationJob("apt.refresh", {}, owner.id);
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
 
-    expect(helper.request).toHaveBeenCalledWith("canary.verify", {}, expect.objectContaining({ jobId: expect.any(String) }));
+    expect(helper.request).toHaveBeenCalledWith("apt.refresh", {}, expect.objectContaining({ jobId: expect.any(String) }));
     expect(completed.state).toBe("completed");
     expect(completed.steps.map((step) => step.name)).toEqual(["preflight", "checkpoint", "approval", "apply", "apply", "verify"]);
     expect(store.listAudit().map((event) => event.type)).toContain("job.completed");
@@ -121,98 +121,10 @@ describe("durable job executor", () => {
   it("fails closed when the helper is unavailable", async () => {
     const helper = { request: vi.fn(async () => { throw new Error("Helper unavailable"); }) };
     const { store, owner, jobs } = await setup(helper);
-    const job = jobs.createCanary(owner.id);
+    const job = jobs.createOperationJob("apt.refresh", {}, owner.id);
 
     await expect(jobs.approveAndRun(job.id, owner.id, "correct horse battery")).rejects.toThrow("Helper unavailable");
     expect(store.getJob(job.id)).toMatchObject({ state: "failed", error: "Helper unavailable" });
-    store.close();
-  });
-
-  it("revalidates and executes only the exact smartmontools repair plan", async () => {
-    const result = { package: "smartmontools", installed: true, version: "7.5-2", packageChanged: true, scan: { completed: true, evidenceRefreshed: true }, boundary: { fixedPackage: true, arbitraryPackageAccepted: false, aptUpdatePerformed: false, packageRemovalPerformed: false } };
-    const helper = { request: vi.fn(async () => result) };
-    const { store, owner } = await setup(helper);
-    const validatePrerequisiteRepairJob = vi.fn(async () => ({ plan: { input: { expectedVersion: "7.5-2" } }, state: { installed: false } }));
-    const jobs = createJobService(store, helper, { validatePrerequisiteRepairJob });
-    const job = store.createJob({ type: "prerequisite.smartmontools.install", title: "Install smartmontools", risk: "system-package", parameters: { expectedVersion: "7.5-2" }, recovery: { automaticRollback: false }, createdBy: owner.id });
-    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
-    expect(validatePrerequisiteRepairJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("prerequisite.smartmontools.install", { expectedVersion: "7.5-2" }, expect.objectContaining({ timeoutMs: 15 * 60 * 1000 }));
-    expect(completed).toMatchObject({ state: "completed", result: { package: "smartmontools", installed: true, packageChanged: true } });
-    store.close();
-  });
-
-  it("revalidates and executes only the fixed APT metadata refresh", async () => {
-    const updatedAt = "2026-08-01T00:00:00.000Z";
-    const result = {
-      refreshed: true,
-      updatedAt: "2026-08-16T07:00:00.000Z",
-      state: "current",
-      packageManagerState: "ready",
-      boundary: { fixedAptUpdateOnly: true, packageInstallPerformed: false, packageUpgradePerformed: false, packageRemovalPerformed: false, serviceMutationPerformed: false, rebootPerformed: false, arbitraryCommandAccepted: false, browserArgumentAccepted: false },
-    };
-    const helper = { request: vi.fn(async () => result) };
-    const { store, owner } = await setup(helper);
-    const validatePrerequisiteRepairJob = vi.fn(async () => ({ plan: { input: { expectedUpdatedAt: updatedAt, expectedState: "stale" } }, state: { state: "stale", packageManagerState: "ready" } }));
-    const jobs = createJobService(store, helper, { validatePrerequisiteRepairJob });
-    const job = store.createJob({ type: "prerequisite.apt-metadata.refresh", title: "Refresh APT package metadata", risk: "system-package-metadata", parameters: { expectedUpdatedAt: updatedAt }, recovery: { automaticRollback: false }, createdBy: owner.id });
-    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
-    expect(validatePrerequisiteRepairJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("prerequisite.apt-metadata.refresh", { expectedUpdatedAt: updatedAt }, expect.objectContaining({ timeoutMs: 15 * 60 * 1000 }));
-    expect(completed).toMatchObject({ state: "completed", result: { refreshed: true, state: "current", boundary: { packageInstallPerformed: false, packageUpgradePerformed: false, packageRemovalPerformed: false } } });
-    store.close();
-  });
-
-  it("revalidates and executes only the exact restic repair plan", async () => {
-    const result = {
-      package: "restic", installed: true, version: "0.18.1-1", packageChanged: true, binaryVerified: true,
-      next: { mountConfigured: false, recoveryKeyCreated: false, repositoryInitialized: false, automaticSetupPerformed: false },
-      boundary: { fixedPackage: true, arbitraryPackageAccepted: false, aptUpdatePerformed: false, packageUpgradePerformed: false, packageRemovalPerformed: false, mountChanged: false, passwordCreated: false, repositoryInitialized: false },
-    };
-    const helper = { request: vi.fn(async () => result) };
-    const { store, owner } = await setup(helper);
-    const validatePrerequisiteRepairJob = vi.fn(async () => ({ plan: { input: { expectedVersion: "0.18.1-1" } }, state: { installed: false } }));
-    const jobs = createJobService(store, helper, { validatePrerequisiteRepairJob });
-    const job = store.createJob({ type: "prerequisite.restic.install", title: "Install restic", risk: "system-package", parameters: { expectedVersion: "0.18.1-1" }, recovery: { automaticRollback: false }, createdBy: owner.id });
-    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
-    expect(validatePrerequisiteRepairJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("prerequisite.restic.install", { expectedVersion: "0.18.1-1" }, expect.objectContaining({ timeoutMs: 15 * 60 * 1000 }));
-    expect(completed).toMatchObject({ state: "completed", result: { package: "restic", installed: true, binaryVerified: true, next: { automaticSetupPerformed: false } } });
-    store.close();
-  });
-
-  it("revalidates and executes only the exact Ubuntu Docker Engine repair plan", async () => {
-    const result = {
-      package: "docker.io", installed: true, version: "28.2.2-0ubuntu1", engineVersion: "28.2.2", packageChanged: true, serviceActive: true, engineVerified: true,
-      boundary: { fixedPackage: true, arbitraryPackageAccepted: false, arbitraryRepositoryAccepted: false, aptUpdatePerformed: false, packageUpgradePerformed: false, packageRemovalPerformed: false, daemonConfigurationChanged: false, userGroupChanged: false, containerCreated: false, imagePulled: false },
-    };
-    const helper = { request: vi.fn(async () => result) };
-    const { store, owner } = await setup(helper);
-    const validatePrerequisiteRepairJob = vi.fn(async () => ({ plan: { input: { expectedVersion: "28.2.2-0ubuntu1" } }, state: { installed: false } }));
-    const jobs = createJobService(store, helper, { validatePrerequisiteRepairJob });
-    const job = store.createJob({ type: "prerequisite.docker.install", title: "Install Docker Engine", risk: "system-package-service", parameters: { expectedVersion: "28.2.2-0ubuntu1" }, recovery: { automaticRollback: false }, createdBy: owner.id });
-    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
-    expect(validatePrerequisiteRepairJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("prerequisite.docker.install", { expectedVersion: "28.2.2-0ubuntu1" }, expect.objectContaining({ timeoutMs: 15 * 60 * 1000 }));
-    expect(completed).toMatchObject({ state: "completed", result: { package: "docker.io", installed: true, engineVersion: "28.2.2", serviceActive: true, engineVerified: true } });
-    store.close();
-  });
-
-  it("revalidates and executes only the exact Ubuntu virtualization repair plan", async () => {
-    const expectedPackages = { "qemu-system-x86": "1:10.2.1+ds-1ubuntu3.2", "libvirt-daemon-system": "12.0.0-1ubuntu5.2", "libvirt-clients": "12.0.0-1ubuntu5.2", virtinst: "1:5.1.0-1", ovmf: "2025.11-3ubuntu7" };
-    const result = {
-      installed: true, packages: expectedPackages, serviceActive: true, connectionUri: "qemu:///system", qemuVerified: true, kvmDeviceVerified: true,
-      boundary: { fixedPackageSet: true, arbitraryPackageAccepted: false, arbitraryRepositoryAccepted: false, aptUpdatePerformed: false, packageRemovalPerformed: false, existingProviderReplaced: false, operatorUserGroupChanged: false, networkCreated: false, storagePoolCreated: false, virtualMachineCreated: false },
-    };
-    const helper = { request: vi.fn(async () => result) };
-    const { store, owner } = await setup(helper);
-    const validatePrerequisiteRepairJob = vi.fn(async () => ({ plan: { input: { expectedPackages } }, state: { installed: false, kvmDeviceAvailable: true } }));
-    const jobs = createJobService(store, helper, { validatePrerequisiteRepairJob });
-    const job = store.createJob({ type: "prerequisite.virtualization.install", title: "Install virtualization", risk: "system-package-service-virtualization", parameters: { expectedPackages }, recovery: { automaticRollback: false }, createdBy: owner.id });
-    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
-    expect(validatePrerequisiteRepairJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("prerequisite.virtualization.install", { expectedPackages }, expect.objectContaining({ timeoutMs: 21 * 60 * 1000 }));
-    expect(completed).toMatchObject({ state: "completed", result: { installed: true, packages: expectedPackages, connectionUri: "qemu:///system", kvmDeviceVerified: true } });
     store.close();
   });
 

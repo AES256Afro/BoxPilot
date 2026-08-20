@@ -40,7 +40,6 @@ import { createMigrationService } from "./migrations.mjs";
 import { createMaintenanceService } from "./maintenance.mjs";
 import { createNetworkService } from "./network.mjs";
 import { createPrerequisiteService } from "./prerequisites.mjs";
-import { createPrerequisiteRepairService } from "./prerequisite-repairs.mjs";
 import { createRouterCheckpointService } from "./router-checkpoints.mjs";
 import { createRecoveryKitService } from "./recovery-kit.mjs";
 import { createNotificationService } from "./notifications.mjs";
@@ -75,7 +74,6 @@ const prerequisites = createPrerequisiteService({
   stateDirectory: process.env.BOXPILOT_STATE_DIRECTORY ?? path.dirname(state.databasePath),
   helper,
 });
-const prerequisiteRepairs = createPrerequisiteRepairService({ store: state, helper });
 const network = createNetworkService({ store: state });
 const githubProvenance = createGithubProvenanceService();
 const applications = createApplicationService({ store: state, prerequisites, helper, network, githubProvenance });
@@ -112,7 +110,6 @@ const vmRestoreDrills = createVmRestoreDrillService({ store: state, helper });
 const jobLogReader = createJobLogReader();
 const jobs = createJobService(state, helper, {
   jobLog: jobLogReader,
-  validatePrerequisiteRepairJob: prerequisiteRepairs.validateJob,
   validateLibvirtFoundationJob: libvirtFoundation.validateJob,
   validateApplicationJob: applications.validateJob,
   validateApplicationLifecycleJob: applicationLifecycle.validateJob,
@@ -408,61 +405,6 @@ app.post("/api/v1/fleet/flint2-dns-probe-tasks", async (request, response) => {
 
 app.get("/api/v1/operations/prerequisites", async (_request, response) => {
   response.json(await prerequisites.inspect());
-});
-
-app.post("/api/v1/prerequisite-repairs/smartmontools/plans", async (request, response) => {
-  try {
-    const plan = await prerequisiteRepairs.planSmartmontools(request.boxpilotSession.owner.id, request.body);
-    response.status(201).json({ plan });
-  } catch (error) {
-    response.status(409).json({ error: error.message, code: "smartmontools_repair_plan_failed" });
-  }
-});
-
-app.post("/api/v1/prerequisite-repairs/restic/plans", async (request, response) => {
-  try {
-    const plan = await prerequisiteRepairs.planRestic(request.boxpilotSession.owner.id, request.body);
-    response.status(201).json({ plan });
-  } catch (error) {
-    response.status(409).json({ error: error.message, code: "restic_repair_plan_failed" });
-  }
-});
-
-app.post("/api/v1/prerequisite-repairs/docker/plans", async (request, response) => {
-  try {
-    const plan = await prerequisiteRepairs.planDocker(request.boxpilotSession.owner.id, request.body);
-    response.status(201).json({ plan });
-  } catch (error) {
-    response.status(409).json({ error: error.message, code: "docker_repair_plan_failed" });
-  }
-});
-
-app.post("/api/v1/prerequisite-repairs/virtualization/plans", async (request, response) => {
-  try {
-    const plan = await prerequisiteRepairs.planVirtualization(request.boxpilotSession.owner.id, request.body);
-    response.status(201).json({ plan });
-  } catch (error) {
-    response.status(409).json({ error: error.message, code: "virtualization_repair_plan_failed" });
-  }
-});
-
-app.post("/api/v1/prerequisite-repairs/apt-metadata/plans", async (request, response) => {
-  try {
-    const plan = await prerequisiteRepairs.planAptMetadata(request.boxpilotSession.owner.id, request.body);
-    response.status(201).json({ plan });
-  } catch (error) {
-    response.status(409).json({ error: error.message, code: "apt_metadata_refresh_plan_failed" });
-  }
-});
-
-app.post("/api/v1/prerequisite-repair-plans/:id/stage", async (request, response) => {
-  try {
-    if (!request.body || typeof request.body !== "object" || Array.isArray(request.body) || Object.keys(request.body).length !== 1 || typeof request.body.revision !== "string") throw new Error("Prerequisite repair staging accepts only the immutable revision");
-    const job = await prerequisiteRepairs.stage(request.params.id, request.body.revision, request.boxpilotSession.owner.id);
-    response.status(201).json({ job });
-  } catch (error) {
-    response.status(409).json({ error: error.message, code: "prerequisite_repair_stage_failed" });
-  }
 });
 
 app.get("/api/v1/operations/recovery-kit", async (_request, response) => {
@@ -1038,15 +980,12 @@ app.get("/api/v1/jobs/:id", (request, response) => {
   return response.json({ job });
 });
 
-app.post("/api/v1/operations/canary", auth.requireCsrf, (request, response) => {
-  const job = jobs.createCanary(request.boxpilotSession.owner.id);
-  response.status(201).json({ job });
-});
+);
 
 app.post("/api/v1/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
   try {
     const candidate = state.getJob(request.params.id);
-    const background = ["prerequisite.smartmontools.install", "prerequisite.restic.install", "prerequisite.docker.install", "prerequisite.virtualization.install", "prerequisite.apt-metadata.refresh", "virtualization.foundation.initialize", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type) || (typeof candidate?.type === "string" && candidate.type.startsWith("op:"));
+    const background = ["virtualization.foundation.initialize", "application.pi-hole.deploy", "application.keel.artifact.acquire", "application.keel.stage", "application.keel.install", "controller.database.backup", "controller.database.backup.protect", "controller.database.backup.retention.apply", "application.backup.protect", "application.backup.retention.apply", "application.pi-hole.backup", "application.keel.backup", "application.keel.recovery.create", "application.keel.recovery-drill.run", "application.keel.promotion", "application.keel.rollback", "network.dns.acceptance.run", "migration.bundle.transfer", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(candidate?.type) || (typeof candidate?.type === "string" && candidate.type.startsWith("op:"));
     const approval = { password: typeof request.body?.password === "string" ? request.body.password : null, session: request.boxpilotSession };
     const job = background
       ? await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, approval)
