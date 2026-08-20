@@ -3,6 +3,21 @@ import { defineOperation } from "./registry.mjs";
 const idField = { type: "string", pattern: /^[a-z0-9][a-z0-9-]{1,62}$/ };
 const valuesField = { type: "object", optional: true, validate: (value) => (Object.keys(value).every((key) => ["ports", "env", "volumes"].includes(key)) ? null : "may only contain ports, env, and volumes") };
 const minutes = (value) => value * 60_000;
+const tailscaleBinary = () => process.env.BOXPILOT_TAILSCALE_BINARY ?? "/usr/bin/tailscale";
+
+/** Parse `tailscale serve status --json`: HTTPS ports proxied to local targets. */
+export function parseServeStatus(json) {
+  let parsed;
+  try { parsed = JSON.parse(json); } catch { return []; }
+  const entries = [];
+  for (const [key, config] of Object.entries(parsed?.Web ?? {})) {
+    const match = key.match(/^(.+):(\d+)$/);
+    if (!match) continue;
+    const target = config?.Handlers?.["/"]?.Proxy ?? null;
+    entries.push({ dnsName: match[1], port: Number(match[2]), target });
+  }
+  return entries.sort((a, b) => a.port - b.port);
+}
 
 /** Catalog application operations — one generic implementation for every manifest. */
 export function appOperations() {
@@ -13,6 +28,38 @@ export function appOperations() {
       id: "app.logs", title: "Read application logs", risk: "low", readOnly: true, timeoutMs: 60_000,
       parameters: { fields: { id: idField, lines: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 1000 ? null : "must be 1-1000") } } },
       run: (parameters, { apps }) => apps.logs(parameters),
+    }),
+    defineOperation({
+      id: "app.serve.inspect", title: "Read tailnet HTTPS publishing", risk: "low", readOnly: true, timeoutMs: 30_000,
+      description: "Which local ports Tailscale Serve currently publishes over HTTPS on the tailnet.",
+      run: async (_parameters, { run }) => {
+        const status = await run(tailscaleBinary(), ["serve", "status", "--json"], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 });
+        if (!status.ok) return { available: false, serves: [] };
+        return { available: true, serves: parseServeStatus(status.stdout) };
+      },
+    }),
+    defineOperation({
+      id: "app.serve.set", title: "Publish an app on the tailnet", risk: "medium", timeoutMs: minutes(2),
+      description: "Serves the app's web port over HTTPS on your tailnet with a real certificate (tailnet only — Funnel stays off), or stops serving it.",
+      parameters: { fields: { id: idField, enabled: { type: "boolean" } } },
+      run: async (parameters, { run, apps, progress }) => {
+        const { applications } = await apps.inspect({ id: parameters.id });
+        const application = applications[0];
+        if (!application?.installed) throw new Error("The app is not installed");
+        const port = application.urls[0]?.host;
+        if (!port) throw new Error("The app has no web port to publish");
+        const args = parameters.enabled
+          ? ["serve", "--bg", "--yes", `--https=${port}`, `http://127.0.0.1:${port}`]
+          : ["serve", "--yes", `--https=${port}`, "off"];
+        progress?.(`$ tailscale ${args.join(" ")}`, "stdout");
+        const result = await run(tailscaleBinary(), args, { timeout: 60_000 });
+        if (!result.ok) throw new Error(`tailscale serve failed: ${result.stderr.split("\n").slice(-2).join(" ") || "is Tailscale running?"}`);
+        const status = await run(tailscaleBinary(), ["serve", "status", "--json"], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 });
+        const serves = status.ok ? parseServeStatus(status.stdout) : [];
+        const entry = serves.find((serve) => serve.port === port) ?? null;
+        if (parameters.enabled && !entry) throw new Error("tailscale accepted the command but the port is not being served; check tailscale serve status");
+        return { id: parameters.id, enabled: parameters.enabled, port, url: entry ? `https://${entry.dnsName}${entry.port === 443 ? "" : `:${entry.port}`}` : null };
+      },
     }),
     defineOperation({
       id: "app.backup", title: "Back up application data", risk: "medium", timeoutMs: minutes(70),
