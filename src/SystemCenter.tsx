@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useOperation } from "./ApproveDialog";
 import { inspectOperation } from "./operations";
 
+interface DockerDisk { available: boolean; rows: Array<{ type: string; total: number | string | null; active: number | string | null; size: string | null; reclaimable: string | null }> }
+
 interface SystemSettings {
   hostname: { static: string | null; live: string | null };
   timezone: string | null;
@@ -25,12 +27,18 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
   const [timezone, setTimezone] = useState("");
   const [swappiness, setSwappiness] = useState("");
 
+  const [dockerDisk, setDockerDisk] = useState<DockerDisk | null>(null);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const { result } = await inspectOperation<SystemSettings>("system.settings.inspect");
+      const [{ result }, docker] = await Promise.all([
+        inspectOperation<SystemSettings>("system.settings.inspect"),
+        inspectOperation<DockerDisk>("docker.disk.inspect").catch(() => null),
+      ]);
       setSettings(result);
+      setDockerDisk(docker?.result && Array.isArray(docker.result.rows) ? docker.result : null);
       setHostname(result.hostname.static ?? "");
       setTimezone(result.timezone ?? "");
       setSwappiness(result.swappiness === null ? "" : String(result.swappiness));
@@ -99,6 +107,21 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
           </div>
         )}
       </section>
+
+      {dockerDisk?.available && (
+        <section className="panel">
+          <header className="panel-header">
+            <div><strong>Docker disk use</strong><span>Cleanup removes stopped containers, unused networks, dangling images, and the build cache. Volumes and running apps are kept.</span></div>
+            <button className="secondary-button" type="button" disabled={loading} onClick={() => start({ operationId: "docker.prune", title: "Clean up Docker disk space", parameters: {}, preview: <span><code>docker system prune --force</code> — volumes and images in use are kept.</span> })}>Clean up</button>
+          </header>
+          <div className="table-scroll">
+            <table>
+              <thead><tr><th>Type</th><th>Total</th><th>Active</th><th>Size</th><th>Reclaimable</th></tr></thead>
+              <tbody>{dockerDisk.rows.map((row) => <tr key={row.type}><td>{row.type}</td><td>{row.total ?? "—"}</td><td>{row.active ?? "—"}</td><td>{row.size ?? "—"}</td><td>{row.reclaimable ?? "—"}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <section className="panel">
         <header className="panel-header">

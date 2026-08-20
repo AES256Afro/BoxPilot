@@ -76,5 +76,29 @@ export function systemOperations() {
       parameters: { fields: { value: { type: "number", validate: (value) => (Number.isInteger(value) && value >= 0 && value <= 100 ? null : "must be a whole number between 0 and 100") } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("system.swappiness", { value: parameters.value }, { timeoutMs: 60_000, logPath: jobLog?.path ?? null }),
     }),
+    defineOperation({
+      id: "docker.disk.inspect", title: "Read Docker disk use", risk: "low", readOnly: true, timeoutMs: 60_000,
+      description: "docker system df: how much space images, containers, and the build cache hold, and what is reclaimable.",
+      run: async (_parameters, { run }) => {
+        const docker = process.env.BOXPILOT_DOCKER_BINARY ?? "/usr/bin/docker";
+        const result = await run(docker, ["system", "df", "--format", "json"], { timeout: 45_000, maxBuffer: 2 * 1024 * 1024 });
+        if (!result.ok) return { available: false, rows: [] };
+        const rows = result.stdout.split("\n").filter(Boolean).map((line) => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean)
+          .map((entry) => ({ type: entry.Type, total: entry.TotalCount ?? entry.Total ?? null, active: entry.Active ?? null, size: entry.Size ?? null, reclaimable: entry.Reclaimable ?? null }));
+        return { available: true, rows };
+      },
+    }),
+    defineOperation({
+      id: "docker.prune", title: "Clean up Docker disk space", risk: "medium", timeoutMs: 15 * 60_000,
+      description: "docker system prune: removes stopped containers, unused networks, dangling images, and the build cache. Volumes and images in use are kept.",
+      run: async (_parameters, { run, progress }) => {
+        const docker = process.env.BOXPILOT_DOCKER_BINARY ?? "/usr/bin/docker";
+        progress?.("$ docker system prune --force", "stdout");
+        const result = await run(docker, ["system", "prune", "--force"], { timeout: 10 * 60_000, maxBuffer: 8 * 1024 * 1024, onLine: progress ?? undefined });
+        if (!result.ok) throw new Error(`docker system prune failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
+        const reclaimed = result.stdout.match(/Total reclaimed space:\s*(.+)$/m)?.[1] ?? null;
+        return { pruned: true, reclaimed };
+      },
+    }),
   ];
 }
