@@ -106,6 +106,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [config, setConfig] = useState<{ manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure" } | null>(null);
   const [logs, setLogs] = useState<{ id: string; lines: string[] } | null>(null);
   const [effectiveConfig, setEffectiveConfig] = useState<{ id: string; name: string; compose: string | null; env: Array<{ name: string; value: string; secret: boolean }>; directory: string } | null>(null);
+  const [appBackups, setAppBackups] = useState<{ id: string; name: string; backups: Array<{ artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; image: string | null }> } | null>(null);
   const [secrets, setSecrets] = useState<{ id: string; name: string; items: Array<{ name: string; label: string; value: string }> | null; needsPassword: boolean; password: string; error: string | null } | null>(null);
   const [filter, setFilter] = useState("");
 
@@ -146,6 +147,17 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
       setEffectiveConfig(body.result);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read the configuration");
+    }
+  };
+
+  const showBackups = async (manifest: Manifest) => {
+    try {
+      const response = await fetch("/api/v1/operations/app.backups.inspect/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id: manifest.id } }) });
+      const body = (await response.json()) as { result?: { id: string; backups: Array<{ artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; image: string | null }> }; error?: string };
+      if (!response.ok || !body.result) throw new Error(body.error ?? "Could not list backups");
+      setAppBackups({ id: manifest.id, name: manifest.name, backups: body.result.backups });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not list backups");
     }
   };
 
@@ -192,6 +204,39 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="logs-title" onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Logs</span><h2 id="logs-title">{logs.id}</h2></div><button className="icon-button" type="button" onClick={() => setLogs(null)} aria-label="Close dialog">X</button></header>
             <pre className="app-logs">{logs.lines.join("\n") || "(no output)"}</pre>
+          </section>
+        </div>
+      )}
+
+      {appBackups && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setAppBackups(null)}>
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="backups-title" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="modal-header"><div><span className="eyebrow">Backups</span><h2 id="backups-title">{appBackups.name}</h2></div><button className="icon-button" type="button" onClick={() => setAppBackups(null)} aria-label="Close dialog">X</button></header>
+            <div className="modal-copy">
+              {appBackups.backups.length === 0 && <p>No backups yet. Back up creates a consistent archive of the app's data and configuration.</p>}
+              {appBackups.backups.length > 0 && (
+                <div className="table-scroll">
+                  <table>
+                    <thead><tr><th>Created</th><th>Size</th><th aria-label="Actions" /></tr></thead>
+                    <tbody>
+                      {appBackups.backups.map((backup) => (
+                        <tr key={backup.artifact}>
+                          <td>{backup.createdAt ? new Date(backup.createdAt).toLocaleString() : backup.artifact}</td>
+                          <td>{backup.sizeBytes !== null ? `${(backup.sizeBytes / 1024 / 1024).toFixed(1)} MiB` : "—"}</td>
+                          <td>
+                            <div className="recovery-actions">
+                              <button className="text-button" type="button" onClick={() => { const target = appBackups; setAppBackups(null); start({ operationId: "app.backup.restore", title: `Restore ${target.name} from ${backup.createdAt ? new Date(backup.createdAt).toLocaleString() : backup.artifact}`, parameters: { id: target.id, backup: backup.artifact }, preview: <span>Saves the current state as a safety copy first, then replaces {target.name}'s data and configuration with this backup and starts it.</span> }); }}>Restore</button>
+                              <button className="text-button" type="button" onClick={() => { const target = appBackups; setAppBackups(null); start({ operationId: "app.backup.delete", title: `Delete backup of ${target.name}`, parameters: { id: target.id, backup: backup.artifact }, preview: <span>Deletes the archive from {backup.createdAt ? new Date(backup.createdAt).toLocaleString() : backup.artifact}. This cannot be undone.</span> }); }}>Delete</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {appBackups.backups.some((backup) => backup.skippedHostPaths.length > 0) && <p className="muted">Volumes at operator-managed host paths are not included: {[...new Set(appBackups.backups.flatMap((backup) => backup.skippedHostPaths))].join(", ")}</p>}
+            </div>
           </section>
         </div>
       )}
@@ -271,6 +316,8 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                 {installed && <button className={live?.updateAvailable ? "primary-button" : "secondary-button"} type="button" onClick={() => start({ operationId: "app.update", title: `Update ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>{live?.updateAvailable ? <>Updates from <code>{live.installedImage}</code> to <code>{manifest.image.reference}</code>. </> : null}Pulls the image and recreates the container. The previous image is restored if the new one fails to become healthy.</span> })}>{live?.updateAvailable ? "Update available" : "Update"}</button>}
                 {installed && <button className="text-button" type="button" onClick={() => void showLogs(manifest.id)}>Logs</button>}
                 {installed && <button className="text-button" type="button" onClick={() => void showEffectiveConfig(manifest.id)}>Config</button>}
+                {installed && <button className="text-button" type="button" onClick={() => start({ operationId: "app.backup", title: `Back up ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Stops {manifest.name} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.</span> })}>Back up</button>}
+                {(installed || live?.dataPresent) && <button className="text-button" type="button" onClick={() => void showBackups(manifest)}>Backups</button>}
                 {installed && manifest.env.some((entry) => entry.secret) && <button className="text-button" type="button" onClick={() => void revealSecrets(manifest)}>Secrets</button>}
                 {installed && <button className="text-button" type="button" onClick={() => start({ operationId: "app.uninstall", title: `Uninstall ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Stops and removes the container. Data under the app directory is kept so you can reinstall later.</span> })}>Uninstall</button>}
                 {live?.dataPresent && <button className="text-button danger-text" type="button" onClick={() => start({ operationId: "app.purge", title: `Delete ${manifest.name} and its data`, parameters: { id: manifest.id }, preview: <span>Removes the container <strong>and deletes everything</strong> under the app's data directory. This cannot be undone.</span> })}>Delete data</button>}
