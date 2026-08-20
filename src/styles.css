@@ -3264,3 +3264,8 @@ textarea {
 .dashboard-app a:hover { text-decoration: underline; }
 .dashboard-jobs { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
 .dashboard-jobs li { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
+
+/* Schedules panel (M6.1) */
+.schedules-panel .schedule-form { margin-top: 12px; flex-wrap: wrap; }
+.schedules-panel .schedule-form select, .schedules-panel .schedule-form input { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-muted); color: var(--text); }
+.schedule-disabled td { opacity: 0.55; }

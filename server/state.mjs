@@ -474,6 +474,22 @@ export function createStateStore({
       created_by TEXT NOT NULL REFERENCES owners(id),
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS schedules (
+      id TEXT PRIMARY KEY,
+      operation_id TEXT NOT NULL,
+      parameters_json TEXT NOT NULL,
+      frequency TEXT NOT NULL,
+      minute INTEGER NOT NULL,
+      hour INTEGER,
+      weekday INTEGER,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL,
+      next_due_at TEXT NOT NULL,
+      last_run_at TEXT,
+      last_job_id TEXT,
+      last_result TEXT
+    );
     CREATE TABLE IF NOT EXISTS audit_events (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,
@@ -797,6 +813,68 @@ export function createStateStore({
 
   function listActiveJobs() {
     return database.prepare("SELECT id FROM jobs WHERE state IN ('applying', 'verifying') ORDER BY created_at").all().map((row) => getJob(row.id));
+  }
+
+  function normalizeSchedule(row) {
+    if (!row) return null;
+    return {
+      id: row.id,
+      operationId: row.operation_id,
+      parameters: parseJson(row.parameters_json),
+      frequency: row.frequency,
+      minute: row.minute,
+      hour: row.hour,
+      weekday: row.weekday,
+      enabled: Boolean(row.enabled),
+      createdBy: row.created_by,
+      createdAt: row.created_at,
+      nextDueAt: row.next_due_at,
+      lastRunAt: row.last_run_at,
+      lastJobId: row.last_job_id,
+      lastResult: row.last_result,
+    };
+  }
+
+  function createSchedule({ operationId, parameters = {}, frequency, minute, hour = null, weekday = null, createdBy, nextDueAt }) {
+    const schedule = { id: randomUUID(), operationId, parameters, frequency, minute, hour, weekday, enabled: true, createdBy, createdAt: timestamp(), nextDueAt };
+    database.prepare("INSERT INTO schedules (id, operation_id, parameters_json, frequency, minute, hour, weekday, enabled, created_by, created_at, next_due_at) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)")
+      .run(schedule.id, operationId, json(parameters), frequency, minute, hour, weekday, createdBy, schedule.createdAt, nextDueAt);
+    recordAudit("schedule.created", { actorId: createdBy, subjectId: schedule.id, details: { operationId, frequency, minute, hour, weekday } });
+    return getSchedule(schedule.id);
+  }
+
+  function getSchedule(id) {
+    return normalizeSchedule(database.prepare("SELECT * FROM schedules WHERE id = ?").get(id));
+  }
+
+  function listSchedules() {
+    return database.prepare("SELECT * FROM schedules ORDER BY created_at").all().map(normalizeSchedule);
+  }
+
+  function listDueSchedules(nowIso) {
+    return database.prepare("SELECT * FROM schedules WHERE enabled = 1 AND next_due_at <= ? ORDER BY next_due_at").all(nowIso).map(normalizeSchedule);
+  }
+
+  function setScheduleEnabled(id, enabled, { actorId = null, nextDueAt = null } = {}) {
+    const changes = nextDueAt
+      ? database.prepare("UPDATE schedules SET enabled = ?, next_due_at = ? WHERE id = ?").run(enabled ? 1 : 0, nextDueAt, id).changes
+      : database.prepare("UPDATE schedules SET enabled = ? WHERE id = ?").run(enabled ? 1 : 0, id).changes;
+    if (!Number(changes)) throw new Error("Schedule not found");
+    recordAudit(enabled ? "schedule.enabled" : "schedule.disabled", { actorId, subjectId: id });
+    return getSchedule(id);
+  }
+
+  function markScheduleRun(id, { jobId = null, result = null, nextDueAt }) {
+    database.prepare("UPDATE schedules SET last_run_at = ?, last_job_id = ?, last_result = ?, next_due_at = ? WHERE id = ?")
+      .run(timestamp(), jobId, result, nextDueAt, id);
+    return getSchedule(id);
+  }
+
+  function deleteSchedule(id, { actorId = null } = {}) {
+    const changes = Number(database.prepare("DELETE FROM schedules WHERE id = ?").run(id).changes);
+    if (!changes) throw new Error("Schedule not found");
+    recordAudit("schedule.deleted", { actorId, subjectId: id });
+    return true;
   }
 
   function recordBackup({ id, applicationId, destination, artifactPath, checksumSha256, sizeBytes, downtimeMs, restoreDrill, createdBy }) {
@@ -1911,6 +1989,13 @@ export function createStateStore({
     getJob,
     listJobs,
     listActiveJobs,
+    createSchedule,
+    getSchedule,
+    listSchedules,
+    listDueSchedules,
+    setScheduleEnabled,
+    markScheduleRun,
+    deleteSchedule,
     recordBackup,
     getBackup,
     listBackups,
