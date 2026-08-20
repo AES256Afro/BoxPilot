@@ -65,7 +65,9 @@ PrivateNetwork=true
 PrivateTmp=true
 ProtectClock=true
 ProtectControlGroups=true
-ProtectHome=true
+# read-only (not true): users.inspect counts ~/.ssh/authorized_keys entries to show SSH
+# access state; writes to /home and /root stay blocked.
+ProtectHome=read-only
 ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
