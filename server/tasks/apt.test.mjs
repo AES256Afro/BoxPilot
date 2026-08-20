@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { aptAutoremove, aptInstall, aptRemove, aptTaskInternals, aptUpdate, aptUpgrade, validPackageList } from "./apt.mjs";
+import { aptAutoremove, aptInstall, aptRemove, aptTaskInternals, aptUnattendedSet, aptUpdate, aptUpgrade, validPackageList } from "./apt.mjs";
 
 function fakeRun(versions = {}, { failApt = false } = {}) {
   return vi.fn(async (binary, args) => {
@@ -73,5 +73,20 @@ describe("root system tasks", () => {
     expect(run).toHaveBeenCalledWith("/usr/bin/systemd-run", ["--quiet", "--on-active", "7", "--unit", "boxpilot-reboot", "/usr/bin/systemctl", "reboot"], expect.anything());
     await expect(systemReboot({ delaySeconds: 99999 }, { run })).resolves.toMatchObject({ inSeconds: 5 });
     await expect(systemReboot({}, { run: vi.fn(async () => ({ ok: false, stdout: "", stderr: "no dbus" })) })).rejects.toThrow("Could not schedule");
+  });
+
+  it("toggles unattended upgrades, installing the package only when missing", async () => {
+    const written = {};
+    const files = { writeFile: vi.fn(async (path, content) => { written[path] = content; }) };
+    const run = fakeRun({});
+    await expect(aptUnattendedSet({ enabled: true }, { run, files, exists: async () => false })).resolves.toMatchObject({ enabled: true, installedNow: true });
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--yes", "--no-install-recommends", "unattended-upgrades"], expect.anything());
+    expect(written["/etc/apt/apt.conf.d/20auto-upgrades"]).toContain('APT::Periodic::Unattended-Upgrade "1"');
+
+    const disableRun = fakeRun({});
+    await expect(aptUnattendedSet({ enabled: false }, { run: disableRun, files, exists: async () => true })).resolves.toMatchObject({ enabled: false, installedNow: false });
+    expect(disableRun).not.toHaveBeenCalledWith("/usr/bin/apt-get", expect.anything(), expect.anything());
+    expect(written["/etc/apt/apt.conf.d/20auto-upgrades"]).toContain('APT::Periodic::Unattended-Upgrade "0"');
+    await expect(aptUnattendedSet({ enabled: "yes" }, { run, files })).rejects.toThrow("true or false");
   });
 });

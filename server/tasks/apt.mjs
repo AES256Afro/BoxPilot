@@ -3,7 +3,7 @@
  * (which has network access, unlike the helper). Each task validates its own parameters
  * again — the spec file is written by the helper, but defense in depth is cheap.
  */
-import { access } from "node:fs/promises";
+import { access, writeFile } from "node:fs/promises";
 import { fixedRun } from "../exec.mjs";
 
 export const packageNamePattern = /^[a-z0-9][a-z0-9+.-]{0,99}$/;
@@ -123,6 +123,25 @@ export async function aptAutoremove(_parameters = {}, { run: baseRun = fixedRun,
   const result = await run(aptGet, ["autoremove", "--yes", "--purge"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024 });
   if (!result.ok) throw new Error(`apt-get autoremove failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   return { autoremoved: true, summary: summarizeAptOutput(result.stdout), rebootRequired: await rebootRequired() };
+}
+
+const autoUpgradesPath = "/etc/apt/apt.conf.d/20auto-upgrades";
+
+/** Turn nightly unattended security upgrades on or off, installing the package when needed. */
+export async function aptUnattendedSet({ enabled } = {}, { run: baseRun = fixedRun, log = null, files = { writeFile }, exists = (target) => access(target).then(() => true, () => false) } = {}) {
+  if (typeof enabled !== "boolean") throw new Error("enabled must be true or false");
+  const run = withLog(baseRun, log);
+  let installedNow = false;
+  if (enabled && !(await exists("/usr/bin/unattended-upgrade"))) {
+    await repairPackageState({ run });
+    const install = await run(aptGet, ["install", "--yes", "--no-install-recommends", "unattended-upgrades"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+    if (!install.ok) throw new Error(`Could not install unattended-upgrades: ${install.stderr.split("\n").slice(-3).join(" ")}`);
+    installedNow = true;
+  }
+  const value = enabled ? "1" : "0";
+  await files.writeFile(autoUpgradesPath, `APT::Periodic::Update-Package-Lists "${value}";\nAPT::Periodic::Unattended-Upgrade "${value}";\n`);
+  log?.(`Wrote ${autoUpgradesPath} with Unattended-Upgrade "${value}"`, "stdout");
+  return { enabled, installedNow, configPath: autoUpgradesPath };
 }
 
 export const aptTaskInternals = { installedVersions, summarizeAptOutput };

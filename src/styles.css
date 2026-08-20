@@ -3243,3 +3243,10 @@ textarea {
 .firewall-center { display: grid; gap: 16px; }
 .firewall-center .recovery-actions input { min-width: 140px; }
 .firewall-center .recovery-actions select { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-muted); color: var(--text); }
+
+/* Curated common tools (M2.2) */
+.curated-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.curated-tool { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: 10px; background: var(--surface-muted); }
+.curated-tool > div { display: grid; gap: 2px; }
+.curated-tool span { color: var(--muted); font-size: 12px; }
+.curated-installed { border-color: rgb(67 211 170 / 35%); }
