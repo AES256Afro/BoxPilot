@@ -203,3 +203,20 @@ export function resolveValues(manifest, raw = {}) {
   if (errors.length) return { values: null, errors };
   return { values: { ports, env, volumes }, errors: [] };
 }
+
+/**
+ * Drop stored value keys the current manifest no longer accepts, so update/redeploy of an
+ * installed app never fails on settings the operator could not change anyway (for example a
+ * non-configurable volume echoed into old state, or a setting a manifest revision removed).
+ */
+export function sanitizeStoredValues(manifest, stored = {}) {
+  const raw = isObject(stored) ? stored : {};
+  const ports = isObject(raw.ports) ? raw.ports : {};
+  const env = isObject(raw.env) ? raw.env : {};
+  const volumes = isObject(raw.volumes) ? raw.volumes : {};
+  return {
+    ports: Object.fromEntries(Object.entries(ports).filter(([id]) => manifest.ports.some((port) => port.id === id))),
+    env: Object.fromEntries(Object.entries(env).filter(([name]) => manifest.env.some((entry) => entry.name === name))),
+    volumes: Object.fromEntries(Object.entries(volumes).filter(([id]) => manifest.volumes.some((volume) => volume.id === id && volume.configurable))),
+  };
+}
