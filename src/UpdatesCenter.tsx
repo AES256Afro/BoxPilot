@@ -17,8 +17,22 @@ interface UpgradableReport {
   rebootRequired: boolean;
 }
 
+interface UnattendedReport { installed: boolean; enabled: boolean }
+interface CuratedReport { packages: Array<{ name: string; installed: boolean; version: string | null }> }
+
+const curatedDescriptions: Record<string, string> = {
+  htop: "interactive process viewer", btop: "modern resource monitor", tmux: "terminal multiplexer",
+  git: "version control", curl: "HTTP client", wget: "file downloader", jq: "JSON processor",
+  ncdu: "disk usage explorer", tree: "directory trees", ripgrep: "fast text search (rg)", zsh: "Z shell",
+  unzip: "zip extraction", "net-tools": "ifconfig and netstat", dnsutils: "dig and nslookup",
+  iotop: "disk I/O monitor", smartmontools: "disk SMART health", restic: "backup engine",
+  "nfs-common": "NFS mounts", "cifs-utils": "SMB/CIFS mounts",
+};
+
 export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
   const [report, setReport] = useState<UpgradableReport | null>(null);
+  const [unattended, setUnattended] = useState<UnattendedReport | null>(null);
+  const [curated, setCurated] = useState<CuratedReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -28,9 +42,15 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
     setLoading(true);
     setError(null);
     try {
-      const { result } = await inspectOperation<UpgradableReport>("apt.upgradable.inspect");
-      setReport(result);
-      setSelected((current) => new Set([...current].filter((name) => result.upgradable.some((item) => item.name === name))));
+      const [upgradable, unattendedResult, curatedResult] = await Promise.all([
+        inspectOperation<UpgradableReport>("apt.upgradable.inspect"),
+        inspectOperation<UnattendedReport>("apt.unattended.inspect").catch(() => null),
+        inspectOperation<CuratedReport>("packages.curated.inspect").catch(() => null),
+      ]);
+      setReport(upgradable.result);
+      setUnattended(unattendedResult?.result && typeof unattendedResult.result.enabled === "boolean" ? unattendedResult.result : null);
+      setCurated(curatedResult?.result && Array.isArray(curatedResult.result.packages) ? curatedResult.result : null);
+      setSelected((current) => new Set([...current].filter((name) => upgradable.result.upgradable.some((item) => item.name === name))));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read available updates");
     } finally {
@@ -53,6 +73,23 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
         <article className="panel"><span className="eyebrow">Available updates</span><strong>{loading ? "…" : report?.count ?? "—"}</strong><span>{report?.securityCount ? `${report.securityCount} security` : "packages"}</span></article>
         <article className="panel"><span className="eyebrow">Reboot</span><strong>{report?.rebootRequired ? "Required" : "Not needed"}</strong><span>{report?.rebootRequired ? "A kernel or core library changed" : "Nothing pending a restart"}</span>
           {report?.rebootRequired && <div className="recovery-actions"><button className="secondary-button" type="button" onClick={() => start({ operationId: "system.reboot", title: "Reboot the server", parameters: {}, preview: <span>Reboots in 5 seconds after approval. Running VMs and containers stop; reconnect when the host is back.</span> })}>Reboot now</button></div>}
+        </article>
+        <article className="panel">
+          <span className="eyebrow">Automatic updates</span>
+          <strong>{loading && !unattended ? "…" : unattended?.enabled ? "On" : "Off"}</strong>
+          <span>{unattended?.enabled ? "Security upgrades install nightly" : "Security upgrades wait for you"}</span>
+          {unattended && (
+            <div className="recovery-actions">
+              <button className="secondary-button" type="button" disabled={loading} onClick={() => start({
+                operationId: "apt.unattended.set",
+                title: unattended.enabled ? "Turn off automatic updates" : "Turn on automatic updates",
+                parameters: { enabled: !unattended.enabled },
+                preview: unattended.enabled
+                  ? <span>Sets <code>APT::Periodic::Unattended-Upgrade "0"</code>. You install updates from this page instead.</span>
+                  : <span>{unattended.installed ? "" : "Installs unattended-upgrades, then "}sets <code>APT::Periodic::Unattended-Upgrade "1"</code> so security updates install nightly.</span>,
+              })}>{unattended.enabled ? "Turn off" : "Turn on"}</button>
+            </div>
+          )}
         </article>
         <article className="panel">
           <span className="eyebrow">Actions</span>
@@ -88,6 +125,22 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
           </table>
         </div>
       </section>
+
+      {curated && (
+        <section className="panel">
+          <header className="panel-header"><div><strong>Common tools</strong><span>One-confirm installs of the packages most servers want. Anything else installs below.</span></div></header>
+          <div className="curated-grid">
+            {curated.packages.map((tool) => (
+              <article key={tool.name} className={`curated-tool${tool.installed ? " curated-installed" : ""}`}>
+                <div><code>{tool.name}</code><span>{curatedDescriptions[tool.name] ?? ""}</span></div>
+                {tool.installed
+                  ? <button className="text-button" type="button" onClick={() => start({ operationId: "apt.remove", title: `Remove ${tool.name}`, parameters: { packages: [tool.name] }, preview: <span>Removes {tool.name} ({tool.version}) and anything only it needed.</span> })}>Remove</button>
+                  : <button className="secondary-button" type="button" onClick={() => start({ operationId: "apt.install", title: `Install ${tool.name}`, parameters: { packages: [tool.name] }, preview: <span><code>apt-get install --no-install-recommends {tool.name}</code></span> })}>Install</button>}
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="panel">
         <header className="panel-header"><div><strong>Install packages</strong><span>Any Ubuntu package, installed without recommends. Medium risk: you confirm before it runs.</span></div></header>

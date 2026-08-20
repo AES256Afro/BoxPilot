@@ -69,4 +69,35 @@ describe("Updates center", () => {
     fireEvent.change(input, { target: { value: "correct horse battery" } });
     expect(button.disabled).toBe(false);
   });
+
+  it("shows the automatic-updates toggle and stages curated tool installs", async () => {
+    let stagedUnattended: string | undefined;
+    let stagedInstall: string | undefined;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/apt.upgradable.inspect/inspect")) return json({ operation: "apt.upgradable.inspect", result: { count: 0, securityCount: 0, rebootRequired: false, upgradable: [] } });
+      if (url.endsWith("/operations/apt.unattended.inspect/inspect")) return json({ operation: "apt.unattended.inspect", result: { installed: false, enabled: false } });
+      if (url.endsWith("/operations/packages.curated.inspect/inspect")) return json({ operation: "packages.curated.inspect", result: { packages: [
+        { name: "htop", installed: true, version: "3.3.0-4" },
+        { name: "restic", installed: false, version: null },
+      ] } });
+      if (url.endsWith("/operations/apt.unattended.set/jobs")) { stagedUnattended = init?.body as string; return json({ job: { id: "job-u", type: "op:apt.unattended.set", title: "Change automatic security updates", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201); }
+      if (url.endsWith("/operations/apt.install/jobs")) { stagedInstall = init?.body as string; return json({ job: { id: "job-i", type: "op:apt.install", title: "Install packages", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201); }
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<UpdatesCenter csrfToken="csrf-token" />);
+
+    expect(await screen.findByText("Security upgrades wait for you")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    expect(JSON.parse(stagedUnattended ?? "{}")).toEqual({ parameters: { enabled: true } });
+    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+
+    expect(screen.getByText("backup engine")).toBeTruthy();
+    const curatedInstall = screen.getAllByRole("button", { name: "Install" }).find((button) => !(button as HTMLButtonElement).disabled);
+    fireEvent.click(curatedInstall as HTMLElement);
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    expect(JSON.parse(stagedInstall ?? "{}")).toEqual({ parameters: { packages: ["restic"] } });
+  });
 });

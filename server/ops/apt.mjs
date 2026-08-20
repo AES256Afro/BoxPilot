@@ -1,6 +1,28 @@
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
 import { validPackageList } from "../tasks/apt.mjs";
+
+/** Common server tools offered on the Updates & packages page (M2.2). */
+export const curatedPackages = Object.freeze([
+  "htop", "btop", "tmux", "git", "curl", "wget", "jq", "ncdu", "tree", "ripgrep", "zsh",
+  "unzip", "net-tools", "dnsutils", "iotop", "smartmontools", "restic", "nfs-common", "cifs-utils",
+]);
+
+/** Parse `APT::Periodic::<name> "<value>";` lines from 20auto-upgrades. */
+export function parseAutoUpgrades(content) {
+  const value = (name) => String(content ?? "").match(new RegExp(`APT::Periodic::${name}\\s+"(\\d+)"`, "i"))?.[1] ?? null;
+  return { updateLists: value("Update-Package-Lists"), unattendedUpgrade: value("Unattended-Upgrade") };
+}
+
+/** Parse `dpkg-query -W -f'${Package}\\t${Status}\\t${Version}\\n'` output. */
+export function parseDpkgQuery(stdout) {
+  const installed = {};
+  for (const line of String(stdout ?? "").split("\n")) {
+    const [name, status, version] = line.split("\t");
+    if (name && status === "install ok installed") installed[name] = version ?? "";
+  }
+  return installed;
+}
 
 const minutes = (value) => value * 60_000;
 const packagesField = { type: "array", validate: (value) => validPackageList(value) };
@@ -68,6 +90,30 @@ export function aptOperations() {
       id: "apt.autoremove", title: "Remove unused packages", risk: "medium", timeoutMs: minutes(40),
       description: "Runs apt-get autoremove --purge.",
       run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("apt.autoremove", {}, { timeoutMs: minutes(35), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "apt.unattended.inspect", title: "Read automatic update settings", risk: "low", readOnly: true,
+      description: "Whether unattended-upgrades is installed and the nightly security upgrade is switched on.",
+      run: async () => {
+        const installed = await access("/usr/bin/unattended-upgrade").then(() => true, () => false);
+        const config = parseAutoUpgrades(await readFile("/etc/apt/apt.conf.d/20auto-upgrades", "utf8").catch(() => ""));
+        return { installed, enabled: installed && config.unattendedUpgrade === "1", config };
+      },
+    }),
+    defineOperation({
+      id: "apt.unattended.set", title: "Change automatic security updates", risk: "medium", timeoutMs: minutes(40),
+      description: "Turns nightly unattended security upgrades on or off, installing unattended-upgrades first when needed.",
+      parameters: { fields: { enabled: { type: "boolean" } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("apt.unattended", { enabled: parameters.enabled }, { timeoutMs: minutes(35), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "packages.curated.inspect", title: "Read common tool state", risk: "low", readOnly: true,
+      description: "Which of the curated common server tools are installed, and their versions.",
+      run: async (_parameters, { run }) => {
+        const result = await run("/usr/bin/dpkg-query", ["-W", "-f", "${Package}\\t${Status}\\t${Version}\\n", ...curatedPackages], { timeout: 30_000, maxBuffer: 2 * 1024 * 1024 });
+        const installed = parseDpkgQuery(result.stdout);
+        return { packages: curatedPackages.map((name) => ({ name, installed: name in installed, version: installed[name] ?? null })) };
+      },
     }),
   ];
 }

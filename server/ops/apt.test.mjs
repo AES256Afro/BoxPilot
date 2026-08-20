@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { aptOperations, parseUpgradable } from "./apt.mjs";
+import { aptOperations, curatedPackages, parseAutoUpgrades, parseDpkgQuery, parseUpgradable } from "./apt.mjs";
 import { createRegistry } from "./registry.mjs";
 
 const registry = createRegistry([aptOperations]);
@@ -23,6 +23,23 @@ describe("apt operations", () => {
     await expect(registry.execute("apt.remove", { packages: ["git"] }, { runUnit })).resolves.toMatchObject({ task: "apt.remove", parameters: { purge: false } });
     await expect(registry.execute("apt.purge", { packages: ["git"] }, { runUnit })).resolves.toMatchObject({ task: "apt.remove", parameters: { purge: true } });
     await expect(registry.execute("apt.autoremove", {}, { runUnit })).resolves.toMatchObject({ task: "apt.autoremove" });
+  });
+
+  it("parses 20auto-upgrades and dpkg-query output", () => {
+    expect(parseAutoUpgrades('APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\n')).toEqual({ updateLists: "1", unattendedUpgrade: "1" });
+    expect(parseAutoUpgrades("")).toEqual({ updateLists: null, unattendedUpgrade: null });
+    expect(parseDpkgQuery("htop\tinstall ok installed\t3.3.0-4\ngit\tdeinstall ok config-files\t2.43\n")).toEqual({ htop: "3.3.0-4" });
+  });
+
+  it("reports curated tool state from dpkg-query and stages the unattended toggle", async () => {
+    const run = vi.fn(async () => ({ ok: false, stdout: "htop\tinstall ok installed\t3.3.0-4\n", stderr: "no packages found matching restic" }));
+    const report = await registry.execute("packages.curated.inspect", {}, { run });
+    expect(report.packages.find((entry) => entry.name === "htop")).toEqual({ name: "htop", installed: true, version: "3.3.0-4" });
+    expect(report.packages.find((entry) => entry.name === "restic")).toEqual({ name: "restic", installed: false, version: null });
+    expect(report.packages).toHaveLength(curatedPackages.length);
+    const runUnit = { runTask: vi.fn(async (task, parameters) => ({ task, parameters })) };
+    await expect(registry.execute("apt.unattended.set", { enabled: true }, { runUnit })).resolves.toEqual({ task: "apt.unattended", parameters: { enabled: true } });
+    await expect(registry.execute("apt.unattended.set", { enabled: "yes" }, { runUnit })).rejects.toThrow("boolean");
   });
 
   it("rejects bad parameters before anything runs", async () => {
