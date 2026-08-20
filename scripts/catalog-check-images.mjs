@@ -44,9 +44,12 @@ if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop()
   let failed = problems.length;
   for (const problem of problems) console.log(`INVALID ${problem.file}: ${problem.errors.join("; ")}`);
   for (const manifest of manifests) {
-    const result = await checkImage(manifest.image.reference);
-    console.log(`${result.ok ? "ok     " : "MISSING"} ${manifest.id.padEnd(14)} ${manifest.image.reference} (${result.status})`);
-    if (!result.ok) failed += 1;
+    const references = [manifest.image.reference, ...(manifest.sidecars ?? []).map((sidecar) => sidecar.image)];
+    for (const reference of references) {
+      const result = await checkImage(reference);
+      console.log(`${result.ok ? "ok     " : "MISSING"} ${manifest.id.padEnd(14)} ${reference} (${result.status})`);
+      if (!result.ok) failed += 1;
+    }
   }
   process.exitCode = failed ? 1 : 0;
 }

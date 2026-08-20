@@ -26,7 +26,7 @@ function checkKeys(errors, path, value, allowed, required = []) {
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
-  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall"], ["schemaVersion", "id", "name", "category", "description", "image"]);
+  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars"], ["schemaVersion", "id", "name", "category", "description", "image"]);
   if (raw.schemaVersion !== 2) fail(errors, "manifest.schemaVersion", "must be 2");
   if (typeof raw.id !== "string" || !idPattern.test(raw.id)) fail(errors, "manifest.id", "must be a short lower-case slug");
   for (const field of ["name", "category", "description"]) if (typeof raw[field] !== "string" || !raw[field].trim() || raw[field].length > 400) fail(errors, `manifest.${field}`, "must be a non-empty string");
@@ -109,6 +109,33 @@ export function validateManifest(raw) {
     }
   }
 
+  // sidecars: unconfigurable helper services (a database, a broker) in the same compose project.
+  // The main app reaches one at its sidecar id as hostname; sidecar env may reference ${VAR}
+  // from the app's env (compose interpolates from the shared .env file).
+  const sidecars = Array.isArray(raw.sidecars) ? raw.sidecars : raw.sidecars === undefined ? [] : (fail(errors, "manifest.sidecars", "must be a list"), []);
+  const sidecarIds = new Set();
+  const managedPaths = new Set(volumes.filter((volume) => isObject(volume) && typeof volume.path === "string").map((volume) => volume.path));
+  sidecars.forEach((sidecar, index) => {
+    const path = `manifest.sidecars[${index}]`;
+    if (!isObject(sidecar)) return fail(errors, path, "must be a mapping");
+    checkKeys(errors, path, sidecar, ["id", "image", "command", "env", "volumes"], ["id", "image"]);
+    if (typeof sidecar.id !== "string" || !keyPattern.test(sidecar.id) || sidecarIds.has(sidecar.id) || sidecar.id === raw.id) fail(errors, `${path}.id`, "must be a unique short slug distinct from the app id"); else sidecarIds.add(sidecar.id);
+    if (typeof sidecar.image !== "string" || !imagePattern.test(sidecar.image)) fail(errors, `${path}.image`, "must be a valid image reference");
+    if (sidecar.command !== undefined && !(Array.isArray(sidecar.command) && sidecar.command.every((part) => typeof part === "string"))) fail(errors, `${path}.command`, "must be an array of strings");
+    if (sidecar.env !== undefined && !(isObject(sidecar.env) && Object.entries(sidecar.env).every(([name, value]) => envNamePattern.test(name) && typeof value === "string" && value.length <= 512))) fail(errors, `${path}.env`, "must map variable names to strings");
+    const sidecarVolumes = Array.isArray(sidecar.volumes) ? sidecar.volumes : sidecar.volumes === undefined ? [] : (fail(errors, `${path}.volumes`, "must be a list"), []);
+    sidecarVolumes.forEach((volume, volumeIndex) => {
+      const volumePath = `${path}.volumes[${volumeIndex}]`;
+      if (!isObject(volume)) return fail(errors, volumePath, "must be a mapping");
+      checkKeys(errors, volumePath, volume, ["id", "container", "path", "backup"], ["id", "container", "path"]);
+      if (typeof volume.id !== "string" || !keyPattern.test(volume.id)) fail(errors, `${volumePath}.id`, "must be a short slug");
+      if (typeof volume.container !== "string" || !containerPathPattern.test(volume.container)) fail(errors, `${volumePath}.container`, "must be an absolute container path");
+      if (typeof volume.path !== "string" || !relativePathPattern.test(volume.path) || managedPaths.has(volume.path)) fail(errors, `${volumePath}.path`, "must be a unique relative directory name (sidecar data is always managed)"); else managedPaths.add(volume.path);
+      if (volume.backup !== undefined && typeof volume.backup !== "boolean") fail(errors, `${volumePath}.backup`, "must be boolean");
+    });
+  });
+  if (sidecars.length && raw.network === "host") fail(errors, "manifest.sidecars", "host-network apps cannot have sidecars (no compose network to reach them on)");
+
   for (const listField of ["capabilities", "devices", "extraHosts"]) {
     if (raw[listField] !== undefined && !(Array.isArray(raw[listField]) && raw[listField].every((item) => typeof item === "string" && item.length <= 128 && !/\s/.test(item)))) fail(errors, `manifest.${listField}`, "must be a list of tokens");
   }
@@ -139,6 +166,13 @@ export function validateManifest(raw) {
     user: raw.user ?? null,
     network: raw.network ?? "bridge",
     uninstall: { note: raw.uninstall?.note ?? null },
+    sidecars: sidecars.map((sidecar) => ({
+      id: sidecar.id,
+      image: sidecar.image,
+      command: sidecar.command ?? null,
+      env: sidecar.env ?? {},
+      volumes: (sidecar.volumes ?? []).map((volume) => ({ id: volume.id, container: volume.container, path: volume.path, backup: volume.backup ?? true })),
+    })),
   });
   return { manifest, errors: [] };
 }
