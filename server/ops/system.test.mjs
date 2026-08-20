@@ -23,6 +23,21 @@ describe("system operations", () => {
     expect(runUnit.runTask).toHaveBeenCalledWith("system.swappiness", { value: 10 }, expect.objectContaining({ timeoutMs: 60_000 }));
   });
 
+  it("reads docker disk use and prunes without touching volumes", async () => {
+    const dfLine = JSON.stringify({ Type: "Images", TotalCount: 12, Active: 8, Size: "6.2GB", Reclaimable: "1.9GB (30%)" });
+    const run = vi.fn(async (_binary, args) => {
+      if (args[0] === "system" && args[1] === "df") return { ok: true, stdout: `${dfLine}\n`, stderr: "" };
+      if (args[0] === "system" && args[1] === "prune") return { ok: true, stdout: "Deleted Containers:\nabc\n\nTotal reclaimed space: 1.9GB", stderr: "" };
+      return { ok: false, stdout: "", stderr: "unknown" };
+    });
+    await expect(operations["docker.disk.inspect"].run({}, { run })).resolves.toEqual({ available: true, rows: [{ type: "Images", total: 12, active: 8, size: "6.2GB", reclaimable: "1.9GB (30%)" }] });
+    await expect(operations["docker.prune"].run({}, { run })).resolves.toEqual({ pruned: true, reclaimed: "1.9GB" });
+    expect(run).toHaveBeenCalledWith("/usr/bin/docker", ["system", "prune", "--force"], expect.anything());
+    expect(run).not.toHaveBeenCalledWith("/usr/bin/docker", expect.arrayContaining(["--volumes"]), expect.anything());
+    const down = vi.fn(async () => ({ ok: false, stdout: "", stderr: "cannot connect" }));
+    await expect(operations["docker.disk.inspect"].run({}, { run: down })).resolves.toEqual({ available: false, rows: [] });
+  });
+
   it("rejects malformed parameters at the registry boundary", () => {
     expect(validateParameters(operations["system.hostname.set"].parameters, { hostname: "ok-name" }, "t")).toBeNull();
     expect(validateParameters(operations["system.hostname.set"].parameters, { hostname: "Bad Name" }, "t")).toContain("invalid value");
