@@ -70,6 +70,11 @@ describe("generic app deployer", () => {
     const logs = await apps.logs({ id: "demo", lines: 5 });
     expect(logs.lines.join("\n")).toContain("password=[REDACTED]");
 
+    const effective = await apps.config({ id: "demo" });
+    expect(effective.compose).toContain("ADMIN_PASSWORD: ${ADMIN_PASSWORD}");
+    expect(effective.env).toContainEqual({ name: "ADMIN_PASSWORD", value: "••••••••", secret: true });
+    expect(JSON.stringify(effective)).not.toContain(env.trim().split("=")[1]); // masked, never the real secret
+
     await expect(apps.reconfigure({ id: "demo", values: { ports: { web: 9191 }, env: { TZ: "Europe/Berlin" } } })).resolves.toMatchObject({ reconfigured: true, hostPorts: [{ host: 9191 }] });
     expect(await readFile(path.join(catalogRoot, "demo", ".env"), "utf8")).toBe(env); // secret preserved
     expect(await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8")).toContain("TZ: Europe/Berlin");
