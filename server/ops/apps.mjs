@@ -15,6 +15,12 @@ export function appOperations() {
       run: (parameters, { apps }) => apps.logs(parameters),
     }),
     defineOperation({
+      id: "app.config.inspect", title: "Read effective application configuration", risk: "low", readOnly: true, timeoutMs: 30_000,
+      description: "The compose.yaml and .env BoxPilot wrote for the app. Secret values are masked; Reveal secrets shows them.",
+      parameters: { fields: { id: idField } },
+      run: (parameters, { apps }) => apps.config(parameters),
+    }),
+    defineOperation({
       id: "app.secrets", title: "Reveal application secrets", risk: "low", readOnly: true, elevatedOnly: true, timeoutMs: 30_000,
       description: "Shows the generated passwords and tokens stored in the application's .env. Requires a recent password (elevated session) and is audited.",
       parameters: { fields: { id: idField } },

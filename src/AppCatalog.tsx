@@ -105,6 +105,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [error, setError] = useState<string | null>(null);
   const [config, setConfig] = useState<{ manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure" } | null>(null);
   const [logs, setLogs] = useState<{ id: string; lines: string[] } | null>(null);
+  const [effectiveConfig, setEffectiveConfig] = useState<{ id: string; name: string; compose: string | null; env: Array<{ name: string; value: string; secret: boolean }>; directory: string } | null>(null);
   const [secrets, setSecrets] = useState<{ id: string; name: string; items: Array<{ name: string; label: string; value: string }> | null; needsPassword: boolean; password: string; error: string | null } | null>(null);
   const [filter, setFilter] = useState("");
 
@@ -134,6 +135,17 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
       setLogs({ id, lines: body.result?.lines ?? [] });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read logs");
+    }
+  };
+
+  const showEffectiveConfig = async (id: string) => {
+    try {
+      const response = await fetch("/api/v1/operations/app.config.inspect/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id } }) });
+      const body = (await response.json()) as { result?: { id: string; name: string; compose: string | null; env: Array<{ name: string; value: string; secret: boolean }>; directory: string }; error?: string };
+      if (!response.ok || !body.result) throw new Error(body.error ?? "Could not read the configuration");
+      setEffectiveConfig(body.result);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not read the configuration");
     }
   };
 
@@ -180,6 +192,25 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="logs-title" onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Logs</span><h2 id="logs-title">{logs.id}</h2></div><button className="icon-button" type="button" onClick={() => setLogs(null)} aria-label="Close dialog">X</button></header>
             <pre className="app-logs">{logs.lines.join("\n") || "(no output)"}</pre>
+          </section>
+        </div>
+      )}
+
+      {effectiveConfig && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setEffectiveConfig(null)}>
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="config-title" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="modal-header"><div><span className="eyebrow">Effective configuration</span><h2 id="config-title">{effectiveConfig.name}</h2></div><button className="icon-button" type="button" onClick={() => setEffectiveConfig(null)} aria-label="Close dialog">X</button></header>
+            <div className="modal-copy">
+              <p>What BoxPilot wrote under <code>{effectiveConfig.directory}</code>. Secret values are masked; use Secrets to reveal them.</p>
+              {effectiveConfig.env.length > 0 && (
+                <>
+                  <strong>.env</strong>
+                  <pre className="app-logs">{effectiveConfig.env.map((entry) => `${entry.name}=${entry.value}`).join("\n")}</pre>
+                </>
+              )}
+              <strong>compose.yaml</strong>
+              <pre className="app-logs">{effectiveConfig.compose ?? "(missing)"}</pre>
+            </div>
           </section>
         </div>
       )}
@@ -239,6 +270,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                 {installed && <button className="secondary-button" type="button" onClick={() => setConfig({ manifest, live, mode: "reconfigure" })}>Settings</button>}
                 {installed && <button className={live?.updateAvailable ? "primary-button" : "secondary-button"} type="button" onClick={() => start({ operationId: "app.update", title: `Update ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>{live?.updateAvailable ? <>Updates from <code>{live.installedImage}</code> to <code>{manifest.image.reference}</code>. </> : null}Pulls the image and recreates the container. The previous image is restored if the new one fails to become healthy.</span> })}>{live?.updateAvailable ? "Update available" : "Update"}</button>}
                 {installed && <button className="text-button" type="button" onClick={() => void showLogs(manifest.id)}>Logs</button>}
+                {installed && <button className="text-button" type="button" onClick={() => void showEffectiveConfig(manifest.id)}>Config</button>}
                 {installed && manifest.env.some((entry) => entry.secret) && <button className="text-button" type="button" onClick={() => void revealSecrets(manifest)}>Secrets</button>}
                 {installed && <button className="text-button" type="button" onClick={() => start({ operationId: "app.uninstall", title: `Uninstall ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Stops and removes the container. Data under the app directory is kept so you can reinstall later.</span> })}>Uninstall</button>}
                 {live?.dataPresent && <button className="text-button danger-text" type="button" onClick={() => start({ operationId: "app.purge", title: `Delete ${manifest.name} and its data`, parameters: { id: manifest.id }, preview: <span>Removes the container <strong>and deletes everything</strong> under the app's data directory. This cannot be undone.</span> })}>Delete data</button>}

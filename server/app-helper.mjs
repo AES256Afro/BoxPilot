@@ -260,6 +260,19 @@ export function createAppHelper({
     return { id, lines: entries };
   }
 
+  /** Effective compose.yaml and .env for an installed app. Secret values are masked here; app.secrets (elevated) reveals them. */
+  async function config({ id }) {
+    const manifest = await ensureManifest(id);
+    const state = await readState(id);
+    if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
+    let compose = null;
+    try { compose = await readFile(path.join(dirFor(id), "compose.yaml"), "utf8"); } catch { compose = null; }
+    const env = await readEnv(id);
+    const secretNames = new Set(manifest.env.filter((entry) => entry.secret).map((entry) => entry.name));
+    const entries = Object.keys(env).sort().map((name) => ({ name, value: secretNames.has(name) ? "••••••••" : env[name], secret: secretNames.has(name) }));
+    return { id, name: manifest.name, compose, env: entries, directory: dirFor(id) };
+  }
+
   /** Generated/secret settings for an installed app, read from its .env. Only exposed to an elevated session; never stored in a job. */
   async function secrets({ id }) {
     const manifest = await ensureManifest(id);
@@ -279,5 +292,5 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { inspect, install, uninstall, update, reconfigure, action, logs, secrets, checkUpdates, catalogRoot: root, internals: { containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { inspect, install, uninstall, update, reconfigure, action, logs, config, secrets, checkUpdates, catalogRoot: root, internals: { containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }
