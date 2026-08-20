@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import CloudVmForm from "./CloudVmForm";
+import { useOperation } from "./ApproveDialog";
 import {
   createLibvirtFoundationPlan,
   createVmLifecyclePlan,
@@ -132,6 +133,10 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // The direct lifecycle verbs (force off, delete, snapshot revert/delete) use the shared
+  // risk-tiered ApproveDialog instead of the legacy plan/stage path.
+  const { start: startOperation, dialog: operationDialog } = useOperation(csrfToken, () => { void refresh(); });
 
   const copySetupCommands = async () => {
     if (!status) return;
@@ -397,6 +402,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
 
   return (
     <div className="vm-page">
+      {operationDialog}
       {status.ready && <CloudVmForm csrfToken={csrfToken} onCreated={() => { void refresh(); }} />}
       <section className={`vm-readiness ${status.ready ? "vm-ready" : "vm-setup-required"}`}>
         <div>
@@ -447,13 +453,21 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
                     ))}
                     {domain.state === "stopped" && <button type="button" className="text-button" disabled={pending !== null || !domain.managed || !domain.persistent} onClick={() => openSnapshotPlanner(domain)}>Plan snapshot</button>}
                     {domain.state === "stopped" && <button type="button" className="text-button" disabled={pending !== null || !domain.managed || !domain.persistent} onClick={() => void planExport(domain)}>{pending === `export-plan:${domain.name}` ? "Inspecting..." : "Plan export"}</button>}
+                    {domain.state === "running" && <button type="button" className="text-button" disabled={pending !== null} onClick={() => startOperation({ operationId: "vm.force-off", title: `Force off ${domain.name}`, parameters: { name: domain.name }, preview: <span>Pulls the virtual power plug with <code>virsh destroy</code>. Unsaved data inside the guest is lost; start the VM again afterwards.</span> })}>Force off</button>}
+                    {domain.state === "stopped" && <button type="button" className="text-button" disabled={pending !== null} onClick={() => startOperation({ operationId: "vm.delete", title: `Delete ${domain.name}`, parameters: { name: domain.name, deleteStorage: true }, preview: <span>Removes the VM definition and deletes its disks. Independent restic backups are kept. This cannot be undone from here.</span> })}>Delete VM</button>}
                   </div>
                   <details className="vm-domain-details">
                     <summary>Disks, network, and snapshots</summary>
                     <div className="vm-detail-grid">
                       <div><strong>Disks</strong>{domain.disks.length ? domain.disks.map((disk) => <span key={`${disk.target}-${disk.source}`}><code>{disk.target}</code>{disk.source}</span>) : <span>No block devices reported</span>}</div>
                       <div><strong>Interfaces</strong>{domain.interfaces.length ? domain.interfaces.map((networkInterface) => <span key={networkInterface.mac}><code>{networkInterface.interface}</code>{networkInterface.source} | {networkInterface.model ?? "default model"}</span>) : <span>No interfaces reported</span>}</div>
-                      <div><strong>Snapshots</strong><span>{domain.snapshotCount === null ? "Unavailable" : `${domain.snapshotCount} reported | not independent backups`}</span>{domain.snapshots.map((snapshot) => <span key={snapshot.name}><code>{snapshot.name}</code>{snapshot.current ? "current" : snapshot.state ?? "state unavailable"} | {snapshot.location ?? "location unavailable"}</span>)}</div>
+                      <div><strong>Snapshots</strong><span>{domain.snapshotCount === null ? "Unavailable" : `${domain.snapshotCount} reported | not independent backups`}</span>{domain.snapshots.map((snapshot) => (
+                        <span key={snapshot.name}>
+                          <code>{snapshot.name}</code>{snapshot.current ? "current" : snapshot.state ?? "state unavailable"} | {snapshot.location ?? "location unavailable"}
+                          {domain.state === "stopped" && <button type="button" className="text-button" disabled={pending !== null} onClick={() => startOperation({ operationId: "vm.snapshot.revert", title: `Revert ${domain.name} to ${snapshot.name}`, parameters: { name: domain.name, snapshotName: snapshot.name }, preview: <span>Discards everything changed since <code>{snapshot.name}</code> and leaves the VM off.</span> })}>Revert</button>}
+                          <button type="button" className="text-button" disabled={pending !== null} onClick={() => startOperation({ operationId: "vm.snapshot.delete", title: `Delete snapshot ${snapshot.name}`, parameters: { name: domain.name, snapshotName: snapshot.name }, preview: <span>Deletes the snapshot and merges its state into the disk. The VM itself is unchanged.</span> })}>Delete</button>
+                        </span>
+                      ))}</div>
                     </div>
                   </details>
                 </article>
