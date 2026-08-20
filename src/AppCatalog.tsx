@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useOperation } from "./ApproveDialog";
+import { inspectOperation } from "./operations";
 
 /** Types mirror server/catalog/schema.mjs (normalized manifest) and server/app-helper.mjs (live state). */
 interface ManifestPort { id: string; label: string; container: number; host: number; protocol: "tcp" | "udp"; exposure: "lan" | "loopback"; fixed: boolean }
@@ -109,6 +110,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [appBackups, setAppBackups] = useState<{ id: string; name: string; backups: Array<{ artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; image: string | null }> } | null>(null);
   const [secrets, setSecrets] = useState<{ id: string; name: string; items: Array<{ name: string; label: string; value: string }> | null; needsPassword: boolean; password: string; error: string | null } | null>(null);
   const [filter, setFilter] = useState("");
+  const [serves, setServes] = useState<Array<{ dnsName: string; port: number; target: string | null }> | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -123,6 +125,10 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
     } finally {
       setLoading(false);
     }
+    // Tailnet publishing state is optional garnish: absent tailscale hides the controls.
+    inspectOperation<{ available: boolean; serves: Array<{ dnsName: string; port: number; target: string | null }> }>("app.serve.inspect")
+      .then(({ result }) => setServes(result.available ? result.serves : null))
+      .catch(() => setServes(null));
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -306,7 +312,19 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                 {statusPill(live)}
               </header>
               <p>{manifest.description}</p>
-              {installed && live?.urls.length ? <div className="recovery-actions">{live.urls.map((port) => <a key={port.id} className="secondary-button" href={openUrl(port, manifest)} target="_blank" rel="noreferrer">Open {port.label}</a>)}</div> : null}
+              {installed && live?.urls.length ? (
+                <div className="recovery-actions">
+                  {live.urls.map((port) => <a key={port.id} className="secondary-button" href={openUrl(port, manifest)} target="_blank" rel="noreferrer">Open {port.label}</a>)}
+                  {(() => {
+                    if (serves === null) return null;
+                    const primaryPort = live.urls[0]?.host;
+                    const served = serves.find((serve) => serve.port === primaryPort);
+                    return served
+                      ? <><a className="secondary-button" href={`https://${served.dnsName}:${served.port}`} target="_blank" rel="noreferrer">Open on tailnet 🔒</a><button className="text-button" type="button" onClick={() => start({ operationId: "app.serve.set", title: `Stop serving ${manifest.name} on the tailnet`, parameters: { id: manifest.id, enabled: false }, preview: <span><code>tailscale serve --https={served.port} off</code>. LAN access is unchanged.</span> })}>Stop tailnet HTTPS</button></>
+                      : <button className="text-button" type="button" onClick={() => start({ operationId: "app.serve.set", title: `Serve ${manifest.name} on the tailnet`, parameters: { id: manifest.id, enabled: true }, preview: <span>Publishes port {primaryPort} at <code>https://…ts.net:{primaryPort}</code> with a real certificate — reachable from your tailnet only; Funnel stays off.</span> })}>Serve on tailnet (HTTPS)</button>;
+                  })()}
+                </div>
+              ) : null}
               <footer className="recovery-actions">
                 {!installed && <button className="primary-button" type="button" onClick={() => setConfig({ manifest, live, mode: "install" })}>Install</button>}
                 {installed && (running
