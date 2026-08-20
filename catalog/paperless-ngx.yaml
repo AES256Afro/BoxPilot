@@ -1,0 +1,75 @@
+schemaVersion: 2
+id: paperless-ngx
+name: Paperless-ngx
+category: Documents
+icon: "📄"
+description: Scan, index, and archive paper documents — OCR makes every letter and invoice searchable.
+website: https://docs.paperless-ngx.com
+risk: medium
+image:
+  reference: ghcr.io/paperless-ngx/paperless-ngx:3.0.5
+  version: 3.0.5
+ports:
+  - id: web
+    label: Web UI
+    container: 8000
+    host: 8777
+    exposure: lan
+volumes:
+  - id: data
+    label: Application data
+    container: /usr/src/paperless/data
+    path: data
+  - id: media
+    label: Document archive
+    container: /usr/src/paperless/media
+    path: media
+  - id: export
+    label: Export folder
+    container: /usr/src/paperless/export
+    path: export
+    backup: false
+  - id: consume
+    label: Consume inbox
+    container: /usr/src/paperless/consume
+    hostPath: /srv/paperless-inbox
+    configurable: true
+    description: Drop scans into this folder on the server and Paperless imports them automatically.
+env:
+  - name: PAPERLESS_REDIS
+    default: redis://broker:6379
+    fixed: true
+  - name: PAPERLESS_SECRET_KEY
+    label: Secret key
+    type: password
+    secret: true
+    generate: true
+  - name: PAPERLESS_ADMIN_USER
+    label: Admin username
+    default: admin
+  - name: PAPERLESS_ADMIN_PASSWORD
+    label: Admin password
+    type: password
+    secret: true
+    generate: true
+  - name: PAPERLESS_TIME_ZONE
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: PAPERLESS_OCR_LANGUAGE
+    label: OCR language
+    default: eng
+    description: Tesseract language code, for example eng or deu. Combine with a plus sign, deu+eng.
+sidecars:
+  - id: broker
+    image: redis:8.8.2-alpine
+    volumes:
+      - id: redisdata
+        container: /data
+        path: redis-data
+        backup: false
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 600
+notes: First start runs database migrations and can take a few minutes. Sign in with the admin username and the generated password (Secrets on this card).

@@ -131,6 +131,7 @@ export function createAppHelper({
     const directory = dirFor(manifest.id);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     for (const volume of manifest.volumes) if (volume.path) await mkdir(path.join(directory, volume.path), { recursive: true, mode: 0o755 });
+    for (const sidecar of manifest.sidecars ?? []) for (const volume of sidecar.volumes) await mkdir(path.join(directory, volume.path), { recursive: true, mode: 0o755 });
     const rendered = renderCompose(manifest, values, { existingEnv, lanAddress });
     await writeFile(path.join(directory, ".env.tmp"), rendered.envFile, { mode: 0o600 });
     await rename(path.join(directory, ".env.tmp"), path.join(directory, ".env"));
@@ -315,6 +316,12 @@ export function createAppHelper({
       if (!volume.backup) continue;
       if (volume.path) { try { await stat(path.join(directory, volume.path)); contents.push(volume.path); } catch { /* volume directory not created yet */ } }
       else if (volume.hostPath) skippedHostPaths.push(volume.hostPath);
+    }
+    for (const sidecar of manifest.sidecars ?? []) {
+      for (const volume of sidecar.volumes) {
+        if (!volume.backup) continue;
+        try { await stat(path.join(directory, volume.path)); contents.push(volume.path); } catch { /* not created yet */ }
+      }
     }
     const status = await containerStatus(id);
     const wasRunning = status.running;

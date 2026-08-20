@@ -57,6 +57,22 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   if (manifest.extraHosts.length) service.extra_hosts = [...manifest.extraHosts];
   service.security_opt = ["no-new-privileges:true"];
   const compose = { name: projectNameFor(manifest.id), services: { [manifest.id]: service } };
+  // Sidecars: helper services on the project network, reachable from the app at their id.
+  // No published ports; their env may reference ${NAME}, interpolated from the shared .env.
+  for (const sidecar of manifest.sidecars ?? []) {
+    const sidecarService = {
+      container_name: `${projectNameFor(manifest.id)}-${sidecar.id}`,
+      image: sidecar.image,
+      restart: "unless-stopped",
+      labels: { "io.boxpilot.app": manifest.id, "io.boxpilot.sidecar": sidecar.id },
+    };
+    if (sidecar.command) sidecarService.command = sidecar.command;
+    if (Object.keys(sidecar.env ?? {}).length) sidecarService.environment = { ...sidecar.env };
+    if (sidecar.volumes.length) sidecarService.volumes = sidecar.volumes.map((volume) => `./${volume.path}:${volume.container}`);
+    sidecarService.security_opt = ["no-new-privileges:true"];
+    compose.services[sidecar.id] = sidecarService;
+  }
+  if ((manifest.sidecars ?? []).length) service.depends_on = manifest.sidecars.map((sidecar) => sidecar.id);
   const secretEntries = manifest.env.filter((entry) => entry.secret && entry.name in env);
   const envFile = secretEntries.map((entry) => `${entry.name}=${env[entry.name]}`).join("\n") + (secretEntries.length ? "\n" : "");
   return { compose, composeYaml: YAML.stringify(compose, { lineWidth: 0 }), envFile, env, hostPorts };

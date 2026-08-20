@@ -57,6 +57,26 @@ describe("manifest schema", () => {
     expect(second.env.ADMIN_PASSWORD).toBe("keep-me");
   });
 
+  it("validates sidecars and renders them into the compose project", () => {
+    const withSidecar = { ...base,
+      env: [{ name: "APP_REDIS", default: "redis://broker:6379", fixed: true }, { name: "SECRET", type: "password", generate: true }],
+      volumes: [{ id: "data", container: "/data", path: "data" }],
+      sidecars: [{ id: "broker", image: "redis:8.8.2-alpine", env: { REDIS_EXTRA: "${SECRET}" }, volumes: [{ id: "redisdata", container: "/data", path: "redis-data" }] }],
+    };
+    const { manifest, errors } = validateManifest(withSidecar);
+    expect(errors).toEqual([]);
+    const { values } = resolveValues(manifest, {});
+    const rendered = renderCompose(manifest, values, {});
+    expect(rendered.compose.services.broker).toMatchObject({ container_name: "bp-demo-broker", image: "redis:8.8.2-alpine", volumes: ["./redis-data:/data"] });
+    expect(rendered.compose.services.demo.depends_on).toEqual(["broker"]);
+    expect(rendered.composeYaml).toContain("REDIS_EXTRA: ${SECRET}"); // interpolated by compose from .env, never inlined
+
+    expect(validateManifest({ ...withSidecar, sidecars: [{ id: "demo", image: "redis:8" }] }).errors).toContainEqual(expect.stringContaining("distinct from the app id"));
+    expect(validateManifest({ ...withSidecar, sidecars: [{ id: "broker", image: "redis:8", volumes: [{ id: "x", container: "/x", path: "data" }] }] }).errors).toContainEqual(expect.stringContaining("unique relative directory"));
+    expect(validateManifest({ ...withSidecar, network: "host" }).errors).toContainEqual(expect.stringContaining("host-network"));
+    expect(validateManifest({ ...withSidecar, sidecars: [{ id: "broker", image: "not a ref!" }] }).errors).toContainEqual(expect.stringContaining("image reference"));
+  });
+
   it("sanitizes stored values down to what the manifest accepts today", () => {
     const { manifest } = validateManifest({ ...base,
       ports: [{ id: "web", container: 80, host: 8080 }],
