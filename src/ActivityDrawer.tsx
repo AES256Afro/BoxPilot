@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { followJobOutput, followJobs, terminalJobStates, type Job } from "./operations";
 
 /**
@@ -107,7 +108,9 @@ export function ActivityDrawer() {
       >
         Activity{runningCount > 0 ? <span className="activity-badge" aria-label={`${runningCount} running`}>{runningCount}</span> : null}
       </button>
-      {open && (
+      {/* Portal to <body>: the topbar's backdrop-filter makes it the containing block for
+          position:fixed descendants, which would pin and clip the drawer to the topbar. */}
+      {open && createPortal(
         <div className="activity-backdrop" role="presentation" onMouseDown={() => setOpen(false)}>
           <aside className="activity-drawer" aria-label="Activity" onMouseDown={(event) => event.stopPropagation()}>
             <header className="activity-header">
@@ -133,7 +136,8 @@ export function ActivityDrawer() {
               ))}
             </div>
           </aside>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );
