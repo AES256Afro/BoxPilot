@@ -3,7 +3,6 @@ import CloudVmForm from "./CloudVmForm";
 import { useOperation } from "./ApproveDialog";
 import {
   createLibvirtFoundationPlan,
-  createVmLifecyclePlan,
   createVmExportPlan,
   createVmProtectionPlan,
   createVmRecoveryPlan,
@@ -22,7 +21,6 @@ import {
   type LibvirtFoundation,
   type LibvirtFoundationPlan,
   type ConsoleGuidance,
-  stageVmLifecyclePlan,
   stageLibvirtFoundationPlan,
   stageVmExportPlan,
   stageVmProtectionPlan,
@@ -32,7 +30,6 @@ import {
   stageVmSnapshotPlan,
   type DomainList,
   type VirtualDomain,
-  type VmLifecyclePlan,
   type VmExportArtifact,
   type VmExportPlan,
   type VmProtectedBackup,
@@ -84,7 +81,6 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [plannerOpen, setPlannerOpen] = useState(false);
-  const [actionPlan, setActionPlan] = useState<VmLifecyclePlan | null>(null);
   const [snapshotDomain, setSnapshotDomain] = useState<VirtualDomain | null>(null);
   const [snapshotName, setSnapshotName] = useState("");
   const [snapshotPlan, setSnapshotPlan] = useState<VmSnapshotPlan | null>(null);
@@ -175,33 +171,18 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
     }
   };
 
-  const performAction = async (domain: VirtualDomain, action: string, label: string) => {
-    const operation = `${domain.name}:${action}`;
-    setPending(operation);
-    setMessage(null);
-    try {
-      setActionPlan(await createVmLifecyclePlan(domain.name, action, csrfToken));
-    } catch (actionError) {
-      setMessage(actionError instanceof Error ? actionError.message : `Unable to plan ${label.toLowerCase()}`);
-    } finally {
-      setPending(null);
-    }
+  const actionPreviews: Record<string, string> = {
+    start: "Starts the VM and verifies libvirt reports it running.",
+    shutdown: "Requests a graceful ACPI shutdown and waits up to two minutes. The plug is never pulled — Force off exists for that.",
+    reboot: "Requests a guest reboot through libvirt.",
+    "autostart-on": "The VM will start automatically when this server boots.",
+    "autostart-off": "The VM will no longer start automatically when this server boots.",
   };
 
-  const stageAction = async () => {
-    if (!actionPlan) return;
-    setPending(`stage:${actionPlan.id}`);
-    setMessage(null);
-    try {
-      await stageVmLifecyclePlan(actionPlan.id, actionPlan.revision, csrfToken);
-      setActionPlan(null);
-      onOpenRepair();
-    } catch (actionError) {
-      setMessage(actionError instanceof Error ? actionError.message : "Unable to stage VM lifecycle action");
-    } finally {
-      setPending(null);
-    }
+  const performAction = (domain: VirtualDomain, action: string, label: string) => {
+    startOperation({ operationId: "vm.action", title: `${label} ${domain.name}`, parameters: { name: domain.name, action }, preview: <span>{actionPreviews[action] ?? label}</span> });
   };
+
 
   const openSnapshotPlanner = (domain: VirtualDomain) => {
     setSnapshotDomain(domain);
@@ -446,7 +427,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
                         className="text-button"
                         key={action}
                         disabled={pending !== null || !domain.managed}
-                        onClick={() => void performAction(domain, action, label)}
+                        onClick={() => performAction(domain, action, label)}
                       >
                         {pending === `${domain.name}:${action}` ? "Working..." : label}
                       </button>
@@ -612,25 +593,6 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
             <div className="vm-plan-warnings"><strong>Locked boundaries</strong>{foundationPlan.output.boundaries.map((boundary) => <span key={boundary}>{boundary}</span>)}</div>
             <p>{foundationPlan.output.recovery}</p>
             <div className="vm-planner-actions"><button type="button" className="secondary-button" onClick={() => setFoundationPlan(null)}>Cancel</button><button type="button" className="primary-button" onClick={() => void stageFoundation()} disabled={pending !== null}>{pending === `foundation-stage:${foundationPlan.id}` ? "Staging..." : "Stage approval job"}</button></div>
-          </section>
-        </div>
-      )}
-      {actionPlan && (
-        <div className="vm-planner-backdrop" role="presentation">
-          <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-action-title">
-            <header className="vm-planner-header"><div><span className="eyebrow">Immutable lifecycle plan</span><h2 id="vm-action-title">{actionPlan.output.label} {actionPlan.input.name}</h2><p>Review current state, desired state, and recovery before creating an approval job.</p></div><button type="button" className="modal-close" aria-label="Close lifecycle plan" onClick={() => setActionPlan(null)}>X</button></header>
-            <div className="vm-action-review">
-              <dl className="vm-plan-summary">
-                <div><dt>Current power</dt><dd>{actionPlan.output.current.state}</dd></div>
-                <div><dt>Desired power</dt><dd>{actionPlan.output.desired.state}</dd></div>
-                <div><dt>Current autostart</dt><dd>{actionPlan.output.current.autostart ? "enabled" : "disabled"}</dd></div>
-                <div><dt>Desired autostart</dt><dd>{actionPlan.output.desired.autostart ? "enabled" : "disabled"}</dd></div>
-              </dl>
-              <div className="vm-plan-gates"><strong>Exact changes</strong><ol>{actionPlan.output.changes.map((change) => <li key={change}>{change}</li>)}</ol></div>
-              <div className="vm-plan-warnings"><strong>Recovery boundary</strong><span>{actionPlan.output.recovery}</span></div>
-              <p className="vm-action-revision">Plan revision <code>{actionPlan.revision}</code>. Host state will be checked again before staging and again after password approval.</p>
-              <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => setActionPlan(null)}>Cancel</button><button type="button" className="primary-button" onClick={() => void stageAction()} disabled={pending !== null}>{pending ? "Revalidating..." : "Stage for password approval"}</button></div>
-            </div>
           </section>
         </div>
       )}

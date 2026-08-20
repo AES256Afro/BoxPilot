@@ -33,6 +33,45 @@ export function vmOperations() {
       run: (parameters, { vmCloud, runUnit, progress, jobLog }) => vmCloud.create(parameters, { progress, runUnit, jobLog }),
     }),
     defineOperation({
+      id: "vm.action", title: "Start, stop, or restart a VM", risk: "medium", timeoutMs: 5 * 60_000,
+      description: "Start, graceful ACPI shutdown, guest reboot, or autostart toggle. Shutdown waits up to two minutes and never pulls the plug — Force off exists for that.",
+      parameters: { fields: { name: nameField, action: { type: "string", enum: ["start", "shutdown", "reboot", "autostart-on", "autostart-off"] } } },
+      run: async (parameters, { run, progress, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) => {
+        const { name, action } = parameters;
+        const state = await domainState(run, name);
+        if (action === "start") {
+          if (state !== "shut off") throw new Error(`VM ${name} is ${state}; only a stopped VM can be started`);
+          progress?.(`$ virsh start ${name}`, "stdout");
+          const result = await virsh(run, ["start", name], { timeout: 2 * 60_000 });
+          if (!result.ok) throw new Error(`virsh start failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
+          return { name, action, state: await domainState(run, name) };
+        }
+        if (action === "shutdown" || action === "reboot") {
+          if (state !== "running") throw new Error(`VM ${name} is ${state}; ${action} needs a running VM`);
+          progress?.(`$ virsh ${action} ${name}`, "stdout");
+          const result = await virsh(run, [action, name], { timeout: 60_000 });
+          if (!result.ok) throw new Error(`virsh ${action} failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
+          if (action === "reboot") return { name, action, state: await domainState(run, name) };
+          const deadline = Date.now() + 2 * 60_000;
+          for (;;) {
+            const current = await domainState(run, name);
+            if (current === "shut off") return { name, action, state: current };
+            if (Date.now() > deadline) throw new Error(`${name} did not stop within two minutes; the guest may be ignoring ACPI. Use Force off if you need it down now.`);
+            progress?.(`waiting for the guest to stop (${current})...`, "stdout");
+            await wait(3000);
+          }
+        }
+        const enable = action === "autostart-on";
+        progress?.(`$ virsh autostart ${enable ? "" : "--disable "}${name}`, "stdout");
+        const result = await virsh(run, ["autostart", ...(enable ? [] : ["--disable"]), name], { timeout: 30_000 });
+        if (!result.ok) throw new Error(`virsh autostart failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
+        const info = await virsh(run, ["dominfo", name], { timeout: 15_000 });
+        const autostart = /Autostart:\s+enable/.test(info.stdout ?? "");
+        if (autostart !== enable) throw new Error("virsh accepted the change but dominfo does not reflect it");
+        return { name, action, autostart };
+      },
+    }),
+    defineOperation({
       id: "vm.force-off", title: "Force off a VM", risk: "medium", timeoutMs: 2 * 60_000,
       description: "Pulls the virtual power plug with virsh destroy. Unsaved data inside the guest is lost; the VM can be started again afterwards.",
       parameters: { fields: { name: nameField } },

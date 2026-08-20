@@ -6,7 +6,6 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { createLibvirtService } from "./libvirt.mjs";
 import { buildVirtInstallArguments, normalizeVmPlanInput, validateVmPlanInput } from "./vm-plan.mjs";
-import { vmLifecycleActions } from "./vm-lifecycle.mjs";
 import { validateVmExportInput } from "./vm-export.mjs";
 import { snapshotDiskRevision, snapshotInventoryRevision, validateVmSnapshotInput } from "./vm-snapshot.mjs";
 
@@ -160,34 +159,6 @@ export function createVmHelper({
       await wait(1000);
     }
     throw new Error(`VM did not reach ${desiredState} before the verification timeout`);
-  }
-
-  async function action(parameters) {
-    const definition = vmLifecycleActions[parameters.action];
-    if (!definition) throw new Error("Unsupported VM lifecycle action");
-    const previous = await domainSnapshot(parameters.name);
-    if (previous.state !== parameters.expectedState || previous.autostart !== parameters.expectedAutostart) {
-      throw new Error("VM lifecycle state changed after approval");
-    }
-    const actionArguments = parameters.action === "start" ? ["start", parameters.name]
-      : parameters.action === "shutdown" ? ["shutdown", parameters.name]
-        : parameters.action === "reboot" ? ["reboot", parameters.name]
-          : parameters.action === "autostart-on" ? ["autostart", parameters.name]
-            : ["autostart", parameters.name, "--disable"];
-    await virsh(actionArguments, { timeout: 30000 });
-    const current = parameters.action === "shutdown" ? await waitForState(parameters.name, "stopped", 120)
-      : parameters.action === "start" ? await waitForState(parameters.name, "running", 30)
-        : await domainSnapshot(parameters.name);
-    if (parameters.action === "reboot" && current.state !== "running") throw new Error("VM reboot request did not leave the domain running");
-    if (definition.desiredAutostart !== undefined && current.autostart !== definition.desiredAutostart) throw new Error("VM autostart verification failed");
-    return {
-      action: parameters.action,
-      domain: parameters.name,
-      verified: true,
-      previous,
-      current,
-      verification: parameters.action === "reboot" ? "reboot-request-accepted-domain-running" : "desired-state-observed",
-    };
   }
 
   async function inventory({ scope }) {
@@ -412,7 +383,7 @@ export function createVmHelper({
     }
   }
 
-  return { create, action, inventory, consoleGuidance, createSnapshot, inspectExport, createExport };
+  return { create, inventory, consoleGuidance, createSnapshot, inspectExport, createExport };
 }
 
 export const vmHelperInternals = { defaultRunner };

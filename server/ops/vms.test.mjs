@@ -20,6 +20,33 @@ function fakeRun(domains = {}) {
 }
 
 describe("vm lifecycle operations", () => {
+  it("starts, gracefully stops, reboots, and toggles autostart with state guards", async () => {
+    const domains = { "dev-box": { state: "shut off", snapshots: [] } };
+    const run = vi.fn(async (_binary, args) => {
+      const [, , command, name, ...rest] = args;
+      const domain = domains[name ?? rest.at(-1)] ?? domains[args.at(-1)];
+      if (command === "domstate") return domain ? { ok: true, stdout: `${domain.state}\n`, stderr: "" } : { ok: false, stdout: "", stderr: "no domain" };
+      if (command === "start") { domain.state = "running"; return { ok: true, stdout: "", stderr: "" }; }
+      if (command === "shutdown") { domain.state = "shut off"; return { ok: true, stdout: "", stderr: "" }; }
+      if (command === "reboot") return { ok: true, stdout: "", stderr: "" };
+      if (command === "autostart") { domain.autostart = !args.includes("--disable"); return { ok: true, stdout: "", stderr: "" }; }
+      if (command === "dominfo") return { ok: true, stdout: `Autostart:      ${domain.autostart ? "enable" : "disable"}\n`, stderr: "" };
+      return { ok: false, stdout: "", stderr: `unknown ${command}` };
+    });
+    const wait = vi.fn(async () => {});
+
+    await expect(operations["vm.action"].run({ name: "dev-box", action: "shutdown" }, { run, wait })).rejects.toThrow("needs a running VM");
+    await expect(operations["vm.action"].run({ name: "dev-box", action: "start" }, { run, wait })).resolves.toMatchObject({ action: "start", state: "running" });
+    await expect(operations["vm.action"].run({ name: "dev-box", action: "start" }, { run, wait })).rejects.toThrow("only a stopped VM");
+    await expect(operations["vm.action"].run({ name: "dev-box", action: "reboot" }, { run, wait })).resolves.toMatchObject({ action: "reboot", state: "running" });
+    await expect(operations["vm.action"].run({ name: "dev-box", action: "shutdown" }, { run, wait })).resolves.toMatchObject({ action: "shutdown", state: "shut off" });
+    expect(run).toHaveBeenCalledWith(expect.anything(), ["--connect", "qemu:///system", "shutdown", "dev-box"], expect.anything());
+
+    await expect(operations["vm.action"].run({ name: "dev-box", action: "autostart-on" }, { run, wait })).resolves.toMatchObject({ autostart: true });
+    await expect(operations["vm.action"].run({ name: "dev-box", action: "autostart-off" }, { run, wait })).resolves.toMatchObject({ autostart: false });
+    expect(run).toHaveBeenCalledWith(expect.anything(), ["--connect", "qemu:///system", "autostart", "--disable", "dev-box"], expect.anything());
+  });
+
   it("forces off a running VM and refuses one that is already off", async () => {
     const domains = { "dev-box": { state: "running", snapshots: [] } };
     const run = fakeRun(domains);

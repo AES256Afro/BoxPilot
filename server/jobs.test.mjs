@@ -696,22 +696,6 @@ describe("durable job executor", () => {
     store.close();
   });
 
-  it("revalidates and executes a typed VM lifecycle plan", async () => {
-    const input = { name: "ubuntu-lab", action: "shutdown", expectedState: "running", expectedAutostart: false };
-    const helper = { request: vi.fn(async () => ({ verified: true, domain: input.name, action: input.action, current: { state: "stopped", autostart: false } })) };
-    const { store, owner } = await setup(helper);
-    const validateVmLifecycleJob = vi.fn(async () => ({ input, output: { label: "Shut down" } }));
-    const jobs = createJobService(store, helper, { validateVmLifecycleJob });
-    const job = store.createJob({ type: "virtualization.domain.action", title: "Shut down ubuntu-lab", parameters: { input }, recovery: {}, createdBy: owner.id });
-
-    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
-
-    expect(validateVmLifecycleJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("virtualization.domain.action", input, expect.objectContaining({ jobId: expect.any(String) }));
-    expect(completed).toMatchObject({ state: "completed", result: { verified: true, action: "shutdown" } });
-    store.close();
-  });
-
   it("revalidates and executes only a stopped-domain snapshot plan", async () => {
     const input = { name: "ubuntu-lab", snapshotName: "pre-upgrade", expectedUuid: "11111111-1111-4111-8111-111111111111", expectedState: "stopped", expectedDiskRevision: "b".repeat(64), expectedSnapshotRevision: "a".repeat(64) };
     const helper = { request: vi.fn(async () => ({ created: true, verified: true, domain: input.name, snapshotName: input.snapshotName, consistency: "offline-consistent", independentBackup: false })) };
