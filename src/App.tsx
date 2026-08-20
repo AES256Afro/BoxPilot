@@ -18,6 +18,7 @@ import SystemLogs from "./SystemLogs";
 import UpdatesCenter from "./UpdatesCenter";
 import AppCatalog from "./AppCatalog";
 import ServicesCenter from "./ServicesCenter";
+import SystemCenter from "./SystemCenter";
 import ActivityDrawer from "./ActivityDrawer";
 import ApprovalSettings from "./ApprovalSettings";
 import SignInSettings from "./SignInSettings";
@@ -42,6 +43,10 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   services: {
     title: "Services",
     description: "See what systemd is running, start or stop it, and read its journal.",
+  },
+  system: {
+    title: "System",
+    description: "Hostname, time zone, swap, and maintenance timers for this server.",
   },
   applications: {
     title: "Applications",
@@ -111,6 +116,11 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     label: "Live systemd state",
     tone: "live",
     description: "Units and timers come from systemd on this server. Start/stop/restart/enable/disable run through the helper after a confirmation; BoxPilot, SSH, systemd, D-Bus, and Tailscale units cannot be stopped from here.",
+  },
+  system: {
+    label: "Live host settings",
+    tone: "live",
+    description: "Hostname, time zone, memory, swap, and the fstrim timer come from this server. Changes run as audited root tasks after a confirmation.",
   },
   applications: {
     label: "Curated application engine",
@@ -302,6 +312,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "updates") return <UpdatesCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "catalog") return <AppCatalog csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "services") return <ServicesCenter csrfToken={authStatus.csrfToken ?? ""} />;
+    if (view === "system") return <SystemCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "applications") {
       return (
         <ApplicationCatalog

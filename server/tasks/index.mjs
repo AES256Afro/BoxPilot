@@ -4,7 +4,7 @@
  * Keep this list explicit — it is the only thing the template unit will execute.
  */
 import { aptAutoremove, aptInstall, aptRemove, aptUpdate, aptUpgrade } from "./apt.mjs";
-import { systemReboot } from "./system.mjs";
+import { setHostname, setSwappiness, setTimezone, systemReboot } from "./system.mjs";
 import { ensureCloudImage } from "./cloud-images.mjs";
 
 export const tasks = Object.freeze({
@@ -14,6 +14,9 @@ export const tasks = Object.freeze({
   "apt.remove": aptRemove,
   "apt.autoremove": aptAutoremove,
   "system.reboot": systemReboot,
+  "system.hostname": setHostname,
+  "system.timezone": setTimezone,
+  "system.swappiness": setSwappiness,
   "vm.cloud-image.ensure": ensureCloudImage,
 });
 
