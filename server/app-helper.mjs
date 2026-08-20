@@ -10,7 +10,7 @@ import path from "node:path";
 import { fixedRun } from "./exec.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { renderCompose, projectNameFor } from "./catalog/compose.mjs";
-import { resolveValues } from "./catalog/schema.mjs";
+import { resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
 
 const actions = Object.freeze(["start", "stop", "restart"]);
 const idPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
@@ -118,6 +118,15 @@ export function createAppHelper({
     return manifest;
   }
 
+  /** What boxpilot.json persists: never secrets, never values the operator cannot change. */
+  function storableValues(manifest, values, env) {
+    return {
+      ports: values.ports,
+      env: Object.fromEntries(Object.entries(env).filter(([name]) => !manifest.env.find((entry) => entry.name === name)?.secret)),
+      volumes: Object.fromEntries(Object.entries(values.volumes).filter(([id]) => manifest.volumes.find((volume) => volume.id === id)?.configurable)),
+    };
+  }
+
   async function writeProject(manifest, values, { existingEnv = {} } = {}) {
     const directory = dirFor(manifest.id);
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -170,7 +179,7 @@ export function createAppHelper({
       if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
       const status = await waitHealthy(manifest, progress);
       progress?.(`${manifest.name} is up`, "stdout");
-      await writeState(id, { id, installed: true, installedAt: clock().toISOString(), updatedAt: clock().toISOString(), manifestSha256: manifest.sha256 ?? null, image: { reference: manifest.image.reference, id: status.image }, values: { ports: values.ports, env: Object.fromEntries(Object.entries(rendered.env).filter(([name]) => !manifest.env.find((entry) => entry.name === name)?.secret)), volumes: values.volumes }, pinnedRollback: false });
+      await writeState(id, { id, installed: true, installedAt: clock().toISOString(), updatedAt: clock().toISOString(), manifestSha256: manifest.sha256 ?? null, image: { reference: manifest.image.reference, id: status.image }, values: storableValues(manifest, values, rendered.env), pinnedRollback: false });
       return { installed: true, id, name: manifest.name, image: status.image, hostPorts: rendered.hostPorts, health: status.health, secretsGenerated: manifest.env.filter((entry) => entry.generate).map((entry) => entry.name) };
     } catch (error) {
       progress?.(`Install failed: ${error.message}. Rolling back...`, "stderr");
@@ -201,7 +210,9 @@ export function createAppHelper({
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
     const before = await containerStatus(id);
-    const { values, errors } = resolveValues(manifest, state.values ?? {});
+    // Stored state may predate the current manifest (or older releases stored values the
+    // operator could not change); keep only what the manifest accepts today.
+    const { values, errors } = resolveValues(manifest, sanitizeStoredValues(manifest, state.values ?? {}));
     if (errors.length) throw new Error(`Stored settings no longer match the manifest: ${errors.join("; ")}`);
     await writeProject(manifest, values, { existingEnv: await readEnv(id) }); // picks up manifest changes (new image tag)
     const pull = await compose(id, ["pull"], { timeout: 30 * 60_000, progress });
@@ -210,7 +221,7 @@ export function createAppHelper({
     try {
       if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
       const status = await waitHealthy(manifest, progress);
-      await writeState(id, { ...state, updatedAt: clock().toISOString(), manifestSha256: manifest.sha256 ?? null, image: { reference: manifest.image.reference, id: status.image }, values, pinnedRollback: false });
+      await writeState(id, { ...state, updatedAt: clock().toISOString(), manifestSha256: manifest.sha256 ?? null, image: { reference: manifest.image.reference, id: status.image }, values: storableValues(manifest, values, values.env), pinnedRollback: false });
       return { updated: true, id, previousImage: before.image, image: status.image, changed: before.image !== status.image };
     } catch (error) {
       let rolledBack = false;
@@ -239,7 +250,7 @@ export function createAppHelper({
     try {
       if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
       await waitHealthy(manifest, progress);
-      await writeState(id, { ...state, updatedAt: clock().toISOString(), values: { ports: values.ports, env: Object.fromEntries(Object.entries(rendered.env).filter(([name]) => !manifest.env.find((entry) => entry.name === name)?.secret)), volumes: values.volumes } });
+      await writeState(id, { ...state, updatedAt: clock().toISOString(), values: storableValues(manifest, values, rendered.env) });
       return { reconfigured: true, id, hostPorts: rendered.hostPorts };
     } catch (error) {
       let rolledBack = false;

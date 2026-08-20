@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadCatalog } from "./index.mjs";
 import { renderCompose } from "./compose.mjs";
-import { resolveValues, validateManifest } from "./schema.mjs";
+import { resolveValues, sanitizeStoredValues, validateManifest } from "./schema.mjs";
 
 const base = { schemaVersion: 2, id: "demo", name: "Demo", category: "Test", description: "A demo", image: { reference: "nginx:1.27" } };
 const directories = [];
@@ -55,6 +55,18 @@ describe("manifest schema", () => {
     expect(first.composeYaml).toContain("cap_drop:\n      - ALL");
     const second = renderCompose(manifest, values, { existingEnv: { ADMIN_PASSWORD: "keep-me" } });
     expect(second.env.ADMIN_PASSWORD).toBe("keep-me");
+  });
+
+  it("sanitizes stored values down to what the manifest accepts today", () => {
+    const { manifest } = validateManifest({ ...base,
+      ports: [{ id: "web", container: 80, host: 8080 }],
+      env: [{ name: "TZ", default: "Etc/UTC" }],
+      volumes: [{ id: "media", container: "/media", hostPath: "/srv/media", configurable: true }, { id: "docker", container: "/var/run/docker.sock", hostPath: "/var/run/docker.sock" }],
+    });
+    const stored = { ports: { web: 9090, gone: 1 }, env: { TZ: "Europe/Berlin", REMOVED: "x" }, volumes: { media: "/srv/movies", docker: "/var/run/docker.sock" } };
+    expect(sanitizeStoredValues(manifest, stored)).toEqual({ ports: { web: 9090 }, env: { TZ: "Europe/Berlin" }, volumes: { media: "/srv/movies" } });
+    expect(resolveValues(manifest, sanitizeStoredValues(manifest, stored)).errors).toEqual([]);
+    expect(sanitizeStoredValues(manifest, null)).toEqual({ ports: {}, env: {}, volumes: {} });
   });
 });
 

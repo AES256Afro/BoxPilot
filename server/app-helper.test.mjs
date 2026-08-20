@@ -11,7 +11,7 @@ afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d,
 async function setup({ healthKind = "running", exitOnUp = false, failUp = false } = {}) {
   const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
   const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
-  await writeFile(path.join(catalogDirectory, "demo.yaml"), `schemaVersion: 2\nid: demo\nname: Demo\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8080\nvolumes:\n  - id: data\n    container: /data\n    path: data\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\n  - name: TZ\n    default: Etc/UTC\nhealth:\n  kind: ${healthKind}\n  stableSeconds: 4\n  timeoutSeconds: 30\n`);
+  await writeFile(path.join(catalogDirectory, "demo.yaml"), `schemaVersion: 2\nid: demo\nname: Demo\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8080\nvolumes:\n  - id: data\n    container: /data\n    path: data\n  - id: docker\n    container: /var/run/docker.sock\n    hostPath: /var/run/docker.sock\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\n  - name: TZ\n    default: Etc/UTC\nhealth:\n  kind: ${healthKind}\n  stableSeconds: 4\n  timeoutSeconds: 30\n`);
   const containers = new Map();
   const calls = [];
   const runDocker = vi.fn(async (_binary, args) => {
@@ -81,6 +81,10 @@ describe("generic app deployer", () => {
     expect(await readFile(path.join(catalogRoot, "demo", ".env"), "utf8")).toBe(env); // secret preserved
     expect(await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8")).toContain("TZ: Europe/Berlin");
 
+    // Non-configurable volumes are rendered into compose but never persisted as operator settings.
+    expect(await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8")).toContain("/var/run/docker.sock:/var/run/docker.sock");
+    expect(JSON.parse(await readFile(path.join(catalogRoot, "demo", "boxpilot.json"), "utf8")).values.volumes).toEqual({});
+
     await expect(apps.update({ id: "demo" })).resolves.toMatchObject({ updated: true });
     expect(calls).toContainEqual(expect.stringMatching(/compose .* pull$/));
 
@@ -90,6 +94,23 @@ describe("generic app deployer", () => {
     await apps.install({ id: "demo" });
     await expect(apps.uninstall({ id: "demo", purge: true })).resolves.toMatchObject({ purged: true, dataRemoved: true });
     await expect(readdir(path.join(catalogRoot, "demo"))).rejects.toThrow();
+  });
+
+  it("updates an app whose stored state echoes values the manifest does not accept", async () => {
+    // Older releases persisted every hostPath volume (docker socket included) into
+    // boxpilot.json; updates then failed validation. Stored state is sanitized instead.
+    const { apps, catalogRoot } = await setup();
+    await apps.install({ id: "demo" });
+    const statePath = path.join(catalogRoot, "demo", "boxpilot.json");
+    const state = JSON.parse(await readFile(statePath, "utf8"));
+    state.values.volumes = { docker: "/var/run/docker.sock" };
+    state.values.env.REMOVED_SETTING = "stale";
+    await writeFile(statePath, JSON.stringify(state));
+
+    await expect(apps.update({ id: "demo" })).resolves.toMatchObject({ updated: true });
+    const after = JSON.parse(await readFile(statePath, "utf8"));
+    expect(after.values.volumes).toEqual({});
+    expect(after.values.env.REMOVED_SETTING).toBeUndefined();
   });
 
   it("rolls back a failed fresh install and reports the container's last log lines", async () => {
