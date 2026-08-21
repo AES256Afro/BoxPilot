@@ -13,7 +13,8 @@ export type ViewName =
   | "backups"
   | "github"
   | "logs"
-  | "settings";
+  | "settings"
+  | "setup";
 
 export const navItems: Array<{ id: ViewName; label: string; short: string }> = [
   { id: "overview", label: "Overview", short: "OV" },

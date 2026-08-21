@@ -27,6 +27,7 @@ import { createNetworkService } from "./network.mjs";
 import { createPrerequisiteService } from "./prerequisites.mjs";
 import { createRecoveryKitService } from "./recovery-kit.mjs";
 import { createReleaseUpdateService } from "./release-updates.mjs";
+import { createSetupService } from "./setup-profiles.mjs";
 import { createNotificationService } from "./notifications.mjs";
 import { createSchedulerService } from "./scheduler.mjs";
 import { createStateStore } from "./state.mjs";
@@ -128,6 +129,7 @@ state.deleteExpiredSessions();
 const interruptedJobs = state.recoverInterruptedJobs();
 const scheduler = createSchedulerService({ store: state, jobs });
 scheduler.start();
+const setup = createSetupService({ helper, scheduler });
 const notifications = createNotificationService({ store: state });
 notifications.start();
 
@@ -182,7 +184,7 @@ app.use("/api/v1", createOperationsRouter({ state, helper, jobs, prerequisites, 
 app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, jobLogReader, auth }));
 app.use("/api/v1", createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit }));
 app.use("/api/v1", createSettingsRouter({ state, notifications, auth }));
-app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, supportBundle, audit, auth }));
+app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth }));
 
 app.use(express.static(dist, { index: false }));
 app.use((request, response, next) => {
