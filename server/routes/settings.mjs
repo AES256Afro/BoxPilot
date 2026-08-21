@@ -37,7 +37,7 @@ export function createSettingsRouter({ state, notifications, auth }) {
 
   router.post("/settings/notifications/test", auth.requireCsrf, async (_request, response) => {
     try {
-      response.json(await notifications.send({ title: "BoxPilot test notification", message: "Notifications are working. Failed jobs will arrive like this." }));
+      response.json(await notifications.send({ title: "BoxPilot test notification", message: "Notifications are working. Failed jobs, new releases, and health alerts (disk space, SMART, UPS, failed services) arrive like this." }));
     } catch (error) {
       response.status(502).json({ error: error.message, code: "notification_test_failed" });
     }
