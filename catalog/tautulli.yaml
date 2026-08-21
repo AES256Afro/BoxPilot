@@ -1,0 +1,38 @@
+schemaVersion: 2
+id: tautulli
+name: Tautulli
+category: Media
+icon: "📊"
+description: "Statistics and notifications for Plex: who watched what, when, and on which device; alerts when media is added or a stream needs transcoding."
+website: https://tautulli.com
+risk: low
+image:
+  reference: tautulli/tautulli:v2.17.2
+  version: "2.17.2"
+ports:
+  - id: web
+    label: Web UI
+    container: 8181
+    host: 8181
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration and history
+    container: /config
+    path: config
+env:
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "The setup wizard asks you to sign in with your Plex account and pick the Plex server on this machine."

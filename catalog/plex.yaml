@@ -1,0 +1,55 @@
+schemaVersion: 2
+id: plex
+name: Plex Media Server
+category: Media
+icon: "🎬"
+description: "Films, series, and music to every TV, phone, and console with the Plex apps. Uses host networking so clients on the LAN discover it automatically."
+website: https://www.plex.tv
+risk: low
+image:
+  reference: plexinc/pms-docker:1.43.3.10896-cb3ebc72d
+  version: "1.43.3"
+network: host
+ports:
+  - id: web
+    label: Web UI
+    container: 32400
+    host: 32400
+    exposure: lan
+volumes:
+  - id: config
+    label: Library database and metadata
+    container: /config
+    path: config
+  - id: transcode
+    label: Transcode scratch
+    container: /transcode
+    path: transcode
+    backup: false
+  - id: media
+    label: Media folder
+    container: /data
+    hostPath: /srv/media
+    configurable: true
+    backup: false
+    readOnly: true
+env:
+  - name: PLEX_CLAIM
+    label: Claim token
+    description: Optional. From https://www.plex.tv/claim (valid 4 minutes) to link this server to your Plex account during the first start.
+    type: password
+  - name: PLEX_UID
+    default: "1000"
+    fixed: true
+  - name: PLEX_GID
+    default: "1000"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 20
+  timeoutSeconds: 300
+notes: "Open http://<this server>:32400/web from a device on the same LAN for the first-run setup (Plex only allows setup from the local network). Add libraries under /data. For remote access, use Tailscale or Plex Relay rather than opening ports."

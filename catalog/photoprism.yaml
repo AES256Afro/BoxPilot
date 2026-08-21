@@ -1,0 +1,104 @@
+schemaVersion: 2
+id: photoprism
+name: PhotoPrism
+category: Photos
+icon: "🖼️"
+description: "AI-powered photo library: browse by place, face, and subject, with a clean interface and support for RAW files. Lighter than Immich; the phone app syncs via WebDAV or PhotoSync."
+website: https://docs.photoprism.app
+risk: medium
+image:
+  reference: photoprism/photoprism:260728
+  version: "260728"
+ports:
+  - id: web
+    label: Web UI
+    container: 2342
+    host: 2342
+    exposure: lan
+volumes:
+  - id: storage
+    label: Index, thumbnails, sidecars
+    container: /photoprism/storage
+    path: storage
+  - id: originals
+    label: Original photos
+    container: /photoprism/originals
+    hostPath: /srv/photos
+    configurable: true
+    backup: false
+    description: Your photo folders. Existing albums can stay where they are; PhotoPrism indexes them in place.
+env:
+  - name: PHOTOPRISM_ADMIN_USER
+    label: Admin username
+    default: admin
+  - name: PHOTOPRISM_ADMIN_PASSWORD
+    label: Admin password
+    type: password
+    secret: true
+    generate: true
+  - name: PHOTOPRISM_DATABASE_DRIVER
+    default: mysql
+    fixed: true
+  - name: PHOTOPRISM_DATABASE_SERVER
+    default: database:3306
+    fixed: true
+  - name: PHOTOPRISM_DATABASE_NAME
+    default: photoprism
+    fixed: true
+  - name: PHOTOPRISM_DATABASE_USER
+    default: photoprism
+    fixed: true
+  - name: PHOTOPRISM_DATABASE_PASSWORD
+    label: Database password
+    type: password
+    secret: true
+    generate: true
+  - name: PHOTOPRISM_SITE_URL
+    label: Address people use
+    description: The URL PhotoPrism is opened at, with a trailing slash; change it after Serve on tailnet.
+    default: http://localhost:2342/
+  - name: PHOTOPRISM_DISABLE_TLS
+    default: "true"
+    fixed: true
+  - name: PHOTOPRISM_DEFAULT_TLS
+    default: "false"
+    fixed: true
+  - name: PHOTOPRISM_ORIGINALS_LIMIT
+    default: "5000"
+    fixed: true
+  - name: PHOTOPRISM_HTTP_COMPRESSION
+    default: gzip
+    fixed: true
+  - name: PHOTOPRISM_WORKERS
+    default: "2"
+    fixed: true
+  - name: PHOTOPRISM_UPLOAD_NSFW
+    default: "true"
+    fixed: true
+  - name: PHOTOPRISM_DETECT_NSFW
+    default: "false"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+sidecars:
+  - id: database
+    image: mariadb:11.8.8
+    command: ["--innodb-buffer-pool-size=256M", "--transaction-isolation=READ-COMMITTED", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--max-connections=512", "--innodb-rollback-on-timeout=OFF", "--innodb-lock-wait-timeout=120"]
+    env:
+      MARIADB_AUTO_UPGRADE: "1"
+      MARIADB_INITDB_SKIP_TZINFO: "1"
+      MARIADB_DATABASE: photoprism
+      MARIADB_USER: photoprism
+      MARIADB_PASSWORD: ${PHOTOPRISM_DATABASE_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${PHOTOPRISM_DATABASE_PASSWORD}
+    volumes:
+      - id: mysql
+        container: /var/lib/mysql
+        path: database
+health:
+  kind: running
+  stableSeconds: 20
+  timeoutSeconds: 600
+notes: "Sign in with the admin username and the generated password (Secrets). Then Library → Index to scan the originals folder; face recognition and classification run in the background. The first index of a large library takes a while."

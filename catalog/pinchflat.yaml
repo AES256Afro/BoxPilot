@@ -1,0 +1,38 @@
+schemaVersion: 2
+id: pinchflat
+name: Pinchflat
+category: Media
+icon: "📹"
+description: "Follow YouTube channels and playlists and keep the videos on this server automatically, named and organised for Jellyfin and Plex."
+website: https://github.com/kieraneglin/pinchflat
+risk: low
+image:
+  reference: ghcr.io/kieraneglin/pinchflat:v2025.9.26
+  version: "2025.9.26"
+ports:
+  - id: web
+    label: Web UI
+    container: 8945
+    host: 8945
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration and database
+    container: /config
+    path: config
+  - id: downloads
+    label: Downloads folder
+    container: /downloads
+    hostPath: /srv/media/youtube
+    configurable: true
+    backup: false
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Add a media profile (quality and naming), then sources: channels or playlists to follow. Downloads are checked on a schedule."

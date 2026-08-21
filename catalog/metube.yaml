@@ -1,0 +1,36 @@
+schemaVersion: 2
+id: metube
+name: MeTube
+category: Media
+icon: "⬇️"
+description: "Paste a YouTube (or any of 1,000 supported sites) link and download the video or audio to this server, powered by yt-dlp."
+website: https://github.com/alexta69/metube
+risk: low
+image:
+  reference: ghcr.io/alexta69/metube:2026.08.21
+  version: "2026.08.21"
+ports:
+  - id: web
+    label: Web UI
+    container: 8081
+    host: 8099
+    exposure: lan
+volumes:
+  - id: downloads
+    label: Downloads folder
+    container: /downloads
+    hostPath: /srv/media/youtube
+    configurable: true
+    backup: false
+env:
+  - name: UID
+    default: "1000"
+    fixed: true
+  - name: GID
+    default: "1000"
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Downloads land in the folder above; point Jellyfin or Plex at it for a YouTube library."
