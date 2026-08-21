@@ -390,6 +390,16 @@ npm run dev
 
 Open `http://127.0.0.1:5173`.
 
+## Install and update on Ubuntu Server
+
+One command installs or upgrades the native deployment under `/opt/boxpilot` (Node 24 is resolved or installed, the tree is built in a staging directory, swapped in atomically, and rolled back if the health check fails):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-upgrade.sh | sudo sh -s -- v0.62.0
+```
+
+Pass a release tag (recommended) or a branch name. After that, BoxPilot updates itself: **System → BoxPilot updates** shows the latest [GitHub Release](https://github.com/AES256Afro/BoxPilot/releases) and *Update to vX.Y.Z* runs the same upgrade with password approval — the build happens in a detached unit, BoxPilot restarts for about a minute, and a failed health check restores the previous version automatically.
+
 ## Run the production build
 
 ```bash
