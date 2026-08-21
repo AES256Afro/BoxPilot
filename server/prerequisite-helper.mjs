@@ -381,8 +381,12 @@ export function createPrerequisiteHelper({
     if (!after.installed || expectedKeys.some((name) => after.installedPackages[name] !== expectedPackages[name])) {
       throw new Error("The virtualization stack did not match the approved package, KVM, service, QEMU, and system-URI proof after installation");
     }
+    // The helper's mount namespace was built before /var/lib/libvirt existed (its ReadWritePaths
+    // are optional); restart it shortly after this result is delivered so VM work can write there.
+    const refresh = await run("/usr/bin/systemd-run", ["--quiet", "--on-active", "8", "--unit", "boxpilot-helper-refresh", "--", systemctlBinary, "restart", "boxpilot-helper.service"], { timeout: 15_000 }).catch(() => ({ ok: false }));
     return {
       installed: true,
+      helperRestartScheduled: refresh.ok === true,
       packages: after.installedPackages,
       serviceActive: true,
       connectionUri: after.connectionUri,
