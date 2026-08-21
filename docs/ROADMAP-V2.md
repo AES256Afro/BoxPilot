@@ -169,7 +169,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - **M6.4** **Redeploy wizard**: new Ubuntu + BoxPilot → "Restore from machine snapshot" → rehydrates everything (apps first, then data restore, then DNS/proxy) with a progress view. Done when a wiped box is back in <30 min from a snapshot.
 - **M6.5** Restore UX: browse snapshots, restore single app / single VM / single file, in-place (high risk) or side-by-side (today's "drill").
 - ✅ **M6.6** Backup health on dashboard: a Backups tile (last DB backup, last off-box mirror) and needs-attention entries when either is missing or older than a week.
-- **M6.7** Pre-change checkpoints: every medium/high op auto-snapshots the affected app before running (cheap, enables one-click undo).
+- ✅ **M6.7** Pre-change checkpoints: `app.update`, `app.reconfigure`, and `app.compose.edit` take an ordinary app backup first (managed backup-flagged volumes only, keep-5), report it as `checkpoint` in the job result, and the card's Restore undoes the change. `checkpoint: false` opts out per job.
 
 ### Phase 7 — VMs & projects (2 weeks, builds on the existing strength)
 - ✅ **M7.1+** All direct VM verbs as registry ops (start/shutdown/reboot/autostart via `vm.action`, snapshot create/revert/delete, force-off, delete) (`vm.force-off` medium, `vm.delete` high with stopped-only guard + optional storage removal, `vm.snapshot.revert` high offline-only, `vm.snapshot.delete` medium), surfaced on the Virtual Machines page through the shared ApproveDialog. Independent restic backups are never touched.

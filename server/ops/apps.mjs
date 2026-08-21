@@ -127,9 +127,9 @@ export function appOperations() {
     }),
     defineOperation({
       id: "app.compose.edit", title: "Edit application compose file", risk: "high", timeoutMs: minutes(20),
-      description: "Replaces the app's compose.yaml verbatim — full control, full responsibility. Validated by docker compose, applied with rollback; the next Settings change or Update regenerates the file from the manifest.",
-      parameters: { fields: { id: idField, compose: { type: "string", maxLength: 65536 } } },
-      run: (parameters, { apps, progress }) => apps.editCompose(parameters, { progress }),
+      description: "Takes a data checkpoint, then replaces the app's compose.yaml verbatim — full control, full responsibility. Validated by docker compose, applied with rollback; the next Settings change or Update regenerates the file from the manifest.",
+      parameters: { fields: { id: idField, compose: { type: "string", maxLength: 65536 }, checkpoint: { type: "boolean", optional: true } } },
+      run: (parameters, { apps, progress }) => apps.editCompose({ id: parameters.id, compose: parameters.compose }, { progress, checkpoint: parameters.checkpoint ?? true }),
     }),
     defineOperation({
       id: "app.config.inspect", title: "Read effective application configuration", risk: "low", readOnly: true, timeoutMs: 30_000,
@@ -163,15 +163,15 @@ export function appOperations() {
     }),
     defineOperation({
       id: "app.update", title: "Update application", risk: "medium", timeoutMs: minutes(40),
-      description: "Pulls the catalog's current image and recreates the container; restores the previous image if it fails to become healthy.",
-      parameters: { fields: { id: idField } },
-      run: (parameters, { apps, progress }) => apps.update({ id: parameters.id }, { progress }),
+      description: "Takes a data checkpoint, pulls the catalog's current image, and recreates the container; restores the previous image if it fails to become healthy.",
+      parameters: { fields: { id: idField, checkpoint: { type: "boolean", optional: true } } },
+      run: (parameters, { apps, progress }) => apps.update({ id: parameters.id }, { progress, checkpoint: parameters.checkpoint ?? true }),
     }),
     defineOperation({
       id: "app.reconfigure", title: "Change application settings", risk: "medium", timeoutMs: minutes(15),
-      description: "Rewrites ports, settings, and volume paths and recreates the container; restores the previous configuration on failure.",
-      parameters: { fields: { id: idField, values: valuesField } },
-      run: (parameters, { apps, progress }) => apps.reconfigure({ id: parameters.id, values: parameters.values ?? {} }, { progress }),
+      description: "Takes a data checkpoint, rewrites ports, settings, and volume paths, and recreates the container; restores the previous configuration on failure.",
+      parameters: { fields: { id: idField, values: valuesField, checkpoint: { type: "boolean", optional: true } } },
+      run: (parameters, { apps, progress }) => apps.reconfigure({ id: parameters.id, values: parameters.values ?? {} }, { progress, checkpoint: parameters.checkpoint ?? true }),
     }),
     defineOperation({
       id: "app.action", title: "Start, stop, or restart application", risk: "low", timeoutMs: minutes(5),

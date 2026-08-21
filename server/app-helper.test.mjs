@@ -85,8 +85,13 @@ describe("generic app deployer", () => {
     expect(await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8")).toContain("/var/run/docker.sock:/var/run/docker.sock");
     expect(JSON.parse(await readFile(path.join(catalogRoot, "demo", "boxpilot.json"), "utf8")).values.volumes).toEqual({});
 
-    await expect(apps.update({ id: "demo" })).resolves.toMatchObject({ updated: true });
+    const updated = await apps.update({ id: "demo" });
+    expect(updated).toMatchObject({ updated: true, checkpoint: { artifact: expect.stringMatching(/\.tar\.gz$/), checksumSha256: expect.stringMatching(/^[a-f0-9]{64}$/) } });
     expect(calls).toContainEqual(expect.stringMatching(/compose .* pull$/));
+    // The checkpoint is a regular backup the card can restore from; it happens before the pull.
+    expect((await apps.listAppBackups({ id: "demo" })).backups.map((entry) => entry.artifact)).toContain(updated.checkpoint.artifact);
+    expect(calls.findIndex((call) => / stop$/.test(call))).toBeLessThan(calls.findIndex((call) => / pull$/.test(call)));
+    await expect(apps.update({ id: "demo" }, { checkpoint: false })).resolves.toMatchObject({ updated: true, checkpoint: null });
 
     await expect(apps.uninstall({ id: "demo", purge: false })).resolves.toMatchObject({ uninstalled: true, dataRemoved: false });
     expect(await readdir(path.join(catalogRoot, "demo"))).toEqual(expect.arrayContaining(["data", "boxpilot.json"]));
@@ -107,7 +112,8 @@ describe("generic app deployer", () => {
     expect(await readFile(composePath, "utf8")).toBe(original);
 
     const edited = original.replace("restart: unless-stopped", "restart: always");
-    await expect(apps.editCompose({ id: "demo", compose: edited })).resolves.toMatchObject({ edited: true, rawEdited: true });
+    await expect(apps.editCompose({ id: "demo", compose: edited })).resolves.toMatchObject({ edited: true, rawEdited: true, checkpoint: { artifact: expect.stringMatching(/\.tar\.gz$/) } });
+    expect((await apps.listAppBackups({ id: "demo" })).backups).toHaveLength(1);
     expect(await readFile(composePath, "utf8")).toBe(edited);
     expect(JSON.parse(await readFile(path.join(catalogRoot, "demo", "boxpilot.json"), "utf8")).rawEdited).toBe(true);
   });
