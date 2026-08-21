@@ -283,6 +283,26 @@ describe("BoxPilot state store", () => {
     store.close();
   });
 
+  it("adds operators and viewers, changes roles, disables accounts, and keeps one owner", async () => {
+    const store = await testStore();
+    const bootstrap = store.createBootstrapToken();
+    const owner = store.consumeBootstrapToken(bootstrap.token, { username: "operator", passwordHash: "hash" });
+    expect(store.findOwnerById(owner.id).role).toBe("owner");
+    const sam = store.createOwnerAccount({ username: "sam", passwordHash: "hash2", role: "operator", createdBy: owner.id });
+    expect(store.listOwners().map((person) => [person.username, person.role])).toEqual([["operator", "owner"], ["sam", "operator"]]);
+    expect(() => store.createOwnerAccount({ username: "sam", passwordHash: "x", role: "viewer", createdBy: owner.id })).toThrow("already taken");
+    expect(() => store.createOwnerAccount({ username: "eve", passwordHash: "x", role: "root", createdBy: owner.id })).toThrow("Role must be");
+    const session = store.createSession(sam.id);
+    expect(store.getSession(session.token).owner).toMatchObject({ username: "sam", role: "operator" });
+    expect(store.setOwnerRole(sam.id, "viewer", { actorId: owner.id }).role).toBe("viewer");
+    expect(store.getSession(session.token)).toBeNull(); // role changes end existing sessions
+    expect(() => store.setOwnerRole(owner.id, "viewer", { actorId: owner.id })).toThrow("at least one owner");
+    expect(() => store.disableOwner(owner.id, { actorId: owner.id })).toThrow("at least one owner");
+    expect(store.disableOwner(sam.id, { actorId: owner.id }).role).toBe("disabled");
+    expect(store.listAudit().map((event) => event.type)).toEqual(expect.arrayContaining(["people.added", "people.role-changed", "people.disabled"]));
+    store.close();
+  });
+
   it("fails interrupted jobs without automatically retrying them", async () => {
     const store = await testStore();
     const bootstrap = store.createBootstrapToken();

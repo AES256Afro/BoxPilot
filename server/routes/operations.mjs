@@ -48,10 +48,10 @@ export function createOperationsRouter({ state, helper, jobs, prerequisites, rec
   // Mutating registered operations are staged as jobs and approved through /api/v1/jobs/:id/approve (risk-tiered).
   router.post("/operations/:id/jobs", auth.requireCsrf, async (request, response) => {
     try {
-      const job = await jobs.createOperationJob(request.params.id, request.body?.parameters ?? {}, request.boxpilotSession.owner.id);
+      const job = await jobs.createOperationJob(request.params.id, request.body?.parameters ?? {}, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
       return response.status(201).json({ job, approval: jobs.describeApproval(job.id, request.boxpilotSession) });
     } catch (error) {
-      const status = error.message === "Operation not found" ? 404 : error.message.includes("Read-only") ? 405 : 400;
+      const status = error.message === "Operation not found" ? 404 : error.message.includes("Read-only") ? 405 : error.message.includes("Only the owner") || error.message.includes("Viewers cannot") ? 403 : 400;
       return response.status(status).json({ error: error.message, code: "operation_job_rejected" });
     }
   });

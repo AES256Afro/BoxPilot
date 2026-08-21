@@ -17,6 +17,7 @@ import { createJobsRouter } from "./routes/jobs.mjs";
 import { createVirtualizationRouter } from "./routes/virtualization.mjs";
 import { createSettingsRouter } from "./routes/settings.mjs";
 import { createHostRouter } from "./routes/host.mjs";
+import { createPeopleRouter } from "./routes/people.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
@@ -182,6 +183,21 @@ app.use("/api/v1", (request, response, next) => {
   auth.requireCsrf(request, response, next);
 });
 
+// Roles (M5.4): viewers may only look (plus read-only operation runs); operators may not change
+// settings or manage people; disabled accounts get nothing. High-risk staging/approval is
+// enforced in jobs.mjs. Owners pass through.
+app.use("/api/v1", (request, response, next) => {
+  const role = request.boxpilotSession?.owner?.role ?? "owner";
+  const reading = ["GET", "HEAD", "OPTIONS"].includes(request.method);
+  const readOnlyRun = /^\/operations\/[^/]+\/run$/.test(request.path);
+  const selfService = request.path === "/auth/logout" || request.path === "/auth/elevate";
+  if (role === "disabled") return response.status(403).json({ error: "This account is disabled", code: "forbidden" });
+  if (role === "viewer" && !reading && !readOnlyRun && !selfService) return response.status(403).json({ error: "Viewers can look but not change anything", code: "forbidden" });
+  if (role === "operator" && !reading && (request.path.startsWith("/settings") || request.path.startsWith("/people"))) return response.status(403).json({ error: "Only the owner can change settings or people", code: "forbidden" });
+  return next();
+});
+app.use("/api/v1/people", auth.requireRole("owner"));
+app.use("/api/v1", createPeopleRouter({ state, auth }));
 app.use("/api/v1", createOperationsRouter({ state, helper, jobs, prerequisites, recoveryKit, actionCenter, auth }));
 app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, jobLogReader, auth }));
 app.use("/api/v1", createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit }));

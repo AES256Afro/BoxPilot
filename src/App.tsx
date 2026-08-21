@@ -23,6 +23,7 @@ import ActivityDrawer from "./ActivityDrawer";
 import ApprovalSettings from "./ApprovalSettings";
 import NotificationSettings from "./NotificationSettings";
 import SignInSettings from "./SignInSettings";
+import PeopleSettings from "./PeopleSettings";
 import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import VirtualMachines from "./VirtualMachines";
 
@@ -207,7 +208,7 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
   );
 }
 
-function Settings({ apiMode, csrfToken }: { apiMode: string; csrfToken: string }) {
+function Settings({ apiMode, csrfToken, role = "owner" }: { apiMode: string; csrfToken: string; role?: string }) {
   const rows = [
     ["LAN address", "Deployment specific", "Use a router DHCP reservation"],
     ["Private access", "Tailscale Serve recommended", "Keep Funnel disabled"],
@@ -222,6 +223,7 @@ function Settings({ apiMode, csrfToken }: { apiMode: string; csrfToken: string }
       <ApprovalSettings csrfToken={csrfToken} />
       <SignInSettings csrfToken={csrfToken} />
       <NotificationSettings csrfToken={csrfToken} />
+      {role === "owner" && <PeopleSettings csrfToken={csrfToken} />}
       <Panel className="settings-panel">
         <header className="panel-header"><strong>Server and access</strong><span>Deployment guidance</span></header>
         <dl>
@@ -303,7 +305,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "backups") return <BackupCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "github") return <GitHubCenter />;
     if (view === "logs") return <SystemLogs csrfToken={authStatus.csrfToken ?? ""} />;
-    return <Settings apiMode={apiMode} csrfToken={authStatus.csrfToken ?? ""} />;
+    return <Settings apiMode={apiMode} csrfToken={authStatus.csrfToken ?? ""} role={authStatus.owner?.role ?? "owner"} />;
   }, [apiMode, authStatus.csrfToken, view]);
 
   const downloadSupportBundle = async () => {
@@ -356,7 +358,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
             <div><strong>BoxPilot control plane</strong><span>Authenticated, sanitized live inventory</span></div>
             <StatusPill tone="neutral">Mixed data</StatusPill>
           </div>
-          <div className="topbar-right"><ActivityDrawer />{elevated ? <button className="text-button" type="button" title="High-risk approvals skip the password until this time. Click to lock now." onClick={() => void dropElevation(authStatus.csrfToken ?? "").then(refreshAuth)}>Elevated until {elevatedLabel} · Lock</button> : <StatusPill tone="neutral">Tiered approvals</StatusPill>}<span className="signed-in-user">{authStatus.owner?.username}</span><button className="text-button" type="button" onClick={() => void logoutOwner(authStatus.csrfToken ?? "").then(onSignedOut)}>Sign out</button></div>
+          <div className="topbar-right"><ActivityDrawer />{authStatus.owner?.role && authStatus.owner.role !== "owner" ? <span className="status-pill status-neutral" title="Your role on this server">{authStatus.owner.role}</span> : null}{elevated ? <button className="text-button" type="button" title="High-risk approvals skip the password until this time. Click to lock now." onClick={() => void dropElevation(authStatus.csrfToken ?? "").then(refreshAuth)}>Elevated until {elevatedLabel} · Lock</button> : <StatusPill tone="neutral">Tiered approvals</StatusPill>}<span className="signed-in-user">{authStatus.owner?.username}</span><button className="text-button" type="button" onClick={() => void logoutOwner(authStatus.csrfToken ?? "").then(onSignedOut)}>Sign out</button></div>
         </header>
 
         <div className="content">
