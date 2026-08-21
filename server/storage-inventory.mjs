@@ -9,11 +9,55 @@
  */
 import { access, readFile as readFileDefault } from "node:fs/promises";
 import { fixedRun } from "./exec.mjs";
-import { parseFindmnt, parseFstab, parseLsblk } from "./ops/storage.mjs";
+import { parseFindmnt, parseFstab } from "./ops/storage.mjs";
 
 export const lsblkBinary = process.env.BOXPILOT_LSBLK_BINARY ?? "/usr/bin/lsblk";
 export const findmntBinary = process.env.BOXPILOT_FINDMNT_BINARY ?? "/usr/bin/findmnt";
-export const lsblkColumns = "PATH,TYPE,SIZE,FSTYPE,UUID,LABEL,MODEL,TRAN,MOUNTPOINTS,RO,RM";
+export const lsblkColumns = "PATH,KNAME,PKNAME,TYPE,SIZE,FSTYPE,UUID,LABEL,MODEL,TRAN,MOUNTPOINTS,RO,RM";
+
+/**
+ * Flatten lsblk JSON into parent-first order with a `depth`. lsblk only nests children when
+ * NAME is the tree column; otherwise (and for device-mapper holders in some setups) it prints
+ * a flat list, so the hierarchy is rebuilt from PKNAME and only falls back to the nesting.
+ */
+export function parseLsblkTree(json) {
+  let parsed;
+  try { parsed = JSON.parse(json); } catch { return []; }
+  const rows = [];
+  const visit = (node, visitParent) => {
+    const size = Number(node.size);
+    const row = {
+      path: node.path ?? null, type: node.type ?? null, sizeBytes: Number.isFinite(size) ? size : null, fstype: node.fstype ?? null, uuid: node.uuid ?? null, label: node.label ?? null,
+      model: node.model?.trim?.() || null, transport: node.tran ?? null, mountpoints: (node.mountpoints ?? []).filter(Boolean), readOnly: Boolean(node.ro), removable: Boolean(node.rm),
+      kname: node.kname ?? null, pkname: node.pkname ?? null, visitParent,
+    };
+    rows.push(row);
+    for (const child of node.children ?? []) visit(child, row);
+  };
+  for (const node of parsed?.blockdevices ?? []) visit(node, null);
+  const byKname = new Map(rows.filter((row) => row.kname).map((row) => [row.kname, row]));
+  const children = new Map();
+  const roots = [];
+  const seen = new Set();
+  for (const row of rows) {
+    if (row.path && seen.has(row.path)) continue; // an LV over several PVs is listed once per PV
+    if (row.path) seen.add(row.path);
+    const parent = (row.pkname ? byKname.get(row.pkname) : null) ?? row.visitParent ?? null;
+    if (parent && parent !== row) {
+      if (!children.has(parent.path)) children.set(parent.path, []);
+      children.get(parent.path).push(row);
+    } else roots.push(row);
+  }
+  const ordered = [];
+  const walk = (row, depth) => {
+    const { kname, pkname, visitParent, ...device } = row;
+    void kname; void pkname; void visitParent;
+    ordered.push({ ...device, depth });
+    for (const child of children.get(row.path) ?? []) walk(child, depth + 1);
+  };
+  for (const root of roots) walk(root, 0);
+  return ordered;
+}
 
 /** Filesystem signatures that mean "this device belongs to something else; never mount or format it directly". */
 export const memberFstypes = Object.freeze(["LVM2_member", "linux_raid_member", "crypto_LUKS", "bcache", "ceph_bluestore", "zfs_member"]);
@@ -132,7 +176,7 @@ export async function collectStorage({ run = fixedRun, readFile = readFileDefaul
     exists("/usr/sbin/showmount"),
   ]);
   if (!lsblkResult.ok) throw new Error(`lsblk failed: ${lsblkResult.stderr.split("\n").filter(Boolean).at(-1) ?? "unknown error"}`);
-  const devices = annotateDevices(parseLsblk(lsblkResult.stdout));
+  const devices = annotateDevices(parseLsblkTree(lsblkResult.stdout));
   const mounts = findmntResult.ok ? parseFindmnt(findmntResult.stdout) : [];
   const fstab = parseFstab(fstabContent);
   return {

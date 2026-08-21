@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { annotateDevices, collectStorage, sharesFrom, splitDmName, volumeGroupsFrom } from "./storage-inventory.mjs";
+import { annotateDevices, collectStorage, parseLsblkTree, sharesFrom, splitDmName, volumeGroupsFrom } from "./storage-inventory.mjs";
 
 const GiB = 1024 ** 3;
 const lsblkJson = JSON.stringify({ blockdevices: [
@@ -40,6 +40,26 @@ describe("storage inventory", () => {
 
     expect(report.shares).toEqual([{ name: "nas", kind: "smb", source: "//mycloud/Public", mountpoint: "/mnt/nas", readOnly: true, automount: true, mounted: false, sizeBytes: null, usedBytes: null, availableBytes: null }]);
     expect(report.tools).toEqual({ cifs: false, nfs: true, smbclient: false, showmount: false });
+  });
+
+  it("rebuilds the hierarchy from PKNAME when lsblk prints a flat list (no NAME column)", () => {
+    // Exactly what an unprivileged `lsblk -J -o PATH,...` printed on a real Ubuntu host: flat, LV first.
+    const flat = JSON.stringify({ blockdevices: [
+      { path: "/dev/mapper/ubuntu--vg-ubuntu--lv", kname: "dm-0", pkname: "nvme0n1p3", type: "lvm", size: 100 * GiB, fstype: "ext4", mountpoints: ["/"], ro: false, rm: false },
+      { path: "/dev/nvme0n1", kname: "nvme0n1", pkname: null, type: "disk", size: 1000 * GiB, fstype: null, mountpoints: [null], ro: false, rm: false, model: "Inland TN320 NVMe SSD" },
+      { path: "/dev/nvme0n1p1", kname: "nvme0n1p1", pkname: "nvme0n1", type: "part", size: GiB, fstype: "vfat", mountpoints: ["/boot/efi"], ro: false, rm: false },
+      { path: "/dev/nvme0n1p2", kname: "nvme0n1p2", pkname: "nvme0n1", type: "part", size: 2 * GiB, fstype: "ext4", mountpoints: ["/boot"], ro: false, rm: false },
+      { path: "/dev/nvme0n1p3", kname: "nvme0n1p3", pkname: "nvme0n1", type: "part", size: 950 * GiB, fstype: "LVM2_member", mountpoints: [null], ro: false, rm: false },
+    ] });
+    const rows = parseLsblkTree(flat);
+    expect(rows.map((row) => `${"  ".repeat(row.depth)}${row.path}`)).toEqual(["/dev/nvme0n1", "  /dev/nvme0n1p1", "  /dev/nvme0n1p2", "  /dev/nvme0n1p3", "    /dev/mapper/ubuntu--vg-ubuntu--lv"]);
+    expect(rows[0]).not.toHaveProperty("pkname");
+    const devices = annotateDevices(rows);
+    expect(devices[0]).toMatchObject({ path: "/dev/nvme0n1", protected: true, protectedReason: "system disk" });
+    expect(devices[3]).toMatchObject({ path: "/dev/nvme0n1p3", holdsVolumeGroups: ["ubuntu-vg"] });
+    expect(volumeGroupsFrom(devices)).toEqual([expect.objectContaining({ name: "ubuntu-vg", freeBytes: 850 * GiB })]);
+    // Nested output without PKNAME (older fixtures) still works through the visit order.
+    expect(parseLsblkTree(lsblkJson).map((row) => row.depth)).toEqual([0, 1, 1, 1, 2, 0, 1]);
   });
 
   it("protects a plain partition whose sibling holds a mounted filesystem only through its parent", () => {
