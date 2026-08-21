@@ -333,15 +333,32 @@ function topologyGuidance(topology) {
   return { summary: "Document one edge gateway and verify that every downstream router is intentionally bridged or isolated.", devices: ["Custom topology requires manual role verification"] };
 }
 
+const macPattern = /^([0-9a-f]{2}:){5}[0-9a-f]{2}$/i;
+
+/** `ip -j neigh show`: resolved IPv4 neighbours with a hardware address, newest state first. */
+export function parseNeighbors(stdout) {
+  let entries;
+  try { entries = JSON.parse(stdout); } catch { return []; }
+  if (!Array.isArray(entries)) return [];
+  const order = { REACHABLE: 0, DELAY: 1, PROBE: 2, STALE: 3 };
+  return entries
+    .filter((entry) => typeof entry?.dst === "string" && net.isIP(entry.dst) === 4 && typeof entry.lladdr === "string" && macPattern.test(entry.lladdr))
+    .map((entry) => ({ address: entry.dst, mac: entry.lladdr.toLowerCase(), interface: typeof entry.dev === "string" ? entry.dev : null, state: (Array.isArray(entry.state) ? entry.state[0] : String(entry.state ?? "")).toUpperCase() || "UNKNOWN" }))
+    .filter((entry) => entry.state in order)
+    .sort((left, right) => (order[left.state] - order[right.state]) || left.address.localeCompare(right.address, undefined, { numeric: true }));
+}
+
 export function createNetworkService({ store, runCommand = fixedCommand, getNetworkInterfaces = os.networkInterfaces } = {}) {
   async function inspect() {
-    const [addressesResult, routesResult, resolversResult, listenersResult, tailscaleResult] = await Promise.all([
+    const [addressesResult, routesResult, resolversResult, listenersResult, tailscaleResult, neighborsResult] = await Promise.all([
       runCommand("ip", ["-j", "-4", "address", "show"]),
       runCommand("ip", ["-j", "-4", "route", "show", "default"]),
       runCommand("resolvectl", ["status", "--json=short"]),
       runCommand("ss", ["-H", "-l", "-n", "-t", "-u"]),
       runCommand("tailscale", ["status", "--json"]),
+      runCommand("ip", ["-j", "-4", "neigh", "show"]),
     ]);
+    const devices = neighborsResult.ok ? parseNeighbors(neighborsResult.stdout) : [];
     const addresses = addressesResult.ok ? parseIpAddresses(addressesResult.stdout) : hostAddresses(getNetworkInterfaces);
     const defaultRoutes = routesResult.ok ? parseDefaultRoutes(routesResult.stdout) : [];
     const resolverLinks = resolversResult.ok ? parseResolverStatus(resolversResult.stdout) : [];
@@ -359,8 +376,9 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
     const tailscaleResolvers = resolverLinks.filter((link) => link.interface.startsWith("tailscale")).flatMap((link) => link.servers.map((server) => server.address));
     return {
       generatedAt: new Date().toISOString(),
-      collectors: { addresses: addressesResult.ok, routes: routesResult.ok, resolvers: resolversResult.ok, listeners: listenersResult.ok, tailscale: tailscaleResult.ok },
+      collectors: { addresses: addressesResult.ok, routes: routesResult.ok, resolvers: resolversResult.ok, listeners: listenersResult.ok, tailscale: tailscaleResult.ok, neighbors: neighborsResult.ok },
       addresses,
+      devices,
       eligibleLanAddresses: eligibleLanAddresses(addresses),
       defaultRoutes,
       resolverLinks,

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useOperation } from "./ApproveDialog";
 
 type Topology = {
   generatedAt: string;
@@ -8,6 +9,7 @@ type Topology = {
   defaultResolvers: string[];
   tailscale: { connected: boolean; dnsName: string | null; resolverPresent: boolean; defaultDnsObserved: boolean; overrideState: string };
   dnsListeners: Array<{ protocol: string; address: string; port: number; scope: string; interface: string | null }>;
+  devices?: Array<{ address: string; mac: string; interface: string | null; state: string }>;
   routerCatalog: Array<{ id: string; name: string; roles: string[]; integration: string; note: string; officialSource: string }>;
   mutationSupported: boolean;
 };
@@ -64,6 +66,8 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const { start, dialog } = useOperation(csrfToken);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -129,6 +133,7 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
         <div className="readiness-actions"><span className={`status-pill status-${collectorCount === collectorTotal ? "good" : "warning"}`}>{collectorCount}/{collectorTotal} collectors</span><button className="secondary-button" type="button" onClick={() => void refresh()} disabled={loading}>{loading ? "Refreshing..." : "Refresh"}</button></div>
       </section>
 
+      {dialog}
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="network-summary-grid">
         <article className="panel network-summary"><span className="eyebrow">Server LAN</span><strong>{topology.eligibleLanAddresses[0]?.address ?? "Unavailable"}</strong><span>{topology.eligibleLanAddresses[0]?.cidr ?? "No eligible LAN address"}</span></article>
@@ -137,6 +142,10 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
       </div>
 
       <div className="dashboard-grid">
+        <section className="panel">
+          <header className="panel-header"><div><strong>Devices on your LAN</strong><span>Neighbours this server has talked to recently (ARP table). Wake sends Wake-on-LAN magic packets; the device must allow it in firmware.</span></div></header>
+          {topology.devices && topology.devices.length ? <div className="workload-list">{topology.devices.map((device) => <div className="workload" key={`${device.address}-${device.mac}`}><div><strong>{device.address}</strong><span><code>{device.mac}</code>{device.interface ? ` via ${device.interface}` : ""}</span></div><span className={`status-pill status-${device.state === "REACHABLE" ? "good" : "neutral"}`}>{device.state.toLowerCase()}</span><button className="text-button" type="button" onClick={() => start({ operationId: "network.wake", title: `Wake ${device.address}`, parameters: { mac: device.mac }, preview: <span>Broadcasts Wake-on-LAN magic packets for <code>{device.mac}</code> on this server's network. Nothing is read back — the device either wakes or it does not.</span> })}>Wake</button></div>)}</div> : <p className="empty-state">{topology.collectors.neighbors === false ? "The neighbour table is unavailable." : "No resolved neighbours right now. Devices appear after this server exchanges traffic with them."}</p>}
+        </section>
         <section className="panel">
           <header className="panel-header"><strong>Port 53 listeners</strong><span>Addresses only, no process or credential data</span></header>
           {topology.dnsListeners.length ? <div className="workload-list">{topology.dnsListeners.map((listener, index) => <div className="workload" key={`${listener.protocol}-${listener.address}-${index}`}><div><strong>{listener.address}:{listener.port}</strong><span>{listener.interface ?? "no host interface match"}</span></div><span className="workload-kind">{listener.protocol.toUpperCase()}</span><span className={`status-pill status-${listener.scope === "wildcard" || listener.scope === "host-address" ? "warning" : "neutral"}`}>{listener.scope}</span></div>)}</div> : <p className="empty-state">No TCP or UDP port 53 listeners were reported.</p>}
