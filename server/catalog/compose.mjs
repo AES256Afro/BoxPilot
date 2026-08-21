@@ -12,12 +12,35 @@ export function generateSecret(bytes = 24) {
   return randomBytes(bytes).toString("base64url");
 }
 
+const globCharacters = /[?*[]/;
+
+/**
+ * Expand device globs (`/dev/sd?`, `/dev/nvme?`) against the host's /dev. Literal entries pass
+ * through untouched; a glob that matches nothing is simply dropped, so one manifest works on
+ * hosts with SATA, NVMe, or both. `listDirectory(dir)` returns entry names for a directory.
+ */
+export async function resolveDevices(patterns, listDirectory) {
+  const resolved = [];
+  for (const pattern of patterns ?? []) {
+    if (!globCharacters.test(pattern)) { resolved.push(pattern); continue; }
+    const slash = pattern.lastIndexOf("/");
+    const directory = pattern.slice(0, slash) || "/";
+    const namePattern = pattern.slice(slash + 1);
+    if (globCharacters.test(directory)) continue; // only the last path segment may be a glob
+    const regex = new RegExp(`^${namePattern.replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]")}$`);
+    let entries = [];
+    try { entries = await listDirectory(directory); } catch { entries = []; }
+    for (const name of [...entries].sort()) if (regex.test(name)) resolved.push(`${directory}/${name}`);
+  }
+  return [...new Set(resolved)];
+}
+
 /**
  * Render a compose document and an .env file from a manifest + resolved values.
  * Secrets never go into compose.yaml; they are referenced as ${NAME} and live in .env (0600).
  * Returns `{ compose, composeYaml, envFile, env, hostPorts }`.
  */
-export function renderCompose(manifest, values, { existingEnv = {}, lanAddress = "0.0.0.0" } = {}) {
+export function renderCompose(manifest, values, { existingEnv = {}, lanAddress = "0.0.0.0", devices = manifest.devices } = {}) {
   const env = { ...values.env };
   for (const entry of manifest.env) {
     if (entry.generate && !env[entry.name]) env[entry.name] = existingEnv[entry.name] || generateSecret();
@@ -53,7 +76,7 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   }
   if (Object.keys(environment).length) service.environment = environment;
   if (manifest.capabilities.length) { service.cap_drop = ["ALL"]; service.cap_add = [...manifest.capabilities]; }
-  if (manifest.devices.length) service.devices = manifest.devices.map((device) => `${device}:${device}`);
+  if (devices.length) service.devices = devices.map((device) => `${device}:${device}`);
   if (manifest.extraHosts.length) service.extra_hosts = [...manifest.extraHosts];
   service.security_opt = ["no-new-privileges:true"];
   const compose = { name: projectNameFor(manifest.id), services: { [manifest.id]: service } };

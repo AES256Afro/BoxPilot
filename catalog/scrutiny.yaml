@@ -1,0 +1,72 @@
+schemaVersion: 2
+id: scrutiny
+name: Scrutiny
+category: Monitoring
+icon: "🩺"
+description: Disk health dashboard. Reads every drive's SMART data on a schedule, keeps the history, and warns before a disk fails, using failure rates from real-world drive statistics rather than the manufacturer's thresholds.
+website: https://github.com/AnalogJ/scrutiny
+risk: medium
+image:
+  reference: ghcr.io/analogj/scrutiny:v0.8.3-omnibus
+  version: v0.8.3
+capabilities:
+  - CAP_SYS_RAWIO
+  - CAP_SYS_ADMIN
+  - CAP_CHOWN
+  - CAP_SETUID
+  - CAP_SETGID
+  - CAP_DAC_OVERRIDE
+  - CAP_FOWNER
+  - CAP_KILL
+devices:
+  - /dev/sd?
+  - /dev/nvme?
+ports:
+  - id: web
+    label: Web UI
+    container: 8080
+    host: 8086
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /opt/scrutiny/config
+    path: config
+  - id: history
+    label: SMART history
+    container: /opt/scrutiny/influxdb
+    path: influxdb
+  - id: udev
+    label: Device database (read-only)
+    container: /run/udev
+    hostPath: /run/udev
+    readOnly: true
+    backup: false
+env:
+  - name: COLLECTOR_CRON_SCHEDULE
+    label: Collection schedule
+    description: Cron expression for how often drives are read. Hourly is plenty; SMART reads are cheap.
+    default: "0 * * * *"
+    options:
+      - "0 * * * *"
+      - "*/15 * * * *"
+      - "0 */6 * * *"
+      - "0 2 * * *"
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 20
+  timeoutSeconds: 300
+setup:
+  title: First collection
+  note: Drives are read on the schedule above. Tick this to read them right now so the dashboard is not empty after install.
+  choices:
+    - id: collect-now
+      label: Read all drives now
+      description: Runs the collector once immediately.
+      recommended: true
+      exec: [/opt/scrutiny/bin/scrutiny-collector-metrics, run, --api-endpoint, "http://localhost:8080"]
+notes: "Scrutiny sees the drives that exist when it is installed (/dev/sd* and /dev/nvme*). If you add a disk later, open Settings on this card and Apply once so the new device is passed through. Attributes marked failed in red are the ones to act on; ignore the 'warn' ones on an otherwise healthy drive."

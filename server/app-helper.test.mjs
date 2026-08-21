@@ -8,7 +8,7 @@ import { createCatalogService } from "./catalog/index.mjs";
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
 
-async function setup({ healthKind = "running", exitOnUp = false, failUp = false } = {}) {
+async function setup({ healthKind = "running", exitOnUp = false, failUp = false, listDevices = undefined } = {}) {
   const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
   const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
   await writeFile(path.join(catalogDirectory, "demo.yaml"), `schemaVersion: 2\nid: demo\nname: Demo\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8080\nvolumes:\n  - id: data\n    container: /data\n    path: data\n  - id: docker\n    container: /var/run/docker.sock\n    hostPath: /var/run/docker.sock\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\n  - name: TZ\n    default: Etc/UTC\nhealth:\n  kind: ${healthKind}\n  stableSeconds: 4\n  timeoutSeconds: 30\n`);
@@ -42,12 +42,28 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false 
   const wait = vi.fn(async (ms) => { nowMs += ms; });
   const catalog = createCatalogService({ directory: catalogDirectory, ttlMs: 0 });
   const backupRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-appbk-")); directories.push(backupRoot);
-  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, lanAddress: "192.168.1.10" });
+  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, lanAddress: "192.168.1.10", ...(listDevices ? { listDevices } : {}) });
   const advance = (ms) => { nowMs += ms; };
   return { apps, calls, containers, catalogRoot, catalogDirectory, backupRoot, advance };
 }
 
 describe("generic app deployer", () => {
+  it("resolves device globs against the host when writing the project, and refuses when nothing matches", async () => {
+    const manifestYaml = "schemaVersion: 2\nid: smart\nname: Smart\ncategory: Disks\ndescription: d\nimage:\n  reference: x/smart:1\ndevices:\n  - /dev/sd?\n  - /dev/nvme?\nhealth:\n  kind: running\n  stableSeconds: 4\n  timeoutSeconds: 30\n";
+    const bare = await setup({ listDevices: async () => ["tty", "zero"] });
+    await writeFile(path.join(bare.catalogDirectory, "smart.yaml"), manifestYaml);
+    await expect(bare.apps.install({ id: "smart" })).rejects.toThrow("needs a device matching /dev/sd?, /dev/nvme?");
+
+    const host = await setup({ listDevices: async () => ["nvme0", "nvme0n1", "sda", "sda1"] });
+    await writeFile(path.join(host.catalogDirectory, "smart.yaml"), manifestYaml);
+    await expect(host.apps.install({ id: "smart" })).resolves.toMatchObject({ installed: true });
+    const compose = await readFile(path.join(host.catalogRoot, "smart", "compose.yaml"), "utf8");
+    expect(compose).toContain("/dev/sda:/dev/sda");
+    expect(compose).toContain("/dev/nvme0:/dev/nvme0");
+    expect(compose).not.toContain("nvme0n1");
+    expect(compose).not.toContain("sda1");
+  });
+
   it("runs the chosen setup commands inside the container after install and settings changes", async () => {
     const { apps, calls, catalogDirectory, catalogRoot } = await setup();
     await writeFile(path.join(catalogDirectory, "lists.yaml"), `schemaVersion: 2\nid: lists\nname: Lists\ncategory: DNS\ndescription: d\nimage:\n  reference: x/lists:1\nhealth:\n  kind: running\n  stableSeconds: 4\n  timeoutSeconds: 30\nsetup:\n  title: Blocklists\n  finalize: [pihole, -g]\n  choices:\n    - id: big\n      label: Big\n      recommended: true\n      exec: [sh, -c, "echo big"]\n    - id: small\n      label: Small\n      exec: [sh, -c, "echo small"]\n`);
