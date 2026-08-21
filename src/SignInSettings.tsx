@@ -83,7 +83,7 @@ export default function SignInSettings({ csrfToken }: { csrfToken: string }) {
           <strong>GitHub</strong>
           <span>Uses the OAuth device flow: create an OAuth App at github.com → Settings → Developer settings with <em>Device Flow</em> enabled, then paste its Client ID here. No secret or callback URL is needed.</span>
           <div className="recovery-actions" style={{ marginTop: 8 }}>
-            <input aria-label="GitHub OAuth App client ID" placeholder="Iv1.xxxxxxxxxxxxxxxx" value={clientId} onChange={(event) => setClientId(event.target.value)} />
+            <input aria-label="GitHub OAuth App client ID" placeholder="Ov23li... or Iv1..." value={clientId} onChange={(event) => setClientId(event.target.value)} />
             <button className="secondary-button" type="button" disabled={busy || !passwordOk || clientId === (links?.githubClientId ?? "")} onClick={() => void saveClientId()}>Save client ID</button>
             {links?.githubConfigured && !flow && <button className="primary-button" type="button" disabled={busy || !passwordOk} onClick={() => void linkGithub()}>Link a GitHub account</button>}
           </div>
