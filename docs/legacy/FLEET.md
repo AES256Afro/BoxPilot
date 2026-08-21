@@ -33,7 +33,7 @@ There is no remote shell, arbitrary command, operator-provided probe target, plu
 5. Run the exact enrollment command shown by BoxPilot. It has this form:
 
    ```sh
-   npm run agent -- enroll --controller https://bigbox.example-tailnet.ts.net --token ONE_TIME_TOKEN --name second-lan-device
+   npm run agent -- enroll --controller https://homebox.example-tailnet.ts.net --token ONE_TIME_TOKEN --name second-lan-device
    ```
 
 The agent creates `~/.config/boxpilot-agent/agent.json` with mode `0600`. That file contains the Ed25519 private key. Do not copy it to the server, GitHub, a support bundle, or another device. Enrollment fails closed if the token expires, is reused, requests another capability, or supplies a non-Ed25519 public key.

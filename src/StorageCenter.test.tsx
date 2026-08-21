@@ -134,24 +134,24 @@ describe("Storage center", () => {
     let listBody: string | undefined;
     mockFetch(report, staged, (url, init) => {
       if (url === "/api/v1/storage/shares/discover") return json({ devices: [{ address: "192.168.1.50", name: "mycloud", smb: true, nfs: false, mac: null, interface: "eno1" }], scanned: 253, interfaces: [] });
-      if (url === "/api/v1/storage/shares/list") { listBody = init?.body as string; return json({ shares: [{ name: "Public", comment: "Public Share" }, { name: "chris", comment: null }] }); }
+      if (url === "/api/v1/storage/shares/list") { listBody = init?.body as string; return json({ shares: [{ name: "Public", comment: "Public Share" }, { name: "jamie", comment: null }] }); }
       return null;
     });
     render(<StorageCenter csrfToken="csrf-token" />);
     fireEvent.click(await screen.findByRole("button", { name: "Find devices on my network" }));
     fireEvent.click(await screen.findByRole("button", { name: "Use this device" }));
     expect((screen.getByLabelText("Host") as HTMLInputElement).value).toBe("mycloud");
-    fireEvent.change(screen.getByLabelText("Share username"), { target: { value: "chris" } });
+    fireEvent.change(screen.getByLabelText("Share username"), { target: { value: "jamie" } });
     fireEvent.change(screen.getByLabelText("Share password"), { target: { value: "hunter2 hunter2" } });
     fireEvent.click(screen.getByRole("button", { name: "List shares" }));
-    fireEvent.click(await screen.findByRole("button", { name: "chris" }));
-    expect(JSON.parse(listBody ?? "{}")).toEqual({ kind: "smb", host: "mycloud", username: "chris", password: "hunter2 hunter2", domain: null });
-    expect((screen.getByLabelText("Share mount name") as HTMLInputElement).value).toBe("chris");
-    fireEvent.change(screen.getByLabelText("Share mount name"), { target: { value: "nas-chris" } });
+    fireEvent.click(await screen.findByRole("button", { name: "jamie" }));
+    expect(JSON.parse(listBody ?? "{}")).toEqual({ kind: "smb", host: "mycloud", username: "jamie", password: "hunter2 hunter2", domain: null });
+    expect((screen.getByLabelText("Share mount name") as HTMLInputElement).value).toBe("jamie");
+    fireEvent.change(screen.getByLabelText("Share mount name"), { target: { value: "nas-jamie" } });
     fireEvent.click(screen.getByRole("button", { name: "Mount share" }));
     expect(await screen.findByText("Medium risk")).toBeTruthy();
-    expect(screen.getByText(/share-nas-chris\.cred/)).toBeTruthy();
-    await waitFor(() => expect(JSON.parse(staged["share.mount"] ?? "{}")).toEqual({ parameters: { kind: "smb", host: "mycloud", share: "chris", name: "nas-chris", username: "chris", password: "hunter2 hunter2" } }));
+    expect(screen.getByText(/share-nas-jamie\.cred/)).toBeTruthy();
+    await waitFor(() => expect(JSON.parse(staged["share.mount"] ?? "{}")).toEqual({ parameters: { kind: "smb", host: "mycloud", share: "jamie", name: "nas-jamie", username: "jamie", password: "hunter2 hunter2" } }));
   });
 
   it("lists mounted shares and explains the empty scan; offers the missing client tools", async () => {

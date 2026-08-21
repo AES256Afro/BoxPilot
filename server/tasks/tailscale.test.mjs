@@ -5,7 +5,7 @@ function fakeRun({ setFails = false } = {}) {
   return vi.fn(async (binary, args) => {
     if (binary.endsWith("/ip")) return { ok: true, stdout: JSON.stringify([{ dst: "default", dev: "eno1" }, { dst: "192.168.1.0/24", dev: "eno1", scope: "link" }, { dst: "172.17.0.0/16", dev: "docker0", scope: "link" }]), stderr: "" };
     if (binary.endsWith("tailscale") && args[0] === "set") return setFails ? { ok: false, stdout: "", stderr: "tailscale set: not logged in" } : { ok: true, stdout: "", stderr: "" };
-    if (binary.endsWith("tailscale")) return { ok: true, stdout: JSON.stringify({ Self: { ExitNodeOption: true, DNSName: "bigbox.tail1234.ts.net." } }), stderr: "" };
+    if (binary.endsWith("tailscale")) return { ok: true, stdout: JSON.stringify({ Self: { ExitNodeOption: true, DNSName: "homebox.tail1234.ts.net." } }), stderr: "" };
     return { ok: true, stdout: "", stderr: "" };
   });
 }
@@ -23,7 +23,7 @@ describe("tailscale settings task", () => {
     const files = { writeFile: vi.fn(async () => {}) };
     const run = fakeRun();
     const result = await tailscaleSet({ exitNode: true, subnetRouter: true }, { run, files });
-    expect(result).toEqual({ exitNode: true, routes: ["192.168.1.0/24"], exitNodeOption: true, dnsName: "bigbox.tail1234.ts.net", approvalNeeded: true, adminUrl: "https://login.tailscale.com/admin/machines" });
+    expect(result).toEqual({ exitNode: true, routes: ["192.168.1.0/24"], exitNodeOption: true, dnsName: "homebox.tail1234.ts.net", approvalNeeded: true, adminUrl: "https://login.tailscale.com/admin/machines" });
     expect(files.writeFile).toHaveBeenCalledWith("/etc/sysctl.d/99-boxpilot-tailscale.conf", expect.stringContaining("net.ipv4.ip_forward = 1"), { mode: 0o644 });
     expect(run).toHaveBeenCalledWith("/usr/sbin/sysctl", ["-p", "/etc/sysctl.d/99-boxpilot-tailscale.conf"], expect.anything());
     expect(run).toHaveBeenCalledWith(expect.stringContaining("tailscale"), ["set", "--advertise-exit-node=true", "--advertise-routes=192.168.1.0/24"], expect.anything());

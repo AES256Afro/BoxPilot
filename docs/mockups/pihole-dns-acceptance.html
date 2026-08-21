@@ -16,7 +16,7 @@
     <div class="private"><strong>Private administration</strong>Tailscale HTTPS | Funnel off</div>
   </aside>
   <main>
-    <div class="top"><div><span class="eyebrow">Pi-hole acceptance gate</span><h1>Prove DNS directly from Bigbox</h1><small>Immutable plan, owner reauthentication, fixed queries only</small></div><span class="pill">Second device pending</span></div>
+    <div class="top"><div><span class="eyebrow">Pi-hole acceptance gate</span><h1>Prove DNS directly from Homebox</h1><small>Immutable plan, owner reauthentication, fixed queries only</small></div><span class="pill">Second device pending</span></div>
     <div class="disclosure">MOCKED 0.21.0 PRODUCT STATE. No DNS query was sent, no job was approved, and no router, DHCP, client, firewall, Tailscale, or traffic-path setting was changed.</div>
     <div class="summary"><div class="metric"><span>Managed resolver</span><strong>192.168.8.10:53</strong></div><div class="metric"><span>Deployment</span><strong class="code">7e5b1a90 | matched</strong></div><div class="metric"><span>Restore evidence</span><strong class="code">2b91c6d4 | passed</strong></div><div class="metric"><span>Plan lifetime</span><strong>15 minutes</strong></div></div>
     <section class="panel">
@@ -26,7 +26,7 @@
         <div class="card"><h3>Evidence and execution boundary</h3><div class="rows"><div class="row"><strong>Target source</strong><span>Managed helper inventory</span></div><div class="row"><strong>Executor</strong><span>Unprivileged controller</span></div><div class="row"><strong>Root helper network</strong><span>PrivateNetwork=true</span></div><div class="row"><strong>Recorded</strong><span>rcode, answers, latency</span></div></div></div>
       </div>
       <div class="checks"><div class="check">Exact TCP listener</div><div class="check">Exact UDP listener</div><div class="check">Backup restore passed</div><div class="check">Tailscale recovery</div></div>
-      <div class="warning">A passing job proves only the Bigbox-to-resolver path. A separately enrolled LAN device must provide signed evidence before any router advertisement workflow can unlock.</div>
+      <div class="warning">A passing job proves only the Homebox-to-resolver path. A separately enrolled LAN device must provide signed evidence before any router advertisement workflow can unlock.</div>
       <div class="approval"><div><h3>Router writes, client DNS, and cutover remain locked</h3><p>No address, hostname, command, port, or router credential is accepted from the browser.</p></div><span class="button">Stage fixed checks for approval</span></div>
     </section>
   </main>

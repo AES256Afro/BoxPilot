@@ -34,21 +34,21 @@ describe("samba tasks", () => {
     expect(validateSambaConfig({ shares: [{ name: "A", path: "/srv/a" }, { name: "a", path: "/srv/b" }] })).toContain("twice");
     expect(validateSambaConfig({ shares: [{ name: "Etc", path: "/etc" }] })).toContain("system locations");
     expect(validateSambaConfig({ shares: [{ name: "Up", path: "/srv/../etc" }] })).toContain("system locations");
-    expect(validateSambaConfig({ shares: [{ name: "X", path: "/srv/x", guest: true, users: ["chris"] }] })).toContain("guest share");
-    expect(validateSambaConfig({ shares: [{ name: "X", path: "/srv/x", users: ["Chris!"] }] })).toContain("usernames");
+    expect(validateSambaConfig({ shares: [{ name: "X", path: "/srv/x", guest: true, users: ["jamie"] }] })).toContain("guest share");
+    expect(validateSambaConfig({ shares: [{ name: "X", path: "/srv/x", users: ["Jamie!"] }] })).toContain("usernames");
   });
 
   it("renders a tailnet-only configuration and parses it back", () => {
-    const text = renderSmbConf({ scope: "tailscale", shares: [{ name: "Media", path: "/mnt/nas-media/", comment: "Films", readOnly: true, guest: true }, { name: "Private", path: "/srv/private", users: ["chris", "sam"] }], forceUsers: { Private: "bigbox" } });
+    const text = renderSmbConf({ scope: "tailscale", shares: [{ name: "Media", path: "/mnt/nas-media/", comment: "Films", readOnly: true, guest: true }, { name: "Private", path: "/srv/private", users: ["jamie", "sam"] }], forceUsers: { Private: "homebox" } });
     expect(text.startsWith("# Managed by BoxPilot")).toBe(true);
     expect(text).toContain("   interfaces = lo tailscale0\n   bind interfaces only = yes\n   smb ports = 445\n   disable netbios = yes");
     expect(text).toContain("[Media]\n   comment = Films\n   path = /mnt/nas-media\n   browseable = yes\n   read only = yes\n   guest ok = yes\n   force group = sambashare");
-    expect(text).toContain("[Private]\n   comment = Private\n   path = /srv/private\n   browseable = yes\n   read only = no\n   guest ok = no\n   valid users = chris sam\n   force user = bigbox");
+    expect(text).toContain("[Private]\n   comment = Private\n   path = /srv/private\n   browseable = yes\n   read only = no\n   guest ok = no\n   valid users = jamie sam\n   force user = homebox");
     const parsed = parseSmbConf(text);
     expect(parsed).toMatchObject({ managed: true, workgroup: "WORKGROUP", scope: "tailscale", interfaces: ["lo", "tailscale0"] });
     expect(parsed.shares).toEqual([
       { name: "Media", path: "/mnt/nas-media", comment: "Films", readOnly: true, guest: true, users: [], forceUser: null },
-      { name: "Private", path: "/srv/private", comment: "Private", readOnly: false, guest: false, users: ["chris", "sam"], forceUser: "bigbox" },
+      { name: "Private", path: "/srv/private", comment: "Private", readOnly: false, guest: false, users: ["jamie", "sam"], forceUser: "homebox" },
     ]);
     expect(renderSmbConf({ scope: "lan", lanInterface: "eno1" })).toContain("   interfaces = lo tailscale0 eno1\n   bind interfaces only = yes\n   smb ports = 445\n   disable netbios = no");
     expect(parseSmbConf("[global]\n   workgroup = HOME\n[printers]\n   path = /var/spool/samba\n   printable = yes\n")).toMatchObject({ managed: false, workgroup: "HOME", scope: "lan", shares: [{ name: "printers", readOnly: true }] });
@@ -56,12 +56,12 @@ describe("samba tasks", () => {
 
   it("applies the configuration: backs up a foreign smb.conf, validates with testparm, reloads, and verifies listening", async () => {
     const files = fakeFiles({ existing: "[global]\n   workgroup = OLD\n" });
-    const run = fakeRun({ users: { 1000: "bigbox:x:1000:1000::/home/bigbox:/bin/bash" } });
+    const run = fakeRun({ users: { 1000: "homebox:x:1000:1000::/home/homebox:/bin/bash" } });
     const result = await sambaApply({ scope: "tailscale", shares: [{ name: "Media", path: "/mnt/nas-media", readOnly: true, guest: true }] }, { run, files });
-    expect(result).toMatchObject({ applied: true, scope: "tailscale", shares: ["Media"], interfaces: ["lo", "tailscale0"], listening: ["100.64.0.5:445", "127.0.0.1:445"], forceUsers: { Media: "bigbox" } });
+    expect(result).toMatchObject({ applied: true, scope: "tailscale", shares: ["Media"], interfaces: ["lo", "tailscale0"], listening: ["100.64.0.5:445", "127.0.0.1:445"], forceUsers: { Media: "homebox" } });
     expect(files.state.backups).toEqual(["/etc/samba/smb.conf.before-boxpilot"]);
     expect(files.state.conf).toContain("[Media]");
-    expect(files.state.conf).toContain("force user = bigbox");
+    expect(files.state.conf).toContain("force user = homebox");
     const calls = run.mock.calls.map(([binary, args]) => `${binary.split("/").at(-1)} ${args.join(" ")}`);
     expect(calls).toContain("testparm -s --suppress-prompt /etc/samba/smb.conf");
     expect(calls).toContain("systemctl enable --now smbd");
@@ -89,9 +89,9 @@ describe("samba tasks", () => {
     expect(run).toHaveBeenCalledWith("/usr/sbin/useradd", ["--system", "--no-create-home", "--shell", "/usr/sbin/nologin", "--groups", "sambashare", "--comment", "BoxPilot Samba user", "sam"], expect.anything());
     expect(run).toHaveBeenCalledWith("/usr/bin/smbpasswd", ["-s", "-a", "sam"], expect.objectContaining({ input: "correct horse battery\ncorrect horse battery\n" }));
     expect(run.mock.calls.every(([, args]) => !args.join(" ").includes("correct horse"))).toBe(true);
-    const existing = fakeRun({ users: { bigbox: "bigbox:x:1000:1000::/home/bigbox:/bin/bash" } });
-    await expect(sambaUserSet({ username: "bigbox", password: "another long one" }, { run: existing })).resolves.toMatchObject({ created: false, updated: true });
-    expect(existing).toHaveBeenCalledWith("/usr/sbin/usermod", ["-a", "-G", "sambashare", "bigbox"], expect.anything());
+    const existing = fakeRun({ users: { homebox: "homebox:x:1000:1000::/home/homebox:/bin/bash" } });
+    await expect(sambaUserSet({ username: "homebox", password: "another long one" }, { run: existing })).resolves.toMatchObject({ created: false, updated: true });
+    expect(existing).toHaveBeenCalledWith("/usr/sbin/usermod", ["-a", "-G", "sambashare", "homebox"], expect.anything());
     await expect(sambaUserSet({ username: "sam", password: "short" }, { run })).rejects.toThrow("8 to 128");
     await expect(sambaUserSet({ username: "Bad Name", password: "long enough pw" }, { run })).rejects.toThrow("Username");
     await expect(sambaUserRemove({ username: "sam" }, { run })).resolves.toEqual({ username: "sam", removed: true, accountKept: true });

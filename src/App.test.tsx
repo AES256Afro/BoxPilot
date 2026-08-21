@@ -10,10 +10,10 @@ afterEach(() => {
 describe("BoxPilot console", () => {
   const inventoryFixture = {
     generatedAt: "2026-08-15T20:00:00Z",
-    host: { hostname: "bigbox", operatingSystem: "Ubuntu 26.04 LTS", kernel: "7.0.0", architecture: "x64", uptimeSeconds: 90000 },
+    host: { hostname: "homebox", operatingSystem: "Ubuntu 26.04 LTS", kernel: "7.0.0", architecture: "x64", uptimeSeconds: 90000 },
     compute: { cpuCount: 8, cpuModel: "fixture", load1: 1, loadPercent: 13, totalMemoryBytes: 32 * 1024 ** 3, usedMemoryBytes: 8 * 1024 ** 3, memoryUsedPercent: 25 },
     storage: { root: { totalBytes: 100 * 1024 ** 3, usedBytes: 20 * 1024 ** 3, freeBytes: 80 * 1024 ** 3, usedPercent: 20 } },
-    network: { addresses: [], tailscale: { installed: true, connected: true, dnsName: "bigbox.example.ts.net" } },
+    network: { addresses: [], tailscale: { installed: true, connected: true, dnsName: "homebox.example.ts.net" } },
     services: [],
     docker: { available: true, containers: [], images: [], networks: [], volumes: [], projects: [] },
   };
@@ -35,10 +35,23 @@ describe("BoxPilot console", () => {
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("Live sanitized inventory");
-    expect(await screen.findByText("bigbox")).toBeTruthy();
+    expect(await screen.findByText("homebox")).toBeTruthy();
     fireEvent.click(within(screen.getByRole("navigation", { name: "Product areas" })).getByRole("button", { name: /Backups/ }));
     expect(screen.getByRole("heading", { name: "Backups" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("verified restore drills");
+  });
+
+  it("opens the page named in the URL and keeps the URL in step", async () => {
+    vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+    window.history.replaceState(null, "", "/?view=backups");
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Backups" })).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Product areas" })).getByRole("button", { name: /Overview/ }));
+    expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
+    expect(window.location.search).toBe("");
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Product areas" })).getByRole("button", { name: /Backups/ }));
+    expect(window.location.search).toBe("?view=backups");
+    window.history.replaceState(null, "", "/");
   });
 
   it("renders the log viewer and the support bundle download", async () => {

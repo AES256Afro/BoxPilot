@@ -64,9 +64,9 @@
       </div>
       <div class="backdrop">
         <section class="modal"><div class="modalhead"><div><span class="eyebrow">Private Tailscale route</span><h2>Publish Uptime Kuma access</h2><p>Review the derived tailnet-only URL and locked Serve boundary before creating an approval job.</p></div><span class="close">X</span></div>
-          <dl><div><dt>Current route</dt><dd>Not published</dd></div><div><dt>Desired route</dt><dd>Tailnet only</dd></div><div><dt>HTTPS port</dt><dd>3101</dd></div><div><dt>Private URL</dt><dd>bigbox.tailnet.ts.net:3101</dd></div></dl>
+          <dl><div><dt>Current route</dt><dd>Not published</dd></div><div><dt>Desired route</dt><dd>Tailnet only</dd></div><div><dt>HTTPS port</dt><dd>3101</dd></div><div><dt>Private URL</dt><dd>homebox.tailnet.ts.net:3101</dd></div></dl>
           <div class="panel"><strong>Exact changes</strong><ol><li>Create one persistent Tailscale Serve HTTPS listener on port 3101.</li><li>Proxy only to <code>http://127.0.0.1:3101</code>.</li><li>Verify the route is labeled tailnet only.</li></ol></div>
-          <div class="panel locks"><strong>Locked boundaries</strong><span>Funnel and public exposure remain off. The hostname, port, and target are derived from verified Bigbox state.</span><span>BoxPilot's route, every other Serve route, firewall, DNS, router, container, image, Compose, and data remain unchanged.</span></div>
+          <div class="panel locks"><strong>Locked boundaries</strong><span>Funnel and public exposure remain off. The hostname, port, and target are derived from verified Homebox state.</span><span>BoxPilot's route, every other Serve route, firewall, DNS, router, container, image, Compose, and data remain unchanged.</span></div>
           <div class="panel"><strong>Recovery</strong><p>If verification fails, remove only this listener and keep Uptime Kuma healthy on loopback.</p></div>
           <div class="footer"><code>Plan revision 5919c0de... checked again before execution</code><span class="approve">Stage for password approval</span></div>
         </section>

@@ -217,7 +217,7 @@ BoxPilot `0.61.0` cannot:
 
 Keel deliberately separates registration from instance ownership. BoxPilot does not collect or execute a claim token. After installation:
 
-1. From the client computer, create a private tunnel: `ssh -N -L 3000:127.0.0.1:3000 bigbox@bigbox`.
+1. From the client computer, create a private tunnel: `ssh -N -L 3000:127.0.0.1:3000 homebox@homebox`.
 2. Open `http://127.0.0.1:3000`, register the intended account, and generate Keel's five-minute one-use claim token.
 3. SSH to the server as your normal administrator and run `sudo -k /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-keel-claim.mjs 'PASTE_TOKEN'`.
 4. The fixed terminal handoff rechecks the exact activation, environment, database ownership, install evidence, dedicated account, and active service before it drops permanently to the `keel` identity and calls Keel's claim transaction. `sudo -k` forces a fresh operating-system confirmation. The five-minute token never enters BoxPilot's API, database, job log, or browser storage.

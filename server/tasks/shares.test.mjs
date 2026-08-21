@@ -54,9 +54,9 @@ describe("network share tasks", () => {
   it("stores credentials root-only, adds the fstab entry, mounts, and starts the automount", async () => {
     const files = fakeFiles();
     const run = fakeRun();
-    const result = await shareMount({ kind: "smb", host: "mycloud", share: "Public", name: "nas-media", username: "chris", password: "s3cret pass", domain: null }, { run, files, exists: toolsPresent });
+    const result = await shareMount({ kind: "smb", host: "mycloud", share: "Public", name: "nas-media", username: "jamie", password: "s3cret pass", domain: null }, { run, files, exists: toolsPresent });
     expect(result).toMatchObject({ mounted: true, kind: "smb", source: "//mycloud/Public", mountpoint: "/mnt/nas-media", credentialsStored: true, sizeBytes: 1000, availableBytes: 500 });
-    expect(files.state.written[credentialsPath("nas-media")]).toEqual({ content: "username=chris\npassword=s3cret pass\n", options: { mode: 0o600 } });
+    expect(files.state.written[credentialsPath("nas-media")]).toEqual({ content: "username=jamie\npassword=s3cret pass\n", options: { mode: 0o600 } });
     expect(files.mkdir).toHaveBeenCalledWith("/etc/boxpilot/secrets", { recursive: true, mode: 0o700 });
     expect(files.state.fstab).toContain("# boxpilot:share-nas-media\n//mycloud/Public /mnt/nas-media cifs credentials=/etc/boxpilot/secrets/share-nas-media.cred,");
     const calls = run.mock.calls.map(([binary, args]) => `${binary.split("/").at(-1)} ${args.join(" ")}`);
@@ -69,7 +69,7 @@ describe("network share tasks", () => {
   it("rolls back fstab and credentials when the first mount fails, with a readable reason", async () => {
     const files = fakeFiles();
     const run = fakeRun({ mountFails: "mount error(13): Permission denied" });
-    await expect(shareMount({ kind: "smb", host: "mycloud", share: "Private", name: "nas-private", username: "chris", password: "nope" }, { run, files, exists: toolsPresent })).rejects.toThrow(/refused the credentials.*fstab entry was removed/);
+    await expect(shareMount({ kind: "smb", host: "mycloud", share: "Private", name: "nas-private", username: "jamie", password: "nope" }, { run, files, exists: toolsPresent })).rejects.toThrow(/refused the credentials.*fstab entry was removed/);
     expect(files.state.fstab).toBe(BASE_FSTAB);
     expect(files.state.written[credentialsPath("nas-private")]).toBeUndefined();
   });

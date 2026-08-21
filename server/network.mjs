@@ -7,10 +7,10 @@ const execFile = promisify(execFileCallback);
 const topologyIds = new Set(["flint2-edge-tplink-ap", "omada-edge-access-points", "single-router", "custom"]);
 const dnsRoleIds = new Set(["current-external", "flint2-adguard-home", "pihole-on-host", "pihole-in-vm", "other"]);
 /** Older clients and stored plans used a hostname-specific role id; accept it and normalize. */
-const legacyDnsRoleAliases = { "pihole-on-bigbox": "pihole-on-host" };
+const legacyDnsRolePattern = /^pihole-on-(?!host$)[a-z0-9-]+$/;
 
 export function normalizeDnsRole(value) {
-  return typeof value === "string" && value in legacyDnsRoleAliases ? legacyDnsRoleAliases[value] : value;
+  return typeof value === "string" && legacyDnsRolePattern.test(value) ? "pihole-on-host" : value;
 }
 
 function normalizeNetworkPlanInput(value) {

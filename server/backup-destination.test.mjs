@@ -4,7 +4,7 @@ import { normalizeDestination, validateDestination } from "./backup-destination.
 describe("off-box backup destination", () => {
   it("accepts a host, user, and absolute path and normalizes the port and trailing slash", () => {
     expect(normalizeDestination({ host: "nas.local", user: "backup", path: "/srv/boxpilot/" })).toEqual({ host: "nas.local", port: 22, user: "backup", path: "/srv/boxpilot" });
-    expect(normalizeDestination({ host: "192.168.1.20", port: 2222, user: "bp_mirror", path: "/mnt/pool/bigbox" })).toMatchObject({ port: 2222 });
+    expect(normalizeDestination({ host: "192.168.1.20", port: 2222, user: "bp_mirror", path: "/mnt/pool/homebox" })).toMatchObject({ port: 2222 });
   });
 
   it("rejects shell-unsafe and malformed values before anything reaches ssh or rsync", () => {

@@ -48,7 +48,7 @@
       <div class="disclosure">MOCKED 0.18.0 PRODUCT STATE. No real router, DNS, DHCP, firewall, Tailscale, or application setting was read or changed for this capture.</div>
       <div class="summary">
         <div class="metric"><span>Default gateway</span><strong>192.168.8.1 | eno1</strong></div>
-        <div class="metric"><span>Bigbox LAN</span><strong>192.168.8.10/24</strong></div>
+        <div class="metric"><span>Homebox LAN</span><strong>192.168.8.10/24</strong></div>
         <div class="metric"><span>Default resolvers</span><strong>94.140.14.49 + .59</strong></div>
         <div class="metric"><span>Tailscale DNS</span><strong>Split resolver only</strong></div>
       </div>
@@ -60,7 +60,7 @@
             <div class="row"><div><strong>127.0.0.54:53</strong><span> proxy stub</span></div><span>UDP | loopback</span></div>
             <div class="row"><div><strong>192.168.122.1:53</strong><span> virbr0</span></div><span>TCP+UDP | virtual</span></div>
           </div>
-          <p>There is no wildcard or 192.168.8.10 listener in this mocked state. A future Bigbox DNS adapter must bind the exact reviewed LAN address.</p>
+          <p>There is no wildcard or 192.168.8.10 listener in this mocked state. A future Homebox DNS adapter must bind the exact reviewed LAN address.</p>
         </section>
         <section class="panel">
           <div class="panel-head"><div><span class="eyebrow">Declared hardware roles</span><h2>One router, two non-routing devices</h2></div><span class="pill">Read only</span></div>
@@ -76,11 +76,11 @@
         <div class="plan-top"><div><span class="eyebrow">Immutable no-change assessment 7e5b1a90</span><h2>Keep current external AdGuard DNS while preparing the recovery boundary</h2></div><span class="pill good">Prerequisites recorded</span></div>
         <div class="checks"><div class="check">Router backup recorded</div><div class="check">Emergency DNS tested</div><div class="check">Second device ready</div><div class="check">Tailscale override off</div></div>
         <div class="roles">
-          <div class="card"><strong>Planned sequence</strong><ol><li>Keep Flint 2 as the only gateway and DHCP authority.</li><li>Preserve 94.140.14.59 as the independent emergency resolver.</li><li>Test any new DNS appliance before advertising it.</li><li>Verify from Bigbox and a second LAN device.</li></ol></div>
-          <div class="card"><strong>Rollback order</strong><ol><li>Restore router DNS advertisement to 94.140.14.59.</li><li>Verify ordinary DNS without depending on Bigbox.</li><li>Preserve Tailscale access and keep DNS override off.</li><li>Do not stop the previous resolver during the rollback window.</li></ol></div>
+          <div class="card"><strong>Planned sequence</strong><ol><li>Keep Flint 2 as the only gateway and DHCP authority.</li><li>Preserve 94.140.14.59 as the independent emergency resolver.</li><li>Test any new DNS appliance before advertising it.</li><li>Verify from Homebox and a second LAN device.</li></ol></div>
+          <div class="card"><strong>Rollback order</strong><ol><li>Restore router DNS advertisement to 94.140.14.59.</li><li>Verify ordinary DNS without depending on Homebox.</li><li>Preserve Tailscale access and keep DNS override off.</li><li>Do not stop the previous resolver during the rollback window.</li></ol></div>
         </div>
         <div class="warning"><strong>Assessment only</strong><span>No router session, router write, DNS cutover, network probe, or application deployment exists in this workflow.</span></div>
-        <div class="locks"><span class="pill">Router writes locked</span><span class="pill">DNS cutover locked</span><span>revision 90f3c7... | expires 7:42 PM | owner chris</span></div>
+        <div class="locks"><span class="pill">Router writes locked</span><span class="pill">DNS cutover locked</span><span>revision 90f3c7... | expires 7:42 PM | owner jamie</span></div>
       </section>
     </main>
   </div>

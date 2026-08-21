@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   navItems,
   type ViewName,
@@ -253,8 +253,21 @@ function Settings({ apiMode, csrfToken, role = "owner" }: { apiMode: string; csr
   );
 }
 
+/** Deep link: /?view=firewall opens that page, and a reload keeps the page you were on. */
+function viewFromLocation(): ViewName {
+  const candidate = new URLSearchParams(window.location.search).get("view");
+  return navItems.some((item) => item.id === candidate) ? (candidate as ViewName) : "overview";
+}
+
 function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthStatus; onSignedOut: () => void; onAuthChanged?: (status: AuthStatus) => void }) {
-  const [view, setView] = useState<ViewName>("overview");
+  const [view, setViewState] = useState<ViewName>(viewFromLocation);
+  const setView = useCallback((next: ViewName) => {
+    setViewState(next);
+    const url = new URL(window.location.href);
+    if (next === "overview") url.searchParams.delete("view");
+    else url.searchParams.set("view", next);
+    window.history.replaceState(null, "", url);
+  }, []);
   const [clock, setClock] = useState(() => Date.now());
   useEffect(() => {
     if (!authStatus.elevatedUntil) return undefined;
