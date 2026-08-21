@@ -350,27 +350,48 @@ export function parseNeighbors(stdout) {
 
 export function createNetworkService({ store, runCommand = fixedCommand, getNetworkInterfaces = os.networkInterfaces } = {}) {
   async function inspect() {
-    const [addressesResult, routesResult, resolversResult, listenersResult, tailscaleResult, neighborsResult] = await Promise.all([
+    const [addressesResult, routesResult, resolversResult, listenersResult, tailscaleResult, neighborsResult, prefsResult, allRoutesResult] = await Promise.all([
       runCommand("ip", ["-j", "-4", "address", "show"]),
       runCommand("ip", ["-j", "-4", "route", "show", "default"]),
       runCommand("resolvectl", ["status", "--json=short"]),
       runCommand("ss", ["-H", "-l", "-n", "-t", "-u"]),
       runCommand("tailscale", ["status", "--json"]),
       runCommand("ip", ["-j", "-4", "neigh", "show"]),
+      runCommand("tailscale", ["debug", "prefs"]),
+      runCommand("ip", ["-j", "-4", "route", "show"]),
     ]);
     const devices = neighborsResult.ok ? parseNeighbors(neighborsResult.stdout) : [];
     const addresses = addressesResult.ok ? parseIpAddresses(addressesResult.stdout) : hostAddresses(getNetworkInterfaces);
     const defaultRoutes = routesResult.ok ? parseDefaultRoutes(routesResult.stdout) : [];
     const resolverLinks = resolversResult.ok ? parseResolverStatus(resolversResult.stdout) : [];
     const dnsListeners = listenersResult.ok ? parseDnsListeners(listenersResult.stdout, addresses) : [];
-    let tailscale = { connected: false, dnsName: null };
+    let tailscale = { connected: false, dnsName: null, address: null, exitNodeAdvertised: null, advertisedRoutes: [], approvedRoutes: [], lanSubnets: [] };
     if (tailscaleResult.ok) {
       try {
         const parsed = JSON.parse(tailscaleResult.stdout);
-        tailscale = { connected: parsed.BackendState === "Running", dnsName: typeof parsed.Self?.DNSName === "string" ? parsed.Self.DNSName.replace(/\.$/, "") : null };
+        const ipv4 = (value) => typeof value === "string" && /^\d+\.\d+\.\d+\.\d+(\/\d+)?$/.test(value);
+        tailscale = {
+          ...tailscale,
+          connected: parsed.BackendState === "Running",
+          dnsName: typeof parsed.Self?.DNSName === "string" ? parsed.Self.DNSName.replace(/\.$/, "") : null,
+          address: (parsed.TailscaleIPs ?? parsed.Self?.TailscaleIPs ?? []).find(ipv4) ?? null,
+          exitNodeAdvertised: Boolean(parsed.Self?.ExitNodeOption),
+          // AllowedIPs carries the node's own addresses plus every route the admin approved.
+          approvedRoutes: (parsed.Self?.AllowedIPs ?? []).filter((entry) => ipv4(entry) && !entry.startsWith("100.") && !entry.endsWith("/32")),
+        };
       } catch {
-        tailscale = { connected: false, dnsName: null };
+        tailscale = { ...tailscale, connected: false, dnsName: null };
       }
+    }
+    if (prefsResult.ok) {
+      try { const prefs = JSON.parse(prefsResult.stdout); tailscale.advertisedRoutes = (prefs.AdvertiseRoutes ?? []).filter((entry) => typeof entry === "string" && !entry.includes(":") && entry !== "0.0.0.0/0"); if (typeof prefs.AdvertiseExitNode === "boolean") tailscale.exitNodeAdvertised = tailscale.exitNodeAdvertised || prefs.AdvertiseExitNode; } catch { /* prefs are optional */ }
+    }
+    if (allRoutesResult.ok) {
+      try {
+        tailscale.lanSubnets = [...new Set(JSON.parse(allRoutesResult.stdout)
+          .filter((route) => route.scope === "link" && typeof route.dst === "string" && route.dst.includes("/") && !/^(tailscale|docker|br-|virbr|veth|lo)/.test(route.dev ?? ""))
+          .map((route) => route.dst))];
+      } catch { /* optional */ }
     }
     const defaultResolvers = resolverLinks.filter((link) => link.defaultRoute || link.interface === "global").flatMap((link) => link.servers.map((server) => server.address));
     const tailscaleResolvers = resolverLinks.filter((link) => link.interface.startsWith("tailscale")).flatMap((link) => link.servers.map((server) => server.address));
