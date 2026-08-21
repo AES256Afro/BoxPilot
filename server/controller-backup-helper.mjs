@@ -9,17 +9,18 @@ const uuidPattern = /^[a-f0-9-]{36}$/;
 const requiredTables = Object.freeze([
   "approvals",
   "audit_events",
+  "backups",
   "bootstrap_tokens",
   "controller_backup_protections",
-  "fleet_agents",
-  "fleet_evidence",
-  "fleet_tasks",
   "job_steps",
   "jobs",
   "owners",
   "plans",
-  "router_dns_acceptances",
+  "schedules",
   "sessions",
+  "settings",
+  "vm_backups",
+  "vm_exports",
 ]);
 
 function confinedChild(root, ...parts) {

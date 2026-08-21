@@ -67,9 +67,7 @@ const vmExports = createVmExportService({ store: state, libvirt, helper });
 const vmProtection = createVmProtectionService({ store: state, helper });
 const vmRecoveries = createVmRecoveryService({ store: state, helper });
 const vmRetention = createVmRetentionService({ store: state, helper });
-// The legacy application adapters are retired; the kit's application section reads empty until it is rebuilt around the catalog.
-const legacyApplications = { list: async () => ({ applications: [] }) };
-const recoveryKit = createRecoveryKitService({ store: state, prerequisites, applications: legacyApplications, libvirt });
+const recoveryKit = createRecoveryKitService({ store: state, prerequisites, helper, libvirt });
 const actionCenter = createActionCenterService({ recoveryKit, inventory });
 const supportBundle = createSupportBundleService({ inventory, prerequisites, actionCenter, audit, helper });
 const vmRestoreDrills = createVmRestoreDrillService({ store: state, helper });

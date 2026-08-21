@@ -8,9 +8,9 @@ describe("read-only local Action Center", () => {
     const recoveryKit = { inspect: vi.fn(async () => ({
       checks: [
         { id: "controller.database", state: "operator-check", title: "Independent BoxPilot database copy", evidence: "No off-host database proof exists.", action: "Create an independent copy." },
-        { id: "router.checkpoint", state: "action-required", title: "Router configuration checkpoint", evidence: "No router backup identity is recorded.", action: "Export and hash the active router configuration." },
+        { id: "applications.backup", state: "action-required", title: "Catalog application backups", evidence: "1 installed application has no recorded backup.", action: "Back it up from the catalog card." },
         { id: "virtualization.backup", state: "unavailable", title: "Virtual-machine recovery", evidence: "Libvirt inventory is unavailable.", action: "Restore helper access." },
-        { id: "dns.second-device", state: "not-applicable", title: "Independent DNS proof", evidence: "No direct proof.", action: "Keep DNS unchanged." },
+        { id: "host.prerequisites", state: "not-applicable", title: "Host prerequisite review", evidence: "All ready.", action: "Nothing to do." },
       ],
       evidence: { jobs: [{ state: "failed", error: "password=do-not-export", owner: "private-owner" }] },
     })) };
@@ -25,7 +25,7 @@ describe("read-only local Action Center", () => {
     expect(result.notices.map((item) => item.id)).toEqual([
       "recovery.virtualization.backup",
       "jobs.failed",
-      "recovery.router.checkpoint",
+      "recovery.applications.backup",
       "recovery.controller.database",
     ]);
     expect(result.notices.every((item) => item.boundary.automaticFixAvailable === false)).toBe(true);

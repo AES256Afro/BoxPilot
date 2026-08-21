@@ -21,11 +21,11 @@ const guidance = {
   },
   "applications.backup": {
     category: "Application protection",
-    view: "backups",
+    view: "catalog",
     steps: [
-      "Open Backups and identify each installed workload without current restore-drill evidence.",
-      "Review the adapter-specific scope, downtime, destination, and rollback plan.",
-      "Stage and approve each backup separately, then confirm the isolated restore result.",
+      "Open the App catalog and identify each installed application without a recorded backup.",
+      "Back up each application from its card, or add a recurring schedule on the System page.",
+      "Copy the application backup directory to independent storage.",
     ],
   },
   "virtualization.backup": {
@@ -35,33 +35,6 @@ const guidance = {
       "Open Backups and review every VM without protected backup evidence.",
       "Create a stopped export and an encrypted copy on the fixed independent restic destination.",
       "Run the exact-snapshot isolated no-network restore drill before treating the VM as protected.",
-    ],
-  },
-  "router.checkpoint": {
-    category: "Router recovery",
-    view: "routers",
-    steps: [
-      "Export the active router configuration from the router's own administration interface.",
-      "Keep the file on independent storage and hash it locally in the BoxPilot browser.",
-      "Record only its SHA-256 identity and operator-retention assertion in Router Checkpoints.",
-    ],
-  },
-  "migration.source": {
-    category: "Migration safety",
-    view: "migrations",
-    steps: [
-      "Stop destination activation and keep the source workload unchanged.",
-      "Review content-verification and source-preservation evidence for the affected transfer.",
-      "Repeat staging only after the source and rollback path are independently available.",
-    ],
-  },
-  "dns.second-device": {
-    category: "DNS acceptance",
-    view: "network",
-    steps: [
-      "Keep router, DHCP, client, and Tailscale DNS settings unchanged.",
-      "Complete the guarded direct server-side checks against the exact staged Pi-hole address.",
-      "Use Fleet for one owner-approved signed second-device proof only after direct evidence passes.",
     ],
   },
   "host.prerequisites": {
@@ -207,7 +180,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
             severity: critical ? "critical" : "warning",
             category: "Storage health",
             title: critical ? "A filesystem is critically full" : "A filesystem is approaching capacity",
-            summary: "Review the exact sanitized mount evidence before creating backups, migrations, applications, or virtual-machine disks.",
+            summary: "Review the exact sanitized mount evidence before creating backups, applications, or virtual-machine disks.",
             evidence: [`${filesystemSummary.critical ?? 0} critical and ${filesystemSummary.warning ?? 0} warning filesystem capacity state(s) were reported.`],
             recommendation: { view: "overview", title: "Open Overview", steps: ["Identify the reported mount and verify its capacity at the server console.", "Pause storage-producing jobs and preserve current backups.", "Use a separately reviewed cleanup or expansion procedure; Action Center performs no deletion."] },
             boundary: boundary(),
