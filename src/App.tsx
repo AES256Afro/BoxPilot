@@ -7,6 +7,7 @@ import AuthScreen from "./AuthScreen";
 import BackupCenter from "./BackupCenter";
 import GitHubCenter from "./GitHubCenter";
 import HomeDashboard from "./HomeDashboard";
+import SetupWizard from "./SetupWizard";
 import HostOverview from "./HostOverview";
 import NetworkCenter from "./NetworkCenter";
 import RepairCenter from "./RepairCenter";
@@ -26,6 +27,10 @@ import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./
 import VirtualMachines from "./VirtualMachines";
 
 const viewCopy: Record<ViewName, { title: string; description: string; action?: string }> = {
+  setup: {
+    title: "Set up this server",
+    description: "Pick what this server should be. BoxPilot checks what is already in place and installs the rest, in order, through the normal approved jobs.",
+  },
   overview: {
     title: "Server overview",
     description: "Inspect sanitized host, service, network, storage, and Docker state from this server.",
@@ -90,6 +95,7 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
 };
 
 const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; description: string }> = {
+  setup: { label: "Live setup state", tone: "live", description: "Every step is checked against the server before it runs; steps already done are skipped." },
   overview: {
     label: "Live sanitized inventory",
     tone: "live",
@@ -280,6 +286,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   }, []);
 
   const pageContent = useMemo(() => {
+    if (view === "setup") return <SetupWizard csrfToken={authStatus.csrfToken ?? ""} onDone={() => setView("overview")} />;
     if (view === "overview") {
       return <><HomeDashboard onNavigate={setView} /><HostOverview /></>;
     }

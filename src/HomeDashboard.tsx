@@ -30,6 +30,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
   const [vms, setVms] = useState<{ total: number; running: number } | null>(null);
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [backups, setBackups] = useState<{ lastBackupAt: string | null; lastSyncAt: string | null; syncReady: boolean } | null>(null);
+  const [setup, setSetup] = useState<{ firstRun: boolean; installedApps: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,6 +83,11 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
       })
       .catch(() => {});
 
+    fetch("/api/v1/setup")
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("setup unavailable"))))
+      .then((data: { firstRun: boolean; installedApps: number }) => guard(setSetup)({ firstRun: data.firstRun, installedApps: data.installedApps }))
+      .catch(() => {});
+
     return () => { cancelled = true; };
   }, []);
 
@@ -103,6 +109,14 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
 
   return (
     <div className="home-dashboard">
+      {setup?.firstRun && (
+        <section className="panel">
+          <header className="panel-header">
+            <div><strong>Set up this server</strong><span>Nothing is installed yet. Pick what this box should be — home server, DNS appliance, hypervisor, dev box, or just the essentials — and BoxPilot installs the rest in order.</span></div>
+            <button className="primary-button" type="button" onClick={() => onNavigate("setup")}>Choose a profile</button>
+          </header>
+        </section>
+      )}
       <div className="metric-grid">
         <button type="button" className="panel metric-link" onClick={() => onNavigate("updates")}>
           <span className="eyebrow">Updates</span><strong>{updates ? updates.updates : "—"}</strong>
@@ -153,6 +167,10 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
             ))}
           </div>
         </section>
+      )}
+
+      {setup && !setup.firstRun && (
+        <p className="muted dashboard-setup-link"><button type="button" className="text-button" onClick={() => onNavigate("setup")}>Add more with a setup profile</button></p>
       )}
 
       {jobs && jobs.length > 0 && (
