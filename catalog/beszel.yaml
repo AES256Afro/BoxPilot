@@ -1,0 +1,26 @@
+schemaVersion: 2
+id: beszel
+name: Beszel
+category: Monitoring
+icon: "📈"
+description: Lightweight server monitoring with history and alerts (CPU, memory, disk, network, temperatures, Docker containers). This is the hub; install "Beszel agent" on each machine to monitor, including this one.
+website: https://beszel.dev
+risk: low
+image:
+  reference: ghcr.io/henrygd/beszel/beszel:0.18.8
+  version: 0.18.8
+ports:
+  - id: web
+    label: Web UI
+    container: 8090
+    host: 8090
+    exposure: lan
+volumes:
+  - id: data
+    label: Hub data
+    container: /beszel_data
+    path: data
+health:
+  kind: running
+  stableSeconds: 10
+notes: "First visit creates the admin account. Then click Add system: give it a name, enter this server's LAN address as the host, keep port 45876, and copy the public key it shows. Install the Beszel agent app from this catalog with that key and the system turns green. Repeat for other machines with their own agent."

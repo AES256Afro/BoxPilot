@@ -1,0 +1,36 @@
+schemaVersion: 2
+id: beszel-agent
+name: Beszel agent
+category: Monitoring
+icon: "📡"
+description: Reports this server's CPU, memory, disks, network, temperatures, and Docker containers to a Beszel hub. Install the Beszel hub first and paste the public key it shows when you add a system.
+website: https://beszel.dev/guide/agent-installation
+risk: low
+image:
+  reference: ghcr.io/henrygd/beszel/beszel-agent:0.18.8
+  version: 0.18.8
+network: host
+volumes:
+  - id: docker
+    label: Docker socket (read-only, for container stats)
+    container: /var/run/docker.sock
+    hostPath: /var/run/docker.sock
+    readOnly: true
+    backup: false
+  - id: data
+    label: Agent data
+    container: /var/lib/beszel-agent
+    path: data
+    backup: false
+env:
+  - name: KEY
+    label: Hub public key
+    description: Shown by the hub under Add system (starts with ssh-ed25519). The agent only talks to a hub holding the matching private key.
+    required: true
+  - name: LISTEN
+    default: "45876"
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 10
+notes: "The agent listens on port 45876 on every interface of this server; the Firewall page's deny-by-default profile keeps it reachable only from this machine and your tailnet unless you allow the port. Temperatures need no extra setup on most hardware."

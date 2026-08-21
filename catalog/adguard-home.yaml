@@ -3,7 +3,7 @@ id: adguard-home
 name: AdGuard Home
 category: DNS
 icon: "🛡️"
-description: Network-wide ad and tracker blocking DNS server with a clean web UI. Point your router's DNS at this server once it is running.
+description: Network-wide ad and tracker blocking DNS server with a clean web UI and a bundled Unbound recursive resolver. Point your router's DNS at this server once it is running.
 website: https://adguard.com/adguard-home/overview.html
 risk: high
 image:
@@ -40,7 +40,10 @@ volumes:
     label: Configuration
     container: /opt/adguardhome/conf
     path: conf
+sidecars:
+  - id: unbound
+    image: klutchell/unbound:v1.26.0
 health:
   kind: running
   stableSeconds: 10
-notes: Open the setup UI first and choose port 80 for the admin interface and 53 for DNS in the wizard (they are mapped to the ports shown here). Ubuntu's systemd-resolved stub on 127.0.0.53 does not conflict; if port 53 is busy, Pi-hole or another resolver is already installed.
+notes: "Open the setup UI first and choose port 80 for the admin interface and 53 for DNS in the wizard (they are mapped to the ports shown here). For private lookups, set the upstream DNS server to unbound:53 under Settings → DNS settings: that is the bundled recursive resolver, which asks the root servers directly. Ubuntu's systemd-resolved stub on 127.0.0.53 does not conflict; if port 53 is busy, Pi-hole or another resolver is already installed."
