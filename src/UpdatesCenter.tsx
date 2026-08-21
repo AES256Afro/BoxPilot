@@ -67,6 +67,9 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
 
   const selectedList = useMemo(() => [...selected].sort(), [selected]);
   const toggle = (name: string) => setSelected((current) => { const next = new Set(current); if (next.has(name)) next.delete(name); else next.add(name); return next; });
+  const allNames = useMemo(() => (report?.upgradable ?? []).map((item) => item.name), [report]);
+  const allSelected = allNames.length > 0 && allNames.every((name) => selected.has(name));
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set(allNames));
   const customList = useMemo(() => customPackages.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean), [customPackages]);
 
   return (
@@ -122,7 +125,7 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
         </header>
         <div className="table-scroll">
           <table>
-            <thead><tr><th aria-label="Select" /><th>Package</th><th>Installed</th><th>Available</th><th>Source</th></tr></thead>
+            <thead><tr><th><input type="checkbox" aria-label="Select all packages" checked={allSelected} disabled={allNames.length === 0} onChange={toggleAll} /></th><th>Package</th><th>Installed</th><th>Available</th><th>Source</th></tr></thead>
             <tbody>
               {loading && !report ? <tr><td colSpan={5}>Reading APT state...</td></tr> : null}
               {report && report.upgradable.length === 0 ? <tr><td colSpan={5}>Everything is up to date.</td></tr> : null}

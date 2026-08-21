@@ -35,6 +35,10 @@ describe("Updates center", () => {
     expect(await screen.findByText("htop")).toBeTruthy();
     expect(screen.getByText("Required")).toBeTruthy();
     expect(screen.getByText("noble-security")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Select all packages"));
+    expect(screen.getByRole("button", { name: "Upgrade selected (2)" })).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Select all packages"));
+    expect(screen.getByRole("button", { name: "Upgrade selected (0)" })).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Select htop"));
     fireEvent.click(screen.getByRole("button", { name: "Upgrade selected (1)" }));
 
