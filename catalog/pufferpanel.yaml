@@ -13,7 +13,7 @@ ports:
   - id: web
     label: Web UI
     container: 8080
-    host: 8162
+    host: 8136
     exposure: lan
   - id: sftp
     label: SFTP

@@ -1,0 +1,68 @@
+schemaVersion: 2
+id: monica
+name: Monica
+category: Household
+icon: "👥"
+description: "Personal CRM: remember birthdays, gifts, conversations, and the little details about the people in your life."
+website: https://www.monicahq.com
+risk: low
+image:
+  reference: monica:4.1.2-apache
+  version: "4.1.2"
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8144
+    exposure: lan
+volumes:
+  - id: storage
+    label: Uploads
+    container: /var/www/html/storage
+    path: storage
+env:
+  - name: APP_KEY
+    label: App key
+    type: password
+    secret: true
+    generate: true
+  - name: DB_HOST
+    default: "database"
+    fixed: true
+  - name: DB_DATABASE
+    default: "monica"
+    fixed: true
+  - name: DB_USERNAME
+    default: "monica"
+    fixed: true
+  - name: DB_PASSWORD
+    label: Database password
+    type: password
+    secret: true
+    generate: true
+  - name: APP_URL
+    label: Address people use
+    default: http://localhost:8144
+  - name: APP_TRUSTED_PROXIES
+    default: "*"
+    fixed: true
+  - name: APP_ENV
+    default: "production"
+    fixed: true
+sidecars:
+  - id: database
+    image: mariadb:11.8.8
+    env:
+      MARIADB_DATABASE: monica
+      MARIADB_USER: monica
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - id: mysql
+        container: /var/lib/mysql
+        path: database
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 600
+notes: "Register the first account on the sign-in page."

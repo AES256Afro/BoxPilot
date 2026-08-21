@@ -1,0 +1,31 @@
+schemaVersion: 2
+id: shiori
+name: Shiori
+category: Knowledge
+icon: "🌸"
+description: "Simple bookmark manager with offline page archives and a reader view; tiny and fast."
+website: https://github.com/go-shiori/shiori
+risk: low
+image:
+  reference: ghcr.io/go-shiori/shiori:v1.8.0
+  version: "1.8.0"
+ports:
+  - id: web
+    label: Web UI
+    container: 8080
+    host: 8140
+    exposure: lan
+volumes:
+  - id: data
+    label: Database and archives
+    container: /shiori
+    path: data
+env:
+  - name: SHIORI_DIR
+    default: "/shiori"
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "First login is shiori / gopher; change it under Settings."

@@ -1,0 +1,81 @@
+schemaVersion: 2
+id: planka
+name: Planka
+category: Productivity
+icon: "🗂️"
+description: "Kanban boards with drag-and-drop cards, labels, due dates, attachments, and real-time updates; the Trello you host yourself."
+website: https://planka.app
+risk: low
+image:
+  reference: ghcr.io/plankanban/planka:2.2.1
+  version: "2.2.1"
+ports:
+  - id: web
+    label: Web UI
+    container: 1337
+    host: 1337
+    exposure: lan
+volumes:
+  - id: favicons
+    label: Favicons
+    container: /app/public/favicons
+    path: favicons
+  - id: avatars
+    label: User avatars
+    container: /app/public/user-avatars
+    path: user-avatars
+  - id: backgrounds
+    label: Background images
+    container: /app/public/background-images
+    path: background-images
+  - id: attachments
+    label: Attachments
+    container: /app/private/attachments
+    path: attachments
+env:
+  - name: BASE_URL
+    label: Address people use
+    default: http://localhost:1337
+  - name: DATABASE_URL
+    default: "postgresql://planka:${PLANKA_DB_PASSWORD}@database/planka"
+    fixed: true
+  - name: SECRET_KEY
+    label: App secret
+    type: password
+    secret: true
+    generate: true
+  - name: DEFAULT_ADMIN_EMAIL
+    label: Admin email
+    default: admin@example.com
+  - name: DEFAULT_ADMIN_PASSWORD
+    label: Admin password
+    type: password
+    secret: true
+    generate: true
+  - name: DEFAULT_ADMIN_NAME
+    default: "Admin"
+    fixed: true
+  - name: DEFAULT_ADMIN_USERNAME
+    default: "admin"
+    fixed: true
+  - name: PLANKA_DB_PASSWORD
+    label: Database password
+    type: password
+    secret: true
+    generate: true
+sidecars:
+  - id: database
+    image: postgres:16.15-alpine
+    env:
+      POSTGRES_DB: planka
+      POSTGRES_USER: planka
+      POSTGRES_PASSWORD: ${PLANKA_DB_PASSWORD}
+    volumes:
+      - id: pgdata
+        container: /var/lib/postgresql/data
+        path: postgres
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Sign in with the admin email and generated password (Secrets)."

@@ -1,0 +1,39 @@
+schemaVersion: 2
+id: 2fauth
+name: 2FAuth
+category: Security
+icon: "🔐"
+description: "Two-factor codes (TOTP) in a web app you host: a backup for the authenticator on your phone, with import from Google Authenticator, Aegis, and others."
+website: https://docs.2fauth.app
+risk: medium
+image:
+  reference: 2fauth/2fauth:8.0.1
+  version: "8.0.1"
+ports:
+  - id: web
+    label: Web UI
+    container: 8000
+    host: 8142
+    exposure: lan
+volumes:
+  - id: data
+    label: Database and settings
+    container: /2fauth
+    path: data
+env:
+  - name: APP_KEY
+    label: App key
+    type: password
+    secret: true
+    generate: true
+  - name: APP_URL
+    label: Address people use
+    default: http://localhost:8142
+  - name: TRUSTED_PROXIES
+    default: "*"
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Register the first account; it becomes the admin. Treat this like a password manager: keep it on your tailnet only and back it up."

@@ -13,7 +13,7 @@ ports:
   - id: web
     label: Web UI
     container: 8080
-    host: 8142
+    host: 8126
     exposure: lan
 env:
   - name: DATABASE_URL

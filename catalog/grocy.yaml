@@ -13,7 +13,7 @@ ports:
   - id: web
     label: Web UI
     container: 80
-    host: 8138
+    host: 8124
     exposure: lan
 volumes:
   - id: config
