@@ -15,6 +15,7 @@ const topology = {
   defaultResolvers: ["94.140.14.49", "94.140.14.59"],
   tailscale: { connected: true, dnsName: "bigbox.example.ts.net", resolverPresent: true, defaultDnsObserved: false, overrideState: "non-tailscale-default-observed" },
   dnsListeners: [{ protocol: "tcp", address: "127.0.0.53", port: 53, scope: "loopback", interface: null }],
+  devices: [{ address: "192.168.1.50", mac: "aa:bb:cc:dd:ee:ff", interface: "eno1", state: "REACHABLE" }],
   routerCatalog: [{ id: "glinet-flint-2", name: "GL.iNet Flint 2", roles: ["edge-router", "adguard-home-host"], integration: "read-only-declaration", note: "No router credentials are accepted.", officialSource: "https://docs.gl-inet.com/" }],
   mutationSupported: false,
 };
@@ -32,6 +33,7 @@ describe("Network Center", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (input.toString().endsWith("/api/v1/network/topology")) return new Response(JSON.stringify(topology), { status: 200, headers: { "Content-Type": "application/json" } });
       if (input.toString().endsWith("/api/v1/network/dns-acceptance")) return new Response(JSON.stringify(acceptanceStatus), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (input.toString().endsWith("/api/v1/operations/network.wake/jobs")) return new Response(JSON.stringify({ job: { id: "job-wake", type: "op:network.wake", title: "Wake a device on the LAN", state: "awaiting_approval", risk: "low", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "low", passwordRequired: false, elevated: false, mode: "tiered", reason: "low risk" } }), { status: 201, headers: { "Content-Type": "application/json" } });
       expect(init?.method).toBe("POST");
       expect(init?.headers).toMatchObject({ "X-BoxPilot-CSRF": "csrf" });
       const submitted = JSON.parse(String(init?.body));
@@ -56,6 +58,13 @@ describe("Network Center", () => {
     expect(screen.getAllByText("Router writes locked").length).toBeGreaterThan(0);
     expect(screen.getByText("DNS cutover locked")).toBeTruthy();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    // LAN devices from the neighbour table, each with a one-click Wake-on-LAN.
+    expect(screen.getByText("aa:bb:cc:dd:ee:ff")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Wake" }));
+    expect(await screen.findByText("Low risk")).toBeTruthy();
+    const wakeCall = fetchMock.mock.calls.find(([url]) => url.toString().endsWith("/operations/network.wake/jobs"));
+    expect(JSON.parse(String(wakeCall?.[1]?.body))).toEqual({ parameters: { mac: "aa:bb:cc:dd:ee:ff" } });
   });
 
 });

@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createNetworkService, networkInternals, validateNetworkPlanInput } from "./network.mjs";
+import { createNetworkService, networkInternals, parseNeighbors, validateNetworkPlanInput } from "./network.mjs";
 import { createStateStore } from "./state.mjs";
 
 const directories = [];
@@ -70,7 +70,7 @@ afterEach(async () => {
 });
 
 describe("network topology and DNS assessment", () => {
-  it("returns sanitized fixed-command topology without neighbor MAC addresses or router credentials", async () => {
+  it("returns fixed-command topology and the neighbour table without router credentials", async () => {
     const { store, runCommand, service } = await fixture();
     const result = await service.inspect();
     expect(result).toMatchObject({
@@ -90,9 +90,25 @@ describe("network topology and DNS assessment", () => {
       ["resolvectl", ["status", "--json=short"]],
       ["ss", ["-H", "-l", "-n", "-t", "-u"]],
       ["tailscale", ["status", "--json"]],
+      ["ip", ["-j", "-4", "neigh", "show"]],
     ]);
-    expect(JSON.stringify(result)).not.toContain("lladdr");
+    expect(Array.isArray(result.devices)).toBe(true);
     store.close();
+  });
+
+  it("parses resolved IPv4 neighbours with hardware addresses, reachable first", () => {
+    const devices = parseNeighbors(JSON.stringify([
+      { dst: "192.168.8.20", dev: "eno1", lladdr: "AA:BB:CC:DD:EE:02", state: ["STALE"] },
+      { dst: "192.168.8.3", dev: "eno1", lladdr: "aa:bb:cc:dd:ee:01", state: ["REACHABLE"] },
+      { dst: "192.168.8.99", dev: "eno1", state: ["FAILED"] },
+      { dst: "fe80::1", dev: "eno1", lladdr: "aa:bb:cc:dd:ee:03", state: ["REACHABLE"] },
+      { dst: "192.168.8.7", dev: "eno1", lladdr: "not-a-mac", state: ["REACHABLE"] },
+    ]));
+    expect(devices).toEqual([
+      { address: "192.168.8.3", mac: "aa:bb:cc:dd:ee:01", interface: "eno1", state: "REACHABLE" },
+      { address: "192.168.8.20", mac: "aa:bb:cc:dd:ee:02", interface: "eno1", state: "STALE" },
+    ]);
+    expect(parseNeighbors("not json")).toEqual([]);
   });
 
   it("correlates the observed gateway with fixed router guidance without claiming device identity", async () => {

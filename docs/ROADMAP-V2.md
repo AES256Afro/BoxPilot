@@ -194,7 +194,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - **M9.3** Local DNS names for every installed app (`*.lan` or `*.home.arpa`) via the DNS platform.
 - **M9.4** Tailscale: join/leave, serve/funnel per app, exit-node toggle, subnet router toggle, ACL hints; Headscale option.
 - **M9.5** WireGuard/wg-easy quick VPN as catalog item with QR.
-- **M9.6** Wake-on-LAN and network device inventory (arp/nmap-lite) on the dashboard.
+- ✅ (v1) **M9.6** Network page lists the devices this server has talked to (IPv4 neighbour table with MAC, interface, and reachability) and can **Wake** any of them — `network.wake` (low risk) broadcasts Wake-on-LAN magic packets from the root task runner. Remaining: name resolution for devices, an active scan, a dashboard tile.
 
 ### Phase 10 — Dev/project workflows (ongoing)
 - **M10.1** "Deploy from GitHub repo": pick repo (OAuth), detect compose/Dockerfile, build & run, webhook or poll for auto-redeploy on push.

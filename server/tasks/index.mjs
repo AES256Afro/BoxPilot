@@ -11,6 +11,7 @@ import { storageFormat, storageMount, storageUnmount, swapFileSet } from "./stor
 import { ensureCloudImage } from "./cloud-images.mjs";
 import { systemUpdate } from "./update.mjs";
 import { backupRemoteKeygen, backupRemoteSync, backupRemoteTest } from "./backup-remote.mjs";
+import { networkWake } from "./network.mjs";
 
 export const tasks = Object.freeze({
   "apt.update": aptUpdate,
@@ -41,6 +42,7 @@ export const tasks = Object.freeze({
   "backup.remote.keygen": backupRemoteKeygen,
   "backup.remote.test": backupRemoteTest,
   "backup.remote.sync": backupRemoteSync,
+  "network.wake": networkWake,
 });
 
 export function taskIds() {
