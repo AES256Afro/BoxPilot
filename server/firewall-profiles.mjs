@@ -158,7 +158,7 @@ function ruleAllows(rule, port, protocol) {
  * @param {Array} input.apps           installed apps: [{ id, name, ports: [{ port, protocol, label }] }]
  * @param {object|null} input.current  the stored profile setting, if any
  */
-export function adviseFirewall({ report, listeners = [], apps = [], current = null, webPort = defaultWebPort, webHost = "127.0.0.1" } = {}) {
+export function adviseFirewall({ report, listeners = [], apps = [], current = null, fail2ban = null, webPort = defaultWebPort, webHost = "127.0.0.1" } = {}) {
   const advice = [];
   if (!report || !report.installed) {
     advice.push({ id: "install", level: "action", title: "Install ufw", detail: "BoxPilot manages the firewall through ufw. Installing it does not turn it on.", focus: "install" });
@@ -228,6 +228,9 @@ export function adviseFirewall({ report, listeners = [], apps = [], current = nu
   }
 
   const sshRule = rules.find((rule) => ruleAllows(rule, 22, "tcp"));
+  if (sshRule && fail2ban && !(fail2ban.running && fail2ban.configured)) {
+    advice.push({ id: "fail2ban", level: "info", title: "Ban repeated SSH login failures", detail: fail2ban.installed ? "fail2ban is installed but not protecting SSH. Turn it on below; your tailnet and LAN are never banned." : "Install fail2ban and turn it on below: addresses that keep failing SSH logins are blocked for a while.", focus: "fail2ban" });
+  }
   if (sshRule && sshRule.action === "allow") {
     advice.push({ id: "ssh-limit", level: "info", title: "Rate-limit SSH logins", detail: "Allows 6 new connections per 30 seconds per address and drops the rest, which blunts password guessing without locking you out. Apply a profile with the rate-limit option ticked.", focus: "profiles" });
   }

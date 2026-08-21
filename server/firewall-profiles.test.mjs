@@ -77,6 +77,13 @@ describe("firewall profiles", () => {
       expect(denyDefault.find((entry) => entry.id === "tailscale-udp")).toMatchObject({ level: "warn", parameters: { port: 41641, protocol: "udp" } });
     });
 
+    it("suggests fail2ban while SSH is allowed and fail2ban is not protecting it", () => {
+      const report = { ...base, rules: [{ action: "allow", protocol: "tcp", port: 22, app: null, direction: "in", interface: null, comment: null, family: "both" }] };
+      expect(adviseFirewall({ report, fail2ban: { installed: false, running: null, configured: false } }).find((entry) => entry.id === "fail2ban")).toMatchObject({ focus: "fail2ban" });
+      expect(adviseFirewall({ report, fail2ban: { installed: true, running: true, configured: true } }).some((entry) => entry.id === "fail2ban")).toBe(false);
+      expect(adviseFirewall({ report }).some((entry) => entry.id === "fail2ban")).toBe(false);
+    });
+
     it("stays quiet about the trusted-LAN profile's allow-by-default and about rate-limited SSH", () => {
       const report = { ...base, defaults: { incoming: "accept", outgoing: "accept", routed: "reject" }, rules: [{ action: "limit", protocol: "tcp", port: 22, app: null, direction: "in", interface: null, comment: null, family: "both" }, { action: "allow", protocol: "udp", port: 41641, app: null, direction: "in", interface: null, comment: null, family: "both" }] };
       const ids = adviseFirewall({ report, current: { id: "trusted-lan" } }).map((entry) => entry.id);

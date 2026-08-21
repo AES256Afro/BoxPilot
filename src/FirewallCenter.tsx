@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOperation } from "./ApproveDialog";
+import Fail2banPanel from "./Fail2banPanel";
 
 interface FirewallRule { action?: string; protocol?: string; port?: number | null; app?: string | null; direction?: string; interface?: string | null; comment?: string | null; family?: string; raw?: string }
 interface FirewallReport { installed: boolean; enabled: boolean | null; defaults: { incoming: string | null; outgoing: string | null; routed: string | null } | null; rules: FirewallRule[] }
 interface ProtectedRule { port: number; protocol: string; label: string; reason: string; allow: boolean }
 interface Profile { id: string; name: string; recommended: boolean; summary: string; detail: string; defaults: { incoming: string; outgoing: string }; rules: Array<{ action: string; port: number; protocol: string; comment?: string | null }>; lockServices?: boolean }
 interface Service { id: string; name: string; hint: string; ports: Array<{ port: number; protocol: string }> }
-interface Advice { id: string; level: "action" | "warn" | "info"; title: string; detail: string; focus?: "profiles" | "install"; operationId?: string; parameters?: Record<string, unknown>; actionLabel?: string }
+interface Advice { id: string; level: "action" | "warn" | "info"; title: string; detail: string; focus?: "profiles" | "install" | "fail2ban"; operationId?: string; parameters?: Record<string, unknown>; actionLabel?: string }
 interface CurrentProfile { id: string; services: string[]; sshRateLimit: boolean; appliedAt: string | null }
 interface Overview {
   report: FirewallReport | null; reportError: string | null;
@@ -21,6 +22,7 @@ const levelClass: Record<Advice["level"], string> = { action: "status-danger", w
 
 export default function FirewallCenter({ csrfToken }: { csrfToken: string }) {
   const [overview, setOverview] = useState<Overview | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [port, setPort] = useState("");
@@ -42,6 +44,7 @@ export default function FirewallCenter({ csrfToken }: { csrfToken: string }) {
       const body = (await response.json()) as Overview & { error?: string };
       if (!response.ok) throw new Error(body.error ?? "Could not read firewall state");
       setOverview(body);
+      setRefreshKey((key) => key + 1);
       if (body.reportError) setError(body.reportError);
       setProfileId((current) => current ?? body.current?.id ?? body.profiles.find((profile) => profile.recommended)?.id ?? body.profiles[0]?.id ?? null);
       setChosen((current) => (current.length ? current : body.current?.services ?? []));
@@ -112,6 +115,7 @@ export default function FirewallCenter({ csrfToken }: { csrfToken: string }) {
       return;
     }
     if (entry.focus === "install") installUfw();
+    else if (entry.focus === "fail2ban") document.getElementById("fail2ban")?.scrollIntoView({ behavior: "smooth", block: "start" });
     else focusProfiles();
   };
 
@@ -168,7 +172,7 @@ export default function FirewallCenter({ csrfToken }: { csrfToken: string }) {
             <div className="advice-item" key={entry.id}>
               <span className={`status-pill ${levelClass[entry.level]}`}>{levelLabel[entry.level]}</span>
               <div><strong>{entry.title}</strong><span className="muted">{entry.detail}</span></div>
-              {(entry.operationId || entry.focus) && <button className={entry.level === "action" ? "primary-button" : "secondary-button"} type="button" onClick={() => adviceAction(entry)}>{entry.actionLabel ?? (entry.focus === "install" ? "Install ufw" : "Choose a profile")}</button>}
+              {(entry.operationId || entry.focus) && <button className={entry.level === "action" ? "primary-button" : "secondary-button"} type="button" onClick={() => adviceAction(entry)}>{entry.actionLabel ?? (entry.focus === "install" ? "Install ufw" : entry.focus === "fail2ban" ? "Set it up" : "Choose a profile")}</button>}
             </div>
           ))}
         </div>
@@ -216,6 +220,8 @@ export default function FirewallCenter({ csrfToken }: { csrfToken: string }) {
           <span className="muted">You will see every command before anything runs; applying needs your password.</span>
         </div>
       </section>
+
+      <Fail2banPanel start={start} refreshKey={refreshKey} />
 
       <section className="panel">
         <header className="panel-header"><div><strong>Rules</strong><span>Configured rules from ufw. Protected allow rules cannot be deleted from here.</span></div></header>
