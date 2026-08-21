@@ -9,6 +9,7 @@ risk: low
 image:
   reference: grafana/loki:3.7.6
   version: "3.7.6"
+user: "10001:10001"
 ports:
   - id: web
     label: Web UI

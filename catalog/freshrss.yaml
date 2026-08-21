@@ -1,7 +1,7 @@
 schemaVersion: 2
 id: freshrss
 name: FreshRSS
-category: News
+category: Productivity
 icon: "📰"
 description: Self-hosted RSS and Atom feed reader that is fast, light, and works with mobile reader apps.
 website: https://freshrss.org

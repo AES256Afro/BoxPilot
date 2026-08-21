@@ -1,7 +1,7 @@
 schemaVersion: 2
 id: home-assistant
 name: Home Assistant
-category: Smart home
+category: Home automation
 icon: "🏠"
 description: Open-source home automation hub that talks to thousands of smart devices, with automations, dashboards, and voice control.
 website: https://www.home-assistant.io

@@ -9,6 +9,7 @@ risk: low
 image:
   reference: libretranslate/libretranslate:v1.9.6
   version: "1.9.6"
+user: "1032:1032"
 ports:
   - id: web
     label: Web UI and API

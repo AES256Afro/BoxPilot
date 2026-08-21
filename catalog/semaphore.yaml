@@ -9,6 +9,7 @@ risk: low
 image:
   reference: semaphoreui/semaphore:v2.19.8
   version: "2.19.8"
+user: "1001:1001"
 ports:
   - id: web
     label: Web UI

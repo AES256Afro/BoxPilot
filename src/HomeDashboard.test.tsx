@@ -44,6 +44,22 @@ describe("Home dashboard", () => {
     expect(onNavigate).toHaveBeenCalledWith("services");
   });
 
+  it("shows the setup checklist with links for what is left", async () => {
+    const checklist = { done: 2, total: 5, allEssentialDone: false, items: [
+      { id: "tailscale", title: "Reach BoxPilot from anywhere", detail: "Connected as bigbox.tail1234.ts.net.", done: true, optional: false, view: "network" },
+      { id: "firewall", title: "Turn on the firewall with a profile", detail: "Block everything you did not ask for.", done: false, optional: false, view: "firewall" },
+      { id: "ups", title: "Protect against power cuts", detail: "Plug a UPS in.", done: false, optional: true, view: "system" },
+    ] };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => (input.toString().endsWith("/api/v1/setup/checklist") ? json(checklist) : json({ error: "unavailable" }, 503))));
+    const onNavigate = vi.fn();
+    render(<HomeDashboard onNavigate={onNavigate} />);
+    expect(await screen.findByText("2 of 5 essentials done", { exact: false })).toBeTruthy();
+    expect(screen.getByText("Reach BoxPilot from anywhere")).toBeTruthy();
+    expect(screen.getByText("(optional)")).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: "Open" })[0]);
+    expect(onNavigate).toHaveBeenCalledWith("firewall");
+  });
+
   it("renders quiet tiles when sources are unavailable", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => json({ error: "down" }, 500)));
     render(<HomeDashboard onNavigate={vi.fn()} />);

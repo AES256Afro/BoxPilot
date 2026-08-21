@@ -9,6 +9,7 @@ risk: low
 image:
   reference: ghcr.io/sysadminsmedia/homebox:0.26.2
   version: "0.26.2"
+user: "1000:1000"
 ports:
   - id: web
     label: Web UI

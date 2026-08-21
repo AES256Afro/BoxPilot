@@ -9,6 +9,7 @@ risk: low
 image:
   reference: mumblevoip/mumble-server:v1.6.870
   version: "1.6.870"
+user: "10000:10000"
 ports:
   - id: voice
     label: Mumble

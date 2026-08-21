@@ -20,6 +20,7 @@ import { createHostRouter } from "./routes/host.mjs";
 import { createFirewallRouter } from "./routes/firewall.mjs";
 import { createStorageRouter } from "./routes/storage.mjs";
 import { createPowerRouter } from "./routes/power.mjs";
+import { createChecklistRouter } from "./routes/checklist.mjs";
 import { createPeopleRouter } from "./routes/people.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { createHelperLibvirtService } from "./helper-libvirt.mjs";
@@ -226,6 +227,7 @@ app.use("/api/v1", createSettingsRouter({ state, notifications, auth }));
 app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort: port, webHost: host }));
 app.use("/api/v1", createStorageRouter({ auth, helper, inventory, state }));
 app.use("/api/v1", createPowerRouter());
+app.use("/api/v1", createChecklistRouter({ state, helper, notifications, inventory, network }));
 app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth }));
 
 app.use(express.static(dist, { index: false }));

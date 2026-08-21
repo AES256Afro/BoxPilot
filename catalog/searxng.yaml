@@ -1,7 +1,7 @@
 schemaVersion: 2
 id: searxng
 name: SearXNG
-category: Privacy
+category: Productivity
 icon: "🔍"
 description: A private search engine for your household. Queries go to Google, Bing, DuckDuckGo, Wikipedia, and dozens more through this server, so no search provider sees who is asking. Set it as the default search in every browser.
 website: https://docs.searxng.org

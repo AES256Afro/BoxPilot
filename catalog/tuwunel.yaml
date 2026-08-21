@@ -9,6 +9,7 @@ risk: medium
 image:
   reference: ghcr.io/matrix-construct/tuwunel:v1.9.0
   version: "1.9.0"
+user: "1000:1000"
 ports:
   - id: web
     label: Matrix client API

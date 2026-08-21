@@ -9,6 +9,7 @@ risk: low
 image:
   reference: directus/directus:12.3.0
   version: "12.3.0"
+user: "1000:1000"
 ports:
   - id: web
     label: Web UI and API

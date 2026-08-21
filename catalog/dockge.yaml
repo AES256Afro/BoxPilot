@@ -1,7 +1,7 @@
 schemaVersion: 2
 id: dockge
 name: Dockge
-category: Docker
+category: Developer
 icon: "🧩"
 description: Friendly web UI for writing and running your own docker-compose stacks, from the maker of Uptime Kuma.
 website: https://dockge.kuma.pet

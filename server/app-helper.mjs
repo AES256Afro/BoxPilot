@@ -5,7 +5,7 @@
  */
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chown, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
 import { fixedRun } from "./exec.mjs";
@@ -52,6 +52,7 @@ export function createAppHelper({
   clock = () => new Date(),
   lanAddress = "0.0.0.0",
   listDevices = (directory) => readdir(directory),
+  chownDirectory = (target, uid, gid) => chown(target, uid, gid),
 } = {}) {
   const root = path.resolve(catalogRoot);
   const dirFor = (id) => path.join(root, id);
@@ -156,7 +157,16 @@ export function createAppHelper({
   async function writeProject(manifest, values, { existingEnv = {} } = {}) {
     const directory = dirFor(manifest.id);
     await mkdir(directory, { recursive: true, mode: 0o700 });
-    for (const volume of manifest.volumes) if (volume.path) await mkdir(path.join(directory, volume.path), { recursive: true, mode: 0o755 });
+    // Images that run as a fixed non-root user (declared with `user:`) must be able to write their
+    // managed volumes, which the helper creates as root. Ownership is set on the directory only;
+    // existing files are never touched.
+    const owner = manifest.user ? manifest.user.split(":").map((part) => Number.parseInt(part, 10)) : null;
+    for (const volume of manifest.volumes) {
+      if (!volume.path) continue;
+      const target = path.join(directory, volume.path);
+      await mkdir(target, { recursive: true, mode: 0o755 });
+      if (owner && Number.isInteger(owner[0])) await chownDirectory(target, owner[0], Number.isInteger(owner[1]) ? owner[1] : owner[0]).catch(() => {});
+    }
     for (const sidecar of manifest.sidecars ?? []) for (const volume of sidecar.volumes) await mkdir(path.join(directory, volume.path), { recursive: true, mode: 0o755 });
     const devices = await resolveDevices(manifest.devices, listDevices);
     if (manifest.devices.some((pattern) => /[?*[]/.test(pattern)) && !devices.length) throw new Error(`${manifest.name} needs a device matching ${manifest.devices.join(", ")} and none exists on this server`);

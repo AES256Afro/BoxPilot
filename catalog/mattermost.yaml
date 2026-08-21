@@ -9,6 +9,7 @@ risk: medium
 image:
   reference: mattermost/mattermost-team-edition:11.7.9
   version: "11.7.9"
+user: "2000:2000"
 ports:
   - id: web
     label: Web UI

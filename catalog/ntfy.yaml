@@ -1,7 +1,7 @@
 schemaVersion: 2
 id: ntfy
 name: ntfy
-category: Alerts
+category: Communication
 icon: "📬"
 description: Publish-subscribe push notifications to your phone or desktop with a simple HTTP call — no account needed.
 website: https://ntfy.sh
