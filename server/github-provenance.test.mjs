@@ -37,12 +37,10 @@ describe("GitHub provenance", () => {
     expect(second).toEqual(first);
     expect(calls.map((call) => call.path)).toEqual(expect.arrayContaining([
       "/repos/AES256Afro/BoxPilot", "/repos/AES256Afro/BoxPilot/commits/main", "/repos/AES256Afro/BoxPilot/releases/latest",
-      "/repos/AES256Afro/Keel", "/repos/AES256Afro/Keel/commits/main", "/repos/AES256Afro/Keel/releases/latest", "/repos/AES256Afro/Keel/commits/v1.2.6",
     ]));
-    expect(calls).toHaveLength(7);
+    expect(calls).toHaveLength(3);
     expect(first.boundary).toMatchObject({ tokenConfigured: false, repositoryWrites: false, cloneOrDownload: false, localDigestVerification: false });
     expect(first.repositories[0]).toMatchObject({ fullName: "AES256Afro/BoxPilot", latestRelease: null, head: { sha: "1".repeat(40), verification: { verified: true, reportedBy: "github-api" } } });
-    expect(first.repositories[1]).toMatchObject({ fullName: "AES256Afro/Keel", latestRelease: { tagName: "v1.2.6", assetsWithGithubReportedDigest: 1, commit: { sha: "3".repeat(40) } } });
     expect(JSON.stringify(first)).not.toContain("must-not-leak");
     expect(JSON.stringify(first)).not.toContain("example.invalid");
   });
@@ -57,7 +55,6 @@ describe("GitHub provenance", () => {
     const result = await createGithubProvenanceService({ requestJson }).inspect();
     expect(result.repositories).toEqual([
       expect.objectContaining({ id: "boxpilot", status: "unavailable", error: "GitHub public API returned status 403" }),
-      expect.objectContaining({ id: "keel", status: "available" }),
     ]);
   });
 

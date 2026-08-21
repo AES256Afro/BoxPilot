@@ -36,28 +36,9 @@ describe("BoxPilot console", () => {
     expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("Live sanitized inventory");
     expect(await screen.findByText("bigbox")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Applications/ }));
-    expect(screen.getByRole("heading", { name: "Applications" })).toBeTruthy();
-    expect(await screen.findByText("Uptime Kuma")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("sanitized instance-owner login proof");
     fireEvent.click(screen.getByRole("button", { name: /Backups/ }));
     expect(screen.getByRole("heading", { name: "Backups" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("Controller and application backup engine");
-    expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("encrypted independent exact-restore protection");
-    expect(screen.getByRole("region", { name: "Data source" }).textContent).not.toContain("independent controller or application destinations remain pending");
-    expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("WAL-aware snapshot");
-    expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("fixed no-prune retention");
-  });
-
-  it("opens the browser-only Compose inspector", async () => {
-    vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
-    render(<App />);
-    expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Applications/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Import Compose" }));
-    expect(screen.getByRole("dialog", { name: "Inspect a Compose stack" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Run dry scan" }));
-    expect(screen.getByText("No high-risk patterns detected by this basic scan.")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("verified restore drills");
   });
 
   it("renders fixed redacted system logs", async () => {

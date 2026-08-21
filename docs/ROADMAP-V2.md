@@ -213,7 +213,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - **M12.2** ESLint + typecheck on server (JSDoc or convert to TS), Prettier, pre-commit.
 - **M12.3** Release workflow: tag → build tarball → checksums → GitHub Release → self-update picks it up.
 - **M12.4** README rewrite: what it does, a 60-second install, screenshots of real UI (not mockups), capability matrix in 1 table; move the 73 KB of boundary prose to `docs/SAFETY.md`.
-- **M12.5** Delete or shelve: fleet agents (until Phase 11), router checkpoints (until M9.2), migration center (until M11.2), Keel-specific 11 modules (fold into catalog), ~25 per-workflow tables.
+- ✅ (code) **M12.5** Deleted: the entire Keel machinery (never installed on the host), the legacy Uptime Kuma/Pi-hole adapters and Applications page (superseded by the catalog), Migration Center, Fleet, Router checkpoints, and the DNS-acceptance flows — 108 files. Generic Docker/journal inspection was extracted to `server/host-inspect-helper.mjs`. Controller database backup was ported to registry op `controller.backup.create` with a new `operationRecordHooks` mechanism; the Backups page was rebuilt around it. Remaining: drop the now-unused state tables and their store functions (data-only, harmless).
 
 ---
 
