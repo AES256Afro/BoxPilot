@@ -26,27 +26,16 @@ function setup(state = {}) {
   return { store, owner, helper, service, inspection };
 }
 
-describe("libvirt foundation plans", () => {
-  it("creates and stages an immutable fixed-resource plan", async () => {
-    const { owner, service } = setup();
-    const plan = await service.plan(owner.id, {});
-    expect(plan).toMatchObject({ type: "virtualization.foundation", subjectId: "default", input: { expectedRevision: revision, foundationId }, output: { executable: true, automaticRollback: true, network: { name: "default", mode: "nat", cidr: "192.168.122.0/24" }, pool: { name: "default", targetPath: "/var/lib/libvirt/images" } } });
-    const job = await service.stage(plan.id, plan.revision, owner.id);
-    expect(job).toMatchObject({ type: "virtualization.foundation.initialize", state: "awaiting_approval", parameters: { planId: plan.id, revision: plan.revision, foundationId, expectedRevision: revision }, recovery: { automaticRollback: true } });
-    await expect(service.validateJob(job)).resolves.toMatchObject({ plan: { id: plan.id }, state: { revision } });
+describe("libvirt foundation preparation", () => {
+  it("pins the current safe revision for the registry operation", async () => {
+    const { service } = setup();
+    await expect(service.prepareOperation()).resolves.toEqual({ foundationId, expectedRevision: revision });
   });
 
-  it("rejects browser-selected resources, ready hosts, conflicts, and stale state", async () => {
-    const selected = setup();
-    await expect(selected.service.plan(selected.owner.id, { pool: "custom" })).rejects.toThrow("empty object");
+  it("refuses ready hosts and unsafe states", async () => {
     const ready = setup({ ready: true, planAvailable: false });
-    await expect(ready.service.plan(ready.owner.id, {})).rejects.toThrow("already ready");
+    await expect(ready.service.prepareOperation()).rejects.toThrow("already ready");
     const conflict = setup({ planAvailable: false, conflicts: ["subnet conflict"] });
-    await expect(conflict.service.plan(conflict.owner.id, {})).rejects.toThrow("subnet conflict");
-
-    const stale = setup();
-    const plan = await stale.service.plan(stale.owner.id, {});
-    stale.inspection.revision = "b".repeat(64);
-    await expect(stale.service.stage(plan.id, plan.revision, stale.owner.id)).rejects.toThrow("Host state changed");
+    await expect(conflict.service.prepareOperation()).rejects.toThrow("subnet conflict");
   });
 });

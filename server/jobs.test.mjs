@@ -28,7 +28,7 @@ describe("durable job executor", () => {
   it("requires password reauthentication before invoking the helper", async () => {
     const helper = { request: vi.fn() };
     const { store, owner, jobs } = await setup(helper);
-    const job = jobs.createOperationJob("apt.refresh", {}, owner.id);
+    const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
 
     await expect(jobs.approveAndRun(job.id, owner.id, "wrong password")).rejects.toThrow("reauthentication failed");
     expect(helper.request).not.toHaveBeenCalled();
@@ -40,8 +40,8 @@ describe("durable job executor", () => {
     const helper = { request: vi.fn(async () => ({ verified: true, helperVersion: "0.1.0", mutationPerformed: false })) };
     const { store, owner, jobs } = await setup(helper);
     const session = store.getSession(store.createSession(owner.id).token);
-    expect(jobs.describeApproval(jobs.createOperationJob("apt.refresh", {}, owner.id).id, session)).toMatchObject({ tier: "low", passwordRequired: false, mode: "tiered" });
-    const job = jobs.createOperationJob("apt.refresh", {}, owner.id);
+    expect(jobs.describeApproval((await jobs.createOperationJob("apt.refresh", {}, owner.id)).id, session)).toMatchObject({ tier: "low", passwordRequired: false, mode: "tiered" });
+    const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
     await expect(jobs.approveAndRun(job.id, owner.id, { password: "wrong password", session })).rejects.toThrow("reauthentication failed");
     const completed = await jobs.approveAndRun(job.id, owner.id, { session });
     expect(completed.state).toBe("completed");
@@ -61,7 +61,7 @@ describe("durable job executor", () => {
     await expect(jobs.approveAndRun(job.id, owner.id, { session })).rejects.toThrow("reauthentication required: high-risk");
     expect(store.getJob(job.id).state).toBe("awaiting_approval");
     // A password on a low-risk job elevates the session...
-    const canary = jobs.createOperationJob("apt.refresh", {}, owner.id);
+    const canary = await jobs.createOperationJob("apt.refresh", {}, owner.id);
     await jobs.approveAndRun(canary.id, owner.id, { password: "correct horse battery", session });
     const elevated = store.getSession(token);
     expect(Date.parse(elevated.elevatedUntil)).toBeGreaterThan(Date.now());
@@ -75,7 +75,7 @@ describe("durable job executor", () => {
     const { store, owner, jobs } = await setup(helper);
     store.setSetting("approvalMode", "always-password", { updatedBy: owner.id });
     const session = store.getSession(store.createSession(owner.id).token);
-    const job = jobs.createOperationJob("apt.refresh", {}, owner.id);
+    const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
     expect(jobs.describeApproval(job.id, session)).toMatchObject({ mode: "always-password", passwordRequired: true });
     await expect(jobs.approveAndRun(job.id, owner.id, { session })).rejects.toThrow("reauthentication required");
     const completed = await jobs.approveAndRun(job.id, owner.id, { password: "correct horse battery", session });
@@ -88,17 +88,17 @@ describe("durable job executor", () => {
     const helper = { request: vi.fn(async (operation, parameters) => ({ operation, parameters, upgraded: true })) };
     const { store, owner, jobs } = await setup(helper);
     const session = store.getSession(store.createSession(owner.id).token);
-    expect(() => jobs.createOperationJob("apt.upgradable.inspect", {}, owner.id)).toThrow("Read-only");
-    expect(() => jobs.createOperationJob("nope.op", {}, owner.id)).toThrow("Operation not found");
-    expect(() => jobs.createOperationJob("apt.install", { packages: ["bad name"] }, owner.id)).toThrow("invalid package name");
-    const job = jobs.createOperationJob("apt.upgrade", { packages: ["htop"] }, owner.id);
+    await expect(jobs.createOperationJob("apt.upgradable.inspect", {}, owner.id)).rejects.toThrow("Read-only");
+    await expect(jobs.createOperationJob("nope.op", {}, owner.id)).rejects.toThrow("Operation not found");
+    await expect(jobs.createOperationJob("apt.install", { packages: ["bad name"] }, owner.id)).rejects.toThrow("invalid package name");
+    const job = await jobs.createOperationJob("apt.upgrade", { packages: ["htop"] }, owner.id);
     expect(job).toMatchObject({ type: "op:apt.upgrade", title: "Install package updates", risk: "medium", state: "awaiting_approval" });
     expect(jobs.describeApproval(job.id, session)).toMatchObject({ tier: "medium", passwordRequired: false });
     const completed = await jobs.approveAndRun(job.id, owner.id, { session });
     expect(helper.request).toHaveBeenCalledWith("apt.upgrade", { packages: ["htop"] }, expect.objectContaining({ timeoutMs: 70 * 60 * 1000 }));
     expect(completed.state).toBe("completed");
     expect(completed.result).toMatchObject({ upgraded: true });
-    const purge = jobs.createOperationJob("apt.purge", { packages: ["htop"] }, owner.id);
+    const purge = await jobs.createOperationJob("apt.purge", { packages: ["htop"] }, owner.id);
     expect(jobs.describeApproval(purge.id, session)).toMatchObject({ tier: "high", passwordRequired: true });
     await expect(jobs.approveAndRun(purge.id, owner.id, { session })).rejects.toThrow("high-risk");
     store.close();
@@ -107,7 +107,7 @@ describe("durable job executor", () => {
   it("records the complete approved low-risk operation lifecycle", async () => {
     const helper = { request: vi.fn(async () => ({ verified: true, helperVersion: "0.1.0", mutationPerformed: false })) };
     const { store, owner, jobs } = await setup(helper);
-    const job = jobs.createOperationJob("apt.refresh", {}, owner.id);
+    const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
     const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
 
     expect(helper.request).toHaveBeenCalledWith("apt.refresh", {}, expect.objectContaining({ jobId: expect.any(String) }));
@@ -120,72 +120,10 @@ describe("durable job executor", () => {
   it("fails closed when the helper is unavailable", async () => {
     const helper = { request: vi.fn(async () => { throw new Error("Helper unavailable"); }) };
     const { store, owner, jobs } = await setup(helper);
-    const job = jobs.createOperationJob("apt.refresh", {}, owner.id);
+    const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
 
     await expect(jobs.approveAndRun(job.id, owner.id, "correct horse battery")).rejects.toThrow("Helper unavailable");
     expect(store.getJob(job.id)).toMatchObject({ state: "failed", error: "Helper unavailable" });
-    store.close();
-  });
-
-  it("revalidates and executes only the approved fixed libvirt foundation plan", async () => {
-    const foundationId = "123e4567-e89b-42d3-a456-426614174000";
-    const expectedRevision = "a".repeat(64);
-    const result = {
-      initialized: true, foundationId, revisionBefore: expectedRevision, revisionAfter: "b".repeat(64), ready: true,
-      network: { name: "default", created: true, started: true, autostartEnabled: true },
-      pool: { name: "default", targetPath: "/var/lib/libvirt/images", created: true, started: true, autostartEnabled: true },
-      rollback: { automatic: true, requestedOnFailure: true, limitedToJobChanges: true },
-      boundary: { resourceNamesFixed: true, otherNetworksChanged: false, otherPoolsChanged: false, virtualMachineCreated: false, diskCreated: false, bridgeModeEnabled: false, browserResourceAccepted: false },
-    };
-    const helper = { request: vi.fn(async () => result) };
-    const { store, owner } = await setup(helper);
-    const validateLibvirtFoundationJob = vi.fn(async () => ({ plan: { input: { foundationId, expectedRevision } }, state: { revision: expectedRevision } }));
-    const jobs = createJobService(store, helper, { validateLibvirtFoundationJob });
-    const job = store.createJob({ type: "virtualization.foundation.initialize", title: "Initialize libvirt foundation", risk: "virtualization-network-storage", parameters: { foundationId, expectedRevision }, recovery: { automaticRollback: true }, createdBy: owner.id });
-    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
-    expect(validateLibvirtFoundationJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("virtualization.foundation.initialize", { foundationId, expectedRevision }, expect.objectContaining({ timeoutMs: 5 * 60 * 1000 }));
-    expect(completed).toMatchObject({ state: "completed", result: { initialized: true, ready: true, network: { name: "default" }, pool: { name: "default" } } });
-    store.close();
-  });
-
-  it("runs independent controller protection in the background and records only exact restored restic evidence", async () => {
-    const input = { protectionId: "44444444-4444-4444-8444-444444444444", backupId: "33333333-3333-4333-8333-333333333333", expectedArtifactChecksumSha256: "a".repeat(64), expectedManifestChecksumSha256: "b".repeat(64), expectedSizeBytes: 8192, expectedDestinationRevision: "c".repeat(64) };
-    let finish;
-    const helper = { request: vi.fn(() => new Promise((resolve) => { finish = resolve; })) };
-    const { store, owner } = await setup(helper);
-    const validateControllerProtectionJob = vi.fn(async () => ({ input }));
-    const recordControllerProtectionResult = vi.fn();
-    const jobs = createJobService(store, helper, { validateControllerProtectionJob, recordControllerProtectionResult });
-    const job = store.createJob({ type: "controller.database.backup.protect", title: "Protect BoxPilot controller", parameters: { input }, recovery: {}, createdBy: owner.id });
-
-    const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
-    expect(started.state).toBe("applying");
-    expect(validateControllerProtectionJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("controller.database.protection.create", input, expect.objectContaining({ timeoutMs: 12 * 60 * 60 * 1000 }));
-    const result = { created: true, protectionId: input.protectionId, backupId: input.backupId, encrypted: true, independent: true, repositoryVerified: true, protected: true, restoreDrill: { passed: true, mode: "exact-snapshot-isolated-copy-open", network: "none", productionDatabaseReplaced: false } };
-    finish(result);
-    await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
-    expect(recordControllerProtectionResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
-    store.close();
-  });
-
-  it("runs exact controller retention and records forgotten evidence before completion validation", async () => {
-    const input = { retentionId: "55555555-5555-4555-8555-555555555555", repositoryId: "a".repeat(64), expectedDestinationRevision: "b".repeat(64), expectedSnapshotSetRevision: "c".repeat(64), forgetSnapshotIds: ["d".repeat(64)] };
-    const result = { applied: true, complete: true, retentionId: input.retentionId, repositoryId: input.repositoryId, forgottenSnapshotIds: input.forgetSnapshotIds, keptSnapshotIds: ["e".repeat(64)], beforeCount: 2, afterCount: 1, beforeSnapshotSetRevision: input.expectedSnapshotSetRevision, afterSnapshotSetRevision: "f".repeat(64), repositoryVerified: true, prunePerformed: false, spaceReclaimed: false };
-    const helper = { request: vi.fn(async () => result) };
-    const { store, owner } = await setup(helper);
-    const validateControllerRetentionJob = vi.fn(async () => ({ input }));
-    const recordControllerRetentionResult = vi.fn();
-    const jobs = createJobService(store, helper, { validateControllerRetentionJob, recordControllerRetentionResult });
-    const job = store.createJob({ type: "controller.database.backup.retention.apply", title: "Retain controller backups", risk: "high", parameters: { input }, recovery: {}, createdBy: owner.id });
-
-    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
-
-    expect(validateControllerRetentionJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("controller.database.protection.retention.apply", input, expect.objectContaining({ timeoutMs: 12 * 60 * 60 * 1000 }));
-    expect(recordControllerRetentionResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
-    expect(completed).toMatchObject({ state: "completed", result: { prunePerformed: false, spaceReclaimed: false } });
     store.close();
   });
 

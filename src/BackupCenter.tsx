@@ -23,12 +23,11 @@ function formatBytes(bytes: number): string {
  * Backups home: BoxPilot's own database. Per-app backups live on each catalog card, and VM
  * protection lives on the Virtual Machines page.
  */
-export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: string; onOpenRepair: () => void }) {
+export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenRepair?: () => void }) {
   const [backups, setBackups] = useState<BackupRecord[]>([]);
   const [protection, setProtection] = useState<ProtectionState | null>(null);
   const [retention, setRetention] = useState<RetentionStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -54,23 +53,13 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
 
   const { start, dialog } = useOperation(csrfToken, () => { void refresh(); });
 
-  // Independent restic protection still uses the reviewed plan flow and the Repair Center desk.
-  const protectLatest = async (backupId: string) => {
-    setPending(true);
-    setError(null);
-    try {
-      const { plan } = await requestJson<{ plan: ProtectionPlan }>(`/api/v1/controller-backups/${backupId}/protection-plans`, {
-        method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: "{}",
-      });
-      await requestJson(`/api/v1/controller-protection-plans/${plan.id}/stage`, {
-        method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ revision: plan.revision }),
-      });
-      onOpenRepair();
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Protection staging failed");
-    } finally {
-      setPending(false);
-    }
+  const protectBackup = (backupId: string) => {
+    start({
+      operationId: "controller.backup.protect",
+      title: "Protect the backup independently",
+      parameters: { backupId },
+      preview: <span>Copies the verified backup into the separate encrypted restic repository, reads the whole repository back, and restore-drills the exact snapshot with no network. Nothing is pruned or overwritten.</span>,
+    });
   };
 
   const latest = backups[0] ?? null;
@@ -115,13 +104,18 @@ export default function BackupCenter({ csrfToken, onOpenRepair }: { csrfToken: s
                   <td>{formatBytes(backup.sizeBytes)}</td>
                   <td>{backup.restoreDrill?.passed ? <span className="status-pill status-good">passed</span> : <span className="status-pill status-warning">unverified</span>}</td>
                   <td>{protectedIds.has(backup.id) ? <span className="status-pill status-good">protected</span> : "—"}</td>
-                  <td>{!protectedIds.has(backup.id) && protection?.destination?.repositoryInitialized ? <button className="text-button" type="button" disabled={pending} onClick={() => void protectLatest(backup.id)}>Protect</button> : null}</td>
+                  <td>{!protectedIds.has(backup.id) && protection?.destination?.repositoryInitialized ? <button className="text-button" type="button" onClick={() => protectBackup(backup.id)}>Protect</button> : null}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-        {retention?.policy && <p className="muted">Retention keeps at least {retention.policy.minimumCopies ?? 3} independent copies; {retention.candidates?.length ?? 0} snapshot(s) currently eligible for forgetting.</p>}
+        {retention?.policy && (
+          <div className="recovery-actions">
+            <span className="muted">Retention keeps at least {retention.policy.minimumCopies ?? 3} independent copies; {retention.candidates?.length ?? 0} snapshot(s) currently eligible for forgetting.</span>
+            {(retention.candidates?.length ?? 0) > 0 && <button className="secondary-button" type="button" onClick={() => start({ operationId: "controller.backup.retention.apply", title: "Apply controller backup retention", parameters: {}, preview: <span>Forgets only the currently eligible old snapshots and verifies the repository afterwards. Never prunes.</span> })}>Apply retention</button>}
+          </div>
+        )}
       </section>
     </div>
   );

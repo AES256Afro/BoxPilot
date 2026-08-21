@@ -33,6 +33,12 @@ export function vmOperations() {
       run: (parameters, { vmCloud, runUnit, progress, jobLog }) => vmCloud.create(parameters, { progress, runUnit, jobLog }),
     }),
     defineOperation({
+      id: "vm.foundation.initialize", title: "Initialize the libvirt foundation", risk: "medium", timeoutMs: 5 * 60_000,
+      description: "Defines, starts, and autostarts only the canonical default NAT network and default storage pool where missing. Failure rolls back only this job's changes.",
+      parameters: { exact: false, fields: { foundationId: { type: "string", optional: true } } },
+      run: (parameters, { foundation }) => foundation.initialize(parameters),
+    }),
+    defineOperation({
       id: "vm.action", title: "Start, stop, or restart a VM", risk: "medium", timeoutMs: 5 * 60_000,
       description: "Start, graceful ACPI shutdown, guest reboot, or autostart toggle. Shutdown waits up to two minutes and never pulls the plug — Force off exists for that.",
       parameters: { fields: { name: nameField, action: { type: "string", enum: ["start", "shutdown", "reboot", "autostart-on", "autostart-off"] } } },

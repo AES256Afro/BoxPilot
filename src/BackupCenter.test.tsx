@@ -33,24 +33,23 @@ describe("Backup Center", () => {
     expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: {} });
   });
 
-  it("offers Protect only when the restic repository is ready, staging through the desk", async () => {
-    const onOpenRepair = vi.fn();
+  it("offers Protect only when the restic repository is ready and stages it in the dialog", async () => {
+    let staged: string | undefined;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url.endsWith("/api/v1/backups")) return json({ backups: [backup] });
       if (url.endsWith("/controller-backup-protection")) return json({ destination: { repositoryInitialized: true }, protections: [] });
       if (url.endsWith("/controller-backup-retention")) return json({});
-      if (url.endsWith(`/controller-backups/${backup.id}/protection-plans`)) return json({ plan: { id: "plan-1", revision: "r1" } }, 201);
-      if (url.endsWith("/controller-protection-plans/plan-1/stage")) { expect(init?.body).toBe(JSON.stringify({ revision: "r1" })); return json({ job: { id: "j" } }, 201); }
+      if (url.endsWith("/operations/controller.backup.protect/jobs")) { staged = init?.body as string; return json({ job: { id: "job-p", type: "op:controller.backup.protect", title: "Protect a database backup independently", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201); }
       return json({ error: `unexpected ${url}` }, 500);
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(<BackupCenter csrfToken="csrf-token" onOpenRepair={onOpenRepair} />);
+    render(<BackupCenter csrfToken="csrf-token" />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Protect" }));
-    await vi.waitFor(() => expect(onOpenRepair).toHaveBeenCalled());
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { backupId: backup.id } });
   });
-
   it("shows the empty state and points at catalog and VM backups", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
