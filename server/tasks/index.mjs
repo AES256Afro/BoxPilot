@@ -9,6 +9,7 @@ import { sshPasswordAuthSet, userAdd, userKeysImport, userSudoSet } from "./user
 import { firewallProfileApply, firewallRuleAdd, firewallRuleDelete, firewallSet } from "./firewall.mjs";
 import { storageFormat, storageLvmExtend, storageMount, storageUnmount, swapFileSet } from "./storage.mjs";
 import { shareMount, shareUnmount } from "./shares.mjs";
+import { sambaApply, sambaUserRemove, sambaUserSet } from "./samba.mjs";
 import { ensureCloudImage } from "./cloud-images.mjs";
 import { systemUpdate } from "./update.mjs";
 import { backupRemoteKeygen, backupRemoteSync, backupRemoteTest } from "./backup-remote.mjs";
@@ -42,6 +43,9 @@ export const tasks = Object.freeze({
   "storage.lvm-extend": storageLvmExtend,
   "share.mount": shareMount,
   "share.unmount": shareUnmount,
+  "samba.apply": sambaApply,
+  "samba.user.set": sambaUserSet,
+  "samba.user.remove": sambaUserRemove,
   "vm.cloud-image.ensure": ensureCloudImage,
   "system.update": systemUpdate,
   "backup.remote.keygen": backupRemoteKeygen,

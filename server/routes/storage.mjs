@@ -81,7 +81,7 @@ async function mapLimit(items, limit, worker) {
   return results;
 }
 
-export function createStorageRouter({ auth, run = fixedRun, collect = collectStorage, probe = probePort, reverse = (address) => dns.reverse(address), sweepLimit = 254 }) {
+export function createStorageRouter({ auth, helper = null, inventory = null, run = fixedRun, collect = collectStorage, probe = probePort, reverse = (address) => dns.reverse(address), sweepLimit = 254 }) {
   const router = Router();
 
   router.get("/storage/overview", async (_request, response) => {
@@ -120,6 +120,24 @@ export function createStorageRouter({ auth, run = fixedRun, collect = collectSto
       return { ...entry, name: names[0] ?? null };
     });
     response.json({ devices: named.sort((a, b) => a.address.localeCompare(b.address, undefined, { numeric: true })), scanned: candidates.size, interfaces: lanInterfaces.map((link) => `${link.interface} ${link.address}/${link.prefix}`) });
+  });
+
+  // The file server (Samba) this server runs: state from the helper plus the addresses clients should use.
+  router.get("/storage/samba", async (_request, response) => {
+    let state = { installed: false, running: null, configured: false, config: { managed: false, workgroup: "WORKGROUP", scope: "tailscale", interfaces: [], shares: [] }, users: [] };
+    let error = null;
+    try { if (helper) state = await helper.request("samba.inspect", {}, { timeoutMs: 30_000 }); } catch (requestError) { error = requestError.message; }
+    let addresses = { tailscaleDnsName: null, tailscaleAddress: null, lanAddress: null };
+    try {
+      const snapshot = inventory ? await inventory.inspect() : null;
+      const ipv4 = (entry) => /^\d+\.\d+\.\d+\.\d+$/.test(entry.address ?? "");
+      addresses = {
+        tailscaleDnsName: snapshot?.network?.tailscale?.dnsName ?? null,
+        tailscaleAddress: snapshot?.network?.addresses?.find((entry) => ipv4(entry) && String(entry.interface ?? "").startsWith("tailscale"))?.address ?? null,
+        lanAddress: snapshot?.network?.addresses?.find((entry) => ipv4(entry) && !String(entry.interface ?? "").startsWith("tailscale") && !/^(lo|docker|br-|virbr|veth)/.test(String(entry.interface ?? "")))?.address ?? null,
+      };
+    } catch { /* addresses are a convenience */ }
+    response.json({ ...state, error, ...addresses });
   });
 
   // List shares on one host. SMB passwords go to smbclient on stdin, never as an argument.
