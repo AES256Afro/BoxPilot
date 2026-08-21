@@ -30,7 +30,7 @@ After that **BoxPilot updates itself**: *System → BoxPilot updates* shows the 
 | **Storage** | Disks and LVM (grow the root volume with one click, snapshots before big updates with rollback), mounting by UUID, SMB/NFS network shares with LAN discovery and self-reconnecting mounts, Samba and NFS servers that share this server's folders over your tailnet only (or the LAN), swap files. The system disk can never be formatted from the UI. |
 | **Network** | Interfaces, Tailscale, and a read-only DNS/topology assessment. |
 | **Virtual Machines** | Create VMs from cloud images or ISOs, lifecycle, snapshots; export, encrypt to an independent restic repository, restore-drill in isolation, recover as a clone. |
-| **Backups** | Database backups with restore drills, encrypted independent copies with retention, **machine snapshots** (everything needed to redeploy the box), an off-box mirror to a backup drive, and restore from a snapshot. |
+| **Backups** | Database backups with restore drills, encrypted independent copies with retention, off-box mirrors over SSH or to the cloud (Backblaze B2, S3, WebDAV, Google Drive, OneDrive, Dropbox via rclone), **machine snapshots** (everything needed to redeploy the box), an off-box mirror to a backup drive, and restore from a snapshot. |
 | **Repair Center** | Prerequisite installs, the disaster-recovery kit, and a read-only action center. |
 | **Logs** | Any systemd unit, any container, any journal group — tail, filter, follow, download. |
 | **Settings** | Approval mode, failed-job notifications (ntfy, Gotify, webhook), GitHub and Tailscale sign-in. |

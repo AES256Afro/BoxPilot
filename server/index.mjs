@@ -90,6 +90,11 @@ function pinnedBackupDestination() {
   if (!destination) throw new Error("Save an off-box destination on the Backups page first");
   return { host: destination.host, port: destination.port ?? 22, user: destination.user, path: destination.path };
 }
+function pinnedCloudDestination() {
+  const destination = state.getSetting("cloudDestination", null);
+  if (!destination) throw new Error("Save a cloud destination on the Backups page first");
+  return destination;
+}
 const jobs = createJobService(state, helper, {
   jobLog: jobLogReader,
   // Registry ops whose results become durable evidence rows.
@@ -115,6 +120,8 @@ const jobs = createJobService(state, helper, {
     "storage.lvm.snapshot.rollback": (job, result) => state.setSetting("lvmSnapshots", (state.getSetting("lvmSnapshots", []) ?? []).filter((entry) => entry.path !== result.path), { updatedBy: job.createdBy }),
     // The Firewall page shows which profile is in force and when it was applied.
     "firewall.profile.apply": (job, result) => state.setSetting("firewallProfile", { id: result.profile, services: result.services ?? [], sshRateLimit: result.sshRateLimit ?? false, appliedAt: result.appliedAt, appliedBy: job.createdBy }, { updatedBy: job.createdBy }),
+    "backup.cloud.setup": (job, result) => state.setSetting("cloudDestination", result.destination, { updatedBy: job.createdBy }),
+    "backup.cloud.sync": (job, result) => state.setSetting("cloudDestinationLastSync", { completedAt: result.completedAt, filesTransferred: result.filesTransferred, bytesTransferred: result.bytesTransferred, destination: result.destination, errors: result.errors ?? 0 }, { updatedBy: job.createdBy }),
     "backup.remote.sync": (job, result) => state.setSetting("backupDestinationLastSync", { completedAt: result.completedAt, filesTransferred: result.filesTransferred, bytesTransferred: result.bytesTransferred, destination: result.destination }, { updatedBy: job.createdBy }),
   },
   // Prepare hooks pin server-derived expectations into the staged parameters.
@@ -135,6 +142,8 @@ const jobs = createJobService(state, helper, {
     // The browser names nothing: the saved destination is pinned into the job.
     "backup.remote.test": () => pinnedBackupDestination(),
     "backup.remote.sync": () => pinnedBackupDestination(),
+    "backup.cloud.test": () => pinnedCloudDestination(),
+    "backup.cloud.sync": () => pinnedCloudDestination(),
   },
 });
 state.deleteExpiredSessions();

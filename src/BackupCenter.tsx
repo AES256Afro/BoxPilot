@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOperation } from "./ApproveDialog";
+import CloudBackupPanel from "./CloudBackupPanel";
 import RestorePanel from "./RestorePanel";
 import { inspectOperation } from "./operations";
 
@@ -221,6 +222,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
             : <button className="secondary-button" type="button" onClick={() => start({ operationId: "apt.install", title: "Install rsync", parameters: { packages: ["rsync"] }, preview: <span>Installs the <code>rsync</code> package from Ubuntu's repositories; the mirror needs it on this server.</span> })}>Install rsync</button>)}
         </div>
       </section>
+      <CloudBackupPanel start={start} />
     </div>
   );
 }
