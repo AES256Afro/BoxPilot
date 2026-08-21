@@ -13,7 +13,7 @@ ports:
   - id: web
     label: Web UI
     container: 8080
-    host: 8160
+    host: 8135
     exposure: lan
 health:
   kind: running

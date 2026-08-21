@@ -13,7 +13,7 @@ ports:
   - id: web
     label: Web UI
     container: 80
-    host: 8148
+    host: 8129
     exposure: lan
 env:
   - name: PMA_ARBITRARY

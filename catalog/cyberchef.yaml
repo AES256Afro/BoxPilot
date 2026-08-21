@@ -1,0 +1,22 @@
+schemaVersion: 2
+id: cyberchef
+name: CyberChef
+category: Developer
+icon: "🔪"
+description: "The cyber Swiss Army knife: encode, decode, hash, compress, parse, and transform data with drag-and-drop recipes, entirely in the browser."
+website: https://gchq.github.io/CyberChef
+risk: low
+image:
+  reference: ghcr.io/gchq/cyberchef:11.4.0
+  version: "11.4.0"
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8141
+    exposure: lan
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Static page; nothing is stored."

@@ -13,7 +13,7 @@ ports:
   - id: web
     label: Web UI
     container: 80
-    host: 8156
+    host: 8133
     exposure: lan
 volumes:
   - id: data
@@ -24,7 +24,7 @@ env:
   - name: BASEROW_PUBLIC_URL
     label: Address people use
     description: Must match how you open it.
-    default: http://localhost:8157
+    default: http://localhost:8133
 health:
   kind: running
   stableSeconds: 15

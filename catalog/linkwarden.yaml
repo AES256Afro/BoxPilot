@@ -1,0 +1,56 @@
+schemaVersion: 2
+id: linkwarden
+name: Linkwarden
+category: Knowledge
+icon: "🔗"
+description: "Bookmarks that never rot: every saved link is archived as a screenshot and PDF, organised in collections, shareable, with browser extensions."
+website: https://linkwarden.app
+risk: low
+image:
+  reference: ghcr.io/linkwarden/linkwarden:v2.16.1
+  version: "2.16.1"
+ports:
+  - id: web
+    label: Web UI
+    container: 3000
+    host: 3016
+    exposure: lan
+volumes:
+  - id: data
+    label: Archives
+    container: /data/data
+    path: data
+env:
+  - name: DATABASE_URL
+    default: "postgresql://linkwarden:${LINKWARDEN_DB_PASSWORD}@database:5432/linkwarden"
+    fixed: true
+  - name: NEXTAUTH_SECRET
+    label: Session secret
+    type: password
+    secret: true
+    generate: true
+  - name: NEXTAUTH_URL
+    label: Address people use
+    description: Must end in /api/v1/auth.
+    default: http://localhost:3016/api/v1/auth
+  - name: LINKWARDEN_DB_PASSWORD
+    label: Database password
+    type: password
+    secret: true
+    generate: true
+sidecars:
+  - id: database
+    image: postgres:16.15-alpine
+    env:
+      POSTGRES_DB: linkwarden
+      POSTGRES_USER: linkwarden
+      POSTGRES_PASSWORD: ${LINKWARDEN_DB_PASSWORD}
+    volumes:
+      - id: pgdata
+        container: /var/lib/postgresql/data
+        path: postgres
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 600
+notes: "Register the first account; registration can be closed later with NEXT_PUBLIC_DISABLE_REGISTRATION via Config."

@@ -1,0 +1,57 @@
+schemaVersion: 2
+id: crafty
+name: Crafty Controller
+category: Games
+icon: "🎛️"
+description: "Run several Minecraft servers (Java and Bedrock) from one panel: create servers from any version, schedule backups and restarts, and manage them with a web console."
+website: https://craftycontrol.com
+risk: medium
+image:
+  reference: registry.gitlab.com/crafty-controller/crafty-4:4.10.8
+  version: "4.10.8"
+ports:
+  - id: web
+    label: Web UI (HTTPS)
+    container: 8443
+    host: 8445
+    exposure: lan
+  - id: minecraft
+    label: First Minecraft server
+    container: 25565
+    host: 25566
+    exposure: lan
+volumes:
+  - id: backups
+    label: Backups
+    container: /crafty/backups
+    path: backups
+    backup: false
+  - id: logs
+    label: Logs
+    container: /crafty/logs
+    path: logs
+    backup: false
+  - id: servers
+    label: Servers
+    container: /crafty/servers
+    path: servers
+    backup: false
+  - id: config
+    label: Configuration
+    container: /crafty/app/config
+    path: config
+  - id: import
+    label: Import folder
+    container: /crafty/import
+    path: import
+    backup: false
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 600
+notes: "The first admin password is in config/default-creds.txt inside the Configuration folder (read it via the Backups browser or the server). Each server you create needs its port published: open Settings on this card and add it."

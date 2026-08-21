@@ -1,0 +1,65 @@
+schemaVersion: 2
+id: hedgedoc
+name: HedgeDoc
+category: Knowledge
+icon: "🦔"
+description: "Collaborative Markdown editing in real time: shared meeting notes and documents with a live preview."
+website: https://hedgedoc.org
+risk: low
+image:
+  reference: quay.io/hedgedoc/hedgedoc:1.11.1
+  version: "1.11.1"
+ports:
+  - id: web
+    label: Web UI
+    container: 3000
+    host: 3015
+    exposure: lan
+volumes:
+  - id: uploads
+    label: Uploaded images
+    container: /hedgedoc/public/uploads
+    path: uploads
+env:
+  - name: CMD_DB_URL
+    default: "postgres://hedgedoc:${HEDGEDOC_DB_PASSWORD}@database:5432/hedgedoc"
+    fixed: true
+  - name: CMD_DOMAIN
+    label: Host name people use
+    description: Just the host or address, no scheme; the port is added automatically.
+    default: localhost
+  - name: CMD_PORT
+    default: "3000"
+    fixed: true
+  - name: CMD_URL_ADDPORT
+    default: "true"
+    fixed: true
+  - name: CMD_PROTOCOL_USESSL
+    default: "false"
+    fixed: true
+  - name: CMD_SESSION_SECRET
+    label: Session secret
+    type: password
+    secret: true
+    generate: true
+  - name: HEDGEDOC_DB_PASSWORD
+    label: Database password
+    type: password
+    secret: true
+    generate: true
+sidecars:
+  - id: database
+    image: postgres:16.15-alpine
+    env:
+      POSTGRES_DB: hedgedoc
+      POSTGRES_USER: hedgedoc
+      POSTGRES_PASSWORD: ${HEDGEDOC_DB_PASSWORD}
+    volumes:
+      - id: pgdata
+        container: /var/lib/postgresql/data
+        path: postgres
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Register the first account on the sign-in page. If links come out wrong, set the host name setting to the address you use and Apply."

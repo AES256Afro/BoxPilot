@@ -13,7 +13,7 @@ ports:
   - id: web
     label: Web UI and API
     container: 8000
-    host: 8146
+    host: 8128
     exposure: lan
 volumes:
   - id: config
@@ -35,4 +35,4 @@ health:
   kind: running
   stableSeconds: 15
   timeoutSeconds: 300
-notes: "Create a configuration key in the web UI with your service URLs, then apps post to http://<this server>:8147/notify/<key>."
+notes: "Create a configuration key in the web UI with your service URLs, then apps post to http://<this server>:8128/notify/<key>."

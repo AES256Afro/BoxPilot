@@ -1,0 +1,27 @@
+schemaVersion: 2
+id: memos
+name: Memos
+category: Knowledge
+icon: "🗯️"
+description: "Quick notes and a journal: jot thoughts in Markdown, tag them, search later. Lightweight, with apps and an API."
+website: https://usememos.com
+risk: low
+image:
+  reference: neosmemo/memos:0.30.0
+  version: "0.30.0"
+ports:
+  - id: web
+    label: Web UI
+    container: 5230
+    host: 5230
+    exposure: lan
+volumes:
+  - id: data
+    label: Database and uploads
+    container: /var/opt/memos
+    path: data
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "The first account created is the admin; turn off registration in Settings afterwards."

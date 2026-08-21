@@ -1,0 +1,28 @@
+schemaVersion: 2
+id: trilium
+name: Trilium Notes
+category: Knowledge
+icon: "🌲"
+description: "Hierarchical personal knowledge base: notes in a tree with links, code notes, canvases, and sync to the desktop app."
+website: https://github.com/TriliumNext/Trilium
+risk: low
+image:
+  reference: triliumnext/trilium:v0.105.0
+  version: "0.105.0"
+user: "1000:1000"
+ports:
+  - id: web
+    label: Web UI and sync
+    container: 8080
+    host: 8138
+    exposure: lan
+volumes:
+  - id: data
+    label: Notes database
+    container: /home/node/trilium-data
+    path: data
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Set a password on the first visit. The desktop app syncs against http://<this server>:8138."

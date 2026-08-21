@@ -1,0 +1,36 @@
+schemaVersion: 2
+id: homebox
+name: Homebox
+category: Household
+icon: "🏠"
+description: "Home inventory: what you own, where it is, warranties, manuals, and values, with labels and QR codes."
+website: https://homebox.software
+risk: low
+image:
+  reference: ghcr.io/sysadminsmedia/homebox:0.26.2
+  version: "0.26.2"
+ports:
+  - id: web
+    label: Web UI
+    container: 7745
+    host: 7745
+    exposure: lan
+volumes:
+  - id: data
+    label: Database and attachments
+    container: /data
+    path: data
+env:
+  - name: HBOX_LOG_LEVEL
+    default: "info"
+    fixed: true
+  - name: HBOX_OPTIONS_ALLOW_REGISTRATION
+    label: Allow new accounts
+    description: Turn off after the household has registered.
+    type: boolean
+    default: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Register the first account on the sign-in page."
