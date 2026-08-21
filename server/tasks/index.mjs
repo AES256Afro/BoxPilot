@@ -7,7 +7,8 @@ import { aptAutoremove, aptInstall, aptRemove, aptUnattendedSet, aptUpdate, aptU
 import { dockerLoggingDefaults, setHostname, setLocale, setSwappiness, setTimezone, systemReboot } from "./system.mjs";
 import { sshPasswordAuthSet, userAdd, userKeysImport, userSudoSet } from "./users.mjs";
 import { firewallProfileApply, firewallRuleAdd, firewallRuleDelete, firewallSet } from "./firewall.mjs";
-import { storageFormat, storageMount, storageUnmount, swapFileSet } from "./storage.mjs";
+import { storageFormat, storageLvmExtend, storageMount, storageUnmount, swapFileSet } from "./storage.mjs";
+import { shareMount, shareUnmount } from "./shares.mjs";
 import { ensureCloudImage } from "./cloud-images.mjs";
 import { systemUpdate } from "./update.mjs";
 import { backupRemoteKeygen, backupRemoteSync, backupRemoteTest } from "./backup-remote.mjs";
@@ -38,6 +39,9 @@ export const tasks = Object.freeze({
   "storage.unmount": storageUnmount,
   "storage.format": storageFormat,
   "storage.swapfile": swapFileSet,
+  "storage.lvm-extend": storageLvmExtend,
+  "share.mount": shareMount,
+  "share.unmount": shareUnmount,
   "vm.cloud-image.ensure": ensureCloudImage,
   "system.update": systemUpdate,
   "backup.remote.keygen": backupRemoteKeygen,

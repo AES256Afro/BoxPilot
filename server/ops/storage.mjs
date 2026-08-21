@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
-import { devicePattern, labelPattern, mountNamePattern, parseManagedFstab, uuidPattern } from "../tasks/storage.mjs";
+import { devicePattern, labelPattern, logicalVolumePattern, mountNamePattern, parseManagedFstab, uuidPattern } from "../tasks/storage.mjs";
 
 const minutes = (value) => value * 60_000;
 const lsblk = "/usr/bin/lsblk";
@@ -99,6 +99,12 @@ export function storageOperations() {
         remove: { type: "boolean", optional: true },
       } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.swapfile", { sizeGiB: parameters.sizeGiB ?? null, remove: parameters.remove ?? false }, { timeoutMs: minutes(8), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "storage.lvm.extend", title: "Use the rest of the disk", risk: "medium", timeoutMs: minutes(12),
+      description: "Grows a mounted LVM logical volume into all unallocated space of its volume group and resizes the filesystem online (lvextend -r). No reboot, no data loss.",
+      parameters: { fields: { path: { type: "string", maxLength: 80, pattern: logicalVolumePattern } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.lvm-extend", { path: parameters.path }, { timeoutMs: minutes(10), logPath: jobLog?.path ?? null }),
     }),
   ];
 }

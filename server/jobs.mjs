@@ -1,12 +1,19 @@
 import { verifyPassword } from "./security.mjs";
 import { approvalRequirement, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "./ops/risk.mjs";
 import { registry } from "./ops/index.mjs";
+import { secretFields } from "./ops/registry.mjs";
+
+/** What a secret parameter looks like in the database and the job API. */
+export const secretPlaceholder = "[secret]";
 
 export function createJobService(store, helper, {
   jobLog = null,
   operationRecordHooks = {},
   operationPrepareHooks = {},
 } = {}) {
+  // Secret parameters (share passwords) staged with a job live here until it runs; they are
+  // never written to SQLite or the job log. A restart forgets them and the job must be re-staged.
+  const stagedSecrets = new Map();
 
   /**
    * Decide how a job must be approved for this session (ADR-001 risk tiers).
@@ -44,11 +51,18 @@ export function createJobService(store, helper, {
     const approvalMethod = passwordProvided ? "password" : policy.elevated && policy.tier === "high" ? "elevated" : "confirm";
     const registeredOperation = job.type.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
     if (!registeredOperation) throw new Error("Job type is not supported by this executor");
-    const parameterError = registry.validate(registeredOperation.id, job.parameters ?? {});
+    const parameters = { ...(job.parameters ?? {}) };
+    const secrets = stagedSecrets.get(jobId) ?? {};
+    for (const name of secretFields(registeredOperation.parameters)) {
+      if (parameters[name] !== secretPlaceholder) continue;
+      if (typeof secrets[name] !== "string") throw new Error("The credentials staged with this job are no longer available (the service restarted); stage it again");
+      parameters[name] = secrets[name];
+    }
+    const parameterError = registry.validate(registeredOperation.id, parameters);
     if (parameterError) throw new Error(`Job parameters are no longer valid: ${parameterError}`);
     const execution = {
       operation: registeredOperation.id,
-      parameters: job.parameters ?? {},
+      parameters,
       timeoutMs: registeredOperation.timeoutMs,
       applying: `Running ${registeredOperation.title}`,
       applied: `${registeredOperation.title} finished`,
@@ -93,6 +107,7 @@ export function createJobService(store, helper, {
       await persistJobOutput(jobId);
       return completed;
     } catch (error) {
+      stagedSecrets.delete(jobId);
       const current = store.getJob(jobId);
       if (["applying", "verifying"].includes(current?.state)) {
         store.addJobStep(jobId, "verify", "failed", execution.failed);
@@ -105,6 +120,8 @@ export function createJobService(store, helper, {
       store.recordAudit("job.failed", { actorId: owner.id, subjectId: jobId, details: { type: job.type } });
       await persistJobOutput(jobId);
       throw error;
+    } finally {
+      stagedSecrets.delete(jobId);
     }
   }
 
@@ -130,11 +147,16 @@ export function createJobService(store, helper, {
     if (operationPrepareHooks[operationId]) parameters = await operationPrepareHooks[operationId](parameters ?? {});
     const parameterError = registry.validate(operationId, parameters ?? {});
     if (parameterError) throw new Error(parameterError);
-    return store.createJob({
+    const persisted = { ...(parameters ?? {}) };
+    const secrets = {};
+    for (const name of secretFields(operation.parameters)) {
+      if (typeof persisted[name] === "string" && persisted[name].length) { secrets[name] = persisted[name]; persisted[name] = secretPlaceholder; }
+    }
+    const job = store.createJob({
       type: `op:${operationId}`,
       title: operation.title,
       risk: operation.risk,
-      parameters: parameters ?? {},
+      parameters: persisted,
       recovery: {
         reason: operation.description || `${operation.title} is ${operation.risk} risk.`,
         manual: "If verification fails, review the job log and the helper journal, then rerun or undo the operation.",
@@ -145,6 +167,8 @@ export function createJobService(store, helper, {
         { name: "checkpoint", state: "completed", detail: `${operation.risk} risk · ${operation.readOnly ? "read-only" : "changes host state"} · runs through the root task runner` },
       ],
     });
+    if (Object.keys(secrets).length) stagedSecrets.set(job.id, secrets);
+    return job;
   }
 
   /** Read-only: what approving this job would require for the given session. */

@@ -18,6 +18,7 @@ import { createVirtualizationRouter } from "./routes/virtualization.mjs";
 import { createSettingsRouter } from "./routes/settings.mjs";
 import { createHostRouter } from "./routes/host.mjs";
 import { createFirewallRouter } from "./routes/firewall.mjs";
+import { createStorageRouter } from "./routes/storage.mjs";
 import { createPeopleRouter } from "./routes/people.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { createHelperLibvirtService } from "./helper-libvirt.mjs";
@@ -207,6 +208,7 @@ app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, jobLogReader, auth
 app.use("/api/v1", createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit }));
 app.use("/api/v1", createSettingsRouter({ state, notifications, auth }));
 app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort: port, webHost: host }));
+app.use("/api/v1", createStorageRouter({ auth }));
 app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth }));
 
 app.use(express.static(dist, { index: false }));

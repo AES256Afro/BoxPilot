@@ -27,7 +27,7 @@ After that **BoxPilot updates itself**: *System → BoxPilot updates* shows the 
 | **System** | Hostname, time zone, language, swap, trim, Docker housekeeping, scheduled operations, and BoxPilot's own updates. |
 | **Users & SSH** | Accounts, sudo, SSH keys (import from GitHub), password-login policy. |
 | **Firewall** | ufw profiles (Home server, Tailscale only, Trusted LAN), service presets, suggestions based on what is actually listening, and protected ports: SSH, Tailscale, and BoxPilot's own port can never be blocked from the UI. |
-| **Storage** | Disks, filesystems, SMART, mounting by UUID, swap files. |
+| **Storage** | Disks and LVM (grow the root volume with one click), mounting by UUID, SMB/NFS network shares with LAN discovery and self-reconnecting mounts, swap files. The system disk can never be formatted from the UI. |
 | **Network** | Interfaces, Tailscale, and a read-only DNS/topology assessment. |
 | **Virtual Machines** | Create VMs from cloud images or ISOs, lifecycle, snapshots; export, encrypt to an independent restic repository, restore-drill in isolation, recover as a clone. |
 | **Backups** | Database backups with restore drills, encrypted independent copies with retention, **machine snapshots** (everything needed to redeploy the box), an off-box mirror to a backup drive, and restore from a snapshot. |

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseManagedFstab, removeManagedEntry, storageFormat, storageMount, storageUnmount, swapFileSet } from "./storage.mjs";
+import { assertNotProtected, parseManagedFstab, removeManagedEntry, storageFormat, storageLvmExtend, storageMount, storageUnmount, swapFileSet } from "./storage.mjs";
 
 const BASE_FSTAB = "# /etc/fstab\nUUID=root-uuid / ext4 defaults 0 1\n";
 
@@ -21,7 +21,8 @@ function fakeRun({ uuidDevice = "/dev/sdb1", mountFails = false, verifyFails = f
     if (binary.endsWith("findmnt")) { const target = args.at(-1); return mountedAt[target] ? { ok: true, stdout: mountedAt[target], stderr: "" } : { ok: false, stdout: "", stderr: "" }; }
     if (binary.endsWith("mount") && !binary.endsWith("umount")) { if (mountFails) return { ok: false, stdout: "", stderr: "wrong fs type" }; mountedAt[args[0]] = "mounted"; return { ok: true, stdout: "", stderr: "" }; }
     if (binary.endsWith("umount")) { delete mountedAt[args[0]]; return { ok: true, stdout: "", stderr: "" }; }
-    if (binary.endsWith("lsblk")) return lsblkNodes ? { ok: true, stdout: JSON.stringify({ blockdevices: lsblkNodes }), stderr: "" } : { ok: false, stdout: "", stderr: "not found" };
+    // Without explicit nodes, lsblk describes the asked-for device as a plain, unmounted partition.
+    if (binary.endsWith("lsblk")) return { ok: true, stdout: JSON.stringify({ blockdevices: lsblkNodes ?? [{ path: args.at(-1), type: "part", fstype: "ext4", ro: false, mountpoints: [null] }] }), stderr: "" };
     return { ok: true, stdout: "", stderr: "" };
   });
 }
@@ -77,6 +78,49 @@ describe("root storage tasks", () => {
     expect(clean).toHaveBeenCalledWith(expect.stringContaining("wipefs"), ["-a", "/dev/sdb"], expect.anything());
     expect(clean).toHaveBeenCalledWith(expect.stringContaining("mkfs.ext4"), ["-F", "-L", "data", "/dev/sdb"], expect.anything());
     await expect(storageFormat({ device: "/dev/sdb; rm -rf /" }, { run: clean })).rejects.toThrow("Device path");
+  });
+
+  it("never formats or mounts the system disk or an LVM physical volume", async () => {
+    const systemDisk = [{ path: "/dev/nvme0n1", type: "disk", fstype: null, ro: false, mountpoints: [null], children: [
+      { path: "/dev/nvme0n1p2", type: "part", fstype: "ext4", ro: false, mountpoints: ["/boot"] },
+      { path: "/dev/nvme0n1p3", type: "part", fstype: "LVM2_member", ro: false, mountpoints: [null], children: [{ path: "/dev/mapper/ubuntu--vg-ubuntu--lv", type: "lvm", fstype: "ext4", ro: false, mountpoints: ["/"] }] },
+    ] }];
+    const run = fakeRun({ lsblkNodes: systemDisk });
+    await expect(storageFormat({ device: "/dev/nvme0n1" }, { run })).rejects.toThrow("system disk");
+    expect(run.mock.calls.some(([binary]) => binary.includes("wipefs"))).toBe(false);
+
+    const pvOnly = fakeRun({ lsblkNodes: [{ path: "/dev/sdb1", type: "part", fstype: "LVM2_member", ro: false, mountpoints: [null], children: [{ path: "/dev/mapper/data-media", type: "lvm", fstype: "ext4", ro: false, mountpoints: [null] }] }] });
+    await expect(storageFormat({ device: "/dev/sdb1" }, { run: pvOnly })).rejects.toThrow("LVM physical volume holding /dev/mapper/data-media");
+    const luks = fakeRun({ lsblkNodes: [{ path: "/dev/sdc1", type: "part", fstype: "crypto_LUKS", ro: false, mountpoints: [null] }] });
+    await expect(storageFormat({ device: "/dev/sdc1" }, { run: luks })).rejects.toThrow("encrypted container");
+
+    // Mount by UUID goes through the same guard (blkid can resolve a PV UUID).
+    const files = fakeFiles();
+    const mountPv = fakeRun({ uuidDevice: "/dev/sdb1", lsblkNodes: [{ path: "/dev/sdb1", type: "part", fstype: "LVM2_member", ro: false, mountpoints: [null] }] });
+    await expect(storageMount({ uuid: "abcd-1234", name: "oops" }, { run: mountPv, files })).rejects.toThrow("LVM physical volume");
+    expect(files.state.fstab).toBe(BASE_FSTAB);
+    expect(() => assertNotProtected("/dev/sdd", [{ path: "/dev/sdd", type: "disk", fstype: null, mountpoints: [] }])).not.toThrow();
+  });
+
+  it("grows a mounted logical volume into the free space of its group", async () => {
+    const lv = [{ path: "/dev/mapper/ubuntu--vg-ubuntu--lv", type: "lvm", fstype: "ext4", ro: false, mountpoints: ["/"] }];
+    let grown = false;
+    const run = vi.fn(async (binary) => {
+      if (binary.endsWith("lsblk")) return { ok: true, stdout: JSON.stringify({ blockdevices: lv }), stderr: "" };
+      if (binary.endsWith("findmnt")) return { ok: true, stdout: grown ? "1000 900" : "100 20", stderr: "" };
+      if (binary.endsWith("lvextend")) { grown = true; return { ok: true, stdout: "Size of logical volume changed", stderr: "" }; }
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    const result = await storageLvmExtend({ path: "/dev/mapper/ubuntu--vg-ubuntu--lv" }, { run });
+    expect(result).toEqual({ extended: true, path: "/dev/mapper/ubuntu--vg-ubuntu--lv", mountpoint: "/", before: { sizeBytes: 100, availableBytes: 20 }, after: { sizeBytes: 1000, availableBytes: 900 } });
+    expect(run).toHaveBeenCalledWith("/usr/sbin/lvextend", ["-r", "-l", "+100%FREE", "/dev/mapper/ubuntu--vg-ubuntu--lv"], expect.anything());
+
+    const full = vi.fn(async (binary) => (binary.endsWith("lsblk") ? { ok: true, stdout: JSON.stringify({ blockdevices: lv }), stderr: "" } : binary.endsWith("lvextend") ? { ok: false, stdout: "", stderr: "New size (25599 extents) matches existing size (25599 extents)." } : { ok: true, stdout: "100 20", stderr: "" }));
+    await expect(storageLvmExtend({ path: "/dev/mapper/ubuntu--vg-ubuntu--lv" }, { run: full })).resolves.toMatchObject({ extended: false, reason: expect.stringContaining("no free space") });
+
+    await expect(storageLvmExtend({ path: "/dev/sda1" }, { run })).rejects.toThrow("path is invalid");
+    const swapLv = vi.fn(async () => ({ ok: true, stdout: JSON.stringify({ blockdevices: [{ path: "/dev/mapper/vg-swap", type: "lvm", fstype: "swap", mountpoints: [null] }] }), stderr: "" }));
+    await expect(storageLvmExtend({ path: "/dev/mapper/vg-swap" }, { run: swapLv })).rejects.toThrow("only ext4 and xfs");
   });
 
   it("creates and removes the managed swap file", async () => {

@@ -1,81 +1,149 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import StorageCenter from "./StorageCenter";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+const GiB = 1024 ** 3;
+const base = { protected: false, protectedReason: null, volumeGroup: null, logicalVolume: null, holdsVolumeGroups: [], mountedBelow: [] };
 
 const report = {
   devices: [
-    { path: "/dev/sda", type: "disk", sizeBytes: 500 * 1024 ** 3, fstype: null, uuid: null, label: null, model: "Samsung SSD", transport: "sata", mountpoints: [], readOnly: false, removable: false, depth: 0 },
-    { path: "/dev/sda1", type: "part", sizeBytes: 499 * 1024 ** 3, fstype: "ext4", uuid: "root-uuid", label: null, model: null, transport: null, mountpoints: ["/"], readOnly: false, removable: false, depth: 1 },
-    { path: "/dev/sdb", type: "disk", sizeBytes: 4000 * 1024 ** 3, fstype: null, uuid: null, label: null, model: "WD Elements", transport: "usb", mountpoints: [], readOnly: false, removable: true, depth: 0 },
-    { path: "/dev/sdb1", type: "part", sizeBytes: 4000 * 1024 ** 3, fstype: "ext4", uuid: "data-uuid", label: "media", model: null, transport: null, mountpoints: [], readOnly: false, removable: true, depth: 1 },
+    { ...base, path: "/dev/nvme0n1", type: "disk", sizeBytes: 953 * GiB, fstype: null, uuid: null, label: null, model: "Inland TN320", transport: "nvme", mountpoints: [], readOnly: false, removable: false, depth: 0, protected: true, protectedReason: "system disk", mountedBelow: ["/boot", "/"] },
+    { ...base, path: "/dev/nvme0n1p2", type: "part", sizeBytes: 2 * GiB, fstype: "ext4", uuid: "boot-uuid", label: null, model: null, transport: null, mountpoints: ["/boot"], readOnly: false, removable: false, depth: 1, protected: true, protectedReason: "system disk" },
+    { ...base, path: "/dev/nvme0n1p3", type: "part", sizeBytes: 950 * GiB, fstype: "LVM2_member", uuid: "pv-uuid", label: null, model: null, transport: null, mountpoints: [], readOnly: false, removable: false, depth: 1, protected: true, protectedReason: "system disk", holdsVolumeGroups: ["ubuntu-vg"], mountedBelow: ["/"] },
+    { ...base, path: "/dev/mapper/ubuntu--vg-ubuntu--lv", type: "lvm", sizeBytes: 100 * GiB, fstype: "ext4", uuid: "root-uuid", label: null, model: null, transport: null, mountpoints: ["/"], readOnly: false, removable: false, depth: 2, protected: true, protectedReason: "system disk", volumeGroup: "ubuntu-vg", logicalVolume: "ubuntu-lv" },
+    { ...base, path: "/dev/sdb", type: "disk", sizeBytes: 4000 * GiB, fstype: null, uuid: null, label: null, model: "WD Elements", transport: "usb", mountpoints: [], readOnly: false, removable: true, depth: 0 },
+    { ...base, path: "/dev/sdb1", type: "part", sizeBytes: 4000 * GiB, fstype: "ext4", uuid: "data-uuid", label: "media", model: null, transport: null, mountpoints: [], readOnly: false, removable: true, depth: 1 },
   ],
   mounts: [
-    { target: "/", source: "/dev/sda1", fstype: "ext4", sizeBytes: 100, usedBytes: 40, availableBytes: 60 },
+    { target: "/", source: "/dev/mapper/ubuntu--vg-ubuntu--lv", fstype: "ext4", sizeBytes: 100, usedBytes: 40, availableBytes: 60 },
     { target: "/mnt/olddata", source: "/dev/sdc1", fstype: "ext4", sizeBytes: 100, usedBytes: 95, availableBytes: 5 },
   ],
   fstab: [
     { device: "UUID=root-uuid", mountpoint: "/", fstype: "ext4", options: "defaults", managedName: null },
     { device: "UUID=old-uuid", mountpoint: "/mnt/olddata", fstype: "ext4", options: "defaults,nofail", managedName: "olddata" },
   ],
+  volumeGroups: [{ name: "ubuntu-vg", physicalVolumes: ["/dev/nvme0n1p3"], sizeBytes: 950 * GiB, usedBytes: 100 * GiB, freeBytes: 850 * GiB, logicalVolumes: [{ path: "/dev/mapper/ubuntu--vg-ubuntu--lv", name: "ubuntu-lv", sizeBytes: 100 * GiB, fstype: "ext4", mountpoints: ["/"], growable: true }] }],
+  shares: [],
+  tools: { cifs: true, nfs: true, smbclient: true, showmount: true },
 };
+const job = (type: string, risk: string) => ({ job: { id: `job-${type}`, type: `op:${type}`, title: type, state: "awaiting_approval", risk, error: null, result: null, steps: [], approvals: [] }, approval: { tier: risk, passwordRequired: risk === "high", elevated: false, mode: "tiered", reason: `${risk} risk` } });
+
+function mockFetch(overview: unknown, staged: Record<string, string>, extra: (url: string, init?: RequestInit) => Response | null = () => null) {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = input.toString();
+    if (url === "/api/v1/storage/overview") return json(overview);
+    const handled = extra(url, init);
+    if (handled) return handled;
+    const match = url.match(/\/operations\/([a-z.]+)\/jobs$/);
+    if (match) { staged[match[1]] = init?.body as string; return json(job(match[1], match[1] === "storage.format" ? "high" : "medium"), 201); }
+    return json({ error: `unexpected ${url}` }, 500);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
 
 describe("Storage center", () => {
   it("offers Mount for unmounted filesystems and stages it with the fstab preview", async () => {
-    let staged: string | undefined;
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const url = input.toString();
-      if (url.endsWith("/operations/storage.inspect/inspect")) return json({ operation: "storage.inspect", result: report });
-      if (url.endsWith("/operations/storage.mount/jobs")) { staged = init?.body as string; return json({ job: { id: "job-m", type: "op:storage.mount", title: "Mount a filesystem", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201); }
-      return json({ error: `unexpected ${url}` }, 500);
-    });
-    vi.stubGlobal("fetch", fetchMock);
+    const staged: Record<string, string> = {};
+    mockFetch(report, staged);
     render(<StorageCenter csrfToken="csrf-token" />);
 
     expect(await screen.findByText("WD Elements")).toBeTruthy();
-    const rows = screen.getAllByRole("row");
-    expect(rows.find((row) => row.textContent?.includes("/dev/sda1"))?.textContent).not.toContain("Mount"); // mounted at /
     fireEvent.click(screen.getByRole("button", { name: "Mount" })); // /dev/sdb1, prefilled from its label
     fireEvent.change(screen.getByLabelText("Mount name"), { target: { value: "media" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Mount" }).at(-1) as HTMLElement);
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     expect(screen.getByText(/UUID=data-uuid \/mnt\/media ext4 defaults,nofail 0 2/)).toBeTruthy();
-    expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { uuid: "data-uuid", name: "media" } });
+    await waitFor(() => expect(JSON.parse(staged["storage.mount"] ?? "{}")).toEqual({ parameters: { uuid: "data-uuid", name: "media" } }));
+  });
+
+  it("never offers Mount or Format on the system disk, its LVM physical volume, or the root volume", async () => {
+    mockFetch(report, {});
+    render(<StorageCenter csrfToken="csrf-token" />);
+    await screen.findByText("WD Elements");
+    const rows = screen.getAllByRole("row");
+    const row = (path: string) => rows.find((candidate) => candidate.textContent?.includes(path))?.textContent ?? "";
+    for (const path of ["/dev/nvme0n1p3", "/dev/nvme0n1p2", "/dev/mapper/ubuntu--vg-ubuntu--lv"]) {
+      expect(row(path)).not.toContain("Mount");
+      expect(row(path)).not.toContain("Format");
+    }
+    expect(row("/dev/nvme0n1p3")).toContain("LVM physical volume");
+    expect(row("/dev/nvme0n1p3")).toContain("ubuntu-vg");
+    expect(row("/dev/mapper/ubuntu--vg-ubuntu--lv")).toContain("LVM volume");
+    // Format is offered only on the empty external disk and its partition.
+    expect(screen.getAllByRole("button", { name: "Format" })).toHaveLength(2);
+  });
+
+  it("offers to claim unallocated LVM space with an online resize", async () => {
+    const staged: Record<string, string> = {};
+    mockFetch(report, staged);
+    render(<StorageCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText("850.0 GiB of ubuntu-vg is not in use")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Use the rest of the disk" }));
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    expect(screen.getByText(/lvextend -r -l \+100%FREE \/dev\/mapper\/ubuntu--vg-ubuntu--lv/)).toBeTruthy();
+    await waitFor(() => expect(JSON.parse(staged["storage.lvm.extend"] ?? "{}")).toEqual({ parameters: { path: "/dev/mapper/ubuntu--vg-ubuntu--lv" } }));
   });
 
   it("requires typing the device name before a format can be approved", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = input.toString();
-      if (url.endsWith("/operations/storage.inspect/inspect")) return json({ operation: "storage.inspect", result: report });
-      if (url.endsWith("/operations/storage.format/jobs")) return json({ job: { id: "job-f", type: "op:storage.format", title: "Erase and format a disk", state: "awaiting_approval", risk: "high", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "high", passwordRequired: true, elevated: false, mode: "tiered", reason: "high risk" } }, 201);
-      return json({ error: `unexpected ${url}` }, 500);
-    });
-    vi.stubGlobal("fetch", fetchMock);
+    mockFetch(report, {});
     render(<StorageCenter csrfToken="csrf-token" />);
-
-    // /dev/sdb has an unmounted child, so both sdb and sdb1 offer Format; take the first.
     fireEvent.click((await screen.findAllByRole("button", { name: "Format" }))[0]);
     expect(await screen.findByText("High risk")).toBeTruthy();
     const approve = screen.getByRole("button", { name: "Approve and run" }) as HTMLButtonElement;
     fireEvent.change(screen.getByLabelText("Approval password"), { target: { value: "correct horse battery" } });
-    expect(approve.disabled).toBe(true); // password alone is not enough
+    expect(approve.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Typed confirmation"), { target: { value: "/dev/sdb" } });
     expect(approve.disabled).toBe(false);
   });
 
   it("offers Unmount only for BoxPilot-managed mounts", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = input.toString();
-      if (url.endsWith("/operations/storage.inspect/inspect")) return json({ operation: "storage.inspect", result: report });
-      return json({ error: `unexpected ${url}` }, 500);
-    });
-    vi.stubGlobal("fetch", fetchMock);
+    mockFetch(report, {});
     render(<StorageCenter csrfToken="csrf-token" />);
     expect(await screen.findByRole("button", { name: "Unmount" })).toBeTruthy();
     const rows = screen.getAllByRole("row");
-    expect(rows.find((row) => row.textContent?.includes("/dev/sda1") && row.textContent?.includes("40"))?.textContent).not.toContain("Unmount");
+    expect(rows.find((row) => row.textContent?.includes("ubuntu--vg-ubuntu--lv") && row.textContent?.includes("40"))?.textContent).not.toContain("Unmount");
     expect(screen.getByText(/95%/)).toBeTruthy();
+  });
+
+  it("discovers a NAS, lists its shares, and stages the mount with credentials", async () => {
+    const staged: Record<string, string> = {};
+    let listBody: string | undefined;
+    mockFetch(report, staged, (url, init) => {
+      if (url === "/api/v1/storage/shares/discover") return json({ devices: [{ address: "192.168.1.50", name: "mycloud", smb: true, nfs: false, mac: null, interface: "eno1" }], scanned: 253, interfaces: [] });
+      if (url === "/api/v1/storage/shares/list") { listBody = init?.body as string; return json({ shares: [{ name: "Public", comment: "Public Share" }, { name: "chris", comment: null }] }); }
+      return null;
+    });
+    render(<StorageCenter csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Find devices on my network" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Use this device" }));
+    expect((screen.getByLabelText("Host") as HTMLInputElement).value).toBe("mycloud");
+    fireEvent.change(screen.getByLabelText("Share username"), { target: { value: "chris" } });
+    fireEvent.change(screen.getByLabelText("Share password"), { target: { value: "hunter2 hunter2" } });
+    fireEvent.click(screen.getByRole("button", { name: "List shares" }));
+    fireEvent.click(await screen.findByRole("button", { name: "chris" }));
+    expect(JSON.parse(listBody ?? "{}")).toEqual({ kind: "smb", host: "mycloud", username: "chris", password: "hunter2 hunter2", domain: null });
+    expect((screen.getByLabelText("Share mount name") as HTMLInputElement).value).toBe("chris");
+    fireEvent.change(screen.getByLabelText("Share mount name"), { target: { value: "nas-chris" } });
+    fireEvent.click(screen.getByRole("button", { name: "Mount share" }));
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    expect(screen.getByText(/share-nas-chris\.cred/)).toBeTruthy();
+    await waitFor(() => expect(JSON.parse(staged["share.mount"] ?? "{}")).toEqual({ parameters: { kind: "smb", host: "mycloud", share: "chris", name: "nas-chris", username: "chris", password: "hunter2 hunter2" } }));
+  });
+
+  it("lists mounted shares and explains the empty scan; offers the missing client tools", async () => {
+    const staged: Record<string, string> = {};
+    mockFetch({ ...report, tools: { cifs: false, nfs: true, smbclient: false, showmount: true }, shares: [{ name: "nas-media", kind: "smb", source: "//mycloud/Public", mountpoint: "/mnt/nas-media", readOnly: true, automount: true, mounted: false, sizeBytes: null, usedBytes: null, availableBytes: null }] }, staged, (url) => (url === "/api/v1/storage/shares/discover" ? json({ devices: [], scanned: 253, interfaces: [] }) : null));
+    render(<StorageCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText("Connects on first use")).toBeTruthy();
+    expect(screen.getByText("//mycloud/Public")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Mount share" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Find devices on my network" }));
+    expect(await screen.findByText(/Nothing answered on ports 445 or 2049 across 253 addresses/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Install cifs-utils" }));
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    await waitFor(() => expect(JSON.parse(staged["apt.install"] ?? "{}")).toEqual({ parameters: { packages: ["cifs-utils"] } }));
   });
 });

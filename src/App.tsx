@@ -63,7 +63,7 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   },
   storage: {
     title: "Storage",
-    description: "See disks and usage, mount filesystems permanently, and format empty disks.",
+    description: "See disks and usage, claim unallocated LVM space, mount disks and network shares (SMB/NFS) permanently, and format empty disks.",
   },
   network: {
     title: "Network and DNS",
@@ -136,7 +136,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   storage: {
     label: "Live block devices and fstab",
     tone: "live",
-    description: "Devices and usage come from this server. Mounts are added to fstab by UUID with nofail and verified before use; formatting asks for the owner password and the typed device name.",
+    description: "Devices and usage are read from this server. Mounts are added to fstab with nofail and verified before use; network shares reconnect by themselves; the system disk and LVM members can never be formatted or mounted from here.",
   },
   network: {
     label: "Network intelligence and guarded direct tests",
