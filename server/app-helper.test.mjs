@@ -151,6 +151,31 @@ describe("generic app deployer", () => {
     expect(calls.filter((call) => call.startsWith("compose"))).toEqual([]);
   });
 
+  it("populates Homepage with installed apps, keeps operator groups, and refreshes after uninstall", async () => {
+    const { apps, catalogRoot, catalogDirectory } = await setup();
+    await writeFile(path.join(catalogDirectory, "homepage.yaml"), "schemaVersion: 2\nid: homepage\nname: Homepage\ncategory: Dashboard\ndescription: dash\nimage:\n  reference: ghcr.io/gethomepage/homepage:v1\nports:\n  - id: web\n    container: 3000\n    host: 3000\nvolumes:\n  - id: config\n    container: /app/config\n    path: config\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n");
+    await expect(apps.syncHomepage({ host: "192.168.1.10" })).rejects.toThrow("not installed");
+    await apps.install({ id: "homepage" });
+    const configDirectory = path.join(catalogRoot, "homepage", "config");
+    await writeFile(path.join(configDirectory, "services.yaml"), "- Mine:\n    - Router:\n        href: http://192.168.1.1\n");
+    await apps.install({ id: "demo" }); // no host remembered yet: the auto-refresh is skipped, not fatal
+
+    const result = await apps.syncHomepage({ host: "192.168.1.10" });
+    expect(result).toMatchObject({ synced: true, services: 1, groupsKept: 1, host: "192.168.1.10" });
+    const services = await readFile(path.join(configDirectory, "services.yaml"), "utf8");
+    expect(services).toContain("- BoxPilot:");
+    expect(services).toContain("href: http://192.168.1.10:8080");
+    expect(services).toContain("container: bp-demo");
+    expect(services).toContain("- Mine:");
+    expect(services.indexOf("- BoxPilot:")).toBeLessThan(services.indexOf("- Mine:"));
+    expect(await readFile(path.join(configDirectory, "docker.yaml"), "utf8")).toContain("socket: /var/run/docker.sock");
+
+    await apps.uninstall({ id: "demo", purge: false });
+    const after = await readFile(path.join(configDirectory, "services.yaml"), "utf8");
+    expect(after).not.toContain("bp-demo");
+    expect(after).toContain("- Mine:");
+  });
+
   it("backs up, prunes, restores, and deletes app data with a real archive", async () => {
     const { apps, calls, catalogRoot, backupRoot, advance } = await setup();
     await apps.install({ id: "demo" });

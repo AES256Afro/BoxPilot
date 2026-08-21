@@ -182,6 +182,7 @@ export function createAppHelper({
       const status = await waitHealthy(manifest, progress);
       progress?.(`${manifest.name} is up`, "stdout");
       await writeState(id, { id, installed: true, installedAt: clock().toISOString(), updatedAt: clock().toISOString(), manifestSha256: manifest.sha256 ?? null, image: { reference: manifest.image.reference, id: status.image }, values: storableValues(manifest, values, rendered.env), pinnedRollback: false });
+      await refreshHomepage(id, progress);
       return { installed: true, id, name: manifest.name, image: status.image, hostPorts: rendered.hostPorts, health: status.health, secretsGenerated: manifest.env.filter((entry) => entry.generate).map((entry) => entry.name) };
     } catch (error) {
       progress?.(`Install failed: ${error.message}. Rolling back...`, "stderr");
@@ -200,10 +201,12 @@ export function createAppHelper({
     if (!down.ok && status.exists) throw new Error(`docker compose down failed: ${redact(down.stderr).split("\n").slice(-3).join(" ")}`);
     if (purge) {
       await rm(dirFor(id), { recursive: true, force: true });
+      await refreshHomepage(id, progress);
       return { uninstalled: true, purged: true, id, dataRemoved: true };
     }
     await writeState(id, { ...(state ?? { id }), installed: false, uninstalledAt: clock().toISOString() });
     await rm(path.join(dirFor(id), "compose.yaml"), { force: true });
+    await refreshHomepage(id, progress);
     return { uninstalled: true, purged: false, id, dataRemoved: false, dataDirectory: dirFor(id) };
   }
 
@@ -354,6 +357,63 @@ export function createAppHelper({
    * backup-flagged managed volume, restart, then prune to `keep` copies. hostPath volumes
    * (locations the operator manages) are listed as skipped, never silently included.
    */
+  const homepageGroup = "BoxPilot";
+  const homepageHostPattern = /^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/;
+
+  /**
+   * M8.2: write a "BoxPilot" group into Homepage's services.yaml listing every installed
+   * catalog app (link, description, dashboard icon, live container status through the
+   * read-only Docker socket Homepage already mounts). Other groups the operator wrote are
+   * kept. `host` is what the browser should use to reach this server; it is remembered so
+   * installs and uninstalls can refresh the dashboard without asking again.
+   */
+  async function syncHomepage({ host } = {}, { progress = null } = {}) {
+    const homepage = await catalog.get("homepage");
+    if (!homepage) throw new Error("Homepage is not in the catalog");
+    const homepageState = await readState("homepage");
+    if (!homepageState?.installed) throw new Error("Homepage is not installed");
+    const rememberedPath = path.join(dirFor("homepage"), "boxpilot-homepage-sync.json");
+    const remembered = await readFile(rememberedPath, "utf8").then(JSON.parse).catch(() => null);
+    const linkHost = host ?? remembered?.host ?? null;
+    if (typeof linkHost !== "string" || !homepageHostPattern.test(linkHost)) throw new Error("A host name or address for the dashboard links is required");
+    const configDirectory = path.join(dirFor("homepage"), "config");
+    const { manifests } = await catalog.all();
+    const entries = [];
+    for (const manifest of manifests) {
+      if (manifest.id === "homepage") continue;
+      const state = await readState(manifest.id);
+      if (!state?.installed) continue;
+      const port = manifest.ports.find((entry) => entry.protocol === "tcp") ?? null;
+      const hostPort = port ? state.values?.ports?.[port.id] ?? port.host : null;
+      const href = port ? `http://${port.exposure === "loopback" ? "127.0.0.1" : linkHost}:${hostPort}` : null;
+      entries.push({ [manifest.name]: { ...(href ? { href } : {}), description: manifest.description, icon: `${manifest.id}.png`, server: "boxpilot", container: projectNameFor(manifest.id) } });
+    }
+    await mkdir(configDirectory, { recursive: true });
+    const servicesPath = path.join(configDirectory, "services.yaml");
+    let existing = [];
+    try { const parsed = YAML.parse(await readFile(servicesPath, "utf8")); if (Array.isArray(parsed)) existing = parsed; } catch { existing = []; }
+    const kept = existing.filter((group) => !(group && typeof group === "object" && Object.keys(group)[0] === homepageGroup));
+    const services = [{ [homepageGroup]: entries }, ...kept];
+    await writeFile(servicesPath, `# The "${homepageGroup}" group is managed by BoxPilot and rewritten on every sync; other groups are kept.\n${YAML.stringify(services)}`, { mode: 0o644 });
+    const dockerPath = path.join(configDirectory, "docker.yaml");
+    try { await stat(dockerPath); } catch { await writeFile(dockerPath, "boxpilot:\n  socket: /var/run/docker.sock\n", { mode: 0o644 }); }
+    await writeFile(rememberedPath, JSON.stringify({ host: linkHost, syncedAt: clock().toISOString() }), { mode: 0o600 });
+    progress?.(`Homepage now lists ${entries.length} installed app(s) in its ${homepageGroup} group`, "stdout");
+    return { synced: true, services: entries.length, groupsKept: kept.length, host: linkHost };
+  }
+
+  /** Best-effort dashboard refresh after an install or uninstall; never fails the main job. */
+  async function refreshHomepage(changedId, progress) {
+    if (changedId === "homepage") return;
+    try {
+      const state = await readState("homepage");
+      if (!state?.installed) return;
+      await syncHomepage({}, { progress });
+    } catch (error) {
+      progress?.(`Homepage dashboard not refreshed: ${error.message}`, "stderr");
+    }
+  }
+
   async function backup({ id, keep = 5 }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
@@ -499,5 +559,5 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { inspect, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, backup, listAppBackups, restoreAppBackup, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, backup, listAppBackups, restoreAppBackup, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

@@ -110,6 +110,12 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.backup({ id: parameters.id, keep: parameters.keep ?? 5 }, { progress }),
     }),
     defineOperation({
+      id: "homepage.sync", title: "Sync Homepage with installed apps", risk: "low", timeoutMs: 60_000,
+      description: "Writes a BoxPilot group into Homepage's services.yaml with every installed app — link, description, icon, live container status — and keeps the groups you wrote yourself. Repeats automatically after installs and uninstalls.",
+      parameters: { fields: { host: { type: "string", optional: true, maxLength: 253, pattern: /^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/ } } },
+      run: (parameters, { apps, progress }) => apps.syncHomepage({ host: parameters.host }, { progress }),
+    }),
+    defineOperation({
       id: "app.backups.inspect", title: "List application backups", risk: "low", readOnly: true, timeoutMs: 30_000,
       parameters: { fields: { id: idField } },
       run: (parameters, { apps }) => apps.listAppBackups(parameters),
