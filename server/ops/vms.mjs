@@ -23,8 +23,44 @@ async function snapshotExists(run, name, snapshotName) {
 }
 
 /** Cloud-init creation plus the direct lifecycle verbs (force off, delete, snapshot revert/delete). */
+/**
+ * `virsh domstats` output → one record per domain with the counters the VM page turns into
+ * rates. Counters are cumulative; the browser diffs two samples.
+ */
+export function parseDomstats(stdout) {
+  const domains = [];
+  let current = null;
+  for (const raw of String(stdout ?? "").split("\n")) {
+    const line = raw.trim();
+    const header = line.match(/^Domain: '(.+)'$/);
+    if (header) { current = { name: header[1], state: "unknown", cpuTimeNs: 0, vcpus: null, memoryKiB: null, memoryMaxKiB: null, diskReadBytes: 0, diskWriteBytes: 0, netRxBytes: 0, netTxBytes: 0 }; domains.push(current); continue; }
+    if (!current || !line.includes("=")) continue;
+    const [key, value] = line.split("=", 2).map((part) => part.trim());
+    const number = Number(value);
+    if (key === "state.state") current.state = ({ 1: "running", 2: "blocked", 3: "paused", 4: "shutdown", 5: "stopped", 6: "crashed", 7: "suspended" })[number] ?? "unknown";
+    else if (key === "cpu.time") current.cpuTimeNs = number;
+    else if (key === "vcpu.current" || key === "vcpu.maximum") current.vcpus = current.vcpus ?? number;
+    else if (key === "balloon.current") current.memoryKiB = number;
+    else if (key === "balloon.maximum") current.memoryMaxKiB = number;
+    else if (/^block\.\d+\.rd\.bytes$/.test(key)) current.diskReadBytes += number;
+    else if (/^block\.\d+\.wr\.bytes$/.test(key)) current.diskWriteBytes += number;
+    else if (/^net\.\d+\.rx\.bytes$/.test(key)) current.netRxBytes += number;
+    else if (/^net\.\d+\.tx\.bytes$/.test(key)) current.netTxBytes += number;
+  }
+  return domains;
+}
+
 export function vmOperations() {
   return [
+    defineOperation({
+      id: "vm.stats.inspect", title: "Read VM resource use", risk: "low", readOnly: true, timeoutMs: 30_000,
+      description: "CPU time, memory, disk, and network counters for every domain from virsh domstats; the page turns two samples into rates.",
+      run: async (_parameters, { run }) => {
+        const result = await virsh(run, ["domstats", "--state", "--cpu-total", "--vcpu", "--balloon", "--block", "--interface"], { timeout: 20_000, maxBuffer: 4 * 1024 * 1024 });
+        if (!result.ok) throw new Error(`virsh domstats failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
+        return { sampledAt: new Date().toISOString(), domains: parseDomstats(result.stdout) };
+      },
+    }),
     defineOperation({ id: "vm.cloud.images", title: "List cloud base images", risk: "low", readOnly: true, run: (_p, { vmCloud }) => vmCloud.images() }),
     defineOperation({
       id: "vm.cloud.create", title: "Create VM from cloud image", risk: "medium", timeoutMs: 90 * 60_000,

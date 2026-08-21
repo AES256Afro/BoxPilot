@@ -3345,3 +3345,4 @@ textarea {
 .autoinstall-form .recovery-actions { padding: 0; }
 .autoinstall-output { display: grid; gap: 8px; }
 .autoinstall-output .app-logs { margin: 0 15px 15px; }
+.vm-live-stats code { color: var(--mint); }
