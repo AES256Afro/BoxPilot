@@ -179,7 +179,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - **M7.5** VM templates & clone; "Dev box" template with Docker + code-server inside.
 - **M7.6** LXD/Incus or `systemd-nspawn` as a lighter "project container" option.
 - **M7.7** GPU/USB passthrough (advanced, high risk).
-- **M7.8** Resource dashboard per VM (libvirt stats), autostart ordering.
+- ✅ (stats) **M7.8** `vm.stats.inspect` reads `virsh domstats` (state, CPU time, vCPUs, balloon memory, block and network counters); the Virtual Machines page samples it every five seconds and shows live CPU %, memory, disk, and network rates on each running VM. Remaining: autostart ordering.
 
 ### Phase 8 — Dashboards & observability (1–2 weeks)
 - ✅ (v1) **M8.1** **Home dashboard** on the Overview page (`src/HomeDashboard.tsx`): clickable tiles (updates, failed services, apps running, VMs running), a "Needs attention" list (reboot pending, updates, failed units, stopped apps, app updates, failed jobs), installed-apps grid with health pill + URL + update badge, recent activity. Sources load independently; a down source leaves its tile quiet. Remaining: backup staleness, host vitals sparkline.

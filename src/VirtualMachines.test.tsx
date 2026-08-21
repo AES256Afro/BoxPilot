@@ -106,6 +106,7 @@ describe("Virtual Machines", () => {
           approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" },
         }), { status: 201, headers: { "Content-Type": "application/json" } });
       }
+      if (url.endsWith("/operations/vm.stats.inspect/inspect")) return new Response(JSON.stringify({ operation: "vm.stats.inspect", result: { sampledAt: "2026-08-15T20:00:00Z", domains: [{ name: "ubuntu-lab", state: "running", cpuTimeNs: 5e9, vcpus: 2, memoryKiB: 2097152, memoryMaxKiB: 4194304, diskReadBytes: 0, diskWriteBytes: 0, netRxBytes: 0, netTxBytes: 0 }] } }), { status: 200, headers: { "Content-Type": "application/json" } });
       const body = url.endsWith("/status") ? status : url.endsWith("/resources") ? resources : url.endsWith("/foundation") ? foundation : url.endsWith("/console-guidance") ? consoleGuidance : url.endsWith("/protection") ? protection : url.endsWith("/retention") ? retentionStatus : url.endsWith("/exports") ? { exports: [exportArtifact] } : url.endsWith("/recoveries") ? { recoveries } : domains;
       return new Response(JSON.stringify(body), {
         status: 200,
@@ -118,6 +119,8 @@ describe("Virtual Machines", () => {
     expect(await screen.findByText("KVM host is ready")).toBeTruthy();
     expect(screen.getByText("ubuntu-lab")).toBeTruthy();
     expect(screen.getByText("192.168.122.25/24")).toBeTruthy();
+    expect(await screen.findByLabelText("Live resource use for ubuntu-lab")).toBeTruthy();
+    expect(screen.getByText("RAM 2.0 GiB / 4.0 GiB")).toBeTruthy();
     expect(screen.getByText("Libvirt resources")).toBeTruthy();
     expect(screen.getByText("Default VM foundation")).toBeTruthy();
     expect(screen.getByText("VM creation foundation verified")).toBeTruthy();

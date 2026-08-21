@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { inspectOperation } from "./operations";
 import CloudVmForm from "./CloudVmForm";
 import { useOperation } from "./ApproveDialog";
 import {
@@ -68,6 +69,35 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
   const [recoveries, setRecoveries] = useState<VmRecoveryRecord[]>([]);
   const [recoveryBackup, setRecoveryBackup] = useState<VmProtectedBackup | null>(null);
   const [recoveryName, setRecoveryName] = useState("");
+  // Live resource use (M7.8): two domstats samples → rates. Polled only while the page is open.
+  interface DomainStats { name: string; state: string; cpuTimeNs: number; vcpus: number | null; memoryKiB: number | null; memoryMaxKiB: number | null; diskReadBytes: number; diskWriteBytes: number; netRxBytes: number; netTxBytes: number }
+  const [rates, setRates] = useState<Record<string, { cpuPercent: number | null; memoryKiB: number | null; memoryMaxKiB: number | null; diskBytesPerSecond: number | null; netBytesPerSecond: number | null }>>({});
+  const previousSample = useRef<{ at: number; domains: DomainStats[] } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const sample = async () => {
+      try {
+        const { result } = await inspectOperation<{ sampledAt: string; domains: DomainStats[] }>("vm.stats.inspect");
+        const at = Date.parse(result.sampledAt) || Date.now();
+        const previous = previousSample.current;
+        const next: typeof rates = {};
+        for (const domain of result.domains) {
+          const before = previous?.domains.find((entry) => entry.name === domain.name);
+          const seconds = previous ? (at - previous.at) / 1000 : 0;
+          const cpuPercent = before && seconds > 0 && domain.state === "running" ? Math.max(0, Math.min(100, ((domain.cpuTimeNs - before.cpuTimeNs) / 1e9 / seconds / Math.max(1, domain.vcpus ?? 1)) * 100)) : null;
+          const diskBytesPerSecond = before && seconds > 0 ? Math.max(0, (domain.diskReadBytes + domain.diskWriteBytes - before.diskReadBytes - before.diskWriteBytes) / seconds) : null;
+          const netBytesPerSecond = before && seconds > 0 ? Math.max(0, (domain.netRxBytes + domain.netTxBytes - before.netRxBytes - before.netTxBytes) / seconds) : null;
+          next[domain.name] = { cpuPercent, memoryKiB: domain.memoryKiB, memoryMaxKiB: domain.memoryMaxKiB, diskBytesPerSecond, netBytesPerSecond };
+        }
+        previousSample.current = { at, domains: result.domains };
+        if (!cancelled) setRates(next);
+      } catch { /* stats are a convenience; the page works without them */ }
+    };
+    void sample();
+    const timer = window.setInterval(() => { void sample(); }, 5000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, []);
+  const rateLabel = (bytesPerSecond: number | null) => (bytesPerSecond === null ? "—" : bytesPerSecond >= 1024 ** 2 ? `${(bytesPerSecond / 1024 ** 2).toFixed(1)} MiB/s` : `${(bytesPerSecond / 1024).toFixed(0)} KiB/s`);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -265,6 +295,14 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
                     <div className="vm-domain-name"><span className="vm-icon">VM</span><div><strong>{domain.name}</strong><span>{domain.vcpus} vCPU | {formatMemory(domain.memoryKiB)} | {domain.autostart ? "Autostart on" : "Autostart off"}</span><span>{domain.guestAgent.available ? `Guest agent ready${domain.guestAgent.filesystemState ? ` | filesystems ${domain.guestAgent.filesystemState}` : ""}` : "Guest agent not reachable"}</span></div></div>
                     <span className={`status-pill status-${stateTone(domain.state)}`}>{domain.state}</span>
                   </div>
+                  {rates[domain.name] && domain.state === "running" && (
+                    <div className="vm-addresses vm-live-stats" aria-label={`Live resource use for ${domain.name}`}>
+                      <code>CPU {rates[domain.name].cpuPercent === null ? "…" : `${rates[domain.name].cpuPercent!.toFixed(0)}%`}</code>
+                      <code>RAM {rates[domain.name].memoryKiB ? `${(rates[domain.name].memoryKiB! / 1024 / 1024).toFixed(1)} GiB` : "—"}{rates[domain.name].memoryMaxKiB ? ` / ${(rates[domain.name].memoryMaxKiB! / 1024 / 1024).toFixed(1)} GiB` : ""}</code>
+                      <code>disk {rateLabel(rates[domain.name].diskBytesPerSecond)}</code>
+                      <code>net {rateLabel(rates[domain.name].netBytesPerSecond)}</code>
+                    </div>
+                  )}
                   <div className="vm-addresses">
                     {domain.addresses.length
                       ? domain.addresses.map((address) => <code key={`${address.interface}-${address.address}`}>{address.address}</code>)

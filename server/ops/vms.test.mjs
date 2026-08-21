@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { validateParameters } from "./registry.mjs";
-import { vmOperations } from "./vms.mjs";
+import { parseDomstats, vmOperations } from "./vms.mjs";
 
 const operations = Object.fromEntries(vmOperations().map((operation) => [operation.id, operation]));
 
@@ -83,5 +83,17 @@ describe("vm lifecycle operations", () => {
     expect(validateParameters(operations["vm.snapshot.revert"].parameters, { name: "dev-box" }, "t")).toContain("snapshotName");
     expect(operations["vm.delete"].risk).toBe("high");
     expect(operations["vm.snapshot.revert"].risk).toBe("high");
+  });
+
+  it("reads domstats counters per domain for the resource dashboard", async () => {
+    const stdout = "Domain: 'lab'\n  state.state=1\n  cpu.time=123000000000\n  vcpu.current=2\n  balloon.current=2097152\n  balloon.maximum=4194304\n  block.count=2\n  block.0.rd.bytes=1000\n  block.0.wr.bytes=500\n  block.1.rd.bytes=1\n  block.1.wr.bytes=1\n  net.count=1\n  net.0.rx.bytes=42\n  net.0.tx.bytes=7\n\nDomain: 'off-box'\n  state.state=5\n";
+    expect(parseDomstats(stdout)).toEqual([
+      { name: "lab", state: "running", cpuTimeNs: 123000000000, vcpus: 2, memoryKiB: 2097152, memoryMaxKiB: 4194304, diskReadBytes: 1001, diskWriteBytes: 501, netRxBytes: 42, netTxBytes: 7 },
+      { name: "off-box", state: "stopped", cpuTimeNs: 0, vcpus: null, memoryKiB: null, memoryMaxKiB: null, diskReadBytes: 0, diskWriteBytes: 0, netRxBytes: 0, netTxBytes: 0 },
+    ]);
+    const run = vi.fn(async () => ({ ok: true, stdout, stderr: "" }));
+    const result = await operations["vm.stats.inspect"].run({}, { run });
+    expect(result.domains).toHaveLength(2);
+    expect(run.mock.calls[0][1]).toEqual(expect.arrayContaining(["domstats", "--cpu-total", "--balloon", "--block", "--interface"]));
   });
 });
