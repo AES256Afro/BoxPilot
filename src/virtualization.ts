@@ -89,24 +89,6 @@ export interface LibvirtFoundation {
   boundary: { networkCidr?: string; poolTarget?: string; mutationPerformed: boolean; browserResourceAccepted: boolean };
 }
 
-export interface LibvirtFoundationPlan {
-  id: string;
-  revision: string;
-  status: "draft" | "staged";
-  expiresAt: string;
-  input: { expectedRevision: string; foundationId: string };
-  output: {
-    executable: true;
-    connectionUri: "qemu:///system";
-    network: { name: "default"; mode: "nat"; bridge: "virbr0"; cidr: "192.168.122.0/24"; dhcpRange: string };
-    pool: { name: "default"; type: "dir"; targetPath: "/var/lib/libvirt/images" };
-    changes: string[];
-    boundaries: string[];
-    automaticRollback: true;
-    recovery: string;
-  };
-}
-
 export interface ConsoleGuidance {
   nativeProxyAvailable: false;
   cockpit: { installed: boolean; active: boolean; enabled: boolean; port: 9090 };
@@ -517,23 +499,8 @@ export async function fetchLibvirtFoundation(): Promise<LibvirtFoundation> {
   return readJson<LibvirtFoundation>(await fetch("/api/v1/virtualization/foundation"));
 }
 
-export async function createLibvirtFoundationPlan(csrfToken: string): Promise<LibvirtFoundationPlan> {
-  const response = await fetch("/api/v1/virtualization/foundation/plans", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-    body: JSON.stringify({}),
-  });
-  return (await readJson<{ plan: LibvirtFoundationPlan }>(response)).plan;
-}
 
-export async function stageLibvirtFoundationPlan(planId: string, revision: string, csrfToken: string): Promise<VmCreationJob> {
-  const response = await fetch(`/api/v1/virtualization/foundation/plans/${encodeURIComponent(planId)}/stage`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-    body: JSON.stringify({ revision }),
-  });
-  return (await readJson<{ job: VmCreationJob }>(response)).job;
-}
+
 
 export async function createVmPlan(input: VmPlanInput, csrfToken: string): Promise<VmCreationPlan> {
   const response = await fetch("/api/v1/virtualization/plans", {
@@ -555,8 +522,6 @@ export async function stageVmPlan(planId: string, revision: string, csrfToken: s
   const body = await readJson<{ job: VmCreationJob }>(response);
   return body.job;
 }
-
-
 
 export async function fetchVmExports(): Promise<VmExportArtifact[]> {
   const body = await readJson<{ exports: VmExportArtifact[] }>(await fetch("/api/v1/virtualization/exports"));

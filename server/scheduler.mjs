@@ -80,7 +80,7 @@ export function createSchedulerService({ store, jobs, registry = defaultRegistry
     for (const schedule of due) {
       const nextDueAt = computeNextRun(schedule, now()).toISOString();
       try {
-        const job = jobs.createOperationJob(schedule.operationId, schedule.parameters ?? {}, schedule.createdBy);
+        const job = await jobs.createOperationJob(schedule.operationId, schedule.parameters ?? {}, schedule.createdBy);
         await jobs.approveAndStart(job.id, schedule.createdBy, {});
         store.markScheduleRun(schedule.id, { jobId: job.id, result: "started", nextDueAt });
         store.recordAudit("schedule.run", { actorId: schedule.createdBy, subjectId: schedule.id, details: { operationId: schedule.operationId, jobId: job.id } });

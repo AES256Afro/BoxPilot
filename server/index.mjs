@@ -81,12 +81,15 @@ const jobs = createJobService(state, helper, {
     "controller.backup.create": (job, result) => {
       state.recordBackup({ id: result.backupId, applicationId: "boxpilot-controller", destination: result.destination ?? "local-managed", artifactPath: result.artifactPath, checksumSha256: result.checksumSha256, sizeBytes: result.sizeBytes, downtimeMs: result.downtimeMs ?? 0, restoreDrill: result.restoreDrill ?? {}, createdBy: job.createdBy });
     },
+    "controller.backup.protect": (job, result) => controllerProtection.recordOperation(job, result),
+    "controller.backup.retention.apply": (job, result) => controllerRetention.recordOperation(job, result),
   },
-  validateLibvirtFoundationJob: libvirtFoundation.validateJob,
-  validateControllerProtectionJob: controllerProtection.validateJob,
-  recordControllerProtectionResult: controllerProtection.recordResult,
-  validateControllerRetentionJob: controllerRetention.validateJob,
-  recordControllerRetentionResult: controllerRetention.recordResult,
+  // Prepare hooks pin server-derived expectations into the staged parameters.
+  operationPrepareHooks: {
+    "controller.backup.protect": (parameters) => controllerProtection.prepareOperation(parameters),
+    "controller.backup.retention.apply": () => controllerRetention.prepareOperation(),
+    "vm.foundation.initialize": () => libvirtFoundation.prepareOperation(),
+  },
   validateVmCreationJob: vmCreation.validateJob,
   validateVmMediaImportJob: vmMedia.validateJob,
   validateVmExportJob: vmExports.validateJob,
@@ -240,9 +243,9 @@ app.post("/api/v1/catalog/:id/precheck", auth.requireCsrf, async (request, respo
 });
 
 // Mutating registered operations are staged as jobs and approved through /api/v1/jobs/:id/approve (risk-tiered).
-app.post("/api/v1/operations/:id/jobs", auth.requireCsrf, (request, response) => {
+app.post("/api/v1/operations/:id/jobs", auth.requireCsrf, async (request, response) => {
   try {
-    const job = jobs.createOperationJob(request.params.id, request.body?.parameters ?? {}, request.boxpilotSession.owner.id);
+    const job = await jobs.createOperationJob(request.params.id, request.body?.parameters ?? {}, request.boxpilotSession.owner.id);
     return response.status(201).json({ job, approval: jobs.describeApproval(job.id, request.boxpilotSession) });
   } catch (error) {
     const status = error.message === "Operation not found" ? 404 : error.message.includes("Read-only") ? 405 : 400;
@@ -331,48 +334,11 @@ app.get("/api/v1/controller-backup-protection", async (_request, response) => {
   response.json(await controllerProtection.list());
 });
 
-app.post("/api/v1/controller-backups/:id/protection-plans", async (request, response) => {
-  try {
-    const plan = await controllerProtection.plan(request.params.id, request.boxpilotSession.owner.id);
-    response.status(201).json({ plan });
-  } catch (error) {
-    response.status(400).json({ error: error.message, code: "controller_protection_plan_failed" });
-  }
-});
-
-app.post("/api/v1/controller-protection-plans/:id/stage", async (request, response) => {
-  try {
-    const job = await controllerProtection.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
-    response.status(201).json({ job });
-  } catch (error) {
-    response.status(409).json({ error: error.message, code: "controller_protection_stage_failed" });
-  }
-});
-
 app.get("/api/v1/controller-backup-retention", async (_request, response) => {
   try {
     response.json(await controllerRetention.inspect());
   } catch (error) {
     response.status(503).json({ error: error.message, code: "controller_retention_inspection_failed" });
-  }
-});
-
-app.post("/api/v1/controller-retention-plans", async (request, response) => {
-  try {
-    const plan = await controllerRetention.plan(request.boxpilotSession.owner.id);
-    response.status(201).json({ plan });
-  } catch (error) {
-    response.status(503).json({ error: error.message, code: "controller_retention_plan_failed" });
-  }
-});
-
-app.post("/api/v1/controller-retention-plans/:id/stage", async (request, response) => {
-  try {
-    const job = await controllerRetention.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
-    response.status(201).json({ job });
-  } catch (error) {
-    const status = error.message === "Controller retention plan not found" ? 404 : 409;
-    response.status(status).json({ error: error.message, code: "controller_retention_stage_failed" });
   }
 });
 
@@ -556,25 +522,6 @@ app.get("/api/v1/virtualization/resources", async (_request, response) => {
 app.get("/api/v1/virtualization/foundation", async (_request, response) => {
   const foundation = await libvirtFoundation.inspect();
   response.status(foundation.connectionReady ? 200 : 503).json(foundation);
-});
-
-app.post("/api/v1/virtualization/foundation/plans", async (request, response) => {
-  try {
-    const plan = await libvirtFoundation.plan(request.boxpilotSession.owner.id, request.body);
-    response.status(201).json({ plan });
-  } catch (error) {
-    response.status(409).json({ error: error.message, code: "libvirt_foundation_plan_failed" });
-  }
-});
-
-app.post("/api/v1/virtualization/foundation/plans/:id/stage", async (request, response) => {
-  try {
-    const job = await libvirtFoundation.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
-    response.status(201).json({ job });
-  } catch (error) {
-    const status = error.message.includes("not found") ? 404 : 409;
-    response.status(status).json({ error: error.message, code: "libvirt_foundation_stage_failed" });
-  }
 });
 
 app.get("/api/v1/virtualization/console-guidance", async (_request, response) => {

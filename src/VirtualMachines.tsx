@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import CloudVmForm from "./CloudVmForm";
 import { useOperation } from "./ApproveDialog";
 import {
-  createLibvirtFoundationPlan,
   createVmExportPlan,
   createVmProtectionPlan,
   createVmRecoveryPlan,
@@ -18,9 +17,7 @@ import {
   formatMemory,
   type LibvirtResources,
   type LibvirtFoundation,
-  type LibvirtFoundationPlan,
   type ConsoleGuidance,
-  stageLibvirtFoundationPlan,
   stageVmExportPlan,
   stageVmProtectionPlan,
   stageVmRecoveryPlan,
@@ -71,7 +68,6 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
   const [domainList, setDomainList] = useState<DomainList | null>(null);
   const [resources, setResources] = useState<LibvirtResources | null>(null);
   const [foundation, setFoundation] = useState<LibvirtFoundation | null>(null);
-  const [foundationPlan, setFoundationPlan] = useState<LibvirtFoundationPlan | null>(null);
   const [consoleGuidance, setConsoleGuidance] = useState<ConsoleGuidance | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -140,31 +136,13 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
     }
   };
 
-  const planFoundation = async () => {
-    setPending("foundation-plan");
-    setMessage(null);
-    try {
-      setFoundationPlan(await createLibvirtFoundationPlan(csrfToken));
-    } catch (foundationError) {
-      setMessage(foundationError instanceof Error ? foundationError.message : "Unable to plan the libvirt foundation setup");
-    } finally {
-      setPending(null);
-    }
-  };
-
-  const stageFoundation = async () => {
-    if (!foundationPlan) return;
-    setPending(`foundation-stage:${foundationPlan.id}`);
-    setMessage(null);
-    try {
-      await stageLibvirtFoundationPlan(foundationPlan.id, foundationPlan.revision, csrfToken);
-      setFoundationPlan(null);
-      onOpenRepair();
-    } catch (foundationError) {
-      setMessage(foundationError instanceof Error ? foundationError.message : "Unable to stage the libvirt foundation job");
-    } finally {
-      setPending(null);
-    }
+  const initializeFoundation = () => {
+    startOperation({
+      operationId: "vm.foundation.initialize",
+      title: "Initialize the libvirt foundation",
+      parameters: {},
+      preview: <span>Defines, starts, and autostarts only the missing canonical default NAT network and default storage pool. Failure rolls back only this job's changes.</span>,
+    });
   };
 
   const actionPreviews: Record<string, string> = {
@@ -469,7 +447,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
         {foundation?.ready ? (
           <div className="vm-control-lock"><div><strong>VM creation foundation verified</strong><span>Both canonical resources are persistent, active, compatible, and enabled at boot. Other networks and pools remain untouched.</span></div><button type="button" className="secondary-button" onClick={() => void refresh()} disabled={pending !== null}>Refresh</button></div>
         ) : foundation?.planAvailable ? (
-          <div className="vm-control-lock"><div><strong>Guided initialization is available</strong><span>{foundation.changes.join(" | ")}. The job accepts no resource names or paths and rolls back only its own changes.</span></div><button type="button" className="primary-button" onClick={() => void planFoundation()} disabled={pending !== null}>{pending === "foundation-plan" ? "Inspecting..." : "Review setup plan"}</button></div>
+          <div className="vm-control-lock"><div><strong>Guided initialization is available</strong><span>{foundation.changes.join(" | ")}. The job accepts no resource names or paths and rolls back only its own changes.</span></div><button type="button" className="primary-button" onClick={() => initializeFoundation()} disabled={pending !== null}>{pending === "foundation-plan" ? "Inspecting..." : "Review setup plan"}</button></div>
         ) : (
           <div className="vm-plan-warnings"><strong>Setup is blocked</strong>{foundation?.conflicts.map((conflict) => <span key={conflict}>{conflict}</span>)}<button type="button" className="secondary-button" onClick={onOpenRepair}>Open prerequisite repairs</button></div>
         )}
@@ -562,18 +540,6 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
 
       {message && <p className="vm-message" aria-live="polite">{message}</p>}
       {plannerOpen && <VmPlanner csrfToken={csrfToken} onClose={() => setPlannerOpen(false)} onOpenRepair={onOpenRepair} />}
-      {foundationPlan && (
-        <div className="vm-planner-backdrop" role="presentation">
-          <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="foundation-plan-title">
-            <header className="vm-planner-header"><div><span className="eyebrow">Immutable foundation plan</span><h2 id="foundation-plan-title">Prepare default libvirt resources</h2><p>One password-approved job applies only this fixed NAT network and directory pool.</p></div><button type="button" className="modal-close" aria-label="Close foundation plan" onClick={() => setFoundationPlan(null)}>X</button></header>
-            <dl className="vm-plan-summary"><div><dt>Network</dt><dd>default | NAT | virbr0 | 192.168.122.0/24</dd></div><div><dt>Storage</dt><dd>default | dir | /var/lib/libvirt/images</dd></div><div><dt>Rollback</dt><dd>Automatic, limited to this job</dd></div></dl>
-            <div className="vm-plan-warnings"><strong>Planned changes</strong>{foundationPlan.output.changes.map((change) => <span key={change}>{change}</span>)}</div>
-            <div className="vm-plan-warnings"><strong>Locked boundaries</strong>{foundationPlan.output.boundaries.map((boundary) => <span key={boundary}>{boundary}</span>)}</div>
-            <p>{foundationPlan.output.recovery}</p>
-            <div className="vm-planner-actions"><button type="button" className="secondary-button" onClick={() => setFoundationPlan(null)}>Cancel</button><button type="button" className="primary-button" onClick={() => void stageFoundation()} disabled={pending !== null}>{pending === `foundation-stage:${foundationPlan.id}` ? "Staging..." : "Stage approval job"}</button></div>
-          </section>
-        </div>
-      )}
       {snapshotDomain && (
         <div className="vm-planner-backdrop" role="presentation">
           <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-snapshot-title">

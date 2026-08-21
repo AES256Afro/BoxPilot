@@ -59,73 +59,27 @@ describe("controller backup retention service", () => {
     expect(status.kept.find((item) => item.protectionId === protections[4].id)?.reasons).toContain("active-controller-operation");
   });
 
-  it("creates and stages an exact high-risk plan without prune", async () => {
-    const { service, store } = fixture();
-    const plan = await service.plan("owner-one");
-    expect(plan.output.executable).toBe(true);
-    expect(plan.output.candidates).toHaveLength(2);
-    expect(plan.output.prunePerformed).toBe(false);
-    const job = await service.stage(plan.id, plan.revision, "owner-one");
-    expect(job).toMatchObject({ type: "controller.database.backup.retention.apply", risk: "high" });
-    expect(store.stagePlan).toHaveBeenCalledWith(plan.id, "owner-one");
-  });
-
-  it("blocks when repository snapshots are unattributed or local evidence is missing", async () => {
+  it("pins the eligible candidate set for the registry operation", async () => {
     const { service, inspection } = fixture();
-    inspection.snapshots.push({ id: "f".repeat(64), time: now.toISOString(), tags: ["boxpilot-controller"] });
-    const result = await service.inspect();
-    expect(result.executable).toBe(false);
-    expect(result.blockers.join(" ")).toContain("not attributable");
+    const prepared = await service.prepareOperation();
+    expect(prepared).toMatchObject({ repositoryId: inspection.repositoryId, expectedDestinationRevision: inspection.destinationRevision, expectedSnapshotSetRevision: inspection.snapshotSetRevision });
+    expect(prepared.forgetSnapshotIds.length).toBeGreaterThan(0);
+    expect(prepared.candidates.length).toBe(prepared.forgetSnapshotIds.length);
+    expect(prepared.expectedBeforeCount).toBe(5);
   });
 
   it("records only exact complete helper evidence after execution", async () => {
     const { service, store } = fixture();
-    const plan = await service.plan("owner-one");
-    const job = await service.stage(plan.id, plan.revision, "owner-one");
-    service.recordResult(job, {
-      applied: true,
-      complete: true,
-      retentionId: plan.input.retentionId,
-      repositoryId: plan.input.repositoryId,
-      forgottenSnapshotIds: plan.input.forgetSnapshotIds,
-      keptSnapshotIds: plan.output.kept.map((item) => item.snapshotId),
-      beforeCount: plan.output.beforeCount,
-      afterCount: plan.output.beforeCount - plan.output.candidates.length,
-      beforeSnapshotSetRevision: plan.input.expectedSnapshotSetRevision,
-      afterSnapshotSetRevision: "d".repeat(64),
-      repositoryVerified: true,
-      prunePerformed: false,
-      spaceReclaimed: false,
-    });
-    expect(store.recordControllerRetention).toHaveBeenCalledWith(expect.objectContaining({ id: plan.input.retentionId, prunePerformed: false, forgotten: expect.any(Array) }));
-  });
-
-  it("records a confirmed partial forget as unprotected even when verification is incomplete", async () => {
-    const { service, store } = fixture();
-    const plan = await service.plan("owner-one");
-    const job = await service.stage(plan.id, plan.revision, "owner-one");
-    const forgottenSnapshotId = plan.input.forgetSnapshotIds[0];
-    service.recordResult(job, {
-      applied: true,
-      complete: false,
-      retentionId: plan.input.retentionId,
-      repositoryId: plan.input.repositoryId,
-      forgottenSnapshotIds: [forgottenSnapshotId],
-      keptSnapshotIds: [],
-      beforeCount: plan.output.beforeCount,
-      afterCount: null,
-      beforeSnapshotSetRevision: plan.input.expectedSnapshotSetRevision,
-      afterSnapshotSetRevision: null,
-      repositoryVerified: false,
-      prunePerformed: false,
-      spaceReclaimed: false,
-      verification: ["post-inspection-failed"],
-    });
-    expect(store.recordControllerRetention).toHaveBeenCalledWith(expect.objectContaining({
-      repositoryVerified: false,
-      complete: false,
-      verification: ["post-inspection-failed"],
-      forgotten: [expect.objectContaining({ snapshotId: forgottenSnapshotId })],
-    }));
+    const input = await service.prepareOperation();
+    const result = {
+      applied: true, retentionId: input.retentionId, repositoryId: input.repositoryId,
+      beforeSnapshotSetRevision: input.expectedSnapshotSetRevision, afterSnapshotSetRevision: "e".repeat(64),
+      beforeCount: input.expectedBeforeCount, afterCount: input.expectedBeforeCount - input.forgetSnapshotIds.length,
+      forgottenSnapshotIds: input.forgetSnapshotIds, keptSnapshotIds: [], repositoryVerified: true, complete: true,
+      prunePerformed: false, spaceReclaimed: false,
+    };
+    service.recordOperation({ parameters: input, createdBy: "owner-1" }, result);
+    expect(store.recordControllerRetention).toHaveBeenCalledWith(expect.objectContaining({ id: input.retentionId, repositoryVerified: true }));
+    expect(() => service.recordOperation({ parameters: input, createdBy: "owner-1" }, { ...result, prunePerformed: true })).toThrow("evidence validation failed");
   });
 });

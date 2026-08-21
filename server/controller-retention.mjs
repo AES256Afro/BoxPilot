@@ -108,65 +108,23 @@ export function createControllerRetentionService({ store, helper, now = () => ne
     return (await buildPreview()).output;
   }
 
-  async function plan(ownerId) {
+  /** Pin the current candidate set and repository revisions (staging-time, server-derived). */
+  async function prepareOperation() {
     const preview = await buildPreview();
-    return store.createPlan({ type: "controller.database.backup.retention", subjectId: preview.input.repositoryId ?? "unavailable", input: preview.input, output: preview.output, createdBy: ownerId });
+    if (!preview.output.executable) throw new Error(preview.output.blockers?.[0] ?? "Controller retention is not currently executable");
+    return { ...preview.input, candidates: preview.output.candidates, expectedBeforeCount: preview.output.beforeCount };
   }
 
-  async function revalidate(draft) {
-    const current = await buildPreview(draft.input.retentionId);
-    if (current.input.repositoryId !== draft.input.repositoryId
-      || current.input.expectedDestinationRevision !== draft.input.expectedDestinationRevision
-      || current.input.expectedSnapshotSetRevision !== draft.input.expectedSnapshotSetRevision
-      || !sameArray(current.input.forgetSnapshotIds, draft.input.forgetSnapshotIds)
-      || !sameArray(current.output.candidates, draft.output.candidates)
-      || !current.output.executable) {
-      throw new Error("The controller repository, protection evidence, active jobs, or retention candidate set changed after planning");
-    }
-    return current;
-  }
-
-  async function stage(planId, revision, ownerId) {
-    const draft = store.getPlan(planId);
-    if (!draft || draft.createdBy !== ownerId || draft.type !== "controller.database.backup.retention") throw new Error("Controller retention plan not found");
-    if (draft.revision !== revision) throw new Error("Controller retention plan revision does not match");
-    if (!draft.output.executable) throw new Error(draft.output.blockers.join(" | ") || "Controller retention plan is not executable");
-    await revalidate(draft);
-    store.stagePlan(draft.id, ownerId);
-    return store.createJob({
-      type: "controller.database.backup.retention.apply",
-      title: `Apply guarded retention to ${draft.output.candidates.length} controller snapshot(s)`,
-      risk: "high",
-      parameters: { planId: draft.id, revision: draft.revision, input: draft.input },
-      recovery: { automaticRollback: false, reason: draft.output.recovery, manual: draft.output.recovery },
-      createdBy: ownerId,
-      initialSteps: [
-        { name: "preflight", state: "completed", detail: "Repository identity, exact snapshot set, independent protection evidence, age, minimum-copy floor, and active controller jobs validated" },
-        { name: "checkpoint", state: "completed", detail: "Exact candidate ids recorded; live database and local artifacts remain unchanged; prune is disabled" },
-      ],
-    });
-  }
-
-  async function validateJob(job) {
-    if (job.type !== "controller.database.backup.retention.apply") throw new Error("Unsupported controller retention job");
-    const staged = store.getPlan(job.parameters.planId);
-    if (!staged || staged.status !== "staged" || staged.revision !== job.parameters.revision) throw new Error("The staged controller retention plan is unavailable or changed");
-    if (staged.createdBy !== job.createdBy || JSON.stringify(job.parameters.input) !== JSON.stringify(staged.input)) throw new Error("The controller retention job inputs do not match the approved plan");
-    await revalidate(staged);
-    return staged;
-  }
-
-  function recordResult(job, result) {
-    const staged = store.getPlan(job.parameters.planId);
-    const input = job.parameters.input;
+  function recordOperation(job, result) {
+    const input = job.parameters;
     const approved = new Set(input.forgetSnapshotIds);
     const actualSnapshotIds = Array.isArray(result?.forgottenSnapshotIds) ? result.forgottenSnapshotIds : [];
     const actualSet = new Set(actualSnapshotIds);
-    const forgotten = staged.output.candidates
+    const forgotten = input.candidates
       .filter((candidate) => actualSet.has(candidate.snapshotId))
       .map((candidate) => ({ protectionId: candidate.protectionId, backupId: candidate.backupId, snapshotId: candidate.snapshotId }));
     if (result?.applied !== true || result?.retentionId !== input.retentionId || result?.repositoryId !== input.repositoryId
-      || result?.beforeSnapshotSetRevision !== input.expectedSnapshotSetRevision || result?.beforeCount !== staged.output.beforeCount
+      || result?.beforeSnapshotSetRevision !== input.expectedSnapshotSetRevision || result?.beforeCount !== input.expectedBeforeCount
       || actualSnapshotIds.length < 1 || actualSet.size !== actualSnapshotIds.length || actualSnapshotIds.some((id) => !approved.has(id))
       || forgotten.length !== actualSnapshotIds.length || result?.prunePerformed !== false || result?.spaceReclaimed !== false
       || (result?.repositoryVerified === true && (result?.complete !== true || !sameArray(actualSnapshotIds, input.forgetSnapshotIds)
@@ -190,7 +148,7 @@ export function createControllerRetentionService({ store, helper, now = () => ne
     });
   }
 
-  return { inspect, plan, stage, validateJob, recordResult };
+  return { inspect, prepareOperation, recordOperation };
 }
 
 export const controllerRetentionInternals = { minimumAgeDays, minimumCopies, selectRetentionCandidates };

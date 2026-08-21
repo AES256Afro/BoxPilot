@@ -5,9 +5,7 @@ import { registry } from "./ops/index.mjs";
 export function createJobService(store, helper, {
   jobLog = null,
   operationRecordHooks = {},
-  validateLibvirtFoundationJob = async () => {},
-  validateControllerProtectionJob = async () => {},
-  validateControllerRetentionJob = async () => {},
+  operationPrepareHooks = {},
   validateVmCreationJob = async () => {},
   validateVmMediaImportJob = async () => {},
   validateVmExportJob = async () => {},
@@ -15,8 +13,6 @@ export function createJobService(store, helper, {
   validateVmRetentionJob = async () => {},
   validateVmRestoreDrillJob = async () => {},
   validateVmRecoveryJob = async () => {},
-  recordControllerProtectionResult = () => {},
-  recordControllerRetentionResult = () => {},
   recordVmExportResult = () => {},
   recordVmProtectionResult = () => {},
   recordVmRetentionResult = () => {},
@@ -77,11 +73,7 @@ export function createJobService(store, helper, {
       store.addJobStep(jobId, "apply", "running", execution.applying);
       return { job, owner, execution, approval: { tier: policy.tier, method: approvalMethod, elevatedUntil } };
     }
-    if (!["virtualization.foundation.initialize", "controller.database.backup.protect", "controller.database.backup.retention.apply", "virtualization.media.import", "virtualization.domain.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
-    const validatedLibvirtFoundation = job.type === "virtualization.foundation.initialize" ? await validateLibvirtFoundationJob(job) : null;
-    if (["controller.database.backup"].includes(job.type)) await validateBackupJob(job);
-    const validatedControllerProtectionPlan = job.type === "controller.database.backup.protect" ? await validateControllerProtectionJob(job) : null;
-    const validatedControllerRetentionPlan = job.type === "controller.database.backup.retention.apply" ? await validateControllerRetentionJob(job) : null;
+    if (!["virtualization.media.import", "virtualization.domain.create", "virtualization.domain.export.create", "virtualization.export.backup.create", "virtualization.export.backup.retention.apply", "virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type)) throw new Error("Job type is not supported by this executor");
     const validatedVmPlan = job.type === "virtualization.domain.create" ? await validateVmCreationJob(job) : null;
     const validatedVmMediaImportPlan = job.type === "virtualization.media.import" ? await validateVmMediaImportJob(job) : null;
     const validatedVmExportPlan = job.type === "virtualization.domain.export.create" ? await validateVmExportJob(job) : null;
@@ -91,67 +83,12 @@ export function createJobService(store, helper, {
     const validatedVmRecoveryPlan = job.type === "virtualization.backup.recovery.create" ? await validateVmRecoveryJob(job) : null;
     if (job.type === "virtualization.domain.create" && !validatedVmPlan?.input) throw new Error("The staged VM creation plan is unavailable or changed");
     if (job.type === "virtualization.media.import" && !validatedVmMediaImportPlan?.input) throw new Error("The staged VM media import plan is unavailable or changed");
-    if (job.type === "controller.database.backup.protect" && !validatedControllerProtectionPlan?.input) throw new Error("The staged controller protection plan is unavailable or changed");
-    if (job.type === "controller.database.backup.retention.apply" && !validatedControllerRetentionPlan?.input) throw new Error("The staged controller retention plan is unavailable or changed");
-    if (job.type === "virtualization.foundation.initialize" && !validatedLibvirtFoundation?.plan?.input) throw new Error("The staged libvirt foundation plan is unavailable or changed");
     if (job.type === "virtualization.domain.export.create" && !validatedVmExportPlan?.input) throw new Error("The staged VM export plan is unavailable or changed");
     if (job.type === "virtualization.export.backup.create" && !validatedVmProtectionPlan?.input) throw new Error("The staged VM protection plan is unavailable or changed");
     if (job.type === "virtualization.export.backup.retention.apply" && !validatedVmRetentionPlan?.input) throw new Error("The staged VM retention plan is unavailable or changed");
     if (job.type === "virtualization.export.backup.restore-drill" && !validatedVmRestoreDrillPlan?.input) throw new Error("The staged VM restore drill plan is unavailable or changed");
     if (job.type === "virtualization.backup.recovery.create" && !validatedVmRecoveryPlan?.input) throw new Error("The staged VM recovery plan is unavailable or changed");
-    const execution = job.type === "virtualization.foundation.initialize" ? {
-      operation: "virtualization.foundation.initialize",
-      parameters: { foundationId: validatedLibvirtFoundation.plan.input.foundationId, expectedRevision: validatedLibvirtFoundation.plan.input.expectedRevision },
-      timeoutMs: 5 * 60 * 1000,
-      applying: "Starting the fixed no-argument root unit to define, start, and enable only missing or inactive canonical default libvirt resources",
-      applied: "The fixed default NAT network and default directory storage pool initialization completed",
-      verified: "The canonical persistent default network and pool are active with autostart; no non-default resource, VM, disk, ISO, operator group, LAN route, firewall, or Tailscale setting changed",
-      failed: "The fixed libvirt foundation failed and requested rollback of only changes made by this job; inspect the dedicated unit and default resources before creating a new plan",
-      validate: (result) => result?.initialized === true
-        && result?.foundationId === validatedLibvirtFoundation.plan.input.foundationId
-        && result?.revisionBefore === validatedLibvirtFoundation.plan.input.expectedRevision
-        && result?.ready === true
-        && result?.network?.name === "default"
-        && result?.pool?.name === "default"
-        && result?.pool?.targetPath === "/var/lib/libvirt/images"
-        && result?.rollback?.automatic === true
-        && result?.rollback?.limitedToJobChanges === true
-        && result?.boundary?.resourceNamesFixed === true
-        && result?.boundary?.otherNetworksChanged === false
-        && result?.boundary?.otherPoolsChanged === false
-        && result?.boundary?.virtualMachineCreated === false
-        && result?.boundary?.diskCreated === false
-        && result?.boundary?.bridgeModeEnabled === false
-        && result?.boundary?.browserResourceAccepted === false,
-    } : job.type === "controller.database.backup.protect" ? {
-      operation: "controller.database.protection.create",
-      parameters: validatedControllerProtectionPlan.input,
-      timeoutMs: 12 * 60 * 60 * 1000,
-      applying: "Reverifying the local controller snapshot and writing it to the separate encrypted independent restic repository",
-      applied: "Restic published an encrypted controller snapshot without changing the live database or local backup",
-      verified: "A full repository data read, exact snapshot readback, restored hashes, and isolated SQLite copy-open checks passed",
-      failed: "Independent controller protection did not complete; preserve the local backup, encrypted repository, and any generated root-only drill workspace for inspection",
-      validate: (result) => result?.created === true
-        && result?.protectionId === validatedControllerProtectionPlan.input.protectionId
-        && result?.backupId === validatedControllerProtectionPlan.input.backupId
-        && result?.encrypted === true
-        && result?.independent === true
-        && result?.repositoryVerified === true
-        && result?.protected === true
-        && result?.restoreDrill?.passed === true
-        && result?.restoreDrill?.mode === "exact-snapshot-isolated-copy-open"
-        && result?.restoreDrill?.network === "none"
-        && result?.restoreDrill?.productionDatabaseReplaced === false,
-    } : job.type === "controller.database.backup.retention.apply" ? {
-      operation: "controller.database.protection.retention.apply",
-      parameters: validatedControllerRetentionPlan.input,
-      timeoutMs: 12 * 60 * 60 * 1000,
-      applying: "Forgetting only the exact reviewed old independently protected controller snapshot references through the restricted helper",
-      applied: "Restic removed the approved controller snapshot metadata without running prune or changing the live database and local artifacts",
-      verified: "A full controller repository data read passed, every approved snapshot is absent, and every noncandidate snapshot remains",
-      failed: "Controller retention did not complete or verify; do not retry until repository and durable protection evidence are inspected",
-      validate: (result) => result?.applied && result?.complete === true && result?.retentionId === validatedControllerRetentionPlan.input.retentionId && result?.repositoryId === validatedControllerRetentionPlan.input.repositoryId && result?.repositoryVerified === true && result?.prunePerformed === false && result?.spaceReclaimed === false,
-    } : job.type === "virtualization.media.import" ? {
+    const execution = job.type === "virtualization.media.import" ? {
       operation: "virtualization.media.import",
       parameters: validatedVmMediaImportPlan.input,
       timeoutMs: 6 * 60 * 60 * 1000,
@@ -251,11 +188,9 @@ export function createJobService(store, helper, {
       store.transitionJob(jobId, "applying", "verifying", { result });
       store.addJobStep(jobId, "apply", "completed", execution.applied);
       if (job.type === "virtualization.export.backup.retention.apply" && result?.applied === true) recordVmRetentionResult(job, result);
-      if (job.type === "controller.database.backup.retention.apply" && result?.applied === true) recordControllerRetentionResult(job, result);
       if (!execution.validate(result)) throw new Error(execution.run ? "Operation returned an invalid result" : "Helper returned an invalid operation result");
       // Registry ops with durable evidence record it web-side; a failed record fails the job.
       if (job.type.startsWith("op:")) operationRecordHooks[job.type.slice(3)]?.(job, result);
-      if (job.type === "controller.database.backup.protect") recordControllerProtectionResult(job, result);
       if (job.type === "virtualization.domain.export.create") recordVmExportResult(job, result);
       if (job.type === "virtualization.export.backup.create") recordVmProtectionResult(job, result);
       if (job.type === "virtualization.export.backup.restore-drill") recordVmRestoreDrillResult(job, result);
@@ -303,10 +238,13 @@ export function createJobService(store, helper, {
   }
 
   /** Stage a job for any registered, non-read-only operation. Approval and execution are generic. */
-  function createOperationJob(operationId, parameters, ownerId) {
+  async function createOperationJob(operationId, parameters, ownerId) {
     const operation = registry.get(operationId);
     if (!operation) throw new Error("Operation not found");
     if (operation.readOnly) throw new Error("Read-only operations run directly; they are not staged as jobs");
+    // Prepare hooks pin server-derived expectations (recorded evidence, live revisions) into
+    // the staged parameters, so the browser only ever names the subject.
+    if (operationPrepareHooks[operationId]) parameters = await operationPrepareHooks[operationId](parameters ?? {});
     const parameterError = registry.validate(operationId, parameters ?? {});
     if (parameterError) throw new Error(parameterError);
     return store.createJob({

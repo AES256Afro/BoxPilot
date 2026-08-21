@@ -61,32 +61,30 @@ function result(input) {
 }
 
 describe("controller backup independent protection service", () => {
-  it("fails closed with exact setup guidance when no independent destination exists", async () => {
+  it("fails closed when no independent destination exists", async () => {
     const { service } = fixture({ ready: false });
-    const plan = await service.plan(backupId, "owner-one");
-    expect(plan.output).toMatchObject({ executable: false, destination: "mounted-restic-controller", blockers: ["Mount independent storage"], protected: false });
-    expect(plan.output.changes.join(" ")).toContain("Read every restic data pack");
-    expect(plan.output.recovery).toContain("live controller database");
+    await expect(service.prepareOperation({ backupId })).rejects.toThrow("Mount independent storage");
   });
 
-  it("creates and stages an immutable executable plan without accepting a path or password", async () => {
-    const { service, store } = fixture();
-    const plan = await service.plan(backupId, "owner-one");
-    expect(plan.input).toMatchObject({ backupId, expectedArtifactChecksumSha256: "a".repeat(64), expectedManifestChecksumSha256: "b".repeat(64), expectedDestinationRevision: "d".repeat(64) });
-    expect(Object.keys(plan.input).sort()).toEqual(["backupId", "expectedArtifactChecksumSha256", "expectedDestinationRevision", "expectedManifestChecksumSha256", "expectedSizeBytes", "protectionId"]);
-    store.getPlan.mockReturnValue(plan);
-    const job = await service.stage(plan.id, plan.revision, "owner-one");
-    expect(job).toMatchObject({ type: "controller.database.backup.protect", risk: "medium", parameters: { input: plan.input } });
-    expect(store.stagePlan).toHaveBeenCalledWith(plan.id, "owner-one");
+  it("pins server-derived evidence for the registry operation", async () => {
+    const { service, backup, destination } = fixture();
+    const prepared = await service.prepareOperation({ backupId });
+    expect(prepared).toEqual({
+      protectionId: expect.any(String),
+      backupId,
+      expectedArtifactChecksumSha256: backup.checksumSha256,
+      expectedManifestChecksumSha256: backup.restoreDrill.manifestChecksumSha256,
+      expectedSizeBytes: backup.sizeBytes,
+      expectedDestinationRevision: destination.destinationRevision,
+    });
   });
 
-  it("records only complete encrypted independent repository and restored database evidence", () => {
+  it("records only complete encrypted independent repository and restored database evidence", async () => {
     const { service, store } = fixture();
-    const input = { protectionId, backupId, expectedArtifactChecksumSha256: "a".repeat(64), expectedManifestChecksumSha256: "b".repeat(64), expectedSizeBytes: 8192, expectedDestinationRevision: "d".repeat(64) };
-    const job = { type: "controller.database.backup.protect", parameters: { input }, createdBy: "owner-one" };
-    service.recordResult(job, result(input));
-    expect(store.recordControllerBackupProtection).toHaveBeenCalledWith(expect.objectContaining({ id: protectionId, backupId, protected: true, encrypted: true, independent: true }));
-    expect(() => service.recordResult(job, { ...result(input), protected: false })).toThrow("evidence validation");
-    expect(() => service.recordResult(job, { ...result(input), boundary: { ...result(input).boundary, browserPasswordAccepted: true } })).toThrow("evidence validation");
+    const prepared = await service.prepareOperation({ backupId });
+    const input = { ...prepared, protectionId };
+    service.recordOperation({ parameters: input, createdBy: "owner-1" }, result(input));
+    expect(store.recordControllerBackupProtection).toHaveBeenCalledWith(expect.objectContaining({ id: protectionId, backupId, encrypted: true, independent: true, protected: true }));
+    expect(() => service.recordOperation({ parameters: input, createdBy: "owner-1" }, { ...result(input), repositoryVerified: false })).toThrow("evidence validation failed");
   });
 });
