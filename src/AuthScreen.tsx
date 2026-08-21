@@ -92,7 +92,8 @@ export default function AuthScreen({ bootstrapRequired, onAuthenticated }: { boo
             <div className="identity-divider"><span>or use your password</span></div>
           </div>
         )}
-        {!bootstrapRequired && identity?.tailscale.available && !identity.tailscale.linked && <p className="muted">Connected over Tailscale as {identity.tailscale.login}. Sign in with your password, then link it in Settings to skip the password next time.</p>}
+        {!bootstrapRequired && identity?.tailscale.available && !identity.tailscale.linked && <p className="muted">Connected over Tailscale as {identity.tailscale.login}. Sign in with your password, then link it in <strong>Settings → Sign-in methods</strong> to skip the password next time.</p>}
+        {!bootstrapRequired && identity && !identity.github.configured && <p className="muted">GitHub sign-in is not set up yet. Sign in with your password, then add your GitHub OAuth App client ID in <strong>Settings → Sign-in methods</strong>.</p>}
         <form onSubmit={(event) => void submit(event)}>
           <label>Username<input required autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} pattern="[A-Za-z0-9][A-Za-z0-9_.-]{2,31}" /></label>
           <label>Password<input required type="password" autoComplete={bootstrapRequired ? "new-password" : "current-password"} minLength={12} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} /></label>
