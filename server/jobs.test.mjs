@@ -25,6 +25,23 @@ afterEach(async () => {
 });
 
 describe("durable job executor", () => {
+  it("keeps secret parameters out of the database and hands them to the operation at run time", async () => {
+    const helper = { request: vi.fn(async () => ({ ok: true })) };
+    const { store, owner, jobs } = await setup(helper);
+    const job = await jobs.createOperationJob("share.mount", { kind: "smb", host: "nas", share: "Public", name: "nas", username: "chris", password: "hunter2 hunter2" }, owner.id);
+    expect(job.parameters.password).toBe("[secret]");
+    expect(store.getJob(job.id).parameters.password).toBe("[secret]");
+    expect(JSON.stringify(store.getJob(job.id))).not.toContain("hunter2");
+    await jobs.approveAndRun(job.id, owner.id, { password: "correct horse battery" });
+    expect(helper.request).toHaveBeenCalledWith("share.mount", expect.objectContaining({ password: "hunter2 hunter2", username: "chris" }), expect.anything());
+    expect(JSON.stringify(store.getJob(job.id))).not.toContain("hunter2");
+
+    // A job whose secrets were forgotten (service restart) cannot run with the placeholder.
+    const orphan = await jobs.createOperationJob("share.mount", { kind: "smb", host: "nas", share: "Public", name: "nas2", username: "chris", password: "x" }, owner.id);
+    const { jobs: freshService } = { jobs: (await import("./jobs.mjs")).createJobService(store, helper) };
+    await expect(freshService.approveAndRun(orphan.id, owner.id, { password: "correct horse battery" })).rejects.toThrow("no longer available");
+  });
+
   it("requires password reauthentication before invoking the helper", async () => {
     const helper = { request: vi.fn() };
     const { store, owner, jobs } = await setup(helper);

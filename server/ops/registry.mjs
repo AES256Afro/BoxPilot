@@ -119,3 +119,8 @@ export function createRegistry(modules = []) {
   for (const module of modules) registry.registerAll(typeof module === "function" ? module() : module);
   return registry;
 }
+
+/** Names of parameters flagged `secret: true`: kept in memory by the job service, never persisted. */
+export function secretFields(spec) {
+  return Object.entries(spec?.fields ?? {}).filter(([, field]) => field && field.secret === true).map(([name]) => name);
+}

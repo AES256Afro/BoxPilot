@@ -30,7 +30,39 @@ const binaries = {
   swapoff: "/usr/sbin/swapoff",
   chmod: "/usr/bin/chmod",
   rm: "/usr/bin/rm",
+  lvextend: "/usr/sbin/lvextend",
 };
+
+/** Signatures that mean the device belongs to LVM/RAID/LUKS: never mount or format it directly. */
+export const memberFstypes = Object.freeze(["LVM2_member", "linux_raid_member", "crypto_LUKS", "bcache", "ceph_bluestore", "zfs_member"]);
+/** A device carrying any of these is the system disk. */
+export const systemMountpoints = Object.freeze(["/", "/boot", "/boot/efi", "/usr", "/var", "/home", "/efi"]);
+export const logicalVolumePattern = /^\/dev\/mapper\/[A-Za-z0-9._+-]{1,64}$/;
+
+/** Full device subtree (LVM and dm children included; this runs as root in the host namespace). */
+async function deviceTree(run, device) {
+  const tree = await run(binaries.lsblk, ["-J", "-o", "PATH,TYPE,FSTYPE,RO,MOUNTPOINTS", device], { timeout: 15_000 });
+  if (!tree.ok) throw new Error(`${device} was not found`);
+  try {
+    const parsed = JSON.parse(tree.stdout);
+    const flatten = (list) => list.flatMap((node) => [node, ...flatten(node.children ?? [])]);
+    return flatten(parsed.blockdevices ?? []);
+  } catch { throw new Error("Could not read the device layout"); }
+}
+
+/** Throw when touching `device` could take the system or a volume group down with it. */
+export function assertNotProtected(device, nodes) {
+  const mountedAt = nodes.flatMap((node) => (node.mountpoints ?? []).filter(Boolean));
+  const system = mountedAt.filter((target) => systemMountpoints.includes(target));
+  if (system.length) throw new Error(`${device} is the system disk (${system.join(", ")} lives on it); BoxPilot will not touch it`);
+  const member = nodes.find((node) => memberFstypes.includes(node.fstype ?? ""));
+  if (member) {
+    const what = member.fstype === "LVM2_member" ? "an LVM physical volume" : member.fstype === "crypto_LUKS" ? "an encrypted container" : member.fstype === "linux_raid_member" ? "a RAID member" : `a ${member.fstype} member`;
+    const volumes = nodes.filter((node) => node.type === "lvm").map((node) => node.path);
+    throw new Error(`${member.path} is ${what}${volumes.length ? ` holding ${volumes.join(", ")}` : ""}; it cannot be mounted or formatted directly`);
+  }
+  if (mountedAt.length) throw new Error(`${device} is in use (mounted at ${mountedAt.join(", ")}); unmount everything on it first`);
+}
 
 /** Split fstab into blocks; a `# boxpilot:<name>` marker owns exactly the following line. */
 export function parseManagedFstab(content) {
@@ -57,7 +89,7 @@ async function fstabVerify(run) {
   return result;
 }
 
-async function appendFstabEntry({ run, files, log }, name, entry) {
+export async function appendFstabEntry({ run, files, log }, name, entry) {
   const before = await files.readFile(fstabPath, "utf8");
   if (parseManagedFstab(before).some((existing) => existing.name === name)) throw new Error(`An entry named ${name} already exists in fstab`);
   const content = `${before.replace(/\n*$/, "\n")}${marker(name)}\n${entry}\n`;
@@ -78,6 +110,7 @@ export async function storageMount({ uuid, name, fstype = "auto", readOnly = fal
   if (typeof fstype !== "string" || !/^[a-z0-9]{2,12}$/.test(fstype)) throw new Error("Filesystem type is invalid");
   const device = await run(binaries.blkid, ["-U", uuid], { timeout: 15_000 });
   if (!device.ok || !device.stdout.trim()) throw new Error(`No filesystem with UUID ${uuid} was found`);
+  assertNotProtected(device.stdout.trim(), await deviceTree(run, device.stdout.trim()));
   const mountpoint = `/mnt/${name}`;
   const mounted = await run(binaries.findmnt, ["-n", mountpoint], { timeout: 15_000 });
   if (mounted.ok && mounted.stdout.trim()) throw new Error(`${mountpoint} is already mounted`);
@@ -119,17 +152,9 @@ export async function storageUnmount({ name } = {}, { run = fixedRun, log = null
 export async function storageFormat({ device, label = null } = {}, { run = fixedRun, log = null } = {}) {
   if (typeof device !== "string" || !devicePattern.test(device)) throw new Error("Device path is invalid");
   if (label !== null && (typeof label !== "string" || !labelPattern.test(label))) throw new Error("Label may use letters, digits, underscore, hyphen (max 16)");
-  const tree = await run(binaries.lsblk, ["-J", "-o", "PATH,TYPE,RO,MOUNTPOINTS", device], { timeout: 15_000 });
-  if (!tree.ok) throw new Error(`${device} was not found`);
-  let nodes = [];
-  try {
-    const parsed = JSON.parse(tree.stdout);
-    const flatten = (list) => list.flatMap((node) => [node, ...flatten(node.children ?? [])]);
-    nodes = flatten(parsed.blockdevices ?? []);
-  } catch { throw new Error("Could not read the device layout"); }
+  const nodes = await deviceTree(run, device);
   if (nodes.some((node) => node.ro)) throw new Error(`${device} is read-only`);
-  const mountedAt = nodes.flatMap((node) => (node.mountpoints ?? []).filter(Boolean));
-  if (mountedAt.length) throw new Error(`${device} is in use (mounted at ${mountedAt.join(", ")}); unmount everything on it first`);
+  assertNotProtected(device, nodes);
   log?.(`$ wipefs -a ${device}`, "stdout");
   const wipe = await run(binaries.wipefs, ["-a", device], { timeout: 60_000 });
   if (!wipe.ok) throw new Error(`wipefs failed: ${wipe.stderr.split("\n").slice(-2).join(" ")}`);
@@ -170,4 +195,32 @@ export async function swapFileSet({ sizeGiB = null, remove = false } = {}, { run
     throw error;
   }
   return { created: true, path: swapPath, sizeGiB };
+}
+
+/**
+ * Grow a mounted LVM logical volume into all free space of its volume group, online.
+ * Ubuntu's installer leaves most of the disk unallocated by default; this claims it without
+ * a reboot. `lvextend -r` resizes the filesystem (ext4/xfs) in the same step.
+ */
+export async function storageLvmExtend({ path: volume } = {}, { run = fixedRun, log = null } = {}) {
+  if (typeof volume !== "string" || !logicalVolumePattern.test(volume)) throw new Error("Logical volume path is invalid");
+  const nodes = await deviceTree(run, volume);
+  const node = nodes.find((entry) => entry.path === volume);
+  if (!node || node.type !== "lvm") throw new Error(`${volume} is not an LVM logical volume`);
+  if (!["ext4", "ext3", "ext2", "xfs"].includes(node.fstype ?? "")) throw new Error(`${volume} holds ${node.fstype ?? "no filesystem"}; only ext4 and xfs can be grown online`);
+  const mountpoint = (node.mountpoints ?? []).filter(Boolean)[0] ?? null;
+  if (!mountpoint) throw new Error(`${volume} is not mounted; mount it first so the filesystem can be grown online`);
+  const before = await run(binaries.findmnt, ["-n", "-b", "-o", "SIZE,AVAIL", mountpoint], { timeout: 15_000 });
+  log?.(`$ lvextend -r -l +100%FREE ${volume}`, "stdout");
+  const result = await run(binaries.lvextend, ["-r", "-l", "+100%FREE", volume], { timeout: 10 * 60_000, onLine: log ?? undefined });
+  const output = `${result.stdout}\n${result.stderr}`;
+  if (!result.ok) {
+    if (/matches existing size|No free extents|not enough free space|already/i.test(output)) {
+      return { extended: false, path: volume, mountpoint, reason: "The volume group has no free space left", detail: before.stdout.trim() || null };
+    }
+    throw new Error(`lvextend failed: ${output.split("\n").filter(Boolean).slice(-2).join(" ")}`);
+  }
+  const after = await run(binaries.findmnt, ["-n", "-b", "-o", "SIZE,AVAIL", mountpoint], { timeout: 15_000 });
+  const sizes = (text) => { const [size, avail] = String(text ?? "").trim().split(/\s+/).map((value) => Number.parseInt(value, 10)); return { sizeBytes: Number.isInteger(size) ? size : null, availableBytes: Number.isInteger(avail) ? avail : null }; };
+  return { extended: true, path: volume, mountpoint, before: sizes(before.stdout), after: sizes(after.stdout) };
 }

@@ -1,0 +1,33 @@
+schemaVersion: 2
+id: filebrowser
+name: File Browser
+category: Files
+icon: "🗂️"
+description: Browse, upload, and share the files on this server (including mounted network shares) from any browser. Bound to this server only; publish it on your tailnet with "Serve on tailnet (HTTPS)" so it is reachable from anywhere but never from the LAN.
+website: https://filebrowser.org
+risk: medium
+image:
+  reference: filebrowser/filebrowser:v2.63.23
+  version: v2.63.23
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8085
+    exposure: loopback
+volumes:
+  - id: database
+    label: Users and settings
+    container: /database
+    path: database
+  - id: files
+    label: Folder to browse
+    container: /srv
+    hostPath: /mnt
+    configurable: true
+    backup: false
+    description: Everything under this folder is visible. /mnt shows every share and disk BoxPilot mounted.
+health:
+  kind: running
+  stableSeconds: 10
+notes: "First sign-in: user admin. The initial password is printed in the container log on first start (open Logs above and look for 'randomly generated password'); change it under Settings. The web port listens on this server only; click 'Serve on tailnet (HTTPS)' to reach it from your other devices over Tailscale."
