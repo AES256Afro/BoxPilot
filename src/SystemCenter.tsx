@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useOperation } from "./ApproveDialog";
 import SchedulesPanel from "./SchedulesPanel";
 import { inspectOperation } from "./operations";
@@ -22,6 +22,9 @@ function gib(kib: number | null): string {
   return `${(kib / 1024 / 1024).toFixed(1)} GiB`;
 }
 
+interface ReleaseUpdate { current: { version: string }; latest: { tag: string; version: string; name: string; url: string; publishedAt: string | null; prerelease: boolean; notes: string | null } | null; updateAvailable: boolean; checkedAt: string; error: string | null }
+interface UpdateStatus { units: Array<{ unit: string; active: string; sub: string }>; log: string[]; outcome: "running" | "live" | "failed" | null }
+
 export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
   const [settings, setSettings] = useState<SystemSettings | null>(null);
   const [loading, setLoading] = useState(true);
@@ -32,6 +35,34 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
   const [swappiness, setSwappiness] = useState("");
 
   const [dockerDisk, setDockerDisk] = useState<DockerDisk | null>(null);
+  const [release, setRelease] = useState<ReleaseUpdate | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [updating, setUpdating] = useState<string | null>(null);
+  const [updateOutcome, setUpdateOutcome] = useState<"live" | "timeout" | null>(null);
+  const updateTarget = useRef<string | null>(null);
+
+  const loadRelease = useCallback(async (refresh = false) => {
+    try {
+      const response = await fetch(`/api/v1/system/update${refresh ? "?refresh=1" : ""}`);
+      if (response.ok) setRelease((await response.json()) as ReleaseUpdate);
+    } catch { /* the card says the check is unavailable */ }
+    inspectOperation<UpdateStatus>("system.update.status").then(({ result }) => setUpdateStatus(result)).catch(() => setUpdateStatus(null));
+  }, []);
+
+  useEffect(() => { void loadRelease(); }, [loadRelease]);
+
+  // After the update job starts the detached build, poll health until the new version answers.
+  useEffect(() => {
+    if (!updating) return undefined;
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      fetch("/api/v1/health").then((response) => (response.ok ? response.json() : null)).then((health: { version?: string } | null) => {
+        if (health?.version === updating) { setUpdateOutcome("live"); window.clearInterval(timer); window.setTimeout(() => window.location.reload(), 1500); }
+      }).catch(() => {});
+      if (Date.now() - started > 10 * 60 * 1000) { setUpdateOutcome("timeout"); window.clearInterval(timer); }
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [updating]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -56,7 +87,10 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  const { start, dialog } = useOperation(csrfToken, () => { void refresh(); });
+  const { start, dialog } = useOperation(csrfToken, (job) => {
+    if (job.type === "op:system.update" && job.state === "completed" && updateTarget.current) setUpdating(updateTarget.current);
+    void refresh();
+  });
 
   const [swapFileGiB, setSwapFileGiB] = useState("4");
   const swapFileValue = Number.parseInt(swapFileGiB, 10);
@@ -77,6 +111,35 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
         <article className="panel"><span className="eyebrow">Memory</span><strong>{loading ? "…" : gib(settings?.memory.memAvailableKiB ?? null)}</strong><span>available of {gib(settings?.memory.memTotalKiB ?? null)}</span></article>
         <article className="panel"><span className="eyebrow">Swap</span><strong>{loading ? "…" : gib(settings?.memory.swapTotalKiB ?? null)}</strong><span>{settings?.memory.swapTotalKiB ? `${gib((settings.memory.swapTotalKiB ?? 0) - (settings.memory.swapFreeKiB ?? 0))} in use` : "no swap configured"}</span></article>
       </div>
+
+      <section className="panel">
+        <header className="panel-header">
+          <div><strong>BoxPilot updates</strong><span>Running {release?.current.version ?? __BOXPILOT_VERSION__}. Releases come from GitHub: the update downloads the tag, builds it, swaps it in, restarts BoxPilot, and rolls back by itself if the new version fails its health check.</span></div>
+          {release?.updateAvailable && release.latest && !updating && (
+            <button className="primary-button" type="button" onClick={() => { const target = release.latest!; updateTarget.current = target.version; start({ operationId: "system.update", title: `Update BoxPilot to ${target.tag}`, parameters: { tag: target.tag }, confirmText: target.tag, preview: <span>Downloads <code>{target.tag}</code> from GitHub, builds it, and swaps it in. BoxPilot restarts for about a minute; running jobs are interrupted, so let them finish first. If the new version does not answer its health check, the previous version is restored automatically.</span> }); }}>Update to {release.latest.tag}</button>
+          )}
+        </header>
+        <div className="recovery-actions">
+          <span className="muted">
+            {!release ? "Checking GitHub for releases…"
+              : release.latest ? `Latest release ${release.latest.tag}${release.latest.publishedAt ? ` (${new Date(release.latest.publishedAt).toLocaleDateString()})` : ""} — ${release.updateAvailable ? "newer than the installed version" : "you are up to date"}.`
+              : release.error ? `Release check unavailable: ${release.error}` : "No releases have been published yet."}
+          </span>
+          {release?.latest && <a href={release.latest.url} target="_blank" rel="noreferrer">Release notes</a>}
+          <button className="secondary-button" type="button" onClick={() => void loadRelease(true)}>Check again</button>
+        </div>
+        {updating && (
+          <div className={updateOutcome === "timeout" ? "auth-error" : "surface-notice"} role="status">
+            {updateOutcome === "live" ? `BoxPilot ${updating} is live — reloading.` : updateOutcome === "timeout" ? "The update is taking longer than ten minutes. Check the update log below; a failed health check restores the previous version automatically." : `Updating to ${updating}… BoxPilot restarts when the build finishes. This page reconnects by itself.`}
+          </div>
+        )}
+        {updateStatus && updateStatus.log.length > 0 && (
+          <details className="vm-domain-details">
+            <summary>Last update log{updateStatus.outcome ? ` — ${updateStatus.outcome}` : ""}</summary>
+            <pre className="app-logs">{updateStatus.log.join("\n")}</pre>
+          </details>
+        )}
+      </section>
 
       <section className="panel">
         <header className="panel-header"><div><strong>Rename this server</strong><span>Sets the hostname and keeps /etc/hosts in step. Other machines that cached the old name keep using it until they look it up again.</span></div></header>

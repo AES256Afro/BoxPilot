@@ -26,6 +26,7 @@ import { createMaintenanceService } from "./maintenance.mjs";
 import { createNetworkService } from "./network.mjs";
 import { createPrerequisiteService } from "./prerequisites.mjs";
 import { createRecoveryKitService } from "./recovery-kit.mjs";
+import { createReleaseUpdateService } from "./release-updates.mjs";
 import { createNotificationService } from "./notifications.mjs";
 import { createSchedulerService } from "./scheduler.mjs";
 import { createStateStore } from "./state.mjs";
@@ -61,6 +62,7 @@ const prerequisites = createPrerequisiteService({
 });
 const network = createNetworkService({ store: state });
 const githubProvenance = createGithubProvenanceService();
+const releaseUpdates = createReleaseUpdateService();
 const controllerProtection = createControllerProtectionService({ store: state, helper });
 const controllerRetention = createControllerRetentionService({ store: state, helper });
 const inventory = createInventoryService({ helper, maintenance });
@@ -99,6 +101,7 @@ const jobs = createJobService(state, helper, {
   // Prepare hooks pin server-derived expectations into the staged parameters.
   operationPrepareHooks: {
     "controller.backup.protect": (parameters) => controllerProtection.prepareOperation(parameters),
+    "system.update": (parameters) => releaseUpdates.prepareOperation(parameters),
     "controller.backup.retention.apply": () => controllerRetention.prepareOperation(),
     "vm.foundation.initialize": () => libvirtFoundation.prepareOperation(),
     "vm.media.import": (parameters) => vmMedia.prepareOperation(parameters),
@@ -168,7 +171,7 @@ app.use("/api/v1", createOperationsRouter({ state, helper, jobs, prerequisites, 
 app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, jobLogReader, auth }));
 app.use("/api/v1", createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit }));
 app.use("/api/v1", createSettingsRouter({ state, notifications, auth }));
-app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, supportBundle, audit, auth }));
+app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, supportBundle, audit, auth }));
 
 app.use(express.static(dist, { index: false }));
 app.use((request, response, next) => {

@@ -3321,7 +3321,7 @@ textarea {
 .backup-center { display: grid; gap: 16px; }
 .backup-center .recovery-actions { padding: 12px 15px; align-items: center; }
 .backup-center .metric-grid .recovery-actions { padding: 4px 0 0; }
-.backup-center .muted { font-size: 12px; line-height: 1.5; }
+.recovery-actions .muted { font-size: 12px; line-height: 1.5; }
 .backup-center .metric-grid { margin-bottom: 0; }
 
 .logs-center .log-toolbar { margin-bottom: 10px; }
