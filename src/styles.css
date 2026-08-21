@@ -3336,3 +3336,12 @@ textarea {
 .setup-step .muted { font-size: 12px; }
 .setup-wizard .surface-notice { margin: 0 15px 15px; }
 .setup-wizard form.recovery-actions, .setup-wizard .panel > .recovery-actions { padding: 0 15px 15px; align-items: center; }
+
+/* Autoinstall generator */
+.autoinstall-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; padding: 12px 15px; }
+.autoinstall-form label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.autoinstall-form input, .autoinstall-form select, .autoinstall-form textarea { width: 100%; }
+.autoinstall-wide { grid-column: 1 / -1; }
+.autoinstall-form .recovery-actions { padding: 0; }
+.autoinstall-output { display: grid; gap: 8px; }
+.autoinstall-output .app-logs { margin: 0 15px 15px; }

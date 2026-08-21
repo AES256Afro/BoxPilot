@@ -36,6 +36,21 @@ export const setupProfiles = Object.freeze([
     steps: [prerequisite("docker", "Install Docker Engine"), unattended, app("forgejo", "Forgejo"), app("code-server", "code-server"), app("dockge", "Dockge"), schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("apt-refresh", "Refresh package lists every morning", dailyAptRefresh)],
   },
   {
+    id: "media-server", name: "Media server", icon: "🎬",
+    description: "Movies, shows, music, and audiobooks with request management and a dashboard.",
+    steps: [prerequisite("docker", "Install Docker Engine"), unattended, app("jellyfin", "Jellyfin"), app("jellyseerr", "Jellyseerr"), app("navidrome", "Navidrome"), app("audiobookshelf", "Audiobookshelf"), app("homepage", "Homepage"), schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot)],
+  },
+  {
+    id: "smart-home", name: "Smart home", icon: "💡",
+    description: "Home Assistant with push notifications and uptime monitoring.",
+    steps: [prerequisite("docker", "Install Docker Engine"), unattended, app("home-assistant", "Home Assistant"), app("ntfy", "ntfy"), app("uptime-kuma", "Uptime Kuma"), schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot)],
+  },
+  {
+    id: "observability", name: "Observability", icon: "📈",
+    description: "Grafana, uptime checks, and a notification relay for alerts.",
+    steps: [prerequisite("docker", "Install Docker Engine"), prerequisite("smartmontools", "Install smartmontools for disk health"), unattended, app("grafana", "Grafana"), app("uptime-kuma", "Uptime Kuma"), app("ntfy", "ntfy"), schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("apt-refresh", "Refresh package lists every morning", dailyAptRefresh)],
+  },
+  {
     id: "essentials", name: "Essentials only", icon: "✅",
     description: "Docker, automatic security updates, disk health, and backup schedules. Add apps later.",
     steps: [prerequisite("docker", "Install Docker Engine"), prerequisite("smartmontools", "Install smartmontools for disk health"), prerequisite("restic", "Install restic for encrypted backups"), unattended, schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot), schedule("apt-refresh", "Refresh package lists every morning", dailyAptRefresh)],

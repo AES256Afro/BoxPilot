@@ -11,10 +11,13 @@ export const fixedEnvironment = Object.freeze({ PATH: "/usr/sbin:/usr/bin:/sbin:
  * Pass `onLine(line, stream)` to receive output as it is produced (then the process is spawned
  * with streaming pipes; stdout/stderr in the result are capped to the last `tailBytes`).
  */
-export async function fixedRun(binary, args = [], { timeout = 30_000, maxBuffer = 1024 * 1024, env = {}, cwd, onLine = null, tailBytes = 256 * 1024 } = {}) {
+export async function fixedRun(binary, args = [], { timeout = 30_000, maxBuffer = 1024 * 1024, env = {}, cwd, onLine = null, tailBytes = 256 * 1024, input = undefined } = {}) {
   if (typeof onLine === "function") return streamRun(binary, args, { timeout, env, cwd, onLine, tailBytes });
   try {
-    const result = await execFile(binary, args, { timeout, cwd, maxBuffer, encoding: "utf8", env: { ...fixedEnvironment, ...env } });
+    const pending = execFile(binary, args, { timeout, cwd, maxBuffer, encoding: "utf8", env: { ...fixedEnvironment, ...env } });
+    // Optional stdin payload (e.g. a password for `openssl passwd -stdin`) — never an argument.
+    if (typeof input === "string" && pending.child?.stdin) pending.child.stdin.end(input);
+    const result = await pending;
     return { ok: true, code: 0, stdout: result.stdout.trim(), stderr: result.stderr.trim() };
   } catch (error) {
     return {
