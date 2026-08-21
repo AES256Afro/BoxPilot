@@ -102,6 +102,8 @@ const jobs = createJobService(state, helper, {
   operationPrepareHooks: {
     "controller.backup.protect": (parameters) => controllerProtection.prepareOperation(parameters),
     "system.update": (parameters) => releaseUpdates.prepareOperation(parameters),
+    // Dashboard links need the address the browser uses; fall back to the LAN address for scheduled runs.
+    "homepage.sync": async (parameters) => ({ host: parameters.host ?? (await inventory.inspect().catch(() => null))?.network?.addresses?.find((entry) => /^\d+\.\d+\.\d+\.\d+$/.test(entry.address))?.address ?? "127.0.0.1" }),
     "controller.backup.retention.apply": () => controllerRetention.prepareOperation(),
     "vm.foundation.initialize": () => libvirtFoundation.prepareOperation(),
     "vm.media.import": (parameters) => vmMedia.prepareOperation(parameters),
