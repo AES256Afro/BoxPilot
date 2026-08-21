@@ -141,7 +141,7 @@ export function createAppHelper({
     const applied = []; const failed = [];
     for (const choice of chosen) {
       progress?.(`${manifest.setup.title}: ${choice.label}`, "stdout");
-      const result = await compose(manifest.id, ["exec", "-T", manifest.id, ...choice.exec], { timeout: 120_000 });
+      const result = await compose(manifest.id, ["exec", "-T", choice.service ?? manifest.id, ...choice.exec], { timeout: 15 * 60_000 });
       if (result.ok) applied.push(choice.id);
       else { failed.push({ id: choice.id, error: redact(`${result.stderr}\n${result.stdout}`).trim().split("\n").filter(Boolean).slice(-2).join(" ") }); progress?.(`${choice.label} failed: ${failed.at(-1).error}`, "stderr"); }
     }

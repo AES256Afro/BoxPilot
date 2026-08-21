@@ -1,0 +1,45 @@
+schemaVersion: 2
+id: bazarr
+name: Bazarr
+category: Media automation
+icon: "💬"
+description: "Subtitles for everything Sonarr and Radarr download, in the languages you want, fetched automatically."
+website: https://www.bazarr.media
+risk: low
+image:
+  reference: lscr.io/linuxserver/bazarr:v1.6.0-ls360
+  version: v1.6.0
+ports:
+  - id: web
+    label: Web UI
+    container: 6767
+    host: 6767
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration and database
+    container: /config
+    path: config
+  - id: media
+    label: Media folder
+    container: /data
+    hostPath: /srv/media
+    configurable: true
+    backup: false
+    description: Shared media root for the whole stack; subfolders for tv, movies, music, torrents, and usenet keep imports as instant hard-links.
+env:
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Under Settings connect Sonarr and Radarr (their addresses and API keys) and add subtitle providers; it then watches their libraries."

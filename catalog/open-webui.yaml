@@ -1,0 +1,88 @@
+schemaVersion: 2
+id: open-webui
+name: Open WebUI + Ollama
+category: AI
+icon: "🤖"
+description: ChatGPT-style chat that runs entirely on this server. Ollama serves the models; Open WebUI is the chat interface with history, documents, and multiple users. Pick a starter model below; nothing you type leaves the house.
+website: https://docs.openwebui.com
+risk: medium
+image:
+  reference: ghcr.io/open-webui/open-webui:v0.11.0
+  version: v0.11.0
+ports:
+  - id: web
+    label: Chat UI
+    container: 8080
+    host: 8088
+    exposure: lan
+volumes:
+  - id: data
+    label: Chats, users, settings
+    container: /app/backend/data
+    path: data
+env:
+  - name: OLLAMA_BASE_URL
+    default: http://ollama:11434
+    fixed: true
+  - name: WEBUI_SECRET_KEY
+    label: Session secret
+    type: password
+    secret: true
+    generate: true
+  - name: ENABLE_SIGNUP
+    label: Let others create accounts
+    description: The first account created becomes the admin; turn this off afterwards if only you should use it.
+    type: boolean
+    default: true
+  - name: ENABLE_OPENAI_API
+    default: "false"
+    fixed: true
+sidecars:
+  - id: ollama
+    image: ollama/ollama:0.32.15
+    volumes:
+      - id: models
+        container: /root/.ollama
+        path: models
+        backup: false
+health:
+  kind: running
+  stableSeconds: 20
+  timeoutSeconds: 600
+setup:
+  title: Starter models
+  note: Models download once into the models folder (sizes shown). On a CPU-only server, the 3-4 B models answer at a usable pace; bigger ones need a GPU or patience. You can pull more from the chat UI under Admin → Models.
+  choices:
+    - id: llama32-3b
+      label: Llama 3.2 3B
+      description: Meta's small general model, about 2 GB. Good default for a CPU.
+      website: https://ollama.com/library/llama3.2
+      recommended: true
+      service: ollama
+      exec: [ollama, pull, "llama3.2:3b"]
+    - id: gemma3-4b
+      label: Gemma 3 4B
+      description: Google's small model, about 3.3 GB; strong at writing and can read images.
+      website: https://ollama.com/library/gemma3
+      service: ollama
+      exec: [ollama, pull, "gemma3:4b"]
+    - id: qwen25-7b
+      label: Qwen 2.5 7B
+      description: Alibaba's 7 B model, about 4.7 GB; better reasoning and code, slower on CPU.
+      website: https://ollama.com/library/qwen2.5
+      service: ollama
+      exec: [ollama, pull, "qwen2.5:7b"]
+    - id: qwen25-coder-7b
+      label: Qwen 2.5 Coder 7B
+      description: Code-focused, about 4.7 GB.
+      website: https://ollama.com/library/qwen2.5-coder
+      service: ollama
+      exec: [ollama, pull, "qwen2.5-coder:7b"]
+    - id: nomic-embed
+      label: nomic-embed-text (for documents)
+      description: Small embedding model (270 MB) so you can chat with uploaded documents.
+      website: https://ollama.com/library/nomic-embed-text
+      recommended: true
+      service: ollama
+      exec: [ollama, pull, "nomic-embed-text"]
+notes: "Open the chat UI and create the first account: it becomes the admin. Models run on the CPU unless a GPU is passed through (not yet supported by BoxPilot). Other apps on this server can use Ollama too: Home Assistant's Ollama integration, for example, talks to it at http://<this server>:11434 after you expose that port with a Settings change."

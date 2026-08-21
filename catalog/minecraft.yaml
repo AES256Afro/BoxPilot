@@ -1,0 +1,96 @@
+schemaVersion: 2
+id: minecraft
+name: Minecraft server
+category: Games
+icon: "⛏️"
+description: A Minecraft Java Edition server for family and friends. Pick the flavour (vanilla, Paper for plugins, Fabric or Forge for mods), the memory, and the game rules; the image downloads the right version and keeps it updated.
+website: https://docker-minecraft-server.readthedocs.io
+risk: low
+image:
+  reference: itzg/minecraft-server:2026.8.1
+  version: 2026.8.1
+ports:
+  - id: game
+    label: Game port
+    container: 25565
+    host: 25565
+    exposure: lan
+volumes:
+  - id: data
+    label: Worlds, settings, plugins
+    container: /data
+    path: data
+env:
+  - name: EULA
+    default: "TRUE"
+    fixed: true
+  - name: TYPE
+    label: Server flavour
+    description: VANILLA is plain Minecraft; PAPER runs vanilla worlds faster and supports plugins; FABRIC and FORGE are for mods.
+    default: PAPER
+    options:
+      - PAPER
+      - VANILLA
+      - FABRIC
+      - FORGE
+  - name: VERSION
+    label: Minecraft version
+    description: LATEST follows new releases; pin a version like 1.21.4 if your players' clients cannot update.
+    default: LATEST
+  - name: MEMORY
+    label: Memory
+    description: How much RAM the server may use. 2G is fine for a few players; mods and big worlds want more.
+    default: 2G
+    options:
+      - 1G
+      - 2G
+      - 4G
+      - 8G
+  - name: MODE
+    label: Game mode
+    default: survival
+    options:
+      - survival
+      - creative
+      - adventure
+  - name: DIFFICULTY
+    label: Difficulty
+    default: normal
+    options:
+      - peaceful
+      - easy
+      - normal
+      - hard
+  - name: MOTD
+    label: Server description
+    description: Shown in the server list.
+    default: A BoxPilot server
+  - name: OPS
+    label: Admin players
+    description: Comma-separated player names who get operator rights.
+  - name: ENABLE_WHITELIST
+    label: Invite-only (whitelist)
+    description: When on, only players listed under Allowed players can join.
+    type: boolean
+    default: false
+  - name: WHITELIST
+    label: Allowed players
+    description: Comma-separated player names (used when invite-only is on).
+  - name: ONLINE_MODE
+    label: Verify player accounts
+    description: Keep on unless you know why you want offline mode.
+    type: boolean
+    default: true
+  - name: VIEW_DISTANCE
+    label: View distance (chunks)
+    type: number
+    default: 10
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: healthcheck
+  stableSeconds: 10
+  timeoutSeconds: 900
+notes: "The first start downloads the server (a few minutes). Players on your LAN connect to this server's address on port 25565; for friends elsewhere, either share it over Tailscale (they join the tailnet) or tick 'Minecraft server' on the Firewall page and forward port 25565 on your router. Backups: this card's Back up archives the worlds; a Paper server also gets the Minecraft 'Plugins' folder under the data volume."

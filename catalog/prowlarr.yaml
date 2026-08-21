@@ -1,0 +1,38 @@
+schemaVersion: 2
+id: prowlarr
+name: Prowlarr
+category: Media automation
+icon: "🧭"
+description: "Indexer manager for the *arr apps. Add your torrent and Usenet indexers once here and Sonarr, Radarr, and Lidarr pick them up automatically."
+website: https://prowlarr.com
+risk: low
+image:
+  reference: lscr.io/linuxserver/prowlarr:2.5.2.5491-ls156
+  version: 2.5.2.5491
+ports:
+  - id: web
+    label: Web UI
+    container: 9696
+    host: 9696
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration and database
+    container: /config
+    path: config
+env:
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Add indexers here, then under Settings → Apps add Sonarr, Radarr, and Lidarr with their addresses (http://<this server>:8989 and so on) and API keys; Prowlarr syncs the indexers to them."

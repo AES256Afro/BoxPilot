@@ -1,0 +1,45 @@
+schemaVersion: 2
+id: sabnzbd
+name: SABnzbd
+category: Media automation
+icon: "📰"
+description: "Usenet download client. Pair it with a Usenet provider and Prowlarr; the *arr apps send it what to fetch."
+website: https://sabnzbd.org
+risk: low
+image:
+  reference: lscr.io/linuxserver/sabnzbd:5.1.1-ls268
+  version: 5.1.1
+ports:
+  - id: web
+    label: Web UI
+    container: 8080
+    host: 8094
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration and database
+    container: /config
+    path: config
+  - id: media
+    label: Media folder
+    container: /data
+    hostPath: /srv/media
+    configurable: true
+    backup: false
+    description: Shared media root for the whole stack; subfolders for tv, movies, music, torrents, and usenet keep imports as instant hard-links.
+env:
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "On first open, the wizard asks for your Usenet provider's server, username, and password. Set the download folders under /srv/media/usenet so the *arr apps can import from them."

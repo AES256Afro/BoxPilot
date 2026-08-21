@@ -55,14 +55,18 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   if (manifest.command) service.command = manifest.command;
   if (manifest.network === "host") service.network_mode = "host";
   const hostPorts = [];
-  if (manifest.network !== "host" && manifest.ports.length) {
-    service.ports = manifest.ports.map((port) => {
+  const publishedPorts = manifest.network !== "host" && manifest.ports.length
+    ? manifest.ports.map((port) => {
       const host = values.ports[port.id];
       hostPorts.push({ id: port.id, host, protocol: port.protocol, exposure: port.exposure });
       const bind = port.exposure === "loopback" ? "127.0.0.1" : lanAddress;
       return `${bind}:${host}:${port.container}${port.protocol === "udp" ? "/udp" : ""}`;
-    });
-  }
+    })
+    : [];
+  // With networkVia the app lives inside the sidecar's network namespace (a VPN container), so
+  // the ports are published on the sidecar and the app has no network of its own.
+  if (manifest.networkVia) service.network_mode = `service:${manifest.networkVia}`;
+  else if (publishedPorts.length) service.ports = publishedPorts;
   if (manifest.volumes.length) {
     service.volumes = manifest.volumes.map((volume) => {
       const source = volume.path ? `./${volume.path}` : values.volumes[volume.id] ?? volume.hostPath;
@@ -90,8 +94,15 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
       labels: { "io.boxpilot.app": manifest.id, "io.boxpilot.sidecar": sidecar.id },
     };
     if (sidecar.command) sidecarService.command = sidecar.command;
-    if (Object.keys(sidecar.env ?? {}).length) sidecarService.environment = { ...sidecar.env };
+    // Sidecar env may reference the app's settings as ${NAME}: secrets stay references (resolved
+    // from .env at compose time); plain settings are substituted here since they never reach .env.
+    const secretNames = new Set(manifest.env.filter((entry) => entry.secret).map((entry) => entry.name));
+    const substitute = (value) => String(value).replace(/\$\{([A-Z][A-Za-z0-9_]*)\}/g, (match, name) => (secretNames.has(name) ? match : name in env ? env[name] : ""));
+    if (Object.keys(sidecar.env ?? {}).length) sidecarService.environment = Object.fromEntries(Object.entries(sidecar.env).map(([name, value]) => [name, substitute(value)]));
     if (sidecar.volumes.length) sidecarService.volumes = sidecar.volumes.map((volume) => `./${volume.path}:${volume.container}`);
+    if ((sidecar.capabilities ?? []).length) { sidecarService.cap_drop = ["ALL"]; sidecarService.cap_add = [...sidecar.capabilities]; }
+    if ((sidecar.devices ?? []).length) sidecarService.devices = sidecar.devices.map((device) => `${device}:${device}`);
+    if (manifest.networkVia === sidecar.id && publishedPorts.length) sidecarService.ports = publishedPorts;
     sidecarService.security_opt = ["no-new-privileges:true"];
     compose.services[sidecar.id] = sidecarService;
   }

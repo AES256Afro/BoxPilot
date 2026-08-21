@@ -162,3 +162,32 @@ describe("device globs", () => {
     expect(compose.services.smart.devices).toEqual(["/dev/sda:/dev/sda"]);
   });
 });
+
+describe("networkVia and sidecar targets", () => {
+  const base = { schemaVersion: 2, id: "dl", name: "DL", category: "Media", description: "d", image: { reference: "x/dl:1" }, ports: [{ id: "web", container: 8080, host: 8080 }] };
+  it("routes the app through a VPN sidecar and publishes its ports there", () => {
+    const { manifest, errors } = validateManifest({ ...base, networkVia: "vpn", sidecars: [{ id: "vpn", image: "q/gluetun:1", capabilities: ["CAP_NET_ADMIN"], devices: ["/dev/net/tun"], env: { VPN_SERVICE_PROVIDER: "mullvad" } }] });
+    expect(errors).toEqual([]);
+    const { compose } = renderCompose(manifest, { ports: { web: 8080 }, env: {}, volumes: {} }, { lanAddress: "192.168.1.10" });
+    expect(compose.services.dl.network_mode).toBe("service:vpn");
+    expect(compose.services.dl.ports).toBeUndefined();
+    expect(compose.services.vpn).toMatchObject({ ports: ["192.168.1.10:8080:8080"], cap_drop: ["ALL"], cap_add: ["CAP_NET_ADMIN"], devices: ["/dev/net/tun:/dev/net/tun"] });
+    expect(compose.services.dl.depends_on).toEqual(["vpn"]);
+    expect(validateManifest({ ...base, networkVia: "nope" }).errors).toContainEqual(expect.stringContaining("networkVia"));
+    expect(validateManifest({ ...base, network: "host", networkVia: "vpn", sidecars: [{ id: "vpn", image: "q/g:1" }] }).errors).toContainEqual(expect.stringContaining("host networking"));
+    expect(validateManifest({ ...base, sidecars: [{ id: "vpn", image: "q/g:1", capabilities: ["net_admin"] }] }).errors).toContainEqual(expect.stringContaining("CAP_NET_ADMIN"));
+  });
+
+  it("substitutes plain app settings into sidecar env and keeps secrets as .env references", () => {
+    const { manifest } = validateManifest({ ...base, env: [{ name: "PROVIDER", default: "mullvad" }, { name: "KEY", type: "password", generate: true }], sidecars: [{ id: "vpn", image: "q/g:1", env: { VPN_SERVICE_PROVIDER: "${PROVIDER}", WIREGUARD_PRIVATE_KEY: "${KEY}", MISSING: "${NOPE}", FIXED: "x" } }] });
+    const { compose } = renderCompose(manifest, { ports: { web: 8080 }, env: { PROVIDER: "protonvpn" }, volumes: {} });
+    expect(compose.services.vpn.environment).toEqual({ VPN_SERVICE_PROVIDER: "protonvpn", WIREGUARD_PRIVATE_KEY: "${KEY}", MISSING: "", FIXED: "x" });
+  });
+
+  it("lets a setup choice run inside a sidecar", () => {
+    const { manifest, errors } = validateManifest({ ...base, sidecars: [{ id: "ollama", image: "o/o:1" }], setup: { title: "Models", choices: [{ id: "llama", label: "Llama", exec: ["ollama", "pull", "llama3.2"], service: "ollama" }] } });
+    expect(errors).toEqual([]);
+    expect(manifest.setup.choices[0].service).toBe("ollama");
+    expect(validateManifest({ ...base, setup: { title: "Models", choices: [{ id: "llama", label: "Llama", exec: ["x"], service: "missing" }] } }).errors).toContainEqual(expect.stringContaining("service"));
+  });
+});
