@@ -1,0 +1,37 @@
+schemaVersion: 2
+id: pufferpanel
+name: PufferPanel
+category: Games
+icon: "🐡"
+description: "Web panel to run and manage several game servers (Minecraft, Terraria, Factorio, and more) with templates, consoles, and per-user access."
+website: https://www.pufferpanel.com
+risk: low
+image:
+  reference: pufferpanel/pufferpanel:3.0.9
+  version: "3.0.9"
+ports:
+  - id: web
+    label: Web UI
+    container: 8080
+    host: 8162
+    exposure: lan
+  - id: sftp
+    label: SFTP
+    container: 5657
+    host: 5657
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /etc/pufferpanel
+    path: config
+  - id: servers
+    label: Game servers
+    container: /var/lib/pufferpanel
+    path: servers
+    backup: false
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Create the admin user once from the container (see the PufferPanel docs: pufferpanel user add). Game ports you open in PufferPanel must also be published on this card's Settings."

@@ -1,0 +1,43 @@
+schemaVersion: 2
+id: mailpit
+name: Mailpit
+category: Communication
+icon: "📬"
+description: "Catch-all mail server for testing: point apps at it as their SMTP server and read every message they send in a web inbox, nothing leaves the house."
+website: https://mailpit.axllent.org
+risk: low
+image:
+  reference: axllent/mailpit:v1.30.7
+  version: "1.30.7"
+ports:
+  - id: web
+    label: Web UI
+    container: 8025
+    host: 8025
+    exposure: lan
+  - id: smtp
+    label: SMTP
+    container: 1025
+    host: 1025
+    exposure: lan
+volumes:
+  - id: data
+    label: Mailbox
+    container: /data
+    path: data
+    backup: false
+env:
+  - name: MP_DATABASE
+    default: "/data/mailpit.db"
+    fixed: true
+  - name: MP_SMTP_AUTH_ACCEPT_ANY
+    default: "1"
+    fixed: true
+  - name: MP_SMTP_AUTH_ALLOW_INSECURE
+    default: "1"
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Apps use SMTP host <this server>, port 1025, any username and password."

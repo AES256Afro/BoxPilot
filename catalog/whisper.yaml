@@ -1,0 +1,41 @@
+schemaVersion: 2
+id: whisper
+name: Whisper (speech to text)
+category: AI
+icon: "🎤"
+description: "Local speech-to-text service with an API: transcribe recordings, subtitle videos, or feed Home Assistant's voice assistant, without sending audio anywhere."
+website: https://github.com/ahmetoner/whisper-asr-webservice
+risk: low
+image:
+  reference: onerahmet/openai-whisper-asr-webservice:v1.10.0
+  version: "1.10.0"
+ports:
+  - id: api
+    label: API and docs
+    container: 9000
+    host: 9002
+    exposure: lan
+volumes:
+  - id: cache
+    label: Downloaded models
+    container: /root/.cache
+    path: cache
+    backup: false
+env:
+  - name: ASR_MODEL
+    label: Model
+    description: base is fast on a CPU; small and medium are more accurate and slower.
+    default: base
+    options:
+      - tiny
+      - base
+      - small
+      - medium
+  - name: ASR_ENGINE
+    default: "faster_whisper"
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 600
+notes: "Open /docs on the port for the API. The model downloads on first use."

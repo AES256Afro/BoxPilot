@@ -1,0 +1,39 @@
+schemaVersion: 2
+id: postgres
+name: PostgreSQL
+category: Developer
+icon: "🐘"
+description: "The database server most modern apps prefer; for your own projects or apps that need an external database."
+website: https://www.postgresql.org
+risk: low
+image:
+  reference: postgres:16.15-alpine
+  version: "16.15"
+ports:
+  - id: sql
+    label: PostgreSQL protocol
+    container: 5432
+    host: 5432
+    exposure: lan
+volumes:
+  - id: data
+    label: Database files
+    container: /var/lib/postgresql/data
+    path: data
+env:
+  - name: POSTGRES_USER
+    label: Superuser
+    default: postgres
+  - name: POSTGRES_PASSWORD
+    label: Superuser password
+    type: password
+    secret: true
+    generate: true
+  - name: POSTGRES_DB
+    label: Initial database
+    default: app
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Connect to <this server>:5432. Install pgAdmin from this catalog for a web UI."

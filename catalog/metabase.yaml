@@ -1,0 +1,34 @@
+schemaVersion: 2
+id: metabase
+name: Metabase
+category: Developer
+icon: "📊"
+description: "Dashboards and charts over any database without SQL (or with it): point it at PostgreSQL, MariaDB, or InfluxDB and explore."
+website: https://www.metabase.com
+risk: low
+image:
+  reference: metabase/metabase:v0.63.14.1
+  version: "0.63.14.1"
+ports:
+  - id: web
+    label: Web UI
+    container: 3000
+    host: 3013
+    exposure: lan
+volumes:
+  - id: data
+    label: Application database
+    container: /metabase-data
+    path: data
+env:
+  - name: MB_DB_FILE
+    default: "/metabase-data/metabase.db"
+    fixed: true
+  - name: MB_SITE_URL
+    label: Address people use
+    default: http://localhost:3013
+health:
+  kind: running
+  stableSeconds: 30
+  timeoutSeconds: 600
+notes: "The first visit runs the setup wizard. Java-based: allow a minute to start."

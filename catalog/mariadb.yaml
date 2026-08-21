@@ -1,0 +1,44 @@
+schemaVersion: 2
+id: mariadb
+name: MariaDB
+category: Developer
+icon: "🗃️"
+description: "MySQL-compatible database server for apps that need one (WordPress, Ghost, custom projects)."
+website: https://mariadb.org
+risk: low
+image:
+  reference: mariadb:11.8.8
+  version: "11.8.8"
+ports:
+  - id: sql
+    label: MySQL protocol
+    container: 3306
+    host: 3306
+    exposure: lan
+volumes:
+  - id: data
+    label: Database files
+    container: /var/lib/mysql
+    path: data
+env:
+  - name: MARIADB_ROOT_PASSWORD
+    label: root password
+    type: password
+    secret: true
+    generate: true
+  - name: MARIADB_DATABASE
+    label: Initial database
+    default: app
+  - name: MARIADB_USER
+    label: Initial user
+    default: app
+  - name: MARIADB_PASSWORD
+    label: Initial user password
+    type: password
+    secret: true
+    generate: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Connect to <this server>:3306. Install phpMyAdmin from this catalog for a web UI."

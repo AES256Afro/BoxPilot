@@ -1,0 +1,38 @@
+schemaVersion: 2
+id: grocy
+name: Grocy
+category: Household
+icon: "🛒"
+description: "Household ERP: groceries and stock with barcodes and best-before dates, chores, recipes, meal plans, and a shopping list."
+website: https://grocy.info
+risk: low
+image:
+  reference: lscr.io/linuxserver/grocy:v4.6.0-ls336
+  version: "4.6.0"
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8138
+    exposure: lan
+volumes:
+  - id: config
+    label: Database and configuration
+    container: /config
+    path: config
+env:
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "First login is admin / admin; change it under Manage users."

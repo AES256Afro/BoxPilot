@@ -1,0 +1,61 @@
+schemaVersion: 2
+id: palworld
+name: Palworld server
+category: Games
+icon: "🐾"
+description: "Dedicated Palworld server with password, player limit, and admin password as settings."
+website: https://www.pocketpair.jp/palworld
+risk: low
+image:
+  reference: thijsvanloef/palworld-server-docker:v2.7.2
+  version: "2.7.2"
+ports:
+  - id: game
+    label: Game port (UDP)
+    container: 8211
+    host: 8211
+    protocol: udp
+    exposure: lan
+volumes:
+  - id: data
+    label: Saves and configuration
+    container: /palworld
+    path: data
+env:
+  - name: PLAYERS
+    label: Maximum players
+    type: number
+    default: 8
+  - name: SERVER_NAME
+    label: Server name
+    default: BoxPilot Palworld
+  - name: SERVER_PASSWORD
+    label: Join password
+    type: password
+    secret: true
+    generate: true
+  - name: ADMIN_PASSWORD
+    label: Admin password
+    type: password
+    secret: true
+    generate: true
+  - name: PORT
+    default: "8211"
+    fixed: true
+  - name: MULTITHREADING
+    default: "true"
+    fixed: true
+  - name: RCON_ENABLED
+    default: "false"
+    fixed: true
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 900
+notes: "Players join <this server>:8211 with the join password from Secrets. The first start downloads the server (several GB)."

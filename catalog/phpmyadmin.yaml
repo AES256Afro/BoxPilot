@@ -1,0 +1,30 @@
+schemaVersion: 2
+id: phpmyadmin
+name: phpMyAdmin
+category: Developer
+icon: "🐬"
+description: "Web UI for MariaDB and MySQL servers: browse tables, run queries, import and export."
+website: https://www.phpmyadmin.net
+risk: low
+image:
+  reference: phpmyadmin:5.2.3-apache
+  version: "5.2.3"
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8148
+    exposure: lan
+env:
+  - name: PMA_ARBITRARY
+    default: "1"
+    fixed: true
+  - name: PMA_HOST
+    label: Default server
+    description: Host name or address of the MariaDB server, for example this server LAN address.
+    default: database
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Enter the server address, username, and password on the login page (install the MariaDB app first)."

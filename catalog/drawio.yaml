@@ -1,0 +1,22 @@
+schemaVersion: 2
+id: drawio
+name: draw.io
+category: Developer
+icon: "📐"
+description: "Diagrams in the browser: flowcharts, network diagrams, floor plans. Saves to your device or to Nextcloud."
+website: https://www.drawio.com
+risk: low
+image:
+  reference: jgraph/drawio:31.3.1
+  version: "31.3.1"
+ports:
+  - id: web
+    label: Web UI
+    container: 8080
+    host: 8160
+    exposure: lan
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Open it and start drawing; files save through the browser."

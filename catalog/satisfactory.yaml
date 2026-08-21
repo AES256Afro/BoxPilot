@@ -1,0 +1,41 @@
+schemaVersion: 2
+id: satisfactory
+name: Satisfactory server
+category: Games
+icon: "🔩"
+description: "Dedicated Satisfactory server. Needs plenty of memory (8 GB or more while playing)."
+website: https://www.satisfactorygame.com
+risk: low
+image:
+  reference: wolveix/satisfactory-server:v1.9.10
+  version: "1.9.10"
+ports:
+  - id: game
+    label: Game port
+    container: 7777
+    host: 7778
+    exposure: lan
+  - id: game-udp
+    label: Game port (UDP)
+    container: 7777
+    host: 7778
+    protocol: udp
+    exposure: lan
+volumes:
+  - id: config
+    label: Saves and configuration
+    container: /config
+    path: config
+env:
+  - name: MAXPLAYERS
+    label: Maximum players
+    type: number
+    default: 4
+  - name: AUTOSAVENUM
+    default: "5"
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 900
+notes: "Claim the server from the in-game Server Manager with <this server>:7778. The first start downloads about 10 GB."

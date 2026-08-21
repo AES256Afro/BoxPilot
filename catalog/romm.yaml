@@ -1,0 +1,80 @@
+schemaVersion: 2
+id: romm
+name: RomM
+category: Games
+icon: "🕹️"
+description: "Retro game library manager: scans your ROM folders, fetches covers and metadata, and plays many systems right in the browser."
+website: https://romm.app
+risk: low
+image:
+  reference: rommapp/romm:5.2.0
+  version: "5.2.0"
+ports:
+  - id: web
+    label: Web UI
+    container: 8080
+    host: 8164
+    exposure: lan
+volumes:
+  - id: library
+    label: ROM library
+    container: /romm/library
+    hostPath: /srv/roms
+    configurable: true
+    backup: false
+    description: Organise as library/roms/<platform>/ and library/bios/<platform>/.
+  - id: resources
+    label: Covers and metadata
+    container: /romm/resources
+    path: resources
+  - id: assets
+    label: Saves and states
+    container: /romm/assets
+    path: assets
+  - id: config
+    label: Configuration
+    container: /romm/config
+    path: config
+env:
+  - name: DB_HOST
+    default: "database"
+    fixed: true
+  - name: DB_NAME
+    default: "romm"
+    fixed: true
+  - name: DB_USER
+    default: "romm"
+    fixed: true
+  - name: DB_PASSWD
+    label: Database password
+    type: password
+    secret: true
+    generate: true
+  - name: ROMM_AUTH_SECRET_KEY
+    label: Auth secret
+    type: password
+    secret: true
+    generate: true
+  - name: IGDB_CLIENT_ID
+    label: IGDB client ID
+    description: Optional, for covers and metadata; create one at api.igdb.com.
+  - name: IGDB_CLIENT_SECRET
+    label: IGDB client secret
+    type: password
+sidecars:
+  - id: database
+    image: mariadb:11.8.8
+    env:
+      MARIADB_DATABASE: romm
+      MARIADB_USER: romm
+      MARIADB_PASSWORD: ${DB_PASSWD}
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWD}
+    volumes:
+      - id: mysql
+        container: /var/lib/mysql
+        path: database
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 600
+notes: "The first visit creates the admin account; then scan the library."

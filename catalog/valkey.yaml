@@ -1,0 +1,28 @@
+schemaVersion: 2
+id: valkey
+name: Valkey (Redis)
+category: Developer
+icon: "🧠"
+description: "In-memory key-value store, drop-in Redis replacement, for caches, queues, and apps that need one."
+website: https://valkey.io
+risk: low
+image:
+  reference: valkey/valkey:8.1.9-alpine
+  version: "8.1.9"
+ports:
+  - id: redis
+    label: Redis protocol
+    container: 6379
+    host: 6379
+    exposure: lan
+volumes:
+  - id: data
+    label: Persistence
+    container: /data
+    path: data
+    backup: false
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "No password by default; it is reachable only from this machine and your tailnet under the deny-by-default firewall profile."

@@ -1,0 +1,44 @@
+schemaVersion: 2
+id: factorio
+name: Factorio server
+category: Games
+icon: "🏭"
+description: "Dedicated Factorio server; bring your own save or let it generate one."
+website: https://factorio.com
+risk: low
+image:
+  reference: factoriotools/factorio:2.0.77
+  version: "2.0.77"
+user: "845:845"
+ports:
+  - id: game
+    label: Game port (UDP)
+    container: 34197
+    host: 34197
+    protocol: udp
+    exposure: lan
+  - id: rcon
+    label: RCON
+    container: 27015
+    host: 27015
+    exposure: lan
+volumes:
+  - id: data
+    label: Saves, mods, configuration
+    container: /factorio
+    path: data
+env:
+  - name: GENERATE_NEW_SAVE
+    default: "true"
+    fixed: true
+  - name: SAVE_NAME
+    label: Save name
+    default: boxpilot
+  - name: LOAD_LATEST_SAVE
+    default: "true"
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 600
+notes: "Server settings live in the data folder (config/server-settings.json). Players connect to <this server>:34197."

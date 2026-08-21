@@ -1,0 +1,31 @@
+schemaVersion: 2
+id: baikal
+name: Baïkal
+category: Productivity
+icon: "📆"
+description: "CalDAV and CardDAV server: calendars and contacts that sync natively with iPhone, Android (DAVx5), macOS, and Thunderbird, no Nextcloud needed."
+website: https://sabre.io/baikal
+risk: low
+image:
+  reference: ckulka/baikal:0.10.1
+  version: "0.10.1"
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8144
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /var/www/baikal/config
+    path: config
+  - id: specific
+    label: Database
+    container: /var/www/baikal/Specific
+    path: specific
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "The first visit runs the setup wizard (admin password, SQLite is fine). Then create users under Users and Resources; clients use http://<this server>:8145/dav.php."

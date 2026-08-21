@@ -1,0 +1,76 @@
+schemaVersion: 2
+id: bookstack
+name: BookStack
+category: Knowledge
+icon: "📗"
+description: "Simple, organised wiki: shelves, books, chapters, and pages with a WYSIWYG editor. Good for household documentation and manuals."
+website: https://www.bookstackapp.com
+risk: low
+image:
+  reference: lscr.io/linuxserver/bookstack:v26.05.3-ls280
+  version: "26.05.3"
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8120
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration and uploads
+    container: /config
+    path: config
+env:
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+  - name: APP_URL
+    label: Address people use
+    description: Must match how you open it, or links and logins break.
+    default: http://localhost:8120
+  - name: DB_HOST
+    default: "database"
+    fixed: true
+  - name: DB_PORT
+    default: "3306"
+    fixed: true
+  - name: DB_DATABASE
+    default: "bookstack"
+    fixed: true
+  - name: DB_USERNAME
+    default: "bookstack"
+    fixed: true
+  - name: DB_PASSWORD
+    label: Database password
+    type: password
+    secret: true
+    generate: true
+  - name: APP_KEY
+    label: App key
+    type: password
+    secret: true
+    generate: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+sidecars:
+  - id: database
+    image: mariadb:11.8.8
+    env:
+      MARIADB_DATABASE: bookstack
+      MARIADB_USER: bookstack
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - id: mysql
+        container: /var/lib/mysql
+        path: database
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "First login is admin@admin.com / password; change it right away under Settings."

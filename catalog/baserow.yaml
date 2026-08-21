@@ -1,0 +1,32 @@
+schemaVersion: 2
+id: baserow
+name: Baserow
+category: Developer
+icon: "📋"
+description: "No-code database with a spreadsheet interface, forms, and an API; the open-source Airtable."
+website: https://baserow.io
+risk: low
+image:
+  reference: baserow/baserow:2.3.3
+  version: "2.3.3"
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8156
+    exposure: lan
+volumes:
+  - id: data
+    label: Database and files
+    container: /baserow/data
+    path: data
+env:
+  - name: BASEROW_PUBLIC_URL
+    label: Address people use
+    description: Must match how you open it.
+    default: http://localhost:8157
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 600
+notes: "The all-in-one image bundles PostgreSQL and Redis. The first visit creates the admin account."

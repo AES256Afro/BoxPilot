@@ -1,0 +1,46 @@
+schemaVersion: 2
+id: wallabag
+name: wallabag
+category: Knowledge
+icon: "🥬"
+description: "Read-it-later: save articles from any browser or phone and read them distraction-free, offline, with tags."
+website: https://wallabag.org
+risk: low
+image:
+  reference: wallabag/wallabag:2.6.14
+  version: "2.6.14"
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8121
+    exposure: lan
+volumes:
+  - id: data
+    label: Database
+    container: /var/www/wallabag/data
+    path: data
+  - id: images
+    label: Downloaded images
+    container: /var/www/wallabag/web/assets/images
+    path: images
+env:
+  - name: SYMFONY__ENV__DOMAIN_NAME
+    label: Address people use
+    default: http://localhost:8121
+  - name: SYMFONY__ENV__DATABASE_DRIVER
+    default: "pdo_sqlite"
+    fixed: true
+  - name: SYMFONY__ENV__FOSUSER_REGISTRATION
+    default: "false"
+    fixed: true
+  - name: SYMFONY__ENV__SECRET
+    label: App secret
+    type: password
+    secret: true
+    generate: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 600
+notes: "First login is wallabag / wallabag; change it under Config. Registration is off; add users under Users."

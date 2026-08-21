@@ -1,0 +1,28 @@
+schemaVersion: 2
+id: registry
+name: Docker Registry
+category: Developer
+icon: "🐳"
+description: "Private Docker image registry for images you build yourself, for VMs and other machines on your network."
+website: https://distribution.github.io/distribution
+risk: low
+image:
+  reference: registry:3.1.1
+  version: "3.1.1"
+ports:
+  - id: api
+    label: Registry API
+    container: 5000
+    host: 5010
+    exposure: lan
+volumes:
+  - id: data
+    label: Images
+    container: /var/lib/registry
+    path: data
+    backup: false
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Push with docker tag myimage <this server>:5010/myimage and docker push. Clients must list the address under insecure-registries unless you front it with HTTPS."

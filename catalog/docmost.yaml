@@ -1,0 +1,60 @@
+schemaVersion: 2
+id: docmost
+name: Docmost
+category: Knowledge
+icon: "📝"
+description: "Team wiki and docs with real-time collaboration, spaces, and comments; a Notion-style workspace for the household or a small team."
+website: https://docmost.com
+risk: low
+image:
+  reference: docmost/docmost:0.95.0
+  version: "0.95.0"
+ports:
+  - id: web
+    label: Web UI
+    container: 3000
+    host: 3011
+    exposure: lan
+volumes:
+  - id: data
+    label: Uploads
+    container: /app/data/storage
+    path: storage
+env:
+  - name: APP_URL
+    label: Address people use
+    default: http://localhost:3011
+  - name: APP_SECRET
+    label: App secret
+    type: password
+    secret: true
+    generate: true
+  - name: DATABASE_URL
+    default: "postgresql://docmost:${DOCMOST_DB_PASSWORD}@database:5432/docmost?schema=public"
+    fixed: true
+  - name: REDIS_URL
+    default: "redis://redis:6379"
+    fixed: true
+  - name: DOCMOST_DB_PASSWORD
+    label: Database password
+    type: password
+    secret: true
+    generate: true
+sidecars:
+  - id: database
+    image: postgres:16.15-alpine
+    env:
+      POSTGRES_DB: docmost
+      POSTGRES_USER: docmost
+      POSTGRES_PASSWORD: ${DOCMOST_DB_PASSWORD}
+    volumes:
+      - id: pgdata
+        container: /var/lib/postgresql/data
+        path: postgres
+  - id: redis
+    image: valkey/valkey:8.1.9-alpine
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 600
+notes: "The first visit creates the workspace and admin account."

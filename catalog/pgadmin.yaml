@@ -1,0 +1,40 @@
+schemaVersion: 2
+id: pgadmin
+name: pgAdmin
+category: Developer
+icon: "🧰"
+description: "Web UI for PostgreSQL servers: query tool, schema browser, backups."
+website: https://www.pgadmin.org
+risk: low
+image:
+  reference: dpage/pgadmin4:9.17
+  version: "9.17"
+user: "5050:5050"
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8150
+    exposure: lan
+volumes:
+  - id: data
+    label: Configuration
+    container: /var/lib/pgadmin
+    path: data
+env:
+  - name: PGADMIN_DEFAULT_EMAIL
+    label: Login email
+    default: admin@example.com
+  - name: PGADMIN_DEFAULT_PASSWORD
+    label: Login password
+    type: password
+    secret: true
+    generate: true
+  - name: PGADMIN_CONFIG_SERVER_MODE
+    default: "True"
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Sign in with the email and generated password (Secrets), then register your PostgreSQL server by address."
