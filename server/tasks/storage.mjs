@@ -31,7 +31,17 @@ const binaries = {
   chmod: "/usr/bin/chmod",
   rm: "/usr/bin/rm",
   lvextend: "/usr/sbin/lvextend",
+  lvcreate: "/usr/sbin/lvcreate",
+  lvremove: "/usr/sbin/lvremove",
+  lvconvert: "/usr/sbin/lvconvert",
+  lvs: "/usr/sbin/lvs",
+  vgs: "/usr/sbin/vgs",
 };
+const tail = (text) => String(text ?? "").split("\n").filter(Boolean).slice(-3).join(" ");
+export const snapshotPrefix = "boxpilot-snap-";
+export const snapshotNamePattern = /^boxpilot-snap-[0-9]{8}-[0-9]{4}(-[a-z0-9-]{1,24})?$/;
+/** Device-mapper escapes "-" as "--": a snapshot named boxpilot-snap-x appears as vg-boxpilot--snap--x. */
+const snapshotDmPattern = /-boxpilot--snap--/;
 
 /** Signatures that mean the device belongs to LVM/RAID/LUKS: never mount or format it directly. */
 export const memberFstypes = Object.freeze(["LVM2_member", "linux_raid_member", "crypto_LUKS", "bcache", "ceph_bluestore", "zfs_member"]);
@@ -52,6 +62,7 @@ async function deviceTree(run, device) {
 
 /** Throw when touching `device` could take the system or a volume group down with it. */
 export function assertNotProtected(device, nodes) {
+  if (snapshotDmPattern.test(device) || /-(real|cow)$/.test(device)) throw new Error(`${device} is an LVM snapshot (or its internal device); manage it from the Snapshots panel`);
   const mountedAt = nodes.flatMap((node) => (node.mountpoints ?? []).filter(Boolean));
   const system = mountedAt.filter((target) => systemMountpoints.includes(target));
   if (system.length) throw new Error(`${device} is the system disk (${system.join(", ")} lives on it); BoxPilot will not touch it`);
@@ -202,8 +213,22 @@ export async function swapFileSet({ sizeGiB = null, remove = false } = {}, { run
  * Ubuntu's installer leaves most of the disk unallocated by default; this claims it without
  * a reboot. `lvextend -r` resizes the filesystem (ext4/xfs) in the same step.
  */
-export async function storageLvmExtend({ path: volume } = {}, { run = fixedRun, log = null } = {}) {
+async function volumeGroupOf(run, volume) {
+  const result = await run(binaries.lvs, ["--noheadings", "--options", "vg_name,lv_name", volume], { timeout: 15_000 });
+  if (!result.ok) return null;
+  const [vg, lv] = result.stdout.trim().split(/\s+/);
+  return vg ? { vg, lv } : null;
+}
+
+async function volumeGroupFreeBytes(run, vg) {
+  const result = await run(binaries.vgs, ["--noheadings", "--units", "b", "--nosuffix", "--options", "vg_free", vg], { timeout: 15_000 });
+  const value = Number.parseInt(result.stdout.trim(), 10);
+  return result.ok && Number.isInteger(value) ? value : null;
+}
+
+export async function storageLvmExtend({ path: volume, reserveGiB = 32 } = {}, { run = fixedRun, log = null } = {}) {
   if (typeof volume !== "string" || !logicalVolumePattern.test(volume)) throw new Error("Logical volume path is invalid");
+  if (!Number.isInteger(reserveGiB) || reserveGiB < 0 || reserveGiB > 1024) throw new Error("reserveGiB must be a whole number between 0 and 1024");
   const nodes = await deviceTree(run, volume);
   const node = nodes.find((entry) => entry.path === volume);
   if (!node || node.type !== "lvm") throw new Error(`${volume} is not an LVM logical volume`);
@@ -211,8 +236,19 @@ export async function storageLvmExtend({ path: volume } = {}, { run = fixedRun, 
   const mountpoint = (node.mountpoints ?? []).filter(Boolean)[0] ?? null;
   if (!mountpoint) throw new Error(`${volume} is not mounted; mount it first so the filesystem can be grown online`);
   const before = await run(binaries.findmnt, ["-n", "-b", "-o", "SIZE,AVAIL", mountpoint], { timeout: 15_000 });
-  log?.(`$ lvextend -r -l +100%FREE ${volume}`, "stdout");
-  const result = await run(binaries.lvextend, ["-r", "-l", "+100%FREE", volume], { timeout: 10 * 60_000, onLine: log ?? undefined });
+  // Leave room for snapshots: grow by (free - reserve) when a reserve is requested and the group size is known.
+  let sizeArguments = ["-l", "+100%FREE"];
+  if (reserveGiB > 0) {
+    const group = await volumeGroupOf(run, volume);
+    const free = group ? await volumeGroupFreeBytes(run, group.vg) : null;
+    if (free !== null) {
+      const grow = free - reserveGiB * 1024 ** 3;
+      if (grow < 256 * 1024 ** 2) return { extended: false, path: volume, mountpoint, reason: `Only ${(free / 1024 ** 3).toFixed(1)} GiB is free and ${reserveGiB} GiB is kept for snapshots`, detail: before.stdout.trim() || null };
+      sizeArguments = ["-L", `+${grow}B`];
+    }
+  }
+  log?.(`$ lvextend -r ${sizeArguments.join(" ")} ${volume}`, "stdout");
+  const result = await run(binaries.lvextend, ["-r", ...sizeArguments, volume], { timeout: 10 * 60_000, onLine: log ?? undefined });
   const output = `${result.stdout}\n${result.stderr}`;
   if (!result.ok) {
     if (/matches existing size|No free extents|not enough free space|already/i.test(output)) {
@@ -223,4 +259,48 @@ export async function storageLvmExtend({ path: volume } = {}, { run = fixedRun, 
   const after = await run(binaries.findmnt, ["-n", "-b", "-o", "SIZE,AVAIL", mountpoint], { timeout: 15_000 });
   const sizes = (text) => { const [size, avail] = String(text ?? "").trim().split(/\s+/).map((value) => Number.parseInt(value, 10)); return { sizeBytes: Number.isInteger(size) ? size : null, availableBytes: Number.isInteger(avail) ? avail : null }; };
   return { extended: true, path: volume, mountpoint, before: sizes(before.stdout), after: sizes(after.stdout) };
+}
+
+/** Create a copy-on-write snapshot of a logical volume (a restore point before updates). */
+export async function storageLvmSnapshotCreate({ path: volume, sizeGiB = 10, suffix = null } = {}, { run = fixedRun, log = null, now = () => new Date() } = {}) {
+  if (typeof volume !== "string" || !logicalVolumePattern.test(volume) || snapshotDmPattern.test(volume)) throw new Error("Logical volume path is invalid");
+  if (!Number.isInteger(sizeGiB) || sizeGiB < 1 || sizeGiB > 2048) throw new Error("sizeGiB must be a whole number between 1 and 2048");
+  if (suffix !== null && !/^[a-z0-9-]{1,24}$/.test(String(suffix))) throw new Error("suffix may use lower-case letters, digits, and hyphens (max 24)");
+  const group = await volumeGroupOf(run, volume);
+  if (!group) throw new Error(`${volume} is not an LVM logical volume`);
+  const free = await volumeGroupFreeBytes(run, group.vg);
+  if (free !== null && free < sizeGiB * 1024 ** 3) throw new Error(`Volume group ${group.vg} has only ${(free / 1024 ** 3).toFixed(1)} GiB free; choose a smaller snapshot size or free space first`);
+  const stamp = now().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 13);
+  const name = `${snapshotPrefix}${stamp}${suffix ? `-${suffix}` : ""}`;
+  if (!snapshotNamePattern.test(name)) throw new Error("Snapshot name is invalid");
+  log?.(`$ lvcreate -s -L ${sizeGiB}G -n ${name} ${volume}`, "stdout");
+  const result = await run(binaries.lvcreate, ["-s", "-L", `${sizeGiB}G`, "-n", name, volume], { timeout: 5 * 60_000 });
+  if (!result.ok) throw new Error(`lvcreate failed: ${tail(`${result.stderr}\n${result.stdout}`)}`);
+  const path = `/dev/mapper/${group.vg.replace(/-/g, "--")}-${name.replace(/-/g, "--")}`;
+  return { created: true, name, path, origin: volume, volumeGroup: group.vg, sizeGiB, createdAt: now().toISOString() };
+}
+
+/** Remove a BoxPilot snapshot. Only names with the BoxPilot prefix are accepted. */
+export async function storageLvmSnapshotDelete({ path: snapshot } = {}, { run = fixedRun, log = null } = {}) {
+  if (typeof snapshot !== "string" || !logicalVolumePattern.test(snapshot) || !snapshotDmPattern.test(snapshot)) throw new Error("Only BoxPilot snapshots (boxpilot-snap-...) can be removed from here");
+  log?.(`$ lvremove -f ${snapshot}`, "stdout");
+  const result = await run(binaries.lvremove, ["-f", snapshot], { timeout: 5 * 60_000 });
+  if (!result.ok) throw new Error(`lvremove failed: ${tail(`${result.stderr}\n${result.stdout}`)}`);
+  return { removed: true, path: snapshot };
+}
+
+/**
+ * Roll the origin back to a snapshot (lvconvert --merge). For a mounted origin such as /
+ * the merge is scheduled and happens on the next activation, i.e. after a reboot; the
+ * snapshot disappears once merged.
+ */
+export async function storageLvmSnapshotRollback({ path: snapshot } = {}, { run = fixedRun, log = null } = {}) {
+  if (typeof snapshot !== "string" || !logicalVolumePattern.test(snapshot) || !snapshotDmPattern.test(snapshot)) throw new Error("Only BoxPilot snapshots (boxpilot-snap-...) can be rolled back to");
+  log?.(`$ lvconvert --merge ${snapshot}`, "stdout");
+  const result = await run(binaries.lvconvert, ["--merge", snapshot], { timeout: 5 * 60_000 });
+  const output = `${result.stderr}\n${result.stdout}`;
+  if (!result.ok) throw new Error(`lvconvert failed: ${tail(output)}`);
+  const deferred = /next activation|Can't merge.*open|will merge/i.test(output) || true;
+  log?.(deferred ? "The merge is scheduled; reboot to apply it. The snapshot is consumed by the merge." : "Merged", "stdout");
+  return { rollbackScheduled: true, path: snapshot, rebootRequired: deferred, detail: output.split("\n").filter(Boolean).slice(-2).join(" ") };
 }

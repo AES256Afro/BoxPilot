@@ -108,6 +108,10 @@ const jobs = createJobService(state, helper, {
     "vm.backup.retention.apply": (job, result) => vmRetention.recordOperation(job, result),
     "vm.backup.restore-drill": (job, result) => vmRestoreDrills.recordOperation(job, result),
     "vm.recovery.create": (job, result) => vmRecoveries.recordOperation(job, result),
+    // Snapshot metadata (origin, size, time) lives here because lvs needs root; the Storage page merges it with lsblk.
+    "storage.lvm.snapshot.create": (job, result) => state.setSetting("lvmSnapshots", [...(state.getSetting("lvmSnapshots", []) ?? []).filter((entry) => entry.path !== result.path), { path: result.path, name: result.name, origin: result.origin, volumeGroup: result.volumeGroup, sizeGiB: result.sizeGiB, createdAt: result.createdAt, createdBy: job.createdBy, suffix: job.parameters?.suffix ?? null }], { updatedBy: job.createdBy }),
+    "storage.lvm.snapshot.delete": (job, result) => state.setSetting("lvmSnapshots", (state.getSetting("lvmSnapshots", []) ?? []).filter((entry) => entry.path !== result.path), { updatedBy: job.createdBy }),
+    "storage.lvm.snapshot.rollback": (job, result) => state.setSetting("lvmSnapshots", (state.getSetting("lvmSnapshots", []) ?? []).filter((entry) => entry.path !== result.path), { updatedBy: job.createdBy }),
     // The Firewall page shows which profile is in force and when it was applied.
     "firewall.profile.apply": (job, result) => state.setSetting("firewallProfile", { id: result.profile, services: result.services ?? [], sshRateLimit: result.sshRateLimit ?? false, appliedAt: result.appliedAt, appliedBy: job.createdBy }, { updatedBy: job.createdBy }),
     "backup.remote.sync": (job, result) => state.setSetting("backupDestinationLastSync", { completedAt: result.completedAt, filesTransferred: result.filesTransferred, bytesTransferred: result.bytesTransferred, destination: result.destination }, { updatedBy: job.createdBy }),
@@ -209,7 +213,7 @@ app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, jobLogReader, auth
 app.use("/api/v1", createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit }));
 app.use("/api/v1", createSettingsRouter({ state, notifications, auth }));
 app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort: port, webHost: host }));
-app.use("/api/v1", createStorageRouter({ auth, helper, inventory }));
+app.use("/api/v1", createStorageRouter({ auth, helper, inventory, state }));
 app.use("/api/v1", createPowerRouter());
 app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth }));
 

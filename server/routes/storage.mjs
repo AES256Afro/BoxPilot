@@ -81,12 +81,15 @@ async function mapLimit(items, limit, worker) {
   return results;
 }
 
-export function createStorageRouter({ auth, helper = null, inventory = null, run = fixedRun, collect = collectStorage, probe = probePort, reverse = (address) => dns.reverse(address), sweepLimit = 254 }) {
+export function createStorageRouter({ auth, helper = null, inventory = null, state = null, run = fixedRun, collect = collectStorage, probe = probePort, reverse = (address) => dns.reverse(address), sweepLimit = 254 }) {
   const router = Router();
 
   router.get("/storage/overview", async (_request, response) => {
     try {
-      response.json(await collect());
+      const overview = await collect();
+      const records = state?.getSetting?.("lvmSnapshots", []) ?? [];
+      overview.snapshots = (overview.snapshots ?? []).map((snapshot) => ({ ...snapshot, ...(records.find((entry) => entry.path === snapshot.path) ?? {}) }));
+      response.json(overview);
     } catch (error) {
       response.status(503).json({ error: error.message, code: "storage_unavailable" });
     }

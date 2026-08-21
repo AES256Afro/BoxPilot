@@ -42,3 +42,18 @@ describe("storage operations", () => {
     expect(operations["storage.mount"].risk).toBe("medium");
   });
 });
+
+describe("lvm snapshot operations", () => {
+  it("stages create, delete, and rollback with prefixed snapshot paths only", async () => {
+    const { validateParameters } = await import("./registry.mjs");
+    const runUnit = { runTask: vi.fn(async () => ({ ok: true })) };
+    await operations["storage.lvm.snapshot.create"].run({ path: "/dev/mapper/ubuntu--vg-ubuntu--lv", suffix: "before-upgrade" }, { runUnit, jobLog: null });
+    expect(runUnit.runTask).toHaveBeenCalledWith("storage.lvm-snapshot-create", { path: "/dev/mapper/ubuntu--vg-ubuntu--lv", sizeGiB: 10, suffix: "before-upgrade" }, expect.anything());
+    const snapshot = "/dev/mapper/ubuntu--vg-boxpilot--snap--20260821--2005";
+    expect(validateParameters(operations["storage.lvm.snapshot.delete"].parameters, { path: snapshot }, "t")).toBeNull();
+    expect(validateParameters(operations["storage.lvm.snapshot.delete"].parameters, { path: "/dev/mapper/ubuntu--vg-ubuntu--lv" }, "t")).toContain("invalid");
+    expect(operations["storage.lvm.snapshot.rollback"].risk).toBe("high");
+    await operations["storage.lvm.extend"].run({ path: "/dev/mapper/ubuntu--vg-ubuntu--lv" }, { runUnit, jobLog: null });
+    expect(runUnit.runTask).toHaveBeenCalledWith("storage.lvm-extend", { path: "/dev/mapper/ubuntu--vg-ubuntu--lv", reserveGiB: 32 }, expect.anything());
+  });
+});

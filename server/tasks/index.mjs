@@ -7,7 +7,7 @@ import { aptAutoremove, aptInstall, aptRemove, aptUnattendedSet, aptUpdate, aptU
 import { dockerLoggingDefaults, setHostname, setLocale, setSwappiness, setTimezone, systemReboot } from "./system.mjs";
 import { sshPasswordAuthSet, userAdd, userKeysImport, userSudoSet } from "./users.mjs";
 import { firewallProfileApply, firewallRuleAdd, firewallRuleDelete, firewallSet } from "./firewall.mjs";
-import { storageFormat, storageLvmExtend, storageMount, storageUnmount, swapFileSet } from "./storage.mjs";
+import { storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageUnmount, swapFileSet } from "./storage.mjs";
 import { shareMount, shareUnmount } from "./shares.mjs";
 import { sambaApply, sambaUserRemove, sambaUserSet } from "./samba.mjs";
 import { nfsApply } from "./nfs.mjs";
@@ -44,6 +44,9 @@ export const tasks = Object.freeze({
   "storage.format": storageFormat,
   "storage.swapfile": swapFileSet,
   "storage.lvm-extend": storageLvmExtend,
+  "storage.lvm-snapshot-create": storageLvmSnapshotCreate,
+  "storage.lvm-snapshot-delete": storageLvmSnapshotDelete,
+  "storage.lvm-snapshot-rollback": storageLvmSnapshotRollback,
   "share.mount": shareMount,
   "share.unmount": shareUnmount,
   "samba.apply": sambaApply,
