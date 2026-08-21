@@ -6,13 +6,13 @@ Install updates, add the tools and apps you want from a catalog, create VMs for 
 
 ## Install
 
-On a fresh Ubuntu Server (22.04 or newer), one command installs BoxPilot under `/opt/boxpilot`, builds it, starts the `boxpilot` and `boxpilot-helper` services, and health-checks the result:
+On a fresh Ubuntu Server (22.04 or newer), one command installs Node 24, creates the service user, builds BoxPilot under `/opt/boxpilot`, enables the `boxpilot` and `boxpilot-helper` units, and prints the URL plus a one-time owner token:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-upgrade.sh | sudo sh -s -- v0.62.2
+curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh -s -- --ref v0.62.5
 ```
 
-Then open `http://<server>:8787`, create the owner account with the token printed by `npm run owner:token` (in `/opt/boxpilot`), and let Repair Center install the prerequisites you want (Docker, KVM/libvirt, restic, smartmontools).
+Open the URL, create the owner account with that token, and pick a **setup profile** (home server, DNS appliance, hypervisor, dev box, essentials) — BoxPilot installs the prerequisites, apps, and backup schedules in order. Already have a BoxPilot? *Set up → Prepare a new server* generates the Ubuntu autoinstall files that do all of this unattended.
 
 After that **BoxPilot updates itself**: *System → BoxPilot updates* shows the latest [release](https://github.com/AES256Afro/BoxPilot/releases) and *Update to vX.Y.Z* downloads it, builds it, swaps it in, and rolls back by itself if the new version fails its health check. The same script works from the terminal with any release tag.
 

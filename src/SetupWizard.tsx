@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import AutoinstallGenerator from "./AutoinstallGenerator";
 
 /**
  * First-run setup (M4.2): pick a profile, see which steps are already done, run the rest in
@@ -15,6 +16,7 @@ const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve
 
 export default function SetupWizard({ csrfToken, onDone }: { csrfToken: string; onDone: () => void }) {
   const [setup, setSetup] = useState<SetupState | null>(null);
+  const [mode, setMode] = useState<"this" | "new">("this");
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [phase, setPhase] = useState<"choose" | "running" | "paused" | "finished">("choose");
@@ -85,9 +87,18 @@ export default function SetupWizard({ csrfToken, onDone }: { csrfToken: string; 
   if (error) return <section className="panel"><div className="auth-error" role="alert">{error}</div></section>;
   if (!setup) return <section className="panel"><p style={{ padding: 16 }}>Checking what is already on this server…</p></section>;
 
+  const modeSwitch = (
+    <div className="log-source-tabs setup-mode" role="tablist">
+      <button type="button" role="tab" aria-selected={mode === "this"} className={mode === "this" ? "active" : ""} onClick={() => setMode("this")}>Set up this server</button>
+      <button type="button" role="tab" aria-selected={mode === "new"} className={mode === "new" ? "active" : ""} onClick={() => setMode("new")}>Prepare a new server</button>
+    </div>
+  );
+  if (mode === "new") return <div className="setup-wizard">{modeSwitch}<AutoinstallGenerator csrfToken={csrfToken} /></div>;
+
   if (!profile) {
     return (
       <div className="setup-wizard">
+        {modeSwitch}
         {!setup.firstRun && <p className="muted">This server already has {setup.installedApps} app{setup.installedApps === 1 ? "" : "s"} installed. Profiles only add what is missing.</p>}
         <div className="dashboard-apps">
           {setup.profiles.map((entry) => (

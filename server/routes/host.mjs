@@ -9,6 +9,7 @@ import { registry, riskTiers } from "../ops/index.mjs";
 import { approvalModes, elevationTtlMs } from "../ops/risk.mjs";
 import { findPortConflicts, listListeners } from "../ports.mjs";
 import { resolveValues } from "../catalog/schema.mjs";
+import { hashPassword, renderAutoinstall, validateAutoinstallInput } from "../autoinstall.mjs";
 
 export function createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth }) {
   const router = Router();
@@ -91,6 +92,22 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
   // First-run setup profiles resolved against live state (M4.2).
   router.get("/setup", async (_request, response) => {
     response.json(await setup.describe());
+  });
+
+  // Ubuntu autoinstall user-data for a *new* server (M4.3). Nothing on this host changes; the
+  // new account's password is hashed here with openssl and never stored.
+  router.post("/setup/autoinstall", auth.requireCsrf, async (request, response) => {
+    const input = request.body ?? {};
+    const errors = validateAutoinstallInput(input);
+    if (errors.length) return response.status(400).json({ error: errors.join("; "), code: "invalid_autoinstall" });
+    try {
+      const passwordHash = await hashPassword(input.password);
+      const rendered = renderAutoinstall(input, { passwordHash });
+      state.recordAudit("setup.autoinstall.generated", { actorId: request.boxpilotSession.owner.id, subjectId: input.hostname, details: { hostname: input.hostname, username: input.username, network: input.network?.mode, disk: input.disk?.layout, ref: rendered.ref } });
+      return response.json(rendered);
+    } catch (error) {
+      return response.status(503).json({ error: error.message, code: "autoinstall_failed" });
+    }
   });
 
   router.get("/support-bundle", async (_request, response) => {
