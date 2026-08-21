@@ -57,6 +57,11 @@ export function createSettingsRouter({ state, notifications, auth }) {
     return response.json({ approvalMode: mode, modes: approvalModes, elevationTtlMs });
   });
 
+  // Cloud (rclone) destination: the non-secret description saved by backup.cloud.setup, plus the last mirror.
+  router.get("/settings/cloud-destination", (_request, response) => {
+    response.json({ destination: state.getSetting("cloudDestination", null), lastSync: state.getSetting("cloudDestinationLastSync", null) });
+  });
+
   // Off-box SSH backup destination (M6.2). Not secret — the key stays root-only on the server.
   router.get("/settings/backup-destination", (_request, response) => {
     response.json({ destination: state.getSetting("backupDestination", null), lastSync: state.getSetting("backupDestinationLastSync", null) });

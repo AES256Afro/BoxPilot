@@ -13,6 +13,7 @@ import { sambaApply, sambaUserRemove, sambaUserSet } from "./samba.mjs";
 import { nfsApply } from "./nfs.mjs";
 import { upsSetup } from "./ups.mjs";
 import { fail2banApply } from "./fail2ban.mjs";
+import { backupCloudSetup, backupCloudSync, backupCloudTest } from "./backup-cloud.mjs";
 import { ensureCloudImage } from "./cloud-images.mjs";
 import { systemUpdate } from "./update.mjs";
 import { backupRemoteKeygen, backupRemoteSync, backupRemoteTest } from "./backup-remote.mjs";
@@ -55,6 +56,9 @@ export const tasks = Object.freeze({
   "nfs.apply": nfsApply,
   "ups.setup": upsSetup,
   "fail2ban.apply": fail2banApply,
+  "backup.cloud.setup": backupCloudSetup,
+  "backup.cloud.test": backupCloudTest,
+  "backup.cloud.sync": backupCloudSync,
   "vm.cloud-image.ensure": ensureCloudImage,
   "system.update": systemUpdate,
   "backup.remote.keygen": backupRemoteKeygen,

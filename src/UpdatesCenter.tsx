@@ -30,7 +30,7 @@ const curatedDescriptions: Record<string, string> = {
   ncdu: "disk usage explorer", tree: "directory trees", ripgrep: "fast text search (rg)", zsh: "Z shell",
   unzip: "zip extraction", "net-tools": "ifconfig and netstat", dnsutils: "dig and nslookup",
   iotop: "disk I/O monitor", smartmontools: "disk SMART health", restic: "backup engine",
-  "nfs-common": "NFS mounts", "cifs-utils": "SMB/CIFS mounts", smbclient: "lists SMB shares on a NAS", samba: "SMB file server (Storage page)", "nfs-kernel-server": "NFS server (Storage page)", nut: "UPS monitoring (System page)", fail2ban: "SSH brute-force protection (Firewall page)", needrestart: "finds services running old libraries",
+  "nfs-common": "NFS mounts", "cifs-utils": "SMB/CIFS mounts", smbclient: "lists SMB shares on a NAS", samba: "SMB file server (Storage page)", "nfs-kernel-server": "NFS server (Storage page)", nut: "UPS monitoring (System page)", fail2ban: "SSH brute-force protection (Firewall page)", rclone: "cloud backup mirror (Backups page)", needrestart: "finds services running old libraries",
 };
 
 export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {

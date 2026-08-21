@@ -54,6 +54,8 @@ export default function SchedulesPanel({ csrfToken }: { csrfToken: string }) {
     { key: "apt.refresh", label: "Refresh package lists", operationId: "apt.refresh", parameters: {} },
     { key: "apt.upgrade", label: "Install all package updates", operationId: "apt.upgrade", parameters: {} },
     { key: "docker.prune", label: "Clean up Docker disk space", operationId: "docker.prune", parameters: {} },
+    { key: "backup.remote.sync", label: "Mirror backups to the SSH destination", operationId: "backup.remote.sync", parameters: {} },
+    { key: "backup.cloud.sync", label: "Mirror backups to the cloud destination", operationId: "backup.cloud.sync", parameters: {} },
   ], [installedApps]);
 
   const create = async () => {
