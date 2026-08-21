@@ -24,6 +24,7 @@ import ApprovalSettings from "./ApprovalSettings";
 import NotificationSettings from "./NotificationSettings";
 import SignInSettings from "./SignInSettings";
 import PeopleSettings from "./PeopleSettings";
+import PasswordSettings from "./PasswordSettings";
 import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import VirtualMachines from "./VirtualMachines";
 
@@ -223,6 +224,7 @@ function Settings({ apiMode, csrfToken, role = "owner" }: { apiMode: string; csr
       <ApprovalSettings csrfToken={csrfToken} />
       <SignInSettings csrfToken={csrfToken} />
       <NotificationSettings csrfToken={csrfToken} />
+      <PasswordSettings csrfToken={csrfToken} />
       {role === "owner" && <PeopleSettings csrfToken={csrfToken} />}
       <Panel className="settings-panel">
         <header className="panel-header"><strong>Server and access</strong><span>Deployment guidance</span></header>

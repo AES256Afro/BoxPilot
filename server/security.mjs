@@ -72,6 +72,27 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     next();
   }
 
+  /** Any signed-in account changes its own password with the current one; other sessions end. */
+  async function changePassword(request, response) {
+    const session = request.boxpilotSession ?? requestSession(request);
+    const owner = session ? store.findOwnerById(session.owner.id) : null;
+    const { currentPassword, newPassword } = request.body ?? {};
+    if (!owner || typeof currentPassword !== "string" || !(await verifyPassword(currentPassword, owner.passwordHash))) {
+      response.status(401).json({ error: "Current password is wrong", code: "invalid_credentials" });
+      return;
+    }
+    if (typeof newPassword !== "string" || newPassword.length < 12 || newPassword.length > 256) {
+      response.status(400).json({ error: "The new password must be 12 to 256 characters", code: "invalid_password" });
+      return;
+    }
+    if (newPassword === currentPassword) {
+      response.status(400).json({ error: "Choose a different password", code: "invalid_password" });
+      return;
+    }
+    store.setOwnerPassword(owner.id, await hashPassword(newPassword), { keepSessionTokenHash: session.tokenHash });
+    response.json({ changed: true });
+  }
+
   /** Route guard for a role set; the session must already be attached by requireSession. */
   function requireRole(...roles) {
     return (request, response, next) => {
@@ -178,7 +199,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     response.status(204).end();
   }
 
-  return { bootstrap, login, status, logout, elevate, dropElevation, issueSession, requestSession, requireSession, requireCsrf, requireRole };
+  return { bootstrap, login, status, logout, elevate, dropElevation, changePassword, issueSession, requestSession, requireSession, requireCsrf, requireRole };
 }
 
 export const securityInternals = { cookieName, parseCookies, safeEqual, validateCredentials };
