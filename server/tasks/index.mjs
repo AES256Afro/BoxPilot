@@ -9,6 +9,7 @@ import { sshPasswordAuthSet, userAdd, userKeysImport, userSudoSet } from "./user
 import { firewallRuleAdd, firewallRuleDelete, firewallSet } from "./firewall.mjs";
 import { storageFormat, storageMount, storageUnmount, swapFileSet } from "./storage.mjs";
 import { ensureCloudImage } from "./cloud-images.mjs";
+import { systemUpdate } from "./update.mjs";
 
 export const tasks = Object.freeze({
   "apt.update": aptUpdate,
@@ -35,6 +36,7 @@ export const tasks = Object.freeze({
   "storage.format": storageFormat,
   "storage.swapfile": swapFileSet,
   "vm.cloud-image.ensure": ensureCloudImage,
+  "system.update": systemUpdate,
 });
 
 export function taskIds() {

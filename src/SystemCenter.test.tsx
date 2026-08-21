@@ -37,6 +37,26 @@ describe("System center", () => {
     expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { timezone: "Europe/Berlin" } });
   });
 
+  it("offers the newer GitHub release and stages the high-risk update with only the tag", async () => {
+    let staged: string | undefined;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/system.settings.inspect/inspect")) return json({ operation: "system.settings.inspect", result: settings });
+      if (url.endsWith("/api/v1/system/update")) return json({ current: { version: "0.61.0" }, latest: { tag: "v0.62.0", version: "0.62.0", name: "BoxPilot v0.62.0", url: "https://github.com/AES256Afro/BoxPilot/releases/tag/v0.62.0", publishedAt: "2026-08-21T16:00:00Z", prerelease: false, notes: null }, updateAvailable: true, checkedAt: "2026-08-21T16:05:00Z", error: null });
+      if (url.endsWith("/operations/system.update.status/inspect")) return json({ operation: "system.update.status", result: { units: [], log: ["[boxpilot-upgrade] BoxPilot 0.61.0 (v0.61.0) is live; 0 unit file(s) updated"], outcome: "live" } });
+      if (url.endsWith("/operations/system.update/jobs")) { staged = init?.body as string; return json({ job: { id: "job-up", type: "op:system.update", title: "Update BoxPilot", state: "awaiting_approval", risk: "high", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "high", passwordRequired: true, elevated: false, mode: "tiered", reason: "high risk" } }, 201); }
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SystemCenter csrfToken="csrf-token" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Update to v0.62.0" }));
+    expect(await screen.findByText("High risk")).toBeTruthy();
+    expect(screen.getByLabelText("Typed confirmation")).toBeTruthy();
+    expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { tag: "v0.62.0" } });
+    expect(screen.getByText(/Last update log — live/)).toBeTruthy();
+  });
+
   it("offers to enable the trim timer when it is disabled", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();

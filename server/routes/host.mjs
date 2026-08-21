@@ -10,7 +10,7 @@ import { approvalModes, elevationTtlMs } from "../ops/risk.mjs";
 import { findPortConflicts, listListeners } from "../ports.mjs";
 import { resolveValues } from "../catalog/schema.mjs";
 
-export function createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, supportBundle, audit, auth }) {
+export function createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, supportBundle, audit, auth }) {
   const router = Router();
 
   // Catalog: manifests come from the working tree; live state comes from the helper (tolerated when unavailable).
@@ -81,6 +81,11 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
 
   router.get("/integrations/github", async (_request, response) => {
     response.json(await githubProvenance.inspect());
+  });
+
+  // Self-update: the running version against the latest published GitHub release (cached 15 min).
+  router.get("/system/update", async (request, response) => {
+    response.json(await releaseUpdates.inspect({ refresh: request.query.refresh === "1" }));
   });
 
   router.get("/support-bundle", async (_request, response) => {
