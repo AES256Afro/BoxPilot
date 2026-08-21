@@ -1,0 +1,52 @@
+name: Install smoke test
+
+# Installs BoxPilot for real on a throwaway Ubuntu runner with the same script a fresh server
+# uses, then exercises the native deployment end to end: both systemd units, the health
+# endpoint, owner bootstrap, an authenticated API call, and a round trip through the root
+# helper socket (canary.verify).
+on:
+  push:
+    branches: [main, phase-0]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install BoxPilot from this commit with the production installer
+        run: sudo sh scripts/boxpilot-install.sh --ref "${GITHUB_SHA}" --access local --no-token
+
+      - name: Units are active and health reports this version
+        run: |
+          systemctl is-active boxpilot-helper.service boxpilot.service
+          version="$(node -p 'require("./package.json").version')"
+          body="$(curl -fsS http://127.0.0.1:8787/api/v1/health)"
+          echo "$body"
+          case "$body" in *"\"version\":\"${version}\""*) ;; *) echo "health did not report ${version}" >&2; exit 1 ;; esac
+
+      - name: Bootstrap the owner and call the API through the helper
+        run: |
+          token="$(sudo -u boxpilot /usr/local/bin/node /opt/boxpilot/scripts/boxpilot-owner.mjs create-bootstrap-token | sed -n '2p')"
+          jar="$(mktemp)"
+          curl -fsS -c "$jar" -H 'Content-Type: application/json' -X POST http://127.0.0.1:8787/api/v1/auth/bootstrap \
+            -d "$(printf '{"username":"ci-owner","password":"correct horse battery staple","bootstrapToken":"%s"}' "$token")" >/dev/null
+          status="$(curl -fsS -b "$jar" http://127.0.0.1:8787/api/v1/auth/status)"
+          echo "$status" | grep -q '"authenticated":true' || { echo "not authenticated after bootstrap: $status" >&2; exit 1; }
+          count="$(curl -fsS -b "$jar" http://127.0.0.1:8787/api/v1/operations | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).operations.length))')"
+          echo "registered operations: $count"
+          [ "$count" -ge 80 ] || { echo "expected at least 80 registered operations" >&2; exit 1; }
+          canary="$(curl -fsS -b "$jar" http://127.0.0.1:8787/api/v1/operations/canary.verify/inspect)"
+          echo "$canary"
+          echo "$canary" | grep -q '"verified":true' || { echo "helper canary did not verify" >&2; exit 1; }
+          curl -fsS -b "$jar" http://127.0.0.1:8787/api/v1/setup | grep -q '"profiles"' || { echo "setup profiles unavailable" >&2; exit 1; }
+
+      - name: Service journals
+        if: always()
+        run: sudo journalctl -u boxpilot-helper.service -u boxpilot.service --no-pager -n 120 || true
