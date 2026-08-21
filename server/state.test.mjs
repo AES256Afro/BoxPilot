@@ -18,32 +18,25 @@ afterEach(async () => {
 });
 
 describe("BoxPilot state store", () => {
-  it("migrates existing fleet tasks to an immediate dispatch window", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-state-legacy-fleet-"));
+  it("drops retired feature tables from an existing database", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-state-legacy-"));
     directories.push(directory);
     const databasePath = path.join(directory, "boxpilot.sqlite3");
     const legacy = new DatabaseSync(databasePath);
     legacy.exec(`
-      CREATE TABLE fleet_tasks (
-        id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, type TEXT NOT NULL, payload_json TEXT NOT NULL,
-        controller_acceptance_id TEXT, state TEXT NOT NULL, created_by TEXT NOT NULL,
-        created_at TEXT NOT NULL, expires_at TEXT NOT NULL, completed_at TEXT
-      );
-      INSERT INTO fleet_tasks VALUES (
-        '11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222',
-        'dns.pi-hole.acceptance.v1', '{}', NULL, 'expired', '33333333-3333-4333-8333-333333333333',
-        '2026-08-16T01:00:00.000Z', '2026-08-16T01:10:00.000Z', NULL
-      );
+      CREATE TABLE fleet_agents (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+      CREATE TABLE router_checkpoints (id TEXT PRIMARY KEY);
+      CREATE TABLE migration_sources (id TEXT PRIMARY KEY);
+      INSERT INTO fleet_agents VALUES ('11111111-1111-4111-8111-111111111111', 'porch-pi');
     `);
     legacy.close();
 
-    const store = createStateStore({ databasePath, stateDirectory: directory, now: () => new Date("2026-08-16T02:00:00.000Z") });
-    expect(store.listFleetTasks()).toEqual([expect.objectContaining({
-      availableAt: "2026-08-16T01:00:00.000Z",
-      createdAt: "2026-08-16T01:00:00.000Z",
-      routerAcceptanceId: null,
-      state: "expired",
-    })]);
+    const store = createStateStore({ databasePath, stateDirectory: directory });
+    const tables = new DatabaseSync(databasePath).prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((row) => row.name);
+    expect(tables).not.toContain("fleet_agents");
+    expect(tables).not.toContain("router_checkpoints");
+    expect(tables).not.toContain("migration_sources");
+    expect(tables).toContain("jobs");
     expect(store.listAudit()).toEqual([]);
     store.close();
   });
@@ -110,7 +103,7 @@ describe("BoxPilot state store", () => {
     store.close();
   });
 
-  it("persists immutable expiring plan revisions and stages them once", async () => {
+  it("persists immutable expiring plan revisions", async () => {
     const store = await testStore();
     const bootstrap = store.createBootstrapToken();
     const owner = store.consumeBootstrapToken(bootstrap.token, { username: "operator", passwordHash: "hash" });
@@ -123,8 +116,6 @@ describe("BoxPilot state store", () => {
     });
 
     expect(store.getPlan(plan.id)).toMatchObject({ revision: plan.revision, status: "draft", expired: false });
-    expect(store.stagePlan(plan.id, owner.id).status).toBe("staged");
-    expect(() => store.stagePlan(plan.id, owner.id)).toThrow("already been staged");
     store.close();
   });
 
@@ -203,39 +194,6 @@ describe("BoxPilot state store", () => {
     expect(store.listControllerRetentionRuns()).toEqual([retention]);
     expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "controller.backup.protected", subjectId: protection.id })]));
     expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "controller.retention.applied", subjectId: retention.id })]));
-    store.close();
-  });
-
-  it("records independent encrypted application protection separately from its local boot-tested archive", async () => {
-    const store = await testStore();
-    const bootstrap = store.createBootstrapToken();
-    const owner = store.consumeBootstrapToken(bootstrap.token, { username: "operator", passwordHash: "hash" });
-    const backupId = "11111111-1111-4111-8111-111111111111";
-    store.recordBackup({ id: backupId, applicationId: "pi-hole", destination: "local-managed", artifactPath: `/var/lib/boxpilot-managed/backups/pi-hole/${backupId}.tar.gz`, checksumSha256: "a".repeat(64), sizeBytes: 4096, downtimeMs: 250, restoreDrill: { passed: true, network: "none", publishedPorts: 0 }, createdBy: owner.id });
-    const protection = store.recordApplicationBackupProtection({ id: "22222222-2222-4222-8222-222222222222", backupId, applicationId: "pi-hole", destination: "mounted-restic-applications", repositoryId: "c".repeat(64), snapshotId: "d".repeat(64), sizeBytes: 4096, encrypted: true, independent: true, repositoryVerified: true, protected: true, restoreDrill: { passed: true, mode: "exact-snapshot-artifact-restore", network: "none", workspaceRemoved: true }, createdBy: owner.id });
-    expect(protection).toMatchObject({ backupId, applicationId: "pi-hole", encrypted: true, independent: true, repositoryVerified: true, protected: true });
-    expect(store.getApplicationBackupProtectionByBackup(backupId)).toEqual(protection);
-    expect(store.listApplicationBackupProtections()).toEqual([protection]);
-    expect(() => store.recordApplicationBackupProtection({ ...protection, id: "33333333-3333-4333-8333-333333333333" })).toThrow();
-    const retention = store.recordApplicationRetention({
-      id: "44444444-4444-4444-8444-444444444444",
-      repositoryId: protection.repositoryId,
-      beforeSnapshotSetRevision: "e".repeat(64),
-      afterSnapshotSetRevision: "f".repeat(64),
-      beforeCount: 4,
-      afterCount: 3,
-      forgotten: [{ protectionId: protection.id, backupId, applicationId: "pi-hole", snapshotId: protection.snapshotId }],
-      keptSnapshotIds: ["1".repeat(64), "2".repeat(64), "3".repeat(64)],
-      repositoryVerified: true,
-      complete: true,
-      prunePerformed: false,
-      createdBy: owner.id,
-    });
-    expect(retention).toMatchObject({ beforeCount: 4, afterCount: 3, repositoryVerified: true, complete: true, prunePerformed: false });
-    expect(store.getApplicationBackupProtection(protection.id)).toMatchObject({ protected: false, retained: false, retention: { runId: retention.id } });
-    expect(store.listApplicationRetentionRuns()).toEqual([retention]);
-    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "application.backup.protected", subjectId: protection.id })]));
-    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "application.retention.applied", subjectId: retention.id })]));
     store.close();
   });
 
@@ -322,39 +280,6 @@ describe("BoxPilot state store", () => {
     expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "vm.restore_drill.passed", subjectId: backup.id })]));
     expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "vm.recovery.created", subjectId: recovery.id })]));
     expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "vm.retention.applied", subjectId: retention.id })]));
-    store.close();
-  });
-
-  it("stores immutable sanitized migration source manifests by fingerprint", async () => {
-    const store = await testStore();
-    const bootstrap = store.createBootstrapToken();
-    const owner = store.consumeBootstrapToken(bootstrap.token, { username: "operator", passwordHash: "hash" });
-    const manifest = { schemaVersion: 1, source: { hostname: "oldbox", architecture: "x64" }, docker: { containers: [] } };
-    const first = store.importMigrationSource({ fingerprint: "sha256:fixture", manifest, importedBy: owner.id });
-    const duplicate = store.importMigrationSource({ fingerprint: "sha256:fixture", manifest, importedBy: owner.id });
-
-    expect(duplicate.id).toBe(first.id);
-    expect(store.listMigrationSources()).toEqual([expect.objectContaining({ fingerprint: "sha256:fixture", manifest })]);
-    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "migration.source.imported", subjectId: first.id })]));
-
-    const transfer = store.recordMigrationTransfer({
-      id: "11111111-1111-4111-8111-111111111111",
-      bundleId: "22222222-2222-4222-8222-222222222222",
-      sourceId: first.id,
-      sourceFingerprint: first.fingerprint,
-      contentRevision: "a".repeat(64),
-      workloadName: "keel-notes",
-      destination: "managed-migration-staging/22222222-2222-4222-8222-222222222222",
-      fileCount: 4,
-      sizeBytes: 8192,
-      contentVerified: true,
-      sourcePreserved: true,
-      activationPerformed: false,
-      createdBy: owner.id,
-    });
-    expect(transfer).toMatchObject({ bundleId: "22222222-2222-4222-8222-222222222222", workloadName: "keel-notes", contentVerified: true, sourcePreserved: true, activationPerformed: false });
-    expect(store.listMigrationTransfers()).toHaveLength(1);
-    expect(store.listAudit()).toEqual(expect.arrayContaining([expect.objectContaining({ type: "migration.transfer.verified", subjectId: transfer.id })]));
     store.close();
   });
 
