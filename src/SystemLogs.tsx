@@ -1,37 +1,88 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { inspectOperation } from "./operations";
 
-const sources = [
-  { id: "boxpilot", label: "BoxPilot" },
-  { id: "docker", label: "Docker" },
-  { id: "tailscale", label: "Tailscale" },
-  { id: "virtualization", label: "Virtualization" },
-] as const;
+interface Sources { groups: Array<{ id: string; label: string }>; units: Array<{ unit: string; description: string; active: string }>; containers: Array<{ name: string; state: string; image: string }>; dockerAvailable: boolean }
+type Kind = "group" | "unit" | "container";
 
-type Entry = { timestamp: string | null; unit: string; priority: number; message: string };
-
-export default function SystemLogs() {
-  const [source, setSource] = useState("boxpilot");
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [loading, setLoading] = useState(true);
+/** Logs: any journal group, systemd unit, or container — tail, time window, filter, follow, download. */
+export default function SystemLogs({ csrfToken = "" }: { csrfToken?: string }) {
+  const [sources, setSources] = useState<Sources | null>(null);
+  const [kind, setKind] = useState<Kind>("group");
+  const [target, setTarget] = useState("boxpilot");
+  const [lines, setLines] = useState(300);
+  const [since, setSince] = useState("");
+  const [filter, setFilter] = useState("");
+  const [follow, setFollow] = useState(false);
+  const [entries, setEntries] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pick, setPick] = useState("");
+  const pre = useRef<HTMLPreElement | null>(null);
 
-  const refresh = useCallback(async () => {
+  useEffect(() => { inspectOperation<Sources>("logs.sources").then(({ result }) => setSources(result)).catch((requestError: unknown) => setError(requestError instanceof Error ? requestError.message : "Could not list log sources")); }, []);
+
+  const read = useCallback(async () => {
+    if (!target) return;
     setLoading(true);
     try {
-      const response = await fetch(`/api/v1/logs?source=${source}&limit=100`);
-      const body = await response.json() as { entries?: Entry[]; error?: string };
-      if (!response.ok) throw new Error(body.error ?? "Logs are unavailable");
-      setEntries(body.entries ?? []);
-      setError(null);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Logs are unavailable");
-      setEntries([]);
+      const parameters: Record<string, unknown> = { kind, target, lines };
+      if (since.trim()) parameters.since = since.trim();
+      if (filter.trim()) parameters.filter = filter.trim();
+      const response = await fetch("/api/v1/operations/logs.read/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters }) });
+      const body = (await response.json()) as { result?: { lines: string[] }; error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Could not read logs");
+      setEntries(body.result?.lines ?? []); setError(null);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not read logs");
     } finally {
       setLoading(false);
     }
-  }, [source]);
+  }, [csrfToken, kind, target, lines, since, filter]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { void read(); }, [read]);
+  useEffect(() => { if (!follow) return undefined; const timer = window.setInterval(() => { void read(); }, 5000); return () => window.clearInterval(timer); }, [follow, read]);
+  useEffect(() => { if (follow && pre.current) pre.current.scrollTop = pre.current.scrollHeight; }, [entries, follow]);
 
-  return <section className="panel log-panel"><div className="log-toolbar"><div className="log-source-tabs">{sources.map((item) => <button className={source === item.id ? "active" : ""} type="button" key={item.id} onClick={() => setSource(item.id)}>{item.label}</button>)}</div><button className="secondary-button" type="button" onClick={() => void refresh()} disabled={loading}>{loading ? "Loading..." : "Refresh"}</button></div>{error && <p className="form-error" role="alert">{error}</p>}{!loading && !error && entries.length === 0 ? <div className="log-empty">No entries were returned for this fixed, redacted source.</div> : entries.map((entry, index) => <div className="log-row" key={`${entry.timestamp}-${entry.unit}-${index}`}><time>{entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "unknown"}</time><span>{entry.unit}</span><code>{entry.message}</code></div>)}</section>;
+  const unitOptions = useMemo(() => (sources?.units ?? []).filter((unit) => !pick || unit.unit.toLowerCase().includes(pick.toLowerCase())).slice(0, 200), [sources, pick]);
+  const select = (nextKind: Kind, nextTarget: string) => { setKind(nextKind); setTarget(nextTarget); };
+  const download = () => {
+    const blob = new Blob([entries.join("\n") + "\n"], { type: "text/plain" });
+    const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `${target.replace(/[^A-Za-z0-9._-]/g, "_")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.log`; anchor.click(); URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="logs-center">
+      <section className="panel">
+        <div className="log-toolbar">
+          <div className="log-source-tabs">
+            {(sources?.groups ?? [{ id: "boxpilot", label: "BoxPilot" }]).map((group) => <button key={group.id} className={kind === "group" && target === group.id ? "active" : ""} type="button" onClick={() => select("group", group.id)}>{group.label}</button>)}
+          </div>
+          <div className="recovery-actions">
+            <input aria-label="Find a unit" placeholder="Find a unit…" value={pick} onChange={(event) => setPick(event.target.value)} list="log-units" onKeyDown={(event) => { if (event.key === "Enter" && unitOptions[0]) select("unit", unitOptions[0].unit); }} />
+            <datalist id="log-units">{unitOptions.map((unit) => <option key={unit.unit} value={unit.unit}>{unit.description}</option>)}</datalist>
+            <button className="secondary-button" type="button" disabled={!unitOptions.some((unit) => unit.unit === pick)} onClick={() => select("unit", pick)}>Open unit</button>
+            {sources?.dockerAvailable && (
+              <select aria-label="Container" value={kind === "container" ? target : ""} onChange={(event) => event.target.value && select("container", event.target.value)}>
+                <option value="">Container…</option>
+                {sources.containers.map((container) => <option key={container.name} value={container.name}>{container.name} ({container.state})</option>)}
+              </select>
+            )}
+          </div>
+        </div>
+        <div className="log-toolbar">
+          <div className="recovery-actions">
+            <span className="muted">Showing <code>{kind === "group" ? (sources?.groups.find((group) => group.id === target)?.label ?? target) : target}</code></span>
+            <select aria-label="Lines" value={lines} onChange={(event) => setLines(Number.parseInt(event.target.value, 10))}>{[100, 300, 1000, 2000].map((count) => <option key={count} value={count}>{count} lines</option>)}</select>
+            <select aria-label="Since" value={since} onChange={(event) => setSince(event.target.value)}><option value="">any time</option><option value="15m">last 15 min</option><option value="1h">last hour</option><option value="6h">last 6 hours</option><option value="1d">last day</option><option value="7d">last 7 days</option></select>
+            <input aria-label="Filter" placeholder="Filter text…" value={filter} onChange={(event) => setFilter(event.target.value)} />
+            <label className="cloud-vm-check"><input type="checkbox" checked={follow} onChange={(event) => setFollow(event.target.checked)} /> Follow</label>
+            <button className="secondary-button" type="button" onClick={() => void read()} disabled={loading}>{loading ? "Loading…" : "Refresh"}</button>
+            <button className="text-button" type="button" onClick={download} disabled={entries.length === 0}>Download</button>
+          </div>
+        </div>
+        {error && <div className="auth-error" role="alert">{error}</div>}
+        <pre ref={pre} className="app-logs log-output" aria-label="Log output">{entries.length ? entries.join("\n") : loading ? "Loading…" : "No entries."}</pre>
+      </section>
+    </div>
+  );
 }

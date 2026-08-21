@@ -104,20 +104,6 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     }
   });
 
-  router.get("/logs", async (request, response) => {
-    const source = String(request.query.source ?? "boxpilot");
-    const limit = Number.parseInt(String(request.query.limit ?? "100"), 10);
-    if (!["boxpilot", "docker", "tailscale", "virtualization"].includes(source) || !Number.isInteger(limit) || limit < 1 || limit > 200) {
-      response.status(400).json({ error: "Choose a supported log source and a limit from 1 to 200", code: "invalid_log_query" });
-      return;
-    }
-    try {
-      response.json(await helper.request("system.logs.inspect", { source, limit }));
-    } catch {
-      response.status(503).json({ error: "The selected redacted log source is unavailable", code: "logs_unavailable" });
-    }
-  });
-
   router.get("/backups", (_request, response) => {
     response.json({ backups: state.listBackups(50) });
   });

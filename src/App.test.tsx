@@ -41,15 +41,17 @@ describe("BoxPilot console", () => {
     expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("verified restore drills");
   });
 
-  it("renders fixed redacted system logs", async () => {
+  it("renders the log viewer and the support bundle download", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       const body = url.includes("/auth/status")
         ? { bootstrapRequired: false, authenticated: true, owner: { id: "owner-one", username: "operator" }, csrfToken: "csrf-token", expiresAt: "2026-08-15T20:00:00Z" }
         : url.endsWith("/api/v1/inventory")
         ? inventoryFixture
-        : url.includes("/logs")
-        ? { source: "boxpilot", entries: [{ timestamp: "2026-08-14T12:00:00Z", unit: "boxpilot.service", priority: 6, message: "BoxPilot listening" }] }
+        : url.endsWith("/operations/logs.sources/inspect")
+        ? { operation: "logs.sources", result: { groups: [{ id: "boxpilot", label: "BoxPilot" }, { id: "kernel", label: "Kernel" }], units: [{ unit: "docker.service", description: "Docker", active: "active" }], containers: [], dockerAvailable: false } }
+        : url.endsWith("/operations/logs.read/run")
+        ? { operation: "logs.read", result: { kind: "group", target: "boxpilot", lines: ["2026-08-14T12:00:00+0000 host boxpilot[1]: BoxPilot listening"], truncated: false } }
         : { status: "ok", mode: "host-aware" };
       return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
     });
@@ -62,8 +64,8 @@ describe("BoxPilot console", () => {
     expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Logs/ }));
 
-    expect(await screen.findByText("BoxPilot listening")).toBeTruthy();
-    expect(screen.getByText("boxpilot.service")).toBeTruthy();
+    expect(await screen.findByText(/BoxPilot listening/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Kernel" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Download support bundle" }));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/support-bundle"));
   });

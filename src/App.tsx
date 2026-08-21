@@ -295,7 +295,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "virtualization") return <VirtualMachines csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "backups") return <BackupCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "github") return <GitHubCenter />;
-    if (view === "logs") return <SystemLogs />;
+    if (view === "logs") return <SystemLogs csrfToken={authStatus.csrfToken ?? ""} />;
     return <Settings apiMode={apiMode} csrfToken={authStatus.csrfToken ?? ""} />;
   }, [apiMode, authStatus.csrfToken, view]);
 

@@ -16,7 +16,7 @@ export function createSupportBundleService({ inventory, prerequisites, actionCen
       prerequisites.inspect(),
       actionCenter.inspect(),
       audit.list(100),
-      ...logSources.map((source) => helper.request("system.logs.inspect", { source, limit: 50 })),
+      ...logSources.map((source) => helper.request("logs.read", { kind: "group", target: source, lines: 50 }, { timeoutMs: 60_000 })),
     ]);
     const logs = Object.fromEntries(logSources.map((source, index) => [source, settled(logResults[index])]));
     const bundle = {
