@@ -82,82 +82,25 @@ export function createVmMediaService({
     }
   }
 
-  async function plan(filename, ownerId) {
+  /** Pin the staged ISO identity for the registry operation. */
+  async function prepareOperation({ filename } = {}) {
     if (!safeIsoFilename(filename)) throw new Error("Select a staged ISO from the fixed upload area");
     const state = await inspect();
     const candidate = state.inbox.candidates.find((item) => item.name === filename);
     if (!candidate) throw new Error("The staged ISO is unavailable or incomplete");
     if (state.library.images.some((item) => item.name === filename)) throw new Error("A managed ISO with this filename already exists");
-    const input = {
+    return {
       importId: randomUUID(),
       filename: candidate.name,
       expectedSizeBytes: candidate.sizeBytes,
       expectedSha256: candidate.sha256,
       expectedRevision: candidate.revision,
     };
-    const output = {
-      executable: true,
-      candidate,
-      destination: state.library.path,
-      changes: [
-        `Copy the exact ${candidate.sizeBytes}-byte staged ISO into the fixed managed libvirt media library`,
-        "Publish the new ISO atomically only after its complete SHA-256 matches",
-        "Remove the staging pair after the managed copy passes final verification",
-      ],
-      verification: [
-        "Recheck the staged filename, byte count, SHA-256, and revision after approval",
-        "Require enough free space for the copy plus a fixed 1 GiB reserve",
-        "Rehash both the staged source and final managed ISO",
-      ],
-      boundaries: [
-        "No existing ISO is overwritten",
-        "No browser path or destination is accepted",
-        "No VM, network, storage pool, firewall, Tailscale, or router state changes",
-      ],
-      recovery: "If import fails, remove only the generated partial or newly published exact-name ISO and preserve the staged upload.",
-      adapterRevision: candidate.revision,
-    };
-    const draft = store.createPlan({ type: "virtualization.media.import", subjectId: filename, input, output, createdBy: ownerId });
-    return { ...draft.output, id: draft.id, revision: draft.revision, status: draft.status, expiresAt: draft.expiresAt, input: draft.input };
   }
 
-  async function validateDraft(draft) {
-    const state = await inspect();
-    const candidate = state.inbox.candidates.find((item) => item.name === draft.input.filename);
-    if (!candidate || candidate.revision !== draft.input.expectedRevision || candidate.sizeBytes !== draft.input.expectedSizeBytes || candidate.sha256 !== draft.input.expectedSha256) throw new Error("Host state changed: the staged ISO no longer matches the reviewed plan");
-    if (state.library.images.some((item) => item.name === draft.input.filename)) throw new Error("Host state changed: a managed ISO with this filename now exists");
-    return draft;
-  }
 
-  async function stage(planId, revision, ownerId) {
-    const draft = store.getPlan(planId);
-    if (!draft || draft.createdBy !== ownerId || draft.type !== "virtualization.media.import") throw new Error("VM media import plan not found");
-    if (draft.revision !== revision) throw new Error("VM media import plan revision does not match");
-    await validateDraft(draft);
-    store.stagePlan(draft.id, ownerId);
-    return store.createJob({
-      type: "virtualization.media.import",
-      title: `Import VM installation media ${draft.subjectId}`,
-      risk: "medium",
-      parameters: { planId: draft.id, revision: draft.revision, input: draft.input },
-      recovery: { automaticRollback: true, reason: draft.output.recovery, manual: "Inspect only the fixed VM media staging and managed library directories before retrying." },
-      createdBy: ownerId,
-      initialSteps: [
-        { name: "preflight", state: "completed", detail: "Exact staged filename, byte count, SHA-256, revision, and destination absence validated" },
-        { name: "checkpoint", state: "completed", detail: "Existing media is immutable; rollback is confined to this import id and exact new filename" },
-      ],
-    });
-  }
 
-  async function validateJob(job) {
-    if (job.type !== "virtualization.media.import") throw new Error("Unsupported VM media import job");
-    const draft = store.getPlan(job.parameters.planId);
-    if (!draft || draft.status !== "staged" || draft.revision !== job.parameters.revision || draft.createdBy !== job.createdBy) throw new Error("The staged VM media import plan is unavailable or changed");
-    if (JSON.stringify(job.parameters.input) !== JSON.stringify(draft.input)) throw new Error("The staged VM media import job inputs do not match the approved plan");
-    return validateDraft(draft);
-  }
-
-  return { inspect, upload, plan, stage, validateJob };
+  return { inspect, upload, prepareOperation };
 }
 
 export const vmMediaInternals = { expectedUploadSize, reserveBytes };

@@ -114,65 +114,23 @@ export function createVmRetentionService({ store, helper, now = () => new Date()
     return { ...preview.output, retentionRuns: store.listVmRetentionRuns() };
   }
 
-  async function plan(ownerId) {
+  /** Pin the eligible candidate set and repository revisions for the registry operation. */
+  async function prepareOperation() {
     const preview = await buildPreview();
-    return store.createPlan({ type: "virtualization.export.backup.retention", subjectId: preview.input.repositoryId ?? "unavailable", input: preview.input, output: preview.output, createdBy: ownerId });
+    if (!preview.output.executable) throw new Error(preview.output.blockers?.[0] ?? "VM backup retention is not currently executable");
+    return { ...preview.input, candidates: preview.output.candidates, expectedBeforeCount: preview.output.beforeCount };
   }
 
-  async function revalidate(draft) {
-    const current = await buildPreview(draft.input.retentionId);
-    if (current.input.repositoryId !== draft.input.repositoryId
-      || current.input.expectedDestinationRevision !== draft.input.expectedDestinationRevision
-      || current.input.expectedSnapshotSetRevision !== draft.input.expectedSnapshotSetRevision
-      || !sameArray(current.input.forgetSnapshotIds, draft.input.forgetSnapshotIds)
-      || !sameArray(current.output.candidates, draft.output.candidates)
-      || !current.output.executable) {
-      throw new Error("The repository, backup evidence, recovery references, or retention candidate set changed after planning");
-    }
-    return current;
-  }
-
-  async function stage(planId, revision, ownerId) {
-    const draft = store.getPlan(planId);
-    if (!draft || draft.createdBy !== ownerId || draft.type !== "virtualization.export.backup.retention") throw new Error("VM retention plan not found");
-    if (draft.revision !== revision) throw new Error("VM retention plan revision does not match");
-    if (!draft.output.executable) throw new Error(draft.output.blockers.join(" | ") || "VM retention plan is not executable");
-    await revalidate(draft);
-    store.stagePlan(draft.id, ownerId);
-    return store.createJob({
-      type: "virtualization.export.backup.retention.apply",
-      title: `Apply guarded retention to ${draft.output.candidates.length} VM backup(s)`,
-      risk: "high",
-      parameters: { planId: draft.id, revision: draft.revision, input: draft.input },
-      recovery: { automaticRollback: false, reason: draft.output.recovery, manual: draft.output.recovery },
-      createdBy: ownerId,
-      initialSteps: [
-        { name: "preflight", state: "completed", detail: "Repository identity, exact snapshot set, protected restore evidence, age, minimum-copy floor, and recovery references validated" },
-        { name: "checkpoint", state: "completed", detail: "Exact candidate ids recorded; source VMs and local exports remain unchanged; prune is disabled" },
-      ],
-    });
-  }
-
-  async function validateJob(job) {
-    if (job.type !== "virtualization.export.backup.retention.apply") throw new Error("Unsupported VM retention job");
-    const staged = store.getPlan(job.parameters.planId);
-    if (!staged || staged.status !== "staged" || staged.revision !== job.parameters.revision) throw new Error("The staged VM retention plan is unavailable or changed");
-    if (staged.createdBy !== job.createdBy || JSON.stringify(job.parameters.input) !== JSON.stringify(staged.input)) throw new Error("The VM retention job inputs do not match the approved plan");
-    await revalidate(staged);
-    return staged;
-  }
-
-  function recordResult(job, result) {
-    const staged = store.getPlan(job.parameters.planId);
-    const input = job.parameters.input;
+  function recordOperation(job, result) {
+    const input = job.parameters;
     const approved = new Set(input.forgetSnapshotIds);
     const actualSnapshotIds = Array.isArray(result?.forgottenSnapshotIds) ? result.forgottenSnapshotIds : [];
     const actualSet = new Set(actualSnapshotIds);
-    const forgotten = staged.output.candidates
+    const forgotten = input.candidates
       .filter((candidate) => actualSet.has(candidate.snapshotId))
       .map((candidate) => ({ backupId: candidate.backupId, snapshotId: candidate.snapshotId, domainName: candidate.domainName }));
     if (result?.applied !== true || result?.retentionId !== input.retentionId || result?.repositoryId !== input.repositoryId
-      || result?.beforeSnapshotSetRevision !== input.expectedSnapshotSetRevision || result?.beforeCount !== staged.output.beforeCount
+      || result?.beforeSnapshotSetRevision !== input.expectedSnapshotSetRevision || result?.beforeCount !== input.expectedBeforeCount
       || actualSnapshotIds.length < 1 || actualSet.size !== actualSnapshotIds.length || actualSnapshotIds.some((id) => !approved.has(id))
       || forgotten.length !== actualSnapshotIds.length || result?.prunePerformed !== false || result?.spaceReclaimed !== false
       || (result?.repositoryVerified === true && (result?.complete !== true || !sameArray(actualSnapshotIds, input.forgetSnapshotIds)
@@ -196,7 +154,7 @@ export function createVmRetentionService({ store, helper, now = () => new Date()
     });
   }
 
-  return { inspect, plan, stage, validateJob, recordResult };
+  return { inspect, prepareOperation, recordOperation };
 }
 
 export const vmRetentionInternals = { minimumAgeDays, minimumCopiesPerDomain, selectRetentionCandidates };

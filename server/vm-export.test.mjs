@@ -54,50 +54,38 @@ describe("guarded stopped VM exports", () => {
     ]);
   });
 
-  it("creates and stages a local export without claiming backup protection", async () => {
-    const { store, owner, helper, service } = await setup();
-    const plan = await service.plan("ubuntu-lab", owner.id);
-    expect(plan).toMatchObject({
-      type: "virtualization.export.create",
-      input: { expectedUuid: uuid, expectedState: "stopped" },
-      output: { executable: true, destination: "local-managed", protected: false, encrypted: false, restoreDrill: { passed: false } },
-    });
-    expect(plan.output.warnings.join(" ")).toContain("does not protect against host or disk loss");
-    const job = await service.stage(plan.id, plan.revision, owner.id);
-    expect(job).toMatchObject({ type: "virtualization.domain.export.create", state: "awaiting_approval", risk: "medium" });
-    await expect(service.validateJob(job)).resolves.toMatchObject({ id: plan.id, status: "staged" });
+  it("pins the exact stopped-domain topology into the operation parameters", async () => {
+    const { store, helper, service } = await setup();
+    const parameters = await service.prepareOperation({ name: "ubuntu-lab" });
+    expect(parameters).toMatchObject({ name: "ubuntu-lab", expectedUuid: uuid, expectedState: "stopped" });
+    expect(parameters.exportId).toMatch(/^[a-f0-9-]{36}$/);
+    expect(parameters.expectedDiskRevision).toMatch(/^[a-f0-9]{64}$/);
+    expect(parameters.expectedSnapshotRevision).toMatch(/^[a-f0-9]{64}$/);
     expect(helper.request).toHaveBeenCalledWith("virtualization.domain.export.inspect", { name: "ubuntu-lab" });
     store.close();
   });
 
-  it("rejects state, disk, and capacity drift", async () => {
-    const { store, owner, setDomain, service } = await setup();
-    const plan = await service.plan("ubuntu-lab", owner.id);
+  it("rejects running domains and helper/inventory drift", async () => {
+    const { store, setDomain, service } = await setup();
     setDomain({
       name: "ubuntu-lab", uuid, managed: true, persistent: true, state: "running", snapshotCount: 1,
       snapshots: [{ name: "clean-install" }],
       disks: [{ type: "file", device: "disk", target: "vda", source: "/var/lib/libvirt/images/ubuntu-lab.qcow2" }],
     });
-    await expect(service.stage(plan.id, plan.revision, owner.id)).rejects.toThrow("only while they are stopped");
-    setDomain({
-      name: "ubuntu-lab", uuid, managed: true, persistent: true, state: "stopped", snapshotCount: 1,
-      snapshots: [{ name: "clean-install" }],
-      disks: [{ type: "file", device: "disk", target: "vda", source: "/var/lib/libvirt/images/substituted.qcow2" }],
-    });
-    await expect(service.stage(plan.id, plan.revision, owner.id)).rejects.toThrow("Host state changed");
+    await expect(service.prepareOperation({ name: "ubuntu-lab" })).rejects.toThrow("only while they are stopped");
     store.close();
   });
 
   it("records only verified evidence and preserves honest protection flags", async () => {
     const { store, owner, service } = await setup();
-    const plan = await service.plan("ubuntu-lab", owner.id);
-    const job = await service.stage(plan.id, plan.revision, owner.id);
+    const parameters = await service.prepareOperation({ name: "ubuntu-lab" });
+    const job = { parameters, createdBy: owner.id };
     const result = {
-      exportId: plan.input.exportId,
+      exportId: parameters.exportId,
       domain: "ubuntu-lab",
       uuid,
       destination: "local-managed",
-      artifactPath: `/var/lib/boxpilot-managed/vm-exports/${plan.input.exportId}`,
+      artifactPath: `/var/lib/boxpilot-managed/vm-exports/${parameters.exportId}`,
       manifestChecksumSha256: "a".repeat(64),
       sizeBytes: 8192,
       contentVerified: true,
@@ -105,9 +93,9 @@ describe("guarded stopped VM exports", () => {
       encrypted: false,
       restoreDrill: { passed: false, reason: "not run" },
     };
-    expect(service.recordResult(job, result)).toMatchObject({ protected: false, encrypted: false, restoreDrill: { passed: false } });
+    expect(service.recordOperation(job, result)).toMatchObject({ protected: false, encrypted: false, restoreDrill: { passed: false } });
     expect(service.list().exports).toHaveLength(1);
-    expect(() => service.recordResult(job, { ...result, protected: true })).toThrow("evidence validation failed");
+    expect(() => service.recordOperation(job, { ...result, protected: true })).toThrow("evidence validation failed");
     store.close();
   });
 });

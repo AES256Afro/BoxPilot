@@ -36,44 +36,36 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-describe("VM encrypted independent protection planning", () => {
-  it("reports destination blockers without staging an unsafe job", async () => {
-    const { store, owner, service } = await setup({ ready: false });
-    const plan = await service.plan(exportId, owner.id);
-    expect(plan).toMatchObject({ output: { executable: false, encrypted: false, independent: false, protected: false } });
-    expect(plan.output.blockers).toContain("Install restic before configuring VM protection");
-    await expect(service.stage(plan.id, plan.revision, owner.id)).rejects.toThrow("Install restic");
+describe("VM encrypted independent protection", () => {
+  it("refuses to prepare when the destination is not ready", async () => {
+    const { store, service } = await setup({ ready: false });
+    await expect(service.prepareOperation({ exportId })).rejects.toThrow("Install restic");
     store.close();
   });
 
-  it("creates, revalidates, and stages a secret-free immutable protection plan", async () => {
-    const { store, owner, helper, service } = await setup();
-    const plan = await service.plan(exportId, owner.id);
-    expect(plan).toMatchObject({
-      type: "virtualization.export.backup",
-      input: { exportId, domainName: "ubuntu-lab", domainUuid, expectedManifestChecksumSha256: "a".repeat(64), expectedSizeBytes: 8192, expectedDestinationRevision: "c".repeat(64) },
-      output: { executable: true, destination: "mounted-restic", encrypted: true, independent: true, repositoryVerified: false, protected: false, restoreDrill: { passed: false } },
-    });
-    expect(JSON.stringify(plan.input)).not.toMatch(/password|path|repository/i);
-    const job = await service.stage(plan.id, plan.revision, owner.id);
-    expect(job).toMatchObject({ type: "virtualization.export.backup.create", state: "awaiting_approval", risk: "medium" });
-    await expect(service.validateJob(job)).resolves.toMatchObject({ id: plan.id, status: "staged" });
+  it("pins secret-free export evidence and destination revision into the parameters", async () => {
+    const { store, helper, service } = await setup();
+    const parameters = await service.prepareOperation({ exportId });
+    expect(parameters).toMatchObject({ exportId, domainName: "ubuntu-lab", domainUuid, expectedManifestChecksumSha256: "a".repeat(64), expectedSizeBytes: 8192, expectedDestinationRevision: "c".repeat(64) });
+    expect(parameters.backupId).toMatch(/^[a-f0-9-]{36}$/);
+    expect(JSON.stringify(parameters)).not.toMatch(/password|path|repository/i);
     expect(helper.request).toHaveBeenCalledWith("virtualization.export.backup.inspect", {});
+    await expect(service.prepareOperation({ exportId: "99999999-9999-4999-8999-999999999999" })).rejects.toThrow("VM export not found");
     store.close();
   });
 
   it("records encrypted repository evidence without claiming restore protection", async () => {
     const { store, owner, service } = await setup();
-    const plan = await service.plan(exportId, owner.id);
-    const job = await service.stage(plan.id, plan.revision, owner.id);
+    const parameters = await service.prepareOperation({ exportId });
+    const job = { parameters, createdBy: owner.id };
     const result = {
-      created: true, backupId: plan.input.backupId, exportId, domain: "ubuntu-lab", domainUuid,
+      created: true, backupId: parameters.backupId, exportId, domain: "ubuntu-lab", domainUuid,
       destination: "mounted-restic", repositoryId: "b".repeat(64), snapshotId: "d".repeat(64), sizeBytes: 8192, fileCount: 3,
       encrypted: true, independent: true, repositoryVerified: true, protected: false, restoreDrill: { passed: false, reason: "not run" },
     };
-    expect(service.recordResult(job, result)).toMatchObject({ encrypted: true, independent: true, repositoryVerified: true, protected: false, restoreDrill: { passed: false } });
+    expect(service.recordOperation(job, result)).toMatchObject({ encrypted: true, independent: true, repositoryVerified: true, protected: false, restoreDrill: { passed: false } });
     expect((await service.list()).backups).toHaveLength(1);
-    expect(() => service.recordResult(job, { ...result, protected: true })).toThrow("evidence validation failed");
+    expect(() => service.recordOperation(job, { ...result, protected: true })).toThrow("evidence validation failed");
     store.close();
   });
 });

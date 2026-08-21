@@ -44,53 +44,45 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-describe("VM isolated restore drill planning", () => {
-  it("creates and stages a no-network transient drill plan", async () => {
-    const { store, owner, helper, service } = await setup();
-    const plan = await service.plan(backupId, owner.id);
-    expect(plan).toMatchObject({
-      type: "virtualization.export.backup.restore-drill",
-      input: { backupId, exportId, domainName: "ubuntu-lab", domainUuid, repositoryId, snapshotId, expectedManifestChecksumSha256: "d".repeat(64), expectedSizeBytes: 8192, expectedDestinationRevision: destinationRevision },
-      output: { executable: true, network: "none", transient: true, protected: false, protectedOnSuccess: true },
-    });
-    expect(JSON.stringify(plan.input)).not.toMatch(/password|path|command/i);
-    const job = await service.stage(plan.id, plan.revision, owner.id);
-    expect(job).toMatchObject({ type: "virtualization.export.backup.restore-drill", state: "awaiting_approval", risk: "medium" });
-    await expect(service.validateJob(job)).resolves.toMatchObject({ id: plan.id, status: "staged" });
-    expect(helper.request).toHaveBeenCalledWith("virtualization.export.backup.restore-drill.inspect", plan.input);
+describe("VM isolated restore drill", () => {
+  it("pins the protected-backup evidence into no-network drill parameters", async () => {
+    const { store, helper, service } = await setup();
+    const parameters = await service.prepareOperation({ backupId });
+    expect(parameters).toMatchObject({ backupId, exportId, domainName: "ubuntu-lab", domainUuid, repositoryId, snapshotId, expectedManifestChecksumSha256: "d".repeat(64), expectedSizeBytes: 8192, expectedDestinationRevision: destinationRevision });
+    expect(parameters.drillId).toMatch(/^[a-f0-9-]{36}$/);
+    expect(JSON.stringify(parameters)).not.toMatch(/password|path|command/i);
+    expect(helper.request).toHaveBeenCalledWith("virtualization.export.backup.restore-drill.inspect", parameters);
     store.close();
   });
 
-  it("does not stage when the repository or temporary capacity is unavailable", async () => {
-    const { store, owner, service } = await setup({ ready: false });
-    const plan = await service.plan(backupId, owner.id);
-    expect(plan.output).toMatchObject({ executable: false, blockers: ["Repository unavailable"] });
-    await expect(service.stage(plan.id, plan.revision, owner.id)).rejects.toThrow("Repository unavailable");
+  it("refuses preparation when the repository or temporary capacity is unavailable", async () => {
+    const { store, service } = await setup({ ready: false });
+    await expect(service.prepareOperation({ backupId })).rejects.toThrow("Repository unavailable");
     store.close();
   });
 
-  it("never plans a restore drill from a snapshot already forgotten by retention", async () => {
+  it("never prepares a restore drill from a snapshot already forgotten by retention", async () => {
     const { store, owner, service } = await setup();
     store.recordVmRetention({
       id: "99999999-9999-4999-8999-999999999999", repositoryId, beforeSnapshotSetRevision: "e".repeat(64), afterSnapshotSetRevision: "f".repeat(64),
       beforeCount: 2, afterCount: 1, forgotten: [{ backupId, snapshotId, domainName: "ubuntu-lab" }], keptSnapshotIds: [], repositoryVerified: true, prunePerformed: false, createdBy: owner.id,
     });
-    await expect(service.plan(backupId, owner.id)).rejects.toThrow("forgotten by an approved retention run");
+    await expect(service.prepareOperation({ backupId })).rejects.toThrow("forgotten by an approved retention run");
     store.close();
   });
 
   it("promotes only strict passing restore evidence to protected", async () => {
     const { store, owner, service } = await setup();
-    const plan = await service.plan(backupId, owner.id);
-    const job = await service.stage(plan.id, plan.revision, owner.id);
+    const parameters = await service.prepareOperation({ backupId });
+    const job = { parameters, createdBy: owner.id };
     const result = {
-      passed: true, drillId: plan.input.drillId, backupId, exportId, domain: "ubuntu-lab", domainUuid, repositoryId, snapshotId,
+      passed: true, drillId: parameters.drillId, backupId, exportId, domain: "ubuntu-lab", domainUuid, repositoryId, snapshotId,
       sizeBytes: 8192, fileCount: 3, network: "none", transient: true, persistentDomainCreated: false, guestAgentPing: true,
       restoredChecksumsVerified: true, restoredDisksVerified: true, temporaryQemuDiskAccessGranted: true,
       temporaryQemuDiskAccessRemoved: true, transientFirmwareStateRemoved: true, cleanupVerified: true, protected: true,
     };
-    expect(service.recordResult(job, result)).toMatchObject({ protected: true, restoreDrill: { passed: true, network: "none", guestAgentPing: true, cleanupVerified: true } });
-    expect(() => service.recordResult(job, { ...result, network: "default" })).toThrow("evidence validation failed");
+    expect(service.recordOperation(job, result)).toMatchObject({ protected: true, restoreDrill: { passed: true, network: "none", guestAgentPing: true, cleanupVerified: true } });
+    expect(() => service.recordOperation(job, { ...result, network: "default" })).toThrow("evidence validation failed");
     store.close();
   });
 });

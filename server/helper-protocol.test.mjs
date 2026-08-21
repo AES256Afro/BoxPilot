@@ -162,61 +162,32 @@ describe("restricted helper protocol", () => {
     expect(result).toMatchObject({ ok: true, result: { available: true, version: "29.1.3" } });
   });
 
-  it("accepts only a server-generated controller backup id and delegates no path or command", async () => {
-    const backupId = randomUUID();
+  it("keeps controller backup inspection read-only and routes creation through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "controller.database.backup.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "controller.database.backup.inspect", parameters: { database: "/tmp/db" } }))).toContain("no parameters");
-    expect(validateHelperRequest(request({ operation: "controller.database.backup.create", parameters: { backupId } }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "controller.database.backup.create", parameters: { backupId: "../../etc" } }))).toContain("backupId UUID");
-    expect(validateHelperRequest(request({ operation: "controller.database.backup.create", parameters: { backupId, destination: "/tmp" } }))).toContain("only one backupId");
+    expect(validateHelperRequest(request({ operation: "controller.database.backup.create", parameters: { backupId: randomUUID() } }))).toBe("Operation is not allowlisted");
     const controllerBackups = {
       inspect: async () => ({ healthy: true, boundary: { mutationPerformed: false } }),
       createBackup: async (parameters) => ({ ...parameters, applicationId: "boxpilot-controller", consistentSnapshot: true, restoreDrill: { passed: true } }),
     };
     await expect(executeHelperOperation(request({ operation: "controller.database.backup.inspect", parameters: {} }), { controllerBackups })).resolves.toMatchObject({ ok: true, result: { healthy: true, boundary: { mutationPerformed: false } } });
-    await expect(executeHelperOperation(request({ operation: "controller.database.backup.create", parameters: { backupId } }), { controllerBackups })).resolves.toMatchObject({ ok: true, result: { backupId, applicationId: "boxpilot-controller", consistentSnapshot: true, restoreDrill: { passed: true } } });
+    await expect(executeHelperOperation(request({ operation: "controller.backup.create", parameters: {} }), { controllerBackups })).resolves.toMatchObject({ ok: true, result: { applicationId: "boxpilot-controller", consistentSnapshot: true } });
   });
 
-  it("accepts only fixed controller protection evidence and never a path, password, repository, or restic argument", async () => {
-    const parameters = {
-      protectionId: randomUUID(),
-      backupId: randomUUID(),
-      expectedArtifactChecksumSha256: "a".repeat(64),
-      expectedManifestChecksumSha256: "b".repeat(64),
-      expectedSizeBytes: 8192,
-      expectedDestinationRevision: "c".repeat(64),
-    };
+  it("keeps controller protection inspection read-only and rejects the legacy create", async () => {
     expect(validateHelperRequest(request({ operation: "controller.database.protection.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "controller.database.protection.inspect", parameters: { repository: "/tmp" } }))).toContain("no parameters");
-    expect(validateHelperRequest(request({ operation: "controller.database.protection.create", parameters }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "controller.database.protection.create", parameters: { ...parameters, path: "/tmp" } }))).toContain("fixed typed evidence");
-    expect(validateHelperRequest(request({ operation: "controller.database.protection.create", parameters: { ...parameters, protectionId: "../../etc" } }))).toContain("Protection id");
-    const controllerProtection = {
-      inspect: async () => ({ ready: false, setupCommand: "sudo setup", boundary: { mutationPerformed: false } }),
-      protect: async (input) => ({ ...input, created: true, protected: true, boundary: { browserPathAccepted: false } }),
-    };
+    expect(validateHelperRequest(request({ operation: "controller.database.protection.create", parameters: { protectionId: randomUUID() } }))).toBe("Operation is not allowlisted");
+    const controllerProtection = { inspect: async () => ({ ready: false, setupCommand: "sudo setup", boundary: { mutationPerformed: false } }) };
     await expect(executeHelperOperation(request({ operation: "controller.database.protection.inspect", parameters: {} }), { controllerProtection })).resolves.toMatchObject({ ok: true, result: { ready: false, boundary: { mutationPerformed: false } } });
-    await expect(executeHelperOperation(request({ operation: "controller.database.protection.create", parameters }), { controllerProtection })).resolves.toMatchObject({ ok: true, result: { protectionId: parameters.protectionId, backupId: parameters.backupId, created: true, protected: true } });
   });
 
-  it("accepts only exact controller retention evidence and delegates no selector, path, password, or prune flag", async () => {
-    const parameters = {
-      retentionId: randomUUID(),
-      repositoryId: "a".repeat(64),
-      expectedDestinationRevision: "b".repeat(64),
-      expectedSnapshotSetRevision: "c".repeat(64),
-      forgetSnapshotIds: ["d".repeat(64)],
-    };
+  it("keeps controller retention inspection read-only and rejects the legacy apply", async () => {
     expect(validateHelperRequest(request({ operation: "controller.database.protection.retention.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "controller.database.protection.retention.inspect", parameters: { repository: "/tmp" } }))).toContain("no parameters");
-    expect(validateHelperRequest(request({ operation: "controller.database.protection.retention.apply", parameters }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "controller.database.protection.retention.apply", parameters: { ...parameters, prune: true } }))).toContain("fixed typed evidence");
-    const controllerRetention = {
-      inspect: async () => ({ ready: true, snapshots: [] }),
-      apply: async (input) => ({ ...input, applied: true, complete: true, prunePerformed: false }),
-    };
+    expect(validateHelperRequest(request({ operation: "controller.database.protection.retention.apply", parameters: { retentionId: randomUUID() } }))).toBe("Operation is not allowlisted");
+    const controllerRetention = { inspect: async () => ({ ready: true, snapshots: [] }) };
     await expect(executeHelperOperation(request({ operation: "controller.database.protection.retention.inspect", parameters: {} }), { controllerRetention })).resolves.toMatchObject({ ok: true, result: { ready: true, snapshots: [] } });
-    await expect(executeHelperOperation(request({ operation: "controller.database.protection.retention.apply", parameters }), { controllerRetention })).resolves.toMatchObject({ ok: true, result: { retentionId: parameters.retentionId, applied: true, complete: true, prunePerformed: false } });
   });
 
   it("rejects incompatible versions and malformed ids", () => {
@@ -224,28 +195,23 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ id: "not-a-uuid" }))).toBe("Request id must be a UUID");
   });
 
-  it("accepts only typed VM fields and delegates no command or path", async () => {
-    expect(validateHelperRequest(request({ operation: "virtualization.domain.create", parameters: vmParameters() }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "virtualization.domain.create", parameters: vmParameters({ arguments: ["--name", "evil"] }) }))).toContain("only the fixed typed plan fields");
-    expect(validateHelperRequest(request({ operation: "virtualization.domain.create", parameters: vmParameters({ path: "/tmp/evil.iso" }) }))).toContain("only the fixed typed plan fields");
-    expect(validateHelperRequest(request({ operation: "virtualization.domain.create", parameters: vmParameters({ program: "/bin/sh" }) }))).toContain("only the fixed typed plan fields");
+  it("routes VM creation through the registry and rejects the legacy operation", async () => {
+    expect(validateHelperRequest(request({ operation: "virtualization.domain.create", parameters: vmParameters() }))).toBe("Operation is not allowlisted");
     const virtualization = { create: async (parameters) => ({ created: true, verified: true, domain: parameters.name }) };
-    const result = await executeHelperOperation(request({ operation: "virtualization.domain.create", parameters: vmParameters() }), { virtualization });
+    const result = await executeHelperOperation(request({ operation: "vm.create", parameters: vmParameters() }), { virtualization });
     expect(result).toMatchObject({ ok: true, result: { created: true, verified: true, domain: "ubuntu-lab" } });
   });
 
-  it("accepts only fixed VM media evidence and no browser path", async () => {
+  it("keeps VM media inspection read-only and routes the import through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.media.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "virtualization.media.inspect", parameters: { path: "/tmp" } }))).toContain("no parameters");
-    expect(validateHelperRequest(request({ operation: "virtualization.media.import", parameters: vmMediaParameters() }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "virtualization.media.import", parameters: vmMediaParameters({ filename: "../ubuntu.iso" }) }))).toContain("filename is invalid");
-    expect(validateHelperRequest(request({ operation: "virtualization.media.import", parameters: vmMediaParameters({ destination: "/etc" }) }))).toContain("only the fixed evidence fields");
+    expect(validateHelperRequest(request({ operation: "virtualization.media.import", parameters: vmMediaParameters() }))).toBe("Operation is not allowlisted");
     const vmMedia = {
       inspect: async () => ({ inbox: { candidates: [] }, boundary: { mutationPerformed: false } }),
       importMedia: async (parameters) => ({ imported: true, verified: true, filename: parameters.filename, sha256: parameters.expectedSha256 }),
     };
     await expect(executeHelperOperation(request({ operation: "virtualization.media.inspect", parameters: {} }), { vmMedia })).resolves.toMatchObject({ ok: true, result: { boundary: { mutationPerformed: false } } });
-    await expect(executeHelperOperation(request({ operation: "virtualization.media.import", parameters: vmMediaParameters() }), { vmMedia })).resolves.toMatchObject({ ok: true, result: { imported: true, filename: "ubuntu.iso" } });
+    await expect(executeHelperOperation(request({ operation: "vm.media.import", parameters: vmMediaParameters() }), { vmMedia })).resolves.toMatchObject({ ok: true, result: { imported: true, filename: "ubuntu.iso" } });
   });
 
   it("accepts only fixed read-only virtualization inventory scopes", async () => {
@@ -257,20 +223,16 @@ describe("restricted helper protocol", () => {
     expect(result).toMatchObject({ ok: true, result: { scope: "resources", connected: true } });
   });
 
-  it("accepts only the fixed libvirt foundation identity and state revision", async () => {
-    const foundationId = "123e4567-e89b-42d3-a456-426614174000";
-    const expectedRevision = "a".repeat(64);
+  it("keeps foundation inspection read-only and routes initialization through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.foundation.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "virtualization.foundation.inspect", parameters: { pool: "custom" } }))).toContain("no parameters");
-    expect(validateHelperRequest(request({ operation: "virtualization.foundation.initialize", parameters: { foundationId, expectedRevision } }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "virtualization.foundation.initialize", parameters: { foundationId, expectedRevision, network: "bridge" } }))).toContain("only one server-generated id");
-    expect(validateHelperRequest(request({ operation: "virtualization.foundation.initialize", parameters: { foundationId, expectedRevision: "$(id)" } }))).toContain("only one server-generated id");
+    expect(validateHelperRequest(request({ operation: "virtualization.foundation.initialize", parameters: { foundationId: randomUUID(), expectedRevision: "a".repeat(64) } }))).toBe("Operation is not allowlisted");
     const foundation = {
-      inspect: async () => ({ ready: false, revision: expectedRevision, mutationPerformed: false }),
-      initialize: async () => ({ initialized: true, foundationId, revisionBefore: expectedRevision, ready: true }),
+      inspect: async () => ({ ready: false, revision: "a".repeat(64), mutationPerformed: false }),
+      initialize: async () => ({ initialized: true, ready: true }),
     };
-    await expect(executeHelperOperation(request({ operation: "virtualization.foundation.inspect", parameters: {} }), { foundation })).resolves.toMatchObject({ ok: true, result: { ready: false, revision: expectedRevision } });
-    await expect(executeHelperOperation(request({ operation: "virtualization.foundation.initialize", parameters: { foundationId, expectedRevision } }), { foundation })).resolves.toMatchObject({ ok: true, result: { initialized: true, foundationId, ready: true } });
+    await expect(executeHelperOperation(request({ operation: "virtualization.foundation.inspect", parameters: {} }), { foundation })).resolves.toMatchObject({ ok: true, result: { ready: false } });
+    await expect(executeHelperOperation(request({ operation: "vm.foundation.initialize", parameters: {} }), { foundation })).resolves.toMatchObject({ ok: true, result: { initialized: true, ready: true } });
   });
 
   it("accepts only a parameter-free console handoff inspection", async () => {
@@ -281,69 +243,63 @@ describe("restricted helper protocol", () => {
     expect(result).toMatchObject({ ok: true, result: { nativeProxyAvailable: false, cockpit: { active: true, port: 9090 } } });
   });
 
-  it("accepts only exact stopped-VM export fields and keeps destination paths server-owned", async () => {
+  it("keeps export inspection exact and routes export creation through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.domain.export.inspect", parameters: { name: "ubuntu-lab" } }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "virtualization.domain.export.inspect", parameters: { name: "../../etc" } }))).toContain("exact domain name");
-    expect(validateHelperRequest(request({ operation: "virtualization.domain.export.create", parameters: exportParameters() }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "virtualization.domain.export.create", parameters: exportParameters({ path: "/tmp/evil" }) }))).toContain("only the fixed typed plan fields");
+    expect(validateHelperRequest(request({ operation: "virtualization.domain.export.create", parameters: exportParameters() }))).toBe("Operation is not allowlisted");
     const virtualization = {
       inspectExport: async ({ name }) => ({ domain: name, state: "stopped" }),
       createExport: async (parameters) => ({ created: true, contentVerified: true, domain: parameters.name, exportId: parameters.exportId, protected: false }),
     };
     await expect(executeHelperOperation(request({ operation: "virtualization.domain.export.inspect", parameters: { name: "ubuntu-lab" } }), { virtualization })).resolves.toMatchObject({ ok: true, result: { state: "stopped" } });
-    await expect(executeHelperOperation(request({ operation: "virtualization.domain.export.create", parameters: exportParameters() }), { virtualization })).resolves.toMatchObject({ ok: true, result: { contentVerified: true, protected: false } });
+    await expect(executeHelperOperation(request({ operation: "vm.export.create", parameters: exportParameters() }), { virtualization })).resolves.toMatchObject({ ok: true, result: { contentVerified: true, protected: false } });
   });
 
-  it("accepts only secret-free VM protection fields and delegates fixed destination handling", async () => {
+  it("keeps protection inspection read-only and routes the encrypted backup through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.export.backup.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "virtualization.export.backup.inspect", parameters: { repository: "/tmp" } }))).toContain("accepts no parameters");
-    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.create", parameters: protectionParameters() }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.create", parameters: protectionParameters({ password: "secret" }) }))).toContain("only the fixed typed plan fields");
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.create", parameters: protectionParameters() }))).toBe("Operation is not allowlisted");
     const vmProtection = {
       inspect: async () => ({ ready: true, encrypted: true, independent: true }),
       createBackup: async (parameters) => ({ created: true, backupId: parameters.backupId, encrypted: true, independent: true, protected: false }),
     };
     await expect(executeHelperOperation(request({ operation: "virtualization.export.backup.inspect", parameters: {} }), { vmProtection })).resolves.toMatchObject({ ok: true, result: { ready: true, encrypted: true } });
-    await expect(executeHelperOperation(request({ operation: "virtualization.export.backup.create", parameters: protectionParameters() }), { vmProtection })).resolves.toMatchObject({ ok: true, result: { created: true, protected: false } });
+    await expect(executeHelperOperation(request({ operation: "vm.export.protect", parameters: protectionParameters() }), { vmProtection })).resolves.toMatchObject({ ok: true, result: { created: true, protected: false } });
   });
 
-  it("accepts only exact retention evidence and never accepts paths, passwords, selectors, or prune flags", async () => {
+  it("keeps retention inspection read-only and routes the apply through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.export.backup.retention.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "virtualization.export.backup.retention.inspect", parameters: { repository: "/tmp" } }))).toContain("accepts no parameters");
-    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.retention.apply", parameters: retentionParameters() }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.retention.apply", parameters: retentionParameters({ prune: true }) }))).toContain("only the fixed typed evidence fields");
-    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.retention.apply", parameters: retentionParameters({ forgetSnapshotIds: ["latest"] }) }))).toContain("exact SHA-256 id");
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.retention.apply", parameters: retentionParameters() }))).toBe("Operation is not allowlisted");
     const vmRetention = {
       inspect: async () => ({ ready: true, snapshots: [] }),
       apply: async (parameters) => ({ applied: true, retentionId: parameters.retentionId, forgottenSnapshotIds: parameters.forgetSnapshotIds, prunePerformed: false }),
     };
     await expect(executeHelperOperation(request({ operation: "virtualization.export.backup.retention.inspect", parameters: {} }), { vmRetention })).resolves.toMatchObject({ ok: true, result: { ready: true } });
-    await expect(executeHelperOperation(request({ operation: "virtualization.export.backup.retention.apply", parameters: retentionParameters() }), { vmRetention })).resolves.toMatchObject({ ok: true, result: { applied: true, prunePerformed: false } });
+    await expect(executeHelperOperation(request({ operation: "vm.backup.retention.apply", parameters: retentionParameters() }), { vmRetention })).resolves.toMatchObject({ ok: true, result: { applied: true, prunePerformed: false } });
   });
 
-  it("accepts only exact restore evidence and delegates fixed no-network drill handling", async () => {
+  it("keeps the drill inspection typed and routes the drill run through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.export.backup.restore-drill.inspect", parameters: restoreDrillParameters() }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.restore-drill", parameters: restoreDrillParameters() }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.restore-drill", parameters: restoreDrillParameters({ network: "default" }) }))).toContain("only the fixed typed evidence fields");
-    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.restore-drill", parameters: restoreDrillParameters({ snapshotId: "latest" }) }))).toContain("Snapshot id is invalid");
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.restore-drill.inspect", parameters: restoreDrillParameters({ network: "default" }) }))).toContain("only the fixed typed evidence fields");
+    expect(validateHelperRequest(request({ operation: "virtualization.export.backup.restore-drill", parameters: restoreDrillParameters() }))).toBe("Operation is not allowlisted");
     const vmRestoreDrill = {
       inspect: async (parameters) => ({ ready: true, drillId: parameters.drillId, network: "none", transient: true }),
       runDrill: async (parameters) => ({ passed: true, drillId: parameters.drillId, backupId: parameters.backupId, network: "none", protected: true }),
     };
     await expect(executeHelperOperation(request({ operation: "virtualization.export.backup.restore-drill.inspect", parameters: restoreDrillParameters() }), { vmRestoreDrill })).resolves.toMatchObject({ ok: true, result: { ready: true, network: "none" } });
-    await expect(executeHelperOperation(request({ operation: "virtualization.export.backup.restore-drill", parameters: restoreDrillParameters() }), { vmRestoreDrill })).resolves.toMatchObject({ ok: true, result: { passed: true, protected: true } });
+    await expect(executeHelperOperation(request({ operation: "vm.backup.restore-drill", parameters: restoreDrillParameters() }), { vmRestoreDrill })).resolves.toMatchObject({ ok: true, result: { passed: true, protected: true } });
   });
 
-  it("accepts only fixed protected-backup recovery fields and delegates a stopped no-network clone", async () => {
+  it("keeps the recovery inspection typed and routes the clone through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.backup.recovery.inspect", parameters: recoveryParameters() }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "virtualization.backup.recovery.create", parameters: recoveryParameters() }))).toBeNull();
-    expect(validateHelperRequest(request({ operation: "virtualization.backup.recovery.create", parameters: recoveryParameters({ path: "/tmp/restore" }) }))).toContain("only the fixed typed protected-backup fields");
-    expect(validateHelperRequest(request({ operation: "virtualization.backup.recovery.create", parameters: recoveryParameters({ targetDomainName: "boxpilot-drill-manual" }) }))).toContain("reserved restore-drill namespace");
+    expect(validateHelperRequest(request({ operation: "virtualization.backup.recovery.inspect", parameters: recoveryParameters({ path: "/tmp/restore" }) }))).toContain("only the fixed typed protected-backup fields");
+    expect(validateHelperRequest(request({ operation: "virtualization.backup.recovery.create", parameters: recoveryParameters() }))).toBe("Operation is not allowlisted");
     const vmRecovery = {
       inspect: async (parameters) => ({ ready: true, targetDomainName: parameters.targetDomainName, network: "none", persistent: true, initialState: "stopped" }),
       createRecovery: async (parameters) => ({ created: true, restoreId: parameters.restoreId, domain: parameters.targetDomainName, network: "none", persistent: true, state: "stopped" }),
     };
     await expect(executeHelperOperation(request({ operation: "virtualization.backup.recovery.inspect", parameters: recoveryParameters() }), { vmRecovery })).resolves.toMatchObject({ ok: true, result: { ready: true, network: "none", initialState: "stopped" } });
-    await expect(executeHelperOperation(request({ operation: "virtualization.backup.recovery.create", parameters: recoveryParameters() }), { vmRecovery })).resolves.toMatchObject({ ok: true, result: { created: true, domain: "ubuntu-recovered", persistent: true } });
+    await expect(executeHelperOperation(request({ operation: "vm.recovery.create", parameters: recoveryParameters() }), { vmRecovery })).resolves.toMatchObject({ ok: true, result: { created: true, domain: "ubuntu-recovered", persistent: true } });
   });
 });

@@ -72,15 +72,12 @@ describe("VM backup retention service", () => {
     expect(status.kept.find((item) => item.backupId === backups[4].id)?.reasons).toContain("active-restore-or-recovery");
   });
 
-  it("creates and stages an exact high-risk plan without prune", async () => {
-    const { service, store } = fixture();
-    const plan = await service.plan("owner-one");
-    expect(plan.output.executable).toBe(true);
-    expect(plan.output.candidates).toHaveLength(2);
-    expect(plan.output.prunePerformed).toBe(false);
-    const job = await service.stage(plan.id, plan.revision, "owner-one");
-    expect(job).toMatchObject({ type: "virtualization.export.backup.retention.apply", risk: "high" });
-    expect(store.stagePlan).toHaveBeenCalledWith(plan.id, "owner-one");
+  it("pins the exact eligible candidate set and repository revisions without prune", async () => {
+    const { service } = fixture();
+    const parameters = await service.prepareOperation();
+    expect(parameters.candidates).toHaveLength(2);
+    expect(parameters.forgetSnapshotIds).toEqual(parameters.candidates.map((item) => item.snapshotId).sort());
+    expect(parameters).toMatchObject({ repositoryId: "a".repeat(64), expectedSnapshotSetRevision: "c".repeat(64), expectedBeforeCount: 5 });
   });
 
   it("blocks when repository snapshots are unattributed or local evidence is missing", async () => {
@@ -93,42 +90,42 @@ describe("VM backup retention service", () => {
 
   it("records only exact helper evidence after execution", async () => {
     const { service, store } = fixture();
-    const plan = await service.plan("owner-one");
-    const job = await service.stage(plan.id, plan.revision, "owner-one");
+    const parameters = await service.prepareOperation();
+    const job = { parameters, createdBy: "owner-one" };
     const result = {
       applied: true,
       complete: true,
-      retentionId: plan.input.retentionId,
-      repositoryId: plan.input.repositoryId,
-      forgottenSnapshotIds: plan.input.forgetSnapshotIds,
-      keptSnapshotIds: plan.output.kept.map((item) => item.snapshotId),
-      beforeCount: plan.output.beforeCount,
-      afterCount: plan.output.beforeCount - plan.output.candidates.length,
-      beforeSnapshotSetRevision: plan.input.expectedSnapshotSetRevision,
+      retentionId: parameters.retentionId,
+      repositoryId: parameters.repositoryId,
+      forgottenSnapshotIds: parameters.forgetSnapshotIds,
+      keptSnapshotIds: [],
+      beforeCount: parameters.expectedBeforeCount,
+      afterCount: parameters.expectedBeforeCount - parameters.candidates.length,
+      beforeSnapshotSetRevision: parameters.expectedSnapshotSetRevision,
       afterSnapshotSetRevision: "d".repeat(64),
       repositoryVerified: true,
       prunePerformed: false,
       spaceReclaimed: false,
     };
-    service.recordResult(job, result);
-    expect(store.recordVmRetention).toHaveBeenCalledWith(expect.objectContaining({ id: plan.input.retentionId, prunePerformed: false, forgotten: expect.any(Array) }));
+    service.recordOperation(job, result);
+    expect(store.recordVmRetention).toHaveBeenCalledWith(expect.objectContaining({ id: parameters.retentionId, prunePerformed: false, forgotten: expect.any(Array) }));
   });
 
   it("records a confirmed partial forget as unusable even when repository verification is incomplete", async () => {
     const { service, store } = fixture();
-    const plan = await service.plan("owner-one");
-    const job = await service.stage(plan.id, plan.revision, "owner-one");
-    const forgottenSnapshotId = plan.input.forgetSnapshotIds[0];
-    service.recordResult(job, {
+    const parameters = await service.prepareOperation();
+    const job = { parameters, createdBy: "owner-one" };
+    const forgottenSnapshotId = parameters.forgetSnapshotIds[0];
+    service.recordOperation(job, {
       applied: true,
       complete: false,
-      retentionId: plan.input.retentionId,
-      repositoryId: plan.input.repositoryId,
+      retentionId: parameters.retentionId,
+      repositoryId: parameters.repositoryId,
       forgottenSnapshotIds: [forgottenSnapshotId],
       keptSnapshotIds: [],
-      beforeCount: plan.output.beforeCount,
+      beforeCount: parameters.expectedBeforeCount,
       afterCount: null,
-      beforeSnapshotSetRevision: plan.input.expectedSnapshotSetRevision,
+      beforeSnapshotSetRevision: parameters.expectedSnapshotSetRevision,
       afterSnapshotSetRevision: null,
       repositoryVerified: false,
       prunePerformed: false,

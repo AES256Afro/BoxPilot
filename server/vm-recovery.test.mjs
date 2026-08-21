@@ -54,55 +54,47 @@ afterEach(async () => {
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
-describe("guarded VM recovery planning", () => {
-  it("plans and stages a new stopped persistent no-network clone", async () => {
-    const { store, owner, helper, service } = await setup();
-    const plan = await service.plan(backupId, "ubuntu-recovered", owner.id);
-    expect(plan).toMatchObject({
-      type: "virtualization.backup.recovery",
-      input: { backupId, exportId, sourceDomainName: "ubuntu-services", sourceDomainUuid, targetDomainName: "ubuntu-recovered", restoreDrillId: drillId, repositoryId, snapshotId, expectedDestinationRevision: destinationRevision },
-      output: { executable: true, destination: "managed-libvirt-recovery", network: "none", persistent: true, initialState: "stopped", autostart: false },
-    });
-    expect(JSON.stringify(plan.input)).not.toMatch(/password|path|command/i);
-    const job = await service.stage(plan.id, plan.revision, owner.id);
-    expect(job).toMatchObject({ type: "virtualization.backup.recovery.create", state: "awaiting_approval", risk: "high" });
-    await expect(service.validateJob(job)).resolves.toMatchObject({ id: plan.id, status: "staged" });
-    expect(helper.request).toHaveBeenCalledWith("virtualization.backup.recovery.inspect", plan.input);
+describe("guarded VM recovery", () => {
+  it("pins the drilled-backup evidence into stopped persistent no-network clone parameters", async () => {
+    const { store, helper, service } = await setup();
+    const parameters = await service.prepareOperation({ backupId, targetDomainName: "ubuntu-recovered" });
+    expect(parameters).toMatchObject({ backupId, exportId, sourceDomainName: "ubuntu-services", sourceDomainUuid, targetDomainName: "ubuntu-recovered", restoreDrillId: drillId, repositoryId, snapshotId, expectedDestinationRevision: destinationRevision });
+    expect(parameters.restoreId).toMatch(/^[a-f0-9-]{36}$/);
+    expect(JSON.stringify(parameters)).not.toMatch(/password|path|command/i);
+    expect(helper.request).toHaveBeenCalledWith("virtualization.backup.recovery.inspect", parameters);
     store.close();
   });
 
   it("blocks invalid names and unavailable recovery prerequisites", async () => {
-    const { store, owner, service } = await setup({ ready: false });
-    await expect(service.plan(backupId, "boxpilot-drill-manual", owner.id)).rejects.toThrow("reserved restore-drill namespace");
-    const plan = await service.plan(backupId, "ubuntu-recovered", owner.id);
-    expect(plan.output).toMatchObject({ executable: false, blockers: ["Repository unavailable"] });
-    await expect(service.stage(plan.id, plan.revision, owner.id)).rejects.toThrow("Repository unavailable");
+    const { store, service } = await setup({ ready: false });
+    await expect(service.prepareOperation({ backupId, targetDomainName: "boxpilot-drill-manual" })).rejects.toThrow("reserved restore-drill namespace");
+    await expect(service.prepareOperation({ backupId, targetDomainName: "ubuntu-recovered" })).rejects.toThrow("Repository unavailable");
     store.close();
   });
 
-  it("never plans a recovery clone from a snapshot already forgotten by retention", async () => {
+  it("never prepares a recovery clone from a snapshot already forgotten by retention", async () => {
     const { store, owner, service } = await setup();
     store.recordVmRetention({
       id: "99999999-9999-4999-8999-999999999999", repositoryId, beforeSnapshotSetRevision: "e".repeat(64), afterSnapshotSetRevision: "f".repeat(64),
       beforeCount: 2, afterCount: 1, forgotten: [{ backupId, snapshotId, domainName: "ubuntu-services" }], keptSnapshotIds: [], repositoryVerified: true, prunePerformed: false, createdBy: owner.id,
     });
-    await expect(service.plan(backupId, "ubuntu-recovered", owner.id)).rejects.toThrow("forgotten by an approved retention run");
+    await expect(service.prepareOperation({ backupId, targetDomainName: "ubuntu-recovered" })).rejects.toThrow("forgotten by an approved retention run");
     store.close();
   });
 
   it("records only strict stopped persistent recovery evidence", async () => {
     const { store, owner, service } = await setup();
-    const plan = await service.plan(backupId, "ubuntu-recovered", owner.id);
-    const job = await service.stage(plan.id, plan.revision, owner.id);
+    const parameters = await service.prepareOperation({ backupId, targetDomainName: "ubuntu-recovered" });
+    const job = { parameters, createdBy: owner.id };
     const result = {
-      created: true, restoreId: plan.input.restoreId, backupId, exportId, sourceDomain: "ubuntu-services", sourceDomainUuid,
+      created: true, restoreId: parameters.restoreId, backupId, exportId, sourceDomain: "ubuntu-services", sourceDomainUuid,
       domain: "ubuntu-recovered", domainUuid: recoveredDomainUuid, repositoryId, snapshotId, sizeBytes: 8192, fileCount: 3,
       persistent: true, state: "stopped", network: "none", autostart: false, encryptedSource: true, protectedSource: true,
       restoredChecksumsVerified: true, restoredDisksVerified: true, sourceUnchanged: true, snapshotUnchanged: true,
     };
-    expect(service.recordResult(job, result)).toMatchObject({ id: plan.input.restoreId, backupId, domainName: "ubuntu-recovered", state: "stopped", network: "none", autostart: false });
+    expect(service.recordOperation(job, result)).toMatchObject({ id: parameters.restoreId, backupId, domainName: "ubuntu-recovered", state: "stopped", network: "none", autostart: false });
     expect(service.list()).toHaveLength(1);
-    expect(() => service.recordResult(job, { ...result, network: "default" })).toThrow("evidence validation failed");
+    expect(() => service.recordOperation(job, { ...result, network: "default" })).toThrow("evidence validation failed");
     store.close();
   });
 });
