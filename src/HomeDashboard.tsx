@@ -10,6 +10,8 @@ import { inspectOperation, type Job } from "./operations";
 
 interface AppSummary { id: string; name: string; running: boolean; installed: boolean; health: string; updateAvailable: boolean; url: string | null }
 interface Tile { updates: number | null; security: number; rebootRequired: boolean }
+interface ChecklistItem { id: string; title: string; detail: string; done: boolean; optional: boolean; view: ViewName }
+interface Checklist { items: ChecklistItem[]; done: number; total: number; allEssentialDone: boolean }
 
 const jobTone: Record<string, string> = { completed: "status-good", failed: "status-danger", applying: "status-warning", verifying: "status-warning" };
 
@@ -31,11 +33,16 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [backups, setBackups] = useState<{ lastBackupAt: string | null; lastSyncAt: string | null; syncReady: boolean } | null>(null);
   const [setup, setSetup] = useState<{ firstRun: boolean; installedApps: number } | null>(null);
+  const [checklist, setChecklist] = useState<Checklist | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const guard = <T,>(setter: (value: T) => void) => (value: T) => { if (!cancelled) setter(value); };
 
+    fetch("/api/v1/setup/checklist")
+      .then((response) => (response.ok ? response.json() : Promise.reject(new Error("checklist unavailable"))))
+      .then((data: Checklist) => { if (Array.isArray(data?.items)) guard(setChecklist)(data); })
+      .catch(() => {});
     inspectOperation<{ count: number; securityCount: number; rebootRequired: boolean }>("apt.upgradable.inspect")
       .then(({ result }) => guard(setUpdates)({ updates: result.count, security: result.securityCount, rebootRequired: result.rebootRequired }))
       .catch(() => {});
@@ -139,6 +146,24 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
           <span>{backups?.syncReady ? (backups.lastSyncAt ? `mirrored ${timeLabel(backups.lastSyncAt)}` : "mirror never run") : "last database backup"}</span>
         </button>
       </div>
+
+      {checklist && (
+        <section className="panel checklist">
+          <header className="panel-header">
+            <div><strong>Set up your server</strong><span>{checklist.allEssentialDone ? `All ${checklist.total} essentials are in place.` : `${checklist.done} of ${checklist.total} essentials done. Each one is a few clicks; BoxPilot explains what it does before it runs.`}</span></div>
+            <span className={`status-pill ${checklist.allEssentialDone ? "status-good" : "status-neutral"}`}>{checklist.done}/{checklist.total}</span>
+          </header>
+          <ul className="checklist-items">
+            {checklist.items.filter((item) => !item.done || !checklist.allEssentialDone).map((item) => (
+              <li key={item.id} className={item.done ? "done" : ""}>
+                <span className="checklist-mark" aria-hidden="true">{item.done ? "✓" : "○"}</span>
+                <div><strong>{item.title}{item.optional && !item.done ? <span className="muted"> (optional)</span> : null}</strong><span className="muted">{item.detail}</span></div>
+                {!item.done && <button type="button" className="secondary-button" onClick={() => onNavigate(item.view)}>Open</button>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {attention.length > 0 && (
         <section className="panel">

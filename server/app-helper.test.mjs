@@ -64,6 +64,18 @@ describe("generic app deployer", () => {
     expect(compose).not.toContain("sda1");
   });
 
+  it("hands managed volume folders to the user the manifest runs as", async () => {
+    const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
+    const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
+    await writeFile(path.join(catalogDirectory, "owned.yaml"), "schemaVersion: 2\nid: owned\nname: Owned\ncategory: T\ndescription: d\nimage:\n  reference: x/owned:1\nuser: \"1883:1883\"\nvolumes:\n  - id: data\n    container: /data\n    path: data\n  - id: logs\n    container: /logs\n    path: logs\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n");
+    const chowns = [];
+    const runDocker = vi.fn(async (_binary, args) => (args[0] === "inspect" ? { ok: true, stdout: JSON.stringify({ running: true, status: "running", health: "none", restarts: 0, image: "sha256:x", startedAt: "x", exitCode: 0 }), stderr: "" } : { ok: true, stdout: args[0] === "version" ? "28.0.0" : "", stderr: "" }));
+    let nowMs = Date.parse("2026-08-21T12:00:00Z");
+    const apps = createAppHelper({ catalogRoot, runDocker, catalog: createCatalogService({ directory: catalogDirectory, ttlMs: 0 }), wait: async (ms) => { nowMs += ms; }, clock: () => new Date(nowMs), chownDirectory: async (target, uid, gid) => { chowns.push([path.basename(target), uid, gid]); } });
+    await apps.install({ id: "owned" });
+    expect(chowns).toEqual([["data", 1883, 1883], ["logs", 1883, 1883]]);
+  });
+
   it("runs the chosen setup commands inside the container after install and settings changes", async () => {
     const { apps, calls, catalogDirectory, catalogRoot } = await setup();
     await writeFile(path.join(catalogDirectory, "lists.yaml"), `schemaVersion: 2\nid: lists\nname: Lists\ncategory: DNS\ndescription: d\nimage:\n  reference: x/lists:1\nhealth:\n  kind: running\n  stableSeconds: 4\n  timeoutSeconds: 30\nsetup:\n  title: Blocklists\n  finalize: [pihole, -g]\n  choices:\n    - id: big\n      label: Big\n      recommended: true\n      exec: [sh, -c, "echo big"]\n    - id: small\n      label: Small\n      exec: [sh, -c, "echo small"]\n`);

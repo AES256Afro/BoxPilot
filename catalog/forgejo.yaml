@@ -1,7 +1,7 @@
 schemaVersion: 2
 id: forgejo
 name: Forgejo
-category: Development
+category: Developer
 icon: "🌱"
 description: Self-hosted Git forge (community fork of Gitea) with issues, pull requests, and CI-friendly APIs.
 website: https://forgejo.org

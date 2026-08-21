@@ -1,7 +1,7 @@
 schemaVersion: 2
 id: gotify
 name: Gotify
-category: Alerts
+category: Communication
 icon: "🔔"
 description: Simple self-hosted push notification server with Android app and a clean web UI.
 website: https://gotify.net

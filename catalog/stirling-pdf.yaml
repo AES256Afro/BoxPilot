@@ -1,7 +1,7 @@
 schemaVersion: 2
 id: stirling-pdf
 name: Stirling PDF
-category: Documents
+category: Files
 icon: "📑"
 description: "Every PDF tool in one page: merge, split, rotate, compress, convert to and from Office formats, OCR scanned documents, sign, redact, and remove passwords, all processed on this server."
 website: https://www.stirlingpdf.com

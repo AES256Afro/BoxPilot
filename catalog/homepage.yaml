@@ -1,7 +1,7 @@
 schemaVersion: 2
 id: homepage
 name: Homepage
-category: Dashboard
+category: Monitoring
 icon: "🏠"
 description: A fast, static dashboard for everything running on this server, configured with simple YAML files.
 website: https://gethomepage.dev

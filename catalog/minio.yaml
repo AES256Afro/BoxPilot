@@ -1,7 +1,7 @@
 schemaVersion: 2
 id: minio
 name: MinIO
-category: Storage
+category: Backup
 icon: "🪣"
 description: "S3-compatible object storage on your own disk. A backup target for Immich, Kopia, Duplicati, and Restic, and a bucket store for anything that speaks S3."
 website: https://min.io

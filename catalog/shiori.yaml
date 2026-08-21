@@ -9,6 +9,7 @@ risk: low
 image:
   reference: ghcr.io/go-shiori/shiori:v1.8.0
   version: "1.8.0"
+user: "1000:1000"
 ports:
   - id: web
     label: Web UI

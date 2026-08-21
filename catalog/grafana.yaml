@@ -1,7 +1,7 @@
 schemaVersion: 2
 id: grafana
 name: Grafana
-category: Observability
+category: Monitoring
 icon: "📈"
 description: Dashboards and charts for any metric source — Prometheus, databases, or simple JSON.
 website: https://grafana.com/oss/grafana/

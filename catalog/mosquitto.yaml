@@ -10,6 +10,7 @@ image:
   reference: eclipse-mosquitto:2.0.22
   version: "2.0.22"
 command: ["mosquitto", "-c", "/mosquitto-no-auth.conf"]
+user: "1883:1883"
 ports:
   - id: mqtt
     label: MQTT

@@ -1,7 +1,7 @@
 schemaVersion: 2
 id: mealie
 name: Mealie
-category: Home
+category: Household
 icon: "🍲"
 description: Recipe manager and meal planner with recipe import from any URL.
 website: https://mealie.io

@@ -1,7 +1,7 @@
 schemaVersion: 2
 id: paperless-ngx
 name: Paperless-ngx
-category: Documents
+category: Files
 icon: "📄"
 description: Scan, index, and archive paper documents — OCR makes every letter and invoice searchable.
 website: https://docs.paperless-ngx.com
