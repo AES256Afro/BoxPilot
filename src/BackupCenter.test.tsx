@@ -82,6 +82,36 @@ describe("Backup Center", () => {
     expect(staged.map((entry) => entry.url.split("/operations/")[1])).toEqual(["host.snapshot.create/jobs", "backup.sync/jobs"]);
   });
 
+  it("walks the off-box SSH destination from key to mirror", async () => {
+    let saved: string | undefined; const staged: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/api/v1/backups")) return json({ backups: [] });
+      if (url.endsWith("/operations/backup.remote.inspect/inspect")) return json({ operation: "backup.remote.inspect", result: { keyReady: true, publicKey: "ssh-ed25519 AAAA boxpilot-backup-mirror", fingerprint: "SHA256:abc", hostKeysPinned: 1, rsyncInstalled: true } });
+      if (url.endsWith("/api/v1/settings/backup-destination") && init?.method === "PUT") { saved = init.body as string; return json({ destination: { host: "nas.local", port: 22, user: "backup", path: "/srv/boxpilot" }, lastSync: null }); }
+      if (url.endsWith("/api/v1/settings/backup-destination")) return json({ destination: null, lastSync: null });
+      if (url.includes("/operations/") && url.endsWith("/jobs")) { staged.push(url.split("/operations/")[1]); return json({ job: { id: "j", type: "op:x", title: "x", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium" } }, 201); }
+      return json({ error: "unavailable" }, 503);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<BackupCenter csrfToken="csrf-token" />);
+
+    expect(await screen.findByLabelText("Mirror public key")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Destination host"), { target: { value: "nas.local" } });
+    fireEvent.change(screen.getByLabelText("Destination user"), { target: { value: "backup" } });
+    fireEvent.change(screen.getByLabelText("Destination path"), { target: { value: "/srv/boxpilot" } });
+    fireEvent.change(screen.getByLabelText("Owner password"), { target: { value: "correct horse battery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save destination" }));
+    expect(await screen.findByText(/backup@nas.local:\/srv\/boxpilot/)).toBeTruthy();
+    expect(JSON.parse(saved ?? "{}")).toEqual({ password: "correct horse battery", destination: { host: "nas.local", port: 22, user: "backup", path: "/srv/boxpilot" } });
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
+    expect(await screen.findByText(/pins the destination's host key/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mirror now" }));
+    expect(await screen.findByText(/Nothing on the destination is deleted/)).toBeTruthy();
+    expect(staged).toEqual(["backup.remote.test/jobs", "backup.remote.sync/jobs"]);
+  });
+
   it("shows the empty state and points at catalog and VM backups", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();

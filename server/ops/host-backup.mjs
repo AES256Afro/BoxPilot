@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { readFile, stat } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
+import { destinationPatterns } from "../backup-destination.mjs";
 
 /** Machine snapshots and the off-box backup mirror (Phase 6). */
 export function hostBackupOperations() {
@@ -30,6 +32,35 @@ export function hostBackupOperations() {
       description: "Reinstalls the selected apps with the settings and secrets in the snapshot, then restores each app's newest data archive (from the local store or the mirror). Network, firewall, fstab, VM definitions, and the database copy are staged for review, never applied automatically.",
       parameters: { fields: { source: { type: "string", enum: ["local", "mirror"] }, artifact: { type: "string", pattern: /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/ }, apps: { type: "array", optional: true, validate: (value) => (value.every((id) => typeof id === "string" && /^[a-z0-9][a-z0-9-]{1,62}$/.test(id)) ? null : "must list app ids") }, restoreData: { type: "boolean", optional: true } } },
       run: (parameters, { machineSnapshot, apps, progress }) => machineSnapshot.restore({ ...parameters, apps: parameters.apps ?? "all", restoreData: parameters.restoreData ?? true }, { apps, progress }),
+    }),
+    defineOperation({
+      id: "backup.remote.inspect", title: "Read the off-box SSH destination state", risk: "low", readOnly: true, timeoutMs: 30_000,
+      description: "Whether the mirror key exists (and its public half), whether a host key is pinned, and whether rsync is installed.",
+      run: async (_parameters, { run }) => {
+        const secrets = process.env.BOXPILOT_SECRETS_DIRECTORY ?? "/etc/boxpilot/secrets";
+        const publicKey = await readFile(`${secrets}/backup-mirror-key.pub`, "utf8").then((text) => text.trim()).catch(() => null);
+        const knownHosts = await readFile(`${secrets}/backup-mirror-known_hosts`, "utf8").then((text) => text.split("\n").filter((line) => line.trim() && !line.startsWith("#")).length).catch(() => 0);
+        const fingerprint = publicKey ? await run("/usr/bin/ssh-keygen", ["-lf", `${secrets}/backup-mirror-key.pub`], { timeout: 15_000 }).then((result) => (result.ok ? result.stdout.trim().split(/\s+/)[1] ?? null : null)).catch(() => null) : null;
+        const rsyncInstalled = await stat("/usr/bin/rsync").then(() => true, () => false);
+        return { keyReady: Boolean(publicKey), publicKey, fingerprint, hostKeysPinned: knownHosts, rsyncInstalled };
+      },
+    }),
+    defineOperation({
+      id: "backup.remote.setup", title: "Create the off-box mirror key", risk: "medium", timeoutMs: 2 * 60_000,
+      description: "Generates an ed25519 key pair under /etc/boxpilot/secrets for the SSH mirror. The private key never leaves this server; you authorize the public key on the destination.",
+      run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("backup.remote.keygen", {}, { timeoutMs: 60_000, logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "backup.remote.test", title: "Test the off-box SSH destination", risk: "medium", timeoutMs: 3 * 60_000,
+      description: "Connects with the mirror key, creates the destination directory, checks it is writable, reports free space, and pins the host key on first use.",
+      parameters: { fields: { host: { type: "string", pattern: destinationPatterns.host }, port: { type: "number", validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 65535 ? null : "must be 1-65535") }, user: { type: "string", pattern: destinationPatterns.user }, path: { type: "string", pattern: destinationPatterns.path } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("backup.remote.test", parameters, { timeoutMs: 2 * 60_000, logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "backup.remote.sync", title: "Mirror local backups to the off-box SSH destination", risk: "medium", timeoutMs: 6 * 60 * 60_000,
+      description: "rsync pushes the controller backups, application backups, and machine snapshots to the destination with checksum verification. Nothing is ever deleted there.",
+      parameters: { fields: { host: { type: "string", pattern: destinationPatterns.host }, port: { type: "number", validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 65535 ? null : "must be 1-65535") }, user: { type: "string", pattern: destinationPatterns.user }, path: { type: "string", pattern: destinationPatterns.path } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("backup.remote.sync", parameters, { timeoutMs: 6 * 60 * 60_000 - 60_000, logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "backup.sync", title: "Mirror local backups to the independent destination", risk: "medium", timeoutMs: 6 * 60 * 60_000,

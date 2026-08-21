@@ -10,6 +10,7 @@ import { firewallRuleAdd, firewallRuleDelete, firewallSet } from "./firewall.mjs
 import { storageFormat, storageMount, storageUnmount, swapFileSet } from "./storage.mjs";
 import { ensureCloudImage } from "./cloud-images.mjs";
 import { systemUpdate } from "./update.mjs";
+import { backupRemoteKeygen, backupRemoteSync, backupRemoteTest } from "./backup-remote.mjs";
 
 export const tasks = Object.freeze({
   "apt.update": aptUpdate,
@@ -37,6 +38,9 @@ export const tasks = Object.freeze({
   "storage.swapfile": swapFileSet,
   "vm.cloud-image.ensure": ensureCloudImage,
   "system.update": systemUpdate,
+  "backup.remote.keygen": backupRemoteKeygen,
+  "backup.remote.test": backupRemoteTest,
+  "backup.remote.sync": backupRemoteSync,
 });
 
 export function taskIds() {
