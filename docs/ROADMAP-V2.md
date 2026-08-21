@@ -186,7 +186,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - **M8.2** Managed Homepage/Homarr auto-populated from installed items (icons, URLs, widgets).
 - **M8.3** Managed Grafana+Prometheus stack with node-exporter, cAdvisor, libvirt exporter; pre-built dashboards.
 - ◐ **M8.4** Failed-job push notifications: `server/notifications.mjs` subscribes to the job-event stream and sends one push per failed job to ntfy, Gotify, or a webhook (both servers are catalog apps, so alerts can stay on-host); Settings panel with password-gated target + test button; deliveries and failures audited. Remaining triggers: updates available, backup stale, disk >90%, SMART, UPS — host-health alerting stays with the bigbox CLI per HANDOFF.md.
-- **M8.5** Log viewer: any unit / any container, search, tail, export (replace the 4-fixed-sources model).
+- ✅ **M8.5** Log viewer: registry ops `logs.sources` (journal groups, every systemd unit, every container) and `logs.read` (tail any of them with a time window and text filter, redacted). The Logs page offers group tabs, a unit finder, a container picker, follow mode, and download; the support bundle reads through the same op. The fixed-four-sources route and `system.logs.inspect` legacy op are deleted.
 
 ### Phase 9 — Network platform (2 weeks)
 - **M9.1** Pi-hole/AdGuard as a **DNS platform** role: install, set as host resolver, push to DHCP (via router API where available), rollback timer if resolution breaks.

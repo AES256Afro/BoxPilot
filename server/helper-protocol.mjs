@@ -26,7 +26,7 @@ export const helperProtocolVersion = 1;
  * Hand-declared read-only inspections. Every mutation runs as a registry operation
  * (server/ops/, ADR-001); the executing service revalidates its own typed input.
  */
-export const legacyHelperOperations = new Set(["container.docker.inspect", "container.docker.inventory", "system.logs.inspect", "controller.database.backup.inspect", "controller.database.protection.inspect", "controller.database.protection.retention.inspect", "virtualization.foundation.inspect", "virtualization.media.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
+export const legacyHelperOperations = new Set(["container.docker.inspect", "container.docker.inventory", "controller.database.backup.inspect", "controller.database.protection.inspect", "controller.database.protection.retention.inspect", "virtualization.foundation.inspect", "virtualization.media.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
 export const helperOperations = new Set([...registry.ids(), ...legacyHelperOperations]);
 const vmRestoreDrillKeys = ["backupId", "domainName", "domainUuid", "drillId", "expectedDestinationRevision", "expectedManifestChecksumSha256", "expectedSizeBytes", "exportId", "repositoryId", "snapshotId"];
 const vmRecoveryKeys = ["backupId", "expectedDestinationRevision", "expectedManifestChecksumSha256", "expectedSizeBytes", "exportId", "repositoryId", "restoreDrillId", "restoreId", "snapshotId", "sourceDomainName", "sourceDomainUuid", "targetDomainName"];
@@ -60,12 +60,6 @@ export function validateHelperRequest(value) {
   if (value.operation === "virtualization.media.inspect" && Object.keys(value.parameters).length !== 0) return "VM media inspection accepts no parameters";
   if (value.operation === "container.docker.inspect" && Object.keys(value.parameters).length !== 0) return "Docker inspection accepts no parameters";
   if (value.operation === "container.docker.inventory" && Object.keys(value.parameters).length !== 0) return "Docker inventory accepts no parameters";
-  if (value.operation === "system.logs.inspect") {
-    const keys = Object.keys(value.parameters);
-    if (keys.length !== 2 || !["boxpilot", "docker", "tailscale", "virtualization"].includes(value.parameters.source) || !Number.isInteger(value.parameters.limit) || value.parameters.limit < 1 || value.parameters.limit > 200) {
-      return "Log inspection accepts only a fixed source and a limit from 1 to 200";
-    }
-  }
   if (value.operation === "controller.database.backup.inspect" && Object.keys(value.parameters).length !== 0) return "Controller backup inspection accepts no parameters";
   if (value.operation === "controller.database.protection.inspect" && Object.keys(value.parameters).length !== 0) return "Controller protection inspection accepts no parameters";
   if (value.operation === "controller.database.protection.retention.inspect" && Object.keys(value.parameters).length !== 0) return "Controller retention inspection accepts no parameters";
@@ -113,9 +107,6 @@ export async function executeHelperOperation(request, dependencies = {}) {
   }
   if (request.operation === "container.docker.inventory") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await hostInspect.inventoryDocker() };
-  }
-  if (request.operation === "system.logs.inspect") {
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await hostInspect.inspectLogs(request.parameters) };
   }
   if (request.operation === "controller.database.backup.inspect") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await controllerBackups.inspect() };
