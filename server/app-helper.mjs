@@ -10,7 +10,7 @@ import path from "node:path";
 import YAML from "yaml";
 import { fixedRun } from "./exec.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
-import { renderCompose, projectNameFor } from "./catalog/compose.mjs";
+import { renderCompose, projectNameFor, resolveDevices } from "./catalog/compose.mjs";
 import { resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
 
 const actions = Object.freeze(["start", "stop", "restart"]);
@@ -51,6 +51,7 @@ export function createAppHelper({
   wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   clock = () => new Date(),
   lanAddress = "0.0.0.0",
+  listDevices = (directory) => readdir(directory),
 } = {}) {
   const root = path.resolve(catalogRoot);
   const dirFor = (id) => path.join(root, id);
@@ -157,7 +158,9 @@ export function createAppHelper({
     await mkdir(directory, { recursive: true, mode: 0o700 });
     for (const volume of manifest.volumes) if (volume.path) await mkdir(path.join(directory, volume.path), { recursive: true, mode: 0o755 });
     for (const sidecar of manifest.sidecars ?? []) for (const volume of sidecar.volumes) await mkdir(path.join(directory, volume.path), { recursive: true, mode: 0o755 });
-    const rendered = renderCompose(manifest, values, { existingEnv, lanAddress });
+    const devices = await resolveDevices(manifest.devices, listDevices);
+    if (manifest.devices.some((pattern) => /[?*[]/.test(pattern)) && !devices.length) throw new Error(`${manifest.name} needs a device matching ${manifest.devices.join(", ")} and none exists on this server`);
+    const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices });
     await writeFile(path.join(directory, ".env.tmp"), rendered.envFile, { mode: 0o600 });
     await rename(path.join(directory, ".env.tmp"), path.join(directory, ".env"));
     await writeFile(path.join(directory, "compose.yaml.tmp"), rendered.composeYaml, { mode: 0o600 });

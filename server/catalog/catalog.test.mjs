@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadCatalog } from "./index.mjs";
-import { renderCompose } from "./compose.mjs";
+import { renderCompose, resolveDevices } from "./compose.mjs";
 import { resolveValues, sanitizeStoredValues, validateManifest } from "./schema.mjs";
 
 const base = { schemaVersion: 2, id: "demo", name: "Demo", category: "Test", description: "A demo", image: { reference: "nginx:1.27" } };
@@ -141,5 +141,20 @@ describe("setup choices", () => {
     expect(resolveValues(plain, {}).values).not.toHaveProperty("setup");
     expect(sanitizeStoredValues(manifest, { setup: ["big", "gone"] }).setup).toEqual(["big"]);
     expect(sanitizeStoredValues(plain, { setup: ["big"] })).not.toHaveProperty("setup");
+  });
+});
+
+describe("device globs", () => {
+  it("accepts globs in manifests and resolves them against the host", async () => {
+    const base = { schemaVersion: 2, id: "smart", name: "Smart", category: "Disks", description: "d", image: { reference: "x/y:1" } };
+    expect(validateManifest({ ...base, devices: ["/dev/sd?", "/dev/nvme?", "/dev/ttyUSB0"] }).errors).toEqual([]);
+    expect(validateManifest({ ...base, devices: ["/etc/passwd"] }).errors).toContainEqual(expect.stringContaining("devices"));
+    const listDirectory = async (directory) => (directory === "/dev" ? ["nvme0", "nvme0n1", "nvme0n1p1", "sda", "sdb", "sda1", "tty", "zero"] : []);
+    expect(await resolveDevices(["/dev/sd?", "/dev/nvme?", "/dev/ttyUSB0", "/dev/hd?"], listDirectory)).toEqual(["/dev/sda", "/dev/sdb", "/dev/nvme0", "/dev/ttyUSB0"]);
+    expect(await resolveDevices(["/dev/nvme*"], listDirectory)).toEqual(["/dev/nvme0", "/dev/nvme0n1", "/dev/nvme0n1p1"]);
+    expect(await resolveDevices(["/dev/*/by-id"], listDirectory)).toEqual([]);
+    const { manifest } = validateManifest({ ...base, devices: ["/dev/sd?"] });
+    const { compose } = renderCompose(manifest, { ports: {}, env: {}, volumes: {} }, { devices: ["/dev/sda"] });
+    expect(compose.services.smart.devices).toEqual(["/dev/sda:/dev/sda"]);
   });
 });
