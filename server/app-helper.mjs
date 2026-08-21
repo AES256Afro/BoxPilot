@@ -125,7 +125,31 @@ export function createAppHelper({
       ports: values.ports,
       env: Object.fromEntries(Object.entries(env).filter(([name]) => !manifest.env.find((entry) => entry.name === name)?.secret)),
       volumes: Object.fromEntries(Object.entries(values.volumes).filter(([id]) => manifest.volumes.find((volume) => volume.id === id)?.configurable)),
+      ...(manifest.setup ? { setup: values.setup ?? [] } : {}),
     };
+  }
+
+  /**
+   * Run the manifest's setup choices (blocklists, plugins) inside the running container.
+   * Commands are idempotent by contract, so every install and settings change re-applies the
+   * chosen ones. Failures are reported, never fatal: the app itself is up.
+   */
+  async function applySetup(manifest, values, progress = null) {
+    if (!manifest.setup) return null;
+    const chosen = manifest.setup.choices.filter((choice) => (values.setup ?? []).includes(choice.id));
+    const applied = []; const failed = [];
+    for (const choice of chosen) {
+      progress?.(`${manifest.setup.title}: ${choice.label}`, "stdout");
+      const result = await compose(manifest.id, ["exec", "-T", manifest.id, ...choice.exec], { timeout: 120_000 });
+      if (result.ok) applied.push(choice.id);
+      else { failed.push({ id: choice.id, error: redact(`${result.stderr}\n${result.stdout}`).trim().split("\n").filter(Boolean).slice(-2).join(" ") }); progress?.(`${choice.label} failed: ${failed.at(-1).error}`, "stderr"); }
+    }
+    if (manifest.setup.finalize && applied.length) {
+      progress?.(manifest.setup.finalizeLabel ?? `${manifest.setup.title}: finishing`, "stdout");
+      const result = await compose(manifest.id, ["exec", "-T", manifest.id, ...manifest.setup.finalize], { timeout: 15 * 60_000, progress });
+      if (!result.ok) { failed.push({ id: "finalize", error: redact(`${result.stderr}\n${result.stdout}`).trim().split("\n").filter(Boolean).slice(-2).join(" ") }); progress?.(`${manifest.setup.finalizeLabel ?? "Finishing"} failed: ${failed.at(-1).error}`, "stderr"); }
+    }
+    return { applied, failed };
   }
 
   async function writeProject(manifest, values, { existingEnv = {} } = {}) {
@@ -148,7 +172,7 @@ export function createAppHelper({
       id: manifest.id,
       installed: Boolean(state && state.installed),
       dataPresent: Boolean(state),
-      state: state ? { installedAt: state.installedAt, updatedAt: state.updatedAt, manifestSha256: state.manifestSha256, image: state.image, values: { ports: state.values?.ports ?? {}, env: state.values?.env ?? {}, volumes: state.values?.volumes ?? {} }, pinnedRollback: state.pinnedRollback ?? false, uninstalledAt: state.uninstalledAt ?? null } : null,
+      state: state ? { installedAt: state.installedAt, updatedAt: state.updatedAt, manifestSha256: state.manifestSha256, image: state.image, values: { ports: state.values?.ports ?? {}, env: state.values?.env ?? {}, volumes: state.values?.volumes ?? {}, setup: Array.isArray(state.values?.setup) ? state.values.setup : [] }, pinnedRollback: state.pinnedRollback ?? false, uninstalledAt: state.uninstalledAt ?? null } : null,
       container: status,
       urls: state && state.installed ? manifest.ports.filter((port) => port.protocol === "tcp").map((port) => ({ id: port.id, label: port.label, host: state.values?.ports?.[port.id] ?? port.host, exposure: port.exposure })) : [],
       updateAvailable: Boolean(state?.installed && state.image?.reference && state.image.reference !== manifest.image.reference),
@@ -182,8 +206,9 @@ export function createAppHelper({
       const status = await waitHealthy(manifest, progress);
       progress?.(`${manifest.name} is up`, "stdout");
       await writeState(id, { id, installed: true, installedAt: clock().toISOString(), updatedAt: clock().toISOString(), manifestSha256: manifest.sha256 ?? null, image: { reference: manifest.image.reference, id: status.image }, values: storableValues(manifest, values, rendered.env), pinnedRollback: false });
+      const setup = await applySetup(manifest, values, progress);
       await refreshHomepage(id, progress);
-      return { installed: true, id, name: manifest.name, image: status.image, hostPorts: rendered.hostPorts, health: status.health, secretsGenerated: manifest.env.filter((entry) => entry.generate).map((entry) => entry.name) };
+      return { installed: true, id, name: manifest.name, image: status.image, hostPorts: rendered.hostPorts, health: status.health, secretsGenerated: manifest.env.filter((entry) => entry.generate).map((entry) => entry.name), setup };
     } catch (error) {
       progress?.(`Install failed: ${error.message}. Rolling back...`, "stderr");
       await compose(id, ["down", "--remove-orphans"], { timeout: 120_000, progress }).catch(() => {});
@@ -269,7 +294,8 @@ export function createAppHelper({
       if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
       await waitHealthy(manifest, progress);
       await writeState(id, { ...state, updatedAt: clock().toISOString(), values: storableValues(manifest, values, rendered.env) });
-      return { reconfigured: true, id, hostPorts: rendered.hostPorts, checkpoint: saved };
+      const setup = await applySetup(manifest, values, progress);
+      return { reconfigured: true, id, hostPorts: rendered.hostPorts, checkpoint: saved, setup };
     } catch (error) {
       let rolledBack = false;
       if (previousCompose !== null) {

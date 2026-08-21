@@ -1,0 +1,88 @@
+import { describe, expect, it } from "vitest";
+import { adviseFirewall, buildPlan, isProtected, profiles, protectedRules, services } from "./firewall-profiles.mjs";
+
+describe("firewall profiles", () => {
+  it("always protects SSH and Tailscale, and opens the web port only when BoxPilot is served on the LAN", () => {
+    const loopback = protectedRules({ webPort: 8787, webHost: "127.0.0.1" });
+    expect(loopback.map((entry) => [entry.port, entry.protocol, entry.allow])).toEqual([[22, "tcp", true], [41641, "udp", true], [8787, "tcp", false]]);
+    const lan = protectedRules({ webPort: 9000, webHost: "0.0.0.0" });
+    expect(lan.find((entry) => entry.label === "BoxPilot")).toMatchObject({ port: 9000, allow: true });
+    expect(isProtected({ port: 22, protocol: "any" }, loopback)).toBe(true);
+    expect(isProtected({ port: 22, protocol: "udp" }, loopback)).toBe(false);
+    expect(isProtected({ port: 8787, protocol: "tcp" }, loopback)).toBe(true);
+  });
+
+  it("builds a plan that opens protected ports first and enables last", () => {
+    const plan = buildPlan({ profileId: "home-server", serviceIds: ["jellyfin"], webPort: 8787, webHost: "0.0.0.0" });
+    const argv = plan.steps.map((step) => step.args.join(" "));
+    expect(argv[0]).toBe("allow 22/tcp comment BoxPilot keeps SSH reachable");
+    expect(argv[1]).toBe("allow 41641/udp comment BoxPilot keeps Tailscale reachable");
+    expect(argv[2]).toBe("allow 8787/tcp comment BoxPilot keeps BoxPilot reachable");
+    expect(argv).toContain("allow 8096/tcp comment BoxPilot service: Jellyfin");
+    expect(argv).toContain("allow 7359/udp comment BoxPilot service: Jellyfin");
+    expect(argv.at(-3)).toBe("default deny incoming");
+    expect(argv.at(-1)).toBe("--force enable");
+    expect(plan.steps.find((step) => step.args[3] === "tailscale0")?.tolerateFailure).toBe(true);
+  });
+
+  it("resets first when replacing, drops services for Tailscale-only, and denies risky ports on the trusted LAN", () => {
+    expect(buildPlan({ profileId: "home-server", replace: true }).steps[0].args).toEqual(["--force", "reset"]);
+    const tailnet = buildPlan({ profileId: "tailscale-only", serviceIds: ["web", "samba"] });
+    expect(tailnet.services).toEqual([]);
+    expect(tailnet.steps.some((step) => step.args[1] === "445/tcp")).toBe(false);
+    const trusted = buildPlan({ profileId: "trusted-lan" });
+    const argv = trusted.steps.map((step) => step.args.join(" "));
+    expect(argv).toContain("deny 2375/tcp comment BoxPilot profile: Docker API (unencrypted)");
+    expect(argv).toContain("default allow incoming");
+    expect(() => buildPlan({ profileId: "nope" })).toThrow("Unknown firewall profile");
+    expect(() => buildPlan({ profileId: "home-server", serviceIds: ["irc"] })).toThrow("Unknown services");
+  });
+
+  it("ships consistent profile and service tables", () => {
+    expect(profiles.filter((profile) => profile.recommended)).toHaveLength(1);
+    expect(new Set(services.map((service) => service.id)).size).toBe(services.length);
+    for (const service of services) for (const port of service.ports) expect(port.port).toBeGreaterThan(0);
+  });
+
+  describe("advice", () => {
+    const base = { installed: true, enabled: true, defaults: { incoming: "drop", outgoing: "accept", routed: "reject" }, rules: [] };
+    it("points at installing, then at the Home server profile, naming exposed risky ports", () => {
+      expect(adviseFirewall({ report: { installed: false } })[0]).toMatchObject({ id: "install", focus: "install" });
+      const advice = adviseFirewall({ report: { ...base, enabled: false }, listeners: [{ protocol: "tcp", port: 5432, address: "0.0.0.0", scope: "wildcard" }] });
+      expect(advice).toHaveLength(1);
+      expect(advice[0]).toMatchObject({ id: "enable-profile", focus: "profiles" });
+      expect(advice[0].detail).toContain("PostgreSQL (5432)");
+    });
+
+    it("flags allow-by-default, risky allows, blocked apps, missing Tailscale UDP, and plain SSH", () => {
+      const report = {
+        ...base,
+        defaults: { incoming: "accept", outgoing: "accept", routed: "reject" },
+        rules: [
+          { action: "allow", protocol: "tcp", port: 22, app: null, direction: "in", interface: null, comment: null, family: "both" },
+          { action: "allow", protocol: "tcp", port: 3306, app: null, direction: "in", interface: null, comment: null, family: "both" },
+        ],
+      };
+      const advice = adviseFirewall({ report, listeners: [{ protocol: "tcp", port: 6379, address: "0.0.0.0", scope: "wildcard" }], apps: [{ id: "jellyfin", name: "Jellyfin", ports: [{ port: 8096, protocol: "tcp", label: "Web UI" }] }], webHost: "0.0.0.0" });
+      const ids = advice.map((entry) => entry.id);
+      expect(ids).toContain("default-deny");
+      expect(advice.find((entry) => entry.id === "risky-allow-3306-tcp")).toMatchObject({ operationId: "firewall.rule.delete", parameters: { action: "allow", port: 3306, protocol: "tcp" } });
+      expect(advice.find((entry) => entry.id === "risky-listen-6379-tcp")).toMatchObject({ operationId: "firewall.rule.add", parameters: { action: "deny", port: 6379 } });
+      expect(ids).not.toContain("app-jellyfin-8096-tcp"); // default allow: the app is already reachable
+      expect(ids).toContain("ssh-limit");
+      expect(ids).toContain("lan-http");
+
+      const denyDefault = adviseFirewall({ report: { ...report, defaults: base.defaults }, apps: [{ id: "jellyfin", name: "Jellyfin", ports: [{ port: 8096, protocol: "tcp", label: "Web UI" }] }] });
+      expect(denyDefault.find((entry) => entry.id === "app-jellyfin-8096-tcp")).toMatchObject({ operationId: "firewall.rule.add", parameters: { action: "allow", port: 8096, protocol: "tcp", comment: "Jellyfin" } });
+      expect(denyDefault.find((entry) => entry.id === "tailscale-udp")).toMatchObject({ level: "warn", parameters: { port: 41641, protocol: "udp" } });
+    });
+
+    it("stays quiet about the trusted-LAN profile's allow-by-default and about rate-limited SSH", () => {
+      const report = { ...base, defaults: { incoming: "accept", outgoing: "accept", routed: "reject" }, rules: [{ action: "limit", protocol: "tcp", port: 22, app: null, direction: "in", interface: null, comment: null, family: "both" }, { action: "allow", protocol: "udp", port: 41641, app: null, direction: "in", interface: null, comment: null, family: "both" }] };
+      const ids = adviseFirewall({ report, current: { id: "trusted-lan" } }).map((entry) => entry.id);
+      expect(ids).not.toContain("default-deny");
+      expect(ids).not.toContain("ssh-limit");
+      expect(ids).not.toContain("tailscale-udp");
+    });
+  });
+});

@@ -48,6 +48,29 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false 
 }
 
 describe("generic app deployer", () => {
+  it("runs the chosen setup commands inside the container after install and settings changes", async () => {
+    const { apps, calls, catalogDirectory, catalogRoot } = await setup();
+    await writeFile(path.join(catalogDirectory, "lists.yaml"), `schemaVersion: 2\nid: lists\nname: Lists\ncategory: DNS\ndescription: d\nimage:\n  reference: x/lists:1\nhealth:\n  kind: running\n  stableSeconds: 4\n  timeoutSeconds: 30\nsetup:\n  title: Blocklists\n  finalize: [pihole, -g]\n  choices:\n    - id: big\n      label: Big\n      recommended: true\n      exec: [sh, -c, "echo big"]\n    - id: small\n      label: Small\n      exec: [sh, -c, "echo small"]\n`);
+    const installed = await apps.install({ id: "lists" });
+    expect(installed.setup).toEqual({ applied: ["big"], failed: [] });
+    const execCalls = calls.filter((call) => call.includes(" exec -T lists "));
+    expect(execCalls.map((call) => call.split(" exec -T lists ")[1])).toEqual(["sh -c echo big", "pihole -g"]);
+    expect(calls.indexOf(execCalls[0])).toBeGreaterThan(calls.findIndex((call) => call.includes("up --detach")));
+    const state = JSON.parse(await readFile(path.join(catalogRoot, "lists", "boxpilot.json"), "utf8"));
+    expect(state.values.setup).toEqual(["big"]);
+    const { applications } = await apps.inspect({ id: "lists" });
+    expect(applications[0].state.values.setup).toEqual(["big"]);
+
+    calls.length = 0;
+    const reconfigured = await apps.reconfigure({ id: "lists", values: { setup: ["big", "small"] } }, { checkpoint: false });
+    expect(reconfigured.setup).toEqual({ applied: ["big", "small"], failed: [] });
+    expect(calls.filter((call) => call.includes(" exec -T lists ")).map((call) => call.split(" exec -T lists ")[1])).toEqual(["sh -c echo big", "sh -c echo small", "pihole -g"]);
+
+    calls.length = 0;
+    await apps.reconfigure({ id: "lists", values: { setup: [] } }, { checkpoint: false });
+    expect(calls.some((call) => call.includes(" exec -T lists "))).toBe(false);
+  });
+
   it("installs, inspects, acts on, reconfigures, updates, and uninstalls an app from its manifest", async () => {
     const { apps, calls, catalogRoot } = await setup();
     const installed = await apps.install({ id: "demo", values: { ports: { web: 9090 } } });

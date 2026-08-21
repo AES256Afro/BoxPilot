@@ -47,5 +47,17 @@ describe("firewall operations", () => {
     expect(validateParameters(operations["firewall.rule.add"].parameters, { action: "allow", port: 70000, protocol: "tcp" }, "t")).toContain("port");
     expect(validateParameters(operations["firewall.rule.delete"].parameters, { action: "allow", port: 8096, protocol: "sctp" }, "t")).toContain("one of");
     expect(operations["firewall.set"].risk).toBe("high");
+    expect(validateParameters(operations["firewall.rule.add"].parameters, { action: "limit", port: 22, protocol: "tcp" }, "t")).toBeNull();
+  });
+
+  it("stages profile application as a high-risk root task with validated profile and service ids", async () => {
+    const runUnit = { runTask: vi.fn(async () => ({ ok: true })) };
+    const operation = operations["firewall.profile.apply"];
+    expect(operation.risk).toBe("high");
+    await operation.run({ profile: "home-server", services: ["dns"] }, { runUnit, jobLog: null });
+    expect(runUnit.runTask).toHaveBeenCalledWith("firewall.profile-apply", { profile: "home-server", services: ["dns"], replace: false, sshRateLimit: false }, expect.anything());
+    expect(validateParameters(operation.parameters, { profile: "tailscale-only", services: [], replace: true, sshRateLimit: true }, "t")).toBeNull();
+    expect(validateParameters(operation.parameters, { profile: "fortress" }, "t")).toContain("one of");
+    expect(validateParameters(operation.parameters, { profile: "home-server", services: ["irc"] }, "t")).toContain("may only contain");
   });
 });

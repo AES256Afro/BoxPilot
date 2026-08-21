@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import AppCatalog from "./AppCatalog";
 
@@ -14,7 +14,37 @@ const manifest = {
   health: { kind: "healthcheck", stableSeconds: 10, timeoutSeconds: 240 }, sha256: "abc",
 };
 
+const dnsManifest = {
+  ...manifest, id: "pi-hole", name: "Pi-hole", category: "DNS", description: "DNS blocker", website: "https://pi-hole.net", notes: null, ports: [], volumes: [], env: [],
+  setup: { title: "Blocklists", note: "Pick lists.", finalize: ["pihole", "-g"], finalizeLabel: null, choices: [
+    { id: "oisd-big", label: "OISD big", description: "All-round list.", website: "https://oisd.nl", recommended: true, exec: ["sh", "-c", "x"] },
+    { id: "hagezi-tif", label: "HaGeZi Threat Intelligence Feeds", description: null, website: null, recommended: false, exec: ["sh", "-c", "y"] },
+  ] },
+};
+
 describe("App catalog", () => {
+  it("offers setup choices with the recommended ones pre-ticked and stages them with the install", async () => {
+    let stagedBody: string | undefined;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest: dnsManifest, live: { id: "pi-hole", installed: false, dataPresent: false, state: null, container: { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, urls: [] } }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      if (url.endsWith("/catalog/pi-hole/precheck")) return json({ ok: true, errors: [], conflicts: [] });
+      if (url.endsWith("/operations/app.install/jobs")) { stagedBody = init?.body as string; return json({ job: { id: "job-p", type: "op:app.install", title: "Install application", state: "awaiting_approval", risk: "high", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "high", passwordRequired: true, elevated: false, mode: "tiered", reason: "high risk" } }, 201); }
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppCatalog csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Install" }));
+    expect(await screen.findByText("Blocklists")).toBeTruthy();
+    expect((screen.getByLabelText("OISD big") as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByLabelText("HaGeZi Threat Intelligence Feeds") as HTMLInputElement).checked).toBe(false);
+    expect((screen.getByRole("link", { name: "About this list" }) as HTMLAnchorElement).href).toBe("https://oisd.nl/");
+    fireEvent.click(screen.getByLabelText("HaGeZi Threat Intelligence Feeds"));
+    fireEvent.click(screen.getByRole("button", { name: "Continue to install" }));
+    expect(await screen.findByText("High risk")).toBeTruthy();
+    await waitFor(() => expect(JSON.parse(stagedBody ?? "{}")).toEqual({ parameters: { id: "pi-hole", values: { ports: {}, env: {}, volumes: {}, setup: ["oisd-big", "hagezi-tif"] } } }));
+  });
+
   it("shows catalog apps, collects install settings, and stages app.install through the approval dialog", async () => {
     let stagedBody: string | undefined;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
