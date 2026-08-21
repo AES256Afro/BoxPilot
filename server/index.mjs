@@ -83,25 +83,25 @@ const jobs = createJobService(state, helper, {
     },
     "controller.backup.protect": (job, result) => controllerProtection.recordOperation(job, result),
     "controller.backup.retention.apply": (job, result) => controllerRetention.recordOperation(job, result),
+    "vm.export.create": (job, result) => vmExports.recordOperation(job, result),
+    "vm.export.protect": (job, result) => vmProtection.recordOperation(job, result),
+    "vm.backup.retention.apply": (job, result) => vmRetention.recordOperation(job, result),
+    "vm.backup.restore-drill": (job, result) => vmRestoreDrills.recordOperation(job, result),
+    "vm.recovery.create": (job, result) => vmRecoveries.recordOperation(job, result),
   },
   // Prepare hooks pin server-derived expectations into the staged parameters.
   operationPrepareHooks: {
     "controller.backup.protect": (parameters) => controllerProtection.prepareOperation(parameters),
     "controller.backup.retention.apply": () => controllerRetention.prepareOperation(),
     "vm.foundation.initialize": () => libvirtFoundation.prepareOperation(),
+    "vm.media.import": (parameters) => vmMedia.prepareOperation(parameters),
+    "vm.create": (parameters) => vmCreation.prepareOperation(parameters),
+    "vm.export.create": (parameters) => vmExports.prepareOperation(parameters),
+    "vm.export.protect": (parameters) => vmProtection.prepareOperation(parameters),
+    "vm.backup.retention.apply": () => vmRetention.prepareOperation(),
+    "vm.backup.restore-drill": (parameters) => vmRestoreDrills.prepareOperation(parameters),
+    "vm.recovery.create": (parameters) => vmRecoveries.prepareOperation(parameters),
   },
-  validateVmCreationJob: vmCreation.validateJob,
-  validateVmMediaImportJob: vmMedia.validateJob,
-  validateVmExportJob: vmExports.validateJob,
-  recordVmExportResult: vmExports.recordResult,
-  validateVmProtectionJob: vmProtection.validateJob,
-  recordVmProtectionResult: vmProtection.recordResult,
-  validateVmRetentionJob: vmRetention.validateJob,
-  recordVmRetentionResult: vmRetention.recordResult,
-  validateVmRestoreDrillJob: vmRestoreDrills.validateJob,
-  recordVmRestoreDrillResult: vmRestoreDrills.recordResult,
-  validateVmRecoveryJob: vmRecoveries.validateJob,
-  recordVmRecoveryResult: vmRecoveries.recordResult,
 });
 state.deleteExpiredSessions();
 const interruptedJobs = state.recoverInterruptedJobs();
@@ -550,25 +550,6 @@ app.post("/api/v1/virtualization/media/uploads", async (request, response) => {
   }
 });
 
-app.post("/api/v1/virtualization/media/import-plans", async (request, response) => {
-  try {
-    const plan = await vmMedia.plan(request.body?.filename, request.boxpilotSession.owner.id);
-    response.status(201).json({ plan });
-  } catch (error) {
-    response.status(409).json({ error: error.message, code: "vm_media_import_plan_failed" });
-  }
-});
-
-app.post("/api/v1/virtualization/media/import-plans/:id/stage", async (request, response) => {
-  try {
-    const job = await vmMedia.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
-    response.status(201).json({ job });
-  } catch (error) {
-    const status = error.message.includes("not found") ? 404 : 409;
-    response.status(status).json({ error: error.message, code: "vm_media_import_stage_failed" });
-  }
-});
-
 app.get("/api/v1/audit", async (request, response) => {
   const result = await audit.list(request.query.limit);
   response.status(result.available ? 200 : 503).json(result);
@@ -582,7 +563,7 @@ app.post("/api/v1/virtualization/plans", async (request, response) => {
   }
   let result;
   try {
-    result = await vmCreation.plan(request.body, request.boxpilotSession.owner.id);
+    result = await vmCreation.preview(request.body);
   } catch (error) {
     response.status(503).json({ ok: false, errors: [error.message] });
     return;
@@ -606,62 +587,12 @@ app.post("/api/v1/virtualization/plans", async (request, response) => {
   response.status(result.ok ? 200 : 400).json(result);
 });
 
-app.post("/api/v1/virtualization/plans/:id/stage", async (request, response) => {
-  try {
-    const job = await vmCreation.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
-    response.status(201).json({ job });
-  } catch (error) {
-    const status = error.message.includes("unavailable") ? 503 : error.message.includes("not found") ? 404 : 409;
-    response.status(status).json({ error: error.message, code: "vm_plan_stage_failed" });
-  }
-});
-
 app.get("/api/v1/virtualization/exports", (_request, response) => {
   response.json(vmExports.list());
 });
 
-app.post("/api/v1/virtualization/domains/:name/export-plans", async (request, response) => {
-  try {
-    const plan = await vmExports.plan(request.params.name, request.boxpilotSession.owner.id);
-    response.status(201).json({ plan });
-  } catch (error) {
-    const status = error.message.includes("unavailable") ? 503 : error.message.includes("not found") ? 404 : 409;
-    response.status(status).json({ error: error.message, code: "vm_export_plan_failed" });
-  }
-});
-
-app.post("/api/v1/virtualization/export-plans/:id/stage", async (request, response) => {
-  try {
-    const job = await vmExports.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
-    response.status(201).json({ job });
-  } catch (error) {
-    const status = error.message.includes("unavailable") ? 503 : error.message.includes("not found") ? 404 : 409;
-    response.status(status).json({ error: error.message, code: "vm_export_stage_failed" });
-  }
-});
-
 app.get("/api/v1/virtualization/protection", async (_request, response) => {
   response.json(await vmProtection.list());
-});
-
-app.post("/api/v1/virtualization/exports/:id/protection-plans", async (request, response) => {
-  try {
-    const plan = await vmProtection.plan(request.params.id, request.boxpilotSession.owner.id);
-    response.status(201).json({ plan });
-  } catch (error) {
-    const status = error.message.includes("not found") ? 404 : error.message.includes("unavailable") ? 503 : 409;
-    response.status(status).json({ error: error.message, code: "vm_protection_plan_failed" });
-  }
-});
-
-app.post("/api/v1/virtualization/protection-plans/:id/stage", async (request, response) => {
-  try {
-    const job = await vmProtection.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
-    response.status(201).json({ job });
-  } catch (error) {
-    const status = error.message.includes("not found") ? 404 : error.message.includes("unavailable") ? 503 : 409;
-    response.status(status).json({ error: error.message, code: "vm_protection_stage_failed" });
-  }
 });
 
 app.get("/api/v1/virtualization/retention", async (_request, response) => {
@@ -672,67 +603,8 @@ app.get("/api/v1/virtualization/retention", async (_request, response) => {
   }
 });
 
-app.post("/api/v1/virtualization/retention-plans", async (request, response) => {
-  try {
-    const plan = await vmRetention.plan(request.boxpilotSession.owner.id);
-    response.status(201).json({ plan });
-  } catch (error) {
-    response.status(503).json({ error: error.message, code: "vm_retention_plan_failed" });
-  }
-});
-
-app.post("/api/v1/virtualization/retention-plans/:id/stage", async (request, response) => {
-  try {
-    const job = await vmRetention.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
-    response.status(201).json({ job });
-  } catch (error) {
-    const status = error.message.includes("not found") ? 404 : error.message.includes("unavailable") ? 503 : 409;
-    response.status(status).json({ error: error.message, code: "vm_retention_stage_failed" });
-  }
-});
-
-app.post("/api/v1/virtualization/backups/:id/restore-drill-plans", async (request, response) => {
-  try {
-    const plan = await vmRestoreDrills.plan(request.params.id, request.boxpilotSession.owner.id);
-    response.status(201).json({ plan });
-  } catch (error) {
-    const status = error.message.includes("not found") ? 404 : error.message.includes("unavailable") ? 503 : 409;
-    response.status(status).json({ error: error.message, code: "vm_restore_drill_plan_failed" });
-  }
-});
-
-app.post("/api/v1/virtualization/restore-drill-plans/:id/stage", async (request, response) => {
-  try {
-    const job = await vmRestoreDrills.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
-    response.status(201).json({ job });
-  } catch (error) {
-    const status = error.message.includes("not found") ? 404 : error.message.includes("unavailable") ? 503 : 409;
-    response.status(status).json({ error: error.message, code: "vm_restore_drill_stage_failed" });
-  }
-});
-
 app.get("/api/v1/virtualization/recoveries", (_request, response) => {
   response.json({ recoveries: vmRecoveries.list() });
-});
-
-app.post("/api/v1/virtualization/backups/:id/recovery-plans", async (request, response) => {
-  try {
-    const plan = await vmRecoveries.plan(request.params.id, request.body?.targetDomainName, request.boxpilotSession.owner.id);
-    response.status(201).json({ plan });
-  } catch (error) {
-    const status = error.message.includes("not found") ? 404 : error.message.includes("unavailable") ? 503 : 409;
-    response.status(status).json({ error: error.message, code: "vm_recovery_plan_failed" });
-  }
-});
-
-app.post("/api/v1/virtualization/recovery-plans/:id/stage", async (request, response) => {
-  try {
-    const job = await vmRecoveries.stage(request.params.id, request.body?.revision, request.boxpilotSession.owner.id);
-    response.status(201).json({ job });
-  } catch (error) {
-    const status = error.message.includes("not found") ? 404 : error.message.includes("unavailable") ? 503 : 409;
-    response.status(status).json({ error: error.message, code: "vm_recovery_stage_failed" });
-  }
 });
 
 app.use(express.static(dist, { index: false }));

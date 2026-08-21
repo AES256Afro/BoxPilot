@@ -8,7 +8,7 @@ afterEach(() => {
 });
 
 describe("VM planner", () => {
-  it("loads managed media, creates a durable plan, and stages an approval job", async () => {
+  it("loads managed media, previews a validated plan, and hands the input to approval", async () => {
     const options = {
       mediaRoot: "/var/lib/libvirt/boot",
       mediaError: null,
@@ -42,28 +42,25 @@ describe("VM planner", () => {
     };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
-      const body = url.endsWith("planning-options") ? options : url.endsWith("/stage") ? { job: { id: "job-1", state: "awaiting_approval", title: "Create VM" } } : { ok: true, plan };
-      if (init?.method === "POST" && !url.endsWith("/stage")) {
+      const body = url.endsWith("planning-options") ? options : { ok: true, plan };
+      if (init?.method === "POST") {
         expect(JSON.parse(init.body as string)).toMatchObject({ name: "ubuntu-lab", isoFile: "ubuntu.iso" });
       }
       return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const onOpenRepair = vi.fn();
+    const onStage = vi.fn();
     const onClose = vi.fn();
-    render(<VmPlanner onClose={onClose} onOpenRepair={onOpenRepair} csrfToken="csrf" />);
+    render(<VmPlanner onClose={onClose} onStage={onStage} csrfToken="csrf" />);
 
     expect(await screen.findByText(/host CPU threads/)).toBeTruthy();
     fireEvent.change(screen.getByLabelText("VM name"), { target: { value: "ubuntu-lab" } });
     fireEvent.click(screen.getByRole("button", { name: "Generate reviewed plan" }));
 
-    expect(await screen.findByText("Validated and ready to stage")).toBeTruthy();
+    expect(await screen.findByText("Validated and ready for approval")).toBeTruthy();
     expect(screen.getByText("virt-install --name ubuntu-lab")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Stage for password approval" }));
-    expect(await screen.findByText("Staged for owner approval")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Open Repair Center to approve" }));
-    expect(onClose).toHaveBeenCalled();
-    expect(onOpenRepair).toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Continue to approval" }));
+    expect(onStage).toHaveBeenCalledWith(plan.input);
   });
 });

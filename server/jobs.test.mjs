@@ -127,199 +127,59 @@ describe("durable job executor", () => {
     store.close();
   });
 
-  it("revalidates and executes only the staged typed VM input", async () => {
-    const input = { name: "ubuntu-lab", osProfile: "ubuntu-24.04", vcpus: 2, memoryMiB: 4096, diskGiB: 40, isoFile: "ubuntu.iso", network: "default", firmware: "uefi", autostart: false };
-    const helper = { request: vi.fn(async () => ({ created: true, verified: true, domain: input.name, media: input.isoFile })) };
+  it("pins prepared parameters, runs long operations in the background, and records evidence through the hook", async () => {
+    let finish;
+    const helper = { request: vi.fn(() => new Promise((resolve) => { finish = resolve; })) };
     const { store, owner } = await setup(helper);
-    const validateVmCreationJob = vi.fn(async () => ({ input }));
-    const jobs = createJobService(store, helper, { validateVmCreationJob });
-    const job = store.createJob({
-      type: "virtualization.domain.create",
-      title: "Create ubuntu-lab",
-      parameters: { input },
-      recovery: { automaticRollback: true },
-      createdBy: owner.id,
+    const pinned = { name: "ubuntu-lab", exportId: "11111111-1111-4111-8111-111111111111", expectedUuid: "22222222-2222-4222-8222-222222222222", expectedState: "stopped" };
+    const prepare = vi.fn(async (parameters) => ({ ...parameters, ...pinned }));
+    const record = vi.fn();
+    const jobs = createJobService(store, helper, {
+      operationPrepareHooks: { "vm.export.create": prepare },
+      operationRecordHooks: { "vm.export.create": record },
     });
-
-    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
-
-    expect(validateVmCreationJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("virtualization.domain.create", input, expect.objectContaining({ jobId: expect.any(String) }));
-    expect(completed).toMatchObject({ state: "completed", result: { verified: true, domain: "ubuntu-lab" } });
-    store.close();
-  });
-
-  it("revalidates and executes only the staged VM media evidence", async () => {
-    const input = { importId: "77777777-7777-4777-8777-777777777777", filename: "ubuntu.iso", expectedSizeBytes: 8192, expectedSha256: "a".repeat(64), expectedRevision: "b".repeat(64) };
-    const result = { imported: true, verified: true, importId: input.importId, filename: input.filename, sizeBytes: input.expectedSizeBytes, sha256: input.expectedSha256, boundary: { existingMediaOverwritten: false, arbitraryPathAccepted: false, virtualMachineCreated: false, libvirtChanged: false } };
-    const helper = { request: vi.fn(async () => result) };
-    const { store, owner } = await setup(helper);
-    const validateVmMediaImportJob = vi.fn(async () => ({ input }));
-    const jobs = createJobService(store, helper, { validateVmMediaImportJob });
-    const job = store.createJob({ type: "virtualization.media.import", title: "Import ubuntu.iso", parameters: { input }, recovery: { automaticRollback: true }, createdBy: owner.id });
-    const completed = await jobs.approveAndRun(job.id, owner.id, "correct horse battery");
-    expect(validateVmMediaImportJob).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }));
-    expect(helper.request).toHaveBeenCalledWith("virtualization.media.import", input, expect.objectContaining({ timeoutMs: 6 * 60 * 60 * 1000 }));
-    expect(completed).toMatchObject({ state: "completed", result: { imported: true, verified: true, filename: "ubuntu.iso" } });
-    store.close();
-  });
-
-  it("starts a long stopped-VM export in the background and records only verified local evidence", async () => {
-    const input = { name: "ubuntu-lab", exportId: "11111111-1111-4111-8111-111111111111", expectedUuid: "22222222-2222-4222-8222-222222222222", expectedState: "stopped", expectedDiskRevision: "b".repeat(64), expectedSnapshotRevision: "a".repeat(64) };
-    let finish;
-    const helper = { request: vi.fn(() => new Promise((resolve) => { finish = resolve; })) };
-    const { store, owner } = await setup(helper);
-    const validateVmExportJob = vi.fn(async () => ({ input }));
-    const recordVmExportResult = vi.fn();
-    const jobs = createJobService(store, helper, { validateVmExportJob, recordVmExportResult });
-    const job = store.createJob({ type: "virtualization.domain.export.create", title: "Export ubuntu-lab", parameters: { input }, recovery: {}, createdBy: owner.id });
+    const job = await jobs.createOperationJob("vm.export.create", { name: "ubuntu-lab" }, owner.id);
+    expect(prepare).toHaveBeenCalledWith({ name: "ubuntu-lab" });
+    expect(job.parameters).toMatchObject(pinned);
 
     const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
     expect(started.state).toBe("applying");
-    expect(helper.request).toHaveBeenCalledWith("virtualization.domain.export.create", input, expect.objectContaining({ timeoutMs: 6 * 60 * 60 * 1000 }));
-    const result = { created: true, contentVerified: true, domain: input.name, uuid: input.expectedUuid, exportId: input.exportId, protected: false, encrypted: false, restoreDrill: { passed: false } };
+    expect(helper.request).toHaveBeenCalledWith("vm.export.create", expect.objectContaining(pinned), expect.objectContaining({ timeoutMs: 6 * 60 * 60 * 1000 }));
+    const result = { created: true, contentVerified: true, domain: "ubuntu-lab", exportId: pinned.exportId };
     finish(result);
     await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
-    expect(recordVmExportResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
     store.close();
   });
 
-  it("records confined cleanup when a VM export fails", async () => {
-    const input = { name: "ubuntu-lab", exportId: "11111111-1111-4111-8111-111111111111", expectedUuid: "22222222-2222-4222-8222-222222222222", expectedState: "stopped", expectedDiskRevision: "b".repeat(64), expectedSnapshotRevision: "a".repeat(64) };
-    const helper = { request: vi.fn(async () => { throw new Error("conversion failed Automated export cleanup completed."); }) };
+  it("fails the job when the evidence record hook rejects the result", async () => {
+    const helper = { request: vi.fn(async () => ({ created: true })) };
     const { store, owner } = await setup(helper);
-    const jobs = createJobService(store, helper, { validateVmExportJob: async () => ({ input }) });
-    const job = store.createJob({ type: "virtualization.domain.export.create", title: "Export ubuntu-lab", parameters: { input }, recovery: {}, createdBy: owner.id });
-
-    await expect(jobs.approveAndRun(job.id, owner.id, "correct horse battery")).rejects.toThrow("cleanup completed");
-    expect(store.getJob(job.id)).toMatchObject({ state: "failed", steps: expect.arrayContaining([expect.objectContaining({ name: "rollback", state: "completed" })]) });
-    store.close();
-  });
-
-  it("starts encrypted independent VM protection in the background without claiming restore protection", async () => {
-    const input = { backupId: "11111111-1111-4111-8111-111111111111", exportId: "22222222-2222-4222-8222-222222222222", domainName: "ubuntu-lab", domainUuid: "33333333-3333-4333-8333-333333333333", expectedManifestChecksumSha256: "a".repeat(64), expectedSizeBytes: 8192, expectedDestinationRevision: "b".repeat(64) };
-    let finish;
-    const helper = { request: vi.fn(() => new Promise((resolve) => { finish = resolve; })) };
-    const { store, owner } = await setup(helper);
-    const validateVmProtectionJob = vi.fn(async () => ({ input }));
-    const recordVmProtectionResult = vi.fn();
-    const jobs = createJobService(store, helper, { validateVmProtectionJob, recordVmProtectionResult });
-    const job = store.createJob({ type: "virtualization.export.backup.create", title: "Protect ubuntu-lab", parameters: { input }, recovery: {}, createdBy: owner.id });
-
-    const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
-    expect(started.state).toBe("applying");
-    expect(helper.request).toHaveBeenCalledWith("virtualization.export.backup.create", input, expect.objectContaining({ timeoutMs: 12 * 60 * 60 * 1000 }));
-    const result = { created: true, backupId: input.backupId, exportId: input.exportId, encrypted: true, independent: true, repositoryVerified: true, protected: false, restoreDrill: { passed: false } };
-    finish(result);
-    await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
-    expect(recordVmProtectionResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
-    store.close();
-  });
-
-  it("runs exact VM retention in the background and records verified no-prune evidence", async () => {
-    const input = {
-      retentionId: "11111111-1111-4111-8111-111111111111",
-      repositoryId: "a".repeat(64),
-      expectedDestinationRevision: "b".repeat(64),
-      expectedSnapshotSetRevision: "c".repeat(64),
-      forgetSnapshotIds: ["d".repeat(64)],
-    };
-    let finish;
-    const helper = { request: vi.fn(() => new Promise((resolve) => { finish = resolve; })) };
-    const { store, owner } = await setup(helper);
-    const validateVmRetentionJob = vi.fn(async () => ({ input }));
-    const recordVmRetentionResult = vi.fn();
-    const jobs = createJobService(store, helper, { validateVmRetentionJob, recordVmRetentionResult });
-    const job = store.createJob({ type: "virtualization.export.backup.retention.apply", title: "Apply retention", parameters: { input }, recovery: {}, createdBy: owner.id });
-
-    const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
-    expect(started.state).toBe("applying");
-    expect(helper.request).toHaveBeenCalledWith("virtualization.export.backup.retention.apply", input, expect.objectContaining({ timeoutMs: 12 * 60 * 60 * 1000 }));
-    const result = { applied: true, complete: true, retentionId: input.retentionId, repositoryId: input.repositoryId, repositoryVerified: true, prunePerformed: false, spaceReclaimed: false };
-    finish(result);
-    await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
-    expect(recordVmRetentionResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
-    store.close();
-  });
-
-  it("records confirmed retention mutation before failing a later repository verification", async () => {
-    const input = {
-      retentionId: "11111111-1111-4111-8111-111111111111", repositoryId: "a".repeat(64), expectedDestinationRevision: "b".repeat(64),
-      expectedSnapshotSetRevision: "c".repeat(64), forgetSnapshotIds: ["d".repeat(64)],
-    };
-    const result = { applied: true, complete: true, retentionId: input.retentionId, repositoryId: input.repositoryId, forgottenSnapshotIds: input.forgetSnapshotIds, repositoryVerified: false, prunePerformed: false, spaceReclaimed: false };
-    const helper = { request: vi.fn(async () => result) };
-    const { store, owner } = await setup(helper);
-    const recordVmRetentionResult = vi.fn();
-    const jobs = createJobService(store, helper, { validateVmRetentionJob: async () => ({ input }), recordVmRetentionResult });
-    const job = store.createJob({ type: "virtualization.export.backup.retention.apply", title: "Apply retention", parameters: { input }, recovery: {}, createdBy: owner.id });
-
-    await expect(jobs.approveAndRun(job.id, owner.id, "correct horse battery")).rejects.toThrow("invalid operation result");
-    expect(recordVmRetentionResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
+    const jobs = createJobService(store, helper, {
+      operationRecordHooks: { "vm.export.create": () => { throw new Error("Recorded evidence does not match the helper result"); } },
+    });
+    const job = await jobs.createOperationJob("vm.export.create", { name: "ubuntu-lab" }, owner.id);
+    await expect(jobs.approveAndRun(job.id, owner.id, "correct horse battery")).rejects.toThrow("Recorded evidence does not match");
     expect(store.getJob(job.id).state).toBe("failed");
     store.close();
   });
 
-  it("starts an isolated restore drill in the background and records only passing cleanup evidence", async () => {
-    const input = {
-      drillId: "11111111-1111-4111-8111-111111111111", backupId: "22222222-2222-4222-8222-222222222222", exportId: "33333333-3333-4333-8333-333333333333",
-      domainName: "ubuntu-lab", domainUuid: "44444444-4444-4444-8444-444444444444", repositoryId: "a".repeat(64), snapshotId: "b".repeat(64),
-      expectedManifestChecksumSha256: "c".repeat(64), expectedSizeBytes: 8192, expectedDestinationRevision: "d".repeat(64),
-    };
-    let finish;
-    const helper = { request: vi.fn(() => new Promise((resolve) => { finish = resolve; })) };
+  it("refuses legacy job types now that only registry operations execute", async () => {
+    const helper = { request: vi.fn() };
     const { store, owner } = await setup(helper);
-    const validateVmRestoreDrillJob = vi.fn(async () => ({ input }));
-    const recordVmRestoreDrillResult = vi.fn();
-    const jobs = createJobService(store, helper, { validateVmRestoreDrillJob, recordVmRestoreDrillResult });
-    const job = store.createJob({ type: "virtualization.export.backup.restore-drill", title: "Drill ubuntu-lab", parameters: { input }, recovery: {}, createdBy: owner.id });
-
-    const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
-    expect(started.state).toBe("applying");
-    expect(helper.request).toHaveBeenCalledWith("virtualization.export.backup.restore-drill", input, expect.objectContaining({ timeoutMs: 12 * 60 * 60 * 1000 }));
-    const result = { passed: true, drillId: input.drillId, backupId: input.backupId, network: "none", transient: true, persistentDomainCreated: false, guestAgentPing: true, temporaryQemuDiskAccessGranted: true, temporaryQemuDiskAccessRemoved: true, transientFirmwareStateRemoved: true, cleanupVerified: true, protected: true };
-    finish(result);
-    await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
-    expect(recordVmRestoreDrillResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
+    const jobs = createJobService(store, helper);
+    const job = store.createJob({ type: "virtualization.domain.create", title: "legacy", parameters: {}, recovery: {}, createdBy: owner.id });
+    await expect(jobs.approveAndRun(job.id, owner.id, "correct horse battery")).rejects.toThrow("not supported by this executor");
+    expect(helper.request).not.toHaveBeenCalled();
     store.close();
   });
 
-  it("creates a guarded recovery clone in the background and records only stopped no-network evidence", async () => {
-    const input = {
-      restoreId: "11111111-1111-4111-8111-111111111111", backupId: "22222222-2222-4222-8222-222222222222", exportId: "33333333-3333-4333-8333-333333333333",
-      sourceDomainName: "ubuntu-lab", sourceDomainUuid: "44444444-4444-4444-8444-444444444444", targetDomainName: "ubuntu-lab-recovery",
-      restoreDrillId: "55555555-5555-4555-8555-555555555555", repositoryId: "a".repeat(64), snapshotId: "b".repeat(64),
-      expectedManifestChecksumSha256: "c".repeat(64), expectedSizeBytes: 8192, expectedDestinationRevision: "d".repeat(64),
-    };
-    let finish;
-    const helper = { request: vi.fn(() => new Promise((resolve) => { finish = resolve; })) };
+  it("records a rollback step when a failed operation reports confined cleanup", async () => {
+    const helper = { request: vi.fn(async () => { throw new Error("conversion failed; automated export cleanup completed."); }) };
     const { store, owner } = await setup(helper);
-    const validateVmRecoveryJob = vi.fn(async () => ({ input }));
-    const recordVmRecoveryResult = vi.fn();
-    const jobs = createJobService(store, helper, { validateVmRecoveryJob, recordVmRecoveryResult });
-    const job = store.createJob({ type: "virtualization.backup.recovery.create", title: "Recover ubuntu-lab", parameters: { input }, recovery: {}, createdBy: owner.id });
-
-    const started = await jobs.approveAndStart(job.id, owner.id, "correct horse battery");
-    expect(started.state).toBe("applying");
-    expect(helper.request).toHaveBeenCalledWith("virtualization.backup.recovery.create", input, expect.objectContaining({ timeoutMs: 12 * 60 * 60 * 1000 }));
-    const result = {
-      created: true, restoreId: input.restoreId, backupId: input.backupId, domain: input.targetDomainName,
-      persistent: true, state: "stopped", network: "none", autostart: false, sourceUnchanged: true, snapshotUnchanged: true,
-    };
-    finish(result);
-    await vi.waitFor(() => expect(store.getJob(job.id).state).toBe("completed"));
-    expect(recordVmRecoveryResult).toHaveBeenCalledWith(expect.objectContaining({ id: job.id }), result);
-    store.close();
-  });
-
-  it("records exact recovery-clone rollback without touching protected source evidence", async () => {
-    const input = { restoreId: "11111111-1111-4111-8111-111111111111", backupId: "22222222-2222-4222-8222-222222222222", targetDomainName: "ubuntu-lab-recovery" };
-    const helper = { request: vi.fn(async () => { throw new Error("definition verification failed Automatic recovery-clone rollback removed the new domain definition and generated disk directory."); }) };
-    const { store, owner } = await setup(helper);
-    const jobs = createJobService(store, helper, { validateVmRecoveryJob: async () => ({ input }) });
-    const job = store.createJob({ type: "virtualization.backup.recovery.create", title: "Recover ubuntu-lab", parameters: { input }, recovery: {}, createdBy: owner.id });
-
-    await expect(jobs.approveAndRun(job.id, owner.id, "correct horse battery")).rejects.toThrow("rollback removed");
+    const jobs = createJobService(store, helper);
+    const job = await jobs.createOperationJob("vm.export.create", { name: "ubuntu-lab" }, owner.id);
+    await expect(jobs.approveAndRun(job.id, owner.id, "correct horse battery")).rejects.toThrow("cleanup completed");
     expect(store.getJob(job.id)).toMatchObject({ state: "failed", steps: expect.arrayContaining([expect.objectContaining({ name: "rollback", state: "completed" })]) });
     store.close();
   });

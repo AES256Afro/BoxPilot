@@ -68,18 +68,6 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
     try {
       const registeredTimeout = registry.timeoutFor(request.operation);
       if (registeredTimeout) connection.setTimeout(registeredTimeout);
-      if (request.operation === "virtualization.domain.export.create") connection.setTimeout(6 * 60 * 60 * 1000);
-      if (request.operation === "virtualization.export.backup.create") connection.setTimeout(12 * 60 * 60 * 1000);
-      if (request.operation === "virtualization.export.backup.retention.apply") connection.setTimeout(12 * 60 * 60 * 1000);
-      if (request.operation === "virtualization.export.backup.restore-drill") connection.setTimeout(12 * 60 * 60 * 1000);
-      if (request.operation === "virtualization.backup.recovery.create") connection.setTimeout(12 * 60 * 60 * 1000);
-      if (request.operation === "controller.database.backup.create") connection.setTimeout(10 * 60 * 1000);
-      if (request.operation === "controller.database.protection.create") connection.setTimeout(12 * 60 * 60 * 1000);
-      if (request.operation === "application.backup.protection.create") connection.setTimeout(12 * 60 * 60 * 1000);
-      if (request.operation === "application.backup.protection.retention.apply") connection.setTimeout(12 * 60 * 60 * 1000);
-      if (request.operation === "controller.database.protection.retention.apply") connection.setTimeout(12 * 60 * 60 * 1000);
-      if (request.operation === "virtualization.foundation.initialize") connection.setTimeout(5 * 60 * 1000);
-      if (request.operation === "virtualization.media.import") connection.setTimeout(6 * 60 * 60 * 1000);
       const execution = readOnlyOperations.has(request.operation)
         ? executeHelperOperation(request, helperDependencies)
         : operationQueue.then(() => executeHelperOperation(request, helperDependencies));

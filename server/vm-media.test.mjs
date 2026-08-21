@@ -39,22 +39,17 @@ describe("VM media controller service", () => {
     await expect(service.upload(requestFor(Buffer.from("bytes"), "../ubuntu.iso"))).rejects.toThrow("safe filename");
   });
 
-  it("pins helper evidence into an immutable plan and rechecks it before staging", async () => {
+  it("pins the staged ISO evidence into the operation parameters", async () => {
     const candidate = { name: "ubuntu.iso", sizeBytes: 100, sha256: "a".repeat(64), uploadedAt: "2026-08-16T20:00:00.000Z", modifiedAt: "2026-08-16T20:00:00.000Z", revision: "b".repeat(64) };
-    const helper = { request: vi.fn(async () => ({ inbox: { path: "/fixed/inbox", candidates: [candidate] }, library: { path: "/fixed/media", images: [] } })) };
-    let stored;
-    const store = {
-      createPlan: vi.fn((plan) => (stored = { ...plan, id: "plan-one", revision: "plan-revision", status: "draft", expiresAt: "2026-08-16T21:00:00.000Z" })),
-      getPlan: vi.fn(() => stored),
-      stagePlan: vi.fn(),
-      createJob: vi.fn((job) => ({ ...job, id: "job-one", state: "awaiting_approval" })),
-    };
-    const service = createVmMediaService({ helper, store });
-    const plan = await service.plan("ubuntu.iso", "owner-one");
-    expect(plan).toMatchObject({ id: "plan-one", revision: "plan-revision", input: { filename: "ubuntu.iso", expectedSizeBytes: 100, expectedSha256: "a".repeat(64), expectedRevision: "b".repeat(64) }, executable: true });
-    const job = await service.stage(plan.id, plan.revision, "owner-one");
-    expect(job).toMatchObject({ type: "virtualization.media.import", state: "awaiting_approval", risk: "medium" });
-    expect(store.stagePlan).toHaveBeenCalledWith("plan-one", "owner-one");
-    expect(helper.request).toHaveBeenCalledTimes(2);
+    const inventory = { inbox: { path: "/fixed/inbox", candidates: [candidate] }, library: { path: "/fixed/media", images: [] } };
+    const helper = { request: vi.fn(async () => inventory) };
+    const service = createVmMediaService({ helper, store: {} });
+    const parameters = await service.prepareOperation({ filename: "ubuntu.iso" });
+    expect(parameters).toMatchObject({ filename: "ubuntu.iso", expectedSizeBytes: 100, expectedSha256: "a".repeat(64), expectedRevision: "b".repeat(64) });
+    expect(parameters.importId).toMatch(/^[a-f0-9-]{36}$/);
+    await expect(service.prepareOperation({ filename: "../ubuntu.iso" })).rejects.toThrow("fixed upload area");
+    await expect(service.prepareOperation({ filename: "missing.iso" })).rejects.toThrow("unavailable or incomplete");
+    inventory.library.images.push({ name: "ubuntu.iso", sizeBytes: 100 });
+    await expect(service.prepareOperation({ filename: "ubuntu.iso" })).rejects.toThrow("already exists");
   });
 });

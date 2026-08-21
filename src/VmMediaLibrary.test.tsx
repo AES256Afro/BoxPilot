@@ -24,28 +24,24 @@ afterEach(() => {
 });
 
 describe("VM media library", () => {
-  it("reviews and stages an exact uploaded ISO import", async () => {
-    const onOpenRepair = vi.fn();
+  it("stages an exact uploaded ISO import through the shared approval dialog", async () => {
+    let staged: string | undefined;
     vi.stubGlobal("fetch", vi.fn(async (url, init) => {
       if (url === "/api/v1/virtualization/media") return new Response(JSON.stringify(inventory));
-      if (url === "/api/v1/virtualization/media/import-plans") return new Response(JSON.stringify({ plan: {
-        id: "plan-one", revision: "plan-revision", status: "draft", expiresAt: "2026-08-16T21:00:00.000Z", executable: true,
-        input: { importId: "77777777-7777-4777-8777-777777777777", filename: candidate.name, expectedSizeBytes: candidate.sizeBytes, expectedSha256: candidate.sha256, expectedRevision: candidate.revision },
-        candidate, destination: "/var/lib/libvirt/boot", changes: ["Copy exact ISO"], verification: ["Rehash source and destination"], boundaries: ["No existing ISO is overwritten"], recovery: "Remove only generated import state.", adapterRevision: candidate.revision,
-      } }), { status: 201 });
-      if (url === "/api/v1/virtualization/media/import-plans/plan-one/stage") {
-        expect(init).toMatchObject({ method: "POST" });
-        return new Response(JSON.stringify({ job: { id: "job-one", state: "awaiting_approval", title: "Import ubuntu.iso" } }), { status: 201 });
+      if (url === "/api/v1/operations/vm.media.import/jobs") {
+        staged = init?.body as string;
+        return new Response(JSON.stringify({
+          job: { id: "job-one", type: "op:vm.media.import", title: "Import a staged ISO", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] },
+          approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" },
+        }), { status: 201, headers: { "Content-Type": "application/json" } });
       }
       return new Response(JSON.stringify({ error: "unexpected request" }), { status: 404 });
     }));
-    render(<VmMediaLibrary csrfToken="csrf-one" onOpenRepair={onOpenRepair} />);
+    render(<VmMediaLibrary csrfToken="csrf-one" />);
     expect(await screen.findByText("Awaiting import approval")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Review import" }));
-    expect(await screen.findByRole("heading", { name: "Import ubuntu.iso" })).toBeTruthy();
-    expect(screen.getByText(candidate.sha256)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Stage for password approval" }));
-    await vi.waitFor(() => expect(onOpenRepair).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Import" }));
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { filename: "ubuntu.iso" } });
   });
 
   it("uploads raw ISO bytes before any import plan exists", async () => {

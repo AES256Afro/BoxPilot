@@ -33,6 +33,48 @@ export function vmOperations() {
       run: (parameters, { vmCloud, runUnit, progress, jobLog }) => vmCloud.create(parameters, { progress, runUnit, jobLog }),
     }),
     defineOperation({
+      id: "vm.media.import", title: "Import a staged ISO", risk: "medium", timeoutMs: 6 * 60 * 60_000,
+      description: "Copies the staged upload into the managed media library, verifying its SHA-256 end to end. Nothing is overwritten.",
+      parameters: { exact: false, fields: { filename: { type: "string", maxLength: 128 } } },
+      run: (parameters, { vmMedia }) => vmMedia.importMedia(parameters),
+    }),
+    defineOperation({
+      id: "vm.create", title: "Create a VM from a managed ISO", risk: "high", timeoutMs: 30 * 60_000,
+      description: "Creates the exact reviewed domain with virt-install from a managed ISO. Failure removes only the newly created domain and its new storage.",
+      parameters: { exact: false, fields: { name: { type: "string", maxLength: 64 } } },
+      run: (parameters, { virtualization }) => virtualization.create(parameters),
+    }),
+    defineOperation({
+      id: "vm.export.create", title: "Export a stopped VM", risk: "medium", timeoutMs: 6 * 60 * 60_000,
+      description: "Converts the stopped VM's disks to standalone verified qcow2 files under a server-generated export id. The source is never changed.",
+      parameters: { exact: false, fields: { name: { type: "string", maxLength: 64 } } },
+      run: (parameters, { virtualization }) => virtualization.createExport(parameters),
+    }),
+    defineOperation({
+      id: "vm.export.protect", title: "Protect a VM export independently", risk: "medium", timeoutMs: 12 * 60 * 60_000,
+      description: "Writes the verified export into the encrypted independent restic repository and reads the whole repository back. Nothing is pruned.",
+      parameters: { exact: false, fields: { exportId: { type: "string", maxLength: 40 } } },
+      run: (parameters, { vmProtection }) => vmProtection.createBackup(parameters),
+    }),
+    defineOperation({
+      id: "vm.backup.retention.apply", title: "Apply VM backup retention", risk: "medium", timeoutMs: 12 * 60 * 60_000,
+      description: "Forgets only the pinned eligible old snapshots and verifies the repository afterwards. Never prunes.",
+      parameters: { exact: false, fields: { retentionId: { type: "string", optional: true } } },
+      run: ({ candidates, expectedBeforeCount, ...parameters }, { vmRetention }) => vmRetention.apply(parameters),
+    }),
+    defineOperation({
+      id: "vm.backup.restore-drill", title: "Run an isolated VM restore drill", risk: "medium", timeoutMs: 12 * 60 * 60_000,
+      description: "Restores the exact snapshot into a no-network transient domain, requires guest-agent health, then cleans up. A pass promotes the backup to protected.",
+      parameters: { exact: false, fields: { backupId: { type: "string", maxLength: 40 } } },
+      run: (parameters, { vmRestoreDrill }) => vmRestoreDrill.runDrill(parameters),
+    }),
+    defineOperation({
+      id: "vm.recovery.create", title: "Create a recovery clone from a backup", risk: "medium", timeoutMs: 12 * 60 * 60_000,
+      description: "Restores the drilled snapshot into a new persistent, stopped, no-network domain. The source VM and repository are never changed.",
+      parameters: { exact: false, fields: { backupId: { type: "string", maxLength: 40 }, targetDomainName: { type: "string", maxLength: 64 } } },
+      run: (parameters, { vmRecovery }) => vmRecovery.createRecovery(parameters),
+    }),
+    defineOperation({
       id: "vm.foundation.initialize", title: "Initialize the libvirt foundation", risk: "medium", timeoutMs: 5 * 60_000,
       description: "Defines, starts, and autostarts only the canonical default NAT network and default storage pool where missing. Failure rolls back only this job's changes.",
       parameters: { exact: false, fields: { foundationId: { type: "string", optional: true } } },
