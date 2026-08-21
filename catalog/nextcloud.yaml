@@ -1,0 +1,99 @@
+schemaVersion: 2
+id: nextcloud
+name: Nextcloud
+category: Files
+icon: "☁️"
+description: Your own cloud. Files with phone and desktop sync, calendar, contacts, notes, photos, and optional office editing. Point the mobile app at this server and stop paying for cloud storage.
+website: https://nextcloud.com
+risk: medium
+image:
+  reference: nextcloud:34.0.3-apache
+  version: 34.0.3
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8087
+    exposure: lan
+volumes:
+  - id: html
+    label: Application and configuration
+    container: /var/www/html
+    path: html
+  - id: data
+    label: User files
+    container: /data
+    hostPath: /srv/nextcloud
+    configurable: true
+    backup: false
+    description: Where everyone's files live. Put it on your biggest disk or a mounted share; it is not included in app backups because of its size.
+env:
+  - name: NEXTCLOUD_DATA_DIR
+    default: /data
+    fixed: true
+  - name: POSTGRES_HOST
+    default: database
+    fixed: true
+  - name: POSTGRES_DB
+    default: nextcloud
+    fixed: true
+  - name: POSTGRES_USER
+    default: nextcloud
+    fixed: true
+  - name: POSTGRES_PASSWORD
+    label: Database password
+    type: password
+    secret: true
+    generate: true
+  - name: REDIS_HOST
+    default: redis
+    fixed: true
+  - name: NEXTCLOUD_ADMIN_USER
+    label: Admin username
+    default: admin
+  - name: NEXTCLOUD_ADMIN_PASSWORD
+    label: Admin password
+    type: password
+    secret: true
+    generate: true
+  - name: NEXTCLOUD_TRUSTED_DOMAINS
+    label: Allowed addresses
+    description: Space-separated hosts or patterns that may open Nextcloud. The default covers home networks and your tailnet; add a domain name if you publish it.
+    default: "localhost 192.168.* 10.* 172.* 100.* *.ts.net"
+  - name: PHP_MEMORY_LIMIT
+    default: 1G
+    fixed: true
+  - name: PHP_UPLOAD_LIMIT
+    label: Maximum upload size
+    default: 16G
+    options:
+      - 2G
+      - 16G
+      - 64G
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+sidecars:
+  - id: database
+    image: postgres:16.15-alpine
+    env:
+      POSTGRES_DB: nextcloud
+      POSTGRES_USER: nextcloud
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - id: pgdata
+        container: /var/lib/postgresql/data
+        path: postgres
+  - id: redis
+    image: valkey/valkey:8.1.9-alpine
+    volumes:
+      - id: redisdata
+        container: /data
+        path: redis-data
+        backup: false
+health:
+  kind: running
+  stableSeconds: 30
+  timeoutSeconds: 900
+notes: "First start installs Nextcloud and takes a few minutes; the admin username and generated password are under Secrets. For HTTPS from anywhere, click Serve on tailnet. The mobile apps need the server address exactly as you open it in the browser. Nextcloud's own backup guidance: back up the Application volume (this card's Back up) and copy the user files folder separately."

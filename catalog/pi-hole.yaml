@@ -3,7 +3,7 @@ id: pi-hole
 name: Pi-hole
 category: DNS
 icon: "🕳️"
-description: Network-wide ad and tracker blocking DNS server. Pick blocklists below, then point your router's DNS at this server once it is running.
+description: Network-wide ad and tracker blocking DNS server with a bundled Unbound recursive resolver, so your lookups never go to a third-party DNS provider. Pick blocklists below, then point your router's DNS at this server.
 website: https://pi-hole.net
 risk: high
 image:
@@ -51,9 +51,10 @@ env:
     generate: true
   - name: FTLCONF_dns_upstreams
     label: Upstream DNS
-    description: Where Pi-hole forwards the queries it does not block.
-    default: 1.1.1.1;1.0.0.1
+    description: Where Pi-hole sends the queries it does not block. "unbound#53" is the bundled recursive resolver, which asks the root servers directly so no third party sees your lookups (recommended).
+    default: unbound#53
     options:
+      - unbound#53
       - 1.1.1.1;1.0.0.1
       - 9.9.9.9;149.112.112.112
       - 8.8.8.8;8.8.4.4
@@ -64,6 +65,9 @@ env:
   - name: FTLCONF_misc_etc_dnsmasq_d
     default: "false"
     fixed: true
+sidecars:
+  - id: unbound
+    image: klutchell/unbound:v1.26.0
 health:
   kind: healthcheck
   stableSeconds: 10

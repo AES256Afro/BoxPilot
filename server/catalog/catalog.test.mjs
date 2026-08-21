@@ -107,7 +107,11 @@ describe("catalog loader", () => {
     const { manifests, problems } = await loadCatalog();
     expect(problems).toEqual([]);
     expect(manifests.map((manifest) => manifest.id)).toEqual(expect.arrayContaining(["jellyfin", "homepage", "portainer"]));
-    for (const manifest of manifests) expect(resolveValues(manifest, {}).errors).toEqual([]);
+    for (const manifest of manifests) {
+      // Every shipped manifest installs with defaults, except fields it declares required (an agent key).
+      const required = manifest.env.filter((entry) => entry.required).map((entry) => `values.env.${entry.name}: is required`);
+      expect(resolveValues(manifest, {}).errors.filter((error) => !required.includes(error))).toEqual([]);
+    }
   });
 });
 
