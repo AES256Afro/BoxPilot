@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOperation } from "./ApproveDialog";
+import RestorePanel from "./RestorePanel";
 import { inspectOperation } from "./operations";
 
 interface BackupRecord { id: string; applicationId: string; destination: string; checksumSha256: string; sizeBytes: number; downtimeMs: number; restoreDrill: { passed?: boolean } | null; createdAt: string }
@@ -160,6 +161,8 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
           <span className="muted">Recurring snapshots and syncs can be scheduled on the System page.</span>
         </div>
       </section>
+
+      <RestorePanel csrfToken={csrfToken} start={start} />
     </div>
   );
 }

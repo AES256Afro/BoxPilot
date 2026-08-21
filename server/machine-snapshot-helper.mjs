@@ -279,5 +279,154 @@ export function createMachineSnapshotHelper({
     return { synced: true, destination: mirrorRoot, completedAt, fileCount, copiedCount, copiedBytes, verified: true, boundary: { deletesPerformed: false, networkUsed: false } };
   }
 
-  return { inspect, create, sync };
+  // ---- Restore ------------------------------------------------------------------------------------
+  const sourceRoots = () => ({ local: resolvedSnapshotRoot, mirror: path.join(mirrorRoot, "machine-snapshots") });
+
+  /** Snapshots available to restore from: local root and the off-box mirror (when mounted). */
+  async function sources() {
+    const roots = sourceRoots();
+    const mount = await mountState();
+    const result = { sources: [], mount };
+    for (const [source, root] of Object.entries(roots)) {
+      if (source === "mirror" && !mount.mounted) { result.sources.push({ source, root, available: false, snapshots: [] }); continue; }
+      const entries = (await readdir(root).catch(() => [])).filter((entry) => snapshotNamePattern.test(entry)).sort().reverse();
+      const snapshots = [];
+      for (const name of entries) {
+        const meta = await readFile(path.join(root, `${name}.meta.json`), "utf8").then(JSON.parse).catch(() => null);
+        const info = await stat(path.join(root, name)).catch(() => null);
+        snapshots.push({ artifact: name, sizeBytes: meta?.sizeBytes ?? info?.size ?? null, createdAt: meta?.createdAt ?? info?.mtime?.toISOString() ?? null, checksumSha256: meta?.checksumSha256 ?? null, apps: meta?.contents?.apps?.length ?? null });
+      }
+      result.sources.push({ source, root, available: true, snapshots });
+    }
+    return result;
+  }
+
+  function resolveArtifact(source, artifact) {
+    const root = sourceRoots()[source];
+    if (!root) throw new Error("Snapshot source must be local or mirror");
+    if (typeof artifact !== "string" || !snapshotNamePattern.test(artifact)) throw new Error("Snapshot name is invalid");
+    return { root, artifactPath: path.join(root, artifact), metaPath: path.join(root, `${artifact}.meta.json`) };
+  }
+
+  async function readManifestFromArchive(artifactPath) {
+    const result = await run(tarBinary, ["-xzf", artifactPath, "-O", "./manifest.json"], { timeout: 10 * 60_000, maxBuffer: 16 * 1024 * 1024 });
+    if (!result.ok) throw new Error(`Could not read the snapshot manifest: ${result.stderr.split("\n").slice(-2).join(" ")}`);
+    try { return JSON.parse(result.stdout); } catch { throw new Error("The snapshot manifest is not valid JSON"); }
+  }
+
+  /** Where an app data archive referenced by the snapshot can be found right now (local first, then mirror). */
+  async function locateAppArchive(id, name) {
+    const candidates = [
+      { location: "local", directory: path.join(path.resolve(applicationBackupRoot), id) },
+      { location: "mirror", directory: path.join(mirrorRoot, "application-backups", id) },
+    ];
+    for (const candidate of candidates) {
+      if (await stat(path.join(candidate.directory, name)).then(() => true).catch(() => false)) return { ...candidate, name };
+    }
+    return null;
+  }
+
+  /** Manifest summary plus, per app, whether its newest data archive is reachable. */
+  async function describe({ source, artifact }) {
+    const { artifactPath, metaPath } = resolveArtifact(source, artifact);
+    await stat(artifactPath).catch(() => { throw new Error(`Snapshot ${artifact} was not found in the ${source} source`); });
+    const meta = await readFile(metaPath, "utf8").then(JSON.parse).catch(() => null);
+    const manifest = await readManifestFromArchive(artifactPath);
+    const apps = [];
+    for (const app of manifest.contents?.apps ?? []) {
+      const listing = await run(tarBinary, ["-xzf", artifactPath, "-O", `./apps/${app.id}/backups.json`], { timeout: 5 * 60_000, maxBuffer: 4 * 1024 * 1024 }).catch(() => ({ ok: false }));
+      let newest = null;
+      if (listing.ok) { try { newest = JSON.parse(listing.stdout).backups?.[0]?.artifact ?? null; } catch { newest = null; } }
+      const located = newest ? await locateAppArchive(app.id, newest) : null;
+      apps.push({ id: app.id, installed: app.installed, projectFiles: app.projectFiles, newestBackup: newest, dataAvailable: Boolean(located), dataLocation: located?.location ?? null });
+    }
+    return { source, artifact, createdAt: manifest.createdAt ?? meta?.createdAt ?? null, checksumSha256: meta?.checksumSha256 ?? null, apps, system: manifest.contents?.system ?? null, vms: manifest.contents?.vms ?? null, containsSecrets: true };
+  }
+
+  /**
+   * Rehydrate from a snapshot. Apps: project files are restored, the app is (re)installed through the
+   * generic deployer using the archived settings and secrets, then (optionally) its newest data
+   * archive is restored. System files are staged for review, never applied. VM definitions are listed.
+   */
+  async function restore({ source, artifact, apps: selected = "all", restoreData = true }, { apps: appHelper, progress = null } = {}) {
+    if (!appHelper) throw new Error("Application deployer is unavailable");
+    const { artifactPath, metaPath } = resolveArtifact(source, artifact);
+    await stat(artifactPath).catch(() => { throw new Error(`Snapshot ${artifact} was not found in the ${source} source`); });
+    const meta = await readFile(metaPath, "utf8").then(JSON.parse).catch(() => null);
+    if (meta?.checksumSha256) {
+      progress?.("Verifying the snapshot checksum...", "stdout");
+      if ((await sha256File(artifactPath)) !== meta.checksumSha256) throw new Error("The snapshot failed its checksum; it may be damaged. Nothing was changed.");
+    }
+    const staging = path.join(resolvedSnapshotRoot, `.restore-${randomUUID()}`);
+    await mkdir(staging, { recursive: true, mode: 0o700 });
+    const summary = { source, artifact, apps: [], system: null, vms: [], controllerBackupStaged: null };
+    try {
+      progress?.(`$ tar -xzf ${artifact}`, "stdout");
+      const extract = await run(tarBinary, ["-xzf", artifactPath, "-C", staging], { timeout: 30 * 60_000 });
+      if (!extract.ok) throw new Error(`Could not extract the snapshot: ${extract.stderr.split("\n").slice(-2).join(" ")}`);
+      const manifest = JSON.parse(await readFile(path.join(staging, "manifest.json"), "utf8"));
+      progress?.("Verifying file inventory...", "stdout");
+      for (const file of manifest.files ?? []) {
+        const actual = await sha256File(path.join(staging, file.path)).catch(() => null);
+        if (actual !== file.sha256) throw new Error(`Snapshot content ${file.path} failed verification. Nothing was changed.`);
+      }
+      const wanted = (manifest.contents?.apps ?? []).filter((app) => selected === "all" ? app.installed : Array.isArray(selected) && selected.includes(app.id));
+      for (const app of wanted) {
+        const entry = { id: app.id, installed: false, dataRestored: false, error: null };
+        summary.apps.push(entry);
+        try {
+          const stateRaw = await readFile(path.join(staging, "apps", app.id, "boxpilot.json"), "utf8").catch(() => null);
+          const archivedState = stateRaw ? JSON.parse(stateRaw) : null;
+          const live = await appHelper.internals.readState(app.id);
+          if (live?.installed) throw new Error("already installed on this box; uninstall it first if you want the snapshot's version");
+          progress?.(`[${app.id}] restoring project files`, "stdout");
+          const target = path.join(catalogRoot, app.id);
+          await mkdir(target, { recursive: true, mode: 0o700 });
+          for (const file of [".env"]) await copyIfExists(path.join(staging, "apps", app.id, file), path.join(target, file));
+          await writeFile(path.join(target, "boxpilot.json"), JSON.stringify({ ...(archivedState ?? { id: app.id }), installed: false, restoredFrom: artifact }, null, 2), { mode: 0o600 });
+          progress?.(`[${app.id}] installing with the archived settings`, "stdout");
+          await appHelper.install({ id: app.id, values: archivedState?.values ?? {} }, { progress });
+          entry.installed = true;
+          if (restoreData) {
+            const listing = await readFile(path.join(staging, "apps", app.id, "backups.json"), "utf8").then(JSON.parse).catch(() => null);
+            const newest = listing?.backups?.[0]?.artifact ?? null;
+            const located = newest ? await locateAppArchive(app.id, newest) : null;
+            if (!located) { progress?.(`[${app.id}] no data archive available; installed fresh`, "stderr"); }
+            else {
+              if (located.location === "mirror") {
+                progress?.(`[${app.id}] copying ${newest} from the mirror`, "stdout");
+                const localDirectory = path.join(path.resolve(applicationBackupRoot), app.id);
+                await mkdir(localDirectory, { recursive: true, mode: 0o700 });
+                for (const name of [newest, newest.replace(/\.tar\.gz$/, ".json")]) await copyIfExists(path.join(located.directory, name), path.join(localDirectory, name));
+              }
+              progress?.(`[${app.id}] restoring data from ${newest}`, "stdout");
+              await appHelper.restoreAppBackup({ id: app.id, backup: newest }, { progress });
+              entry.dataRestored = true;
+            }
+          }
+        } catch (error) {
+          entry.error = error.message;
+          progress?.(`[${app.id}] ${error.message}`, "stderr");
+        }
+      }
+      // System files and VM definitions are staged for the operator; applying them blindly could cut off access.
+      const reviewRoot = path.join(resolvedSnapshotRoot, "restored", now().toISOString().replaceAll(/[-:]/g, "").replace(/\.\d+Z$/, "Z"));
+      for (const area of ["system", "vms", "controller"]) {
+        const from = path.join(staging, area);
+        if (await stat(from).then((info) => info.isDirectory()).catch(() => false)) {
+          for (const relative of await walkFiles(from)) await copyIfExists(path.join(from, relative), path.join(reviewRoot, area, relative));
+        }
+      }
+      summary.system = { stagedAt: path.join(reviewRoot, "system"), applied: false, contents: manifest.contents?.system ?? null };
+      summary.vms = (manifest.contents?.vms?.domains ?? []).map((name) => ({ name, definitionStagedAt: path.join(reviewRoot, "vms", `${name}.xml`), defined: false }));
+      summary.controllerBackupStaged = path.join(reviewRoot, "controller");
+      summary.restored = summary.apps.filter((entry) => entry.installed).length;
+      summary.failed = summary.apps.filter((entry) => entry.error).length;
+      return summary;
+    } finally {
+      await rm(staging, { recursive: true, force: true });
+    }
+  }
+
+  return { inspect, create, sync, sources, describe, restore, internals: { locateAppArchive, resolveArtifact } };
 }
