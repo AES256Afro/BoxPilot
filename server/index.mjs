@@ -78,6 +78,11 @@ const actionCenter = createActionCenterService({ recoveryKit, inventory });
 const supportBundle = createSupportBundleService({ inventory, prerequisites, actionCenter, audit, helper });
 const catalogService = createCatalogService();
 const jobLogReader = createJobLogReader();
+function pinnedBackupDestination() {
+  const destination = state.getSetting("backupDestination", null);
+  if (!destination) throw new Error("Save an off-box destination on the Backups page first");
+  return { host: destination.host, port: destination.port ?? 22, user: destination.user, path: destination.path };
+}
 const jobs = createJobService(state, helper, {
   jobLog: jobLogReader,
   // Registry ops whose results become durable evidence rows.
@@ -97,6 +102,7 @@ const jobs = createJobService(state, helper, {
     "vm.backup.retention.apply": (job, result) => vmRetention.recordOperation(job, result),
     "vm.backup.restore-drill": (job, result) => vmRestoreDrills.recordOperation(job, result),
     "vm.recovery.create": (job, result) => vmRecoveries.recordOperation(job, result),
+    "backup.remote.sync": (job, result) => state.setSetting("backupDestinationLastSync", { completedAt: result.completedAt, filesTransferred: result.filesTransferred, bytesTransferred: result.bytesTransferred, destination: result.destination }, { updatedBy: job.createdBy }),
   },
   // Prepare hooks pin server-derived expectations into the staged parameters.
   operationPrepareHooks: {
@@ -113,6 +119,9 @@ const jobs = createJobService(state, helper, {
     "vm.backup.retention.apply": () => vmRetention.prepareOperation(),
     "vm.backup.restore-drill": (parameters) => vmRestoreDrills.prepareOperation(parameters),
     "vm.recovery.create": (parameters) => vmRecoveries.prepareOperation(parameters),
+    // The browser names nothing: the saved destination is pinned into the job.
+    "backup.remote.test": () => pinnedBackupDestination(),
+    "backup.remote.sync": () => pinnedBackupDestination(),
   },
 });
 state.deleteExpiredSessions();

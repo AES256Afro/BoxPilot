@@ -5,6 +5,7 @@
 import { Router } from "express";
 import { approvalModes, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "../ops/risk.mjs";
 import { verifyPassword } from "../security.mjs";
+import { normalizeDestination } from "../backup-destination.mjs";
 
 export function createSettingsRouter({ state, notifications, auth }) {
   const router = Router();
@@ -54,6 +55,28 @@ export function createSettingsRouter({ state, notifications, auth }) {
     state.setSetting("approvalMode", mode, { updatedBy: owner.id });
     state.recordAudit("settings.approval-mode.changed", { actorId: owner.id, subjectId: owner.id, details: { approvalMode: mode } });
     return response.json({ approvalMode: mode, modes: approvalModes, elevationTtlMs });
+  });
+
+  // Off-box SSH backup destination (M6.2). Not secret — the key stays root-only on the server.
+  router.get("/settings/backup-destination", (_request, response) => {
+    response.json({ destination: state.getSetting("backupDestination", null), lastSync: state.getSetting("backupDestinationLastSync", null) });
+  });
+
+  router.put("/settings/backup-destination", auth.requireCsrf, async (request, response) => {
+    const owner = await ownerWithPassword(request, response, "Owner password required to change the backup destination");
+    if (!owner) return undefined;
+    if (request.body?.destination === null) {
+      state.setSetting("backupDestination", null, { updatedBy: owner.id });
+      return response.json({ destination: null, lastSync: null });
+    }
+    try {
+      const destination = normalizeDestination(request.body?.destination ?? {});
+      state.setSetting("backupDestination", destination, { updatedBy: owner.id });
+      state.recordAudit("settings.backup-destination.changed", { actorId: owner.id, subjectId: owner.id, details: { host: destination.host, user: destination.user, path: destination.path, port: destination.port } });
+      return response.json({ destination, lastSync: state.getSetting("backupDestinationLastSync", null) });
+    } catch (error) {
+      return response.status(400).json({ error: error.message, code: "invalid_setting" });
+    }
   });
 
   return router;

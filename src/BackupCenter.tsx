@@ -8,6 +8,9 @@ interface ControllerProtection { id: string; backupId: string; snapshotId?: stri
 interface ProtectionState { destination: { mounted?: boolean; repositoryInitialized?: boolean } | null; protections: ControllerProtection[] }
 interface RetentionStatus { policy?: { minimumCopies?: number; minimumAgeDays?: number }; candidates?: unknown[]; beforeCount?: number }
 interface MachineSnapshot { artifact: string; sizeBytes: number | null; checksumSha256: string | null; createdAt: string | null; contents: { apps?: unknown[]; vms?: { domains?: string[] } } | null }
+interface RemoteMirrorState { keyReady: boolean; publicKey: string | null; fingerprint: string | null; hostKeysPinned: number; rsyncInstalled: boolean }
+interface RemoteDestination { host: string; port: number; user: string; path: string }
+interface RemoteSettings { destination: RemoteDestination | null; lastSync: { completedAt: string; filesTransferred: number; bytesTransferred: number; destination: string } | null }
 interface MachineSnapshotState {
   snapshots: MachineSnapshot[];
   keep: number;
@@ -34,22 +37,32 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
   const [protection, setProtection] = useState<ProtectionState | null>(null);
   const [retention, setRetention] = useState<RetentionStatus | null>(null);
   const [machine, setMachine] = useState<MachineSnapshotState | null>(null);
+  const [remote, setRemote] = useState<RemoteMirrorState | null>(null);
+  const [remoteSettings, setRemoteSettings] = useState<RemoteSettings | null>(null);
+  const [form, setForm] = useState<RemoteDestination & { password: string }>({ host: "", port: 22, user: "", path: "", password: "" });
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [list, protectionState, retentionState, machineState] = await Promise.all([
+      const [list, protectionState, retentionState, machineState, remoteState, remoteConfig] = await Promise.all([
         requestJson<{ backups: BackupRecord[] }>("/api/v1/backups"),
         requestJson<ProtectionState>("/api/v1/controller-backup-protection").catch(() => null),
         requestJson<RetentionStatus>("/api/v1/controller-backup-retention").catch(() => null),
         requestJson<{ result: MachineSnapshotState }>("/api/v1/operations/host.snapshot.inspect/inspect").then((body) => body.result).catch(() => null),
+        requestJson<{ result: RemoteMirrorState }>("/api/v1/operations/backup.remote.inspect/inspect").then((body) => body.result).catch(() => null),
+        requestJson<RemoteSettings>("/api/v1/settings/backup-destination").catch(() => null),
       ]);
       setBackups(list.backups.filter((backup) => backup.applicationId === "boxpilot-controller"));
       setProtection(protectionState);
       setRetention(retentionState);
       setMachine(machineState);
+      setRemote(remoteState);
+      setRemoteSettings(remoteConfig);
+      if (remoteConfig?.destination) setForm((current) => ({ ...current, ...remoteConfig.destination!, password: current.password }));
       setError(null);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not load backup state");
@@ -69,6 +82,22 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
       parameters: { backupId },
       preview: <span>Copies the verified backup into the separate encrypted restic repository, reads the whole repository back, and restore-drills the exact snapshot with no network. Nothing is pruned or overwritten.</span>,
     });
+  };
+
+  const saveDestination = async () => {
+    setSaving(true);
+    setFormError(null);
+    try {
+      const response = await fetch("/api/v1/settings/backup-destination", { method: "PUT", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ password: form.password, destination: { host: form.host.trim(), port: Number(form.port) || 22, user: form.user.trim(), path: form.path.trim() } }) });
+      const body = (await response.json().catch(() => ({}))) as RemoteSettings & { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Could not save the destination");
+      setRemoteSettings(body);
+      setForm((current) => ({ ...current, password: "" }));
+    } catch (requestError) {
+      setFormError(requestError instanceof Error ? requestError.message : "Could not save the destination");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const latest = backups[0] ?? null;
@@ -163,6 +192,35 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
       </section>
 
       <RestorePanel csrfToken={csrfToken} start={start} />
+      <section className="panel">
+        <header className="panel-header">
+          <div><strong>Off-box destination over SSH</strong><span>Mirror the backup folders to another machine with rsync over SSH. BoxPilot generates its own key; you authorize the public half on the destination. Nothing is ever deleted there, and no password is stored here.</span></div>
+        </header>
+        <div className="recovery-actions">
+          {remote?.keyReady
+            ? <span className="muted">Mirror key ready{remote.fingerprint ? ` (${remote.fingerprint})` : ""}. Add this public key to <code>~/.ssh/authorized_keys</code> for the destination user:</span>
+            : <><span className="muted">Step 1 — create the mirror key on this server.</span><button className="secondary-button" type="button" onClick={() => start({ operationId: "backup.remote.setup", title: "Create the off-box mirror key", parameters: {}, preview: <span>Generates an ed25519 key pair under <code>/etc/boxpilot/secrets</code>. The private key never leaves this server.</span> })}>Create key</button></>}
+        </div>
+        {remote?.publicKey && <pre className="app-logs" aria-label="Mirror public key">{remote.publicKey}</pre>}
+        <form className="recovery-actions" onSubmit={(event) => { event.preventDefault(); void saveDestination(); }}>
+          <input aria-label="Destination host" placeholder="host or IP" value={form.host} onChange={(event) => setForm({ ...form, host: event.target.value })} required />
+          <input aria-label="Destination port" type="number" min={1} max={65535} value={form.port} onChange={(event) => setForm({ ...form, port: Number(event.target.value) })} style={{ width: "6em" }} />
+          <input aria-label="Destination user" placeholder="user" value={form.user} onChange={(event) => setForm({ ...form, user: event.target.value })} required />
+          <input aria-label="Destination path" placeholder="/absolute/path" value={form.path} onChange={(event) => setForm({ ...form, path: event.target.value })} required />
+          <input aria-label="Owner password" type="password" placeholder="owner password" autoComplete="current-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required />
+          <button className="secondary-button" type="submit" disabled={saving}>{saving ? "Saving…" : "Save destination"}</button>
+        </form>
+        {formError && <div className="auth-error" role="alert">{formError}</div>}
+        <div className="recovery-actions">
+          {remoteSettings?.destination
+            ? <span className="muted">Destination <code>{remoteSettings.destination.user}@{remoteSettings.destination.host}:{remoteSettings.destination.path}</code>{remoteSettings.lastSync ? ` — last mirrored ${new Date(remoteSettings.lastSync.completedAt).toLocaleString()} (${remoteSettings.lastSync.filesTransferred} files)` : " — never mirrored"}.</span>
+            : <span className="muted">Step 2 — save where the backups should go.</span>}
+          {remoteSettings?.destination && remote?.keyReady && <button className="secondary-button" type="button" onClick={() => start({ operationId: "backup.remote.test", title: "Test the off-box destination", parameters: {}, preview: <span>Connects as <code>{remoteSettings.destination!.user}@{remoteSettings.destination!.host}</code>, creates <code>{remoteSettings.destination!.path}</code> if needed, checks it is writable, and pins the destination's host key on first use.</span> })}>Test connection</button>}
+          {remoteSettings?.destination && remote?.keyReady && (remote.rsyncInstalled
+            ? <button className="primary-button" type="button" disabled={remote.hostKeysPinned === 0} title={remote.hostKeysPinned === 0 ? "Test the connection first" : undefined} onClick={() => start({ operationId: "backup.remote.sync", title: "Mirror backups off-box", parameters: {}, preview: <span>rsync pushes the database backups, app backups, and machine snapshots to <code>{remoteSettings.destination!.host}</code> with checksum verification. Nothing on the destination is deleted. Schedule it on the System page to keep it current.</span> })}>Mirror now</button>
+            : <button className="secondary-button" type="button" onClick={() => start({ operationId: "apt.install", title: "Install rsync", parameters: { packages: ["rsync"] }, preview: <span>Installs the <code>rsync</code> package from Ubuntu's repositories; the mirror needs it on this server.</span> })}>Install rsync</button>)}
+        </div>
+      </section>
     </div>
   );
 }
