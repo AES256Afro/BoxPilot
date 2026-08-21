@@ -3,7 +3,7 @@ import { createSupportBundleService } from "./support-bundle.mjs";
 
 function service(overrides = {}) {
   return createSupportBundleService({
-    inventory: { inspect: vi.fn(async () => ({ host: { hostname: "bigbox" }, mount: "/srv/private/app", password: "do-not-export" })) },
+    inventory: { inspect: vi.fn(async () => ({ host: { hostname: "homebox" }, mount: "/srv/private/app", password: "do-not-export" })) },
     prerequisites: { inspect: vi.fn(async () => ({ checks: [{ id: "docker", summary: "token=secret-value" }] })) },
     actionCenter: { inspect: vi.fn(async () => ({ notices: [], boundary: { mutationPerformed: false } })) },
     audit: { list: vi.fn(async () => ({ events: [{ type: "job", sessionId: "private-session", detail: "private-owner" }] })) },

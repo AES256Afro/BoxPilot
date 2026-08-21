@@ -11,7 +11,7 @@
 <body><div class="shell">
   <aside><div class="brand"><span>B</span>BoxPilot</div><nav><div>Overview</div><div class="active">Applications</div><div>Network</div><div>Repair Center</div><div>Virtual Machines</div><div>Backups</div><div>Migrations</div><div>Logs</div><div>Settings</div></nav><div class="private"><strong>Private administration</strong>Tailscale HTTPS | Funnel off</div></aside>
   <main>
-    <div class="top"><div><small>BoxPilot control plane</small><h1>Stage Pi-hole on Bigbox</h1><p>Review the exact network-critical service boundary before separate password approval.</p></div><span class="pill">Network-critical</span></div>
+    <div class="top"><div><small>BoxPilot control plane</small><h1>Stage Pi-hole on Homebox</h1><p>Review the exact network-critical service boundary before separate password approval.</p></div><span class="pill">Network-critical</span></div>
     <div class="disclosure">MOCKED 0.19.0 PRODUCT STATE. No container, router, DNS client, DHCP service, firewall, Tailscale setting, or traffic path was changed for this capture.</div>
     <div class="summary"><div class="metric"><span>Linked assessment</span><strong>7e5b1a90 | fresh</strong></div><div class="metric"><span>DNS binding</span><strong>192.168.8.10:53</strong></div><div class="metric"><span>Web interface</span><strong>192.168.8.10:8080</strong></div><div class="metric"><span>Backup</span><strong style="color:var(--amber)">Required after staging</strong></div></div>
     <section class="panel"><div class="head"><div><span class="eyebrow">Immutable application plan 4c93f0a1</span><h2>Digest-pinned Pi-hole 2026.07.2</h2><p class="code">pihole/pihole@sha256:f7d1be836e3bc608...c70038b</p></div><span class="pill good">Ready to stage</span></div>
@@ -22,7 +22,7 @@
         <div class="card"><h3>Automatic rollback</h3><ol><li>Stop and remove only the managed Pi-hole stack.</li><li>Restore the previous managed Compose definition if present.</li><li>Preserve configuration and administrator secret.</li><li>Leave current router and client DNS unchanged.</li></ol></div>
         <div class="card"><h3>Deliberately locked</h3><div class="rows"><div class="row"><strong>Router or DHCP writes</strong><span>Locked</span></div><div class="row"><strong>Client DNS advertisement</strong><span>Locked</span></div><div class="row"><strong>Tailscale DNS change</strong><span>Locked</span></div><div class="row"><strong>Protected status</strong><span>Needs backup + restore drill</span></div></div></div>
       </div>
-      <div class="warning"><strong>Staging is not cutover.</strong> Keep 94.140.14.49 and 94.140.14.59 active. After staging, retrieve the password from the Bigbox terminal and test Pi-hole without changing any router or client.</div>
+      <div class="warning"><strong>Staging is not cutover.</strong> Keep 94.140.14.49 and 94.140.14.59 active. After staging, retrieve the password from the Homebox terminal and test Pi-hole without changing any router or client.</div>
       <div class="approval"><div><span class="eyebrow">Next step</span><p>Stage this exact revision, then re-enter the owner password in Repair Center.</p></div><span class="button">Stage for approval</span></div>
     </section>
   </main>

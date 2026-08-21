@@ -46,7 +46,7 @@ describe("Home dashboard", () => {
 
   it("shows the setup checklist with links for what is left", async () => {
     const checklist = { done: 2, total: 5, allEssentialDone: false, items: [
-      { id: "tailscale", title: "Reach BoxPilot from anywhere", detail: "Connected as bigbox.tail1234.ts.net.", done: true, optional: false, view: "network" },
+      { id: "tailscale", title: "Reach BoxPilot from anywhere", detail: "Connected as homebox.tail1234.ts.net.", done: true, optional: false, view: "network" },
       { id: "firewall", title: "Turn on the firewall with a profile", detail: "Block everything you did not ask for.", done: false, optional: false, view: "firewall" },
       { id: "ups", title: "Protect against power cuts", detail: "Plug a UPS in.", done: false, optional: true, view: "system" },
     ] };

@@ -1,4 +1,4 @@
-# Handoff: the sibling ops CLI (bigbox)
+# Handoff: the sibling ops CLI
 
 Context from the remote Claude session that built BoxPilot's companion tool.
 No personal host data here per AGENTS.md; host-specific notes live in the
@@ -6,7 +6,7 @@ sibling repo's own HANDOFF.md.
 
 ## The sibling project
 
-**bigbox** (`AES256Afro/BigBoxTool`, private, v1.4.x) is a one-file Node CLI
+**The ops CLI** (a private sibling repo, v1.4.x) is a one-file Node CLI
 that runs beside BoxPilot on the same server and from an operator's laptop
 over SSH. It covers the read-and-alert side of operations:
 
@@ -23,7 +23,7 @@ over SSH. It covers the read-and-alert side of operations:
 BoxPilot is the product that installs, updates, configures, backs up,
 restores, and redeploys applications, platforms, and VMs (ADR-001).
 
-bigbox observes, diagnoses, and alerts. It links to BoxPilot for operations
+The ops CLI observes, diagnoses, and alerts. It links to BoxPilot for operations
 instead of duplicating them: its earlier plans for a restore rehearsal, a
 deploy catalog, and an identity-gated exposure gateway are ceded to
 BoxPilot's roadmap, where those capabilities already exist or are underway
@@ -31,8 +31,8 @@ BoxPilot's roadmap, where those capabilities already exist or are underway
 
 ## Integration ideas, when wanted
 
-- bigbox pushes health verdicts into an Uptime Kuma instance BoxPilot deploys
-- a BoxPilot catalog entry that installs the bigbox watchdog service
-- bigbox `secure` findings rendered in a BoxPilot panel (read-only feed)
+- the ops CLI pushes health verdicts into an Uptime Kuma instance BoxPilot deploys
+- a BoxPilot catalog entry that installs the ops CLI watchdog service
+- the ops CLI `secure` findings rendered in a BoxPilot panel (read-only feed)
 
 Each fits the operation-registry model in ROADMAP-V2 when that lands.

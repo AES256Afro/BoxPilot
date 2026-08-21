@@ -8,7 +8,7 @@ describe("setup checklist", () => {
     expect(empty.done).toBe(0);
     expect(empty.items.map((item) => [item.id, item.optional])).toEqual([["tailscale", false], ["firewall", false], ["updates", false], ["notifications", false], ["backups", false], ["dns", true], ["shares", true], ["ups", true]]);
     const full = buildChecklist({
-      tailscale: { connected: true, dnsName: "bigbox.tail1234.ts.net" },
+      tailscale: { connected: true, dnsName: "homebox.tail1234.ts.net" },
       firewall: { enabled: true }, firewallProfile: { id: "home-server", appliedAt: "2026-08-21T15:00:00Z" },
       unattended: { enabled: true }, notifications: { configured: true, kind: "ntfy" }, cloudDestination: { provider: "b2" },
       installedApps: ["pi-hole", "jellyfin"], samba: { configured: true }, ups: { configured: true },

@@ -31,8 +31,8 @@ describe("cloud-init VM input and seed", () => {
     expect(seed.userData).toContain("lock_passwd: true");
     expect(seed.metaData).toContain("local-hostname: dev-1");
     expect(seed.networkConfig).toContain("dhcp4: true");
-    const withPassword = renderCloudInit({ ...good, username: "chris", password: "hunter22hunter" });
-    expect(withPassword.userData).toContain("name: chris");
+    const withPassword = renderCloudInit({ ...good, username: "jamie", password: "hunter22hunter" });
+    expect(withPassword.userData).toContain("name: jamie");
     expect(withPassword.userData).toContain("ssh_pwauth: true");
   });
 });

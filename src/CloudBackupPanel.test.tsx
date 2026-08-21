@@ -41,7 +41,7 @@ describe("Cloud backup panel", () => {
   });
 
   it("shows the saved destination with test and mirror actions, and switches providers", async () => {
-    const start = setup({ rcloneInstalled: true, configured: true, provider: "b2", providers }, { destination: { provider: "b2", account: "0012abc", bucket: "home-backups", path: "bigbox" }, lastSync: { completedAt: "2026-08-21T21:30:00.000Z", filesTransferred: 7, bytesTransferred: "1.2 GiB", destination: "boxpilot:home-backups/bigbox" } });
+    const start = setup({ rcloneInstalled: true, configured: true, provider: "b2", providers }, { destination: { provider: "b2", account: "0012abc", bucket: "home-backups", path: "homebox" }, lastSync: { completedAt: "2026-08-21T21:30:00.000Z", filesTransferred: 7, bytesTransferred: "1.2 GiB", destination: "boxpilot:home-backups/homebox" } });
     expect(await screen.findByText(/last mirrored/)).toBeTruthy();
     expect((screen.getByLabelText("Bucket") as HTMLInputElement).value).toBe("home-backups");
     fireEvent.click(screen.getByRole("button", { name: "Test connection" }));

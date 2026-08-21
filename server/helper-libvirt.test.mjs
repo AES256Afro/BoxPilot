@@ -28,8 +28,8 @@ describe("helper-backed libvirt client", () => {
 
   it("builds only a fixed Cockpit URL from a constrained Tailscale name", () => {
     const guidance = { nativeProxyAvailable: false, cockpit: { installed: true, active: true, enabled: true, port: 9090 } };
-    expect(buildConsoleGuidanceResponse({ ...guidance, tailscaleDnsName: "bigbox.example.ts.net" }).privateUrl).toBe("https://bigbox.example.ts.net:9090/");
+    expect(buildConsoleGuidanceResponse({ ...guidance, tailscaleDnsName: "homebox.example.ts.net" }).privateUrl).toBe("https://homebox.example.ts.net:9090/");
     expect(buildConsoleGuidanceResponse({ ...guidance, tailscaleDnsName: "evil/name" }).privateUrl).toBeNull();
-    expect(buildConsoleGuidanceResponse({ ...guidance, cockpit: { ...guidance.cockpit, port: 22 }, tailscaleDnsName: "bigbox.example.ts.net" }).privateUrl).toBeNull();
+    expect(buildConsoleGuidanceResponse({ ...guidance, cockpit: { ...guidance.cockpit, port: 22 }, tailscaleDnsName: "homebox.example.ts.net" }).privateUrl).toBeNull();
   });
 });

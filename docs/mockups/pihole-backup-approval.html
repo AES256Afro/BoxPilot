@@ -28,7 +28,7 @@
         <div class="card"><h3>Isolated restore drill</h3><ol><li>Extract beneath a generated root-only workspace.</li><li>Validate configuration, digest-pinned Compose, and secret shape.</li><li>Start the restored image with network none and no published ports.</li><li>Require health, then remove the temporary container and workspace.</li></ol></div>
         <div class="card"><h3>Runtime confinement</h3><div class="rows"><div class="row"><strong>Network / ports</strong><span>none / 0</span></div><div class="row"><strong>Capabilities</strong><span>Drop ALL, add 7 fixed</span></div><div class="row"><strong>No new privileges</strong><span>Enabled</span></div><div class="row"><strong>Password in web response</strong><span>Never</span></div></div></div>
       </div>
-      <div class="warning"><strong>Recovery-tested is not 3-2-1 protection.</strong> This sensitive artifact remains on Bigbox and contains the administrator secret. Keep current external AdGuard DNS active. Router advertisement, client DNS changes, and cutover remain locked.</div>
+      <div class="warning"><strong>Recovery-tested is not 3-2-1 protection.</strong> This sensitive artifact remains on Homebox and contains the administrator secret. Keep current external AdGuard DNS active. Router advertisement, client DNS changes, and cutover remain locked.</div>
       <div class="approval"><div><span class="eyebrow">Next step</span><p>Stage this exact revision, then re-enter the owner password in Repair Center.</p></div><span class="button">Stage for approval</span></div>
     </section>
   </main>

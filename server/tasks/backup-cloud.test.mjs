@@ -11,14 +11,14 @@ async function secretsDir() { const directory = await mkdtemp(path.join(os.tmpdi
 
 describe("cloud destination model", () => {
   it("validates per provider and renders rclone sections", () => {
-    expect(validateCloudDestination({ provider: "b2", account: "0012abc", bucket: "home-backups", path: "bigbox" })).toEqual([]);
+    expect(validateCloudDestination({ provider: "b2", account: "0012abc", bucket: "home-backups", path: "homebox" })).toEqual([]);
     expect(validateCloudDestination({ provider: "s3", bucket: "bkt", accessKeyId: "AKIA" })).toContain("set a region (AWS) or an endpoint (other S3 services)");
     expect(validateCloudDestination({ provider: "s3", bucket: "Bad Bucket", region: "us-east-1", accessKeyId: "AKIA" })).toContain("bucket is invalid");
     expect(validateCloudDestination({ provider: "ftp" })[0]).toContain("provider must be one of");
     expect(validateCloudDestination({ provider: "webdav", url: "http://insecure", user: "u" })).toContain("url is invalid");
-    const b2 = normalizeCloudDestination({ provider: "b2", account: "0012abc", bucket: "home-backups", path: "bigbox/" });
-    expect(b2).toEqual({ provider: "b2", account: "0012abc", bucket: "home-backups", path: "bigbox" });
-    expect(cloudTarget(b2)).toBe("boxpilot:home-backups/bigbox");
+    const b2 = normalizeCloudDestination({ provider: "b2", account: "0012abc", bucket: "home-backups", path: "homebox/" });
+    expect(b2).toEqual({ provider: "b2", account: "0012abc", bucket: "home-backups", path: "homebox" });
+    expect(cloudTarget(b2)).toBe("boxpilot:home-backups/homebox");
     expect(cloudTarget(normalizeCloudDestination({ provider: "drive" }))).toBe("boxpilot:boxpilot");
     expect(renderRcloneConfig(b2, { key: "K" })).toBe("# Managed by BoxPilot\n[boxpilot]\ntype = b2\naccount = 0012abc\nkey = K\n");
     expect(renderRcloneConfig(normalizeCloudDestination({ provider: "s3", bucket: "bkt", endpoint: "https://s3.wasabisys.com", accessKeyId: "AK" }), { secretAccessKey: "SK" })).toContain("provider = Other\naccess_key_id = AK\nsecret_access_key = SK\nendpoint = https://s3.wasabisys.com");
@@ -31,8 +31,8 @@ describe("cloud backup tasks", () => {
   it("writes a root-only rclone.conf with the secret and reports the target", async () => {
     const secretsDirectory = await secretsDir();
     const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
-    const result = await backupCloudSetup({ provider: "b2", account: "0012abc", bucket: "home-backups", path: "bigbox", key: "K123" }, { run, secretsDirectory, rclone: "/" });
-    expect(result).toMatchObject({ configured: true, target: "boxpilot:home-backups/bigbox", destination: { provider: "b2", account: "0012abc" } });
+    const result = await backupCloudSetup({ provider: "b2", account: "0012abc", bucket: "home-backups", path: "homebox", key: "K123" }, { run, secretsDirectory, rclone: "/" });
+    expect(result).toMatchObject({ configured: true, target: "boxpilot:home-backups/homebox", destination: { provider: "b2", account: "0012abc" } });
     expect(await readFile(configPath(secretsDirectory), "utf8")).toContain("key = K123");
     expect(((await stat(configPath(secretsDirectory))).mode & 0o777)).toBe(0o600);
     await expect(backupCloudSetup({ provider: "b2", account: "a", bucket: "bkt" }, { run, secretsDirectory, rclone: "/" })).rejects.toThrow("application key is required");
@@ -53,16 +53,16 @@ describe("cloud backup tasks", () => {
       if (verb === "copy") return { ok: true, stdout: "", stderr: "Transferred:   \t  1.000 MiB / 1.000 MiB, 100%\nErrors:                 0\nTransferred:            1 / 1, 100%\n" };
       return { ok: true, stdout: "", stderr: "" };
     });
-    await backupCloudSetup({ provider: "b2", account: "a", bucket: "home-backups", path: "bigbox", key: "k" }, { run, secretsDirectory, rclone: "/" });
-    const tested = await backupCloudTest({ provider: "b2", account: "a", bucket: "home-backups", path: "bigbox" }, { run, secretsDirectory, rclone: "/" });
-    expect(tested).toEqual({ reachable: true, writable: true, target: "boxpilot:home-backups/bigbox", entries: 1, freeBytes: 50 * 1024 ** 3 });
-    expect(run).toHaveBeenCalledWith("/", expect.arrayContaining(["--config", configPath(secretsDirectory), "mkdir", "boxpilot:home-backups/bigbox"]), expect.anything());
+    await backupCloudSetup({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox", key: "k" }, { run, secretsDirectory, rclone: "/" });
+    const tested = await backupCloudTest({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox" }, { run, secretsDirectory, rclone: "/" });
+    expect(tested).toEqual({ reachable: true, writable: true, target: "boxpilot:home-backups/homebox", entries: 1, freeBytes: 50 * 1024 ** 3 });
+    expect(run).toHaveBeenCalledWith("/", expect.arrayContaining(["--config", configPath(secretsDirectory), "mkdir", "boxpilot:home-backups/homebox"]), expect.anything());
 
     const sources = [{ name: "controller-backups", root: secretsDirectory }, { name: "missing", root: "/nonexistent/root" }];
-    const synced = await backupCloudSync({ provider: "b2", account: "a", bucket: "home-backups", path: "bigbox" }, { run, secretsDirectory, rclone: "/", sources, now: () => new Date("2026-08-21T21:30:00Z") });
-    expect(synced).toMatchObject({ synced: true, destination: "boxpilot:home-backups/bigbox", completedAt: "2026-08-21T21:30:00.000Z", filesTransferred: 1, errors: 0, mirrored: [{ name: "controller-backups", filesTransferred: 1 }], boundary: { deletesPerformed: false } });
+    const synced = await backupCloudSync({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox" }, { run, secretsDirectory, rclone: "/", sources, now: () => new Date("2026-08-21T21:30:00Z") });
+    expect(synced).toMatchObject({ synced: true, destination: "boxpilot:home-backups/homebox", completedAt: "2026-08-21T21:30:00.000Z", filesTransferred: 1, errors: 0, mirrored: [{ name: "controller-backups", filesTransferred: 1 }], boundary: { deletesPerformed: false } });
     const copyCall = run.mock.calls.find(([, args]) => args.includes("copy"));
-    expect(copyCall[1]).toEqual(expect.arrayContaining(["copy", "--checksum", secretsDirectory, "boxpilot:home-backups/bigbox/controller-backups"]));
+    expect(copyCall[1]).toEqual(expect.arrayContaining(["copy", "--checksum", secretsDirectory, "boxpilot:home-backups/homebox/controller-backups"]));
     expect(copyCall[1]).not.toContain("sync");
     await expect(backupCloudTest({ provider: "b2", account: "a", bucket: "bkt" }, { run, secretsDirectory: await secretsDir(), rclone: "/" })).rejects.toThrow("Save the cloud destination first");
   });

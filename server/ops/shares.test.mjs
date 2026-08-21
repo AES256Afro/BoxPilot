@@ -7,7 +7,7 @@ const operations = Object.fromEntries(shareOperations().map((operation) => [oper
 describe("share operations", () => {
   it("validates SMB and NFS parameters and marks the password secret", () => {
     const spec = operations["share.mount"].parameters;
-    expect(validateParameters(spec, { kind: "smb", host: "mycloud.local", share: "Public", name: "nas", username: "chris", password: "pw" }, "t")).toBeNull();
+    expect(validateParameters(spec, { kind: "smb", host: "mycloud.local", share: "Public", name: "nas", username: "jamie", password: "pw" }, "t")).toBeNull();
     expect(validateParameters(spec, { kind: "nfs", host: "192.168.1.20", share: "/volume1/media", name: "media", readOnly: true }, "t")).toBeNull();
     expect(validateParameters(spec, { kind: "smb", host: "nas", share: "/volume1/media", name: "x" }, "t")).toContain("share");
     expect(validateParameters(spec, { kind: "nfs", host: "nas", share: "media", name: "x" }, "t")).toContain("absolute");

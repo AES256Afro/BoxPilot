@@ -113,253 +113,253 @@ The next website artwork can be rendered from the explicitly disclosed [Uptime K
 
 ### BoxPilot controller backup approval mockup
 
-![BoxPilot WAL-aware controller backup before approval](../screenshots/controller-backup-mock.png)
+![BoxPilot WAL-aware controller backup before approval](screenshots/controller-backup-mock.png)
 
 This explicitly disclosed `0.38.0` mock shows the fixed live SQLite source, no-downtime WAL-aware snapshot, checksum and database checks, separate copy-open drill, root-only artifact and manifest, UUID-only helper input, owner-password handoff, and the same-host limitation. No password, snapshot, database read, restore, service stop, file copy, or host state change occurred for the capture.
 
 ### Encrypted independent controller protection mockup
 
-![BoxPilot controller protection setup and exact restore evidence](../screenshots/controller-protection-mock.png)
+![BoxPilot controller protection setup and exact restore evidence](screenshots/controller-protection-mock.png)
 
 This explicitly disclosed `0.39.0` mock shows the separate fixed controller repository and recovery key, independent-filesystem gate, complete repository read, exact snapshot identity, restored artifact and manifest hashes, isolated SQLite copy-open drill, and no-retention boundary. It also shows the honest blocked state used when the server has no independent mount. No password was entered, repository initialized, file copied, snapshot created, restore run, database opened, or host state changed for the capture.
 
 ### Encrypted independent application protection mockup
 
-![BoxPilot application protection setup and exact archive restore evidence](../screenshots/application-protection-mock.png)
+![BoxPilot application protection setup and exact archive restore evidence](screenshots/application-protection-mock.png)
 
 This explicitly disclosed `0.44.0` mock shows the separate fixed application repository and recovery key, independent-filesystem gate, required prior application-aware no-network drill, complete repository read, exact snapshot identity, restored archive hash, and no-retention boundary. It also shows the honest blocked state used when the server has no independent mount. No password was entered, repository initialized, archive copied, snapshot created, restore run, application started, DNS query sent, or host state changed for the capture.
 
 ### Exact restic prerequisite repair mockup
 
-![BoxPilot exact-version restic package repair plan](../screenshots/restic-prerequisite-repair-mock.png)
+![BoxPilot exact-version restic package repair plan](screenshots/restic-prerequisite-repair-mock.png)
 
 This explicitly disclosed `0.45.0` mock shows the read-only restic candidate check, immutable exact-version plan, separate staging and password-approval handoff, fixed package-only unit, and the honest remaining requirements for an independent mount, separately retained recovery keys, repository initialization, and exact restore drills. No APT query, package install, password entry, mount, repository, backup, restore, retention, service, network, or host change occurred for the capture.
 
 ### Fixed controller retention approval mockup
 
-![BoxPilot fixed evidence-gated controller retention](../screenshots/controller-retention-approval-mock.png)
+![BoxPilot fixed evidence-gated controller retention](screenshots/controller-retention-approval-mock.png)
 
 This explicitly disclosed `0.40.0` mock shows the three-copy and 30-day floors, exact reviewed candidates, complete post-forget repository read, durable partial-removal evidence, and the deliberate no-prune boundary. No password was entered, plan or job created, repository read, snapshot forgotten or pruned, database opened, artifact removed, or host state changed for the capture.
 
 ### Per-application retention approval mockup
 
-![BoxPilot fixed per-application evidence-gated retention](../screenshots/application-retention-approval-mock.png)
+![BoxPilot fixed per-application evidence-gated retention](screenshots/application-retention-approval-mock.png)
 
 This explicitly disclosed `0.60.0` mock shows the separate three-copy floor for each application, 30-day floor, exact tag attribution, Keel recovery-reference preservation, bounded reviewed candidates, complete post-forget repository read, durable partial-removal evidence, and deliberate no-prune boundary. It also states the server's honest blocked live condition while no independent mount exists. No password was entered, plan or job created, repository read, snapshot forgotten or pruned, application changed, local archive removed, recovery object changed, or host state changed for the capture.
 
 ### Guarded VM media import mockup
 
-![BoxPilot guarded VM ISO upload and import review](../screenshots/vm-media-import-mock.png)
+![BoxPilot guarded VM ISO upload and import review](screenshots/vm-media-import-mock.png)
 
 This explicitly disclosed `0.61.0` mock shows the unprivileged upload boundary, private staging pair, exact size and SHA-256 pinning, fixed libvirt media destination, no-overwrite publication, complete-copy verification, immutable plan, and separate owner-password approval. No live server state was captured, and no password, plan, job, import, VM, or host change occurred for the capture.
 
 ### Guarded VM creation approval mockup
 
-![BoxPilot durable VM creation plan staged for approval](../screenshots/vm-creation-approval-mock.png)
+![BoxPilot durable VM creation plan staged for approval](screenshots/vm-creation-approval-mock.png)
 
 This `0.9.0` mock screenshot is rendered from the current BoxPilot styles and is explicitly labeled as mocked product state. It demonstrates the staged job, fixed helper preview, and handoff to Repair Center. No VM was created for the capture.
 
 ### Durable VM lifecycle approval mockup
 
-![BoxPilot immutable graceful-shutdown plan before staging](../screenshots/vm-lifecycle-approval-mock.png)
+![BoxPilot immutable graceful-shutdown plan before staging](screenshots/vm-lifecycle-approval-mock.png)
 
 This explicitly disclosed `0.10.0` mock shows the exact current and desired state, recovery boundary, immutable revision, and separate approval handoff. The state is representative only. No VM was changed for the capture.
 
 ### Guarded offline snapshot approval mockup
 
-![BoxPilot stopped-VM internal snapshot plan before approval](../screenshots/vm-snapshot-approval-mock.png)
+![BoxPilot stopped-VM internal snapshot plan before approval](screenshots/vm-snapshot-approval-mock.png)
 
 This explicitly disclosed `0.11.0` mock shows the offline-consistency label, independent-backup warning, managed disk target, immutable revision, and recovery boundary. The state is representative only. No VM or disk was changed for the capture.
 
 ### Stopped VM export approval mockup
 
-![BoxPilot stopped-VM local export plan before approval](../screenshots/vm-export-approval-mock.png)
+![BoxPilot stopped-VM local export plan before approval](screenshots/vm-export-approval-mock.png)
 
 This explicitly disclosed `0.12.0` mock shows the capacity gate, fixed export changes, integrity checks, immutable revision, and protection boundary. It clearly labels the local artifact as unencrypted and not protected. No VM or disk was changed for the capture.
 
 ### Encrypted independent VM copy approval mockup
 
-![BoxPilot encrypted independent restic plan before approval](../screenshots/vm-protection-approval-mock.png)
+![BoxPilot encrypted independent restic plan before approval](screenshots/vm-protection-approval-mock.png)
 
 This explicitly disclosed `0.13.0` mock shows the fixed independent mount, encryption and capacity evidence, full repository verification, immutable revision, recovery-key warning, and the remaining restore boundary. No VM, export, repository, or disk was changed for the capture.
 
 ### Isolated VM restore drill approval mockup
 
-![BoxPilot isolated no-network VM restore drill before approval](../screenshots/vm-restore-drill-approval-mock.png)
+![BoxPilot isolated no-network VM restore drill before approval](screenshots/vm-restore-drill-approval-mock.png)
 
 This explicitly disclosed `0.14.0` mock shows exact snapshot identity, temporary capacity, no-network transient boot, repeated guest-agent verification, QEMU permission and UEFI cleanup, and the protected-status gate. No snapshot was restored and no VM was booted for the capture.
 
 ### Guarded VM recovery-clone approval mockup
 
-![BoxPilot stopped no-network VM recovery clone before approval](../screenshots/vm-recovery-approval-mock.png)
+![BoxPilot stopped no-network VM recovery clone before approval](screenshots/vm-recovery-approval-mock.png)
 
 This explicitly disclosed `0.15.0` mock shows the separate target name, exact protected source evidence, fixed recovered storage, stopped persistent domain, disabled autostart, zero-network policy, immutable revision, and confined rollback. No snapshot was restored and no recovery VM was defined for the capture.
 
 ### Guarded VM backup-retention approval mockup
 
-![BoxPilot exact no-prune VM backup retention before approval](../screenshots/vm-retention-approval-mock.png)
+![BoxPilot exact no-prune VM backup retention before approval](screenshots/vm-retention-approval-mock.png)
 
 This explicitly disclosed `0.16.0` mock shows the fixed 30-day and three-copy floors, exact candidates, immutable snapshot-set revision, repository verification, high-risk approval, and no-prune boundary. No restic snapshot was forgotten or pruned for the capture.
 
 ### Guarded migration staging approval mockup
 
-![BoxPilot checksummed migration bundle before staging](../screenshots/migration-transfer-approval-mock.png)
+![BoxPilot checksummed migration bundle before staging](screenshots/migration-transfer-approval-mock.png)
 
 This explicitly disclosed `0.17.0` mock shows imported-source binding, immutable content revision, file and sensitive-name totals, exact SHA-256 verification, resume behavior, separate password approval, and the no-activation boundary. No source workload or file was changed, no real bundle was copied, and no Compose project was activated for the capture.
 
 ### Network and DNS assessment mockup
 
-![BoxPilot read-only router and DNS change-window assessment](../screenshots/network-dns-assessment-mock.png)
+![BoxPilot read-only router and DNS change-window assessment](screenshots/network-dns-assessment-mock.png)
 
 This explicitly disclosed `0.18.0` mock shows live-shaped gateway, server address, external AdGuard DNS, Tailscale split-DNS, port 53 scope, device roles, recovery gates, and the router-write and DNS-cutover locks. No router, DNS, DHCP, firewall, Tailscale, or application setting was read from a real browser session or changed for the capture.
 
 ### Guarded Pi-hole staging mockup
 
-![BoxPilot digest-pinned Pi-hole staging plan before approval](../screenshots/pihole-staging-approval-mock.png)
+![BoxPilot digest-pinned Pi-hole staging plan before approval](screenshots/pihole-staging-approval-mock.png)
 
 This explicitly disclosed `0.19.0` mock shows the linked network assessment, exact server LAN DNS and web bindings, root-only secret boundary, capability restrictions, health checks, backup-required state, and router, DHCP, client-DNS, and Tailscale cutover locks. No container, router, DNS client, DHCP service, firewall, Tailscale setting, or traffic path was changed for the capture.
 
 ### Pi-hole backup and isolated restore mockup
 
-![BoxPilot Pi-hole recovery-proof plan before approval](../screenshots/pihole-backup-approval-mock.png)
+![BoxPilot Pi-hole recovery-proof plan before approval](screenshots/pihole-backup-approval-mock.png)
 
 This explicitly disclosed `0.20.0` mock shows the clean-stop archive, root-only configuration and secret capture, source binding restart verification, SHA-256 evidence, temporary no-network restore container, local-destination limitation, and router and DNS cutover locks. No container was stopped, archive created, secret read, restore started, or network setting changed for the capture.
 
 ### Direct DNS acceptance mockup
 
-![BoxPilot fixed direct Pi-hole DNS acceptance before approval](../screenshots/pihole-dns-acceptance-mock.png)
+![BoxPilot fixed direct Pi-hole DNS acceptance before approval](screenshots/pihole-dns-acceptance-mock.png)
 
 This explicitly disclosed `0.21.0` mock shows the exact managed resolver, linked deployment, assessment, and restore evidence, four fixed queries, durable response evidence, the unprivileged controller boundary, and the separate second-device gate. No DNS query was sent, no job was approved, and no router, DHCP, client, firewall, Tailscale, or traffic-path setting was changed for the capture.
 
 ### Signed fleet-agent mockup
 
-![BoxPilot signed agent enrollment and independent DNS evidence](../screenshots/signed-fleet-agent-mock.png)
+![BoxPilot signed agent enrollment and independent DNS evidence](screenshots/signed-fleet-agent-mock.png)
 
 This explicitly disclosed `0.22.0` mock shows one-time enrollment, device-owned Ed25519 identity, the no-shell execution boundary, one fixed Pi-hole task, replay-protected evidence, and the remaining router and cutover locks. No device was enrolled, no key or token was generated, no DNS query was sent, and no network setting was changed for the capture.
 
 ### Signed Flint 2 second-device acceptance mockup
 
-![BoxPilot signed one-shot Flint 2 gateway proof](../screenshots/flint2-second-device-mock.png)
+![BoxPilot signed one-shot Flint 2 gateway proof](screenshots/flint2-second-device-mock.png)
 
 This explicitly disclosed `0.37.0` mock shows a fresh linked server-side acceptance, owner-approved one-shot window, signed agent identity, node-local default-gateway match, four fixed queries, and the remaining model-attestation, configuration, DHCP-advertisement, router-write, and cutover locks. No agent was enrolled, password entered, task scheduled, gateway inspected, DNS query sent, or router, AdGuard Home, DHCP, DNS advertisement, VPN, client, firewall, or Tailscale setting read or changed for the mock.
 
 ### One-shot fleet policy mockup
 
-![BoxPilot owner-approved one-shot signed-agent policy](../screenshots/fleet-one-shot-policy-mock.png)
+![BoxPilot owner-approved one-shot signed-agent policy](screenshots/fleet-one-shot-policy-mock.png)
 
 This explicitly disclosed `0.28.0` mock shows the immediate, 5-minute, and 10-minute fixed delay policy, exact ten-minute execution window, owner reauthentication, derived target, task ledger, and the recurrence, unattended, command, target, package, router, and cutover locks. No agent was enrolled, no password entered, no task scheduled, and no DNS query or system change occurred for the capture.
 
 ### Router checkpoint mockup
 
-![BoxPilot browser-local router configuration checkpoint](../screenshots/router-checkpoint-mock.png)
+![BoxPilot browser-local router configuration checkpoint](screenshots/router-checkpoint-mock.png)
 
 This explicitly disclosed `0.23.0` mock shows supported device declarations, local file hashing, metadata-only persistence, the operator-retention assertion, and the remaining credential, router-write, restore, and DNS-cutover locks. No file was selected, hashed, or uploaded, no checkpoint was recorded, and no router or network setting was read or changed for the capture.
 
 ### Router readiness mockup
 
-![BoxPilot credential-free router topology readiness](../screenshots/router-readiness-mock.png)
+![BoxPilot credential-free router topology readiness](screenshots/router-readiness-mock.png)
 
 This explicitly disclosed `0.27.0` mock shows the recommended Flint 2 edge, TP-Link access-point, and ER707-M2 standby topology, a live-shaped gateway-address correlation, checkpoint coverage, operator checks, model-specific handholding, and the credential, discovery, probe, upload, DHCP, DNS, Tailscale, and router-write locks. No router was contacted, identified, logged in to, probed, uploaded from, or changed for the capture.
 
 ### Flint 2 AdGuard Home direct acceptance mockup
 
-![BoxPilot immutable Flint 2 direct gateway DNS acceptance](../screenshots/flint2-adguard-acceptance-mock.png)
+![BoxPilot immutable Flint 2 direct gateway DNS acceptance](screenshots/flint2-adguard-acceptance-mock.png)
 
 This explicitly disclosed `0.36.0` mock shows the observed-only gateway target, retained checkpoint, six operator declarations, four fixed queries, immutable plan, password-approval handoff, and the remaining model-attestation, configuration, DHCP-advertisement, client-path, and router-write locks. No DNS query was sent, no password was entered, and no router, AdGuard Home, DHCP, DNS advertisement, VPN, client, firewall, or Tailscale setting was read or changed for the mock.
 
 ### GitHub provenance mockup
 
-![BoxPilot credential-free GitHub provenance](../screenshots/github-provenance-mock.png)
+![BoxPilot credential-free GitHub provenance](screenshots/github-provenance-mock.png)
 
 This explicitly disclosed `0.46.0` mock shows fixed public repository heads, current Keel 1.2.6 release-asset digest metadata, and the continuing separation between GitHub-reported metadata and complete local artifact verification. No credential was accepted, repository or workflow was changed, asset was downloaded, digest was verified locally, release was staged, or software was installed for the capture.
 
 ### Keel Notes guarded private installation mockup
 
-![BoxPilot guarded Keel Notes 1.2.6 private native-service installation plan](../screenshots/keel-plan-mock.png)
+![BoxPilot guarded Keel Notes 1.2.6 private native-service installation plan](screenshots/keel-plan-mock.png)
 
 This explicitly disclosed `0.47.0` mock shows the exact staged Keel 1.2.6 identity, dedicated non-login account, immutable release and separate state, atomic activation, hardened loopback unit, health gate, terminal-only claim, and state-preserving rollback. No password was entered, plan or job created, account or state created, service installed or started, claim token handled, listener opened, or Tailscale, firewall, DNS, DHCP, router, or host setting changed for the capture.
 
 ### Keel Notes backup and recovery-evidence mockup
 
-![BoxPilot guarded Keel Notes consistent export and isolated recovery plan](../screenshots/keel-backup-approval-mock.png)
+![BoxPilot guarded Keel Notes consistent export and isolated recovery plan](screenshots/keel-backup-approval-mock.png)
 
 This explicitly disclosed `0.48.0` mock shows the exact managed source, brief downtime, service-identity export, SQLite, managed-secret, upload, and environment coverage, guaranteed source restart, complete manifest and tree proof, isolated restored-SQLite drill, and still-required independent encrypted copy. No password was entered, plan or job created, service stopped, export run, database opened, archive created, restore drilled, application started, or claim, registration, Tailscale, firewall, DNS, DHCP, router, or host setting changed for the capture.
 
 ### Keel Notes stopped recovery-clone mockup
 
-![BoxPilot guarded Keel Notes stopped recovery-clone plan](../screenshots/keel-recovery-clone-mock.png)
+![BoxPilot guarded Keel Notes stopped recovery-clone plan](screenshots/keel-recovery-clone-mock.png)
 
 This explicitly disclosed `0.49.0` mock shows exact durable source hashes, confined archive membership, repeated manifest, complete-tree, managed-secret, and SQLite checks, live-layout transformation, root-only atomic publication, stopped state, no network, and no production replacement. No password was entered, plan or job created, archive extracted, clone published, application started, promoted, claimed, exposed, or deleted, and no registration, Tailscale, firewall, DNS, DHCP, router, production, or host state changed for the capture.
 
 ### Keel Notes isolated startup-rehearsal mockup
 
-![BoxPilot guarded Keel Notes isolated startup rehearsal](../screenshots/keel-recovery-drill-mock.png)
+![BoxPilot guarded Keel Notes isolated startup rehearsal](screenshots/keel-recovery-drill-mock.png)
 
 This explicitly disclosed `0.50.0` mock shows exact recovery evidence pinning, disposable state, the dedicated non-login identity, a private network namespace, internal-only port 3100, exact health identity, SQLite proof, clean process stop, unchanged source recovery, and workspace removal. No password was entered, plan or job created, recovery copied, process started, health request sent, port bound, workspace removed, or source, production, claim, registration, login, promotion, Tailscale, firewall, DNS, DHCP, router, or host state changed for the capture.
 
 ### Keel Notes guarded production-promotion mockup
 
-![BoxPilot guarded Keel Notes rollback-backed production promotion](../screenshots/keel-promotion-mock.png)
+![BoxPilot guarded Keel Notes rollback-backed production promotion](screenshots/keel-promotion-mock.png)
 
 This explicitly disclosed `0.51.0` mock shows the exact recovery, passing rehearsal, full state digest, current managed install, generated rollback checkpoint, atomic whole-state exchange, persistent phase marker, exact health and SQLite proof, unchanged source, and automatic old-production restoration. No password was entered, plan or job created, service stopped, state copied or moved, database opened, health request sent, checkpoint created, rollback run, login tested, or source, production, claim, registration, Tailscale, firewall, DNS, DHCP, router, network, or host state changed for the capture.
 
 ### Keel Notes operator-requested rollback mockup
 
-![BoxPilot guarded Keel Notes operator rollback](../screenshots/keel-rollback-mock.png)
+![BoxPilot guarded Keel Notes operator rollback](screenshots/keel-rollback-mock.png)
 
 This explicitly disclosed `0.52.0` mock shows exact original-checkpoint evidence, current managed installation identity, copied-candidate validation, atomic displaced-state retention, persistent phase recovery, exact health and SQLite proof, unchanged original checkpoint, and automatic restoration of displaced current production on failure. No password was entered, plan or job created, service stopped, state copied or moved, database opened, health request sent, checkpoint created, rollback run, login tested, or production, claim, registration, Tailscale, firewall, DNS, DHCP, router, network, or host state changed for the capture.
 
 ### Keel Notes terminal-only owner-login proof mockup
 
-![BoxPilot terminal-only Keel instance-owner login proof](../screenshots/keel-owner-login-proof-mock.png)
+![BoxPilot terminal-only Keel instance-owner login proof](screenshots/keel-owner-login-proof-mock.png)
 
 This explicitly disclosed `0.53.0` mock shows the fixed no-argument terminal handoff, root install-boundary validation, unprivileged credential worker, exact Keel Server Action, instance-owner-only route, forced logout, revoked-session check, WebAuthn fail-closed behavior, and sanitized root-only evidence. No password was entered, Keel instance contacted, session created, owner route read, logout run, proof file written, helper mutation called, service changed, or network setting modified for the capture.
 
 ### Disaster recovery kit mockup
 
-![BoxPilot secret-free disaster recovery readiness kit](../screenshots/recovery-kit-mock.png)
+![BoxPilot secret-free disaster recovery readiness kit](screenshots/recovery-kit-mock.png)
 
 This explicitly disclosed `0.26.0` mock shows correlated readiness checks, evidence counts, export controls, and the evidence-not-backup boundary. No database, application data, backup payload, router configuration, credential, key, signature, or log was copied, and no host, VM, application, network, or router state was changed for the capture.
 
 ### Local Action Center mockup
 
-![BoxPilot prioritized local Action Center](../screenshots/action-center-mock.png)
+![BoxPilot prioritized local Action Center](screenshots/action-center-mock.png)
 
 This explicitly disclosed `0.29.0` mock shows fixed severity, sanitized evidence, manual three-step guidance, and in-product navigation. No repair, command, package operation, schedule, notification, credential access, log collection, or host, VM, application, network, DNS, Tailscale, or router change occurred for the capture.
 
 ### Storage and filesystem evidence mockup
 
-![BoxPilot sanitized storage and filesystem evidence](../screenshots/storage-evidence-mock.png)
+![BoxPilot sanitized storage and filesystem evidence](screenshots/storage-evidence-mock.png)
 
 This explicitly disclosed `0.30.0` mock shows real-mount capacity, sanitized block topology, fail-closed missing SMART evidence, the separate root-only timer boundary, and server-generated support redaction. No SMART scan, device read, package installation, mount, filesystem, disk, service, or host state was triggered or changed for the capture.
 
 ### Exact smartmontools repair mockup
 
-![BoxPilot exact-version smartmontools repair plan](../screenshots/prerequisite-repair-mock.png)
+![BoxPilot exact-version smartmontools repair plan](screenshots/prerequisite-repair-mock.png)
 
 This explicitly disclosed `0.31.0` mock shows the fixed package candidate, immutable revision, network and rollback disclosures, separate staging, and password-approval handoff. No package metadata was queried, package was installed or removed, APT operation ran, storage scan occurred, or host, disk, mount, filesystem, service, network, or SMART setting changed for the capture.
 
 ### Filesystem error evidence mockup
 
-![BoxPilot mounted ext4 kernel error-counter evidence](../screenshots/filesystem-errors-mock.jpg)
+![BoxPilot mounted ext4 kernel error-counter evidence](screenshots/filesystem-errors-mock.jpg)
 
 This explicitly disclosed `0.32.0` mock shows independent capacity and ext4 error state, zero-error evidence for two mounted ext4 filesystems, explicit unsupported vfat coverage, and the read-only Action Center handoff. No device check, fsck, unmount, remount, repair, SMART scan, service, disk, mount, filesystem, or host state was triggered or changed for the capture.
 
 ### UPS power evidence mockup
 
-![BoxPilot fixed-localhost UPS power evidence](../screenshots/ups-evidence-mock.jpg)
+![BoxPilot fixed-localhost UPS power evidence](screenshots/ups-evidence-mock.jpg)
 
 This explicitly disclosed `0.33.0` mock shows the allowlisted local NUT state, charge, runtime, load, and read-only Action Center handoff. No UPS was contacted, remote target was probed, raw output or device identity was collected, power command ran, shutdown policy changed, or host state changed for the capture.
 
 ### Host maintenance evidence mockup
 
-![BoxPilot bounded host-maintenance readiness evidence](../screenshots/maintenance-evidence-mock.jpg)
+![BoxPilot bounded host-maintenance readiness evidence](screenshots/maintenance-evidence-mock.jpg)
 
 This explicitly disclosed `0.34.0` mock shows derived system state, failed-service count, reboot marker presence, dpkg fragment count, APT metadata age, unattended-upgrades state, and the read-only Action Center handoff. No package or unit name was read into the mock, APT or dpkg operation ran, package changed, service restarted, update policy changed, reboot occurred, or host state changed for the capture.
 
 ### Exact APT metadata refresh mockup
 
-![BoxPilot exact APT metadata refresh plan](../screenshots/apt-metadata-refresh-mock.png)
+![BoxPilot exact APT metadata refresh plan](screenshots/apt-metadata-refresh-mock.png)
 
 This explicitly disclosed `0.35.0` mock shows a stale metadata prerequisite, immutable timestamp-bound plan, fixed update-only boundary, package-change prohibition, separate staging, and password-approval handoff. No APT request, package change, service control, reboot, network change, or host mutation occurred for the mock.
 

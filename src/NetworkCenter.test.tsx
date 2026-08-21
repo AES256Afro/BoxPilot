@@ -13,7 +13,7 @@ const topology = {
   eligibleLanAddresses: [{ interface: "eno1", address: "192.168.8.10", cidr: "192.168.8.10/24" }],
   defaultRoutes: [{ gateway: "192.168.8.1", interface: "eno1", protocol: "static" }],
   defaultResolvers: ["94.140.14.49", "94.140.14.59"],
-  tailscale: { connected: true, dnsName: "bigbox.example.ts.net", resolverPresent: true, defaultDnsObserved: false, overrideState: "non-tailscale-default-observed" },
+  tailscale: { connected: true, dnsName: "homebox.example.ts.net", resolverPresent: true, defaultDnsObserved: false, overrideState: "non-tailscale-default-observed" },
   dnsListeners: [{ protocol: "tcp", address: "127.0.0.53", port: 53, scope: "loopback", interface: null }],
   devices: [{ address: "192.168.1.50", mac: "aa:bb:cc:dd:ee:ff", interface: "eno1", state: "REACHABLE" }],
   routerCatalog: [{ id: "glinet-flint-2", name: "GL.iNet Flint 2", roles: ["edge-router", "adguard-home-host"], integration: "read-only-declaration", note: "No router credentials are accepted.", officialSource: "https://docs.gl-inet.com/" }],

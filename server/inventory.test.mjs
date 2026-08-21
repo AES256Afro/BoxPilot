@@ -7,7 +7,7 @@ describe("sanitized host inventory", () => {
   it("collects host, service, Tailscale self, and helper-backed Docker state without peers or labels", async () => {
     const helper = { request: vi.fn(async () => ({ available: true, containers: [{ name: "app", image: "app:1", state: "running" }], images: [], networks: [], volumes: [], projects: [] })) };
     const runCommand = vi.fn(async (command, args) => {
-      if (command === "tailscale") return { ok: true, stdout: JSON.stringify({ BackendState: "Running", Self: { DNSName: "bigbox.example.ts.net." }, Peer: { secret: "peer-secret" } }) };
+      if (command === "tailscale") return { ok: true, stdout: JSON.stringify({ BackendState: "Running", Self: { DNSName: "homebox.example.ts.net." }, Peer: { secret: "peer-secret" } }) };
       return { ok: true, stdout: `Id=${args[1]}\nLoadState=loaded\nActiveState=active\nSubState=running\nUnitFileState=enabled` };
     });
     const service = createInventoryService({
@@ -23,7 +23,7 @@ describe("sanitized host inventory", () => {
 
     const result = await service.inspect();
 
-    expect(result).toMatchObject({ host: { operatingSystem: "Ubuntu 26.04 LTS" }, storage: { root: { usedPercent: 75 }, smart: { available: true, status: "healthy" } }, maintenance: { system: { state: "running" }, packageManager: { state: "ready" } }, power: { ups: { available: true, state: "online" } }, network: { tailscale: { connected: true, dnsName: "bigbox.example.ts.net" } }, docker: { available: true, containers: [{ name: "app" }] } });
+    expect(result).toMatchObject({ host: { operatingSystem: "Ubuntu 26.04 LTS" }, storage: { root: { usedPercent: 75 }, smart: { available: true, status: "healthy" } }, maintenance: { system: { state: "running" }, packageManager: { state: "ready" } }, power: { ups: { available: true, state: "online" } }, network: { tailscale: { connected: true, dnsName: "homebox.example.ts.net" } }, docker: { available: true, containers: [{ name: "app" }] } });
     expect(result.services).toHaveLength(6);
     expect(JSON.stringify(result)).not.toContain("peer-secret");
     expect(helper.request).toHaveBeenCalledWith("container.docker.inventory", {});

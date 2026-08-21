@@ -28,9 +28,9 @@ describe("samba operations", () => {
   });
 
   it("reads state from smb.conf and the sambashare group", async () => {
-    const run = vi.fn(async (binary, args) => (args[0] === "is-active" ? { ok: true, stdout: "active\n", stderr: "" } : args[0] === "group" ? { ok: true, stdout: "sambashare:x:125:sam,chris\n", stderr: "" } : { ok: false, stdout: "", stderr: "" }));
+    const run = vi.fn(async (binary, args) => (args[0] === "is-active" ? { ok: true, stdout: "active\n", stderr: "" } : args[0] === "group" ? { ok: true, stdout: "sambashare:x:125:sam,jamie\n", stderr: "" } : { ok: false, stdout: "", stderr: "" }));
     const result = await operations["samba.inspect"].run({}, { run });
-    expect(result.users).toEqual(["chris", "sam"]);
+    expect(result.users).toEqual(["jamie", "sam"]);
     expect(typeof result.installed).toBe("boolean");
     expect(result.config).toHaveProperty("shares");
     if (!result.installed) expect(result.running).toBeNull();

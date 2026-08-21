@@ -18,7 +18,7 @@ const resolvers = JSON.stringify([
   { ifname: "tailscale0", ifindex: 3, defaultRoute: false, servers: [{ addressString: "100.100.100.100", port: 53, accessible: true }] },
 ]);
 const listeners = "udp UNCONN 0 0 192.168.122.1:53 0.0.0.0:*\ntcp LISTEN 0 4096 127.0.0.53%lo:53 0.0.0.0:*";
-const tailscale = JSON.stringify({ BackendState: "Running", Self: { DNSName: "bigbox.example.ts.net." } });
+const tailscale = JSON.stringify({ BackendState: "Running", Self: { DNSName: "homebox.example.ts.net." } });
 
 function interfaces() {
   return {
@@ -187,11 +187,11 @@ describe("network topology and DNS assessment", () => {
 
   it("accepts the legacy hostname-specific DNS role id and normalizes it", async () => {
     const { store, owner, service } = await fixture();
-    const plan = await service.plan(input({ dnsRole: "pihole-on-bigbox", dnsServiceAddress: "192.168.8.10" }), owner.id);
+    const plan = await service.plan(input({ dnsRole: "pihole-on-homebox", dnsServiceAddress: "192.168.8.10" }), owner.id);
     expect(plan.input.dnsRole).toBe("pihole-on-host");
     expect(plan.output.dns.role).toBe("pihole-on-host");
     await expect(service.validateAssessment(plan.id, owner.id, "pihole-on-host")).resolves.toMatchObject({ id: plan.id });
-    expect(validateNetworkPlanInput(input({ dnsRole: "pihole-on-bigbox" }))).toContain("DNS role is unsupported");
+    expect(validateNetworkPlanInput(input({ dnsRole: "pihole-on-homebox" }))).toContain("DNS role is unsupported");
     store.close();
   });
 
