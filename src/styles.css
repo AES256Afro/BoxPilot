@@ -550,6 +550,25 @@ main {
   border-radius: 13px;
 }
 
+/* Stat tiles: any bare .panel inside a metric grid lays out as eyebrow / value / caption. */
+.metric-grid > .panel {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  padding: 15px;
+  border-radius: 12px;
+}
+
+.metric-grid > .panel > strong {
+  font-size: 18px;
+}
+
+.metric-grid > .panel > span:not(.eyebrow) {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .panel-header {
   display: flex;
   align-items: center;
@@ -557,6 +576,12 @@ main {
   gap: 12px;
   padding: 13px 15px;
   border-bottom: 1px solid var(--line-soft);
+}
+
+/* Title-plus-description headers stack instead of running together. */
+.panel-header > div {
+  display: grid;
+  gap: 3px;
 }
 
 .panel-header strong {
@@ -3291,3 +3316,10 @@ textarea {
 
 /* Raw compose editor (M3.3) */
 .compose-editor { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+
+/* Backups page (controller snapshots + machine snapshot + off-box mirror) */
+.backup-center { display: grid; gap: 16px; }
+.backup-center .recovery-actions { padding: 12px 15px; align-items: center; }
+.backup-center .metric-grid .recovery-actions { padding: 4px 0 0; }
+.backup-center .muted { font-size: 12px; line-height: 1.5; }
+.backup-center .metric-grid { margin-bottom: 0; }
