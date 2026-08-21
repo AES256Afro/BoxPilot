@@ -1,0 +1,36 @@
+schemaVersion: 2
+id: cloudflare-ddns
+name: Cloudflare DDNS
+category: Network
+icon: "🔄"
+description: "Keeps a DNS name at Cloudflare pointing at your home's changing public IP, so WireGuard, Plex, or a Minecraft server stay reachable by name."
+website: https://github.com/favonia/cloudflare-ddns
+risk: low
+image:
+  reference: favonia/cloudflare-ddns:1.17.0
+  version: "1.17.0"
+user: "1000:1000"
+env:
+  - name: CLOUDFLARE_API_TOKEN
+    label: Cloudflare API token
+    description: A token with Zone, DNS, Edit permission for your zone.
+    type: password
+    required: true
+  - name: DOMAINS
+    label: Names to update
+    description: Comma-separated, for example home.example.com.
+    required: true
+  - name: PROXIED
+    default: "false"
+    fixed: true
+  - name: IP6_PROVIDER
+    default: none
+    fixed: true
+  - name: UPDATE_CRON
+    default: "@every 5m"
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 180
+notes: "Checks the public IP every 5 minutes and updates the A record when it changes. The log (Logs above) shows each update."

@@ -1,0 +1,29 @@
+schemaVersion: 2
+id: element-web
+name: Element web
+category: Communication
+icon: "🟢"
+description: "The standard Matrix chat client as a web app, hosted on this server, for use with your Tuwunel server."
+website: https://element.io
+risk: low
+image:
+  reference: vectorim/element-web:v1.12.26
+  version: "1.12.26"
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8108
+    exposure: lan
+volumes:
+  - id: config
+    label: Client configuration
+    container: /app/config.json
+    hostPath: /srv/element/config.json
+    backup: false
+    description: Optional config.json to set the default home server; without it, enter the server address on the sign-in page.
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "On the sign-in page choose Edit homeserver and enter your Tuwunel address (http://<this server>:8110 or its tailnet HTTPS name)."

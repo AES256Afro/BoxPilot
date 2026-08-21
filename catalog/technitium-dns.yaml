@@ -1,0 +1,57 @@
+schemaVersion: 2
+id: technitium-dns
+name: Technitium DNS Server
+category: DNS
+icon: "🧬"
+description: "Full-featured DNS server with ad blocking, DHCP, DNS-over-HTTPS/TLS, zones for local names, and a rich admin UI. An alternative to Pi-hole and AdGuard Home for people who want DHCP and authoritative zones in one place."
+website: https://technitium.com/dns
+risk: high
+image:
+  reference: technitium/dns-server:15.4.0
+  version: "15.4.0"
+ports:
+  - id: dns-tcp
+    label: DNS (TCP)
+    container: 53
+    host: 53
+    exposure: lan
+  - id: dns-udp
+    label: DNS (UDP)
+    container: 53
+    host: 53
+    protocol: udp
+    exposure: lan
+  - id: web
+    label: Admin UI
+    container: 5380
+    host: 5380
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration and zones
+    container: /etc/dns
+    path: config
+env:
+  - name: DNS_SERVER_DOMAIN
+    label: Server name
+    default: dns.home
+  - name: DNS_SERVER_ADMIN_PASSWORD
+    label: Admin password
+    type: password
+    secret: true
+    generate: true
+  - name: DNS_SERVER_WEB_SERVICE_HTTP_PORT
+    default: "5380"
+    fixed: true
+  - name: DNS_SERVER_FORWARDERS
+    label: Forwarders
+    description: Where unknown names are resolved; leave empty for recursive resolution from the root servers.
+  - name: DNS_SERVER_ENABLE_BLOCKING
+    label: Ad blocking
+    type: boolean
+    default: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Sign in as admin with the generated password (Secrets). Only one DNS server can own port 53: uninstall Pi-hole or AdGuard Home first, or change this app's DNS ports. Then point your router at this server and, on the Firewall page, tick the DNS server service."

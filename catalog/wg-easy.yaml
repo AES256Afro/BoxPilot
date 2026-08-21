@@ -1,0 +1,47 @@
+schemaVersion: 2
+id: wg-easy
+name: WireGuard (wg-easy)
+category: Network
+icon: "🛡️"
+description: "Your own VPN for devices that cannot run Tailscale: create clients in a web UI, scan the QR code with the WireGuard app, and reach your home network from anywhere."
+website: https://wg-easy.github.io/wg-easy
+risk: high
+image:
+  reference: ghcr.io/wg-easy/wg-easy:15.4.0
+  version: "15.4.0"
+capabilities:
+  - CAP_NET_ADMIN
+  - CAP_SYS_MODULE
+  - CAP_NET_RAW
+sysctls:
+  - net.ipv4.ip_forward=1
+  - net.ipv4.conf.all.src_valid_mark=1
+ports:
+  - id: wireguard
+    label: WireGuard
+    container: 51820
+    host: 51820
+    protocol: udp
+    exposure: lan
+  - id: web
+    label: Admin UI
+    container: 51821
+    host: 51821
+    exposure: lan
+volumes:
+  - id: config
+    label: Server and client keys
+    container: /etc/wireguard
+    path: config
+env:
+  - name: INSECURE
+    default: "true"
+    fixed: true
+  - name: DISABLE_IPV6
+    default: "true"
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "The first visit runs a setup wizard: set the admin password and the public address clients will connect to (your home's public IP or a dynamic DNS name; the Cloudflare DDNS app can keep one updated). Forward UDP port 51820 on your router to this server and tick WireGuard VPN on the Firewall page. If you already use Tailscale, you may not need this at all."

@@ -1,0 +1,64 @@
+schemaVersion: 2
+id: healthchecks
+name: Healthchecks
+category: Monitoring
+icon: "⏰"
+description: "Dead-man's-switch monitoring for scheduled jobs: each backup or cron job pings a URL when it finishes, and you get alerted when a ping is late."
+website: https://healthchecks.io
+risk: low
+image:
+  reference: healthchecks/healthchecks:v4.3
+  version: "4.3"
+ports:
+  - id: web
+    label: Web UI
+    container: 8000
+    host: 8105
+    exposure: lan
+volumes:
+  - id: data
+    label: Database
+    container: /data
+    path: data
+env:
+  - name: SECRET_KEY
+    label: Secret key
+    type: password
+    secret: true
+    generate: true
+  - name: SUPERUSER_EMAIL
+    label: Admin email
+    description: Used to sign in.
+    default: admin@example.com
+  - name: SUPERUSER_PASSWORD
+    label: Admin password
+    type: password
+    secret: true
+    generate: true
+  - name: SITE_ROOT
+    label: Address people use
+    description: The URL this server is opened at, without a trailing slash; ping URLs are built from it.
+    default: http://localhost:8105
+  - name: SITE_NAME
+    default: BoxPilot Healthchecks
+    fixed: true
+  - name: ALLOWED_HOSTS
+    default: "*"
+    fixed: true
+  - name: REGISTRATION_OPEN
+    default: "False"
+    fixed: true
+  - name: DEBUG
+    default: "False"
+    fixed: true
+  - name: DB
+    default: sqlite
+    fixed: true
+  - name: DB_NAME
+    default: /data/hc.sqlite
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Sign in with the admin email and the generated password (Secrets). Create a check per job, copy its ping URL into the job (curl it at the end), and add an alert channel such as ntfy or email."

@@ -1,0 +1,38 @@
+schemaVersion: 2
+id: librespeed
+name: LibreSpeed
+category: Monitoring
+icon: "🚀"
+description: "Speed test that runs between your device and this server: shows what your Wi-Fi or LAN actually delivers, separate from your internet connection."
+website: https://librespeed.org
+risk: low
+image:
+  reference: lscr.io/linuxserver/librespeed:v6.2.1-ls287
+  version: "6.2.1"
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8109
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /config
+    path: config
+env:
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Open it from any device and press Start; results are for the path between that device and this server."

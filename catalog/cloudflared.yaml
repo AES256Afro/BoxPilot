@@ -1,0 +1,23 @@
+schemaVersion: 2
+id: cloudflared
+name: Cloudflare Tunnel
+category: Network
+icon: "☁️"
+description: "Publish an app to the internet through Cloudflare without opening any router port: the tunnel dials out from this server, Cloudflare terminates HTTPS, and you can put a login in front with Cloudflare Access."
+website: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks
+risk: medium
+image:
+  reference: cloudflare/cloudflared:2026.8.2
+  version: "2026.8.2"
+command: ["tunnel", "--no-autoupdate", "run"]
+env:
+  - name: TUNNEL_TOKEN
+    label: Tunnel token
+    description: From the Cloudflare Zero Trust dashboard, Networks, Tunnels, Create a tunnel (the long string after --token).
+    type: password
+    required: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 180
+notes: "Configure which hostnames go to which local service in the Cloudflare dashboard (Public hostnames), using http://<this server>:<port> as the target. Nothing listens on this server for the tunnel; it only connects out."

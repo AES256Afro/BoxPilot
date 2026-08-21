@@ -1,0 +1,39 @@
+schemaVersion: 2
+id: esphome
+name: ESPHome
+category: Home automation
+icon: "🔌"
+description: "Build and flash firmware for ESP32/ESP8266 boards from the browser: sensors, relays, LED strips, and displays that show up in Home Assistant automatically."
+website: https://esphome.io
+risk: low
+image:
+  reference: esphome/esphome:2026.8.0
+  version: "2026.8.0"
+network: host
+devices:
+  - /dev/ttyUSB?
+  - /dev/ttyACM?
+ports:
+  - id: web
+    label: Dashboard
+    container: 6052
+    host: 6052
+    exposure: lan
+volumes:
+  - id: config
+    label: Device configurations
+    container: /config
+    path: config
+env:
+  - name: ESPHOME_DASHBOARD_USE_PING
+    default: "true"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Host networking so it can find devices by mDNS. The first flash of a board goes over USB (plug it into this server); later updates are over Wi-Fi."

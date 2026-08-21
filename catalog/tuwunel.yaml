@@ -1,0 +1,58 @@
+schemaVersion: 2
+id: tuwunel
+name: Matrix server (Tuwunel)
+category: Communication
+icon: "💬"
+description: "A private chat server for family and friends with end-to-end encryption, rooms, calls, and apps on every platform (Element). Tuwunel is a fast, light Matrix server that needs no database setup."
+website: https://github.com/matrix-construct/tuwunel
+risk: medium
+image:
+  reference: ghcr.io/matrix-construct/tuwunel:v1.9.0
+  version: "1.9.0"
+ports:
+  - id: web
+    label: Matrix client API
+    container: 6167
+    host: 8110
+    exposure: lan
+volumes:
+  - id: data
+    label: Database and media
+    container: /var/lib/tuwunel
+    path: data
+env:
+  - name: TUWUNEL_SERVER_NAME
+    label: Server name
+    description: The address users are known by (user:<server name>). Use your Tailscale name (this-server.tailnet.ts.net) for a tailnet-only server; it cannot be changed later.
+    required: true
+  - name: TUWUNEL_DATABASE_PATH
+    default: /var/lib/tuwunel
+    fixed: true
+  - name: TUWUNEL_PORT
+    default: "6167"
+    fixed: true
+  - name: TUWUNEL_ADDRESS
+    default: 0.0.0.0
+    fixed: true
+  - name: TUWUNEL_ALLOW_REGISTRATION
+    default: "true"
+    fixed: true
+  - name: TUWUNEL_REGISTRATION_TOKEN
+    label: Registration token
+    description: People need this token to create an account; share it with family only.
+    type: password
+    secret: true
+    generate: true
+  - name: TUWUNEL_ALLOW_FEDERATION
+    label: Talk to other Matrix servers
+    description: Off keeps the server private to your own users. On needs a public domain with HTTPS.
+    type: boolean
+    default: false
+  - name: TUWUNEL_MAX_REQUEST_SIZE
+    default: "52428800"
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Install Element web from this catalog (or use the Element app) and sign up against http://<this server>:8110 with the registration token from Secrets. Click Serve on tailnet to reach it from anywhere over HTTPS."

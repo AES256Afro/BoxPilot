@@ -1,0 +1,49 @@
+schemaVersion: 2
+id: nginx-proxy-manager
+name: Nginx Proxy Manager
+category: Network
+icon: "🚦"
+description: "Give every app a proper name and HTTPS on your LAN: jellyfin.home.arpa instead of an IP and port, with free Let's Encrypt certificates when you own a domain. Point-and-click, no nginx config to write."
+website: https://nginxproxymanager.com
+risk: medium
+image:
+  reference: jc21/nginx-proxy-manager:2.15.1
+  version: "2.15.1"
+ports:
+  - id: http
+    label: HTTP
+    container: 80
+    host: 80
+    exposure: lan
+  - id: https
+    label: HTTPS
+    container: 443
+    host: 443
+    exposure: lan
+  - id: admin
+    label: Admin UI
+    container: 81
+    host: 81
+    exposure: lan
+volumes:
+  - id: data
+    label: Configuration and database
+    container: /data
+    path: data
+  - id: letsencrypt
+    label: Certificates
+    container: /etc/letsencrypt
+    path: letsencrypt
+env:
+  - name: DISABLE_IPV6
+    default: "true"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 20
+  timeoutSeconds: 300
+notes: "First login is admin@example.com / changeme; it asks you to change both immediately. Add a proxy host per app (for example jellyfin.home.arpa to http://<this server>:8096) and create the matching local DNS records in Pi-hole, AdGuard Home, or Technitium. Tick Web (HTTP/HTTPS) on the Firewall page."

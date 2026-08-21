@@ -184,6 +184,13 @@ describe("networkVia and sidecar targets", () => {
     expect(compose.services.vpn.environment).toEqual({ VPN_SERVICE_PROVIDER: "protonvpn", WIREGUARD_PRIVATE_KEY: "${KEY}", MISSING: "", FIXED: "x" });
   });
 
+  it("renders net.* sysctls and rejects anything else", () => {
+    const { manifest, errors } = validateManifest({ ...base, sysctls: ["net.ipv4.ip_forward=1", "net.ipv4.conf.all.src_valid_mark=1"] });
+    expect(errors).toEqual([]);
+    expect(renderCompose(manifest, { ports: { web: 8080 }, env: {}, volumes: {} }).compose.services.dl.sysctls).toEqual({ "net.ipv4.ip_forward": "1", "net.ipv4.conf.all.src_valid_mark": "1" });
+    expect(validateManifest({ ...base, sysctls: ["kernel.shmmax=1"] }).errors).toContainEqual(expect.stringContaining("sysctls"));
+  });
+
   it("lets a setup choice run inside a sidecar", () => {
     const { manifest, errors } = validateManifest({ ...base, sidecars: [{ id: "ollama", image: "o/o:1" }], setup: { title: "Models", choices: [{ id: "llama", label: "Llama", exec: ["ollama", "pull", "llama3.2"], service: "ollama" }] } });
     expect(errors).toEqual([]);

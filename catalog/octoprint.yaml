@@ -1,0 +1,44 @@
+schemaVersion: 2
+id: octoprint
+name: OctoPrint
+category: Home automation
+icon: "🖨️"
+description: "Control and monitor a 3D printer over USB: upload files, start prints, watch progress and a webcam, and stop a failing print from anywhere on your tailnet."
+website: https://octoprint.org
+risk: low
+image:
+  reference: octoprint/octoprint:1.11.8
+  version: "1.11.8"
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8102
+    exposure: lan
+volumes:
+  - id: data
+    label: Configuration, uploads, timelapses
+    container: /octoprint
+    path: data
+env:
+  - name: ENABLE_MJPG_STREAMER
+    label: Webcam streaming
+    description: Turn on if a USB webcam is plugged into this server.
+    type: boolean
+    default: false
+  - name: CAMERA_DEV
+    default: /dev/video0
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+devices:
+  - /dev/ttyUSB?
+  - /dev/ttyACM?
+  - /dev/video?
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Connect the printer's USB cable to this server before installing. The first visit runs the setup wizard."

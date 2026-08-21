@@ -1,0 +1,43 @@
+schemaVersion: 2
+id: node-exporter
+name: node-exporter
+category: Monitoring
+icon: "🧮"
+description: "Exposes this server's CPU, memory, disk, filesystem, and network metrics for Prometheus and Grafana."
+website: https://github.com/prometheus/node_exporter
+risk: low
+image:
+  reference: prom/node-exporter:v1.12.1
+  version: "1.12.1"
+network: host
+command: ["--path.procfs=/host/proc", "--path.sysfs=/host/sys", "--path.rootfs=/host/root", "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"]
+ports:
+  - id: metrics
+    label: Metrics
+    container: 9100
+    host: 9100
+    exposure: lan
+volumes:
+  - id: proc
+    label: Host /proc (read-only)
+    container: /host/proc
+    hostPath: /proc
+    readOnly: true
+    backup: false
+  - id: sys
+    label: Host /sys (read-only)
+    container: /host/sys
+    hostPath: /sys
+    readOnly: true
+    backup: false
+  - id: root
+    label: Host filesystem (read-only)
+    container: /host/root
+    hostPath: /
+    readOnly: true
+    backup: false
+health:
+  kind: running
+  stableSeconds: 10
+  timeoutSeconds: 120
+notes: "Metrics at http://<this server>:9100/metrics. Add it as a scrape target in Prometheus."

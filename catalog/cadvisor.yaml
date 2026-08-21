@@ -1,0 +1,47 @@
+schemaVersion: 2
+id: cadvisor
+name: cAdvisor
+category: Monitoring
+icon: "🧊"
+description: "Per-container CPU, memory, network, and disk metrics for Prometheus and Grafana."
+website: https://github.com/google/cadvisor
+risk: low
+image:
+  reference: gcr.io/cadvisor/cadvisor:v0.60.5
+  version: "0.60.5"
+ports:
+  - id: web
+    label: Web UI
+    container: 8080
+    host: 8103
+    exposure: lan
+volumes:
+  - id: rootfs
+    label: Host filesystem (read-only)
+    container: /rootfs
+    hostPath: /
+    backup: false
+    readOnly: true
+  - id: run
+    label: Host /var/run (read-only)
+    container: /var/run
+    hostPath: /var/run
+    backup: false
+    readOnly: true
+  - id: sys
+    label: Host /sys (read-only)
+    container: /sys
+    hostPath: /sys
+    backup: false
+    readOnly: true
+  - id: docker
+    label: Docker data (read-only)
+    container: /var/lib/docker
+    hostPath: /var/lib/docker
+    backup: false
+    readOnly: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Metrics at http://<this server>:8103/metrics; the same port shows a basic web UI."

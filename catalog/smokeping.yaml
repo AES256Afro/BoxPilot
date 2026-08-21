@@ -1,0 +1,43 @@
+schemaVersion: 2
+id: smokeping
+name: SmokePing
+category: Network
+icon: "📶"
+description: "Latency and packet-loss graphs over time to your router, your ISP, and the internet, so you can prove when the connection is bad and when it is the Wi-Fi."
+website: https://oss.oetiker.ch/smokeping
+risk: low
+image:
+  reference: lscr.io/linuxserver/smokeping:2.9.0-r0-ls180
+  version: "2.9.0"
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8107
+    exposure: lan
+volumes:
+  - id: config
+    label: Targets and configuration
+    container: /config
+    path: config
+  - id: data
+    label: Graph data
+    container: /data
+    path: data
+    backup: false
+env:
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Edit Targets in the config folder to add your router's address and a few internet hosts; graphs appear after a few minutes."

@@ -1,0 +1,29 @@
+schemaVersion: 2
+id: prometheus
+name: Prometheus
+category: Monitoring
+icon: "🔥"
+description: "Metrics database that powers the Grafana dashboards: scrapes node-exporter (host metrics) and cAdvisor (container metrics) on this server."
+website: https://prometheus.io
+risk: low
+image:
+  reference: prom/prometheus:v3.14.0
+  version: "3.14.0"
+ports:
+  - id: web
+    label: Web UI
+    container: 9090
+    host: 9090
+    exposure: lan
+volumes:
+  - id: data
+    label: Time-series database
+    container: /prometheus
+    path: data
+    backup: false
+command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=90d", "--web.enable-lifecycle"]
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Add scrape targets by editing the compose file via Config: mount a prometheus.yml under /etc/prometheus/ that lists http://<this server>:9100 (node-exporter) and :8103 (cAdvisor). In Grafana add Prometheus as a data source at http://<this server>:9090."
