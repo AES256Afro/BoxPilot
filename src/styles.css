@@ -69,6 +69,7 @@ textarea:focus-visible {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  overflow: hidden;
   padding: 24px 16px 18px;
   border-right: 1px solid var(--line-soft);
   background: rgb(11 21 33 / 94%);
@@ -112,6 +113,16 @@ textarea:focus-visible {
 .sidebar nav {
   display: grid;
   gap: 5px;
+  /* The nav is the flexible part of the 100vh sidebar: it shrinks and scrolls on short
+     viewports so the last entries (Settings) are never clipped; brand and footer stay put. */
+  flex: 1 1 auto;
+  min-height: 0;
+  align-content: start;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  margin-right: -6px;
+  padding-right: 6px;
 }
 
 .sidebar nav button {
@@ -2847,6 +2858,9 @@ textarea {
   .sidebar nav {
     display: flex;
     overflow-x: auto;
+    overflow-y: hidden;
+    margin-right: 0;
+    padding-right: 0;
   }
 
   .sidebar nav button {
