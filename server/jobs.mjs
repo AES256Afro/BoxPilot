@@ -38,6 +38,9 @@ export function createJobService(store, helper, {
     if (passwordProvided && session?.tokenHash && typeof store.elevateSession === "function") {
       elevatedUntil = store.elevateSession(session.tokenHash, new Date(Date.now() + elevationTtlMs)) ?? elevatedUntil;
     }
+    const role = session?.owner?.role ?? owner.role ?? "owner";
+    if (role === "viewer" || role === "disabled") throw new Error("Viewers cannot approve jobs");
+    if (policy.tier === "high" && role !== "owner") throw new Error("Only the owner can approve high-risk jobs");
     const approvalMethod = passwordProvided ? "password" : policy.elevated && policy.tier === "high" ? "elevated" : "confirm";
     const registeredOperation = job.type.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
     if (!registeredOperation) throw new Error("Job type is not supported by this executor");
@@ -116,9 +119,11 @@ export function createJobService(store, helper, {
   }
 
   /** Stage a job for any registered, non-read-only operation. Approval and execution are generic. */
-  async function createOperationJob(operationId, parameters, ownerId) {
+  async function createOperationJob(operationId, parameters, ownerId, { role = "owner" } = {}) {
     const operation = registry.get(operationId);
     if (!operation) throw new Error("Operation not found");
+    if (role === "viewer" || role === "disabled") throw new Error("Viewers cannot stage operations");
+    if (operation.risk === "high" && role !== "owner") throw new Error("Only the owner can stage high-risk operations");
     if (operation.readOnly) throw new Error("Read-only operations run directly; they are not staged as jobs");
     // Prepare hooks pin server-derived expectations (recorded evidence, live revisions) into
     // the staged parameters, so the browser only ever names the subject.

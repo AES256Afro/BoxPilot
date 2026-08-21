@@ -183,4 +183,19 @@ describe("durable job executor", () => {
     expect(store.getJob(job.id)).toMatchObject({ state: "failed", steps: expect.arrayContaining([expect.objectContaining({ name: "rollback", state: "completed" })]) });
     store.close();
   });
+
+  it("lets operators run low and medium work but reserves high-risk staging and approval for owners", async () => {
+    const helper = { request: vi.fn(async () => ({ ok: true })) };
+    const { store, owner, jobs } = await setup(helper);
+    const operator = store.createOwnerAccount({ username: "sam", passwordHash: await hashPassword("sams long password"), role: "operator", createdBy: owner.id });
+    const operatorSession = store.getSession(store.createSession(operator.id).token);
+    const medium = await jobs.createOperationJob("apt.upgrade", { packages: ["htop"] }, operator.id, { role: "operator" });
+    await expect(jobs.approveAndRun(medium.id, operator.id, { session: operatorSession })).resolves.toMatchObject({ state: "completed" });
+    await expect(jobs.createOperationJob("apt.purge", { packages: ["htop"] }, operator.id, { role: "operator" })).rejects.toThrow("Only the owner can stage high-risk");
+    const staged = await jobs.createOperationJob("apt.purge", { packages: ["htop"] }, operator.id, { role: "owner" });
+    await expect(jobs.approveAndRun(staged.id, operator.id, { password: "sams long password", session: operatorSession })).rejects.toThrow("Only the owner can approve high-risk");
+    const viewer = store.createOwnerAccount({ username: "vee", passwordHash: "x", role: "viewer", createdBy: owner.id });
+    await expect(jobs.createOperationJob("apt.refresh", {}, viewer.id, { role: "viewer" })).rejects.toThrow("Viewers cannot stage");
+    store.close();
+  });
 });

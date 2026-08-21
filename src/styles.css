@@ -3353,3 +3353,4 @@ textarea {
 .backup-file-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; max-height: 40vh; overflow: auto; }
 .backup-file-list li { display: flex; align-items: center; gap: 10px; font-size: 12px; }
 .backup-file-list li code { flex: 1; word-break: break-all; }
+.people-help { padding: 0 15px 12px; font-size: 12px; }

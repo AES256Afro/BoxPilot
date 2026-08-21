@@ -72,6 +72,18 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     next();
   }
 
+  /** Route guard for a role set; the session must already be attached by requireSession. */
+  function requireRole(...roles) {
+    return (request, response, next) => {
+      const role = request.boxpilotSession?.owner?.role ?? "owner";
+      if (!roles.includes(role)) {
+        response.status(403).json({ error: `This needs the ${roles.join(" or ")} role`, code: "forbidden" });
+        return;
+      }
+      next();
+    };
+  }
+
   function requireCsrf(request, response, next) {
     const session = request.boxpilotSession ?? requestSession(request);
     if (!session || !safeEqual(request.get("x-boxpilot-csrf") ?? "", session.csrfToken)) {
@@ -99,7 +111,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
       const owner = store.consumeBootstrapToken(bootstrapToken, { username, passwordHash });
       const session = store.createSession(owner.id, { ttlMs: sessionTtlMs });
       response.setHeader("Set-Cookie", cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000)));
-      response.status(201).json({ authenticated: true, owner: { id: owner.id, username: owner.username }, csrfToken: session.csrfToken, expiresAt: session.expiresAt });
+      response.status(201).json({ authenticated: true, owner: { id: owner.id, username: owner.username, role: owner.role ?? "owner" }, csrfToken: session.csrfToken, expiresAt: session.expiresAt });
     } catch (error) {
       response.status(401).json({ error: error.message, code: "bootstrap_rejected" });
     }
@@ -108,22 +120,23 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
   async function login(request, response) {
     const { username, password } = request.body ?? {};
     const owner = typeof username === "string" ? store.findOwnerByUsername(username) : null;
-    if (!owner || !(await verifyPassword(password, owner.passwordHash))) {
+    if (!owner || owner.role === "disabled" || !(await verifyPassword(password, owner.passwordHash))) {
       response.status(401).json({ error: "Invalid username or password", code: "invalid_credentials" });
       return;
     }
     const session = store.createSession(owner.id, { ttlMs: sessionTtlMs });
     store.recordAudit("session.created", { actorId: owner.id, subjectId: owner.id });
     response.setHeader("Set-Cookie", cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000)));
-    response.json({ authenticated: true, owner: { id: owner.id, username: owner.username }, csrfToken: session.csrfToken, expiresAt: session.expiresAt });
+    response.json({ authenticated: true, owner: { id: owner.id, username: owner.username, role: owner.role ?? "owner" }, csrfToken: session.csrfToken, expiresAt: session.expiresAt });
   }
 
   /** Issue a session for an owner authenticated by an external identity (Tailscale, GitHub). */
   function issueSession(request, response, owner, { method = "identity", detail = null } = {}) {
+    if (owner?.role === "disabled") throw new Error("This account is disabled");
     const session = store.createSession(owner.id, { ttlMs: sessionTtlMs });
     store.recordAudit("session.created", { actorId: owner.id, subjectId: owner.id, details: { method, ...(detail ? { detail } : {}) } });
     response.setHeader("Set-Cookie", cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000)));
-    return { authenticated: true, owner: { id: owner.id, username: owner.username }, csrfToken: session.csrfToken, expiresAt: session.expiresAt, elevatedUntil: null, method };
+    return { authenticated: true, owner: { id: owner.id, username: owner.username, role: owner.role ?? "owner" }, csrfToken: session.csrfToken, expiresAt: session.expiresAt, elevatedUntil: null, method };
   }
 
   function status(request, response) {
@@ -165,7 +178,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     response.status(204).end();
   }
 
-  return { bootstrap, login, status, logout, elevate, dropElevation, issueSession, requestSession, requireSession, requireCsrf };
+  return { bootstrap, login, status, logout, elevate, dropElevation, issueSession, requestSession, requireSession, requireCsrf, requireRole };
 }
 
 export const securityInternals = { cookieName, parseCookies, safeEqual, validateCredentials };

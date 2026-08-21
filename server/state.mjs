@@ -307,6 +307,8 @@ export function createStateStore({
     DROP TABLE IF EXISTS migration_sources;
   `);
 
+  const ownerColumns = database.prepare("PRAGMA table_info(owners)").all().map((column) => column.name);
+  if (!ownerColumns.includes("role")) database.exec("ALTER TABLE owners ADD COLUMN role TEXT NOT NULL DEFAULT 'owner'");
   const sessionColumns = database.prepare("PRAGMA table_info(sessions)").all().map((column) => column.name);
   if (!sessionColumns.includes("elevated_until")) database.exec("ALTER TABLE sessions ADD COLUMN elevated_until TEXT");
   const approvalColumns = database.prepare("PRAGMA table_info(approvals)").all().map((column) => column.name);
@@ -339,8 +341,8 @@ export function createStateStore({
       if (ownerCount() > 0) throw new Error("An owner already exists");
       const entry = database.prepare("SELECT * FROM bootstrap_tokens WHERE token_hash = ?").get(digest(token));
       if (!entry || entry.used_at || entry.expires_at <= at) throw new Error("Bootstrap token is invalid or expired");
-      const owner = { id: randomUUID(), username, createdAt: at };
-      database.prepare("INSERT INTO owners (id, username, password_hash, created_at) VALUES (?, ?, ?, ?)")
+      const owner = { id: randomUUID(), username, role: "owner", createdAt: at };
+      database.prepare("INSERT INTO owners (id, username, password_hash, role, created_at) VALUES (?, ?, ?, 'owner', ?)")
         .run(owner.id, owner.username, passwordHash, owner.createdAt);
       database.prepare("UPDATE bootstrap_tokens SET used_at = ? WHERE token_hash = ?").run(at, digest(token));
       database.prepare("INSERT INTO audit_events (id, type, actor_id, subject_id, details_json, created_at) VALUES (?, ?, ?, ?, ?, ?)")
@@ -355,17 +357,61 @@ export function createStateStore({
 
   function findOwnerByUsername(username) {
     const row = database.prepare("SELECT * FROM owners WHERE username = ?").get(username);
-    return row ? { id: row.id, username: row.username, passwordHash: row.password_hash, createdAt: row.created_at } : null;
+    return row ? { id: row.id, username: row.username, passwordHash: row.password_hash, role: row.role ?? "owner", createdAt: row.created_at } : null;
   }
 
   function findFirstOwner() {
     const row = database.prepare("SELECT * FROM owners ORDER BY created_at ASC LIMIT 1").get();
-    return row ? { id: row.id, username: row.username, passwordHash: row.password_hash, createdAt: row.created_at } : null;
+    return row ? { id: row.id, username: row.username, passwordHash: row.password_hash, role: row.role ?? "owner", createdAt: row.created_at } : null;
   }
 
   function findOwnerById(id) {
     const row = database.prepare("SELECT * FROM owners WHERE id = ?").get(id);
-    return row ? { id: row.id, username: row.username, passwordHash: row.password_hash, createdAt: row.created_at } : null;
+    return row ? { id: row.id, username: row.username, passwordHash: row.password_hash, role: row.role ?? "owner", createdAt: row.created_at } : null;
+  }
+
+
+  const accountRoles = new Set(["owner", "operator", "viewer"]);
+
+  /** Additional people (M5.4): owner runs everything, operator stages and approves low/medium work, viewer only looks. */
+  function createOwnerAccount({ username, passwordHash, role, createdBy }) {
+    if (!accountRoles.has(role)) throw new Error("Role must be owner, operator, or viewer");
+    if (findOwnerByUsername(username)) throw new Error("That user name is already taken");
+    const at = timestamp();
+    const account = { id: randomUUID(), username, role, createdAt: at };
+    database.prepare("INSERT INTO owners (id, username, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)").run(account.id, username, passwordHash, role, at);
+    recordAudit("people.added", { actorId: createdBy, subjectId: account.id, details: { username, role } });
+    return account;
+  }
+
+  function listOwners() {
+    return database.prepare("SELECT id, username, role, created_at FROM owners ORDER BY created_at ASC").all().map((row) => ({ id: row.id, username: row.username, role: row.role ?? "owner", createdAt: row.created_at }));
+  }
+
+  function activeOwnerCount() {
+    return Number(database.prepare("SELECT COUNT(*) AS count FROM owners WHERE role = 'owner' OR role IS NULL").get().count);
+  }
+
+  function setOwnerRole(id, role, { actorId = null } = {}) {
+    if (!accountRoles.has(role)) throw new Error("Role must be owner, operator, or viewer");
+    const account = findOwnerById(id);
+    if (!account) throw new Error("Account not found");
+    if (account.role === "owner" && role !== "owner" && activeOwnerCount() <= 1) throw new Error("BoxPilot needs at least one owner");
+    database.prepare("UPDATE owners SET role = ? WHERE id = ?").run(role, id);
+    database.prepare("DELETE FROM sessions WHERE owner_id = ?").run(id);
+    recordAudit("people.role-changed", { actorId, subjectId: id, details: { username: account.username, from: account.role, to: role } });
+    return { ...account, role };
+  }
+
+  /** Accounts are disabled, not deleted: their jobs and audit rows keep pointing at them. */
+  function disableOwner(id, { actorId = null } = {}) {
+    const account = findOwnerById(id);
+    if (!account) throw new Error("Account not found");
+    if (account.role === "owner" && activeOwnerCount() <= 1) throw new Error("BoxPilot needs at least one owner");
+    database.prepare("UPDATE owners SET role = 'disabled' WHERE id = ?").run(id);
+    database.prepare("DELETE FROM sessions WHERE owner_id = ?").run(id);
+    recordAudit("people.disabled", { actorId, subjectId: id, details: { username: account.username } });
+    return { ...account, role: "disabled" };
   }
 
   function createSession(ownerId, { ttlMs = 12 * 60 * 60 * 1000 } = {}) {
@@ -382,7 +428,7 @@ export function createStateStore({
     if (typeof token !== "string" || token.length < 20) return null;
     const at = timestamp();
     const row = database.prepare(`
-      SELECT sessions.*, owners.username
+      SELECT sessions.*, owners.username, owners.role
       FROM sessions JOIN owners ON owners.id = sessions.owner_id
       WHERE sessions.token_hash = ? AND sessions.expires_at > ?
     `).get(digest(token), at);
@@ -390,7 +436,7 @@ export function createStateStore({
     database.prepare("UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?").run(at, digest(token));
     return {
       tokenHash: row.token_hash,
-      owner: { id: row.owner_id, username: row.username },
+      owner: { id: row.owner_id, username: row.username, role: row.role ?? "owner" },
       csrfToken: row.csrf_token,
       expiresAt: row.expires_at,
       elevatedUntil: row.elevated_until ?? null,
@@ -1058,6 +1104,10 @@ export function createStateStore({
     findOwnerByUsername,
     findFirstOwner,
     findOwnerById,
+    createOwnerAccount,
+    listOwners,
+    setOwnerRole,
+    disableOwner,
     createSession,
     getSession,
     elevateSession,

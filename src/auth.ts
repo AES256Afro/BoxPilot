@@ -1,6 +1,7 @@
 export interface Owner {
   id: string;
   username: string;
+  role?: "owner" | "operator" | "viewer" | "disabled";
 }
 
 export interface AuthStatus {

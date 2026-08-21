@@ -76,7 +76,7 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       catalog: { apps: catalogApps, install: has("app.install"), uninstall: has("app.uninstall"), purge: has("app.purge"), update: has("app.update"), reconfigure: has("app.reconfigure"), logs: has("app.logs"), secrets: has("app.secrets") },
       vms: { create: true, cloudImages: has("vm.cloud.create"), lifecycle: true, snapshots: true, exports: true, protection: true, restoreDrills: true, recovery: true, delete: false, console: false },
       backups: { controller: true, applications: true, vms: true, restic: true, restoreDrills: true, retention: true, schedules: true },
-      identity: { password: true, tailscale: true, github: true, passkeys: false, roles: ["owner"] },
+      identity: { password: true, tailscale: true, github: true, passkeys: false, roles: ["owner", "operator", "viewer"] },
     });
   });
 
