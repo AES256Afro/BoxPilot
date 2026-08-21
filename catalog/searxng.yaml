@@ -1,0 +1,47 @@
+schemaVersion: 2
+id: searxng
+name: SearXNG
+category: Privacy
+icon: "🔍"
+description: A private search engine for your household. Queries go to Google, Bing, DuckDuckGo, Wikipedia, and dozens more through this server, so no search provider sees who is asking. Set it as the default search in every browser.
+website: https://docs.searxng.org
+risk: low
+image:
+  reference: searxng/searxng:2026.8.21-5f4005996
+  version: 2026.8.21
+capabilities:
+  - CAP_CHOWN
+  - CAP_SETGID
+  - CAP_SETUID
+ports:
+  - id: web
+    label: Web UI
+    container: 8080
+    host: 8089
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /etc/searxng
+    path: config
+env:
+  - name: SEARXNG_BASE_URL
+    label: Address people use
+    description: The URL this server is opened at, with a trailing slash. Needed for links and the browser search shortcut; change it after enabling Serve on tailnet.
+    default: http://localhost:8089/
+  - name: SEARXNG_REDIS_URL
+    default: redis://redis:6379/0
+    fixed: true
+  - name: UWSGI_WORKERS
+    default: "4"
+    fixed: true
+  - name: UWSGI_THREADS
+    default: "4"
+    fixed: true
+sidecars:
+  - id: redis
+    image: valkey/valkey:8.1.9-alpine
+health:
+  kind: running
+  stableSeconds: 10
+notes: "The first start writes settings.yml with a fresh secret key into the Configuration volume; edit that file to enable or disable engines. To add it to a browser, open the SearXNG page and use the browser's 'add search engine' option, or use the URL <address>/search?q=%s. Serve on tailnet gives you private search from your phone anywhere."

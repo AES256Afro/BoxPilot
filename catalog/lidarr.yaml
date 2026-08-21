@@ -1,0 +1,45 @@
+schemaVersion: 2
+id: lidarr
+name: Lidarr
+category: Media automation
+icon: "🎵"
+description: "Music library manager: follows artists, grabs new albums, tags and organises them for Navidrome or Jellyfin."
+website: https://lidarr.audio
+risk: low
+image:
+  reference: lscr.io/linuxserver/lidarr:3.1.0.4875-ls39
+  version: 3.1.0.4875
+ports:
+  - id: web
+    label: Web UI
+    container: 8686
+    host: 8686
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration and database
+    container: /config
+    path: config
+  - id: media
+    label: Media folder
+    container: /data
+    hostPath: /srv/media
+    configurable: true
+    backup: false
+    description: Shared media root for the whole stack; subfolders for tv, movies, music, torrents, and usenet keep imports as instant hard-links.
+env:
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Point it at /srv/media/music and connect Prowlarr and your download client under Settings."

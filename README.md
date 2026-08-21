@@ -22,7 +22,7 @@ After that **BoxPilot updates itself**: *System → BoxPilot updates* shows the 
 | --- | --- |
 | **Overview** | Updates, failed services, apps and VMs running, backup health, and a needs-attention list. |
 | **Updates & packages** | See and install APT updates (all or selected), toggle automatic security updates, see what needs a restart, install common tools with one click. |
-| **App catalog** | Install, configure, update, back up, restore, and uninstall 28 self-hosted apps from YAML manifests — Immich, Nextcloud, Jellyfin, Home Assistant, Vaultwarden, Forgejo, Portainer, Grafana, Beszel, Paperless-ngx, n8n, Pi-hole and AdGuard Home (each with a bundled Unbound resolver and, for Pi-hole, a blocklist picker), Scrutiny disk health, File Browser, and more. Live status, logs, resource use, one-click HTTPS on your tailnet. |
+| **App catalog** | Install, configure, update, back up, restore, and uninstall 37 self-hosted apps from YAML manifests — Immich, Nextcloud, Jellyfin, the Sonarr/Radarr/Lidarr/Prowlarr/Bazarr stack with qBittorrent behind a VPN, Home Assistant, Vaultwarden, Forgejo, Portainer, Grafana, Beszel, Paperless-ngx, n8n, Open WebUI + Ollama with a model picker, SearXNG, a Minecraft server, Pi-hole and AdGuard Home (each with a bundled Unbound resolver and, for Pi-hole, a blocklist picker), Scrutiny disk health, File Browser, and more. Live status, logs, resource use, one-click HTTPS on your tailnet. |
 | **Services** | systemd units and timers: start, stop, restart, enable, disable, journal. |
 | **System** | Hostname, time zone, language, swap, trim, Docker housekeeping, scheduled operations, and BoxPilot's own updates. |
 | **Users & SSH** | Accounts, sudo, SSH keys (import from GitHub), password-login policy. |

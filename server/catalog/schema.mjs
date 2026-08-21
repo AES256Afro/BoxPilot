@@ -5,7 +5,7 @@
  */
 
 const idPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
-const imagePattern = /^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9._-]{1,128})?(?:@sha256:[a-f0-9]{64})?$/;
+const imagePattern = /^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9_.-]{1,128})?(?:@sha256:[a-f0-9]{64})?$/;
 const envNamePattern = /^[A-Z][A-Za-z0-9_]{0,63}$/;
 const keyPattern = /^[a-z][a-z0-9-]{0,31}$/;
 const containerPathPattern = /^\/[^\0]*$/;
@@ -26,7 +26,7 @@ function checkKeys(errors, path, value, allowed, required = []) {
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
-  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup"], ["schemaVersion", "id", "name", "category", "description", "image"]);
+  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia"], ["schemaVersion", "id", "name", "category", "description", "image"]);
   if (raw.schemaVersion !== 2) fail(errors, "manifest.schemaVersion", "must be 2");
   if (typeof raw.id !== "string" || !idPattern.test(raw.id)) fail(errors, "manifest.id", "must be a short lower-case slug");
   for (const field of ["name", "category", "description"]) if (typeof raw[field] !== "string" || !raw[field].trim() || raw[field].length > 400) fail(errors, `manifest.${field}`, "must be a non-empty string");
@@ -118,7 +118,9 @@ export function validateManifest(raw) {
   sidecars.forEach((sidecar, index) => {
     const path = `manifest.sidecars[${index}]`;
     if (!isObject(sidecar)) return fail(errors, path, "must be a mapping");
-    checkKeys(errors, path, sidecar, ["id", "image", "command", "env", "volumes"], ["id", "image"]);
+    checkKeys(errors, path, sidecar, ["id", "image", "command", "env", "volumes", "capabilities", "devices"], ["id", "image"]);
+    if (sidecar.capabilities !== undefined && !(Array.isArray(sidecar.capabilities) && sidecar.capabilities.every((cap) => typeof cap === "string" && /^CAP_[A-Z_]+$/.test(cap)))) fail(errors, `${path}.capabilities`, "entries must look like CAP_NET_ADMIN");
+    if (sidecar.devices !== undefined && !(Array.isArray(sidecar.devices) && sidecar.devices.every((device) => typeof device === "string" && /^\/dev\/[A-Za-z0-9._/-]+$/.test(device)))) fail(errors, `${path}.devices`, "entries must be /dev paths");
     if (typeof sidecar.id !== "string" || !keyPattern.test(sidecar.id) || sidecarIds.has(sidecar.id) || sidecar.id === raw.id) fail(errors, `${path}.id`, "must be a unique short slug distinct from the app id"); else sidecarIds.add(sidecar.id);
     if (typeof sidecar.image !== "string" || !imagePattern.test(sidecar.image)) fail(errors, `${path}.image`, "must be a valid image reference");
     if (sidecar.command !== undefined && !(Array.isArray(sidecar.command) && sidecar.command.every((part) => typeof part === "string"))) fail(errors, `${path}.command`, "must be an array of strings");
@@ -135,6 +137,11 @@ export function validateManifest(raw) {
     });
   });
   if (sidecars.length && raw.network === "host") fail(errors, "manifest.sidecars", "host-network apps cannot have sidecars (no compose network to reach them on)");
+  // networkVia: the app shares a sidecar's network namespace (a VPN container) and its ports are published there.
+  if (raw.networkVia !== undefined) {
+    if (typeof raw.networkVia !== "string" || !sidecarIds.has(raw.networkVia)) fail(errors, "manifest.networkVia", "must name one of the sidecars");
+    if (raw.network === "host") fail(errors, "manifest.networkVia", "cannot be combined with host networking");
+  }
 
   // setup: optional post-install choices (blocklists, plugins) run inside the running container
   // with `docker compose exec`. Commands must be idempotent: they run again on every settings change.
@@ -153,7 +160,8 @@ export function validateManifest(raw) {
       choices.forEach((choice, index) => {
         const path = `manifest.setup.choices[${index}]`;
         if (!isObject(choice)) return fail(errors, path, "must be a mapping");
-        checkKeys(errors, path, choice, ["id", "label", "description", "website", "recommended", "exec"], ["id", "label", "exec"]);
+        checkKeys(errors, path, choice, ["id", "label", "description", "website", "recommended", "exec", "service"], ["id", "label", "exec"]);
+        if (choice.service !== undefined && !(typeof choice.service === "string" && sidecarIds.has(choice.service))) fail(errors, `${path}.service`, "must name one of the sidecars");
         if (typeof choice.id !== "string" || !keyPattern.test(choice.id) || choiceIds.has(choice.id)) fail(errors, `${path}.id`, "must be a unique short slug"); else choiceIds.add(choice.id);
         if (typeof choice.label !== "string" || !choice.label.trim() || choice.label.length > 80) fail(errors, `${path}.label`, "must be a short string");
         if (choice.description !== undefined && typeof choice.description !== "string") fail(errors, `${path}.description`, "must be a string");
@@ -199,13 +207,16 @@ export function validateManifest(raw) {
       note: raw.setup.note ?? null,
       finalize: raw.setup.finalize ?? null,
       finalizeLabel: raw.setup.finalizeLabel ?? null,
-      choices: raw.setup.choices.map((choice) => ({ id: choice.id, label: choice.label.trim(), description: choice.description ?? null, website: choice.website ?? null, recommended: choice.recommended ?? false, exec: [...choice.exec] })),
+      choices: raw.setup.choices.map((choice) => ({ id: choice.id, label: choice.label.trim(), description: choice.description ?? null, website: choice.website ?? null, recommended: choice.recommended ?? false, exec: [...choice.exec], service: choice.service ?? null })),
     } : null,
+    networkVia: raw.networkVia ?? null,
     sidecars: sidecars.map((sidecar) => ({
       id: sidecar.id,
       image: sidecar.image,
       command: sidecar.command ?? null,
       env: sidecar.env ?? {},
+      capabilities: sidecar.capabilities ?? [],
+      devices: sidecar.devices ?? [],
       volumes: (sidecar.volumes ?? []).map((volume) => ({ id: volume.id, container: volume.container, path: volume.path, backup: volume.backup ?? true })),
     })),
   });

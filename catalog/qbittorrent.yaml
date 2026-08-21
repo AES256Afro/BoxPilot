@@ -1,0 +1,108 @@
+schemaVersion: 2
+id: qbittorrent
+name: qBittorrent (through a VPN)
+category: Media automation
+icon: "🔒"
+description: Torrent client that only ever talks through a VPN tunnel (Gluetun). If the VPN drops, downloads stop instead of leaking. Works with Mullvad, Proton, NordVPN, Surfshark, PIA, AirVPN, Windscribe, and most others via WireGuard or OpenVPN.
+website: https://github.com/qdm12/gluetun-wiki
+risk: medium
+image:
+  reference: lscr.io/linuxserver/qbittorrent:5.2.3_v2.0.14-ls472
+  version: 5.2.3
+networkVia: vpn
+ports:
+  - id: web
+    label: Web UI
+    container: 8080
+    host: 8095
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /config
+    path: config
+  - id: media
+    label: Media folder
+    container: /data
+    hostPath: /srv/media
+    configurable: true
+    backup: false
+    description: Download into /srv/media/torrents so Sonarr and Radarr can hard-link finished files into the library.
+env:
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+  - name: WEBUI_PORT
+    default: "8080"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: VPN_SERVICE_PROVIDER
+    label: VPN provider
+    description: Your VPN service. Pick "custom" for any WireGuard config file from a provider not listed.
+    default: mullvad
+    options:
+      - mullvad
+      - protonvpn
+      - nordvpn
+      - surfshark
+      - private internet access
+      - airvpn
+      - windscribe
+      - ivpn
+      - custom
+  - name: VPN_TYPE
+    label: Protocol
+    default: wireguard
+    options:
+      - wireguard
+      - openvpn
+  - name: WIREGUARD_PRIVATE_KEY
+    label: WireGuard private key
+    description: From the WireGuard config your provider gives you (the PrivateKey line). Required for WireGuard.
+    type: password
+  - name: WIREGUARD_ADDRESSES
+    label: WireGuard address
+    description: The Address line from the same config, for example 10.64.222.21/32. Needed by Mullvad, Proton, and custom configs.
+  - name: OPENVPN_USER
+    label: OpenVPN username
+    description: Only for the OpenVPN protocol.
+  - name: OPENVPN_PASSWORD
+    label: OpenVPN password
+    type: password
+  - name: SERVER_COUNTRIES
+    label: Preferred countries
+    description: Comma-separated, for example Netherlands,Switzerland. Leave empty to let the provider choose.
+sidecars:
+  - id: vpn
+    image: qmcgaw/gluetun:v3.41.3
+    capabilities:
+      - CAP_NET_ADMIN
+    devices:
+      - /dev/net/tun
+    env:
+      VPN_SERVICE_PROVIDER: ${VPN_SERVICE_PROVIDER}
+      VPN_TYPE: ${VPN_TYPE}
+      WIREGUARD_PRIVATE_KEY: ${WIREGUARD_PRIVATE_KEY}
+      WIREGUARD_ADDRESSES: ${WIREGUARD_ADDRESSES}
+      OPENVPN_USER: ${OPENVPN_USER}
+      OPENVPN_PASSWORD: ${OPENVPN_PASSWORD}
+      SERVER_COUNTRIES: ${SERVER_COUNTRIES}
+      TZ: ${TZ}
+      FIREWALL_OUTBOUND_SUBNETS: 192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,100.64.0.0/10
+      HEALTH_VPN_DURATION_INITIAL: 30s
+    volumes:
+      - id: gluetun
+        container: /gluetun
+        path: gluetun
+        backup: false
+health:
+  kind: running
+  stableSeconds: 30
+  timeoutSeconds: 300
+notes: "The web UI's first password is printed in the container log (Logs above) on the first start; change it under Tools → Options → Web UI. Check the VPN is up in the log of the vpn container: it prints the public IP it got. Sonarr and Radarr reach qBittorrent at http://<this server>:8095 — on the LAN that address works because the tunnel's firewall lets your home and tailnet subnets in."

@@ -87,6 +87,13 @@ describe("generic app deployer", () => {
     expect(calls.some((call) => call.includes(" exec -T lists "))).toBe(false);
   });
 
+  it("runs a setup choice inside the sidecar it names", async () => {
+    const { apps, calls, catalogDirectory } = await setup();
+    await writeFile(path.join(catalogDirectory, "chat.yaml"), "schemaVersion: 2\nid: chat\nname: Chat\ncategory: AI\ndescription: d\nimage:\n  reference: x/chat:1\nsidecars:\n  - id: ollama\n    image: o/ollama:1\nhealth:\n  kind: running\n  stableSeconds: 4\n  timeoutSeconds: 30\nsetup:\n  title: Models\n  choices:\n    - id: llama\n      label: Llama\n      recommended: true\n      service: ollama\n      exec: [ollama, pull, \"llama3.2:3b\"]\n");
+    await expect(apps.install({ id: "chat" })).resolves.toMatchObject({ setup: { applied: ["llama"], failed: [] } });
+    expect(calls.filter((call) => call.includes(" exec -T ")).map((call) => call.split(" exec -T ")[1])).toEqual(["ollama ollama pull llama3.2:3b"]);
+  });
+
   it("installs, inspects, acts on, reconfigures, updates, and uninstalls an app from its manifest", async () => {
     const { apps, calls, catalogRoot } = await setup();
     const installed = await apps.install({ id: "demo", values: { ports: { web: 9090 } } });
