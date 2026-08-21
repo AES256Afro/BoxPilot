@@ -298,8 +298,13 @@ describe("BoxPilot state store", () => {
     expect(store.getSession(session.token)).toBeNull(); // role changes end existing sessions
     expect(() => store.setOwnerRole(owner.id, "viewer", { actorId: owner.id })).toThrow("at least one owner");
     expect(() => store.disableOwner(owner.id, { actorId: owner.id })).toThrow("at least one owner");
+    const keep = store.createSession(owner.id); const other = store.createSession(owner.id);
+    store.setOwnerPassword(owner.id, "hash-new", { keepSessionTokenHash: store.getSession(keep.token).tokenHash });
+    expect(store.findOwnerById(owner.id).passwordHash).toBe("hash-new");
+    expect(store.getSession(keep.token)).not.toBeNull();
+    expect(store.getSession(other.token)).toBeNull();
     expect(store.disableOwner(sam.id, { actorId: owner.id }).role).toBe("disabled");
-    expect(store.listAudit().map((event) => event.type)).toEqual(expect.arrayContaining(["people.added", "people.role-changed", "people.disabled"]));
+    expect(store.listAudit().map((event) => event.type)).toEqual(expect.arrayContaining(["people.added", "people.role-changed", "people.password-changed", "people.disabled"]));
     store.close();
   });
 

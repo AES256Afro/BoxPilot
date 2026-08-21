@@ -173,6 +173,7 @@ app.post("/api/v1/auth/login", auth.login);
 app.post("/api/v1/auth/logout", auth.requireSession, auth.requireCsrf, auth.logout);
 app.post("/api/v1/auth/elevate", auth.requireSession, auth.requireCsrf, auth.elevate);
 app.delete("/api/v1/auth/elevate", auth.requireSession, auth.requireCsrf, auth.dropElevation);
+app.post("/api/v1/auth/password", auth.requireSession, auth.requireCsrf, auth.changePassword);
 
 app.use("/api/v1", auth.requireSession);
 app.use("/api/v1", (request, response, next) => {
@@ -190,7 +191,7 @@ app.use("/api/v1", (request, response, next) => {
   const role = request.boxpilotSession?.owner?.role ?? "owner";
   const reading = ["GET", "HEAD", "OPTIONS"].includes(request.method);
   const readOnlyRun = /^\/operations\/[^/]+\/run$/.test(request.path);
-  const selfService = request.path === "/auth/logout" || request.path === "/auth/elevate";
+  const selfService = request.path === "/auth/logout" || request.path === "/auth/elevate" || request.path === "/auth/password";
   if (role === "disabled") return response.status(403).json({ error: "This account is disabled", code: "forbidden" });
   if (role === "viewer" && !reading && !readOnlyRun && !selfService) return response.status(403).json({ error: "Viewers can look but not change anything", code: "forbidden" });
   if (role === "operator" && !reading && (request.path.startsWith("/settings") || request.path.startsWith("/people"))) return response.status(403).json({ error: "Only the owner can change settings or people", code: "forbidden" });

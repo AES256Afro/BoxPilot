@@ -403,6 +403,17 @@ export function createStateStore({
     return { ...account, role };
   }
 
+  /** Self-service password change; other sessions of the account are ended. */
+  function setOwnerPassword(id, passwordHash, { keepSessionTokenHash = null } = {}) {
+    const account = findOwnerById(id);
+    if (!account) throw new Error("Account not found");
+    database.prepare("UPDATE owners SET password_hash = ? WHERE id = ?").run(passwordHash, id);
+    if (keepSessionTokenHash) database.prepare("DELETE FROM sessions WHERE owner_id = ? AND token_hash != ?").run(id, keepSessionTokenHash);
+    else database.prepare("DELETE FROM sessions WHERE owner_id = ?").run(id);
+    recordAudit("people.password-changed", { actorId: id, subjectId: id, details: { username: account.username } });
+    return { id, username: account.username };
+  }
+
   /** Accounts are disabled, not deleted: their jobs and audit rows keep pointing at them. */
   function disableOwner(id, { actorId = null } = {}) {
     const account = findOwnerById(id);
@@ -1108,6 +1119,7 @@ export function createStateStore({
     listOwners,
     setOwnerRole,
     disableOwner,
+    setOwnerPassword,
     createSession,
     getSession,
     elevateSession,
