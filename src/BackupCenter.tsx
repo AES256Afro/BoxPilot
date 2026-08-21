@@ -6,7 +6,12 @@ interface BackupRecord { id: string; applicationId: string; destination: string;
 interface ControllerProtection { id: string; backupId: string; snapshotId?: string; createdAt: string }
 interface ProtectionState { destination: { mounted?: boolean; repositoryInitialized?: boolean } | null; protections: ControllerProtection[] }
 interface RetentionStatus { policy?: { minimumCopies?: number; minimumAgeDays?: number }; candidates?: unknown[]; beforeCount?: number }
-interface ProtectionPlan { id: string; revision: string }
+interface MachineSnapshot { artifact: string; sizeBytes: number | null; checksumSha256: string | null; createdAt: string | null; contents: { apps?: unknown[]; vms?: { domains?: string[] } } | null }
+interface MachineSnapshotState {
+  snapshots: MachineSnapshot[];
+  keep: number;
+  sync: { destination: string; mount: { mounted: boolean; blocker?: string | null; freeBytes?: number | null }; lastSync: { completedAt: string; copiedCount: number } | null };
+}
 
 async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, options);
@@ -27,20 +32,23 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
   const [backups, setBackups] = useState<BackupRecord[]>([]);
   const [protection, setProtection] = useState<ProtectionState | null>(null);
   const [retention, setRetention] = useState<RetentionStatus | null>(null);
+  const [machine, setMachine] = useState<MachineSnapshotState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [list, protectionState, retentionState] = await Promise.all([
+      const [list, protectionState, retentionState, machineState] = await Promise.all([
         requestJson<{ backups: BackupRecord[] }>("/api/v1/backups"),
         requestJson<ProtectionState>("/api/v1/controller-backup-protection").catch(() => null),
         requestJson<RetentionStatus>("/api/v1/controller-backup-retention").catch(() => null),
+        requestJson<{ result: MachineSnapshotState }>("/api/v1/operations/host.snapshot.inspect/inspect").then((body) => body.result).catch(() => null),
       ]);
       setBackups(list.backups.filter((backup) => backup.applicationId === "boxpilot-controller"));
       setProtection(protectionState);
       setRetention(retentionState);
+      setMachine(machineState);
       setError(null);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not load backup state");
@@ -116,6 +124,41 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
             {(retention.candidates?.length ?? 0) > 0 && <button className="secondary-button" type="button" onClick={() => start({ operationId: "controller.backup.retention.apply", title: "Apply controller backup retention", parameters: {}, preview: <span>Forgets only the currently eligible old snapshots and verifies the repository afterwards. Never prunes.</span> })}>Apply retention</button>}
           </div>
         )}
+      </section>
+
+      <section className="panel">
+        <header className="panel-header">
+          <div><strong>Machine snapshot</strong><span>One archive to redeploy this box: the database, every app's settings and secrets, network and firewall config, and each VM's definition. App data stays in per-app backups.</span></div>
+          <button className="primary-button" type="button" disabled={loading} onClick={() => start({ operationId: "host.snapshot.create", title: "Create a machine snapshot", parameters: {}, preview: <span>Takes a fresh verified database backup and bundles it with every installed app's compose project (settings and secrets), netplan, firewall rules, fstab, and VM definitions. The archive contains secrets — keep copies only on encrypted or physically controlled media. The newest {machine?.keep ?? 3} snapshots are kept.</span> })}>Create machine snapshot</button>
+        </header>
+        <div className="table-scroll">
+          <table>
+            <thead><tr><th>Created</th><th>Size</th><th>Apps</th><th>VMs</th><th>SHA-256</th></tr></thead>
+            <tbody>
+              {(machine?.snapshots ?? []).length === 0 ? <tr><td colSpan={5}>{machine ? "No machine snapshots yet. One click above creates the first." : "Machine snapshot state is unavailable."}</td></tr> : null}
+              {(machine?.snapshots ?? []).map((snapshot) => (
+                <tr key={snapshot.artifact}>
+                  <td>{snapshot.createdAt ? new Date(snapshot.createdAt).toLocaleString() : snapshot.artifact}</td>
+                  <td>{snapshot.sizeBytes ? formatBytes(snapshot.sizeBytes) : "—"}</td>
+                  <td>{snapshot.contents?.apps?.length ?? "—"}</td>
+                  <td>{snapshot.contents?.vms?.domains?.length ?? "—"}</td>
+                  <td>{snapshot.checksumSha256 ? <code>{snapshot.checksumSha256.slice(0, 16)}...</code> : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="recovery-actions">
+          {machine?.sync.mount.mounted ? (
+            <>
+              <span className="muted">Off-box mirror on the backup drive{machine.sync.lastSync ? ` — last synced ${new Date(machine.sync.lastSync.completedAt).toLocaleString()}` : " — never synced"}. Copies are hash-verified and never deleted.</span>
+              <button className="secondary-button" type="button" onClick={() => start({ operationId: "backup.sync", title: "Mirror local backups to the backup drive", parameters: {}, preview: <span>Copies the local backup folders (database backups, app backups, machine snapshots) onto the independent backup drive and verifies every copied file's hash. Nothing on the drive is ever deleted.</span> })}>Sync to backup drive</button>
+            </>
+          ) : (
+            <span className="muted">{machine?.sync.mount.blocker ?? "Mount an independent backup drive (Storage page) to enable the off-box mirror."}</span>
+          )}
+          <span className="muted">Recurring snapshots and syncs can be scheduled on the System page.</span>
+        </div>
       </section>
     </div>
   );

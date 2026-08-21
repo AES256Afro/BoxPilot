@@ -17,6 +17,9 @@ import { createControllerBackupHelper } from "./controller-backup-helper.mjs";
 import { createControllerProtectionHelper } from "./controller-protection-helper.mjs";
 import { createControllerRetentionHelper } from "./controller-retention-helper.mjs";
 import { createVmMediaHelper } from "./vm-media-helper.mjs";
+import { createVmHelper } from "./vm-helper.mjs";
+import { createVmProtectionHelper } from "./vm-protection-helper.mjs";
+import { createMachineSnapshotHelper } from "./machine-snapshot-helper.mjs";
 
 const socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock";
 const maxRequestBytes = 8192;
@@ -39,7 +42,10 @@ await controllerBackups.initialize();
 await controllerProtection.initialize();
 const recovery = await vmRestoreDrill.recoverOrphans();
 const hostInspect = createHostInspectHelper();
-const helperDependencies = { runUnit, apps, vmCloud, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, vmRestoreDrill, vmRecovery, vmRetention };
+const virtualization = createVmHelper();
+const vmProtection = createVmProtectionHelper();
+const machineSnapshot = createMachineSnapshotHelper({ controllerBackups });
+const helperDependencies = { runUnit, apps, vmCloud, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRestoreDrill, vmRecovery, vmRetention, machineSnapshot };
 if (recovery.stoppedDomains > 0 || recovery.removedNvramFiles > 0 || recovery.normalizedWorkspaces > 0) {
   console.log(`BoxPilot restore drill recovery stopped=${recovery.stoppedDomains} nvram=${recovery.removedNvramFiles} workspaces=${recovery.normalizedWorkspaces}`);
 }

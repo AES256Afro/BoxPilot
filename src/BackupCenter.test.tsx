@@ -50,6 +50,38 @@ describe("Backup Center", () => {
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { backupId: backup.id } });
   });
+  it("lists machine snapshots and stages snapshot creation and the off-box mirror", async () => {
+    let staged: Array<{ url: string; body: string }> = [];
+    const machineState = {
+      snapshots: [{ artifact: "machine-snapshot-20260821T020000Z-11111111.tar.gz", sizeBytes: 5 * 1024 * 1024, checksumSha256: "b".repeat(64), createdAt: "2026-08-21T02:00:00.000Z", contents: { apps: [{ id: "uptime-kuma" }], vms: { domains: ["snapshot-lab"] } } }],
+      keep: 3,
+      sync: { destination: "/mnt/boxpilot-backup/boxpilot-local-mirror", mount: { mounted: true, freeBytes: 9 * 1024 ** 3 }, lastSync: { completedAt: "2026-08-20T02:00:00.000Z", copiedCount: 4 } },
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/api/v1/backups")) return json({ backups: [backup] });
+      if (url.endsWith("/controller-backup-protection")) return json({ destination: {}, protections: [] });
+      if (url.endsWith("/controller-backup-retention")) return json({});
+      if (url.endsWith("/operations/host.snapshot.inspect/inspect")) return json({ operation: "host.snapshot.inspect", result: machineState });
+      if (url.includes("/operations/") && url.endsWith("/jobs")) {
+        staged.push({ url, body: init?.body as string });
+        return json({ job: { id: "job-m", type: "op:x", title: "Machine snapshot", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201);
+      }
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<BackupCenter csrfToken="csrf-token" />);
+
+    expect(await screen.findByText("5.0 MiB")).toBeTruthy(); // the snapshot row rendered
+    expect(screen.getByText(/last synced/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Create machine snapshot" }));
+    expect(await screen.findByText(/contains secrets/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Sync to backup drive" }));
+    expect(await screen.findByText(/never deleted/)).toBeTruthy();
+    expect(staged.map((entry) => entry.url.split("/operations/")[1])).toEqual(["host.snapshot.create/jobs", "backup.sync/jobs"]);
+  });
+
   it("shows the empty state and points at catalog and VM backups", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();

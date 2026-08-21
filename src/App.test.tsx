@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 
@@ -36,7 +36,7 @@ describe("BoxPilot console", () => {
     expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("Live sanitized inventory");
     expect(await screen.findByText("bigbox")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Backups/ }));
+    fireEvent.click(within(screen.getByRole("navigation", { name: "Product areas" })).getByRole("button", { name: /Backups/ }));
     expect(screen.getByRole("heading", { name: "Backups" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("verified restore drills");
   });

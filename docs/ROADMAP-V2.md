@@ -164,11 +164,11 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 
 ### Phase 6 — Backup & redeploy (2–3 weeks)
 - ◐ **M6.1** Catalog apps back up generically: `app.backup` archives the compose project + backup-flagged volumes (stop → tar → restart, sha256 meta, keep-N pruning), with list/restore/delete ops and UI on each card; restore checksums the archive and saves a safety copy first. **Schedules** exist: a `schedules` table + `server/scheduler.mjs` runs any low/medium registered op hourly/daily/weekly, approved as the schedule's creator (skipped and recorded under Always-ask mode); System-page panel offers app backups, apt refresh/upgrade, and Docker cleanup. Remaining: restic destinations for catalog-app backups, DB-dump hooks, prune policy for restic repos.
-- **M6.2** Destinations: local disk, USB, NFS/SMB, SFTP, **rclone** (B2, S3, Drive, Dropbox), Tailscale peer.
-- **M6.3** **Machine snapshot**: export full BoxPilot state (installed items, configs, secrets encrypted, netplan, ufw, users, cron, catalog versions) as one `boxpilot-machine.tar.age`.
+- ◐ **M6.2** Destinations. v1: **off-box mirror** — `backup.sync` (registry op, `server/machine-snapshot-helper.mjs`) copies the local backup roots (controller backups, application backups, machine snapshots) onto the independent backup mount with per-file hash verification and no deletes; USB/NFS/SMB arrive by mounting them at the fixed mount (Storage page). Schedulable. Remaining: network destinations (SFTP/rclone) via the `boxpilot-run@` task runner — the helper has `PrivateNetwork=true` by design.
+- ◐ **M6.3** **Machine snapshot** v1: `host.snapshot.create` builds one root-only `machine-snapshot-*.tar.gz` — a fresh verified controller DB backup (also recorded as a normal backup row), every installed app's compose project (settings + secrets; data volumes stay in app backups), app-backup references, netplan/ufw/fstab, and each VM's domain XML — with a per-file sha256 manifest, keep-3 retention, and a Backups-page panel. Remaining: optional age encryption; users/cron capture.
 - **M6.4** **Redeploy wizard**: new Ubuntu + BoxPilot → "Restore from machine snapshot" → rehydrates everything (apps first, then data restore, then DNS/proxy) with a progress view. Done when a wiped box is back in <30 min from a snapshot.
 - **M6.5** Restore UX: browse snapshots, restore single app / single VM / single file, in-place (high risk) or side-by-side (today's "drill").
-- **M6.6** Backup health on dashboard; alert if stale.
+- ✅ **M6.6** Backup health on dashboard: a Backups tile (last DB backup, last off-box mirror) and needs-attention entries when either is missing or older than a week.
 - **M6.7** Pre-change checkpoints: every medium/high op auto-snapshots the affected app before running (cheap, enables one-click undo).
 
 ### Phase 7 — VMs & projects (2 weeks, builds on the existing strength)

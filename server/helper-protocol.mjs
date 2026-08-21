@@ -18,6 +18,7 @@ import { createLibvirtFoundationHelper } from "./libvirt-foundation-helper.mjs";
 import { createControllerBackupHelper } from "./controller-backup-helper.mjs";
 import { createControllerProtectionHelper } from "./controller-protection-helper.mjs";
 import { createControllerRetentionHelper } from "./controller-retention-helper.mjs";
+import { createMachineSnapshotHelper } from "./machine-snapshot-helper.mjs";
 
 export const helperProtocolVersion = 1;
 
@@ -97,13 +98,15 @@ export function validateHelperRequest(value) {
 }
 
 export async function executeHelperOperation(request, dependencies = {}) {
-  const { hostInspect = createHostInspectHelper(), controllerBackups = createControllerBackupHelper(), controllerProtection = createControllerProtectionHelper(), controllerRetention = createControllerRetentionHelper(), prerequisites = createPrerequisiteHelper(), foundation = createLibvirtFoundationHelper(), vmMedia = createVmMediaHelper(), virtualization = createVmHelper(), vmProtection = createVmProtectionHelper(), vmRetention = createVmRetentionHelper(), vmRestoreDrill = createVmRestoreDrillHelper(), vmRecovery = createVmRecoveryHelper() } = dependencies;
+  const { hostInspect = createHostInspectHelper(), controllerBackups = createControllerBackupHelper(), controllerProtection = createControllerProtectionHelper(), controllerRetention = createControllerRetentionHelper(), prerequisites = createPrerequisiteHelper(), foundation = createLibvirtFoundationHelper(), vmMedia = createVmMediaHelper(), virtualization = createVmHelper(), vmProtection = createVmProtectionHelper(), vmRetention = createVmRetentionHelper(), vmRestoreDrill = createVmRestoreDrillHelper(), vmRecovery = createVmRecoveryHelper(), machineSnapshot = createMachineSnapshotHelper() } = dependencies;
   const error = validateHelperRequest(request);
   if (error) return { version: helperProtocolVersion, id: request?.id ?? null, ok: false, error, code: "invalid_request" };
   if (registry.has(request.operation)) {
     const jobLog = createJobLogWriter({ jobId: request.context?.jobId ?? null, gid: serviceGroupId() });
     const progress = (line, stream) => { void jobLog.append(line, stream); };
-    return { version: helperProtocolVersion, id: request.id, ok: true, result: await registry.execute(request.operation, request.parameters, { run: fixedRun, runUnit: dependencies.runUnit ?? createRunUnitClient({ run: fixedRun }), apps: dependencies.apps ?? createAppHelper(), vmCloud: dependencies.vmCloud ?? createVmCloudHelper(), ...dependencies, prerequisites, progress, jobLog }) };
+    // Every service the ops can name is passed explicitly (with its default), so a
+    // dependency missing from the caller's set can never reach an op as undefined.
+    return { version: helperProtocolVersion, id: request.id, ok: true, result: await registry.execute(request.operation, request.parameters, { run: fixedRun, runUnit: dependencies.runUnit ?? createRunUnitClient({ run: fixedRun }), apps: dependencies.apps ?? createAppHelper(), vmCloud: dependencies.vmCloud ?? createVmCloudHelper(), ...dependencies, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRetention, vmRestoreDrill, vmRecovery, machineSnapshot, progress, jobLog }) };
   }
   if (request.operation === "container.docker.inspect") {
     return { version: helperProtocolVersion, id: request.id, ok: true, result: await hostInspect.inspectDocker() };
