@@ -26,7 +26,7 @@ After that **BoxPilot updates itself**: *System → BoxPilot updates* shows the 
 | **Services** | systemd units and timers: start, stop, restart, enable, disable, journal. |
 | **System** | Hostname, time zone, language, swap, trim, Docker housekeeping, scheduled operations, and BoxPilot's own updates. |
 | **Users & SSH** | Accounts, sudo, SSH keys (import from GitHub), password-login policy. |
-| **Firewall** | ufw state and rules. |
+| **Firewall** | ufw profiles (Home server, Tailscale only, Trusted LAN), service presets, suggestions based on what is actually listening, and protected ports: SSH, Tailscale, and BoxPilot's own port can never be blocked from the UI. |
 | **Storage** | Disks, filesystems, SMART, mounting by UUID, swap files. |
 | **Network** | Interfaces, Tailscale, and a read-only DNS/topology assessment. |
 | **Virtual Machines** | Create VMs from cloud images or ISOs, lifecycle, snapshots; export, encrypt to an independent restic repository, restore-drill in isolation, recover as a clone. |
