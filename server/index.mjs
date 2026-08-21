@@ -83,6 +83,11 @@ const jobs = createJobService(state, helper, {
     "controller.backup.create": (job, result) => {
       state.recordBackup({ id: result.backupId, applicationId: "boxpilot-controller", destination: result.destination ?? "local-managed", artifactPath: result.artifactPath, checksumSha256: result.checksumSha256, sizeBytes: result.sizeBytes, downtimeMs: result.downtimeMs ?? 0, restoreDrill: result.restoreDrill ?? {}, createdBy: job.createdBy });
     },
+    // Every machine snapshot embeds a fresh verified controller backup; record it too.
+    "host.snapshot.create": (job, result) => {
+      const backup = result.controllerBackup;
+      if (backup?.backupId) state.recordBackup({ id: backup.backupId, applicationId: "boxpilot-controller", destination: backup.destination ?? "local-managed", artifactPath: backup.artifactPath, checksumSha256: backup.checksumSha256, sizeBytes: backup.sizeBytes, downtimeMs: backup.downtimeMs ?? 0, restoreDrill: backup.restoreDrill ?? {}, createdBy: job.createdBy });
+    },
     "controller.backup.protect": (job, result) => controllerProtection.recordOperation(job, result),
     "controller.backup.retention.apply": (job, result) => controllerRetention.recordOperation(job, result),
     "vm.export.create": (job, result) => vmExports.recordOperation(job, result),

@@ -29,6 +29,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
   const [apps, setApps] = useState<AppSummary[] | null>(null);
   const [vms, setVms] = useState<{ total: number; running: number } | null>(null);
   const [jobs, setJobs] = useState<Job[] | null>(null);
+  const [backups, setBackups] = useState<{ lastBackupAt: string | null; lastSyncAt: string | null; syncReady: boolean } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,6 +69,18 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("jobs unavailable"))))
       .then((data: { jobs: Job[] }) => guard(setJobs)(data.jobs))
       .catch(() => {});
+    Promise.all([
+      fetch("/api/v1/backups").then((response) => (response.ok ? response.json() : Promise.reject(new Error("backups unavailable")))),
+      inspectOperation<{ sync: { mount: { mounted: boolean }; lastSync: { completedAt: string } | null } }>("host.snapshot.inspect").catch(() => null),
+    ])
+      .then(([list, machine]: [{ backups: Array<{ applicationId: string; createdAt: string }> }, { result: { sync: { mount: { mounted: boolean }; lastSync: { completedAt: string } | null } } } | null]) => {
+        guard(setBackups)({
+          lastBackupAt: list.backups.find((backup) => backup.applicationId === "boxpilot-controller")?.createdAt ?? null,
+          lastSyncAt: machine?.result.sync.lastSync?.completedAt ?? null,
+          syncReady: machine?.result.sync.mount.mounted ?? false,
+        });
+      })
+      .catch(() => {});
 
     return () => { cancelled = true; };
   }, []);
@@ -82,6 +95,11 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
   }
   const failedJob = (jobs ?? []).find((job) => job.state === "failed");
   if (failedJob) attention.push({ label: `Job failed: ${failedJob.title}`, view: "overview" });
+  const staleDays = (iso: string | null) => (iso ? Math.floor((Date.now() - Date.parse(iso)) / (24 * 60 * 60 * 1000)) : null);
+  const backupAgeDays = staleDays(backups?.lastBackupAt ?? null);
+  if (backups && (backupAgeDays === null || backupAgeDays > 7)) attention.push({ label: backupAgeDays === null ? "No database backup yet" : `Last database backup is ${backupAgeDays} days old`, view: "backups" });
+  const syncAgeDays = staleDays(backups?.lastSyncAt ?? null);
+  if (backups?.syncReady && (syncAgeDays === null || syncAgeDays > 7)) attention.push({ label: syncAgeDays === null ? "Backups have never been mirrored off-box" : `Off-box backup mirror is ${syncAgeDays} days old`, view: "backups" });
 
   return (
     <div className="home-dashboard">
@@ -101,6 +119,10 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
         <button type="button" className="panel metric-link" onClick={() => onNavigate("virtualization")}>
           <span className="eyebrow">VMs</span><strong>{vms ? `${vms.running}/${vms.total}` : "—"}</strong>
           <span>running / defined</span>
+        </button>
+        <button type="button" className="panel metric-link" onClick={() => onNavigate("backups")}>
+          <span className="eyebrow">Backups</span><strong>{backups ? (backups.lastBackupAt ? timeLabel(backups.lastBackupAt) : "None") : "—"}</strong>
+          <span>{backups?.syncReady ? (backups.lastSyncAt ? `mirrored ${timeLabel(backups.lastSyncAt)}` : "mirror never run") : "last database backup"}</span>
         </button>
       </div>
 
