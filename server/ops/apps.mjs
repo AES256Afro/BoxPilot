@@ -127,6 +127,18 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.restoreAppBackup(parameters, { progress }),
     }),
     defineOperation({
+      id: "app.backup.files", title: "List the files in an application backup", risk: "low", readOnly: true, timeoutMs: minutes(10),
+      description: "Paths, sizes, and kinds inside one backup archive, so a single file or folder can be restored.",
+      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
+      run: (parameters, { apps }) => apps.listAppBackupFiles({ id: parameters.id, backup: parameters.backup }),
+    }),
+    defineOperation({
+      id: "app.backup.restore-path", title: "Restore one file or folder from a backup", risk: "medium", timeoutMs: minutes(60),
+      description: "Checksums the backup, takes a data checkpoint, stops the app briefly, restores only the chosen path over the current one, and starts the app again. Everything else is untouched.",
+      parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ }, path: { type: "string", maxLength: 512, validate: (value) => (value && !value.startsWith("/") && !value.split("/").some((part) => part === "" || part === "." || part === "..") ? null : "must be a relative path inside the backup") } } },
+      run: (parameters, { apps, progress }) => apps.restoreAppBackupPath({ id: parameters.id, backup: parameters.backup, path: parameters.path }, { progress }),
+    }),
+    defineOperation({
       id: "app.backup.delete", title: "Delete an application backup", risk: "medium", timeoutMs: 60_000,
       parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
       run: (parameters, { apps }) => apps.deleteAppBackup(parameters),

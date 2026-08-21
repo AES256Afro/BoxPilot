@@ -530,6 +530,66 @@ export function createAppHelper({
     return { restored: true, id, backup: backupName, image: healthy.image, health: healthy.health };
   }
 
+  function backupArtifactFor(id, backupName) {
+    if (typeof backupName !== "string" || !backupNamePattern.test(backupName)) throw new Error("Backup name is invalid");
+    return { backupDirectory: backupDirFor(id), artifact: path.join(backupDirFor(id), backupName) };
+  }
+
+  /** `tar -tzv` listing of one backup: relative path, size, and kind. Capped so a huge archive cannot flood the UI. */
+  async function listAppBackupFiles({ id, backup: backupName, limit = 5000 }) {
+    await ensureManifest(id);
+    const { artifact } = backupArtifactFor(id, backupName);
+    await stat(artifact).catch(() => { throw new Error(`Backup ${backupName} does not exist`); });
+    const listing = await runCommand(tarBinary, ["-tzvf", artifact], { timeout: 10 * 60_000, maxBuffer: 64 * 1024 * 1024 });
+    if (!listing.ok) throw new Error(`Could not read the archive: ${listing.stderr.split("\n").slice(-2).join(" ")}`);
+    const files = [];
+    // GNU tar: "mode owner/group size YYYY-MM-DD HH:MM name"; bsdtar: "mode links owner group size Mon DD HH:MM|YYYY name".
+    const gnu = /^([-dlcbps][rwxsStT-]{9})\s+\S+\s+(\d+)\s+\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}(?::\d{2})?\s+(.+)$/;
+    const bsd = /^([-dlcbps][rwxsStT-]{9})\s+\d+\s+\S+\s+\S+\s+(\d+)\s+[A-Za-z]{3}\s+\d{1,2}\s+(?:\d{2}:\d{2}|\d{4})\s+(.+)$/;
+    for (const line of listing.stdout.split("\n")) {
+      const match = line.match(gnu) ?? line.match(bsd);
+      if (!match) continue;
+      const relative = match[3].replace(/ -> .*$/, "").replace(/^\.\//, "").replace(/\/$/, "");
+      if (!relative || relative === ".") continue;
+      files.push({ path: relative, sizeBytes: Number(match[2]), type: match[1].startsWith("d") ? "directory" : match[1].startsWith("l") ? "link" : "file" });
+      if (files.length >= limit) break;
+    }
+    return { id, backup: backupName, files, truncated: files.length >= limit };
+  }
+
+  /** Restore one path (file or directory) from a backup after a checkpoint; everything else stays as it is. */
+  async function restoreAppBackupPath({ id, backup: backupName, path: relativePath }, { progress = null } = {}) {
+    const manifest = await ensureManifest(id);
+    const { backupDirectory, artifact } = backupArtifactFor(id, backupName);
+    if (typeof relativePath !== "string" || !relativePath || relativePath.startsWith("/") || relativePath.split("/").some((part) => part === "" || part === "." || part === "..")) throw new Error("Path must be a relative path inside the backup");
+    const listing = await listAppBackupFiles({ id, backup: backupName, limit: 200_000 });
+    const member = listing.files.find((entry) => entry.path === relativePath);
+    if (!member) throw new Error(`${relativePath} is not in ${backupName}`);
+    let meta = null;
+    try { meta = JSON.parse(await readFile(path.join(backupDirectory, backupName.replace(/\.tar\.gz$/, ".json")), "utf8")); } catch { meta = null; }
+    if (meta?.checksumSha256) {
+      progress?.("Verifying the backup checksum...", "stdout");
+      if ((await sha256File(artifact)) !== meta.checksumSha256) throw new Error(`Backup ${backupName} failed its checksum; it may be damaged. Nothing was changed.`);
+    }
+    const saved = await checkpoint({ id, reason: "file restore" }, { progress });
+    const status = await containerStatus(id);
+    if (status.running) {
+      const stop = await compose(id, ["stop"], { timeout: 120_000, progress });
+      if (!stop.ok) throw new Error(`docker compose stop failed: ${redact(stop.stderr).split("\n").slice(-3).join(" ")}`);
+    }
+    try {
+      progress?.(`$ tar -xzf ${backupName} --overwrite ${relativePath}`, "stdout");
+      const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", dirFor(id), "--overwrite", relativePath], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+      if (!extract.ok) throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. The checkpoint ${saved.artifact} holds the pre-restore state.`);
+    } finally {
+      if (status.running) {
+        const start = await compose(id, ["start"], { timeout: 180_000, progress });
+        if (!start.ok) progress?.(`${manifest.name} did not start again: ${redact(start.stderr).split("\n").slice(-2).join(" ")}`, "stderr");
+      }
+    }
+    return { restored: true, id, backup: backupName, path: relativePath, type: member.type, sizeBytes: member.sizeBytes, checkpoint: saved };
+  }
+
   async function deleteAppBackup({ id, backup: backupName }) {
     await ensureManifest(id);
     if (typeof backupName !== "string" || !backupNamePattern.test(backupName)) throw new Error("Backup name is invalid");
@@ -559,5 +619,5 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { syncHomepage, inspect, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, backup, listAppBackups, restoreAppBackup, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

@@ -109,6 +109,17 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [effectiveConfig, setEffectiveConfig] = useState<{ id: string; name: string; compose: string | null; env: Array<{ name: string; value: string; secret: boolean }>; directory: string } | null>(null);
   const [composeDraft, setComposeDraft] = useState<string | null>(null);
   const [appBackups, setAppBackups] = useState<{ id: string; name: string; backups: Array<{ artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; image: string | null }> } | null>(null);
+  const [browsing, setBrowsing] = useState<{ backup: string; files: Array<{ path: string; sizeBytes: number; type: string }>; truncated: boolean; filter: string } | null>(null);
+  const browseBackup = async (id: string, backup: string) => {
+    try {
+      const response = await fetch("/api/v1/operations/app.backup.files/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id, backup } }) });
+      const body = (await response.json()) as { result?: { files: Array<{ path: string; sizeBytes: number; type: string }>; truncated: boolean }; error?: string };
+      if (!response.ok || !body.result) throw new Error(body.error ?? "Could not read the backup");
+      setBrowsing({ backup, files: body.result.files, truncated: body.result.truncated, filter: "" });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not read the backup");
+    }
+  };
   const [secrets, setSecrets] = useState<{ id: string; name: string; items: Array<{ name: string; label: string; value: string }> | null; needsPassword: boolean; password: string; error: string | null } | null>(null);
   const [filter, setFilter] = useState("");
   const [serves, setServes] = useState<Array<{ dnsName: string; port: number; target: string | null }> | null>(null);
@@ -225,6 +236,21 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
             <header className="modal-header"><div><span className="eyebrow">Backups</span><h2 id="backups-title">{appBackups.name}</h2></div><button className="icon-button" type="button" onClick={() => setAppBackups(null)} aria-label="Close dialog">X</button></header>
             <div className="modal-copy">
               {appBackups.backups.length === 0 && <p>No backups yet. Back up creates a consistent archive of the app's data and configuration.</p>}
+              {browsing && (
+                <div className="backup-browser">
+                  <div className="recovery-actions">
+                    <strong>Files in {browsing.backup}</strong>
+                    <input aria-label="Filter files" placeholder="Filter…" value={browsing.filter} onChange={(event) => setBrowsing({ ...browsing, filter: event.target.value })} />
+                    <button className="text-button" type="button" onClick={() => setBrowsing(null)}>Close</button>
+                  </div>
+                  <ul className="backup-file-list">
+                    {browsing.files.filter((entry) => entry.type !== "directory" && (!browsing.filter || entry.path.toLowerCase().includes(browsing.filter.toLowerCase()))).slice(0, 200).map((entry) => (
+                      <li key={entry.path}><code>{entry.path}</code><span className="muted">{entry.sizeBytes >= 1024 ? `${(entry.sizeBytes / 1024).toFixed(0)} KiB` : `${entry.sizeBytes} B`}</span><button className="text-button" type="button" onClick={() => { const target = appBackups; const file = entry.path; const archive = browsing.backup; setBrowsing(null); setAppBackups(null); start({ operationId: "app.backup.restore-path", title: `Restore ${file} into ${target.name}`, parameters: { id: target.id, backup: archive, path: file }, preview: <span>Takes a checkpoint of {target.name}'s current data, stops it briefly, restores only <code>{file}</code> from this backup over the current one, and starts it again. Everything else is untouched.</span> }); }}>Restore this file</button></li>
+                    ))}
+                  </ul>
+                  {browsing.truncated && <p className="muted">Listing capped; refine the filter.</p>}
+                </div>
+              )}
               {appBackups.backups.length > 0 && (
                 <div className="table-scroll">
                   <table>
@@ -237,6 +263,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                           <td>
                             <div className="recovery-actions">
                               <button className="text-button" type="button" onClick={() => { const target = appBackups; setAppBackups(null); start({ operationId: "app.backup.restore", title: `Restore ${target.name} from ${backup.createdAt ? new Date(backup.createdAt).toLocaleString() : backup.artifact}`, parameters: { id: target.id, backup: backup.artifact }, preview: <span>Saves the current state as a safety copy first, then replaces {target.name}'s data and configuration with this backup and starts it.</span> }); }}>Restore</button>
+                              <button className="text-button" type="button" onClick={() => void browseBackup(appBackups.id, backup.artifact)}>Browse</button>
                               <button className="text-button" type="button" onClick={() => { const target = appBackups; setAppBackups(null); start({ operationId: "app.backup.delete", title: `Delete backup of ${target.name}`, parameters: { id: target.id, backup: backup.artifact }, preview: <span>Deletes the archive from {backup.createdAt ? new Date(backup.createdAt).toLocaleString() : backup.artifact}. This cannot be undone.</span> }); }}>Delete</button>
                             </div>
                           </td>
