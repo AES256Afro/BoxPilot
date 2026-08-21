@@ -49,4 +49,27 @@ describe("App catalog", () => {
     for (const name of ["Restart", "Stop", "Settings", "Update", "Logs", "Uninstall", "Delete data"]) expect(screen.getByRole("button", { name })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
   });
+
+  it("browses a backup's files and stages a single-file restore", async () => {
+    const staged: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest, live: { id: "jellyfin", installed: true, dataPresent: true, state: { installedAt: "x", updatedAt: "x", manifestSha256: "abc", image: { reference: "jellyfin/jellyfin:10.10.7", id: "sha256:1" }, values: { ports: { web: 8096 }, env: {}, volumes: {} }, pinnedRollback: false, uninstalledAt: null }, container: { exists: true, running: true, status: "running", health: "healthy", restarts: 0, image: "sha256:1" }, urls: [{ id: "web", label: "Web UI", host: 8096, exposure: "lan" }] } }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      if (url.endsWith("/operations/app.backups.inspect/run")) return json({ operation: "app.backups.inspect", result: { id: "jellyfin", directory: "/x", backups: [{ artifact: "20260816T030000Z.tar.gz", createdAt: "2026-08-16T03:00:00.000Z", sizeBytes: 2 * 1024 * 1024, downtimeMs: 900, skippedHostPaths: [], image: null }] } });
+      if (url.endsWith("/operations/app.backup.files/run")) return json({ operation: "app.backup.files", result: { id: "jellyfin", backup: "20260816T030000Z.tar.gz", files: [{ path: "config", sizeBytes: 0, type: "directory" }, { path: "config/system.xml", sizeBytes: 2048, type: "file" }, { path: "config/users.db", sizeBytes: 40960, type: "file" }], truncated: false } });
+      if (url.endsWith("/operations/app.backup.restore-path/jobs")) { staged.push(init?.body as string); return json({ job: { id: "job-rp", type: "op:app.backup.restore-path", title: "Restore one file", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium" } }, 201); }
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppCatalog csrfToken="csrf-token" />);
+    expect(await screen.findByText("Running")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Backups" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Browse" }));
+    expect(await screen.findByText("config/users.db")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Filter files"), { target: { value: "system" } });
+    expect(screen.queryByText("config/users.db")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Restore this file" }));
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    expect(JSON.parse(staged[0] ?? "{}")).toEqual({ parameters: { id: "jellyfin", backup: "20260816T030000Z.tar.gz", path: "config/system.xml" } });
+  });
 });
