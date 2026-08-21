@@ -103,8 +103,30 @@ export function storageOperations() {
     defineOperation({
       id: "storage.lvm.extend", title: "Use the rest of the disk", risk: "medium", timeoutMs: minutes(12),
       description: "Grows a mounted LVM logical volume into all unallocated space of its volume group and resizes the filesystem online (lvextend -r). No reboot, no data loss.",
-      parameters: { fields: { path: { type: "string", maxLength: 80, pattern: logicalVolumePattern } } },
-      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.lvm-extend", { path: parameters.path }, { timeoutMs: minutes(10), logPath: jobLog?.path ?? null }),
+      parameters: { fields: { path: { type: "string", maxLength: 80, pattern: logicalVolumePattern }, reserveGiB: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 0 && value <= 1024 ? null : "must be a whole number of GiB between 0 and 1024") } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.lvm-extend", { path: parameters.path, reserveGiB: parameters.reserveGiB ?? 32 }, { timeoutMs: minutes(10), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "storage.lvm.snapshot.create", title: "Take a snapshot", risk: "medium", timeoutMs: minutes(6),
+      description: "Creates a copy-on-write LVM snapshot of a logical volume (lvcreate -s), a restore point you can roll back to. It uses free space in the volume group and fills up as the origin changes.",
+      parameters: { fields: {
+        path: { type: "string", maxLength: 80, pattern: logicalVolumePattern },
+        sizeGiB: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 2048 ? null : "must be a whole number of GiB between 1 and 2048") },
+        suffix: { type: "string", optional: true, nullable: true, maxLength: 24, pattern: /^[a-z0-9-]{1,24}$/ },
+      } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.lvm-snapshot-create", { path: parameters.path, sizeGiB: parameters.sizeGiB ?? 10, suffix: parameters.suffix ?? null }, { timeoutMs: minutes(5), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "storage.lvm.snapshot.delete", title: "Remove a snapshot", risk: "medium", timeoutMs: minutes(6),
+      description: "Removes a BoxPilot snapshot and frees its space in the volume group.",
+      parameters: { fields: { path: { type: "string", maxLength: 120, pattern: /^\/dev\/mapper\/[A-Za-z0-9._+-]+-boxpilot--snap--[A-Za-z0-9._+-]+$/ } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.lvm-snapshot-delete", { path: parameters.path }, { timeoutMs: minutes(5), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "storage.lvm.snapshot.rollback", title: "Roll back to a snapshot", risk: "high", timeoutMs: minutes(6),
+      description: "Schedules a merge of the snapshot into its origin (lvconvert --merge). Everything written since the snapshot is discarded. For the root volume the merge happens during the next reboot.",
+      parameters: { fields: { path: { type: "string", maxLength: 120, pattern: /^\/dev\/mapper\/[A-Za-z0-9._+-]+-boxpilot--snap--[A-Za-z0-9._+-]+$/ } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.lvm-snapshot-rollback", { path: parameters.path }, { timeoutMs: minutes(5), logPath: jobLog?.path ?? null }),
     }),
   ];
 }

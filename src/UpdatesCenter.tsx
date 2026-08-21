@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useOperation } from "./ApproveDialog";
+import SnapshotFirstButton from "./SnapshotFirstButton";
 import { inspectOperation } from "./operations";
 
 interface UpgradablePackage {
@@ -101,6 +102,7 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
           <span className="eyebrow">Actions</span>
           <div className="recovery-actions">
             <button className="secondary-button" type="button" disabled={loading} onClick={() => start({ operationId: "apt.refresh", title: "Refresh package lists", parameters: {}, preview: <span>Runs <code>apt-get update</code>. Installs nothing.</span> })}>Refresh lists</button>
+            <SnapshotFirstButton start={start} />
             <button className="primary-button" type="button" disabled={loading || !report?.count} onClick={() => start({ operationId: "apt.upgrade", title: "Install all updates", parameters: {}, preview: <span>Upgrades {report?.count ?? 0} package{report?.count === 1 ? "" : "s"} with <code>apt-get upgrade --with-new-pkgs</code> after refreshing the lists.</span> })}>Install all updates</button>
           </div>
         </article>

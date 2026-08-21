@@ -10,9 +10,10 @@ interface DeviceRow {
 }
 interface MountRow { target: string; source: string; fstype: string; sizeBytes: number | null; usedBytes: number | null; availableBytes: number | null }
 interface FstabRow { device: string; mountpoint: string; fstype: string; options: string; managedName: string | null }
-interface VolumeGroup { name: string | null; physicalVolumes: string[]; sizeBytes: number; usedBytes: number; freeBytes: number; logicalVolumes: Array<{ path: string; name: string; sizeBytes: number; fstype: string | null; mountpoints: string[]; growable: boolean }> }
+interface VolumeGroup { name: string | null; physicalVolumes: string[]; sizeBytes: number; usedBytes: number; freeBytes: number; logicalVolumes: Array<{ path: string; name: string; sizeBytes: number; fstype: string | null; mountpoints: string[]; growable: boolean; snapshot?: boolean }> }
 interface ShareRow { name: string; kind: "smb" | "nfs"; source: string; mountpoint: string; readOnly: boolean; automount: boolean; mounted: boolean; sizeBytes: number | null; usedBytes: number | null; availableBytes: number | null }
-interface StorageReport { devices: DeviceRow[]; mounts: MountRow[]; fstab: FstabRow[]; volumeGroups: VolumeGroup[]; shares: ShareRow[]; tools: { cifs: boolean; nfs: boolean; smbclient: boolean; showmount: boolean } }
+interface SnapshotRow { path: string; name: string; volumeGroup: string | null; sizeBytes: number; origin?: string; sizeGiB?: number; createdAt?: string; suffix?: string | null }
+interface StorageReport { devices: DeviceRow[]; mounts: MountRow[]; fstab: FstabRow[]; volumeGroups: VolumeGroup[]; snapshots?: SnapshotRow[]; shares: ShareRow[]; tools: { cifs: boolean; nfs: boolean; smbclient: boolean; showmount: boolean } }
 interface Discovered { address: string; name: string | null; smb: boolean; nfs: boolean; mac: string | null; interface: string | null }
 
 function gib(bytes: number | null): string {
@@ -51,6 +52,9 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
   const [listing, setListing] = useState(false);
   const [listed, setListed] = useState<Array<{ name: string; comment: string | null }> | null>(null);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [snapshotOrigin, setSnapshotOrigin] = useState("");
+  const [snapshotSize, setSnapshotSize] = useState(10);
+  const [snapshotLabel, setSnapshotLabel] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -137,6 +141,62 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
         <article className="panel"><span className="eyebrow">Unallocated</span><strong>{loading && !report ? "…" : gib((report?.volumeGroups ?? []).reduce((sum, group) => sum + group.freeBytes, 0))}</strong><span>free inside LVM volume groups</span></article>
       </div>
 
+      {(report?.volumeGroups ?? []).some((group) => group.logicalVolumes.some((volume) => !volume.snapshot && volume.mountpoints.length > 0)) && (() => {
+        const origins = (report?.volumeGroups ?? []).flatMap((group) => group.logicalVolumes.filter((volume) => !volume.snapshot && volume.mountpoints.length > 0).map((volume) => ({ group, volume })));
+        const chosen = origins.find((entry) => entry.volume.path === snapshotOrigin) ?? origins.find((entry) => entry.volume.mountpoints.includes("/")) ?? origins[0];
+        const freeGiB = chosen ? Math.floor(chosen.group.freeBytes / 1024 ** 3) : 0;
+        const sizeValid = Number.isInteger(snapshotSize) && snapshotSize >= 1 && snapshotSize <= Math.max(1, freeGiB);
+        const labelValid = snapshotLabel === "" || /^[a-z0-9-]{1,24}$/.test(snapshotLabel);
+        const snapshots = report?.snapshots ?? [];
+        return (
+          <section className="panel" id="snapshots">
+            <header className="panel-header"><div><strong>Snapshots</strong><span>A restore point for a whole volume: take one before a big update, roll back if it goes wrong. Snapshots use free space in the volume group ({gib(chosen?.group.freeBytes ?? 0)} available) and fill up as the original changes.</span></div></header>
+            {snapshots.length > 0 && (
+              <div className="table-scroll">
+                <table>
+                  <thead><tr><th>Snapshot</th><th>Of</th><th>Reserved</th><th>Taken</th><th aria-label="Actions" /></tr></thead>
+                  <tbody>
+                    {snapshots.map((snapshot) => (
+                      <tr key={snapshot.path}>
+                        <td><strong>{snapshot.suffix ?? snapshot.name.replace(/^boxpilot-snap-/, "")}</strong><span className="muted"> {snapshot.name}</span></td>
+                        <td><code>{snapshot.origin ?? chosen?.volume.path ?? "?"}</code></td>
+                        <td>{snapshot.sizeGiB ? `${snapshot.sizeGiB} GiB` : gib(snapshot.sizeBytes)}</td>
+                        <td>{snapshot.createdAt ? new Date(snapshot.createdAt).toLocaleString() : "—"}</td>
+                        <td>
+                          <div className="recovery-actions">
+                            <button className="text-button" type="button" onClick={() => start({
+                              operationId: "storage.lvm.snapshot.rollback",
+                              title: `Roll back to ${snapshot.name}`,
+                              parameters: { path: snapshot.path },
+                              confirmText: snapshot.name,
+                              preview: <span>Runs <code>lvconvert --merge {snapshot.path}</code>. <strong>Everything written to {snapshot.origin ?? "the volume"} since {snapshot.createdAt ? new Date(snapshot.createdAt).toLocaleString() : "the snapshot"} is discarded.</strong> For the root volume the merge runs during the next reboot; reboot from the System page afterwards. The snapshot is consumed by the merge.</span>,
+                            })}>Roll back</button>
+                            <button className="text-button" type="button" onClick={() => start({ operationId: "storage.lvm.snapshot.delete", title: `Remove snapshot ${snapshot.name}`, parameters: { path: snapshot.path }, preview: <span>Runs <code>lvremove -f {snapshot.path}</code> and frees its space. The original volume is untouched.</span> })}>Remove</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <form className="share-form" onSubmit={(event) => { event.preventDefault(); if (chosen && sizeValid && labelValid) start({
+              operationId: "storage.lvm.snapshot.create",
+              title: `Take a snapshot of ${chosen.volume.mountpoints[0]}`,
+              parameters: { path: chosen.volume.path, sizeGiB: snapshotSize, ...(snapshotLabel ? { suffix: snapshotLabel } : {}) },
+              preview: <span>Runs <code>lvcreate -s -L {snapshotSize}G -n boxpilot-snap-&lt;time&gt;{snapshotLabel ? `-${snapshotLabel}` : ""} {chosen.volume.path}</code>. Reserves {snapshotSize} GiB for changes; if the original changes by more than that, the snapshot becomes invalid (it never harms the original). Remove snapshots you no longer need.</span>,
+            }); }}>
+              <label>Volume
+                <select aria-label="Snapshot volume" value={chosen?.volume.path ?? ""} onChange={(event) => setSnapshotOrigin(event.target.value)}>{origins.map((entry) => <option value={entry.volume.path} key={entry.volume.path}>{entry.volume.mountpoints[0]} ({gib(entry.volume.sizeBytes)}, {entry.group.name})</option>)}</select>
+              </label>
+              <label>Space for changes (GiB)<input aria-label="Snapshot size" type="number" min={1} max={Math.max(1, freeGiB)} value={snapshotSize} onChange={(event) => setSnapshotSize(Number.parseInt(event.target.value, 10) || 1)} /></label>
+              <label>Label <span className="muted">(optional)</span><input aria-label="Snapshot label" placeholder="before-upgrade" value={snapshotLabel} onChange={(event) => setSnapshotLabel(event.target.value.toLowerCase())} /></label>
+              <div className="recovery-actions share-actions"><button className="primary-button" type="submit" disabled={!chosen || !sizeValid || !labelValid || freeGiB < 1}>Take a snapshot</button>{freeGiB < 1 && <span className="muted">No free space in the volume group; remove a snapshot or keep some space unallocated.</span>}</div>
+            </form>
+          </section>
+        );
+      })()}
+
       {growable.map(({ group, volume }) => (
         <section className="panel storage-grow" key={volume.path}>
           <header className="panel-header">
@@ -146,9 +206,9 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
             </div>
             <button className="primary-button" type="button" onClick={() => start({
               operationId: "storage.lvm.extend",
-              title: `Grow ${volume.mountpoints[0]} by ${gib(group.freeBytes)}`,
+              title: `Grow ${volume.mountpoints[0]} by ${gib(Math.max(0, group.freeBytes - 32 * 1024 ** 3))}`,
               parameters: { path: volume.path },
-              preview: <span>Runs <code>lvextend -r -l +100%FREE {volume.path}</code>: the logical volume grows into all free space of {group.name ?? "its group"} and the {volume.fstype} filesystem is resized while mounted. Existing data is untouched.</span>,
+              preview: <span>Grows the logical volume into the free space of {group.name ?? "its group"} and resizes the {volume.fstype} filesystem while mounted (<code>lvextend -r</code>), keeping <strong>32 GiB</strong> unallocated for snapshots. Existing data is untouched.</span>,
             })}>Use the rest of the disk</button>
           </header>
         </section>

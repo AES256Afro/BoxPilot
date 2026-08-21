@@ -62,6 +62,24 @@ describe("storage inventory", () => {
     expect(parseLsblkTree(lsblkJson).map((row) => row.depth)).toEqual([0, 1, 1, 1, 2, 0, 1]);
   });
 
+  it("hides snapshot internals, lists snapshots, and never marks a snapshot growable", () => {
+    // With a snapshot present, lsblk shows <lv>-real and <snap>-cow device-mapper internals.
+    const flat = JSON.stringify({ blockdevices: [
+      { path: "/dev/nvme0n1", kname: "nvme0n1", pkname: null, type: "disk", size: 1000 * GiB, mountpoints: [null] },
+      { path: "/dev/nvme0n1p3", kname: "nvme0n1p3", pkname: "nvme0n1", type: "part", size: 950 * GiB, fstype: "LVM2_member", mountpoints: [null] },
+      { path: "/dev/mapper/ubuntu--vg-ubuntu--lv-real", kname: "dm-1", pkname: "nvme0n1p3", type: "lvm", size: 100 * GiB, mountpoints: [null] },
+      { path: "/dev/mapper/ubuntu--vg-boxpilot--snap--20260821--2005-cow", kname: "dm-2", pkname: "nvme0n1p3", type: "lvm", size: 10 * GiB, mountpoints: [null] },
+      { path: "/dev/mapper/ubuntu--vg-ubuntu--lv", kname: "dm-0", pkname: "dm-1", type: "lvm", size: 100 * GiB, fstype: "ext4", mountpoints: ["/"] },
+      { path: "/dev/mapper/ubuntu--vg-boxpilot--snap--20260821--2005", kname: "dm-3", pkname: "dm-2", type: "lvm", size: 100 * GiB, fstype: "ext4", mountpoints: [null] },
+    ] });
+    const rows = parseLsblkTree(flat);
+    expect(rows.map((row) => `${"  ".repeat(row.depth)}${row.path}`)).toEqual(["/dev/nvme0n1", "  /dev/nvme0n1p3", "    /dev/mapper/ubuntu--vg-ubuntu--lv", "    /dev/mapper/ubuntu--vg-boxpilot--snap--20260821--2005"]);
+    const devices = annotateDevices(rows);
+    expect(devices[3]).toMatchObject({ snapshot: true, protected: true, protectedReason: "LVM snapshot", logicalVolume: "boxpilot-snap-20260821-2005" });
+    const groups = volumeGroupsFrom(devices);
+    expect(groups[0].logicalVolumes.map((volume) => [volume.name, volume.snapshot, volume.growable])).toEqual([["ubuntu-lv", false, true], ["boxpilot-snap-20260821-2005", true, false]]);
+  });
+
   it("protects a plain partition whose sibling holds a mounted filesystem only through its parent", () => {
     const devices = annotateDevices([
       { path: "/dev/sdc", type: "disk", fstype: null, mountpoints: [], depth: 0 },

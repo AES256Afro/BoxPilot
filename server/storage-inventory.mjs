@@ -39,10 +39,15 @@ export function parseLsblkTree(json) {
   const children = new Map();
   const roots = [];
   const seen = new Set();
+  // LVM snapshots add internal device-mapper nodes (<lv>-real, <snap>-cow) that are not
+  // devices anyone should see; hide them and attach their children to the next real parent.
+  const internal = (row) => /-(real|cow)$/.test(row.path ?? "");
   for (const row of rows) {
     if (row.path && seen.has(row.path)) continue; // an LV over several PVs is listed once per PV
     if (row.path) seen.add(row.path);
-    const parent = (row.pkname ? byKname.get(row.pkname) : null) ?? row.visitParent ?? null;
+    if (internal(row)) continue;
+    let parent = (row.pkname ? byKname.get(row.pkname) : null) ?? row.visitParent ?? null;
+    while (parent && internal(parent)) parent = (parent.pkname ? byKname.get(parent.pkname) : null) ?? parent.visitParent ?? null;
     if (parent && parent !== row) {
       if (!children.has(parent.path)) children.set(parent.path, []);
       children.get(parent.path).push(row);
@@ -101,8 +106,10 @@ export function annotateDevices(devices) {
     const system = allMounts.some((target) => systemMountpoints.includes(target));
     const dm = device.type === "lvm" && device.path?.startsWith("/dev/mapper/") ? splitDmName(device.path.slice("/dev/mapper/".length)) : null;
     const holds = member && device.fstype === "LVM2_member" ? [...new Set(descendants.filter((row) => row.type === "lvm").map((row) => splitDmName(row.path.slice("/dev/mapper/".length)).vg).filter(Boolean))] : [];
+    const snapshot = Boolean(dm?.lv?.startsWith("boxpilot-snap-"));
     let reason = null;
-    if (system) reason = "system disk";
+    if (snapshot) reason = "LVM snapshot";
+    else if (system) reason = "system disk";
     else if (member) reason = device.fstype === "LVM2_member" ? `LVM physical volume${holds.length ? ` (${holds.join(", ")})` : ""}` : device.fstype === "crypto_LUKS" ? "encrypted container" : device.fstype === "linux_raid_member" ? "RAID member" : "member of another device";
     else if (mountedBelow.length) reason = `holds mounted filesystems (${mountedBelow.join(", ")})`;
     return {
@@ -111,6 +118,7 @@ export function annotateDevices(devices) {
       protectedReason: reason,
       volumeGroup: dm?.vg ?? null,
       logicalVolume: dm?.lv ?? null,
+      snapshot,
       holdsVolumeGroups: holds,
       mountedBelow,
     };
@@ -135,7 +143,8 @@ export function volumeGroupsFrom(devices) {
     for (const volume of volumes) {
       if (group.logicalVolumes.some((entry) => entry.path === volume.path)) continue;
       const { lv } = splitDmName(volume.path.slice("/dev/mapper/".length));
-      group.logicalVolumes.push({ path: volume.path, name: lv, sizeBytes: volume.sizeBytes ?? 0, fstype: volume.fstype ?? null, mountpoints: volume.mountpoints, growable: ["ext4", "ext3", "ext2", "xfs"].includes(volume.fstype ?? "") && volume.mountpoints.length > 0 });
+      const snapshot = lv.startsWith("boxpilot-snap-");
+      group.logicalVolumes.push({ path: volume.path, name: lv, sizeBytes: volume.sizeBytes ?? 0, fstype: volume.fstype ?? null, mountpoints: volume.mountpoints, snapshot, growable: !snapshot && ["ext4", "ext3", "ext2", "xfs"].includes(volume.fstype ?? "") && volume.mountpoints.length > 0 });
       group.usedBytes += volume.sizeBytes ?? 0;
     }
     groups.set(key, group);
@@ -179,11 +188,13 @@ export async function collectStorage({ run = fixedRun, readFile = readFileDefaul
   const devices = annotateDevices(parseLsblkTree(lsblkResult.stdout));
   const mounts = findmntResult.ok ? parseFindmnt(findmntResult.stdout) : [];
   const fstab = parseFstab(fstabContent);
+  const volumeGroups = volumeGroupsFrom(devices);
   return {
     devices,
     mounts,
     fstab,
-    volumeGroups: volumeGroupsFrom(devices),
+    volumeGroups,
+    snapshots: volumeGroups.flatMap((group) => group.logicalVolumes.filter((volume) => volume.snapshot).map((volume) => ({ path: volume.path, name: volume.name, volumeGroup: group.name, sizeBytes: volume.sizeBytes }))),
     shares: sharesFrom(fstab, mounts),
     tools: { cifs, nfs, smbclient, showmount },
   };

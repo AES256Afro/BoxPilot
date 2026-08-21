@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { assertNotProtected, parseManagedFstab, removeManagedEntry, storageFormat, storageLvmExtend, storageMount, storageUnmount, swapFileSet } from "./storage.mjs";
+import { assertNotProtected, parseManagedFstab, removeManagedEntry, storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageUnmount, swapFileSet } from "./storage.mjs";
 
 const BASE_FSTAB = "# /etc/fstab\nUUID=root-uuid / ext4 defaults 0 1\n";
 
@@ -102,25 +102,49 @@ describe("root storage tasks", () => {
     expect(() => assertNotProtected("/dev/sdd", [{ path: "/dev/sdd", type: "disk", fstype: null, mountpoints: [] }])).not.toThrow();
   });
 
-  it("grows a mounted logical volume into the free space of its group", async () => {
+  it("grows a mounted logical volume into the free space of its group, keeping a snapshot reserve", async () => {
     const lv = [{ path: "/dev/mapper/ubuntu--vg-ubuntu--lv", type: "lvm", fstype: "ext4", ro: false, mountpoints: ["/"] }];
+    const GiB = 1024 ** 3;
     let grown = false;
     const run = vi.fn(async (binary) => {
       if (binary.endsWith("lsblk")) return { ok: true, stdout: JSON.stringify({ blockdevices: lv }), stderr: "" };
       if (binary.endsWith("findmnt")) return { ok: true, stdout: grown ? "1000 900" : "100 20", stderr: "" };
+      if (binary.endsWith("/lvs")) return { ok: true, stdout: "  ubuntu-vg ubuntu-lv\n", stderr: "" };
+      if (binary.endsWith("/vgs")) return { ok: true, stdout: `  ${850 * GiB}\n`, stderr: "" };
       if (binary.endsWith("lvextend")) { grown = true; return { ok: true, stdout: "Size of logical volume changed", stderr: "" }; }
       return { ok: true, stdout: "", stderr: "" };
     });
     const result = await storageLvmExtend({ path: "/dev/mapper/ubuntu--vg-ubuntu--lv" }, { run });
     expect(result).toEqual({ extended: true, path: "/dev/mapper/ubuntu--vg-ubuntu--lv", mountpoint: "/", before: { sizeBytes: 100, availableBytes: 20 }, after: { sizeBytes: 1000, availableBytes: 900 } });
+    expect(run).toHaveBeenCalledWith("/usr/sbin/lvextend", ["-r", "-L", `+${(850 - 32) * GiB}B`, "/dev/mapper/ubuntu--vg-ubuntu--lv"], expect.anything());
+    await storageLvmExtend({ path: "/dev/mapper/ubuntu--vg-ubuntu--lv", reserveGiB: 0 }, { run });
     expect(run).toHaveBeenCalledWith("/usr/sbin/lvextend", ["-r", "-l", "+100%FREE", "/dev/mapper/ubuntu--vg-ubuntu--lv"], expect.anything());
 
+    const tight = vi.fn(async (binary) => (binary.endsWith("lsblk") ? { ok: true, stdout: JSON.stringify({ blockdevices: lv }), stderr: "" } : binary.endsWith("/lvs") ? { ok: true, stdout: "  ubuntu-vg ubuntu-lv\n", stderr: "" } : binary.endsWith("/vgs") ? { ok: true, stdout: `  ${20 * GiB}\n`, stderr: "" } : { ok: true, stdout: "100 20", stderr: "" }));
+    await expect(storageLvmExtend({ path: "/dev/mapper/ubuntu--vg-ubuntu--lv" }, { run: tight })).resolves.toMatchObject({ extended: false, reason: expect.stringContaining("kept for snapshots") });
+    // Without a reserve, lvextend reporting "matches existing size" is not an error.
     const full = vi.fn(async (binary) => (binary.endsWith("lsblk") ? { ok: true, stdout: JSON.stringify({ blockdevices: lv }), stderr: "" } : binary.endsWith("lvextend") ? { ok: false, stdout: "", stderr: "New size (25599 extents) matches existing size (25599 extents)." } : { ok: true, stdout: "100 20", stderr: "" }));
-    await expect(storageLvmExtend({ path: "/dev/mapper/ubuntu--vg-ubuntu--lv" }, { run: full })).resolves.toMatchObject({ extended: false, reason: expect.stringContaining("no free space") });
+    await expect(storageLvmExtend({ path: "/dev/mapper/ubuntu--vg-ubuntu--lv", reserveGiB: 0 }, { run: full })).resolves.toMatchObject({ extended: false, reason: expect.stringContaining("no free space") });
 
     await expect(storageLvmExtend({ path: "/dev/sda1" }, { run })).rejects.toThrow("path is invalid");
     const swapLv = vi.fn(async () => ({ ok: true, stdout: JSON.stringify({ blockdevices: [{ path: "/dev/mapper/vg-swap", type: "lvm", fstype: "swap", mountpoints: [null] }] }), stderr: "" }));
     await expect(storageLvmExtend({ path: "/dev/mapper/vg-swap" }, { run: swapLv })).rejects.toThrow("only ext4 and xfs");
+  });
+
+  it("creates, removes, and rolls back to BoxPilot snapshots with prefixed names only", async () => {
+    const GiB = 1024 ** 3;
+    const run = vi.fn(async (binary) => (binary.endsWith("/lvs") ? { ok: true, stdout: "  ubuntu-vg ubuntu-lv\n", stderr: "" } : binary.endsWith("/vgs") ? { ok: true, stdout: `  ${100 * GiB}\n`, stderr: "" } : { ok: true, stdout: "Logical volume created", stderr: "" }));
+    const created = await storageLvmSnapshotCreate({ path: "/dev/mapper/ubuntu--vg-ubuntu--lv", sizeGiB: 10, suffix: "before-upgrade" }, { run, now: () => new Date("2026-08-21T20:05:00Z") });
+    expect(created).toEqual({ created: true, name: "boxpilot-snap-20260821-2005-before-upgrade", path: "/dev/mapper/ubuntu--vg-boxpilot--snap--20260821--2005--before--upgrade", origin: "/dev/mapper/ubuntu--vg-ubuntu--lv", volumeGroup: "ubuntu-vg", sizeGiB: 10, createdAt: "2026-08-21T20:05:00.000Z" });
+    expect(run).toHaveBeenCalledWith("/usr/sbin/lvcreate", ["-s", "-L", "10G", "-n", "boxpilot-snap-20260821-2005-before-upgrade", "/dev/mapper/ubuntu--vg-ubuntu--lv"], expect.anything());
+    await expect(storageLvmSnapshotCreate({ path: "/dev/mapper/ubuntu--vg-ubuntu--lv", sizeGiB: 500 }, { run })).rejects.toThrow("only 100.0 GiB free");
+    await expect(storageLvmSnapshotDelete({ path: "/dev/mapper/ubuntu--vg-ubuntu--lv" }, { run })).rejects.toThrow("Only BoxPilot snapshots");
+    await expect(storageLvmSnapshotDelete({ path: created.path }, { run })).resolves.toEqual({ removed: true, path: created.path });
+    expect(run).toHaveBeenCalledWith("/usr/sbin/lvremove", ["-f", created.path], expect.anything());
+    await expect(storageLvmSnapshotRollback({ path: created.path }, { run })).resolves.toMatchObject({ rollbackScheduled: true, rebootRequired: true });
+    expect(run).toHaveBeenCalledWith("/usr/sbin/lvconvert", ["--merge", created.path], expect.anything());
+    expect(() => assertNotProtected(created.path, [])).toThrow("LVM snapshot");
+    expect(() => assertNotProtected("/dev/mapper/ubuntu--vg-ubuntu--lv-real", [])).toThrow("LVM snapshot");
   });
 
   it("creates and removes the managed swap file", async () => {

@@ -83,8 +83,29 @@ describe("Storage center", () => {
     expect(await screen.findByText("850.0 GiB of ubuntu-vg is not in use")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Use the rest of the disk" }));
     expect(await screen.findByText("Medium risk")).toBeTruthy();
-    expect(screen.getByText(/lvextend -r -l \+100%FREE \/dev\/mapper\/ubuntu--vg-ubuntu--lv/)).toBeTruthy();
+    expect(screen.getByText(/keeping/)).toBeTruthy();
+    expect(screen.getByText("32 GiB")).toBeTruthy();
     await waitFor(() => expect(JSON.parse(staged["storage.lvm.extend"] ?? "{}")).toEqual({ parameters: { path: "/dev/mapper/ubuntu--vg-ubuntu--lv" } }));
+  });
+
+  it("takes snapshots of the root volume and requires the snapshot name to roll back", async () => {
+    const staged: Record<string, string> = {};
+    mockFetch({ ...report, snapshots: [{ path: "/dev/mapper/ubuntu--vg-boxpilot--snap--20260821--2005--before--upgrade", name: "boxpilot-snap-20260821-2005-before-upgrade", volumeGroup: "ubuntu-vg", sizeBytes: 100 * GiB, origin: "/dev/mapper/ubuntu--vg-ubuntu--lv", sizeGiB: 10, createdAt: "2026-08-21T20:05:00.000Z", suffix: "before-upgrade" }] }, staged, (url) => (url.match(/\/operations\/storage\.lvm\.snapshot\.rollback\/jobs$/) ? json(job("storage.lvm.snapshot.rollback", "high"), 201) : null));
+    render(<StorageCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText("boxpilot-snap-20260821-2005-before-upgrade", { exact: false })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Snapshot size"), { target: { value: "20" } });
+    fireEvent.change(screen.getByLabelText("Snapshot label"), { target: { value: "test-run" } });
+    fireEvent.click(screen.getByRole("button", { name: "Take a snapshot" }));
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    await waitFor(() => expect(JSON.parse(staged["storage.lvm.snapshot.create"] ?? "{}")).toEqual({ parameters: { path: "/dev/mapper/ubuntu--vg-ubuntu--lv", sizeGiB: 20, suffix: "test-run" } }));
+    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+    fireEvent.click(screen.getByRole("button", { name: "Roll back" }));
+    expect(await screen.findByText("High risk")).toBeTruthy();
+    const approve = screen.getByRole("button", { name: "Approve and run" }) as HTMLButtonElement;
+    fireEvent.change(screen.getByLabelText("Approval password"), { target: { value: "correct horse battery" } });
+    expect(approve.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Typed confirmation"), { target: { value: "boxpilot-snap-20260821-2005-before-upgrade" } });
+    expect(approve.disabled).toBe(false);
   });
 
   it("requires typing the device name before a format can be approved", async () => {
