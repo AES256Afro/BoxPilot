@@ -1,0 +1,65 @@
+schemaVersion: 2
+id: joplin-server
+name: Joplin Server
+category: Knowledge
+icon: "🗒️"
+description: "Sync server for the Joplin note-taking apps, so notes and attachments sync between phone and desktop without a cloud service."
+website: https://joplinapp.org
+risk: low
+image:
+  reference: joplin/server:3.7.1
+  version: "3.7.1"
+ports:
+  - id: web
+    label: Web UI and sync
+    container: 22300
+    host: 22300
+    exposure: lan
+volumes:
+  - id: data
+    label: Attachments
+    container: /data
+    path: data
+env:
+  - name: APP_BASE_URL
+    label: Address clients use
+    default: http://localhost:22300
+  - name: APP_PORT
+    default: "22300"
+    fixed: true
+  - name: DB_CLIENT
+    default: "pg"
+    fixed: true
+  - name: POSTGRES_HOST
+    default: "database"
+    fixed: true
+  - name: POSTGRES_PORT
+    default: "5432"
+    fixed: true
+  - name: POSTGRES_DATABASE
+    default: "joplin"
+    fixed: true
+  - name: POSTGRES_USER
+    default: "joplin"
+    fixed: true
+  - name: POSTGRES_PASSWORD
+    label: Database password
+    type: password
+    secret: true
+    generate: true
+sidecars:
+  - id: database
+    image: postgres:16.15-alpine
+    env:
+      POSTGRES_DB: joplin
+      POSTGRES_USER: joplin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - id: pgdata
+        container: /var/lib/postgresql/data
+        path: postgres
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "First login is admin@localhost / admin; change it under Profile, then create users. In the Joplin apps choose Joplin Server as the sync target."

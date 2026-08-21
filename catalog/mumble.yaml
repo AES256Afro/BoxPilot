@@ -1,0 +1,47 @@
+schemaVersion: 2
+id: mumble
+name: Mumble server
+category: Communication
+icon: "🎙️"
+description: "Low-latency voice chat for gaming and family calls; the Mumble apps connect with a password."
+website: https://www.mumble.info
+risk: low
+image:
+  reference: mumblevoip/mumble-server:v1.6.870
+  version: "1.6.870"
+ports:
+  - id: voice
+    label: Mumble
+    container: 64738
+    host: 64738
+    exposure: lan
+  - id: voice-udp
+    label: Mumble (UDP)
+    container: 64738
+    host: 64738
+    protocol: udp
+    exposure: lan
+volumes:
+  - id: data
+    label: Database and certificate
+    container: /data
+    path: data
+env:
+  - name: MUMBLE_CONFIG_SERVER_PASSWORD
+    label: Server password
+    type: password
+    secret: true
+    generate: true
+  - name: MUMBLE_SUPERUSER_PASSWORD
+    label: SuperUser password
+    type: password
+    secret: true
+    generate: true
+  - name: MUMBLE_CONFIG_WELCOMETEXT
+    label: Welcome message
+    default: Welcome to the BoxPilot Mumble server
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Clients connect to <this server>:64738 with the server password from Secrets (UDP and TCP). Tick the port on the Firewall page or share it over Tailscale."

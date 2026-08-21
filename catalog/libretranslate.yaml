@@ -1,0 +1,33 @@
+schemaVersion: 2
+id: libretranslate
+name: LibreTranslate
+category: AI
+icon: "🌐"
+description: "Private translation between 30+ languages with an API and a simple page; works offline once the models are downloaded."
+website: https://libretranslate.com
+risk: low
+image:
+  reference: libretranslate/libretranslate:v1.9.6
+  version: "1.9.6"
+ports:
+  - id: web
+    label: Web UI and API
+    container: 5000
+    host: 5004
+    exposure: lan
+volumes:
+  - id: models
+    label: Language models
+    container: /home/libretranslate/.local
+    path: models
+    backup: false
+env:
+  - name: LT_LOAD_ONLY
+    label: Languages
+    description: Comma-separated codes to download; fewer is faster.
+    default: en,es,fr,de
+health:
+  kind: running
+  stableSeconds: 30
+  timeoutSeconds: 900
+notes: "The first start downloads the chosen language models."

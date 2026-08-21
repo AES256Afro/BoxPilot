@@ -1,0 +1,36 @@
+schemaVersion: 2
+id: linkding
+name: linkding
+category: Knowledge
+icon: "🔖"
+description: "Minimal bookmark manager with tags, search, and browser extensions; can archive pages to the Internet Archive."
+website: https://github.com/sissbruecker/linkding
+risk: low
+image:
+  reference: sissbruecker/linkding:1.46.2
+  version: "1.46.2"
+ports:
+  - id: web
+    label: Web UI
+    container: 9090
+    host: 9091
+    exposure: lan
+volumes:
+  - id: data
+    label: Database and assets
+    container: /etc/linkding/data
+    path: data
+env:
+  - name: LD_SUPERUSER_NAME
+    label: Admin username
+    default: admin
+  - name: LD_SUPERUSER_PASSWORD
+    label: Admin password
+    type: password
+    secret: true
+    generate: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Sign in with the admin username and the generated password (Secrets)."

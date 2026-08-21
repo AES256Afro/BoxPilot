@@ -1,0 +1,73 @@
+schemaVersion: 2
+id: tandoor
+name: Tandoor Recipes
+category: Household
+icon: "🍳"
+description: "Recipe manager with import from almost any recipe site, meal planning, shopping lists, and multi-user households. An alternative to Mealie."
+website: https://tandoor.dev
+risk: low
+image:
+  reference: vabene1111/recipes:2.6.13
+  version: "2.6.13"
+ports:
+  - id: web
+    label: Web UI
+    container: 8080
+    host: 8140
+    exposure: lan
+volumes:
+  - id: static
+    label: Static files
+    container: /opt/recipes/staticfiles
+    path: static
+    backup: false
+  - id: media
+    label: Recipe images
+    container: /opt/recipes/mediafiles
+    path: media
+env:
+  - name: SECRET_KEY
+    label: App secret
+    type: password
+    secret: true
+    generate: true
+  - name: DB_ENGINE
+    default: "django.db.backends.postgresql"
+    fixed: true
+  - name: POSTGRES_HOST
+    default: "database"
+    fixed: true
+  - name: POSTGRES_PORT
+    default: "5432"
+    fixed: true
+  - name: POSTGRES_DB
+    default: "recipes"
+    fixed: true
+  - name: POSTGRES_USER
+    default: "recipes"
+    fixed: true
+  - name: POSTGRES_PASSWORD
+    label: Database password
+    type: password
+    secret: true
+    generate: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+sidecars:
+  - id: database
+    image: postgres:16.15-alpine
+    env:
+      POSTGRES_DB: recipes
+      POSTGRES_USER: recipes
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - id: pgdata
+        container: /var/lib/postgresql/data
+        path: postgres
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "The first visit creates the admin account."

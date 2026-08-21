@@ -1,0 +1,27 @@
+schemaVersion: 2
+id: nocodb
+name: NocoDB
+category: Developer
+icon: "🧾"
+description: "Airtable-style spreadsheet database with forms, views, and an API; great for inventories, trackers, and small apps."
+website: https://nocodb.com
+risk: low
+image:
+  reference: nocodb/nocodb:2026.08.1
+  version: "2026.08.1"
+ports:
+  - id: web
+    label: Web UI
+    container: 8080
+    host: 8154
+    exposure: lan
+volumes:
+  - id: data
+    label: Database and uploads
+    container: /usr/app/data
+    path: data
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "The first visit creates the super-admin account."

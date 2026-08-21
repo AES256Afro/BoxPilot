@@ -1,0 +1,49 @@
+schemaVersion: 2
+id: influxdb
+name: InfluxDB
+category: Developer
+icon: "📈"
+description: "Time-series database for sensor and metrics data; what Home Assistant and Telegraf write long-term history into, with Grafana on top."
+website: https://www.influxdata.com
+risk: low
+image:
+  reference: influxdb:2.9.1
+  version: "2.9.1"
+ports:
+  - id: web
+    label: Web UI and API
+    container: 8086
+    host: 8152
+    exposure: lan
+volumes:
+  - id: data
+    label: Database
+    container: /var/lib/influxdb2
+    path: data
+  - id: config
+    label: Configuration
+    container: /etc/influxdb2
+    path: config
+env:
+  - name: DOCKER_INFLUXDB_INIT_MODE
+    default: "setup"
+    fixed: true
+  - name: DOCKER_INFLUXDB_INIT_USERNAME
+    label: Admin username
+    default: admin
+  - name: DOCKER_INFLUXDB_INIT_PASSWORD
+    label: Admin password
+    type: password
+    secret: true
+    generate: true
+  - name: DOCKER_INFLUXDB_INIT_ORG
+    label: Organisation
+    default: home
+  - name: DOCKER_INFLUXDB_INIT_BUCKET
+    label: First bucket
+    default: sensors
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Sign in with the admin username and the generated password (Secrets); create API tokens under Load data, API tokens for Home Assistant or Grafana."

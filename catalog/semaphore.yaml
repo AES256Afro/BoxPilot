@@ -1,0 +1,54 @@
+schemaVersion: 2
+id: semaphore
+name: Semaphore
+category: Developer
+icon: "🚦"
+description: "Web UI for Ansible, Terraform, and scripts: run playbooks against your VMs and machines on a schedule with logs and access control."
+website: https://semaphoreui.com
+risk: low
+image:
+  reference: semaphoreui/semaphore:v2.19.8
+  version: "2.19.8"
+ports:
+  - id: web
+    label: Web UI
+    container: 3000
+    host: 3014
+    exposure: lan
+volumes:
+  - id: data
+    label: Database and projects
+    container: /var/lib/semaphore
+    path: data
+  - id: config
+    label: Configuration
+    container: /etc/semaphore
+    path: config
+env:
+  - name: SEMAPHORE_DB_DIALECT
+    default: "bolt"
+    fixed: true
+  - name: SEMAPHORE_ADMIN
+    label: Admin username
+    default: admin
+  - name: SEMAPHORE_ADMIN_PASSWORD
+    label: Admin password
+    type: password
+    secret: true
+    generate: true
+  - name: SEMAPHORE_ADMIN_NAME
+    default: "Admin"
+    fixed: true
+  - name: SEMAPHORE_ADMIN_EMAIL
+    default: "admin@localhost"
+    fixed: true
+  - name: SEMAPHORE_ACCESS_KEY_ENCRYPTION
+    label: Key store encryption
+    type: password
+    secret: true
+    generate: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Sign in with the admin username and generated password (Secrets). Add SSH keys under Key Store, then inventories and task templates."

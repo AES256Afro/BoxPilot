@@ -1,0 +1,75 @@
+schemaVersion: 2
+id: firefly-iii
+name: Firefly III
+category: Finance
+icon: "🔥"
+description: "Personal finance manager: accounts, budgets, bills, rules that categorise transactions automatically, and reports."
+website: https://www.firefly-iii.org
+risk: low
+image:
+  reference: fireflyiii/core:version-6.6.6
+  version: "6.6.6"
+ports:
+  - id: web
+    label: Web UI
+    container: 8080
+    host: 8122
+    exposure: lan
+volumes:
+  - id: upload
+    label: Uploads
+    container: /var/www/html/storage/upload
+    path: upload
+env:
+  - name: APP_URL
+    label: Address people use
+    default: http://localhost:8122
+  - name: APP_KEY
+    label: App key
+    type: password
+    secret: true
+    generate: true
+  - name: DB_CONNECTION
+    default: "mysql"
+    fixed: true
+  - name: DB_HOST
+    default: "database"
+    fixed: true
+  - name: DB_PORT
+    default: "3306"
+    fixed: true
+  - name: DB_DATABASE
+    default: "firefly"
+    fixed: true
+  - name: DB_USERNAME
+    default: "firefly"
+    fixed: true
+  - name: DB_PASSWORD
+    label: Database password
+    type: password
+    secret: true
+    generate: true
+  - name: TRUSTED_PROXIES
+    default: "**"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+sidecars:
+  - id: database
+    image: mariadb:11.8.8
+    env:
+      MARIADB_DATABASE: firefly
+      MARIADB_USER: firefly
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - id: mysql
+        container: /var/lib/mysql
+        path: database
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "The first visit registers the first user. APP_KEY must be exactly 32 characters; the generated one is."

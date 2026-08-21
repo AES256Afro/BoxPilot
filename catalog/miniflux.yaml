@@ -1,0 +1,56 @@
+schemaVersion: 2
+id: miniflux
+name: Miniflux
+category: Productivity
+icon: "📰"
+description: "Minimalist, fast RSS reader with keyboard shortcuts and a clean reading view; an alternative to FreshRSS."
+website: https://miniflux.app
+risk: low
+image:
+  reference: miniflux/miniflux:2.3.3
+  version: "2.3.3"
+ports:
+  - id: web
+    label: Web UI
+    container: 8080
+    host: 8142
+    exposure: lan
+env:
+  - name: DATABASE_URL
+    default: "postgres://miniflux:${MINIFLUX_DB_PASSWORD}@database/miniflux?sslmode=disable"
+    fixed: true
+  - name: RUN_MIGRATIONS
+    default: "1"
+    fixed: true
+  - name: CREATE_ADMIN
+    default: "1"
+    fixed: true
+  - name: ADMIN_USERNAME
+    label: Admin username
+    default: admin
+  - name: ADMIN_PASSWORD
+    label: Admin password
+    type: password
+    secret: true
+    generate: true
+  - name: MINIFLUX_DB_PASSWORD
+    label: Database password
+    type: password
+    secret: true
+    generate: true
+sidecars:
+  - id: database
+    image: postgres:16.15-alpine
+    env:
+      POSTGRES_DB: miniflux
+      POSTGRES_USER: miniflux
+      POSTGRES_PASSWORD: ${MINIFLUX_DB_PASSWORD}
+    volumes:
+      - id: pgdata
+        container: /var/lib/postgresql/data
+        path: postgres
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Sign in with the admin username and the generated password (Secrets)."

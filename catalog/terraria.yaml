@@ -1,0 +1,28 @@
+schemaVersion: 2
+id: terraria
+name: Terraria server
+category: Games
+icon: "🌳"
+description: "Dedicated Terraria server (vanilla) for friends and family."
+website: https://terraria.org
+risk: low
+image:
+  reference: ryshe/terraria:vanilla-1.4.5.7
+  version: "1.4.5.7"
+command: ["-world", "/root/.local/share/Terraria/Worlds/world.wld", "-autocreate", "2"]
+ports:
+  - id: game
+    label: Game port
+    container: 7777
+    host: 7777
+    exposure: lan
+volumes:
+  - id: worlds
+    label: Worlds
+    container: /root/.local/share/Terraria/Worlds
+    path: worlds
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "The first start creates the world. Players connect to <this server>:7777."

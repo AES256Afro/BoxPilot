@@ -1,0 +1,38 @@
+schemaVersion: 2
+id: apprise
+name: Apprise API
+category: Communication
+icon: "📣"
+description: "One notification endpoint that fans out to 100+ services (ntfy, Gotify, Telegram, Discord, Slack, email, SMS). Apps post to it; it delivers everywhere you configured."
+website: https://github.com/caronc/apprise-api
+risk: low
+image:
+  reference: lscr.io/linuxserver/apprise-api:v1.5.2-ls256
+  version: "1.5.2"
+ports:
+  - id: web
+    label: Web UI and API
+    container: 8000
+    host: 8146
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /config
+    path: config
+env:
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Create a configuration key in the web UI with your service URLs, then apps post to http://<this server>:8147/notify/<key>."

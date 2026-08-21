@@ -1,0 +1,74 @@
+schemaVersion: 2
+id: mattermost
+name: Mattermost
+category: Communication
+icon: "🟦"
+description: "Slack-style team chat with channels, threads, calls, and file sharing; apps for every platform."
+website: https://mattermost.com
+risk: medium
+image:
+  reference: mattermost/mattermost-team-edition:11.7.9
+  version: "11.7.9"
+ports:
+  - id: web
+    label: Web UI
+    container: 8065
+    host: 8065
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /mattermost/config
+    path: config
+  - id: data
+    label: Uploads
+    container: /mattermost/data
+    path: data
+  - id: logs
+    label: Logs
+    container: /mattermost/logs
+    path: logs
+    backup: false
+  - id: plugins
+    label: Plugins
+    container: /mattermost/plugins
+    path: plugins
+  - id: client-plugins
+    label: Client plugins
+    container: /mattermost/client/plugins
+    path: client-plugins
+env:
+  - name: MM_SQLSETTINGS_DRIVERNAME
+    default: "postgres"
+    fixed: true
+  - name: MM_SQLSETTINGS_DATASOURCE
+    default: "postgres://mattermost:${MM_DB_PASSWORD}@database:5432/mattermost?sslmode=disable&connect_timeout=10"
+    fixed: true
+  - name: MM_SERVICESETTINGS_SITEURL
+    label: Address people use
+    default: http://localhost:8065
+  - name: MM_DB_PASSWORD
+    label: Database password
+    type: password
+    secret: true
+    generate: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+sidecars:
+  - id: database
+    image: postgres:16.15-alpine
+    env:
+      POSTGRES_DB: mattermost
+      POSTGRES_USER: mattermost
+      POSTGRES_PASSWORD: ${MM_DB_PASSWORD}
+    volumes:
+      - id: pgdata
+        container: /var/lib/postgresql/data
+        path: postgres
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 600
+notes: "The first account created becomes the system admin."

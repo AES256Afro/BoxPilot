@@ -1,0 +1,27 @@
+schemaVersion: 2
+id: actual
+name: Actual Budget
+category: Finance
+icon: "💰"
+description: "Envelope budgeting that actually syncs: the Actual apps and web UI share one encrypted budget file on this server. Imports bank statements, tracks goals."
+website: https://actualbudget.org
+risk: low
+image:
+  reference: actualbudget/actual-server:26.8.1
+  version: "26.8.1"
+ports:
+  - id: web
+    label: Web UI
+    container: 5006
+    host: 5006
+    exposure: lan
+volumes:
+  - id: data
+    label: Budget files
+    container: /data
+    path: data
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "The first visit asks you to set a server password, then creates your first budget."

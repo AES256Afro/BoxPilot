@@ -1,0 +1,36 @@
+schemaVersion: 2
+id: mongodb
+name: MongoDB
+category: Developer
+icon: "🍃"
+description: "Document database for apps that need it (Rocket.Chat, custom projects)."
+website: https://www.mongodb.com
+risk: low
+image:
+  reference: mongo:8.0.29
+  version: "8.0.29"
+ports:
+  - id: db
+    label: MongoDB protocol
+    container: 27017
+    host: 27017
+    exposure: lan
+volumes:
+  - id: data
+    label: Database files
+    container: /data/db
+    path: data
+env:
+  - name: MONGO_INITDB_ROOT_USERNAME
+    label: Admin user
+    default: admin
+  - name: MONGO_INITDB_ROOT_PASSWORD
+    label: Admin password
+    type: password
+    secret: true
+    generate: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Connect with mongodb://admin:<password>@<this server>:27017."

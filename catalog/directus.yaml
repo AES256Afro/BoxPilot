@@ -1,0 +1,58 @@
+schemaVersion: 2
+id: directus
+name: Directus
+category: Developer
+icon: "🐰"
+description: "Instant REST and GraphQL API plus an admin app on top of a database; a headless CMS and data platform."
+website: https://directus.io
+risk: low
+image:
+  reference: directus/directus:12.3.0
+  version: "12.3.0"
+ports:
+  - id: web
+    label: Web UI and API
+    container: 8055
+    host: 8055
+    exposure: lan
+volumes:
+  - id: database
+    label: Database
+    container: /directus/database
+    path: database
+  - id: uploads
+    label: Uploads
+    container: /directus/uploads
+    path: uploads
+  - id: extensions
+    label: Extensions
+    container: /directus/extensions
+    path: extensions
+env:
+  - name: SECRET
+    label: App secret
+    type: password
+    secret: true
+    generate: true
+  - name: DB_CLIENT
+    default: "sqlite3"
+    fixed: true
+  - name: DB_FILENAME
+    default: "/directus/database/data.db"
+    fixed: true
+  - name: ADMIN_EMAIL
+    label: Admin email
+    default: admin@example.com
+  - name: ADMIN_PASSWORD
+    label: Admin password
+    type: password
+    secret: true
+    generate: true
+  - name: WEBSOCKETS_ENABLED
+    default: "true"
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Sign in with the admin email and generated password (Secrets)."

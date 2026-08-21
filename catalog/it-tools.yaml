@@ -1,0 +1,22 @@
+schemaVersion: 2
+id: it-tools
+name: IT-Tools
+category: Developer
+icon: "🧰"
+description: "A page of handy developer utilities: token and UUID generators, hashing, JWT decoding, base64, regex tester, chmod calculator, and dozens more."
+website: https://it-tools.tech
+risk: low
+image:
+  reference: corentinth/it-tools:2024.10.22-7ca5933
+  version: "2024.10.22"
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8158
+    exposure: lan
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Static page; nothing is stored."

@@ -1,0 +1,32 @@
+schemaVersion: 2
+id: verdaccio
+name: Verdaccio
+category: Developer
+icon: "📦"
+description: "Private npm registry and proxy cache for your own packages."
+website: https://verdaccio.org
+risk: low
+image:
+  reference: verdaccio/verdaccio:6.10.0
+  version: "6.10.0"
+user: "10001:65533"
+ports:
+  - id: web
+    label: Web UI and registry
+    container: 4873
+    host: 4873
+    exposure: lan
+volumes:
+  - id: storage
+    label: Packages
+    container: /verdaccio/storage
+    path: storage
+  - id: conf
+    label: Configuration
+    container: /verdaccio/conf
+    path: conf
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "npm set registry http://<this server>:4873 and npm adduser to publish."
