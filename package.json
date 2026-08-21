@@ -1,6 +1,6 @@
 {
   "name": "boxpilot",
-  "version": "0.62.9",
+  "version": "0.62.10",
   "private": true,
   "description": "A safety-first local control plane for Ubuntu home servers.",
   "type": "module",
