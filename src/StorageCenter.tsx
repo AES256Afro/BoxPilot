@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOperation } from "./ApproveDialog";
 import SambaPanel from "./SambaPanel";
+import NfsPanel from "./NfsPanel";
 
 interface DeviceRow {
   path: string | null; type: string | null; sizeBytes: number | null; fstype: string | null; uuid: string | null; label: string | null; model: string | null; transport: string | null;
@@ -308,6 +309,7 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
       </section>
 
       <SambaPanel start={start} refreshKey={refreshKey} folders={[...new Set([...(report?.shares ?? []).map((entry) => entry.mountpoint), ...(report?.fstab ?? []).filter((row) => row.managedName).map((row) => row.mountpoint), "/srv", "/mnt"])]} />
+      <NfsPanel start={start} refreshKey={refreshKey} folders={[...new Set([...(report?.shares ?? []).map((entry) => entry.mountpoint), ...(report?.fstab ?? []).filter((row) => row.managedName).map((row) => row.mountpoint), "/srv", "/mnt"])]} />
 
       <section className="panel">
         <header className="panel-header"><div><strong>Mounted filesystems</strong><span>Unmount is offered only for mounts BoxPilot added; entries you created stay yours.</span></div></header>

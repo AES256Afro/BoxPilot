@@ -36,3 +36,18 @@ describe("samba operations", () => {
     if (!result.installed) expect(result.running).toBeNull();
   });
 });
+
+describe("nfs operations", () => {
+  it("validates exports through the task validator and stages the normalized payload", async () => {
+    const { nfsOperations } = await import("./nfs.mjs");
+    const ops = Object.fromEntries(nfsOperations().map((operation) => [operation.id, operation]));
+    const spec = ops["nfs.apply"].parameters;
+    expect(validateParameters(spec, { exports: [{ path: "/srv/media", readOnly: true }] }, "t")).toBeNull();
+    expect(validateParameters(spec, { scope: "lan", exports: [{ path: "/etc" }] }, "t")).toContain("system locations");
+    const runUnit = { runTask: vi.fn(async () => ({ ok: true })) };
+    await ops["nfs.apply"].run({ exports: [{ path: "/srv/media" }] }, { runUnit, jobLog: null });
+    expect(runUnit.runTask).toHaveBeenCalledWith("nfs.apply", { scope: "tailscale", exports: [{ path: "/srv/media", readOnly: false }] }, expect.anything());
+    const state = await ops["nfs.inspect"].run({}, { run: vi.fn(async () => ({ ok: false, stdout: "", stderr: "" })) });
+    expect(state).toHaveProperty("config.exports");
+  });
+});

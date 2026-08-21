@@ -122,6 +122,28 @@ export function createStorageRouter({ auth, helper = null, inventory = null, run
     response.json({ devices: named.sort((a, b) => a.address.localeCompare(b.address, undefined, { numeric: true })), scanned: candidates.size, interfaces: lanInterfaces.map((link) => `${link.interface} ${link.address}/${link.prefix}`) });
   });
 
+  async function clientAddresses() {
+    let addresses = { tailscaleDnsName: null, tailscaleAddress: null, lanAddress: null };
+    try {
+      const snapshot = inventory ? await inventory.inspect() : null;
+      const ipv4 = (entry) => /^\d+\.\d+\.\d+\.\d+$/.test(entry.address ?? "");
+      addresses = {
+        tailscaleDnsName: snapshot?.network?.tailscale?.dnsName ?? null,
+        tailscaleAddress: snapshot?.network?.addresses?.find((entry) => ipv4(entry) && String(entry.interface ?? "").startsWith("tailscale"))?.address ?? null,
+        lanAddress: snapshot?.network?.addresses?.find((entry) => ipv4(entry) && !String(entry.interface ?? "").startsWith("tailscale") && !/^(lo|docker|br-|virbr|veth)/.test(String(entry.interface ?? "")))?.address ?? null,
+      };
+    } catch { /* addresses are a convenience */ }
+    return addresses;
+  }
+
+  // The NFS server this server runs.
+  router.get("/storage/nfs", async (_request, response) => {
+    let state = { installed: false, running: null, configured: false, config: { managed: false, scope: "tailscale", exports: [] } };
+    let error = null;
+    try { if (helper) state = await helper.request("nfs.inspect", {}, { timeoutMs: 30_000 }); } catch (requestError) { error = requestError.message; }
+    response.json({ ...state, error, ...(await clientAddresses()) });
+  });
+
   // The file server (Samba) this server runs: state from the helper plus the addresses clients should use.
   router.get("/storage/samba", async (_request, response) => {
     let state = { installed: false, running: null, configured: false, config: { managed: false, workgroup: "WORKGROUP", scope: "tailscale", interfaces: [], shares: [] }, users: [] };
