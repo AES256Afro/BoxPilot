@@ -1,7 +1,7 @@
 import { defineOperation } from "./registry.mjs";
 
 const idField = { type: "string", pattern: /^[a-z0-9][a-z0-9-]{1,62}$/ };
-const valuesField = { type: "object", optional: true, validate: (value) => (Object.keys(value).every((key) => ["ports", "env", "volumes"].includes(key)) ? null : "may only contain ports, env, and volumes") };
+const valuesField = { type: "object", optional: true, validate: (value) => (Object.keys(value).every((key) => ["ports", "env", "volumes", "setup"].includes(key)) ? null : "may only contain ports, env, volumes, and setup") };
 const minutes = (value) => value * 60_000;
 const tailscaleBinary = () => process.env.BOXPILOT_TAILSCALE_BINARY ?? "/usr/bin/tailscale";
 

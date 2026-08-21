@@ -110,3 +110,36 @@ describe("catalog loader", () => {
     for (const manifest of manifests) expect(resolveValues(manifest, {}).errors).toEqual([]);
   });
 });
+
+describe("setup choices", () => {
+  const base = { schemaVersion: 2, id: "lists", name: "Lists", category: "DNS", description: "d", image: { reference: "x/y:1" } };
+  const setup = { title: "Blocklists", finalize: ["pihole", "-g"], choices: [
+    { id: "big", label: "Big", recommended: true, website: "https://example.com", exec: ["sh", "-c", "echo big"] },
+    { id: "small", label: "Small", exec: ["sh", "-c", "echo small"] },
+  ] };
+
+  it("validates the setup block strictly and normalizes it", () => {
+    const { manifest, errors } = validateManifest({ ...base, setup });
+    expect(errors).toEqual([]);
+    expect(manifest.setup).toMatchObject({ title: "Blocklists", finalize: ["pihole", "-g"], note: null, choices: [{ id: "big", recommended: true, website: "https://example.com" }, { id: "small", recommended: false, website: null }] });
+    expect(validateManifest(base).manifest.setup).toBeNull();
+    expect(validateManifest({ ...base, setup: { title: "T", choices: [{ id: "a", label: "A", exec: [] }] } }).errors).toContainEqual(expect.stringContaining("exec"));
+    expect(validateManifest({ ...base, setup: { title: "T", choices: [{ id: "a", label: "A", exec: ["x"] }, { id: "a", label: "B", exec: ["y"] }] } }).errors).toContainEqual(expect.stringContaining("unique"));
+    expect(validateManifest({ ...base, setup: { title: "T", choices: [{ id: "a", label: "A", exec: ["x"], website: "http://insecure" }] } }).errors).toContainEqual(expect.stringContaining("https"));
+    expect(validateManifest({ ...base, setup: { title: "T", choices: [], bogus: 1 } }).errors).toContainEqual(expect.stringContaining("bogus"));
+  });
+
+  it("defaults to the recommended choices, rejects unknown ids, and keeps stored ids the manifest still has", () => {
+    const { manifest } = validateManifest({ ...base, setup });
+    expect(resolveValues(manifest, {}).values.setup).toEqual(["big"]);
+    expect(resolveValues(manifest, { setup: [] }).values.setup).toEqual([]);
+    expect(resolveValues(manifest, { setup: ["small", "small"] }).values.setup).toEqual(["small"]);
+    expect(resolveValues(manifest, { setup: ["huge"] }).errors).toContainEqual(expect.stringContaining("huge"));
+    expect(resolveValues(manifest, { setup: "big" }).errors).toContainEqual(expect.stringContaining("list"));
+    const plain = validateManifest(base).manifest;
+    expect(resolveValues(plain, { setup: ["big"] }).errors).toContainEqual(expect.stringContaining("no setup choices"));
+    expect(resolveValues(plain, {}).values).not.toHaveProperty("setup");
+    expect(sanitizeStoredValues(manifest, { setup: ["big", "gone"] }).setup).toEqual(["big"]);
+    expect(sanitizeStoredValues(plain, { setup: ["big"] })).not.toHaveProperty("setup");
+  });
+});

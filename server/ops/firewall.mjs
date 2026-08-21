@@ -1,6 +1,7 @@
 import { access, readFile } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
 import { commentPattern, ruleActions, ruleProtocols } from "../tasks/firewall.mjs";
+import { profileIds, serviceIds } from "../firewall-profiles.mjs";
 
 const minutes = (value) => value * 60_000;
 
@@ -91,13 +92,13 @@ export function firewallOperations() {
     }),
     defineOperation({
       id: "firewall.set", title: "Turn the firewall on or off", risk: "high", timeoutMs: minutes(3),
-      description: "Enables or disables ufw. Before enabling, rules keeping SSH (22/tcp) and the tailscale0 interface reachable are added.",
+      description: "Enables or disables ufw. Before enabling, rules keeping SSH (22/tcp), Tailscale (41641/udp), BoxPilot's own port when it is served on the LAN, and the tailscale0 interface reachable are added.",
       parameters: { fields: { enabled: { type: "boolean" } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("firewall.set", { enabled: parameters.enabled }, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "firewall.rule.add", title: "Add a firewall rule", risk: "medium", timeoutMs: minutes(2),
-      description: "Allows or denies a port with ufw, for tcp, udp, or both.",
+      description: "Allows, denies, or rate-limits a port with ufw, for tcp, udp, or both. SSH, Tailscale, and BoxPilot's port can never be denied.",
       parameters: { fields: {
         action: { type: "string", enum: [...ruleActions] },
         port: { type: "number", validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 65535 ? null : "must be a port between 1 and 65535") },
@@ -108,13 +109,24 @@ export function firewallOperations() {
     }),
     defineOperation({
       id: "firewall.rule.delete", title: "Delete a firewall rule", risk: "medium", timeoutMs: minutes(2),
-      description: "Deletes the matching ufw rule. The SSH rule cannot be deleted from here.",
+      description: "Deletes the matching ufw rule. The SSH, Tailscale, and BoxPilot allow rules cannot be deleted from here.",
       parameters: { fields: {
         action: { type: "string", enum: [...ruleActions] },
         port: { type: "number", validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 65535 ? null : "must be a port between 1 and 65535") },
         protocol: { type: "string", enum: [...ruleProtocols] },
       } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("firewall.rule-delete", { action: parameters.action, port: parameters.port, protocol: parameters.protocol }, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "firewall.profile.apply", title: "Apply a firewall profile", risk: "high", timeoutMs: minutes(5),
+      description: "Keeps SSH, Tailscale, and BoxPilot reachable, adds the profile's rules and the chosen services, sets the default policies, and turns the firewall on. Optionally resets existing rules first or rate-limits SSH.",
+      parameters: { fields: {
+        profile: { type: "string", enum: [...profileIds] },
+        services: { type: "array", optional: true, validate: (value) => (value.every((id) => typeof id === "string" && serviceIds.includes(id)) ? null : `may only contain ${serviceIds.join(", ")}`) },
+        replace: { type: "boolean", optional: true },
+        sshRateLimit: { type: "boolean", optional: true },
+      } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("firewall.profile-apply", { profile: parameters.profile, services: parameters.services ?? [], replace: parameters.replace ?? false, sshRateLimit: parameters.sshRateLimit ?? false }, { timeoutMs: minutes(4), logPath: jobLog?.path ?? null }),
     }),
   ];
 }

@@ -5,17 +5,20 @@ import { inspectOperation } from "./operations";
 /** Types mirror server/catalog/schema.mjs (normalized manifest) and server/app-helper.mjs (live state). */
 interface ManifestPort { id: string; label: string; container: number; host: number; protocol: "tcp" | "udp"; exposure: "lan" | "loopback"; fixed: boolean }
 interface ManifestVolume { id: string; label: string; container: string; path: string | null; hostPath: string | null; readOnly: boolean; backup: boolean; configurable: boolean; description: string | null }
+interface SetupChoice { id: string; label: string; description: string | null; website: string | null; recommended: boolean; exec: string[] }
+interface ManifestSetup { title: string; note: string | null; finalize: string[] | null; finalizeLabel: string | null; choices: SetupChoice[] }
 interface ManifestEnv { name: string; label: string; description: string | null; type: "string" | "password" | "number" | "boolean" | "timezone" | "path"; default: string | number | boolean | null; required: boolean; secret: boolean; generate: boolean; options: string[] | null; fixed: boolean }
 export interface Manifest {
   id: string; name: string; category: string; description: string; website: string | null; icon: string | null; risk: "low" | "medium" | "high"; notes: string | null;
   image: { reference: string; version: string | null; digestPinned: boolean };
   ports: ManifestPort[]; volumes: ManifestVolume[]; env: ManifestEnv[];
   health: { kind: string; stableSeconds: number; timeoutSeconds: number };
+  setup?: ManifestSetup | null;
   sha256: string;
 }
 interface LiveState {
   id: string; installed: boolean; dataPresent: boolean;
-  state: { installedAt: string; updatedAt: string; manifestSha256: string | null; image: { reference: string; id: string | null } | null; values: { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string> }; pinnedRollback: boolean; uninstalledAt: string | null } | null;
+  state: { installedAt: string; updatedAt: string; manifestSha256: string | null; image: { reference: string; id: string | null } | null; values: { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string>; setup?: string[] }; pinnedRollback: boolean; uninstalledAt: string | null } | null;
   container: { exists: boolean; running: boolean; status: string; health: string; restarts: number; image: string | null };
   urls: Array<{ id: string; label: string; host: number; exposure: string }>;
   updateAvailable?: boolean;
@@ -28,7 +31,7 @@ interface CatalogResponse {
   host: { lanAddress: string | null; tailscaleDnsName: string | null };
 }
 
-type Values = { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string> };
+type Values = { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string>; setup?: string[] };
 
 function initialValues(manifest: Manifest, live: LiveState | null): Values {
   const stored = live?.state?.values;
@@ -36,6 +39,8 @@ function initialValues(manifest: Manifest, live: LiveState | null): Values {
     ports: Object.fromEntries(manifest.ports.map((port) => [port.id, stored?.ports?.[port.id] ?? port.host])),
     env: Object.fromEntries(manifest.env.filter((entry) => !entry.fixed && !entry.generate).map((entry) => [entry.name, stored?.env?.[entry.name] ?? (entry.default === null ? "" : String(entry.default))])),
     volumes: Object.fromEntries(manifest.volumes.filter((volume) => volume.configurable).map((volume) => [volume.id, stored?.volumes?.[volume.id] ?? volume.hostPath ?? ""])),
+    // Setup choices (blocklists, plugins): what was chosen before, else the manifest's recommendations.
+    ...(manifest.setup ? { setup: stored?.setup ?? manifest.setup.choices.filter((choice) => choice.recommended).map((choice) => choice.id) } : {}),
   };
 }
 
@@ -44,7 +49,8 @@ function compactValues(manifest: Manifest, values: Values): Values {
   const ports = Object.fromEntries(Object.entries(values.ports).filter(([id, host]) => manifest.ports.find((port) => port.id === id)?.host !== host));
   const env = Object.fromEntries(Object.entries(values.env).filter(([name, value]) => value !== "" && String(manifest.env.find((entry) => entry.name === name)?.default ?? "") !== value));
   const volumes = Object.fromEntries(Object.entries(values.volumes).filter(([id, path]) => path !== "" && manifest.volumes.find((volume) => volume.id === id)?.hostPath !== path));
-  return { ports, env, volumes };
+  // Setup choices are always sent explicitly: an empty list means "none", not "the defaults".
+  return { ports, env, volumes, ...(manifest.setup ? { setup: values.setup ?? [] } : {}) };
 }
 
 function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure"; csrfToken: string; onSubmit: (values: Values) => void; onCancel: () => void }) {
@@ -72,6 +78,7 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
   const setPort = (id: string, value: string) => setValues((current) => ({ ...current, ports: { ...current.ports, [id]: Number.parseInt(value, 10) || 0 } }));
   const setEnv = (name: string, value: string) => setValues((current) => ({ ...current, env: { ...current.env, [name]: value } }));
   const setVolume = (id: string, value: string) => setValues((current) => ({ ...current, volumes: { ...current.volumes, [id]: value } }));
+  const toggleSetup = (id: string, checked: boolean) => setValues((current) => ({ ...current, setup: checked ? [...new Set([...(current.setup ?? []), id])] : (current.setup ?? []).filter((entry) => entry !== id) }));
   const editablePorts = manifest.ports.filter((port) => !port.fixed);
   const editableEnv = manifest.env.filter((entry) => !entry.fixed && !entry.generate);
   const generated = manifest.env.filter((entry) => entry.generate);
@@ -91,6 +98,17 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
                 : <input type={entry.type === "password" ? "password" : entry.type === "number" ? "number" : "text"} value={values.env[entry.name] ?? ""} onChange={(event) => setEnv(entry.name, event.target.value)} aria-label={entry.label} required={entry.required} />}
             </label>
           ))}</fieldset>}
+          {manifest.setup && manifest.setup.choices.length > 0 && (
+            <fieldset className="setup-choices"><legend>{manifest.setup.title}</legend>
+              {manifest.setup.note && <p className="muted">{manifest.setup.note}</p>}
+              {manifest.setup.choices.map((choice) => (
+                <div className="setup-choice" key={choice.id}>
+                  <label><input type="checkbox" checked={(values.setup ?? []).includes(choice.id)} onChange={(event) => toggleSetup(choice.id, event.target.checked)} aria-label={choice.label} /> <strong>{choice.label}</strong>{choice.recommended && <span className="status-pill status-good">Recommended</span>}</label>
+                  {(choice.description || choice.website) && <span className="muted">{choice.description}{choice.website && <> <a href={choice.website} target="_blank" rel="noreferrer">About this list</a></>}</span>}
+                </div>
+              ))}
+            </fieldset>
+          )}
           {generated.length > 0 && <p className="muted">Generated for you: {generated.map((entry) => entry.label).join(", ")} (stored in the app's .env on the server).</p>}
           {manifest.volumes.filter((volume) => volume.path).length > 0 && <p className="muted">Data lives under <code>/var/lib/boxpilot-managed/catalog/{manifest.id}/</code> and is kept on uninstall unless you delete it explicitly.</p>}
           <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={onCancel}>Cancel</button><button className="primary-button" type="submit" disabled={checking}>{checking ? "Checking..." : mode === "install" ? "Continue to install" : "Apply settings"}</button></footer>

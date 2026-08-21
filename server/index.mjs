@@ -17,6 +17,7 @@ import { createJobsRouter } from "./routes/jobs.mjs";
 import { createVirtualizationRouter } from "./routes/virtualization.mjs";
 import { createSettingsRouter } from "./routes/settings.mjs";
 import { createHostRouter } from "./routes/host.mjs";
+import { createFirewallRouter } from "./routes/firewall.mjs";
 import { createPeopleRouter } from "./routes/people.mjs";
 import { createHelperClient } from "./helper-client.mjs";
 import { createHelperLibvirtService } from "./helper-libvirt.mjs";
@@ -105,6 +106,8 @@ const jobs = createJobService(state, helper, {
     "vm.backup.retention.apply": (job, result) => vmRetention.recordOperation(job, result),
     "vm.backup.restore-drill": (job, result) => vmRestoreDrills.recordOperation(job, result),
     "vm.recovery.create": (job, result) => vmRecoveries.recordOperation(job, result),
+    // The Firewall page shows which profile is in force and when it was applied.
+    "firewall.profile.apply": (job, result) => state.setSetting("firewallProfile", { id: result.profile, services: result.services ?? [], sshRateLimit: result.sshRateLimit ?? false, appliedAt: result.appliedAt, appliedBy: job.createdBy }, { updatedBy: job.createdBy }),
     "backup.remote.sync": (job, result) => state.setSetting("backupDestinationLastSync", { completedAt: result.completedAt, filesTransferred: result.filesTransferred, bytesTransferred: result.bytesTransferred, destination: result.destination }, { updatedBy: job.createdBy }),
   },
   // Prepare hooks pin server-derived expectations into the staged parameters.
@@ -203,6 +206,7 @@ app.use("/api/v1", createOperationsRouter({ state, helper, jobs, prerequisites, 
 app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, jobLogReader, auth }));
 app.use("/api/v1", createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit }));
 app.use("/api/v1", createSettingsRouter({ state, notifications, auth }));
+app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort: port, webHost: host }));
 app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth }));
 
 app.use(express.static(dist, { index: false }));

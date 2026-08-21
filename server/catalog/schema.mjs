@@ -26,7 +26,7 @@ function checkKeys(errors, path, value, allowed, required = []) {
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
-  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars"], ["schemaVersion", "id", "name", "category", "description", "image"]);
+  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup"], ["schemaVersion", "id", "name", "category", "description", "image"]);
   if (raw.schemaVersion !== 2) fail(errors, "manifest.schemaVersion", "must be 2");
   if (typeof raw.id !== "string" || !idPattern.test(raw.id)) fail(errors, "manifest.id", "must be a short lower-case slug");
   for (const field of ["name", "category", "description"]) if (typeof raw[field] !== "string" || !raw[field].trim() || raw[field].length > 400) fail(errors, `manifest.${field}`, "must be a non-empty string");
@@ -136,6 +136,34 @@ export function validateManifest(raw) {
   });
   if (sidecars.length && raw.network === "host") fail(errors, "manifest.sidecars", "host-network apps cannot have sidecars (no compose network to reach them on)");
 
+  // setup: optional post-install choices (blocklists, plugins) run inside the running container
+  // with `docker compose exec`. Commands must be idempotent: they run again on every settings change.
+  const argv = (value) => Array.isArray(value) && value.length > 0 && value.length <= 32 && value.every((part) => typeof part === "string" && part.length <= 2048 && !/[\0]/.test(part));
+  if (raw.setup !== undefined) {
+    if (!isObject(raw.setup)) fail(errors, "manifest.setup", "must be a mapping");
+    else {
+      checkKeys(errors, "manifest.setup", raw.setup, ["title", "note", "finalize", "finalizeLabel", "choices"], ["title", "choices"]);
+      if (typeof raw.setup.title !== "string" || !raw.setup.title.trim() || raw.setup.title.length > 80) fail(errors, "manifest.setup.title", "must be a short string");
+      if (raw.setup.note !== undefined && typeof raw.setup.note !== "string") fail(errors, "manifest.setup.note", "must be a string");
+      if (raw.setup.finalize !== undefined && !argv(raw.setup.finalize)) fail(errors, "manifest.setup.finalize", "must be a non-empty argv list");
+      if (raw.setup.finalizeLabel !== undefined && typeof raw.setup.finalizeLabel !== "string") fail(errors, "manifest.setup.finalizeLabel", "must be a string");
+      const choices = Array.isArray(raw.setup.choices) ? raw.setup.choices : (fail(errors, "manifest.setup.choices", "must be a list"), []);
+      if (choices.length > 24) fail(errors, "manifest.setup.choices", "may list at most 24 choices");
+      const choiceIds = new Set();
+      choices.forEach((choice, index) => {
+        const path = `manifest.setup.choices[${index}]`;
+        if (!isObject(choice)) return fail(errors, path, "must be a mapping");
+        checkKeys(errors, path, choice, ["id", "label", "description", "website", "recommended", "exec"], ["id", "label", "exec"]);
+        if (typeof choice.id !== "string" || !keyPattern.test(choice.id) || choiceIds.has(choice.id)) fail(errors, `${path}.id`, "must be a unique short slug"); else choiceIds.add(choice.id);
+        if (typeof choice.label !== "string" || !choice.label.trim() || choice.label.length > 80) fail(errors, `${path}.label`, "must be a short string");
+        if (choice.description !== undefined && typeof choice.description !== "string") fail(errors, `${path}.description`, "must be a string");
+        if (choice.website !== undefined && !(typeof choice.website === "string" && /^https:\/\/[^\s]+$/.test(choice.website))) fail(errors, `${path}.website`, "must be an https URL");
+        if (choice.recommended !== undefined && typeof choice.recommended !== "boolean") fail(errors, `${path}.recommended`, "must be boolean");
+        if (!argv(choice.exec)) fail(errors, `${path}.exec`, "must be a non-empty argv list");
+      });
+    }
+  }
+
   for (const listField of ["capabilities", "devices", "extraHosts"]) {
     if (raw[listField] !== undefined && !(Array.isArray(raw[listField]) && raw[listField].every((item) => typeof item === "string" && item.length <= 128 && !/\s/.test(item)))) fail(errors, `manifest.${listField}`, "must be a list of tokens");
   }
@@ -166,6 +194,13 @@ export function validateManifest(raw) {
     user: raw.user ?? null,
     network: raw.network ?? "bridge",
     uninstall: { note: raw.uninstall?.note ?? null },
+    setup: raw.setup ? {
+      title: raw.setup.title.trim(),
+      note: raw.setup.note ?? null,
+      finalize: raw.setup.finalize ?? null,
+      finalizeLabel: raw.setup.finalizeLabel ?? null,
+      choices: raw.setup.choices.map((choice) => ({ id: choice.id, label: choice.label.trim(), description: choice.description ?? null, website: choice.website ?? null, recommended: choice.recommended ?? false, exec: [...choice.exec] })),
+    } : null,
     sidecars: sidecars.map((sidecar) => ({
       id: sidecar.id,
       image: sidecar.image,
@@ -186,7 +221,7 @@ const hostPathDenyPrefixes = ["/etc", "/proc", "/sys", "/dev", "/boot", "/root",
 export function resolveValues(manifest, raw = {}) {
   const errors = [];
   if (!isObject(raw)) return { values: null, errors: ["values must be an object"] };
-  checkKeys(errors, "values", raw, ["ports", "env", "volumes"]);
+  checkKeys(errors, "values", raw, ["ports", "env", "volumes", "setup"]);
   const ports = {}; const env = {}; const volumes = {};
   const rawPorts = isObject(raw.ports) ? raw.ports : raw.ports === undefined ? {} : (fail(errors, "values.ports", "must be an object"), {});
   for (const key of Object.keys(rawPorts)) if (!manifest.ports.some((port) => port.id === key)) fail(errors, `values.ports.${key}`, "is not a port of this application");
@@ -234,8 +269,20 @@ export function resolveValues(manifest, raw = {}) {
     if (normalized === "/" || hostPathDenyPrefixes.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`))) { fail(errors, `values.volumes.${volume.id}`, "points at a protected system location"); continue; }
     volumes[volume.id] = normalized;
   }
+  // setup choices: unknown ids are errors; omitted on install means "the recommended ones".
+  let setup;
+  if (manifest.setup) {
+    if (raw.setup === undefined) setup = manifest.setup.choices.filter((choice) => choice.recommended).map((choice) => choice.id);
+    else if (!Array.isArray(raw.setup) || raw.setup.some((id) => typeof id !== "string")) fail(errors, "values.setup", "must be a list of choice ids");
+    else {
+      setup = [...new Set(raw.setup)];
+      for (const id of setup) if (!manifest.setup.choices.some((choice) => choice.id === id)) fail(errors, `values.setup.${id}`, "is not a setup choice of this application");
+    }
+  } else if (raw.setup !== undefined && !(Array.isArray(raw.setup) && raw.setup.length === 0)) {
+    fail(errors, "values.setup", "this application has no setup choices");
+  }
   if (errors.length) return { values: null, errors };
-  return { values: { ports, env, volumes }, errors: [] };
+  return { values: { ports, env, volumes, ...(manifest.setup ? { setup } : {}) }, errors: [] };
 }
 
 /**
@@ -252,5 +299,6 @@ export function sanitizeStoredValues(manifest, stored = {}) {
     ports: Object.fromEntries(Object.entries(ports).filter(([id]) => manifest.ports.some((port) => port.id === id))),
     env: Object.fromEntries(Object.entries(env).filter(([name]) => manifest.env.some((entry) => entry.name === name))),
     volumes: Object.fromEntries(Object.entries(volumes).filter(([id]) => manifest.volumes.some((volume) => volume.id === id && volume.configurable))),
+    ...(manifest.setup && Array.isArray(raw.setup) ? { setup: raw.setup.filter((id) => manifest.setup.choices.some((choice) => choice.id === id)) } : {}),
   };
 }
