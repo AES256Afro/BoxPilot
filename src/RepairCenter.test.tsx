@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import RepairCenter from "./RepairCenter";
 
@@ -129,7 +129,7 @@ describe("Repair Center", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Review exact repair" }));
     expect(await screen.findByText("Install smartmontools 7.5-2")).toBeTruthy();
     expect(await screen.findByText("Medium risk")).toBeTruthy();
-    expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { expectedVersion: "7.5-2" } });
+    await waitFor(() => expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { expectedVersion: "7.5-2" } }));
   });
 
   it("pins the exact five-package set when staging the virtualization install", async () => {
@@ -149,6 +149,6 @@ describe("Repair Center", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Review exact repair" }));
     expect(await screen.findByText(/qemu-system-x86 1:10.2.1/)).toBeTruthy();
-    expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { expectedPackages: candidatePackages } });
+    await waitFor(() => expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { expectedPackages: candidatePackages } }));
   });
 });
