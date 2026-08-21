@@ -442,9 +442,16 @@ export function createAppHelper({
       const stop = await compose(id, ["stop"], { timeout: 120_000, progress });
       if (!stop.ok) throw new Error(`docker compose stop failed: ${redact(stop.stderr).split("\n").slice(-3).join(" ")}`);
     }
-    const stamp = clock().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
     const backupDirectory = backupDirFor(id);
-    const artifact = path.join(backupDirectory, `${stamp}.tar.gz`);
+    // Names are second-granular; a checkpoint followed by a restore's safety copy can land in
+    // the same second, so step forward until the name is free instead of overwriting.
+    let stamp = null; let artifact = null;
+    for (let offset = 0; offset < 120; offset += 1) {
+      stamp = new Date(clock().getTime() + offset * 1000).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+      artifact = path.join(backupDirectory, `${stamp}.tar.gz`);
+      if (!(await stat(artifact).then(() => true, () => false))) break;
+      if (offset === 119) throw new Error("Could not find a free backup name");
+    }
     let downtimeMs = null;
     try {
       await mkdir(backupDirectory, { recursive: true, mode: 0o700 });
@@ -578,8 +585,8 @@ export function createAppHelper({
       if (!stop.ok) throw new Error(`docker compose stop failed: ${redact(stop.stderr).split("\n").slice(-3).join(" ")}`);
     }
     try {
-      progress?.(`$ tar -xzf ${backupName} --overwrite ${relativePath}`, "stdout");
-      const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", dirFor(id), "--overwrite", relativePath], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+      progress?.(`$ tar -xzf ${backupName} ${relativePath}`, "stdout");
+      const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", dirFor(id), relativePath], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
       if (!extract.ok) throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. The checkpoint ${saved.artifact} holds the pre-restore state.`);
     } finally {
       if (status.running) {
