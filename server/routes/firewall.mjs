@@ -30,14 +30,14 @@ export function createFirewallRouter({ state, helper, catalogService, webPort, w
   router.get("/firewall/overview", async (_request, response) => {
     let report = null; let reportError = null;
     try { report = await helper.request("firewall.inspect", {}, { timeoutMs: 30_000 }); } catch (error) { reportError = error.message; }
-    const [listening, apps] = await Promise.all([listeners().catch(() => []), installedApps().catch(() => [])]);
+    const [listening, apps, fail2ban] = await Promise.all([listeners().catch(() => []), installedApps().catch(() => []), helper.request("fail2ban.inspect", {}, { timeoutMs: 15_000 }).catch(() => null)]);
     const current = state.getSetting("firewallProfile", null);
     response.json({
       report, reportError,
       web: { port: webPort, lanExposed },
       protected: protectedRules({ webPort, webHost }),
       profiles, services, riskyPorts, current,
-      advice: adviseFirewall({ report, listeners: listening, apps, current, webPort, webHost }),
+      advice: adviseFirewall({ report, listeners: listening, apps, current, fail2ban, webPort, webHost }),
     });
   });
 

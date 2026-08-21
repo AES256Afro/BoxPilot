@@ -5,7 +5,7 @@ import { validPackageList } from "../tasks/apt.mjs";
 /** Common server tools offered on the Updates & packages page (M2.2). */
 export const curatedPackages = Object.freeze([
   "htop", "btop", "tmux", "git", "curl", "wget", "jq", "ncdu", "tree", "ripgrep", "zsh",
-  "unzip", "net-tools", "dnsutils", "iotop", "smartmontools", "restic", "nfs-common", "cifs-utils", "smbclient", "samba", "nfs-kernel-server", "nut", "needrestart",
+  "unzip", "net-tools", "dnsutils", "iotop", "smartmontools", "restic", "nfs-common", "cifs-utils", "smbclient", "samba", "nfs-kernel-server", "nut", "fail2ban", "needrestart",
 ]);
 
 /** Parse `APT::Periodic::<name> "<value>";` lines from 20auto-upgrades. */
