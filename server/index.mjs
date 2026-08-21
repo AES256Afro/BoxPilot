@@ -33,6 +33,7 @@ import { createRecoveryKitService } from "./recovery-kit.mjs";
 import { createReleaseUpdateService } from "./release-updates.mjs";
 import { createSetupService } from "./setup-profiles.mjs";
 import { createUpdateNotifier } from "./update-notifier.mjs";
+import { createHealthAlerts } from "./health-alerts.mjs";
 import { createNotificationService } from "./notifications.mjs";
 import { createSchedulerService } from "./scheduler.mjs";
 import { createStateStore } from "./state.mjs";
@@ -144,6 +145,7 @@ const setup = createSetupService({ helper, scheduler });
 const notifications = createNotificationService({ store: state });
 notifications.start();
 createUpdateNotifier({ releaseUpdates, notifications, store: state }).start();
+createHealthAlerts({ inventory, notifications, store: state }).start();
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "256kb", strict: true }));
