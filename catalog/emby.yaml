@@ -1,0 +1,48 @@
+schemaVersion: 2
+id: emby
+name: Emby
+category: Media
+icon: "📼"
+description: "Media server for films, series, music, and live TV with apps for every platform. Jellyfin's commercial sibling: polished apps, some features need Emby Premiere."
+website: https://emby.media
+risk: low
+image:
+  reference: emby/embyserver:4.10.0.26
+  version: "4.10.0.26"
+ports:
+  - id: web
+    label: Web UI
+    container: 8096
+    host: 8098
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration and metadata
+    container: /config
+    path: config
+  - id: media
+    label: Media folder
+    container: /mnt/media
+    hostPath: /srv/media
+    configurable: true
+    backup: false
+    readOnly: true
+env:
+  - name: UID
+    default: "1000"
+    fixed: true
+  - name: GID
+    default: "1000"
+    fixed: true
+  - name: GIDLIST
+    default: "1000"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 20
+  timeoutSeconds: 300
+notes: "The first visit runs the setup wizard. Add libraries from /mnt/media. Port 8098 here because Jellyfin uses 8096."

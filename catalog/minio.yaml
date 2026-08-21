@@ -1,0 +1,45 @@
+schemaVersion: 2
+id: minio
+name: MinIO
+category: Storage
+icon: "🪣"
+description: "S3-compatible object storage on your own disk. A backup target for Immich, Kopia, Duplicati, and Restic, and a bucket store for anything that speaks S3."
+website: https://min.io
+risk: low
+image:
+  reference: minio/minio:RELEASE.2025-09-07T16-13-09Z
+  version: "2025-09-07"
+command: ["server", "/data", "--console-address", ":9001"]
+ports:
+  - id: api
+    label: S3 API
+    container: 9000
+    host: 9000
+    exposure: lan
+  - id: console
+    label: Console
+    container: 9001
+    host: 9001
+    exposure: lan
+volumes:
+  - id: data
+    label: Buckets
+    container: /data
+    hostPath: /srv/minio
+    configurable: true
+    backup: false
+    description: Where the objects live. Put it on your biggest disk.
+env:
+  - name: MINIO_ROOT_USER
+    label: Admin access key
+    default: admin
+  - name: MINIO_ROOT_PASSWORD
+    label: Admin secret key
+    type: password
+    secret: true
+    generate: true
+health:
+  kind: running
+  stableSeconds: 10
+  timeoutSeconds: 180
+notes: "Apps connect to http://<this server>:9000 with the access and secret keys from Secrets; the console on port 9001 creates buckets and extra users. Recent community builds keep the console minimal; bucket and user management also works with the mc command-line tool."

@@ -1,0 +1,39 @@
+schemaVersion: 2
+id: komga
+name: Komga
+category: Books
+icon: "🗯️"
+description: "Comics and manga server with a web reader, OPDS for apps like Panels and Chunky, and per-user progress."
+website: https://komga.org
+risk: low
+image:
+  reference: gotson/komga:1.26.3
+  version: "1.26.3"
+ports:
+  - id: web
+    label: Web UI
+    container: 25600
+    host: 25600
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration and database
+    container: /config
+    path: config
+  - id: comics
+    label: Comics folder
+    container: /data
+    hostPath: /srv/comics
+    configurable: true
+    backup: false
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+user: "1000:1000"
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Create the first user on the first visit; then add a library at /data."

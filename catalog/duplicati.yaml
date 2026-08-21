@@ -1,0 +1,56 @@
+schemaVersion: 2
+id: duplicati
+name: Duplicati
+category: Backup
+icon: "🗄️"
+description: "Scheduled, encrypted, deduplicated backups of folders on this server to your NAS, an external disk, Backblaze B2, S3, Google Drive, OneDrive, Dropbox, and more. Restores are file-level and versioned."
+website: https://duplicati.com
+risk: low
+image:
+  reference: duplicati/duplicati:2.3.0.4
+  version: "2.3.0.4"
+ports:
+  - id: web
+    label: Web UI
+    container: 8200
+    host: 8200
+    exposure: lan
+volumes:
+  - id: config
+    label: Backup definitions and database
+    container: /data
+    path: data
+  - id: source
+    label: Folders to back up
+    container: /source
+    hostPath: /srv
+    configurable: true
+    backup: false
+    readOnly: true
+    description: Mounted read-only inside Duplicati at /source. Pick the folder that holds what matters (for example /srv, or /var/lib/boxpilot-managed/catalog for app data).
+  - id: destinations
+    label: Local destinations
+    container: /backups
+    hostPath: /mnt
+    backup: false
+    description: Mounted disks and network shares appear under /backups so they can be chosen as a destination.
+env:
+  - name: SETTINGS_ENCRYPTION_KEY
+    label: Settings encryption key
+    type: password
+    secret: true
+    generate: true
+  - name: DUPLICATI__WEBSERVICE_PASSWORD
+    label: Web UI password
+    type: password
+    secret: true
+    generate: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Sign in with the Web UI password from Secrets. Add a backup: choose a destination (a folder under /backups for a mounted share, or a cloud provider), pick folders under /source, set a passphrase you will remember (it encrypts the backup; without it nothing can be restored), and a schedule."

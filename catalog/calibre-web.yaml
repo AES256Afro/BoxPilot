@@ -1,0 +1,45 @@
+schemaVersion: 2
+id: calibre-web
+name: Calibre-Web
+category: Books
+icon: "📖"
+description: "Browse, read, and send ebooks from an existing Calibre library in the browser; works with Kobo and Kindle sync."
+website: https://github.com/janeczku/calibre-web
+risk: low
+image:
+  reference: lscr.io/linuxserver/calibre-web:0.6.27-ls397
+  version: "0.6.27"
+ports:
+  - id: web
+    label: Web UI
+    container: 8083
+    host: 8097
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /config
+    path: config
+  - id: books
+    label: Calibre library
+    container: /books
+    hostPath: /srv/books
+    configurable: true
+    backup: false
+    description: Must contain a Calibre library (a metadata.db file). Create one with the Calibre desktop app if you do not have one.
+env:
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "First login is admin / admin123: change it immediately. Point the library location at /books in the first-run dialog."

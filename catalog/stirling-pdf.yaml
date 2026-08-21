@@ -1,0 +1,45 @@
+schemaVersion: 2
+id: stirling-pdf
+name: Stirling PDF
+category: Documents
+icon: "📑"
+description: "Every PDF tool in one page: merge, split, rotate, compress, convert to and from Office formats, OCR scanned documents, sign, redact, and remove passwords, all processed on this server."
+website: https://www.stirlingpdf.com
+risk: low
+image:
+  reference: stirlingtools/stirling-pdf:2.14.3
+  version: "2.14.3"
+ports:
+  - id: web
+    label: Web UI
+    container: 8080
+    host: 8092
+    exposure: lan
+volumes:
+  - id: configs
+    label: Configuration
+    container: /configs
+    path: configs
+  - id: tessdata
+    label: OCR languages
+    container: /usr/share/tessdata
+    path: tessdata
+    backup: false
+  - id: custom
+    label: Custom files and pipelines
+    container: /customFiles
+    path: custom
+env:
+  - name: DOCKER_ENABLE_SECURITY
+    label: Require sign-in
+    description: Off means anyone who can reach the page may use it (fine on a private LAN or tailnet).
+    type: boolean
+    default: false
+  - name: LANGS
+    default: en_GB
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Files are processed locally and deleted afterwards. For OCR in other languages, drop Tesseract .traineddata files into the OCR languages folder."

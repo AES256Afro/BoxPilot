@@ -1,0 +1,68 @@
+schemaVersion: 2
+id: kopia
+name: Kopia
+category: Backup
+icon: "📦"
+description: "Fast, encrypted, deduplicated snapshots with a web UI. Back up folders on this server to a mounted share, an external disk, S3/B2, or another Kopia server; restore single files from any point in time."
+website: https://kopia.io
+risk: low
+image:
+  reference: kopia/kopia:0.23.1
+  version: "0.23.1"
+command: ["server", "start", "--insecure", "--address=0.0.0.0:51515", "--server-username=admin", "--server-password=${KOPIA_SERVER_PASSWORD}"]
+ports:
+  - id: web
+    label: Web UI
+    container: 51515
+    host: 51515
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /app/config
+    path: config
+  - id: cache
+    label: Cache
+    container: /app/cache
+    path: cache
+    backup: false
+  - id: logs
+    label: Logs
+    container: /app/logs
+    path: logs
+    backup: false
+  - id: source
+    label: Folders to back up
+    container: /data
+    hostPath: /srv
+    configurable: true
+    backup: false
+    readOnly: true
+    description: Mounted read-only at /data inside Kopia.
+  - id: repository
+    label: Local repository location
+    container: /repository
+    hostPath: /mnt
+    backup: false
+    description: Mounted disks and network shares appear under /repository; create the repository in a folder there (or use a cloud provider).
+env:
+  - name: KOPIA_PASSWORD
+    label: Repository password
+    description: Encrypts every backup. Keep it somewhere safe; it is shown under Secrets.
+    type: password
+    secret: true
+    generate: true
+  - name: KOPIA_SERVER_PASSWORD
+    label: Web UI password
+    type: password
+    secret: true
+    generate: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Sign in as admin with the Web UI password from Secrets. First create a repository (a folder under /repository on a mounted share or disk, or a cloud bucket) using the repository password from Secrets, then add snapshot sources under /data with a schedule."

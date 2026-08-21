@@ -1,0 +1,39 @@
+schemaVersion: 2
+id: kavita
+name: Kavita
+category: Books
+icon: "📚"
+description: "Ebook, manga, and comic library with a fast reader in the browser and apps; tracks reading progress across devices and supports OPDS."
+website: https://www.kavitareader.com
+risk: low
+image:
+  reference: jvmilazz0/kavita:0.9.0.2
+  version: "0.9.0.2"
+ports:
+  - id: web
+    label: Web UI
+    container: 5000
+    host: 5000
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration and database
+    container: /kavita/config
+    path: config
+  - id: books
+    label: Books folder
+    container: /books
+    hostPath: /srv/books
+    configurable: true
+    backup: false
+    description: Organise as Library/Series/files; Kavita reads EPUB, PDF, CBZ/CBR.
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "The first visit creates the admin account. Add a library pointing at /books."

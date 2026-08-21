@@ -1,0 +1,30 @@
+schemaVersion: 2
+id: resilio-sync
+name: Resilio Sync
+category: Files
+icon: "🔁"
+description: "Peer-to-peer folder sync between your devices with no central server; the alternative to Syncthing for people who already use Resilio on their phones."
+website: https://www.resilio.com/sync
+risk: low
+image:
+  reference: resilio/sync:2.8.1
+  version: "2.8.1"
+ports:
+  - id: web
+    label: Web UI
+    container: 8888
+    host: 8888
+    exposure: lan
+volumes:
+  - id: sync
+    label: Synced folders
+    container: /mnt/sync
+    hostPath: /srv/sync
+    configurable: true
+    backup: false
+    description: Shared folders are created under this path; Resilio keeps its own settings in a hidden .sync folder inside it.
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Open the web UI, create a user, then add a folder under /mnt/sync and share its key or link with your other devices."
