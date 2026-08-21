@@ -207,7 +207,18 @@ export function createAppHelper({
     return { uninstalled: true, purged: false, id, dataRemoved: false, dataDirectory: dirFor(id) };
   }
 
-  async function update({ id }, { progress = null } = {}) {
+  /**
+   * Pre-change checkpoint (M6.7): an ordinary app backup taken right before an update, a
+   * settings change, or a compose edit, so the change can be undone from the card's Restore.
+   * Only managed volumes flagged for backup are archived (config-sized, not media libraries).
+   */
+  async function checkpoint({ id, reason }, { progress = null } = {}) {
+    progress?.(`Checkpoint before ${reason}: backing up current data first`, "stdout");
+    const result = await backup({ id, keep: 5 }, { progress });
+    return { artifact: result.artifact, checksumSha256: result.checksumSha256, sizeBytes: result.sizeBytes, downtimeMs: result.downtimeMs };
+  }
+
+  async function update({ id }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
@@ -216,6 +227,7 @@ export function createAppHelper({
     // operator could not change); keep only what the manifest accepts today.
     const { values, errors } = resolveValues(manifest, sanitizeStoredValues(manifest, state.values ?? {}));
     if (errors.length) throw new Error(`Stored settings no longer match the manifest: ${errors.join("; ")}`);
+    const saved = takeCheckpoint ? await checkpoint({ id, reason: "update" }, { progress }) : null;
     await writeProject(manifest, values, { existingEnv: await readEnv(id) }); // picks up manifest changes (new image tag)
     const pull = await compose(id, ["pull"], { timeout: 30 * 60_000, progress });
     if (!pull.ok) throw new Error(`docker compose pull failed: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
@@ -224,7 +236,7 @@ export function createAppHelper({
       if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
       const status = await waitHealthy(manifest, progress);
       await writeState(id, { ...state, updatedAt: clock().toISOString(), manifestSha256: manifest.sha256 ?? null, image: { reference: manifest.image.reference, id: status.image }, values: storableValues(manifest, values, values.env), pinnedRollback: false });
-      return { updated: true, id, previousImage: before.image, image: status.image, changed: before.image !== status.image };
+      return { updated: true, id, previousImage: before.image, image: status.image, changed: before.image !== status.image, checkpoint: saved };
     } catch (error) {
       let rolledBack = false;
       if (before.image) {
@@ -239,12 +251,13 @@ export function createAppHelper({
     }
   }
 
-  async function reconfigure({ id, values: rawValues = {} }, { progress = null } = {}) {
+  async function reconfigure({ id, values: rawValues = {} }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
     const { values, errors } = resolveValues(manifest, rawValues);
     if (errors.length) throw new Error(`Invalid settings: ${errors.join("; ")}`);
+    const saved = takeCheckpoint ? await checkpoint({ id, reason: "settings change" }, { progress }) : null;
     const previousCompose = await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => null);
     const previousEnv = await readFile(path.join(dirFor(id), ".env"), "utf8").catch(() => "");
     const rendered = await writeProject(manifest, values, { existingEnv: parseEnvFile(previousEnv) });
@@ -253,7 +266,7 @@ export function createAppHelper({
       if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
       await waitHealthy(manifest, progress);
       await writeState(id, { ...state, updatedAt: clock().toISOString(), values: storableValues(manifest, values, rendered.env) });
-      return { reconfigured: true, id, hostPorts: rendered.hostPorts };
+      return { reconfigured: true, id, hostPorts: rendered.hostPorts, checkpoint: saved };
     } catch (error) {
       let rolledBack = false;
       if (previousCompose !== null) {
@@ -271,7 +284,7 @@ export function createAppHelper({
    * `docker compose config`, applied with rollback to the previous file on failure.
    * The next Settings change or Update regenerates the file from the manifest.
    */
-  async function editCompose({ id, compose: composeText }, { progress = null } = {}) {
+  async function editCompose({ id, compose: composeText }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
@@ -282,6 +295,7 @@ export function createAppHelper({
     const target = path.join(dirFor(id), "compose.yaml");
     const previous = await readFile(target, "utf8").catch(() => null);
     if (previous === null) throw new Error("There is no compose.yaml to edit");
+    const saved = takeCheckpoint ? await checkpoint({ id, reason: "compose edit" }, { progress }) : null;
     await writeFile(target, composeText, { mode: 0o600 });
     const check = await compose(id, ["config", "--quiet"], { timeout: 60_000, progress });
     if (!check.ok) {
@@ -293,7 +307,7 @@ export function createAppHelper({
       if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
       await waitHealthy(manifest, progress);
       await writeState(id, { ...state, updatedAt: clock().toISOString(), rawEdited: true });
-      return { edited: true, id, rawEdited: true };
+      return { edited: true, id, rawEdited: true, checkpoint: saved };
     } catch (error) {
       progress?.(`Edit failed: ${error.message}. Restoring the previous compose file...`, "stderr");
       await writeFile(target, previous, { mode: 0o600 });
