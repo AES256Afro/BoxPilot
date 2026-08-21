@@ -1,6 +1,6 @@
 {
   "name": "boxpilot",
-  "version": "0.62.4",
+  "version": "0.62.5",
   "private": true,
   "description": "A safety-first local control plane for Ubuntu home servers.",
   "type": "module",
@@ -17,7 +17,8 @@
     "start": "node server/index.mjs",
     "test": "vitest run",
     "check:shell": "sh -n scripts/boxpilot-doctor.sh scripts/boxpilot-install.sh scripts/boxpilot-upgrade.sh scripts/boxpilot-restic-setup.sh scripts/boxpilot-controller-restic-setup.sh scripts/boxpilot-application-restic-setup.sh",
-    "check": "npm run build && npm run test && npm run check:syntax && npm run check:shell",
+    "lint": "eslint server scripts eslint.config.mjs",
+    "check": "npm run build && npm run test && npm run check:syntax && npm run lint && npm run check:shell",
     "check:syntax": "find server scripts -name '*.mjs' -not -path '*/node_modules/*' -print0 | xargs -0 -n 25 node --check"
   },
   "dependencies": {
@@ -27,12 +28,15 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@testing-library/react": "16.3.2",
     "@types/express": "5.0.6",
     "@types/node": "24.10.4",
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.5",
+    "eslint": "^10.9.0",
+    "globals": "^17.11.0",
     "jsdom": "30.0.1",
     "typescript": "7.0.2",
     "vite": "8.2.1",

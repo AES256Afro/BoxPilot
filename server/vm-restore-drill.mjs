@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { restoreDrillDomainName } from "./vm-restore-drill-helper.mjs";
 
 const shaPattern = /^[a-f0-9]{64}$/;
 

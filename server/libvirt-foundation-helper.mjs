@@ -48,7 +48,7 @@ function parseInfo(output) {
 }
 
 function xmlAttribute(xml, element, attribute) {
-  const expression = new RegExp(`<${element}\\b[^>]*\\b${attribute}=(?:'([^']*)'|\"([^\"]*)\")`, "i");
+  const expression = new RegExp(`<${element}\\b[^>]*\\b${attribute}=(?:'([^']*)'|"([^"]*)")`, "i");
   const match = String(xml ?? "").match(expression);
   return match?.[1] ?? match?.[2] ?? null;
 }

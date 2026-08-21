@@ -11,7 +11,7 @@ import { createVmMediaHelper } from "./vm-media-helper.mjs";
 import { validateDomainName } from "./libvirt.mjs";
 import { createVmProtectionHelper } from "./vm-protection-helper.mjs";
 import { createVmRecoveryHelper, validateVmRecoveryInput } from "./vm-recovery-helper.mjs";
-import { createVmRetentionHelper, validateVmRetentionInput } from "./vm-retention-helper.mjs";
+import { createVmRetentionHelper } from "./vm-retention-helper.mjs";
 import { createVmRestoreDrillHelper, validateVmRestoreDrillInput } from "./vm-restore-drill-helper.mjs";
 import { createPrerequisiteHelper } from "./prerequisite-helper.mjs";
 import { createLibvirtFoundationHelper } from "./libvirt-foundation-helper.mjs";

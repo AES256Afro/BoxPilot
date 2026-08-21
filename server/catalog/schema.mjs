@@ -5,7 +5,7 @@
  */
 
 const idPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
-const imagePattern = /^[a-z0-9][a-z0-9._\/-]*(?::[A-Za-z0-9._-]{1,128})?(?:@sha256:[a-f0-9]{64})?$/;
+const imagePattern = /^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9._-]{1,128})?(?:@sha256:[a-f0-9]{64})?$/;
 const envNamePattern = /^[A-Z][A-Za-z0-9_]{0,63}$/;
 const keyPattern = /^[a-z][a-z0-9-]{0,31}$/;
 const containerPathPattern = /^\/[^\0]*$/;
@@ -140,7 +140,7 @@ export function validateManifest(raw) {
     if (raw[listField] !== undefined && !(Array.isArray(raw[listField]) && raw[listField].every((item) => typeof item === "string" && item.length <= 128 && !/\s/.test(item)))) fail(errors, `manifest.${listField}`, "must be a list of tokens");
   }
   if (Array.isArray(raw.capabilities) && raw.capabilities.some((cap) => !/^CAP_[A-Z_]+$/.test(cap))) fail(errors, "manifest.capabilities", "entries must look like CAP_NET_ADMIN");
-  if (Array.isArray(raw.devices) && raw.devices.some((device) => !/^\/dev\/[A-Za-z0-9._\/-]+$/.test(device))) fail(errors, "manifest.devices", "entries must be /dev paths");
+  if (Array.isArray(raw.devices) && raw.devices.some((device) => !/^\/dev\/[A-Za-z0-9._/-]+$/.test(device))) fail(errors, "manifest.devices", "entries must be /dev paths");
 
   if (errors.length) return { manifest: null, errors };
 

@@ -137,8 +137,8 @@ export function parseBlockInventory(output) {
   const parsed = parseJson(output);
   if (!parsed || !Array.isArray(parsed.blockdevices)) return { available: false, devices: [] };
   const devices = flatten(parsed.blockdevices).map(({ item, parent }) => ({
-    name: typeof item?.name === "string" && /^\/dev\/[a-zA-Z0-9+_.\/-]+$/.test(item.name) ? item.name.slice(0, 128) : "[unavailable]",
-    parent: typeof parent?.name === "string" && /^\/dev\/[a-zA-Z0-9+_.\/-]+$/.test(parent.name) ? parent.name.slice(0, 128) : null,
+    name: typeof item?.name === "string" && /^\/dev\/[a-zA-Z0-9+_./-]+$/.test(item.name) ? item.name.slice(0, 128) : "[unavailable]",
+    parent: typeof parent?.name === "string" && /^\/dev\/[a-zA-Z0-9+_./-]+$/.test(parent.name) ? parent.name.slice(0, 128) : null,
     type: typeof item?.type === "string" ? item.type.slice(0, 24) : "unknown",
     filesystem: typeof item?.fstype === "string" ? item.fstype.slice(0, 32) : null,
     sizeBytes: numberOrNull(item?.size),

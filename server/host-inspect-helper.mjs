@@ -5,6 +5,10 @@ import { fixedRun } from "./exec.mjs";
  * Journal reads moved to the logs.* registry operations.
  */
 
+function parseJsonLines(output) {
+  return String(output ?? "").split("\n").filter(Boolean).map((line) => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean);
+}
+
 export function createHostInspectHelper({
   dockerBinary = process.env.BOXPILOT_DOCKER_BINARY ?? "/usr/bin/docker",
   run = fixedRun,

@@ -60,7 +60,7 @@ export function vmOperations() {
       id: "vm.backup.retention.apply", title: "Apply VM backup retention", risk: "medium", timeoutMs: 12 * 60 * 60_000,
       description: "Forgets only the pinned eligible old snapshots and verifies the repository afterwards. Never prunes.",
       parameters: { exact: false, fields: { retentionId: { type: "string", optional: true } } },
-      run: ({ candidates, expectedBeforeCount, ...parameters }, { vmRetention }) => vmRetention.apply(parameters),
+      run: ({ candidates: _candidates, expectedBeforeCount: _expectedBeforeCount, ...parameters }, { vmRetention }) => vmRetention.apply(parameters),
     }),
     defineOperation({
       id: "vm.backup.restore-drill", title: "Run an isolated VM restore drill", risk: "medium", timeoutMs: 12 * 60 * 60_000,

@@ -687,22 +687,6 @@ export function createStateStore({
     } : null;
   }
 
-  function mapApplicationRecovery(row) {
-    return row ? {
-      id: row.id,
-      backupId: row.backup_id,
-      applicationId: row.application_id,
-      destination: row.destination_type,
-      statePath: row.state_path,
-      evidencePath: row.evidence_path,
-      sizeBytes: Number(row.size_bytes),
-      state: row.state,
-      network: row.network,
-      createdBy: row.created_by,
-      createdAt: row.created_at,
-    } : null;
-  }
-
   function recordControllerBackupProtection({ id, backupId, destination, repositoryId, snapshotId, sizeBytes, encrypted, independent, repositoryVerified, protected: protectedState, restoreDrill, createdBy }) {
     const at = timestamp();
     database.prepare(`
