@@ -21,10 +21,6 @@ async function defaultRunner(binary, args, { timeout = 180000 } = {}) {
   return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };
 }
 
-function delay(milliseconds) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
-}
-
 export function createVmHelper({
   mediaRoot = process.env.BOXPILOT_ISO_DIRECTORY ?? "/var/lib/libvirt/boot",
   connectionUri = process.env.BOXPILOT_LIBVIRT_URI ?? "qemu:///system",
@@ -38,7 +34,6 @@ export function createVmHelper({
   exportRoot = process.env.BOXPILOT_VM_EXPORT_ROOT ?? "/var/lib/boxpilot-managed/vm-exports",
   statFile = lstat,
   run = defaultRunner,
-  wait = delay,
 } = {}) {
   const resolvedMediaRoot = path.resolve(mediaRoot);
   const resolvedImageRoot = path.resolve(imageRoot);
@@ -149,16 +144,6 @@ export function createVmHelper({
       disk.virtualSizeBytes = virtualSizeBytes;
     }
     return { disks, targets: disks.map((disk) => disk.target), revision: snapshotDiskRevision(disks) };
-  }
-
-  async function waitForState(name, desiredState, attempts) {
-    let current = null;
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      current = await domainSnapshot(name);
-      if (current.state === desiredState) return current;
-      await wait(1000);
-    }
-    throw new Error(`VM did not reach ${desiredState} before the verification timeout`);
   }
 
   async function inventory({ scope }) {

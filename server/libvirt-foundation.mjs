@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-export function createLibvirtFoundationService({ store, helper, newId = randomUUID } = {}) {
+export function createLibvirtFoundationService({ helper, newId = randomUUID } = {}) {
   async function inspect() {
     try {
       return await helper.request("virtualization.foundation.inspect", {});

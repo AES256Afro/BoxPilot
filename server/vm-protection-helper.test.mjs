@@ -123,7 +123,7 @@ describe("encrypted independent VM backup helper", () => {
   });
 
   it("fails before restic backup when local export content changed", async () => {
-    const { helper, run, exportId, backupId, domainUuid, expectedSizeBytes, expectedManifestChecksumSha256 } = await fixture();
+    const { helper, run, exportId, backupId, domainUuid, expectedSizeBytes } = await fixture();
     const destination = await helper.inspect();
     await expect(helper.createBackup({
       backupId, exportId, domainName: "ubuntu-lab", domainUuid,

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chmod, copyFile, lstat, mkdir, open, readFile, rmdir, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, open, readFile, rmdir, unlink, writeFile } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";

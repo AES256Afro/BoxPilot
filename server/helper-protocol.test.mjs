@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { executeHelperOperation, validateHelperRequest } from "./helper-protocol.mjs";
 import { productVersion } from "./version.mjs";
 
@@ -13,14 +13,6 @@ function vmParameters(overrides = {}) {
 
 function vmMediaParameters(overrides = {}) {
   return { importId: "77777777-7777-4777-8777-777777777777", filename: "ubuntu.iso", expectedSizeBytes: 8192, expectedSha256: "a".repeat(64), expectedRevision: "b".repeat(64), ...overrides };
-}
-
-function lifecycleParameters(overrides = {}) {
-  return { name: "ubuntu-lab", action: "shutdown", expectedState: "running", expectedAutostart: false, ...overrides };
-}
-
-function snapshotParameters(overrides = {}) {
-  return { name: "ubuntu-lab", snapshotName: "pre-upgrade", expectedUuid: "11111111-1111-4111-8111-111111111111", expectedState: "stopped", expectedDiskRevision: "b".repeat(64), expectedSnapshotRevision: "a".repeat(64), ...overrides };
 }
 
 function exportParameters(overrides = {}) {
@@ -55,18 +47,6 @@ function retentionParameters(overrides = {}) {
     expectedDestinationRevision: "b".repeat(64),
     expectedSnapshotSetRevision: "c".repeat(64),
     forgetSnapshotIds: ["d".repeat(64)],
-    ...overrides,
-  };
-}
-
-function migrationTransferParameters(overrides = {}) {
-  return {
-    transferId: "88888888-8888-4888-8888-888888888888",
-    bundleId: "99999999-9999-4999-8999-999999999999",
-    sourceFingerprint: `sha256:${"a".repeat(64)}`,
-    contentRevision: "b".repeat(64),
-    expectedDestinationState: "empty",
-    expectedRemainingBytes: 8192,
     ...overrides,
   };
 }

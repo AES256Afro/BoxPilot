@@ -19,7 +19,7 @@ export function controllerOperations() {
       id: "controller.backup.retention.apply", title: "Apply controller backup retention", risk: "medium", timeoutMs: 12 * 60 * 60_000,
       description: "Forgets only the pinned eligible old snapshots, verifies the repository afterwards, and never prunes — reclaimed space is not claimed.",
       parameters: { exact: false, fields: { retentionId: { type: "string", optional: true } } },
-      run: ({ candidates, expectedBeforeCount, ...parameters }, { controllerRetention }) => controllerRetention.apply(parameters),
+      run: ({ candidates: _candidates, expectedBeforeCount: _expectedBeforeCount, ...parameters }, { controllerRetention }) => controllerRetention.apply(parameters),
     }),
   ];
 }

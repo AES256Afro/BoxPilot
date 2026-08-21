@@ -1,4 +1,4 @@
-export function createVmCreationService({ store, planner, libvirt }) {
+export function createVmCreationService({ planner, libvirt }) {
   async function inspectHost(input) {
     const domain = await libvirt.getDomain(input.name);
     if (domain) return { ok: false, errors: [`A libvirt domain named ${input.name} already exists`] };

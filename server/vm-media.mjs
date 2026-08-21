@@ -15,7 +15,6 @@ function expectedUploadSize(request) {
 }
 
 export function createVmMediaService({
-  store,
   helper,
   inboxRoot = process.env.BOXPILOT_VM_MEDIA_INBOX ?? "/var/lib/boxpilot-managed/vm-media-inbox",
   filesystemStats = statfs,
