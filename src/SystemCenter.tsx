@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useOperation } from "./ApproveDialog";
+import UpsPanel from "./UpsPanel";
 import SchedulesPanel from "./SchedulesPanel";
 import { inspectOperation } from "./operations";
 
@@ -225,6 +226,7 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
         </section>
       )}
 
+      <UpsPanel start={start} />
       <section className="panel">
         <header className="panel-header">
           <div><strong>SSD trim timer</strong><span>{fstrimEnabled ? `fstrim.timer is enabled${settings?.fstrim.nextRun ? `; next run ${settings.fstrim.nextRun}` : ""}.` : "fstrim.timer is disabled. Weekly trim keeps SSDs fast and healthy."}</span></div>

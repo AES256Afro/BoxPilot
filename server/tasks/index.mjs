@@ -11,6 +11,7 @@ import { storageFormat, storageLvmExtend, storageMount, storageUnmount, swapFile
 import { shareMount, shareUnmount } from "./shares.mjs";
 import { sambaApply, sambaUserRemove, sambaUserSet } from "./samba.mjs";
 import { nfsApply } from "./nfs.mjs";
+import { upsSetup } from "./ups.mjs";
 import { ensureCloudImage } from "./cloud-images.mjs";
 import { systemUpdate } from "./update.mjs";
 import { backupRemoteKeygen, backupRemoteSync, backupRemoteTest } from "./backup-remote.mjs";
@@ -48,6 +49,7 @@ export const tasks = Object.freeze({
   "samba.user.set": sambaUserSet,
   "samba.user.remove": sambaUserRemove,
   "nfs.apply": nfsApply,
+  "ups.setup": upsSetup,
   "vm.cloud-image.ensure": ensureCloudImage,
   "system.update": systemUpdate,
   "backup.remote.keygen": backupRemoteKeygen,

@@ -17,9 +17,10 @@ import { networkOperations } from "./network.mjs";
 import { shareOperations } from "./shares.mjs";
 import { sambaOperations } from "./samba.mjs";
 import { nfsOperations } from "./nfs.mjs";
+import { upsOperations } from "./ups.mjs";
 
 /** The default registry used by the helper and the web service. Add new operation modules here. */
-export const operationModules = [prerequisiteOperations, aptOperations, systemOperations, appOperations, serviceOperations, userOperations, firewallOperations, storageOperations, controllerOperations, vmOperations, hostBackupOperations, logOperations, updateOperations, networkOperations, shareOperations, sambaOperations, nfsOperations];
+export const operationModules = [prerequisiteOperations, aptOperations, systemOperations, appOperations, serviceOperations, userOperations, firewallOperations, storageOperations, controllerOperations, vmOperations, hostBackupOperations, logOperations, updateOperations, networkOperations, shareOperations, sambaOperations, nfsOperations, upsOperations];
 export const registry = createRegistry(operationModules);
 setRegistryLookup((id) => registry.get(id));
 export { createRegistry, defineOperation, validateParameters, riskTiers } from "./registry.mjs";
