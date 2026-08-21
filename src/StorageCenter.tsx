@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOperation } from "./ApproveDialog";
+import SambaPanel from "./SambaPanel";
 
 interface DeviceRow {
   path: string | null; type: string | null; sizeBytes: number | null; fstype: string | null; uuid: string | null; label: string | null; model: string | null; transport: string | null;
@@ -28,6 +29,7 @@ async function readJson<T>(response: Response): Promise<T> {
 
 export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
   const [report, setReport] = useState<StorageReport | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mountTarget, setMountTarget] = useState<DeviceRow | null>(null);
@@ -54,6 +56,7 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
     setError(null);
     try {
       setReport(await readJson<StorageReport>(await fetch("/api/v1/storage/overview")));
+      setRefreshKey((key) => key + 1);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read storage state");
     } finally {
@@ -303,6 +306,8 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
           <br /><strong>Reach it from anywhere, only over Tailscale:</strong> shares stay private to this server. To browse them from your phone or laptop, install <em>File Browser</em> from the App catalog (it listens on this server only), point it at <code>/mnt</code>, and click <em>Serve on tailnet (HTTPS)</em>. Nothing is exposed on your LAN or the internet.
         </p>
       </section>
+
+      <SambaPanel start={start} refreshKey={refreshKey} folders={[...new Set([...(report?.shares ?? []).map((entry) => entry.mountpoint), ...(report?.fstab ?? []).filter((row) => row.managedName).map((row) => row.mountpoint), "/srv", "/mnt"])]} />
 
       <section className="panel">
         <header className="panel-header"><div><strong>Mounted filesystems</strong><span>Unmount is offered only for mounts BoxPilot added; entries you created stay yours.</span></div></header>

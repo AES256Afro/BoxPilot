@@ -63,7 +63,7 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   },
   storage: {
     title: "Storage",
-    description: "See disks and usage, claim unallocated LVM space, mount disks and network shares (SMB/NFS) permanently, and format empty disks.",
+    description: "See disks and usage, claim unallocated LVM space, mount disks and network shares (SMB/NFS) permanently, share this server's folders over your tailnet, and format empty disks.",
   },
   network: {
     title: "Network and DNS",
