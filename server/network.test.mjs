@@ -91,6 +91,8 @@ describe("network topology and DNS assessment", () => {
       ["ss", ["-H", "-l", "-n", "-t", "-u"]],
       ["tailscale", ["status", "--json"]],
       ["ip", ["-j", "-4", "neigh", "show"]],
+      ["tailscale", ["debug", "prefs"]],
+      ["ip", ["-j", "-4", "route", "show"]],
     ]);
     expect(Array.isArray(result.devices)).toBe(true);
     store.close();

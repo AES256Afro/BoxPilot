@@ -14,6 +14,7 @@ import { nfsApply } from "./nfs.mjs";
 import { upsSetup } from "./ups.mjs";
 import { fail2banApply } from "./fail2ban.mjs";
 import { backupCloudSetup, backupCloudSync, backupCloudTest } from "./backup-cloud.mjs";
+import { tailscaleSet } from "./tailscale.mjs";
 import { ensureCloudImage } from "./cloud-images.mjs";
 import { systemUpdate } from "./update.mjs";
 import { backupRemoteKeygen, backupRemoteSync, backupRemoteTest } from "./backup-remote.mjs";
@@ -59,6 +60,7 @@ export const tasks = Object.freeze({
   "backup.cloud.setup": backupCloudSetup,
   "backup.cloud.test": backupCloudTest,
   "backup.cloud.sync": backupCloudSync,
+  "tailscale.set": tailscaleSet,
   "vm.cloud-image.ensure": ensureCloudImage,
   "system.update": systemUpdate,
   "backup.remote.keygen": backupRemoteKeygen,

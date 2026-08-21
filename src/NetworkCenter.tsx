@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useOperation } from "./ApproveDialog";
+import TailscalePanel from "./TailscalePanel";
 
 type Topology = {
   generatedAt: string;
@@ -7,7 +8,7 @@ type Topology = {
   eligibleLanAddresses: Array<{ interface: string; address: string; cidr: string | null }>;
   defaultRoutes: Array<{ gateway: string; interface: string; protocol: string }>;
   defaultResolvers: string[];
-  tailscale: { connected: boolean; dnsName: string | null; resolverPresent: boolean; defaultDnsObserved: boolean; overrideState: string };
+  tailscale: { connected: boolean; dnsName: string | null; resolverPresent: boolean; defaultDnsObserved: boolean; overrideState: string; address?: string | null; exitNodeAdvertised?: boolean | null; advertisedRoutes?: string[]; approvedRoutes?: string[]; lanSubnets?: string[] };
   dnsListeners: Array<{ protocol: string; address: string; port: number; scope: string; interface: string | null }>;
   devices?: Array<{ address: string; mac: string; interface: string | null; state: string }>;
   routerCatalog: Array<{ id: string; name: string; roles: string[]; integration: string; note: string; officialSource: string }>;
@@ -142,6 +143,7 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
       </div>
 
       <div className="dashboard-grid">
+        <TailscalePanel start={start} tailscale={topology.tailscale} />
         <section className="panel">
           <header className="panel-header"><div><strong>Devices on your LAN</strong><span>Neighbours this server has talked to recently (ARP table). Wake sends Wake-on-LAN magic packets; the device must allow it in firmware.</span></div></header>
           {topology.devices && topology.devices.length ? <div className="workload-list">{topology.devices.map((device) => <div className="workload" key={`${device.address}-${device.mac}`}><div><strong>{device.address}</strong><span><code>{device.mac}</code>{device.interface ? ` via ${device.interface}` : ""}</span></div><span className={`status-pill status-${device.state === "REACHABLE" ? "good" : "neutral"}`}>{device.state.toLowerCase()}</span><button className="text-button" type="button" onClick={() => start({ operationId: "network.wake", title: `Wake ${device.address}`, parameters: { mac: device.mac }, preview: <span>Broadcasts Wake-on-LAN magic packets for <code>{device.mac}</code> on this server's network. Nothing is read back — the device either wakes or it does not.</span> })}>Wake</button></div>)}</div> : <p className="empty-state">{topology.collectors.neighbors === false ? "The neighbour table is unavailable." : "No resolved neighbours right now. Devices appear after this server exchanges traffic with them."}</p>}
