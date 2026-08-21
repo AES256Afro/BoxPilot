@@ -3,18 +3,13 @@ import {
   navItems,
   type ViewName,
 } from "./data";
-import { inspectCompose, type ComposeInspection } from "./composeInspector";
 import AuthScreen from "./AuthScreen";
-import ApplicationCatalog from "./ApplicationCatalog";
 import BackupCenter from "./BackupCenter";
-import FleetCenter from "./FleetCenter";
 import GitHubCenter from "./GitHubCenter";
 import HomeDashboard from "./HomeDashboard";
 import HostOverview from "./HostOverview";
-import MigrationCenter from "./MigrationCenter";
 import NetworkCenter from "./NetworkCenter";
 import RepairCenter from "./RepairCenter";
-import RouterCenter from "./RouterCenter";
 import SystemLogs from "./SystemLogs";
 import UpdatesCenter from "./UpdatesCenter";
 import AppCatalog from "./AppCatalog";
@@ -29,8 +24,6 @@ import NotificationSettings from "./NotificationSettings";
 import SignInSettings from "./SignInSettings";
 import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import VirtualMachines from "./VirtualMachines";
-
-type DialogName = "compose" | null;
 
 const viewCopy: Record<ViewName, { title: string; description: string; action?: string }> = {
   overview: {
@@ -65,18 +58,9 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
     title: "Storage",
     description: "See disks and usage, mount filesystems permanently, and format empty disks.",
   },
-  applications: {
-    title: "Applications",
-    description: "Curated installs with port, storage, secret, health, and backup checks.",
-    action: "Import Compose",
-  },
   network: {
     title: "Network and DNS",
-    description: "Inspect the live gateway and resolver path, then collect guarded DNS evidence without changing clients or routers.",
-  },
-  routers: {
-    title: "Router checkpoints",
-    description: "Record local configuration-backup identity before any future router integration or DNS change.",
+    description: "Inspect the live gateway, resolver path, and DNS listeners on this server.",
   },
   repairs: {
     title: "Prerequisites and Repair Center",
@@ -88,15 +72,7 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   },
   backups: {
     title: "Backups",
-    description: "Coverage is not complete until a restore has been tested.",
-  },
-  migrations: {
-    title: "Migration Center",
-    description: "Discover, copy, validate, and cut over without destroying the source.",
-  },
-  fleet: {
-    title: "Fleet and agents",
-    description: "Enroll signed devices for narrow node-local evidence without granting remote shell access.",
+    description: "BoxPilot's own database: verified snapshots and independent encrypted copies.",
   },
   github: {
     title: "GitHub provenance",
@@ -154,25 +130,15 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
     tone: "live",
     description: "Devices and usage come from this server. Mounts are added to fstab by UUID with nofail and verified before use; formatting asks for the owner password and the typed device name.",
   },
-  applications: {
-    label: "Curated application engine",
-    tone: "live",
-    description: "Curated deployment, backup, and recovery adapters are live. Keel 1.2.6 includes guarded native install, terminal claim, sanitized instance-owner login proof, backup, recovery rehearsal, promotion, and rollback. Router writes, client DNS cutover, and general application execution remain locked.",
-  },
   network: {
     label: "Network intelligence and guarded direct tests",
     tone: "live",
-    description: "Live topology remains read-only. A password-approved Pi-hole workflow can send four fixed direct DNS queries from this server, and a signed enrolled agent can independently repeat them. Router credentials, router writes, and DNS cutover remain unavailable.",
-  },
-  routers: {
-    label: "Guided router recovery and direct DNS evidence",
-    tone: "live",
-    description: "BoxPilot correlates this server's observed gateway address with fixed router guidance, records browser-local backup hashes, and can run four approved DNS queries to the observed gateway after Flint 2 recovery declarations. Model identity, AdGuard configuration, DHCP advertisement, operating modes, and cabling remain operator checks. Credentials, sessions, writes, and DNS cutover remain unavailable.",
+    description: "Routes, resolvers, LAN addresses, and Tailscale state come from this server, read-only.",
   },
   repairs: {
     label: "Live Operations Core",
     tone: "live",
-    description: "Prerequisite checks, durable approvals, exact smartmontools, restic, and Ubuntu Docker Engine repairs, fixed APT metadata refresh, helper canary, fixed Keel artifact job, and secret-free recovery readiness kit come from this server. Existing Docker providers are preserved; restic storage and repository setup remains terminal-only; general package mutation remains locked.",
+    description: "Prerequisite checks, exact pinned repairs, the helper canary, and the recovery readiness kit come from this server. Repairs stage through the shared risk-tiered dialog.",
   },
   virtualization: {
     label: "Host-backed module",
@@ -182,17 +148,7 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   backups: {
     label: "Controller and application backup engine",
     tone: "live",
-    description: "BoxPilot controller, Uptime Kuma, Pi-hole, and Keel backup planning plus durable SHA-256 evidence come from this server. Controller state begins with a WAL-aware snapshot, and controller plus application state support separate encrypted independent exact-restore protection after terminal-only repository setup. The fixed no-prune retention policy is available for controller and per-application snapshots; scheduling remains pending.",
-  },
-  migrations: {
-    label: "Guarded local transfer staging",
-    tone: "live",
-    description: "Sanitized source manifests, compatibility plans, root-only checksummed Compose bundles, resumable managed staging, and durable transfer evidence are live. Remote SSH transport, activation, cutover, and source deletion remain unavailable.",
-  },
-  fleet: {
-    label: "Signed one-shot agent policy",
-    tone: "live",
-    description: "One-time enrollment, Ed25519 requests, replay protection, and owner-approved one-shot windows for fixed Pi-hole or Flint 2 gateway proof are live. Flint 2 tasks must match the agent's own local default gateway. Recurrence, unattended jobs, arbitrary commands, targets, plugins, router writes, and DNS cutover remain unavailable.",
+    description: "BoxPilot's own database backs up here with verified restore drills and optional encrypted restic copies. App data backs up from each catalog card; VM protection lives on the Virtual Machines page.",
   },
   github: {
     label: "Credential-free public provenance",
@@ -211,17 +167,6 @@ const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; des
   },
 };
 
-const sampleCompose = `services:
-  keel:
-    image: ghcr.io/example/keel:latest
-    ports:
-      - "127.0.0.1:3000:3000"
-    volumes:
-      - keel-data:/data
-
-volumes:
-  keel-data:
-`;
 
 function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
   return <section className={`panel ${className}`.trim()}>{children}</section>;
@@ -316,11 +261,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     return () => window.removeEventListener("boxpilot:auth-changed", listener);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [dialog, setDialog] = useState<DialogName>(null);
   const [apiMode, setApiMode] = useState("browser preview");
-  const [composeSource, setComposeSource] = useState(sampleCompose);
-  const [inspection, setInspection] = useState<ComposeInspection | null>(null);
-  const [networkAssessmentId, setNetworkAssessmentId] = useState<string | null>(null);
   const [bundleError, setBundleError] = useState<string | null>(null);
 
   const copy = viewCopy[view];
@@ -349,28 +290,14 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "users") return <UsersCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "firewall") return <FirewallCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "storage") return <StorageCenter csrfToken={authStatus.csrfToken ?? ""} />;
-    if (view === "applications") {
-      return (
-        <ApplicationCatalog
-          csrfToken={authStatus.csrfToken ?? ""}
-          onInspectCompose={() => setDialog("compose")}
-          onOpenRepair={() => setView("repairs")}
-          networkAssessmentId={networkAssessmentId}
-          onOpenNetwork={() => setView("network")}
-        />
-      );
-    }
-    if (view === "network") return <NetworkCenter csrfToken={authStatus.csrfToken ?? ""} onAssessmentReady={setNetworkAssessmentId} onOpenRepair={() => setView("repairs")} />;
-    if (view === "routers") return <RouterCenter csrfToken={authStatus.csrfToken ?? ""} />;
+    if (view === "network") return <NetworkCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "repairs") return <RepairCenter csrfToken={authStatus.csrfToken ?? ""} onNavigate={setView} />;
     if (view === "virtualization") return <VirtualMachines csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "backups") return <BackupCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
-    if (view === "migrations") return <MigrationCenter csrfToken={authStatus.csrfToken ?? ""} />;
-    if (view === "fleet") return <FleetCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "github") return <GitHubCenter />;
     if (view === "logs") return <SystemLogs />;
     return <Settings apiMode={apiMode} csrfToken={authStatus.csrfToken ?? ""} />;
-  }, [apiMode, authStatus.csrfToken, networkAssessmentId, view]);
+  }, [apiMode, authStatus.csrfToken, view]);
 
   const downloadSupportBundle = async () => {
     setBundleError(null);
@@ -390,7 +317,6 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   };
 
   const handlePrimaryAction = () => {
-    if (view === "applications") setDialog("compose");
     if (view === "logs") void downloadSupportBundle();
   };
 
@@ -444,25 +370,6 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
         </div>
       </main>
 
-      {dialog === "compose" && (
-        <Modal title="Inspect a Compose stack" onClose={() => setDialog(null)}>
-          <p className="modal-copy">Paste Compose YAML. BoxPilot performs a browser-only structural and risk scan. It does not upload or deploy the stack.</p>
-          <label className="field-label" htmlFor="compose-source">Compose YAML</label>
-          <textarea id="compose-source" value={composeSource} onChange={(event) => setComposeSource(event.target.value)} spellCheck="false" />
-          {inspection && (
-            <div className="inspection" aria-live="polite">
-              <div><strong>{inspection.services}</strong><span>services</span></div>
-              <div><strong>{inspection.publishedPorts}</strong><span>ports</span></div>
-              <div><strong>{inspection.volumeMounts}</strong><span>mounts</span></div>
-              <p>{inspection.risks.length ? inspection.risks.join(" | ") : "No high-risk patterns detected by this basic scan."}</p>
-            </div>
-          )}
-          <footer className="modal-actions">
-            <button className="text-button" type="button" onClick={() => setDialog(null)}>Cancel</button>
-            <button className="primary-button" type="button" onClick={() => setInspection(inspectCompose(composeSource))}>Run dry scan</button>
-          </footer>
-        </Modal>
-      )}
 
     </div>
   );

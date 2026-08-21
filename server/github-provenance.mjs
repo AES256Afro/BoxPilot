@@ -5,7 +5,6 @@ const maximumResponseBytes = 512 * 1024;
 
 const repositoryCatalog = [
   { id: "boxpilot", owner: "AES256Afro", repository: "BoxPilot", purpose: "BoxPilot control-plane source" },
-  { id: "keel", owner: "AES256Afro", repository: "Keel", purpose: "Keel Notes application source and releases" },
 ];
 
 const shaPattern = /^[a-f0-9]{40}$/;
