@@ -3346,3 +3346,10 @@ textarea {
 .autoinstall-output { display: grid; gap: 8px; }
 .autoinstall-output .app-logs { margin: 0 15px 15px; }
 .vm-live-stats code { color: var(--mint); }
+
+/* Backup file browser */
+.backup-browser { display: grid; gap: 8px; margin-bottom: 12px; }
+.backup-browser .recovery-actions { padding: 0; align-items: center; }
+.backup-file-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; max-height: 40vh; overflow: auto; }
+.backup-file-list li { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.backup-file-list li code { flex: 1; word-break: break-all; }

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -174,6 +174,29 @@ describe("generic app deployer", () => {
     const after = await readFile(path.join(configDirectory, "services.yaml"), "utf8");
     expect(after).not.toContain("bp-demo");
     expect(after).toContain("- Mine:");
+  });
+
+  it("lists a backup's files and restores one path over the current data after a checkpoint", async () => {
+    const { apps, catalogRoot } = await setup();
+    await apps.install({ id: "demo" });
+    const dataDirectory = path.join(catalogRoot, "demo", "data");
+    await mkdir(dataDirectory, { recursive: true });
+    await writeFile(path.join(dataDirectory, "settings.json"), '{"theme":"dark"}');
+    await writeFile(path.join(dataDirectory, "notes.txt"), "keep me");
+    const backupResult = await apps.backup({ id: "demo" });
+
+    const listing = await apps.listAppBackupFiles({ id: "demo", backup: backupResult.artifact });
+    expect(listing.files.map((entry) => entry.path)).toEqual(expect.arrayContaining(["boxpilot.json", "data", "data/settings.json", "data/notes.txt"]));
+    expect(listing.files.find((entry) => entry.path === "data/settings.json")).toMatchObject({ type: "file", sizeBytes: 16 });
+
+    await writeFile(path.join(dataDirectory, "settings.json"), '{"theme":"broken"}');
+    await writeFile(path.join(dataDirectory, "notes.txt"), "changed later");
+    const restored = await apps.restoreAppBackupPath({ id: "demo", backup: backupResult.artifact, path: "data/settings.json" });
+    expect(restored).toMatchObject({ restored: true, path: "data/settings.json", checkpoint: { artifact: expect.stringMatching(/\.tar\.gz$/) } });
+    expect(await readFile(path.join(dataDirectory, "settings.json"), "utf8")).toBe('{"theme":"dark"}');
+    expect(await readFile(path.join(dataDirectory, "notes.txt"), "utf8")).toBe("changed later");
+    await expect(apps.restoreAppBackupPath({ id: "demo", backup: backupResult.artifact, path: "../etc/passwd" })).rejects.toThrow("relative path");
+    await expect(apps.restoreAppBackupPath({ id: "demo", backup: backupResult.artifact, path: "data/missing.txt" })).rejects.toThrow("is not in");
   });
 
   it("backs up, prunes, restores, and deletes app data with a real archive", async () => {
