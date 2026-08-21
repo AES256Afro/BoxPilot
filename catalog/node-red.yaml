@@ -1,0 +1,33 @@
+schemaVersion: 2
+id: node-red
+name: Node-RED
+category: Home automation
+icon: "🔴"
+description: "Drag-and-drop automation flows: wire MQTT, HTTP, timers, and Home Assistant events together without writing code."
+website: https://nodered.org
+risk: low
+image:
+  reference: nodered/node-red:5.0.4
+  version: "5.0.4"
+ports:
+  - id: web
+    label: Web UI
+    container: 1880
+    host: 1880
+    exposure: lan
+volumes:
+  - id: data
+    label: Flows and settings
+    container: /data
+    path: data
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+user: "1000:1000"
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Flows are saved in the data folder. Install extra nodes from the palette menu; the Home Assistant nodes (node-red-contrib-home-assistant-websocket) are the usual first addition."

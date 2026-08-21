@@ -1,0 +1,36 @@
+schemaVersion: 2
+id: changedetection
+name: changedetection.io
+category: Monitoring
+icon: "👁️"
+description: "Watch web pages for changes: price drops, back-in-stock notices, new releases, policy updates. Sends notifications through ntfy, Gotify, email, and 80 other services."
+website: https://changedetection.io
+risk: low
+image:
+  reference: dgtlmoon/changedetection.io:0.55.8
+  version: "0.55.8"
+ports:
+  - id: web
+    label: Web UI
+    container: 5000
+    host: 5003
+    exposure: lan
+volumes:
+  - id: datastore
+    label: Watches and history
+    container: /datastore
+    path: datastore
+env:
+  - name: BASE_URL
+    label: Address people use
+    description: Used in notification links.
+    default: http://localhost:5003
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Add a URL to watch, set the check interval, and a notification URL (for example ntfy://<this server>:8093/changes)."

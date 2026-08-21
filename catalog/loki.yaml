@@ -1,0 +1,28 @@
+schemaVersion: 2
+id: loki
+name: Loki
+category: Monitoring
+icon: "🪵"
+description: "Log database for Grafana: ship container and system logs to it and search them next to your metrics."
+website: https://grafana.com/oss/loki
+risk: low
+image:
+  reference: grafana/loki:3.7.6
+  version: "3.7.6"
+ports:
+  - id: web
+    label: Web UI
+    container: 3100
+    host: 3100
+    exposure: lan
+volumes:
+  - id: data
+    label: Log storage
+    container: /loki
+    path: data
+    backup: false
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Runs with the built-in single-node config. Add it to Grafana as a Loki data source at http://<this server>:3100. To ship Docker logs, install Grafana Alloy or use the Docker Loki logging plugin."

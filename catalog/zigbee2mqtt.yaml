@@ -1,0 +1,55 @@
+schemaVersion: 2
+id: zigbee2mqtt
+name: Zigbee2MQTT
+category: Home automation
+icon: "🐝"
+description: "Turn a USB Zigbee coordinator (Sonoff, ConBee, SkyConnect) into a hub for hundreds of Zigbee bulbs, sensors, and switches, exposed to Home Assistant through MQTT."
+website: https://www.zigbee2mqtt.io
+risk: low
+image:
+  reference: koenkk/zigbee2mqtt:2.13.0
+  version: "2.13.0"
+ports:
+  - id: web
+    label: Web UI
+    container: 8080
+    host: 8100
+    exposure: lan
+volumes:
+  - id: data
+    label: Configuration and device database
+    container: /app/data
+    path: data
+  - id: udev
+    label: Device database (read-only)
+    container: /run/udev
+    hostPath: /run/udev
+    backup: false
+    readOnly: true
+env:
+  - name: ZIGBEE2MQTT_CONFIG_MQTT_SERVER
+    label: MQTT broker
+    description: Install Mosquitto first, then use mqtt://<this server LAN address>:1883.
+    required: true
+  - name: ZIGBEE2MQTT_CONFIG_SERIAL_PORT
+    label: Coordinator device
+    description: Usually /dev/ttyUSB0 or /dev/ttyACM0; check dmesg after plugging it in.
+    default: /dev/ttyUSB0
+  - name: ZIGBEE2MQTT_CONFIG_FRONTEND_ENABLED
+    default: "true"
+    fixed: true
+  - name: ZIGBEE2MQTT_CONFIG_FRONTEND_PORT
+    default: "8080"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+devices:
+  - /dev/ttyUSB?
+  - /dev/ttyACM?
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Plug the coordinator in before installing (the USB device is passed through at install; re-apply Settings if you move it). Pair devices from the web UI with Permit join."

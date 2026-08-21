@@ -1,0 +1,74 @@
+schemaVersion: 2
+id: netdata
+name: Netdata
+category: Monitoring
+icon: "📉"
+description: "Real-time dashboards for everything on this server at one-second resolution: CPU, memory, disks, network, every container, with anomaly detection and alerts. No account needed."
+website: https://www.netdata.cloud
+risk: low
+image:
+  reference: netdata/netdata:v2.11.0
+  version: "2.11.0"
+network: host
+capabilities:
+  - CAP_SYS_PTRACE
+  - CAP_SYS_ADMIN
+  - CAP_CHOWN
+  - CAP_SETUID
+  - CAP_SETGID
+  - CAP_DAC_OVERRIDE
+  - CAP_FOWNER
+ports:
+  - id: web
+    label: Dashboard
+    container: 19999
+    host: 19999
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /etc/netdata
+    path: config
+  - id: lib
+    label: Metrics database
+    container: /var/lib/netdata
+    path: lib
+    backup: false
+  - id: cache
+    label: Cache
+    container: /var/cache/netdata
+    path: cache
+    backup: false
+  - id: proc
+    label: Host /proc (read-only)
+    container: /host/proc
+    hostPath: /proc
+    readOnly: true
+    backup: false
+  - id: sys
+    label: Host /sys (read-only)
+    container: /host/sys
+    hostPath: /sys
+    readOnly: true
+    backup: false
+  - id: osrelease
+    label: Host os-release (read-only)
+    container: /host/etc/os-release
+    hostPath: /etc/os-release
+    readOnly: true
+    backup: false
+  - id: docker
+    label: Docker socket (read-only)
+    container: /var/run/docker.sock
+    hostPath: /var/run/docker.sock
+    readOnly: true
+    backup: false
+env:
+  - name: NETDATA_DISABLE_CLOUD
+    default: "1"
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 20
+  timeoutSeconds: 300
+notes: "Open the dashboard on port 19999. Cloud sign-in is disabled; everything is local. Host networking and the read-only host mounts are what let it see real interfaces and processes."

@@ -1,0 +1,33 @@
+schemaVersion: 2
+id: dozzle
+name: Dozzle
+category: Monitoring
+icon: "🪟"
+description: "Live logs of every container in the browser with search and multi-container views. No setup, no database."
+website: https://dozzle.dev
+risk: low
+image:
+  reference: amir20/dozzle:v10.7.3
+  version: "10.7.3"
+ports:
+  - id: web
+    label: Web UI
+    container: 8080
+    host: 8104
+    exposure: lan
+volumes:
+  - id: docker
+    label: Docker socket (read-only)
+    container: /var/run/docker.sock
+    hostPath: /var/run/docker.sock
+    backup: false
+    readOnly: true
+env:
+  - name: DOZZLE_NO_ANALYTICS
+    default: "true"
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Shows logs for all containers on this server, including BoxPilot-managed apps (they are prefixed bp-)."

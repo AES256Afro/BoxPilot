@@ -26,7 +26,7 @@ function checkKeys(errors, path, value, allowed, required = []) {
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
-  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia"], ["schemaVersion", "id", "name", "category", "description", "image"]);
+  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls"], ["schemaVersion", "id", "name", "category", "description", "image"]);
   if (raw.schemaVersion !== 2) fail(errors, "manifest.schemaVersion", "must be 2");
   if (typeof raw.id !== "string" || !idPattern.test(raw.id)) fail(errors, "manifest.id", "must be a short lower-case slug");
   for (const field of ["name", "category", "description"]) if (typeof raw[field] !== "string" || !raw[field].trim() || raw[field].length > 400) fail(errors, `manifest.${field}`, "must be a non-empty string");
@@ -176,6 +176,7 @@ export function validateManifest(raw) {
     if (raw[listField] !== undefined && !(Array.isArray(raw[listField]) && raw[listField].every((item) => typeof item === "string" && item.length <= 128 && !/\s/.test(item)))) fail(errors, `manifest.${listField}`, "must be a list of tokens");
   }
   if (Array.isArray(raw.capabilities) && raw.capabilities.some((cap) => !/^CAP_[A-Z_]+$/.test(cap))) fail(errors, "manifest.capabilities", "entries must look like CAP_NET_ADMIN");
+  if (raw.sysctls !== undefined && !(Array.isArray(raw.sysctls) && raw.sysctls.length <= 16 && raw.sysctls.every((entry) => typeof entry === "string" && /^net\.[a-z0-9_.]+=[A-Za-z0-9_.-]+$/.test(entry)))) fail(errors, "manifest.sysctls", "entries must be net.* kernel settings like net.ipv4.ip_forward=1");
   if (Array.isArray(raw.devices) && raw.devices.some((device) => !/^\/dev\/[A-Za-z0-9._/?*[\]-]+$/.test(device))) fail(errors, "manifest.devices", "entries must be /dev paths (globs like /dev/sd? are resolved at install time)");
 
   if (errors.length) return { manifest: null, errors };
@@ -210,6 +211,7 @@ export function validateManifest(raw) {
       choices: raw.setup.choices.map((choice) => ({ id: choice.id, label: choice.label.trim(), description: choice.description ?? null, website: choice.website ?? null, recommended: choice.recommended ?? false, exec: [...choice.exec], service: choice.service ?? null })),
     } : null,
     networkVia: raw.networkVia ?? null,
+    sysctls: raw.sysctls ?? [],
     sidecars: sidecars.map((sidecar) => ({
       id: sidecar.id,
       image: sidecar.image,

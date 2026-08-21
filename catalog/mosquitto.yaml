@@ -1,0 +1,33 @@
+schemaVersion: 2
+id: mosquitto
+name: Mosquitto (MQTT broker)
+category: Home automation
+icon: "📨"
+description: "The message bus for smart-home gear: Zigbee2MQTT, Z-Wave JS UI, Tasmota, ESPHome, and Home Assistant all talk through it. Starts open to your LAN and tailnet; add users later if you need them."
+website: https://mosquitto.org
+risk: low
+image:
+  reference: eclipse-mosquitto:2.0.22
+  version: "2.0.22"
+command: ["mosquitto", "-c", "/mosquitto-no-auth.conf"]
+ports:
+  - id: mqtt
+    label: MQTT
+    container: 1883
+    host: 1883
+    exposure: lan
+volumes:
+  - id: data
+    label: Retained messages
+    container: /mosquitto/data
+    path: data
+  - id: log
+    label: Logs
+    container: /mosquitto/log
+    path: log
+    backup: false
+health:
+  kind: running
+  stableSeconds: 10
+  timeoutSeconds: 120
+notes: "Other apps connect to mqtt://<this server>:1883 with no username. That is fine behind the Firewall page's deny-by-default profile (only this machine and your tailnet reach it). To require passwords, replace the command with a custom mosquitto.conf via Config."

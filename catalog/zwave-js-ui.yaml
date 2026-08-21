@@ -1,0 +1,45 @@
+schemaVersion: 2
+id: zwave-js-ui
+name: Z-Wave JS UI
+category: Home automation
+icon: "🌊"
+description: "Hub for Z-Wave devices with a USB stick (Zooz, Aeotec, Zwave.me): pairing, network map, and the websocket Home Assistant's Z-Wave integration connects to."
+website: https://zwave-js.github.io/zwave-js-ui
+risk: low
+image:
+  reference: zwavejs/zwave-js-ui:11.22.3
+  version: "11.22.3"
+ports:
+  - id: web
+    label: Web UI
+    container: 8091
+    host: 8101
+    exposure: lan
+  - id: websocket
+    label: Z-Wave JS websocket (Home Assistant)
+    container: 3000
+    host: 3007
+    exposure: lan
+volumes:
+  - id: store
+    label: Configuration and network keys
+    container: /usr/src/app/store
+    path: store
+env:
+  - name: SESSION_SECRET
+    label: Session secret
+    type: password
+    secret: true
+    generate: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+devices:
+  - /dev/ttyUSB?
+  - /dev/ttyACM?
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "In Settings, Z-Wave, set the serial port (usually /dev/ttyACM0 or /dev/ttyUSB0) and keep the generated security keys safe (they are in the store folder, which app backups include). Home Assistant connects to ws://<this server>:3007."
