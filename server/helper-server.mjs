@@ -8,7 +8,7 @@ import { createAppHelper } from "./app-helper.mjs";
 import { createVmCloudHelper } from "./vm-cloud.mjs";
 import { createHostInspectHelper } from "./host-inspect-helper.mjs";
 import { executeHelperOperation } from "./helper-protocol.mjs";
-import { createLaneQueues, laneFor } from "./helper-lanes.mjs";
+import { createConcurrencyGate, createLaneQueues, laneFor } from "./helper-lanes.mjs";
 import { createVmRecoveryHelper } from "./vm-recovery-helper.mjs";
 import { createVmRestoreDrillHelper } from "./vm-restore-drill-helper.mjs";
 import { createVmRetentionHelper } from "./vm-retention-helper.mjs";
@@ -27,6 +27,9 @@ const maxRequestBytes = 128 * 1024; // compose edits and key imports declare 64 
 const legacyReadOnlyOperations = new Set(["container.docker.inspect", "container.docker.inventory", "controller.database.backup.inspect", "controller.database.protection.inspect", "controller.database.protection.retention.inspect", "virtualization.foundation.inspect", "virtualization.media.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
 const readOnlyOperations = new Set([...registry.readOnlyIds(), ...legacyReadOnlyOperations]);
 const lanes = createLaneQueues();
+// Inspections do not queue per subject, so this is what stops a page in a reload loop from
+// starting dozens of root child processes at once.
+const reads = createConcurrencyGate(8);
 const queuedHeartbeatMs = 20_000;
 const vmRestoreDrill = createVmRestoreDrillHelper();
 const vmRecovery = createVmRecoveryHelper({ restoreEngine: vmRestoreDrill });
@@ -83,7 +86,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       if (registeredTimeout) connection.setTimeout(registeredTimeout);
       let result;
       if (readOnlyOperations.has(request.operation)) {
-        result = await executeHelperOperation(request, helperDependencies);
+        result = await reads.run(() => executeHelperOperation(request, helperDependencies));
       } else {
         const held = laneFor(request.operation, request.parameters);
         // Waiting behind another operation must not look like a hung request: a heartbeat line keeps

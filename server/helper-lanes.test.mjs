@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createLaneQueues, exclusiveLane, laneFor } from "./helper-lanes.mjs";
+import { createConcurrencyGate, createLaneQueues, exclusiveLane, laneFor } from "./helper-lanes.mjs";
 
 describe("helper lanes", () => {
   it("gives each app and VM its own lane and keeps shared host work on one", () => {
@@ -107,5 +107,36 @@ describe("an operation holds every lane it touches", () => {
     expect(order).toEqual(["immich"]); // the other app did not wait
     release();
     await slow;
+  });
+});
+
+describe("inspection concurrency", () => {
+  it("runs a bounded number at once and lets the rest through in order", async () => {
+    const gate = createConcurrencyGate(2);
+    const order = [];
+    const releases = [];
+    const start = (label) => gate.run(async () => {
+      order.push(`start:${label}`);
+      await new Promise((resolve) => releases.push(resolve));
+      order.push(`end:${label}`);
+    });
+    const all = [start("a"), start("b"), start("c")];
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(order).toEqual(["start:a", "start:b"]); // the third waits
+    expect(gate.active()).toBe(2);
+    expect(gate.waiting()).toBe(1);
+    releases.shift()();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(order).toContain("start:c");
+    while (releases.length) releases.shift()();
+    await Promise.all(all);
+    expect(gate.active()).toBe(0);
+  });
+
+  it("frees its slot when a task throws", async () => {
+    const gate = createConcurrencyGate(1);
+    await expect(gate.run(async () => { throw new Error("inspection failed"); })).rejects.toThrow("inspection failed");
+    expect(gate.active()).toBe(0);
+    await expect(gate.run(async () => "next one runs")).resolves.toBe("next one runs");
   });
 });

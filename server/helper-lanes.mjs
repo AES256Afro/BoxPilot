@@ -74,3 +74,16 @@ export function createLaneQueues() {
 
   return { run, busy, size: () => lanes.size };
 }
+
+/** Let at most `limit` tasks run at once; the rest wait their turn in order. */
+export function createConcurrencyGate(limit) {
+  let running = 0;
+  const waiting = [];
+  const next = () => { if (running >= limit) return; const resume = waiting.shift(); if (resume) { running += 1; resume(); } };
+  async function run(task) {
+    if (running >= limit) await new Promise((resolve) => waiting.push(resolve));
+    else running += 1;
+    try { return await task(); } finally { running -= 1; next(); }
+  }
+  return { run, active: () => running, waiting: () => waiting.length };
+}
