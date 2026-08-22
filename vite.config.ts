@@ -18,5 +18,9 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     css: true,
+    // A git worktree under .claude/ holds a second copy of this repo, and collecting it runs the
+    // whole suite twice against a stale tree — including the check that package.json and
+    // docker-compose.yml agree, which fails there for a version that is not the one being built.
+    exclude: ["**/node_modules/**", "**/dist/**", "**/.claude/**", "**/.git/**"],
   },
 });
