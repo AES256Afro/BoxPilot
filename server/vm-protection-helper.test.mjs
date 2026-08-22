@@ -108,7 +108,7 @@ describe("encrypted independent VM backup helper", () => {
     expect(status.blockers).toContain("Mount a writable independent filesystem at the configured VM backup mount");
   });
 
-  it("backs up only the fixed verified export and fully checks all repository data", async () => {
+  it("backs up only the fixed verified export and verifies the repository afterwards", async () => {
     const { helper, run, exportId, backupId, domainUuid, expectedSizeBytes, expectedManifestChecksumSha256 } = await fixture();
     const destination = await helper.inspect();
     const result = await helper.createBackup({
@@ -117,7 +117,9 @@ describe("encrypted independent VM backup helper", () => {
     });
     expect(result).toMatchObject({ created: true, backupId, exportId, repositoryId, snapshotId, sizeBytes: expectedSizeBytes, encrypted: true, independent: true, repositoryVerified: true, protected: false, restoreDrill: { passed: false } });
     expect(run).toHaveBeenCalledWith("/usr/bin/restic", expect.arrayContaining(["backup", expect.stringContaining(exportId), "--tag", `boxpilot-export-${exportId}`, "--tag", `boxpilot-backup-${backupId}`]), { timeout: 12 * 60 * 60 * 1000 });
-    expect(run).toHaveBeenCalledWith("/usr/bin/restic", expect.arrayContaining(["check", "--read-data", "--quiet"]), { timeout: 12 * 60 * 60 * 1000 });
+    // A rotating slice, not the whole repository: a full re-hash after every backup grows with
+    // the repository rather than with what was written, and eventually exceeds the deadline.
+    expect(run).toHaveBeenCalledWith("/usr/bin/restic", expect.arrayContaining(["check", "--read-data-subset=10%", "--quiet"]), expect.objectContaining({ timeout: 12 * 60 * 60 * 1000 }));
     const checkCall = run.mock.calls.find(([, argumentsList]) => argumentsList.includes("check"));
     expect(checkCall[1]).not.toContain("--tag");
   });

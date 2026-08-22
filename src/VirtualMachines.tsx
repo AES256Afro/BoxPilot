@@ -423,6 +423,22 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
           <button type="button" className="secondary-button" onClick={() => startRetention()} disabled={pending !== null || !protectionDestination?.ready || (retentionStatus?.candidates?.length ?? 0) === 0}>Apply retention</button>
         </div>
         {retentionStatus && <div className="vm-plan-warnings"><strong>Retention status</strong><span>{retentionStatus.candidates?.length ?? 0} currently eligible | {retentionStatus.beforeCount ?? 0} repository snapshot(s) | {retentionStatus.retentionRuns?.length ?? 0} completed run(s)</span>{retentionStatus.blockers?.map((blocker) => <span key={blocker}>{blocker}</span>)}<span>Prune is disabled, so retention does not claim reclaimed disk space.</span></div>}
+        {retentionStatus?.unrecordedSnapshotIds?.length ? (
+          <div className="vm-control-lock">
+            <div><strong>Snapshots with no local record</strong><span>Usually a backup that was written and then failed its check. Retention will not run while they are there, because it cannot account for them.</span></div>
+            <div className="recovery-actions">
+              {retentionStatus.unrecordedSnapshotIds.map((snapshotId) => (
+                <button key={snapshotId} type="button" className="text-button" disabled={pending !== null} onClick={() => startOperation({
+                  operationId: "vm.backup.snapshot.forget",
+                  title: `Forget snapshot ${snapshotId.slice(0, 8)}`,
+                  parameters: { snapshotId },
+                  confirmText: snapshotId.slice(0, 8),
+                  preview: <span>Removes snapshot <code>{snapshotId.slice(0, 12)}</code> from the encrypted repository. It has no local backup record, so nothing BoxPilot knows about is lost — but if it is in fact a copy you want, this cannot be undone. Nothing is pruned.</span>,
+                })}>Forget {snapshotId.slice(0, 8)}</button>
+              ))}
+            </div>
+          </div>
+        ) : null}
         {!protectionDestination?.ready && protectionDestination && <div className="vm-plan-warnings"><strong>Destination blockers</strong>{protectionDestination.blockers.map((blocker) => <span key={blocker}>{blocker}</span>)}<span>Run from the server terminal: <code>{protectionDestination.setupCommand}</code></span><span>Keep a recovery copy of the repository password outside this server.</span></div>}
         {exports.length === 0 ? (
           <div className="vm-empty">

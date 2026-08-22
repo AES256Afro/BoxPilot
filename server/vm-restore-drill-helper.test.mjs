@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -179,9 +179,47 @@ describe("isolated VM restore drill helper", () => {
       destinationInspector: async () => ({ ready: false, blockers: [] }),
       changeMode: async () => {}, changeOwner: async () => {}, run,
     });
-    await expect(helper.recoverOrphans()).resolves.toEqual({ inspectedWorkspaces: 1, stoppedDomains: 1, removedNvramFiles: 1, normalizedWorkspaces: 1 });
+    await expect(helper.recoverOrphans()).resolves.toEqual({ inspectedWorkspaces: 1, stoppedDomains: 1, removedNvramFiles: 1, normalizedWorkspaces: 1, removedWorkspaces: 0, reclaimedBytes: 0 });
     expect(run.mock.calls.some(([binary, args]) => binary === "/usr/bin/virsh" && args.includes("destroy"))).toBe(true);
     await expect(access(workspace)).resolves.toBeUndefined();
     await expect(access(nvramPath)).rejects.toThrow();
+  });
+});
+
+describe("workspaces left behind by a failed drill", () => {
+  it("keeps a fresh one for inspection and reclaims one a day old", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "boxpilot-drill-reclaim-"));
+    directories.push(root);
+    const restoreRoot = path.join(root, "images", "boxpilot-restore-drills");
+    const fresh = "11111111-1111-4111-8111-111111111111";
+    const stale = "22222222-2222-4222-8222-222222222222";
+    for (const id of [fresh, stale]) {
+      await mkdir(path.join(restoreRoot, id), { recursive: true });
+      await writeFile(path.join(restoreRoot, id, "disk.qcow2"), "x".repeat(64));
+    }
+    const dayMs = 24 * 60 * 60 * 1000;
+    const now = Date.parse("2026-08-22T12:00:00.000Z");
+    await utimes(path.join(restoreRoot, fresh), new Date(now - 60_000), new Date(now - 60_000));
+    await utimes(path.join(restoreRoot, stale), new Date(now - 3 * dayMs), new Date(now - 3 * dayMs));
+
+    const helper = createVmRestoreDrillHelper({
+      imageRoot: path.join(root, "images"),
+      restoreRoot,
+      nvramRoot: path.join(root, "nvram"),
+      exportRoot: path.join(root, "exports"),
+      mountRoot: path.join(root, "mnt"),
+      passwordFile: path.join(root, "password"),
+      cacheRoot: path.join(root, "cache"),
+      destinationInspector: async () => ({ ready: true, blockers: [] }),
+      changeMode: async () => {},
+      changeOwner: async () => {},
+      clock: () => now,
+      run: async () => ({ stdout: "", stderr: "" }),
+    });
+    const result = await helper.recoverOrphans();
+    expect(result).toMatchObject({ removedWorkspaces: 1, normalizedWorkspaces: 1 });
+    expect(result.reclaimedBytes).toBeGreaterThan(0);
+    await expect(stat(path.join(restoreRoot, fresh))).resolves.toBeTruthy();
+    await expect(stat(path.join(restoreRoot, stale))).rejects.toThrow();
   });
 });

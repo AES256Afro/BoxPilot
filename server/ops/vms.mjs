@@ -1,5 +1,9 @@
+import path from "node:path";
 import { defineOperation } from "./registry.mjs";
 import { validateCloudVmInput } from "../vm-cloud.mjs";
+
+/** Where libvirt keeps the disks BoxPilot manages; the same root vm-helper.mjs confines to. */
+const imageRoot = path.resolve(process.env.BOXPILOT_VM_IMAGE_ROOT ?? "/var/lib/libvirt/images");
 
 const virshBinary = process.env.BOXPILOT_VIRSH_BINARY ?? "/usr/bin/virsh";
 const connectionUri = process.env.BOXPILOT_LIBVIRT_URI ?? "qemu:///system";
@@ -90,7 +94,7 @@ export function vmOperations() {
       id: "vm.export.protect", title: "Protect a VM export independently", risk: "medium", timeoutMs: 12 * 60 * 60_000,
       description: "Writes the verified export into the encrypted independent restic repository and reads the whole repository back. Nothing is pruned.",
       parameters: { exact: false, fields: { exportId: { type: "string", maxLength: 40 } } },
-      run: (parameters, { vmProtection }) => vmProtection.createBackup(parameters),
+      run: (parameters, { vmProtection, progress }) => vmProtection.createBackup(parameters, { progress }),
     }),
     defineOperation({
       id: "vm.backup.retention.apply", title: "Apply VM backup retention", risk: "medium", timeoutMs: 12 * 60 * 60_000,
@@ -99,16 +103,24 @@ export function vmOperations() {
       run: ({ candidates: _candidates, expectedBeforeCount: _expectedBeforeCount, ...parameters }, { vmRetention }) => vmRetention.apply(parameters),
     }),
     defineOperation({
+      id: "vm.backup.snapshot.forget", title: "Forget an unrecorded snapshot", risk: "high", timeoutMs: 2 * 60 * 60_000,
+      description: "Removes one snapshot the encrypted repository holds and BoxPilot has no record of — normally a backup that was written and then failed its verification. Nothing that has a local record can be removed this way, and nothing is pruned.",
+      minimumRole: "owner",
+      parameters: { fields: { snapshotId: { type: "string", maxLength: 64, pattern: /^[a-f0-9]{64}$/ } } },
+      confirm: (parameters) => String(parameters.snapshotId).slice(0, 8),
+      run: (parameters, { vmRetention }) => vmRetention.forgetUnrecorded(parameters),
+    }),
+    defineOperation({
       id: "vm.backup.restore-drill", title: "Run an isolated VM restore drill", risk: "medium", timeoutMs: 12 * 60 * 60_000,
       description: "Restores the exact snapshot into a no-network transient domain, requires guest-agent health, then cleans up. A pass promotes the backup to protected.",
       parameters: { exact: false, fields: { backupId: { type: "string", maxLength: 40 } } },
-      run: (parameters, { vmRestoreDrill }) => vmRestoreDrill.runDrill(parameters),
+      run: (parameters, { vmRestoreDrill, progress }) => vmRestoreDrill.runDrill(parameters, { progress }),
     }),
     defineOperation({
       id: "vm.recovery.create", title: "Create a recovery clone from a backup", risk: "medium", timeoutMs: 12 * 60 * 60_000,
       description: "Restores the drilled snapshot into a new persistent, stopped, no-network domain. The source VM and repository are never changed.",
       parameters: { exact: false, fields: { backupId: { type: "string", maxLength: 40 }, targetDomainName: { type: "string", maxLength: 64 } } },
-      run: (parameters, { vmRecovery }) => vmRecovery.createRecovery(parameters),
+      run: (parameters, { vmRecovery, progress }) => vmRecovery.createRecovery(parameters, { progress }),
     }),
     defineOperation({
       id: "vm.foundation.initialize", title: "Initialize the libvirt foundation", risk: "medium", timeoutMs: 5 * 60_000,
@@ -200,9 +212,18 @@ export function vmOperations() {
         if (await snapshotExists(run, name, snapshotName)) throw new Error(`Snapshot ${snapshotName} already exists on ${name}`);
         const blocks = await virsh(run, ["domblklist", name, "--details"], { timeout: 15_000 });
         if (!blocks.ok) throw new Error(`Could not read the VM's disks: ${blocks.stderr.split("\n").slice(-2).join(" ")}`);
-        const disks = blocks.stdout.split("\n").map((line) => line.trim().split(/\s+/)).filter((fields) => fields[0] === "file" && fields[1] === "disk" && fields[3]);
+        // Rejoin the tail: a disk path containing a space is truncated by a plain field split,
+        // and the VM then reports "is not qcow2" for a file that is. server/vm-helper.mjs does the
+        // same, and this parser has to agree with it.
+        const disks = blocks.stdout.split("\n").map((line) => line.trim().split(/\s+/))
+          .filter((fields) => fields.length >= 4 && fields[0] === "file" && fields[1] === "disk")
+          .map((fields) => ({ target: fields[2], source: fields.slice(3).join(" ") }));
         if (!disks.length) throw new Error(`${name} has no file-backed disks to snapshot`);
-        for (const [, , target, source] of disks) {
+        for (const { target, source } of disks) {
+          // The same confinement vm-helper applies: a disk path from an externally defined domain
+          // is not automatically somewhere BoxPilot should be reading.
+          const diskPath = path.resolve(source);
+          if (diskPath !== imageRoot && !diskPath.startsWith(`${imageRoot}${path.sep}`)) throw new Error(`Disk ${target} (${source}) is outside ${imageRoot}; BoxPilot only snapshots disks it manages`);
           const info = await run("/usr/bin/qemu-img", ["info", "--output=json", source], { timeout: 30_000, maxBuffer: 2 * 1024 * 1024 });
           let parsed = null;
           try { parsed = JSON.parse(info.stdout); } catch { parsed = null; }

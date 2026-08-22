@@ -133,9 +133,10 @@ export function createVmRetentionHelper({
       verification.push("post-inspection-failed");
     }
     const afterIds = new Set(after?.snapshots?.map((snapshot) => snapshot.id) ?? []);
-    const actuallyForgotten = after
-      ? parameters.forgetSnapshotIds.filter((id) => !afterIds.has(id))
-      : forgetSucceeded ? [...parameters.forgetSnapshotIds] : [];
+    // Only what a fresh inspection shows gone counts as forgotten. Believing the forget command's
+    // own exit code here recorded backups as gone that might still be there, and the next preview
+    // then reported them as unattributable — a blocker with no way out.
+    const actuallyForgotten = after ? parameters.forgetSnapshotIds.filter((id) => !afterIds.has(id)) : [];
     if (actuallyForgotten.length === 0) throw new Error("Restic retention failed before any reviewed snapshot removal was confirmed");
     const allCandidatesAbsent = actuallyForgotten.length === parameters.forgetSnapshotIds.length;
     const allKeptPresent = after ? expectedKept.every((id) => afterIds.has(id)) : false;
@@ -162,7 +163,25 @@ export function createVmRetentionHelper({
     };
   }
 
-  return { inspect, apply };
+  /**
+   * Forget one snapshot the repository holds and BoxPilot has no record of. That state comes from
+   * a backup that was written and then failed its verification, and it blocks retention until it
+   * is cleared. `knownSnapshotIds` are the ones with local records: refusing to touch those is
+   * what keeps this from becoming a general delete.
+   */
+  async function forgetUnrecorded({ snapshotId, knownSnapshotIds = [] } = {}) {
+    if (typeof snapshotId !== "string" || !shaPattern.test(snapshotId)) throw new Error("Snapshot id must be an exact SHA-256 id");
+    if (knownSnapshotIds.includes(snapshotId)) throw new Error("That snapshot has a local backup record; use retention, which checks the copy and age policy");
+    const before = await inspect();
+    if (!before.ready) throw new Error(`The encrypted repository is not available: ${(before.blockers ?? []).join("; ") || "not ready"}`);
+    if (!before.snapshots.some((snapshot) => snapshot.id === snapshotId)) throw new Error("That snapshot is not in the repository");
+    await run(resticBinary, [...commonResticArguments(), "forget", snapshotId], { timeout: 60 * 60 * 1000 });
+    const after = await inspect();
+    if (after.snapshots.some((snapshot) => snapshot.id === snapshotId)) throw new Error("The snapshot is still in the repository after forget");
+    return { forgotten: true, snapshotId, repositoryId: after.repositoryId, beforeCount: before.snapshots.length, afterCount: after.snapshots.length, prunePerformed: false };
+  }
+
+  return { inspect, apply, forgetUnrecorded };
 }
 
 export const vmRetentionHelperInternals = { defaultRunner, snapshotSetRevision };

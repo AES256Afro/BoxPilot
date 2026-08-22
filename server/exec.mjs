@@ -47,8 +47,12 @@ export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, 
     const timer = setTimeout(() => { try { child.kill("SIGTERM"); } catch { /* ignore */ } setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* ignore */ } }, 5000).unref?.(); }, timeout);
     const consume = (stream, chunk) => {
       const text = partial[stream] + chunk.toString("utf8");
-      const lines = text.split("\n");
+      // \r-delimited progress output (curl --progress-bar) is one endless "line": split on it too,
+      // so the callback fires and the buffer cannot grow without bound.
+      const lines = text.split(/\r\n|[\n\r]/);
       partial[stream] = lines.pop() ?? "";
+      // A child that emits neither is still bounded: keep the newest tailBytes of the partial line.
+      if (partial[stream].length > tailBytes) partial[stream] = partial[stream].slice(-tailBytes);
       for (const line of lines) {
         const clean = line.replace(/\r/g, "").trimEnd();
         tails[stream] = (tails[stream] + clean + "\n").slice(-tailBytes);

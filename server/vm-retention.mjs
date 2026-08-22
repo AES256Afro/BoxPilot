@@ -65,7 +65,13 @@ export function createVmRetentionService({ store, helper, now = () => new Date()
     const repositoryIds = new Set((inspection.snapshots ?? []).map((snapshot) => snapshot.id));
     const unknownSnapshots = (inspection.snapshots ?? []).filter((snapshot) => !activeBySnapshot.has(snapshot.id));
     const missingSnapshots = active.filter((backup) => !repositoryIds.has(backup.snapshotId));
-    if (unknownSnapshots.length) blockers.push(`${unknownSnapshots.length} BoxPilot-tagged repository snapshot(s) are not attributable to active local backup records`);
+    // An unattributable snapshot is usually one whose backup was written and then failed its
+    // verification, so no local record exists. It blocks retention for ever with nothing in the UI
+    // to clear it, so say what it is and what to do rather than reporting a bare count.
+    if (unknownSnapshots.length) {
+      const ids = unknownSnapshots.slice(0, 3).map((snapshot) => snapshot.id.slice(0, 8)).join(", ");
+      blockers.push(`${unknownSnapshots.length} snapshot(s) in the repository (${ids}${unknownSnapshots.length > 3 ? ", …" : ""}) have no local record — usually a backup that was written and then failed its check. Retention will not remove what it cannot account for: run "Forget an unrecorded snapshot" from the Virtual Machines page, or remove them with restic yourself.`);
+    }
     if (missingSnapshots.length) blockers.push(`${missingSnapshots.length} active local backup record(s) are missing from the repository`);
     const selection = selectRetentionCandidates({ backups: active, recoveries, activeConsumers: activeSnapshotConsumers, now: now() });
     if (selection.candidates.length === 0) blockers.push("No backup satisfies the fixed retention eligibility policy");
@@ -86,6 +92,7 @@ export function createVmRetentionService({ store, helper, now = () => new Date()
         policy: { minimumCopiesPerDomain, minimumAgeDays, requiresProtectedRestoreDrill: true, preserveRecoverySources: true },
         repositoryId: inspection.repositoryId,
         beforeCount: inspection.snapshots?.length ?? 0,
+        unrecordedSnapshotIds: unknownSnapshots.map((snapshot) => snapshot.id),
         candidates,
         kept: [...selection.kept, ...deferred].sort((left, right) => left.snapshotId.localeCompare(right.snapshotId)),
         blockers,
@@ -121,6 +128,12 @@ export function createVmRetentionService({ store, helper, now = () => new Date()
     return { ...preview.input, candidates: preview.output.candidates, expectedBeforeCount: preview.output.beforeCount };
   }
 
+  /** Pin the snapshot ids that do have local records, so the browser cannot widen what may go. */
+  function prepareForget() {
+    const backups = store.listVmBackups(500).filter((backup) => backup.retained !== false);
+    return { knownSnapshotIds: [...new Set(backups.map((backup) => backup.snapshotId).filter(Boolean))].sort() };
+  }
+
   function recordOperation(job, result) {
     const input = job.parameters;
     const approved = new Set(input.forgetSnapshotIds);
@@ -154,7 +167,7 @@ export function createVmRetentionService({ store, helper, now = () => new Date()
     });
   }
 
-  return { inspect, prepareOperation, recordOperation };
+  return { inspect, prepareOperation, prepareForget, recordOperation };
 }
 
 export const vmRetentionInternals = { minimumAgeDays, minimumCopiesPerDomain, selectRetentionCandidates };
