@@ -82,10 +82,23 @@ export function createIdentityService({
     return proxying;
   }
 
-  /** The tailnet address behind a request, believing X-Forwarded-For only when Serve is in front. */
+  /** The login Tailscale Serve says a proxied request came from, when it says anything. */
+  function proxyClaimedLogin(request) {
+    return String(request.get?.("tailscale-user-login") ?? request.headers?.["tailscale-user-login"] ?? "").trim().toLowerCase();
+  }
+
+  /**
+   * The tailnet address behind a request.
+   *
+   * A connection *from* a tailnet address speaks for itself. A loopback connection speaks only for
+   * what the proxy in front says: Serve labels every request it forwards with the tailnet user, so
+   * an address forwarded without that label did not come through Serve — it came from something on
+   * this box, which is the one thing loopback cannot distinguish on its own.
+   */
   async function addressFor(request) {
     const direct = tailnetClientAddress(request);
     if (direct) return direct;
+    if (!proxyClaimedLogin(request)) return null;
     return tailnetClientAddress(request, { trustForwarded: await serveProxiesUs() });
   }
 
@@ -125,7 +138,7 @@ export function createIdentityService({
     // there it is a second, independent statement about who is calling, so it has to agree with
     // what whois says about the address; a local process can set one header but not both
     // consistently, because it does not know which address Serve would have reported.
-    const claimed = String(request.get?.("tailscale-user-login") ?? request.headers?.["tailscale-user-login"] ?? "").trim().toLowerCase();
+    const claimed = proxyClaimedLogin(request);
     if (claimed && claimed !== String(identity.login).toLowerCase()) {
       return { available: false, reason: "identity-mismatch", login: null, displayName: null, node: null, linked: false, address };
     }

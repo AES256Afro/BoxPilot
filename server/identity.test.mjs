@@ -48,7 +48,8 @@ describe("identity service", () => {
     const identity = createIdentityService({ store: state, run, now: () => 1000 });
     expect(await identity.tailscaleIdentity(req("192.168.1.20"))).toMatchObject({ available: false, reason: "not-tailnet" });
     expect(await identity.tailscaleIdentity(req("100.67.166.50"))).toMatchObject({ available: false, reason: "whois-unavailable" });
-    const me = await identity.tailscaleIdentity(req("127.0.0.1", { "x-forwarded-for": "100.67.166.49" }));
+    // Through Serve: it forwards the address and labels the request with the user it came from.
+    const me = await identity.tailscaleIdentity(req("127.0.0.1", { "x-forwarded-for": "100.67.166.49", "tailscale-user-login": "me@example.com" }));
     expect(me).toMatchObject({ available: true, login: "me@example.com", displayName: "Me", node: "laptop.tail.ts.net", linked: false });
     expect(identity.linkTailscale(owner.id, "me@example.com")).toEqual(["me@example.com"]);
     expect((await identity.tailscaleIdentity(req("100.67.166.49"))).linked).toBe(true);
@@ -59,7 +60,7 @@ describe("identity service", () => {
     // Without Serve in front, a loopback caller's X-Forwarded-For is just a header they wrote:
     // an SSH tunnel or any container on the box could otherwise claim to be any tailnet peer.
     const withoutServe = createIdentityService({ store: state, now: () => 1000, run: vi.fn(async (_binary, args) => (args[0] === "serve" ? { ok: true, stdout: "{}", stderr: "" } : { ok: true, stdout: JSON.stringify({ UserProfile: { LoginName: "me@example.com" } }), stderr: "" })) });
-    expect(await withoutServe.tailscaleIdentity(req("127.0.0.1", { "x-forwarded-for": "100.67.166.49" }))).toMatchObject({ available: false, reason: "not-tailnet" });
+    expect(await withoutServe.tailscaleIdentity(req("127.0.0.1", { "x-forwarded-for": "100.67.166.49", "tailscale-user-login": "me@example.com" }))).toMatchObject({ available: false, reason: "not-tailnet" });
     expect(state.listAudit().map((event) => event.type)).toEqual(expect.arrayContaining(["identity.tailscale.linked", "identity.tailscale.unlinked"]));
     state.close();
   });
@@ -164,6 +165,18 @@ describe("Tailscale Serve's own identity header", () => {
     const identity = createIdentityService({ store: state, run: run(), now: () => 1000 });
     const result = await identity.tailscaleIdentity(req("127.0.0.1", { "x-forwarded-for": "100.67.166.49", "tailscale-user-login": "someone.else@example.com" }));
     expect(result).toMatchObject({ available: false, reason: "identity-mismatch" });
+    state.close();
+  });
+});
+
+describe("a forwarded address with no label from the proxy", () => {
+  it("is refused, because that is what a process on this box can produce", async () => {
+    // Serve labels every request it forwards. An address forwarded without one did not come
+    // through Serve — it came from something local, and loopback alone cannot tell them apart.
+    const state = await store();
+    const serveStatus = JSON.stringify({ Web: { "box.tail1234.ts.net:443": { Handlers: { "/": { Proxy: "http://127.0.0.1:8787" } } } } });
+    const identity = createIdentityService({ store: state, now: () => 1000, run: vi.fn(async (_binary, args) => (args[0] === "serve" ? { ok: true, stdout: serveStatus, stderr: "" } : { ok: true, stdout: JSON.stringify({ UserProfile: { LoginName: "me@example.com" } }), stderr: "" })) });
+    expect(await identity.tailscaleIdentity(req("127.0.0.1", { "x-forwarded-for": "100.67.166.49" }))).toMatchObject({ available: false, reason: "not-tailnet" });
     state.close();
   });
 });
