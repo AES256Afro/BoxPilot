@@ -1,0 +1,60 @@
+schemaVersion: 2
+id: seven-days-to-die
+name: 7 Days to Die server
+category: Games
+icon: "🧨"
+description: "Dedicated 7 Days to Die server with a web control panel, player limit and password. Keeps your world and its hordes running between sessions."
+website: https://7daystodie.com
+risk: low
+image:
+  reference: vinanrra/7dtd-server:v0.9.3
+  version: "0.9.3"
+ports:
+  - id: game
+    label: Game port (UDP)
+    container: 26900
+    host: 26900
+    protocol: udp
+    exposure: lan
+  - id: game-tcp
+    label: Game port (TCP)
+    container: 26900
+    host: 26900
+    exposure: lan
+  - id: webpanel
+    label: Web control panel
+    container: 8080
+    host: 8281
+    exposure: lan
+volumes:
+  - id: server
+    label: Server files
+    container: /home/sdtdserver/serverfiles
+    path: server
+  - id: saves
+    label: Saves and logs
+    container: /home/sdtdserver/.local/share/7DaysToDie
+    path: saves
+  - id: config
+    label: Configuration
+    container: /home/sdtdserver/lgsm/config-lgsm/sdtdserver
+    path: config
+env:
+  - name: START_MODE
+    fixed: true
+    default: "1"
+  - name: PUID
+    fixed: true
+    default: "1000"
+  - name: PGID
+    fixed: true
+    default: "1000"
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 20
+  timeoutSeconds: 900
+notes: "Players join <this server>:26900. The first start downloads about 15 GB through SteamCMD, so give it plenty of time and disk — watch Logs. Server settings live in serverconfig.xml under the saves volume; the web control panel is on the port above once the server is up."

@@ -1,0 +1,60 @@
+schemaVersion: 2
+id: vrising
+name: V Rising server
+category: Games
+icon: "🦇"
+description: "Dedicated V Rising server with a join password and clan settings. Your castle stands whether or not you are logged in."
+website: https://playvrising.com
+risk: low
+image:
+  reference: trueosiris/vrising:3.0
+  version: "3.0"
+ports:
+  - id: game
+    label: Game port (UDP)
+    container: 9876
+    host: 9876
+    protocol: udp
+    exposure: lan
+  - id: query
+    label: Query port (UDP)
+    container: 9877
+    host: 9877
+    protocol: udp
+    exposure: lan
+volumes:
+  - id: data
+    label: Server files
+    container: /mnt/vrising/server
+    path: data
+  - id: persistent
+    label: World and settings
+    container: /mnt/vrising/persistentdata
+    path: persistent
+env:
+  - name: SERVERNAME
+    label: Server name
+    default: BoxPilot V Rising
+  - name: WORLDNAME
+    label: World name
+    default: world1
+  - name: GAMEPORT
+    fixed: true
+    default: "9876"
+  - name: QUERYPORT
+    fixed: true
+    default: "9877"
+  - name: SERVERPASSWORD
+    label: Join password
+    type: password
+    secret: true
+    generate: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 20
+  timeoutSeconds: 900
+notes: "Players join <this server>:9876 with the join password from Secrets. The first start downloads the server through SteamCMD (several GB) and runs it under Wine, so give it time — watch Logs."

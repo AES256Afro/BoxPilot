@@ -1,0 +1,52 @@
+schemaVersion: 2
+id: emulatorjs
+name: EmulatorJS
+category: Games
+icon: "🕹️"
+description: "Play your retro game collection in a browser — no console, no installs. Scans a folder of ROMs and builds a library anything with a browser can reach."
+website: https://emulatorjs.com
+risk: medium
+image:
+  reference: lscr.io/linuxserver/emulatorjs:1.9.2-ls173
+  version: 1.9.2-ls173
+ports:
+  - id: web
+    label: Game library
+    container: 80
+    host: 3020
+    exposure: lan
+  - id: admin
+    label: Management UI
+    container: 3000
+    host: 3021
+    exposure: loopback
+volumes:
+  - id: config
+    label: Configuration
+    container: /config
+    path: config
+  - id: data
+    label: ROMs and artwork
+    container: /data
+    path: data
+env:
+  - name: PUID
+    label: Run as user id
+    type: number
+    default: 1000
+  - name: PGID
+    label: Run as group id
+    type: number
+    default: 1000
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: SUBFOLDER
+    fixed: true
+    default: /
+health:
+  kind: running
+  stableSeconds: 10
+  timeoutSeconds: 300
+notes: "Put ROM files into the console folders under the ROMs volume, then open the management UI and press Scan. The management UI is bound to this server only, because it can write to that folder — reach it over Tailscale or an SSH tunnel; the library itself is on the first port. You need to provide your own game files."

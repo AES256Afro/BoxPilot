@@ -1,0 +1,75 @@
+schemaVersion: 2
+id: valheim
+name: Valheim server
+category: Games
+icon: "🪓"
+description: "Dedicated Valheim server with a world name, join password, and automatic backups. Friends connect with the server address and password."
+website: https://www.valheimgame.com
+risk: low
+image:
+  reference: ghcr.io/lloesche/valheim-server@sha256:324e919645db9b70818df93b05af386732e3d2d677d30bdfe6cc7c1506ed21de
+  version: "latest-2026-08"
+ports:
+  - id: game
+    label: Game port (UDP)
+    container: 2456
+    host: 2456
+    protocol: udp
+    exposure: lan
+  - id: query
+    label: Query port (UDP)
+    container: 2457
+    host: 2457
+    protocol: udp
+    exposure: lan
+volumes:
+  - id: config
+    label: Worlds and configuration
+    container: /config
+    path: config
+  - id: data
+    label: Game files
+    container: /opt/valheim
+    path: data
+env:
+  - name: SERVER_NAME
+    label: Server name
+    default: BoxPilot Valheim
+  - name: WORLD_NAME
+    label: World name
+    default: Dedicated
+  - name: SERVER_PASS
+    label: Join password
+    type: password
+    secret: true
+    generate: true
+  - name: SERVER_PORT
+    fixed: true
+    default: "2456"
+  - name: SERVER_PUBLIC
+    label: List publicly
+    type: boolean
+    default: "false"
+  - name: BACKUPS_INTERVAL
+    label: Backup interval (seconds)
+    type: number
+    default: 43200
+  - name: BACKUPS_MAX_AGE
+    label: Keep backups for (days)
+    type: number
+    default: 7
+  - name: PUID
+    fixed: true
+    default: "1000"
+  - name: PGID
+    fixed: true
+    default: "1000"
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 20
+  timeoutSeconds: 900
+notes: "Players join <this server>:2456 with the join password from Secrets — the password must be at least five characters and cannot contain the server or world name. The first start downloads the game server (about 2 GB) and building the world takes a few more minutes. This image publishes no version tags, so it is pinned to an exact digest; a future BoxPilot release moves it forward. Its own backups land in the config volume."

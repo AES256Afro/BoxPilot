@@ -1,0 +1,54 @@
+schemaVersion: 2
+id: enshrouded
+name: Enshrouded server
+category: Games
+icon: "🌫️"
+description: "Dedicated Enshrouded server with a join password and player limit. Keeps your shared world running whether or not anyone is online."
+website: https://enshrouded.com
+risk: low
+image:
+  reference: mornedhels/enshrouded-server:1.7.2
+  version: "1.7.2"
+ports:
+  - id: game
+    label: Game port (UDP)
+    container: 15637
+    host: 15637
+    protocol: udp
+    exposure: lan
+volumes:
+  - id: data
+    label: Server files and saves
+    container: /opt/enshrouded
+    path: data
+env:
+  - name: SERVER_NAME
+    label: Server name
+    default: BoxPilot Enshrouded
+  - name: SERVER_PASSWORD
+    label: Join password
+    type: password
+    secret: true
+    generate: true
+  - name: SERVER_SLOT_COUNT
+    label: Maximum players
+    type: number
+    default: 8
+  - name: SERVER_PORT
+    fixed: true
+    default: "15637"
+  - name: PUID
+    fixed: true
+    default: "1000"
+  - name: PGID
+    fixed: true
+    default: "1000"
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 20
+  timeoutSeconds: 900
+notes: "Players join <this server>:15637 with the join password from Secrets. The first start downloads the server through SteamCMD (several GB) — watch Logs. Enshrouded wants a good deal of memory; give the machine at least 8 GB free before a busy session."

@@ -1,0 +1,44 @@
+schemaVersion: 2
+id: core-keeper
+name: Core Keeper server
+category: Games
+icon: "⛏️"
+description: "Dedicated Core Keeper server that prints a game ID for friends to join with. Your shared mine keeps running while you are away."
+website: https://corekeepergame.com
+risk: low
+image:
+  reference: escaping/core-keeper-dedicated:v2.8.1
+  version: "2.8.1"
+volumes:
+  - id: data
+    label: World and configuration
+    container: /home/steam/core-keeper-data
+    path: data
+env:
+  - name: WORLD_INDEX
+    label: World slot
+    type: number
+    default: 0
+  - name: WORLD_NAME
+    label: World name
+    default: BoxPilot
+  - name: WORLD_SEED
+    label: World seed (0 for random)
+    type: number
+    default: 0
+  - name: MAX_PLAYERS
+    label: Maximum players
+    type: number
+    default: 10
+  - name: DATA_PATH
+    fixed: true
+    default: /home/steam/core-keeper-data
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 20
+  timeoutSeconds: 900
+notes: "Core Keeper does not use a port you connect to directly — the server prints a game ID when it is ready, and friends paste that into the game's Join menu. Open Logs and look for the game ID after the first start, which downloads several GB through SteamCMD."
