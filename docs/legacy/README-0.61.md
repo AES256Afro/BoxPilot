@@ -467,7 +467,7 @@ docker build -t boxpilot:local .
 
 - [Architecture and security boundaries](../ARCHITECTURE.md)
 - [Operations Core setup and recovery](OPERATIONS-CORE.md)
-- [Exact prerequisite repair boundary](../PREREQUISITE-REPAIRS.md)
+- [Exact prerequisite repair boundary](PREREQUISITE-REPAIRS.md)
 - [Curated application planning and deployment](APPLICATIONS.md)
 - [Verified backup and isolated restore workflow](../BACKUPS.md)
 - [WAL-aware local and encrypted independent BoxPilot controller recovery runbook](../CONTROLLER-BACKUPS.md)

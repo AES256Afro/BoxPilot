@@ -1,9 +1,8 @@
 # GitHub provenance
 
-BoxPilot `0.24.0` introduced, and `0.26.0` retains, a credential-free read-only view of these fixed public repositories:
+BoxPilot `0.24.0` introduced, and `0.26.0` retains, a credential-free read-only view of one fixed public repository:
 
 - `AES256Afro/BoxPilot`
-- `AES256Afro/Keel`
 
 The service uses GitHub's public REST API without an authorization header. GitHub documents that public resources and the latest-release endpoint can be requested without authentication:
 

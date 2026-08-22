@@ -19,10 +19,14 @@ Each item comes with the next action, and a link to the page where you would tak
 ## The order to recover in
 
 1. Install Ubuntu, then BoxPilot, at the release the kit names.
-2. Restore BoxPilot's database, so it knows about your accounts, settings and history.
-3. Restore the machine snapshot, which reinstalls the apps with their settings and secrets.
-4. Restore each app's data from its own backup.
-5. Restore virtual machines from their encrypted copies.
+2. Bring up Tailscale and sign in, so you are working privately.
+3. Restore BoxPilot's database, so it knows about your accounts, settings and history.
+4. Restore the machine snapshot, which reinstalls the apps with their settings and secrets.
+5. Restore each app's data from its own backup.
+6. Restore virtual machines from their encrypted copies.
+7. Check everything is healthy, then download a fresh kit and keep it elsewhere.
+
+The kit you download prints these same steps, so the copy you keep off the server is enough on its own.
 
 ## Keep these somewhere else
 

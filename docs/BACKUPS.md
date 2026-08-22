@@ -25,13 +25,13 @@ use more than one:
 
 - **A backup drive** — a second disk mounted on this server. Copies are hash-verified and never
   deleted by BoxPilot.
-- **Another machine over SSH** — set the host, user and path in *Settings → Backup destination*;
+- **Another machine over SSH** — set the host, user and path in *Backups → Off-box destination over SSH*;
   syncing uses `rsync` over SSH.
 - **Cloud storage** — Backblaze B2, S3-compatible storage, WebDAV, Google Drive, OneDrive or
   Dropbox, through `rclone`. Credentials live in `/etc/boxpilot/secrets/rclone.conf` (root, 0600)
   and never in BoxPilot's database.
 
-Both mirrors can run on a schedule (*System → Scheduled operations*).
+All three mirrors can run on a schedule (*System → Schedules*).
 
 ## Encrypted independent copies
 
@@ -43,8 +43,8 @@ they are written, and retention keeps at least the three newest.
 
 | Path | Contents |
 | --- | --- |
-| `/var/lib/boxpilot-managed/controller-backups` | database snapshots and their manifests |
-| `/var/lib/boxpilot-managed/application-backups` | per-app archives |
+| `/var/lib/boxpilot-managed/backups/boxpilot-controller` | database snapshots and their manifests |
+| `/var/lib/boxpilot-managed/backups/catalog` | per-app archives |
 | `/var/lib/boxpilot-managed/machine-snapshots` | machine snapshots |
 | `/var/lib/boxpilot/` | the live database (never a backup target) |
 
@@ -54,7 +54,7 @@ All of it is root-only. Nothing is world-readable, and no archive is served over
 
 - **An app**: its card offers each recorded backup; restoring stops the app, replaces the volumes,
   and starts it again.
-- **The whole box**: *Backups → Restore from a machine snapshot* rebuilds a fresh install — apps
+- **Apps and their data**: *Backups → Restore from a machine snapshot* reinstalls the apps with their saved settings and secrets, then restores each one's newest data archive. Network, firewall, fstab, VM definitions and the database copy are unpacked beside the snapshot for you to review and apply yourself — they are never applied for you.
   are reinstalled with their saved settings and secrets, then each app's newest data archive is
   restored.
 - **The database alone**: see the [controller recovery runbook](CONTROLLER-BACKUPS.md), which is

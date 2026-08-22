@@ -6,11 +6,11 @@ Read this before changing anything. It applies to humans and coding agents alike
 
 A point-and-click setup and management tool for a fresh Ubuntu Server. From the browser the owner installs updates, dependencies, applications and platforms (Pi-hole, dashboards, Docker stacks), creates VMs for projects, signs in with GitHub or Tailscale, and backs up / restores / redeploys quickly. Uninstall and configuration editing are core features, not exceptions.
 
-The authoritative plan is `docs/ROADMAP-V2.md`. The governing decision is `docs/DECISIONS.md` → ADR-001. Where older docs (`README.md`, `docs/ROADMAP.md`, per-feature docs) describe a "safety-first control plane" that refuses general operations, ADR-001 wins.
+The authoritative plan is `docs/ROADMAP-V2.md`. The governing decision is `docs/DECISIONS.md` → ADR-001. Where older docs (`docs/legacy/`, `docs/VIRTUALIZATION.md`, `docs/INVENTORY.md`) describe a "safety-first control plane" that refuses general operations, ADR-001 wins.
 
 ## How to add things
 
-- **A new operation** (anything that runs on the host): add one registry entry with a risk tier (`low` / `medium` / `high`), a JSON-schema for parameters, `run`, `verify`, and (where possible) `rollback`. Do **not** add a new named systemd oneshot unit, a new per-workflow SQLite table, or a new branch in `server/jobs.mjs`'s approval chain. Until the registry lands (Phase 1 in ROADMAP-V2), keep new work minimal and structured so it ports cleanly.
+- **A new operation** (anything that runs on the host): add one registry entry with `id`, `title`, a risk tier (`low` / `medium` / `high`), a parameter spec (`parameters.fields` — types, patterns, limits), `run`, and, for anything destructive, `confirm` and `minimumRole`. Verification and rollback belong inside `run`, and a result that must survive goes through an `operationRecordHooks` entry. Do **not** add a new named systemd oneshot unit, a new per-workflow SQLite table, or a new branch in `server/jobs.mjs`'s approval chain: the registry has landed, and every mutation already goes through it.
 - **A new application**: a YAML manifest + compose template (+ optional hooks) in the catalog, deployed by the generic deployer. App-specific JavaScript needs a justification.
 - **Risk tiers, not password-for-everything**: low = one click; medium = one confirmation with a preview; high = password/passkey + typed confirmation. A password unlocks a short elevated session.
 - **Copy**: say what the action does. Do not write paragraphs about what the product refuses to do; do not add boundary slugs to API responses.

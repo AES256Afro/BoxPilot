@@ -13,10 +13,10 @@ Install updates, add apps from a catalog, open only the ports you mean to, mount
 On a fresh Ubuntu Server (22.04 or newer):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh -s -- --ref v0.91.1
+curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh -s -- --ref v0.96.0
 ```
 
-It installs Node 24, builds BoxPilot under `/opt/boxpilot`, enables the `boxpilot` and `boxpilot-helper` services, and prints the URL with a one-time owner token. Create the owner account, pick a setup profile (home server, DNS appliance, hypervisor, dev box, essentials), and follow the checklist on the Overview. BoxPilot updates itself from GitHub releases and rolls back if a new version fails its health check.
+It installs Node 24, builds BoxPilot under `/opt/boxpilot`, enables the `boxpilot` and `boxpilot-helper` services, and prints the URL with a one-time owner token. Create the owner account, pick a setup profile (home server, DNS appliance, hypervisor, dev box, media server, smart home, observability, or just the essentials), and follow the checklist on the Overview. BoxPilot tells you when a new release is out; applying it is a one-click job that needs your password and rolls back by itself if the new version fails its health check.
 
 **Try it without a server:** `npm install && npm run build && npm run demo`, then open <http://127.0.0.1:8799>.
 
@@ -45,7 +45,7 @@ Sign in with a local password, your Tailscale identity, or GitHub.
 
 ![App catalog](docs/screenshots/catalog.jpg)
 
-Photos and files (Immich, PhotoPrism, Nextcloud, Syncthing), media (Jellyfin, Plex, Emby, Audiobookshelf, Navidrome, Kavita), media automation (the *arr stack with qBittorrent behind a VPN), smart home (Home Assistant, Mosquitto, Zigbee2MQTT, Node-RED, ESPHome), DNS with bundled Unbound (Pi-hole with a blocklist picker, AdGuard Home, Technitium), monitoring (Uptime Kuma, Netdata, Prometheus, Grafana, Loki, Scrutiny, Beszel), networking (WireGuard, Nginx Proxy Manager, Cloudflare Tunnel), security (Vaultwarden, 2FAuth), communication (Matrix, Mattermost, ntfy, Gotify), notes and knowledge (BookStack, Wiki.js, Paperless-ngx, Joplin, Trilium, Linkding), household and finance (Grocy, Tandoor, Mealie, Actual Budget, Firefly III), developer tools (Forgejo, Portainer, code-server, databases with admin UIs, NocoDB, n8n), AI (Open WebUI + Ollama, Whisper, SearXNG), backups (Duplicati, Kopia, MinIO), game servers (Minecraft, Terraria, Factorio, Satisfactory, Palworld), and more.
+Photos and files (Immich, PhotoPrism, Nextcloud, Syncthing), media (Jellyfin, Plex, Emby, Audiobookshelf, Navidrome, Kavita), media automation (the *arr stack with qBittorrent behind a VPN), smart home (Home Assistant, Mosquitto, Zigbee2MQTT, Node-RED, ESPHome), Network-wide DNS blocking (Pi-hole with a blocklist picker and bundled Unbound, AdGuard Home, Technitium), monitoring (Uptime Kuma, Netdata, Prometheus, Grafana, Loki, Scrutiny, Beszel), networking (WireGuard, Nginx Proxy Manager, Cloudflare Tunnel), security (Vaultwarden, 2FAuth), communication (Matrix, Mattermost, ntfy, Gotify), notes and knowledge (BookStack, Wiki.js, Paperless-ngx, Joplin, Trilium, Linkding), household and finance (Grocy, Tandoor, Mealie, Actual Budget, Firefly III), developer tools (Forgejo, Portainer, code-server, databases with admin UIs, NocoDB, n8n), AI (Open WebUI + Ollama, Whisper, SearXNG), backups (Duplicati, Kopia, MinIO), game servers (Minecraft, Terraria, Factorio, Satisfactory, Palworld), and more.
 
 Each app is a YAML manifest plus a compose template; install, update, reconfigure, back up, and restore are generic.
 

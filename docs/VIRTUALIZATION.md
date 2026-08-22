@@ -32,7 +32,7 @@ BoxPilot `0.61.0` can install the fixed Ubuntu KVM, QEMU, libvirt, virt-install,
 - Read every data pack in the repository and confirm exact snapshot identity before recording evidence
 - Restore a protected snapshot into a new persistent recovery domain that remains stopped, non-autostarting, and network-isolated
 
-The release does not delete VMs, force power off, provide general XML editing, open a web console proxy, create online snapshots, revert or delete snapshots, overwrite a VM in place, attach a recovered VM to a network, change non-default storage pools, build a network bridge, generate cloud-init media, or create Windows 11 guests. Windows 11 remains locked until TPM 2.0 and Secure Boot checks exist.
+Deleting a VM, forcing power off, reverting and deleting snapshots, and building cloud-init media all ship — see the Virtual Machines page. Still absent: general XML editing, a web console proxy, online snapshots, overwriting a VM in place, attaching a recovered VM to a network, non-default storage pools, building a network bridge, and Windows 11 guests, which stay locked until TPM 2.0 and Secure Boot checks exist.
 
 ## 1. Prepare Ubuntu for virtualization
 
@@ -340,7 +340,7 @@ Start with libvirt's default NAT network. Guests receive an address such as `192
 To reach a guest application remotely, use one of these approaches:
 
 1. Install Tailscale inside the guest. This is the recommended first choice because the guest gets its own stable tailnet name and access policy.
-2. Forward a specific host port to the NAT guest after BoxPilot gains a guarded firewall workflow.
+2. Forward a specific host port to the NAT guest from the Firewall page.
 3. Use a bridged interface only when the guest must appear directly on the LAN.
 
 A bridge can interrupt the server's only network connection. BoxPilot will not automate bridging until it can create a connectivity checkpoint, display console recovery commands, and verify the new route. Do not bridge Wi-Fi interfaces as if they were ordinary Ethernet ports.
