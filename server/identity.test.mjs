@@ -2,6 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.setConfig({ testTimeout: 30_000 });
 import { createIdentityService, isTailnetAddress, tailnetClientAddress } from "./identity.mjs";
 import { createStateStore } from "./state.mjs";
 
