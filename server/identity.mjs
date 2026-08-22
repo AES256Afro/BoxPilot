@@ -121,6 +121,14 @@ export function createIdentityService({
     if (!address) return { available: false, reason: "not-tailnet", login: null, displayName: null, node: null, linked: false };
     const identity = await whois(address).catch(() => null);
     if (!identity) return { available: false, reason: "whois-unavailable", login: null, displayName: null, node: null, linked: false, address };
+    // Tailscale Serve labels a proxied request with the tailnet user it came from. When it is
+    // there it is a second, independent statement about who is calling, so it has to agree with
+    // what whois says about the address; a local process can set one header but not both
+    // consistently, because it does not know which address Serve would have reported.
+    const claimed = String(request.get?.("tailscale-user-login") ?? request.headers?.["tailscale-user-login"] ?? "").trim().toLowerCase();
+    if (claimed && claimed !== String(identity.login).toLowerCase()) {
+      return { available: false, reason: "identity-mismatch", login: null, displayName: null, node: null, linked: false, address };
+    }
     return { available: true, ...identity, linked: Boolean(tailscaleAccountFor(identity.login)) };
   }
 
