@@ -35,7 +35,7 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   },
   overview: {
     title: "Server overview",
-    description: "Inspect sanitized host, service, network, storage, and Docker state from this server.",
+    description: "What is running on this server and what needs attention.",
   },
   updates: {
     title: "Updates and packages",
@@ -59,120 +59,60 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   },
   firewall: {
     title: "Firewall",
-    description: "Turn ufw on or off and manage which ports are open.",
+    description: "Profiles, open ports, and suggestions based on what is listening.",
   },
   storage: {
     title: "Storage",
-    description: "See disks and usage, claim unallocated LVM space, mount disks and network shares (SMB/NFS) permanently, share this server's folders over your tailnet, and format empty disks.",
+    description: "Disks, LVM, mounts, network shares, and sharing this server's folders.",
   },
   network: {
     title: "Network and DNS",
-    description: "Inspect the live gateway, resolver path, and DNS listeners on this server.",
+    description: "Gateway, DNS, devices on your LAN, and Tailscale.",
   },
   repairs: {
-    title: "Prerequisites and Repair Center",
-    description: "Inspect live host requirements, stage typed repairs, and verify every operation.",
+    title: "Repair Center",
+    description: "Check prerequisites, fix what is missing, and verify every operation.",
   },
   virtualization: {
     title: "Virtual Machines",
-    description: "Set up QEMU/KVM, inspect libvirt, and manage guarded VM lifecycle operations.",
+    description: "Create and run virtual machines on QEMU/KVM.",
   },
   backups: {
     title: "Backups",
-    description: "BoxPilot's own database: verified snapshots and independent encrypted copies.",
+    description: "BoxPilot's own database, machine snapshots, and off-box copies.",
   },
   github: {
-    title: "GitHub provenance",
-    description: "Inspect fixed public repository, commit, release, and asset-digest metadata without a GitHub token or repository write access.",
+    title: "GitHub",
+    description: "Where this BoxPilot came from: release, commit, and asset digests.",
   },
   logs: {
-    title: "Logs and events",
-    description: "Read fixed, redacted service sources without exposing arbitrary journal queries.",
+    title: "Logs",
+    description: "Read and download logs from any unit, container, or journal group.",
     action: "Download support bundle",
   },
   settings: {
     title: "Settings",
-    description: "Review access, network, safety, and prototype capabilities.",
+    description: "Access, alerts, sign-in, and approval mode.",
   },
 };
 
-const viewStatus: Record<ViewName, { label: string; tone: "live" | "sample"; description: string }> = {
-  setup: { label: "Live setup state", tone: "live", description: "Every step is checked against the server before it runs; steps already done are skipped." },
-  overview: {
-    label: "Live sanitized inventory",
-    tone: "live",
-    description: "Host identity, compute, root storage, LAN addresses, Tailscale self-state, selected services, and Docker inventory come from this server. Docker labels, commands, mount paths, and environment values are excluded.",
-  },
-  updates: {
-    label: "Live APT state",
-    tone: "live",
-    description: "Upgradable packages come from APT on this server. Refresh, upgrade, install, and remove run as audited root tasks after a one-click or confirm approval.",
-  },
-  catalog: {
-    label: "Catalog manifests + live Docker state",
-    tone: "live",
-    description: "Apps are defined by YAML manifests shipped with BoxPilot. Installs, updates, and settings changes run as audited jobs through the helper; data stays under /var/lib/boxpilot-managed/catalog.",
-  },
-  services: {
-    label: "Live systemd state",
-    tone: "live",
-    description: "Units and timers come from systemd on this server. Start/stop/restart/enable/disable run through the helper after a confirmation; BoxPilot, SSH, systemd, D-Bus, and Tailscale units cannot be stopped from here.",
-  },
-  system: {
-    label: "Live host settings",
-    tone: "live",
-    description: "Hostname, time zone, memory, swap, and the fstrim timer come from this server. Changes run as audited root tasks after a confirmation.",
-  },
-  users: {
-    label: "Live accounts and sshd state",
-    tone: "live",
-    description: "Accounts, sudo membership, key counts, and the effective sshd settings come from this server. Account changes confirm; sudo and password-login changes ask for the owner password.",
-  },
-  firewall: {
-    label: "ufw configuration",
-    tone: "live",
-    description: "State and rules come from ufw's configuration files. Rule changes confirm; turning the firewall on or off asks for the owner password and always keeps SSH and the tailnet reachable.",
-  },
-  storage: {
-    label: "Live block devices and fstab",
-    tone: "live",
-    description: "Devices and usage are read from this server. Mounts are added to fstab with nofail and verified before use; network shares reconnect by themselves; the system disk and LVM members can never be formatted or mounted from here.",
-  },
-  network: {
-    label: "Network intelligence and guarded direct tests",
-    tone: "live",
-    description: "Routes, resolvers, LAN addresses, and Tailscale state come from this server, read-only.",
-  },
-  repairs: {
-    label: "Live Operations Core",
-    tone: "live",
-    description: "Prerequisite checks, exact pinned repairs, the helper canary, and the recovery readiness kit come from this server. Repairs stage through the shared risk-tiered dialog.",
-  },
-  virtualization: {
-    label: "Host-backed module",
-    tone: "live",
-    description: "Authenticated ISO staging, separately approved SHA-256-verified media import, helper-backed libvirt inventory, immutable VM plans, lifecycle approvals, offline snapshots, verified exports, encrypted restic copies, isolated restore drills, and stopped no-network recovery clones come from the server. Arbitrary image download, in-place restore, and recovery network attachment remain locked.",
-  },
-  backups: {
-    label: "Controller and application backup engine",
-    tone: "live",
-    description: "BoxPilot's own database backs up here with verified restore drills and optional encrypted restic copies. App data backs up from each catalog card; VM protection lives on the Virtual Machines page.",
-  },
-  github: {
-    label: "Credential-free public provenance",
-    tone: "live",
-    description: "Reads only allowlisted public GitHub metadata. Commit verification and asset digests are GitHub-reported, not locally verified. Tokens, writes, arbitrary downloads, webhooks, and workflow dispatch remain unavailable; Keel uses separate local verification and approval gates.",
-  },
-  logs: {
-    label: "Restricted journal inventory",
-    tone: "live",
-    description: "BoxPilot, Docker, Tailscale, and virtualization logs use fixed unit sets, capped result sizes, and credential-pattern redaction. The server-generated support bundle applies a final configurable redaction pass. Arbitrary units and journal arguments are rejected.",
-  },
-  settings: {
-    label: "Deployment guidance",
-    tone: "sample",
-    description: "These rows describe recommended deployment boundaries. BoxPilot does not currently edit router, firewall, Tailscale, or DNS settings.",
-  },
+const viewFeatures: Record<ViewName, string[]> = {
+  setup: ["Setup profiles", "Checks what is already in place", "Installs the rest in order", "Autoinstall files for a new server"],
+  overview: ["Updates and failed services", "Apps and VMs running", "Backup health", "Setup checklist", "Needs attention", "Installed apps"],
+  updates: ["APT updates, all or selected", "Automatic security updates", "Restart hints", "Common tools with one click", "Snapshot before upgrading", "Install and remove packages"],
+  catalog: ["128 apps in 19 categories", "Install, update, configure, uninstall", "Per-app backups and restores", "Logs and resource use", "HTTPS on your tailnet", "Image tags verified"],
+  services: ["systemd units and timers", "Start, stop, restart", "Enable and disable", "Journal", "SSH, Tailscale, and BoxPilot protected"],
+  system: ["Hostname", "Time zone and language", "Swap and swappiness", "fstrim", "Docker housekeeping", "UPS monitoring", "Schedules", "BoxPilot self-update"],
+  users: ["Accounts", "sudo membership", "SSH keys from GitHub", "Password-login policy"],
+  firewall: ["Profiles", "Service presets", "Suggestions from what is listening", "fail2ban", "SSH, Tailscale, and BoxPilot always reachable"],
+  storage: ["Disks and LVM", "Grow the root volume", "Snapshots with rollback", "Mount by UUID", "SMB/NFS shares with LAN discovery", "Samba and NFS servers on your tailnet", "Swap files", "Format empty disks"],
+  network: ["Gateway and resolvers", "DNS listeners", "Devices on your LAN", "Wake-on-LAN", "Tailscale exit node", "Subnet router"],
+  repairs: ["Prerequisite checks", "Guided repairs", "Disaster-recovery kit", "Verification after every operation"],
+  virtualization: ["QEMU/KVM setup", "VMs from cloud images or ISOs", "Start, stop, snapshots", "Encrypted exports", "Restore drills", "Recover as a clone"],
+  backups: ["Database backups with restore drills", "Encrypted independent copies", "Retention", "Machine snapshots", "Mirrors to a drive, SSH host, or cloud", "Restore from a snapshot"],
+  github: ["Release and commit metadata", "Asset digests", "No token needed"],
+  logs: ["Any unit, container, or journal group", "Tail and follow", "Filter", "Download", "Support bundle"],
+  settings: ["Approval mode", "Alerts: ntfy, Gotify, webhook", "GitHub sign-in", "Tailscale sign-in", "People", "Password"],
 };
 
 
@@ -347,7 +287,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><span>B</span><div>BoxPilot<small>Server control plane</small></div></div>
+        <div className="brand"><span>B</span><div>BoxPilot<small>Home server setup</small></div></div>
         <nav aria-label="Product areas">
           {navItems.map((item) => (
             <button
@@ -364,14 +304,13 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
           <i />
           <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
         </div>
-        <div className="prototype-label">v{__BOXPILOT_VERSION__} working platform<br />apps, repairs, backups, and VMs</div>
+        <div className="prototype-label">v{__BOXPILOT_VERSION__}</div>
       </aside>
 
       <main>
         <header className="topbar">
           <div className="hostline">
-            <div><strong>BoxPilot control plane</strong><span>Authenticated, sanitized live inventory</span></div>
-            <StatusPill tone="neutral">Mixed data</StatusPill>
+            <div><strong>BoxPilot</strong><span>Ubuntu server setup and management</span></div>
           </div>
           <div className="topbar-right"><ActivityDrawer />{authStatus.owner?.role && authStatus.owner.role !== "owner" ? <span className="status-pill status-neutral" title="Your role on this server">{authStatus.owner.role}</span> : null}{elevated ? <button className="text-button" type="button" title="High-risk approvals skip the password until this time. Click to lock now." onClick={() => void dropElevation(authStatus.csrfToken ?? "").then(refreshAuth)}>Elevated until {elevatedLabel} · Lock</button> : <StatusPill tone="neutral">Tiered approvals</StatusPill>}<span className="signed-in-user">{authStatus.owner?.username}</span><button className="text-button" type="button" onClick={() => void logoutOwner(authStatus.csrfToken ?? "").then(onSignedOut)}>Sign out</button></div>
         </header>
@@ -385,9 +324,9 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
               </button>
             )}
           </header>
-          <section className={`surface-notice surface-${viewStatus[view].tone}`} aria-label="Data source">
-            <strong>{viewStatus[view].label}</strong>
-            <span>{viewStatus[view].description}</span>
+          <section className="surface-notice surface-live feature-strip" aria-label="Features">
+            <strong>What you can do</strong>
+            <ul className="feature-list">{viewFeatures[view].map((feature) => <li key={feature}>{feature}</li>)}</ul>
           </section>
           {bundleError && <div className="auth-error" role="alert">{bundleError}</div>}
           {pageContent}
