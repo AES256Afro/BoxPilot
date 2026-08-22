@@ -8,3 +8,7 @@ These documents describe the "safety-first control plane" era (versions 0.4–0.
 - [Migrations](MIGRATIONS.md)
 - [Router checkpoints](ROUTERS.md)
 - [Legacy application adapters](APPLICATIONS.md)
+- [Roadmap as of 0.61.0](ROADMAP.md) — the pre-pivot plan; [`docs/ROADMAP-V2.md`](../ROADMAP-V2.md) replaced it
+- [Operations Core setup and recovery](OPERATIONS-CORE.md) — owner bootstrap and recovery as they worked before the registry
+- [Virtualization milestones](VIRTUALIZATION-MILESTONES.md) — the per-version VM boundary log
+- [Action Center](ACTION-CENTER.md) — the read-only guidance panel of that era

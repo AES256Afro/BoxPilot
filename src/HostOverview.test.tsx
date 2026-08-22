@@ -5,7 +5,7 @@ import HostOverview from "./HostOverview";
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("live host overview", () => {
-  it("renders authenticated inventory and sanitized Docker state", async () => {
+  it("renders the live inventory and Docker state", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
       generatedAt: "2026-08-15T19:00:00Z",
       host: { hostname: "homebox", operatingSystem: "Ubuntu 26.04 LTS", kernel: "7.0.0", architecture: "x64", uptimeSeconds: 90000 },
@@ -27,7 +27,7 @@ describe("live host overview", () => {
     expect(screen.getByText("uptime")).toBeTruthy();
     expect(screen.getByText("Tailscale connected")).toBeTruthy();
     expect(screen.getByText(/192.168.8.10\/24/)).toBeTruthy();
-    expect(screen.getByText("Storage and filesystem evidence")).toBeTruthy();
+    expect(screen.getByText("Disks and filesystems")).toBeTruthy();
     expect(screen.getByText("1 real mounts")).toBeTruthy();
     expect(screen.getByText("1 disk results")).toBeTruthy();
     expect(screen.getByText(/42 C/)).toBeTruthy();

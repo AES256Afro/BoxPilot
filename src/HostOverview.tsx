@@ -53,7 +53,7 @@ export default function HostOverview() {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  if (!inventory && loading) return <section className="vm-loading">Collecting sanitized host inventory...</section>;
+  if (!inventory && loading) return <section className="vm-loading">Reading this server...</section>;
   if (!inventory) return <p className="form-error" role="alert">{error}</p>;
   const root = inventory.storage.root;
   const filesystems = inventory.storage.filesystems ?? { available: false, namespace: "unavailable" as const, mounts: [], summary: { healthy: 0, warning: 0, critical: 0, unavailable: 0 }, errors: { healthy: 0, critical: 0, unavailable: 0, unsupported: 0 } };
@@ -103,7 +103,7 @@ export default function HostOverview() {
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="metric-grid">{metrics.map((metric) => <article className="metric" key={metric.label}><span>{metric.label}</span><strong>{metric.value}</strong><div className="meter" aria-label={`${metric.label}: ${metric.value}`}><i style={{ width: `${metric.percent}%` }} /></div></article>)}</div>
       <section className="panel storage-evidence-panel">
-        <header className="panel-header"><div><strong>Storage and filesystem evidence</strong><span>Host PID 1 mounts, ext4 kernel error counters, sanitized block topology, and timer-generated SMART results</span></div><span className={`status-pill ${storageStatus === "healthy" ? "status-good" : storageStatus === "critical" || storageStatus === "warning" ? "status-warning" : "status-neutral"}`}>{storageStatus}</span></header>
+        <header className="panel-header"><div><strong>Disks and filesystems</strong><span>Mounted filesystems, ext4 error counters, and SMART results collected by a timer</span></div><span className={`status-pill ${storageStatus === "healthy" ? "status-good" : storageStatus === "critical" || storageStatus === "warning" ? "status-warning" : "status-neutral"}`}>{storageStatus}</span></header>
         <div className="storage-evidence-summary">
           <div><span className="eyebrow">Filesystems</span><strong>{filesystems.available ? `${filesystems.mounts.length} real mounts` : "Inventory unavailable"}</strong><small>{filesystems.errors.critical} errors recorded | {filesystems.errors.unavailable} unavailable | {filesystems.errors.unsupported} unsupported</small></div>
           <div><span className="eyebrow">Physical disks</span><strong>{blockDevices.available ? `${physicalDisks.length} detected` : "Topology unavailable"}</strong><small>Serials and UUIDs excluded</small></div>
