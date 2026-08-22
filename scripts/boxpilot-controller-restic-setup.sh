@@ -55,7 +55,12 @@ if [ ! -f "$boxpilot_password_file" ]; then
     printf 'Run this script from an interactive terminal so the password is not passed as an argument.\n' >&2
     exit 1
   fi
-  trap 'stty echo 2>/dev/null || true' EXIT HUP INT TERM
+  # An interrupt between writing the temporary file and moving it into place would otherwise
+  # leave the password sitting in a stray file.
+  boxpilot_temporary_password=""
+  boxpilot_cleanup() { stty echo 2>/dev/null || true; [ -z "$boxpilot_temporary_password" ] || rm -f "$boxpilot_temporary_password"; return 0; }
+  trap 'boxpilot_cleanup; exit 130' HUP INT TERM
+  trap boxpilot_cleanup EXIT
   printf 'Create a separate controller recovery password with at least 16 characters: '
   stty -echo
   IFS= read -r boxpilot_password_one
@@ -77,6 +82,7 @@ if [ ! -f "$boxpilot_password_file" ]; then
   chown root:root "$boxpilot_temporary_password"
   chmod 0600 "$boxpilot_temporary_password"
   mv "$boxpilot_temporary_password" "$boxpilot_password_file"
+  boxpilot_temporary_password=""
 fi
 
 boxpilot_password_size="$(stat -c %s "$boxpilot_password_file")"

@@ -55,6 +55,10 @@ if (recovery.stoppedDomains > 0 || recovery.removedNvramFiles > 0 || recovery.no
   console.log(`BoxPilot restore drill recovery stopped=${recovery.stoppedDomains} nvram=${recovery.removedNvramFiles} workspaces=${recovery.normalizedWorkspaces}`);
 }
 
+// A task whose caller gave up can write its result hours later, into tmpfs nobody reads.
+const swept = await runUnit.sweepStale().catch(() => ({ removed: 0 }));
+if (swept.removed > 0) console.log(`Removed ${swept.removed} stale root-task file(s) from a previous run`);
+
 await mkdir(path.dirname(socketPath), { recursive: true, mode: 0o750 });
 await unlink(socketPath).catch((error) => {
   if (error.code !== "ENOENT") throw error;

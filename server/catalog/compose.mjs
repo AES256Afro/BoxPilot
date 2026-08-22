@@ -15,6 +15,25 @@ export function generateSecret(bytes = 24) {
 const globCharacters = /[?*[]/;
 
 /**
+ * Compose interpolates `${NAME}` and `$NAME` in compose.yaml against the project's .env, and `$$`
+ * is its literal dollar. Manifest authors use interpolation deliberately; an owner typing a setting
+ * value does not — and a value of "${ADMIN_PASSWORD}" would otherwise be replaced by the app's real
+ * secret. Everything the owner supplies is escaped on its way into compose.yaml.
+ */
+export function composeLiteral(value) {
+  return String(value).replace(/\$/g, () => "$$");
+}
+
+/**
+ * One line of a .env file. Compose expands `${NAME}` in an unquoted value — so a password holding
+ * a dollar sign would silently become some other setting's value — but treats a single-quoted value
+ * as literal, with \' the one escape it recognises inside. (Verified against docker compose config.)
+ */
+export function envFileLine(name, value) {
+  return `${name}='${String(value).replace(/'/g, () => "\\'")}'`;
+}
+
+/**
  * Expand device globs (`/dev/sd?`, `/dev/nvme?`) against the host's /dev. Literal entries pass
  * through untouched; a glob that matches nothing is simply dropped, so one manifest works on
  * hosts with SATA, NVMe, or both. `listDirectory(dir)` returns entry names for a directory.
@@ -84,14 +103,14 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   else if (publishedPorts.length) service.ports = publishedPorts;
   if (manifest.volumes.length) {
     service.volumes = manifest.volumes.map((volume) => {
-      const source = volume.path ? `./${volume.path}` : values.volumes[volume.id] ?? volume.hostPath;
+      const source = composeLiteral(volume.path ? `./${volume.path}` : values.volumes[volume.id] ?? volume.hostPath);
       return `${source}:${volume.container}${volume.readOnly ? ":ro" : ""}`;
     });
   }
   const environment = {};
   for (const entry of manifest.env) {
     if (!(entry.name in env)) continue;
-    environment[entry.name] = entry.secret ? `\${${entry.name}}` : env[entry.name];
+    environment[entry.name] = entry.secret ? `\${${entry.name}}` : composeLiteral(env[entry.name]);
   }
   if (Object.keys(environment).length) service.environment = environment;
   if (manifest.capabilities.length) { service.cap_drop = ["ALL"]; service.cap_add = [...manifest.capabilities]; }
@@ -113,7 +132,7 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
     // Sidecar env may reference the app's settings as ${NAME}: secrets stay references (resolved
     // from .env at compose time); plain settings are substituted here since they never reach .env.
     const secretNames = new Set(manifest.env.filter((entry) => entry.secret).map((entry) => entry.name));
-    const substitute = (value) => String(value).replace(/\$\{([A-Z][A-Za-z0-9_]*)\}/g, (match, name) => (secretNames.has(name) ? match : name in env ? env[name] : ""));
+    const substitute = (value) => String(value).replace(/\$\{([A-Z][A-Za-z0-9_]*)\}/g, (match, name) => (secretNames.has(name) ? match : name in env ? composeLiteral(env[name]) : ""));
     if (Object.keys(sidecar.env ?? {}).length) sidecarService.environment = Object.fromEntries(Object.entries(sidecar.env).map(([name, value]) => [name, substitute(value)]));
     if (sidecar.volumes.length) sidecarService.volumes = sidecar.volumes.map((volume) => `./${volume.path}:${volume.container}`);
     if ((sidecar.capabilities ?? []).length) { sidecarService.cap_drop = ["ALL"]; sidecarService.cap_add = [...sidecar.capabilities]; }
@@ -124,6 +143,6 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   }
   if ((manifest.sidecars ?? []).length) service.depends_on = manifest.sidecars.map((sidecar) => sidecar.id);
   const secretEntries = manifest.env.filter((entry) => entry.secret && entry.name in env);
-  const envFile = secretEntries.map((entry) => `${entry.name}=${env[entry.name]}`).join("\n") + (secretEntries.length ? "\n" : "");
+  const envFile = secretEntries.map((entry) => envFileLine(entry.name, env[entry.name])).join("\n") + (secretEntries.length ? "\n" : "");
   return { compose, composeYaml: YAML.stringify(compose, { lineWidth: 0 }), envFile, env, hostPorts };
 }

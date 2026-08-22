@@ -36,7 +36,13 @@ function parseEnvFile(text) {
   const env = {};
   for (const line of String(text ?? "").split("\n")) {
     const match = line.match(/^([A-Z][A-Za-z0-9_]*)=(.*)$/);
-    if (match) env[match[1]] = match[2];
+    if (!match) continue;
+    const raw = match[2];
+    // Secrets are written single-quoted so Compose does not expand a dollar sign inside them;
+    // \' is the one escape that form recognises. Files written before that are still unquoted.
+    env[match[1]] = raw.startsWith("'") && raw.endsWith("'") && raw.length >= 2
+      ? raw.slice(1, -1).replace(/\\'/g, () => "'")
+      : raw;
   }
   return env;
 }
@@ -326,6 +332,14 @@ export function createAppHelper({
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
     const before = await containerStatus(id);
+    // A catalog release can move a sidecar's tag too (a database major version, say). Rolling back
+    // only the app image would leave the new database refusing the old data directory, while the
+    // rollback reported success.
+    const beforeSidecars = {};
+    for (const sidecar of manifest.sidecars ?? []) {
+      const status = await containerStatus(`${id}-${sidecar.id}`).catch(() => null);
+      if (status?.image) beforeSidecars[sidecar.id] = status.image;
+    }
     // Stored state may predate the current manifest (or older releases stored values the
     // operator could not change); keep only what the manifest accepts today.
     const { values, errors } = resolveValues(manifest, sanitizeStoredValues(manifest, state.values ?? {}));
@@ -343,7 +357,11 @@ export function createAppHelper({
     } catch (error) {
       let rolledBack = false;
       if (before.image) {
-        const pinned = { ...manifest, image: { ...manifest.image, reference: before.image } };
+        const pinned = {
+          ...manifest,
+          image: { ...manifest.image, reference: before.image },
+          sidecars: (manifest.sidecars ?? []).map((sidecar) => (beforeSidecars[sidecar.id] ? { ...sidecar, image: beforeSidecars[sidecar.id] } : sidecar)),
+        };
         await writeProject(pinned, values, { existingEnv: await readEnv(id), devices }).catch(() => {});
         progress?.(`Update failed: ${error.message}. Restoring previous image...`, "stderr");
         const rollback = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000, progress });
@@ -486,8 +504,12 @@ export function createAppHelper({
       if (!state?.installed) continue;
       const port = manifest.ports.find((entry) => entry.protocol === "tcp") ?? null;
       const hostPort = port ? state.values?.ports?.[port.id] ?? port.host : null;
-      const href = port ? `http://${port.exposure === "loopback" ? "127.0.0.1" : linkHost}:${hostPort}` : null;
-      entries.push({ [manifest.name]: { ...(href ? { href } : {}), description: manifest.description, icon: `${manifest.id}.png`, server: "boxpilot", container: projectNameFor(manifest.id) } });
+      // A loopback app answers only on the server itself, so a link would break in the browser of
+      // whoever opens the dashboard. Say where it lives instead of offering an address that fails.
+      const loopback = port?.exposure === "loopback";
+      const href = port && !loopback ? `http://${linkHost}:${hostPort}` : null;
+      const description = loopback ? `${manifest.description} (on the server itself, at 127.0.0.1:${hostPort})` : manifest.description;
+      entries.push({ [manifest.name]: { ...(href ? { href } : {}), description, icon: `${manifest.id}.png`, server: "boxpilot", container: projectNameFor(manifest.id) } });
     }
     await mkdir(configDirectory, { recursive: true });
     const servicesPath = path.join(configDirectory, "services.yaml");

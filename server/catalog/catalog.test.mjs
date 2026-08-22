@@ -51,7 +51,7 @@ describe("manifest schema", () => {
     expect(first.composeYaml).toContain("192.168.1.10:53:53/udp");
     expect(first.composeYaml).toContain("ADMIN_PASSWORD: ${ADMIN_PASSWORD}");
     expect(first.composeYaml).not.toContain(first.env.ADMIN_PASSWORD);
-    expect(first.envFile).toMatch(/^ADMIN_PASSWORD=[A-Za-z0-9_-]{20,}\n$/);
+    expect(first.envFile).toMatch(/^ADMIN_PASSWORD='[A-Za-z0-9_-]{20,}'\n$/);
     expect(first.composeYaml).toContain("cap_drop:\n      - ALL");
     const second = renderCompose(manifest, values, { existingEnv: { ADMIN_PASSWORD: "keep-me" } });
     expect(second.env.ADMIN_PASSWORD).toBe("keep-me");

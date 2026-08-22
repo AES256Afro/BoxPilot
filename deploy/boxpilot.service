@@ -32,6 +32,17 @@ ReadWritePaths=-/var/lib/boxpilot-managed/vm-media-inbox
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 RestrictRealtime=true
 SystemCallArchitectures=native
+# The web process serves HTTP and talks to the helper socket. It never needs a device, a namespace,
+# a capability or a set-user-id bit, so none of those are reachable from it even if it is subverted.
+PrivateDevices=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 
 [Install]
 WantedBy=multi-user.target

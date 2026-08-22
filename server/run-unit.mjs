@@ -4,7 +4,7 @@
  * The helper itself runs with PrivateNetwork=true, so anything needing the network goes this way.
  */
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fixedRun } from "./exec.mjs";
 import { taskIds } from "./tasks/index.mjs";
@@ -45,5 +45,24 @@ export function createRunUnitClient({
     return payload.result;
   }
 
-  return { runTask, knownTasks };
+  /**
+   * Remove spec and result files left by a task whose caller had already given up (the unit can keep
+   * running for hours after a timeout, then write its result). /run is tmpfs, so these would otherwise
+   * hold memory until the next reboot.
+   */
+  async function sweepStale({ olderThanMs = 25 * 60 * 60 * 1000, now = () => Date.now() } = {}) {
+    const entries = await readdir(runDirectory).catch(() => []);
+    let removed = 0;
+    for (const entry of entries) {
+      if (!/^[0-9a-f-]{36}(\.result)?\.json$/.test(entry)) continue;
+      const file = path.join(runDirectory, entry);
+      const info = await stat(file).catch(() => null);
+      if (!info || now() - info.mtimeMs < olderThanMs) continue;
+      await unlink(file).catch(() => {});
+      removed += 1;
+    }
+    return { removed };
+  }
+
+  return { sweepStale, runTask, knownTasks };
 }

@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -32,5 +32,23 @@ describe("run-unit client", () => {
       return { ok: false, stdout: "", stderr: "" };
     }) });
     await expect(failing.runTask("apt.update", {})).rejects.toThrow("apt-get update failed");
+  });
+});
+
+describe("stale files from an abandoned task", () => {
+  it("removes spec and result files older than a day, and keeps recent ones", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-run-sweep-"));
+    directories.push(directory);
+    const id = "11111111-2222-4333-8444-555555555555";
+    const old = path.join(directory, `${id}.result.json`);
+    const fresh = path.join(directory, `${id}.json`);
+    await writeFile(old, "{}");
+    await writeFile(fresh, "{}");
+    const twoDays = 2 * 24 * 60 * 60 * 1000;
+    await utimes(old, new Date(Date.now() - twoDays), new Date(Date.now() - twoDays));
+    const client = createRunUnitClient({ runDirectory: directory });
+    expect(await client.sweepStale()).toEqual({ removed: 1 });
+    await expect(stat(old)).rejects.toThrow();
+    expect((await stat(fresh)).isFile()).toBe(true);
   });
 });

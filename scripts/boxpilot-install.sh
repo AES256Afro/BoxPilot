@@ -23,14 +23,35 @@ umask 022
 
 REPO="${BOXPILOT_REPO:-AES256Afro/BoxPilot}"
 REF="main"; ACCESS=""; PORT="8787"; NODE_PIN=""; PRINT_TOKEN=1
+
+# Reading help out of "$0" fails under `curl | sh`, where $0 is "sh".
+usage() {
+  cat <<'USAGE'
+Install BoxPilot on a fresh Ubuntu Server.
+
+  --ref <tag|branch>     release tag or branch to install (default: main)
+  --access <lan|tailscale|local>
+                         how the web UI is reachable (default: ask)
+  --port <number>        port for the web UI (default: 8787)
+  --node-version <ver>   pin a Node.js 24 release instead of the newest
+  --no-token             do not print the one-time owner token
+  -h, --help             show this message
+
+Re-run this installer at any time to upgrade an existing install.
+USAGE
+}
+
+need_value() {
+  [ $# -ge 2 ] || { printf 'Option %s needs a value\n' "$1" >&2; exit 64; }
+}
 while [ $# -gt 0 ]; do
   case "$1" in
-    --ref) REF="$2"; shift 2 ;;
-    --access) ACCESS="$2"; shift 2 ;;
-    --port) PORT="$2"; shift 2 ;;
-    --node-version) NODE_PIN="$2"; shift 2 ;;
+    --ref) need_value "$@"; REF="$2"; shift 2 ;;
+    --access) need_value "$@"; ACCESS="$2"; shift 2 ;;
+    --port) need_value "$@"; PORT="$2"; shift 2 ;;
+    --node-version) need_value "$@"; NODE_PIN="$2"; shift 2 ;;
     --no-token) PRINT_TOKEN=0; shift ;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
+    -h|--help) usage; exit 0 ;;
     *) printf 'Unknown option: %s\n' "$1" >&2; exit 64 ;;
   esac
 done
@@ -65,15 +86,25 @@ else
   [ -n "$NODE_VERSION" ] || fail "could not determine a Node.js 24 release; pass --node-version"
   case "$NODE_VERSION" in v*) ;; *) NODE_VERSION="v$NODE_VERSION" ;; esac
   TARBALL="node-${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz"
-  if [ ! -x "/opt/node-${NODE_VERSION}/bin/node" ]; then
+  # npm decides completeness, not node: an extraction interrupted after bin/node would otherwise
+  # satisfy the guard forever and never be repaired by re-running.
+  if [ ! -x "/opt/node-${NODE_VERSION}/bin/node" ] || [ ! -d "/opt/node-${NODE_VERSION}/lib/node_modules/npm" ]; then
     log "installing Node.js ${NODE_VERSION} (${NODE_ARCH})"
     TMP="$(mktemp -d)"
+    trap 'rm -rf "$TMP"' EXIT
     curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/${TARBALL}" -o "$TMP/$TARBALL"
     curl -fsSL "https://nodejs.org/dist/${NODE_VERSION}/SHASUMS256.txt" -o "$TMP/SHASUMS256.txt"
     (cd "$TMP" && grep " ${TARBALL}\$" SHASUMS256.txt | sha256sum -c - >/dev/null) || fail "Node.js tarball checksum mismatch"
-    mkdir -p "/opt/node-${NODE_VERSION}"
-    tar -xJf "$TMP/$TARBALL" -C "/opt/node-${NODE_VERSION}" --strip-components=1
+    # Unpack aside and move into place in one step, so a half-extracted tree is never left behind.
+    mkdir -p "$TMP/tree"
+    tar -xJf "$TMP/$TARBALL" -C "$TMP/tree" --strip-components=1
+    [ -x "$TMP/tree/bin/node" ] && [ -d "$TMP/tree/lib/node_modules/npm" ] || fail "the Node.js tarball did not contain a complete runtime"
+    rm -rf "/opt/node-${NODE_VERSION}.partial"
+    mv "$TMP/tree" "/opt/node-${NODE_VERSION}.partial"
+    rm -rf "/opt/node-${NODE_VERSION}"
+    mv "/opt/node-${NODE_VERSION}.partial" "/opt/node-${NODE_VERSION}"
     rm -rf "$TMP"
+    trap - EXIT
   fi
   for bin in node npm npx; do ln -sfn "/opt/node-${NODE_VERSION}/bin/$bin" "/usr/local/bin/$bin"; done
   log "Node.js $(/usr/local/bin/node --version) linked at /usr/local/bin/node"

@@ -9,7 +9,9 @@ risk: medium
 image:
   reference: grafana/grafana-oss:13.0.2
   version: 13.0.2
-user: "0"
+# Grafana's own image runs as 472; BoxPilot gives the data folder to that account, so the
+# container has no reason to run as root.
+user: "472:472"
 ports:
   - id: web
     label: Web UI

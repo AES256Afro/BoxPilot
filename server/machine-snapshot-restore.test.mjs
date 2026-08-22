@@ -28,6 +28,8 @@ async function buildSnapshot(root, { appId = "demo", withEnv = true } = {}) {
   const snapshotRoot = path.join(root, "snapshots"); await mkdir(snapshotRoot, { recursive: true });
   const result = await fixedRun("tar", ["-czf", path.join(snapshotRoot, artifact), "-C", staging, "."]);
   if (!result.ok) throw new Error(result.stderr);
+  // The checksum beside the archive is what a restore verifies against; a real snapshot always has one.
+  await writeFile(path.join(snapshotRoot, `${artifact}.meta.json`), JSON.stringify({ schemaVersion: 1, artifact, checksumSha256: sha(await readFile(path.join(snapshotRoot, artifact))), createdAt: "2026-08-21T02:00:00.000Z" }));
   await rm(staging, { recursive: true, force: true });
   return snapshotRoot;
 }

@@ -21,6 +21,9 @@ TimeoutStartSec=21min
 UMask=0022
 
 NoNewPrivileges=true
+# No RestrictSUIDSGID here: dpkg sets the set-user-id bit on files it installs (e.g. qemu-bridge-helper).
+PrivateTmp=true
+LockPersonality=true
 ProtectClock=true
 ProtectControlGroups=true
 ProtectHome=true
