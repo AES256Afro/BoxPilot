@@ -87,12 +87,19 @@ export async function backupRemoteSync(parameters = {}, { run = fixedRun, log = 
     if (!exists) continue;
     const target = `${destination.user}@${destination.host}:${destination.path}/${source.name}/`;
     log?.(`$ rsync -a --checksum --mkpath ${source.root}/ ${target}`, "stdout");
-    const result = await run(rsync, ["-a", "--checksum", "--partial", "--mkpath", "--stats", "--timeout=600", "-e", transport, `${source.root}/`, target], { timeout: 6 * 60 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+    // --partial-dir, not bare --partial: on its own, --partial keeps an interrupted transfer under
+    // the *final* name, so a dropped link mid-database leaves a truncated file sitting where the
+    // real one was, beside a manifest that says it is complete. This is the copy somebody reaches
+    // for when the server is gone.
+    const result = await run(rsync, ["-a", "--checksum", "--partial-dir=.boxpilot-partial", "--exclude=.boxpilot-partial", "--mkpath", "--stats", "--timeout=600", "-e", transport, `${source.root}/`, target], { timeout: 6 * 60 * 60_000, maxBuffer: 8 * 1024 * 1024 });
     if (!result.ok) throw new Error(`rsync failed for ${source.name}: ${result.stderr.trim().split("\n").slice(-2).join(" ")}`);
     const stats = parseRsyncStats(result.stdout);
     filesTransferred += stats.filesTransferred; bytesTransferred += stats.bytesTransferred;
     mirrored.push({ name: source.name, ...stats });
   }
+  // Nothing to copy is not a copy. Recording a sync here made the Overview report backups were
+  // mirrored off-box on a server that had never made one.
+  if (mirrored.length === 0) throw new Error("There is nothing to mirror yet: take a backup or a machine snapshot first, then run this again.");
   const completedAt = now().toISOString();
   log?.(`Mirrored ${mirrored.length} backup root(s): ${filesTransferred} file(s), ${bytesTransferred} bytes transferred`, "stdout");
   return { synced: true, destination: `${destination.user}@${destination.host}:${destination.path}`, completedAt, mirrored, filesTransferred, bytesTransferred, boundary: { deletesPerformed: false, checksumVerified: true } };

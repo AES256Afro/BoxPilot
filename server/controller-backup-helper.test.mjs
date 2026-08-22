@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -114,5 +114,27 @@ describe("controller database backup helper", () => {
     expect(controllerBackupHelperInternals.validateControllerBackupInput({ backupId, path: "/tmp/copy" })).toEqual(["Controller backup accepts only one backupId UUID"]);
     expect(controllerBackupHelperInternals.validateControllerBackupInput({ backupId: "../../etc" })).toEqual(["Controller backup accepts only one backupId UUID"]);
     expect(() => controllerBackupHelperInternals.confinedChild("/fixed/root", "../escape")).toThrow("escaped its fixed root");
+  });
+});
+
+describe("local copies on the database's own disk", () => {
+  it("keeps the newest few and removes the rest, never the one just written", async () => {
+    // Every backup and every machine snapshot writes a full copy of the database here, and nothing
+    // removed them. On a single-disk install that is the same volume the live database is on.
+    const root = await mkdtemp(path.join(os.tmpdir(), "boxpilot-controller-prune-"));
+    directories.push(root);
+    const backupRoot = path.join(root, "backups");
+    const ids = Array.from({ length: 6 }, (_unused, index) => `0000000${index}-0000-4000-8000-00000000000${index}`);
+    for (const [index, id] of ids.entries()) {
+      await mkdir(path.join(backupRoot, id), { recursive: true });
+      await writeFile(path.join(backupRoot, id, "boxpilot.sqlite3"), "copy");
+      await utimes(path.join(backupRoot, id), new Date(1000 + index * 1000), new Date(1000 + index * 1000));
+    }
+    const helper = createControllerBackupHelper({ backupRoot, keepLocal: 3 });
+    const removed = await helper.internals.pruneLocalBackups(ids[0]);
+    const left = (await readdir(backupRoot)).sort();
+    // The three newest, plus the one named as just written even though it is the oldest.
+    expect(left).toEqual([ids[0], ids[3], ids[4], ids[5]].sort());
+    expect(removed.sort()).toEqual([ids[1], ids[2]].sort());
   });
 });

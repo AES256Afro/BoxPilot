@@ -105,6 +105,9 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
   // A copy the retention run forgot is no longer in the repository, so it is not a protected copy.
   const liveProtections = (protection?.protections ?? []).filter((entry) => entry.retained !== false && entry.protected !== false);
   const protectedIds = new Set(liveProtections.map((entry) => entry.backupId));
+  // A backup can be protected once. Where retention has since forgotten that copy, offering the
+  // button again just produces an error, so the row says what happened instead.
+  const forgottenIds = new Set((protection?.protections ?? []).filter((entry) => entry.retained === false).map((entry) => entry.backupId));
   const destinationReady = Boolean(protection?.destination?.ready);
 
   return (
@@ -145,8 +148,8 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
                   <td>{new Date(backup.createdAt).toLocaleString()}</td>
                   <td>{formatBytes(backup.sizeBytes)}</td>
                   <td>{backup.restoreDrill?.passed ? <span className="status-pill status-good">passed</span> : <span className="status-pill status-warning">unverified</span>}</td>
-                  <td>{protectedIds.has(backup.id) ? <span className="status-pill status-good">protected</span> : "—"}</td>
-                  <td>{!protectedIds.has(backup.id) && destinationReady ? <button className="text-button" type="button" onClick={() => protectBackup(backup.id)}>Protect</button> : null}</td>
+                  <td>{protectedIds.has(backup.id) ? <span className="status-pill status-good">protected</span> : forgottenIds.has(backup.id) ? <span className="status-pill status-neutral" title="Retention removed the encrypted copy of this backup">copy removed</span> : "—"}</td>
+                  <td>{!protectedIds.has(backup.id) && !forgottenIds.has(backup.id) && destinationReady ? <button className="text-button" type="button" onClick={() => protectBackup(backup.id)}>Protect</button> : null}</td>
                 </tr>
               ))}
             </tbody>

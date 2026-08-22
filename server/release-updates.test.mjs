@@ -51,3 +51,15 @@ describe("release updates", () => {
     await expect(service.prepareOperation({ tag: "main" })).rejects.toThrow("release tag like v1.2.3");
   });
 });
+
+describe("ordering and staging releases", () => {
+  it("orders prerelease identifiers numerically, not as text", () => {
+    // Plain string order puts rc.10 below rc.2, which would offer an older build as an update.
+    expect(compareVersions("1.0.0-rc.2", "1.0.0-rc.10")).toBe(-1);
+    expect(compareVersions("1.0.0-rc.10", "1.0.0-rc.2")).toBe(1);
+    expect(compareVersions("1.0.0-alpha", "1.0.0-beta")).toBe(-1);
+    expect(compareVersions("1.0.0-rc.1", "1.0.0")).toBe(-1);
+    expect(compareVersions("0.99.0", "1.0.0")).toBe(-1);
+    expect(compareVersions("0.9.0", "0.10.0")).toBe(-1);
+  });
+});

@@ -45,12 +45,15 @@ export function createControllerRetentionService({ store, helper, now = () => ne
   async function buildPreview(retentionId = randomUUID()) {
     const inspection = await helper.request("controller.database.protection.retention.inspect", {});
     const protections = store.listAllControllerBackupProtections();
+    // Job types are "op:<operation id>" and their parameters are flat. Matching the old helper
+    // request names against an "input" wrapper meant this list was always empty, so the policy
+    // advertised a protection it never applied.
     const activeConsumers = store.listActiveJobs()
-      .filter((job) => ["controller.database.backup.protect", "controller.database.backup.retention.apply"].includes(job.type))
+      .filter((job) => ["op:controller.backup.protect", "op:controller.backup.retention.apply"].includes(job.type))
       .map((job) => ({
-        backupId: job.parameters?.input?.backupId,
-        protectionId: job.parameters?.input?.protectionId,
-        snapshotIds: job.type === "controller.database.backup.retention.apply" ? job.parameters?.input?.forgetSnapshotIds : [],
+        backupId: job.parameters?.backupId,
+        protectionId: job.parameters?.protectionId,
+        snapshotIds: job.type === "op:controller.backup.retention.apply" ? job.parameters?.forgetSnapshotIds ?? [] : [],
       }));
     const blockers = [...(inspection.blockers ?? [])];
     const active = protections.filter((protection) => protection.retained !== false && protection.repositoryId === inspection.repositoryId);

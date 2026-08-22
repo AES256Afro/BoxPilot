@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chmod, copyFile, lstat, mkdir, open, readFile, rmdir, unlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, open, readdir, readFile, rm, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -92,8 +92,37 @@ export function createControllerBackupHelper({
   sourceDatabasePath = process.env.BOXPILOT_CONTROLLER_DATABASE ?? "/var/lib/boxpilot/boxpilot.sqlite3",
   backupRoot = process.env.BOXPILOT_CONTROLLER_BACKUP_ROOT ?? "/var/lib/boxpilot-managed/backups/boxpilot-controller",
   restoreDrillRoot = process.env.BOXPILOT_CONTROLLER_RESTORE_DRILL_ROOT ?? "/var/lib/boxpilot-managed/controller-restore-drills",
+  // Local copies to keep. Every backup and every machine snapshot writes a full copy of the
+  // database here, and nothing removed them — on a single-disk install that is the same volume the
+  // live database sits on, so it fills up and takes the database with it.
+  keepLocal = 10,
   now = () => new Date(),
 } = {}) {
+  /**
+   * Keep the newest `keepLocal` local copies, never the one this call just made.
+   *
+   * This is only about the disk the database lives on, which on a single-disk install is the same
+   * one — every backup and every machine snapshot wrote a full copy here and nothing removed them.
+   * A copy that has been protected has an encrypted copy off the box, which is the durable one and
+   * is governed separately by retention; the local artifact is a convenience.
+   */
+  async function pruneLocalBackups(justCreated) {
+    const entries = await readdir(backupRoot, { withFileTypes: true }).catch(() => []);
+    const directories = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !uuidPattern.test(entry.name)) continue;
+      const info = await stat(path.join(backupRoot, entry.name)).catch(() => null);
+      if (info) directories.push({ id: entry.name, at: info.mtimeMs });
+    }
+    const removed = [];
+    for (const candidate of directories.sort((left, right) => right.at - left.at).slice(keepLocal)) {
+      if (candidate.id === justCreated) continue;
+      await rm(path.join(backupRoot, candidate.id), { recursive: true, force: true }).catch(() => {});
+      removed.push(candidate.id);
+    }
+    return removed;
+  }
+
   async function initialize() {
     await realDirectory(backupRoot);
     await realDirectory(restoreDrillRoot);
@@ -200,12 +229,18 @@ export function createControllerBackupHelper({
       const manifestChecksumSha256 = await sha256File(manifestPath);
       const manifestRoundTrip = JSON.parse(await readFile(manifestPath, "utf8"));
       if (manifestRoundTrip.backupId !== input.backupId || manifestRoundTrip.checksumSha256 !== checksumSha256 || manifestRoundTrip.restoreDrill?.passed !== true) throw new Error("Controller backup manifest failed verification");
-      const manifestHandle = await open(manifestPath, "r");
-      try { await manifestHandle.sync(); } finally { await manifestHandle.close(); }
+      // Artifact first, then the manifest that vouches for it, then the directory holding both:
+      // a power cut in the wrong order leaves a manifest describing a file that is not there.
       const artifactHandle = await open(artifactPath, "r");
       try { await artifactHandle.sync(); } finally { await artifactHandle.close(); }
+      const manifestHandle = await open(manifestPath, "r");
+      try { await manifestHandle.sync(); } finally { await manifestHandle.close(); }
+      const directoryHandle = await open(backupDirectory, "r").catch(() => null);
+      if (directoryHandle) { try { await directoryHandle.sync(); } catch { /* not every filesystem allows this */ } finally { await directoryHandle.close(); } }
 
+      const removedLocal = await pruneLocalBackups(input.backupId);
       return {
+        removedLocal,
         backupId: input.backupId,
         applicationId: "boxpilot-controller",
         destination: "local-managed",
@@ -260,7 +295,7 @@ export function createControllerBackupHelper({
     }
   }
 
-  return { initialize, inspect, createBackup, backupRoot, restoreDrillRoot, sourceDatabasePath };
+  return { initialize, inspect, createBackup, backupRoot, restoreDrillRoot, sourceDatabasePath, internals: { pruneLocalBackups } };
 }
 
 export const controllerBackupHelperInternals = { confinedChild, databaseEvidence, requiredTables, sha256File, validateControllerBackupInput };

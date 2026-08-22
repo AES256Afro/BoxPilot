@@ -61,7 +61,7 @@ describe("off-box SSH mirror tasks", () => {
     const result = await promise;
     expect(result).toMatchObject({ synced: true, completedAt: "2026-08-21T18:00:00.000Z", filesTransferred: 2, bytesTransferred: 1048576, mirrored: [{ name: "controller-backups" }], boundary: { deletesPerformed: false } });
     const rsyncCall = calls.find((call) => call.includes("rsync"));
-    expect(rsyncCall).toContain("-a --checksum --partial --mkpath --stats");
+    expect(rsyncCall).toContain("-a --checksum --partial-dir=.boxpilot-partial --exclude=.boxpilot-partial --mkpath --stats");
     expect(rsyncCall).toContain("StrictHostKeyChecking=yes");
     expect(rsyncCall).not.toContain("--delete");
     expect(rsyncCall).toContain(`${sources[0].root}/ backup@nas.local:/srv/boxpilot/controller-backups/`);
@@ -73,5 +73,23 @@ describe("off-box SSH mirror tasks", () => {
     const bare = await fixture({ withKey: false, withKnownHosts: false });
     await expect(backupRemoteSync(destination, { run: bare.run, secretsDirectory: bare.secretsDirectory, sources })).rejects.toThrow("Generate the mirror key first");
     expect(backupRemoteInternals.parseRsyncStats("Number of regular files transferred: 12\nTotal transferred file size: 3,000 bytes")).toEqual({ filesTransferred: 12, bytesTransferred: 3000 });
+  });
+});
+
+describe("a mirror with nothing to copy", () => {
+  it("refuses rather than recording a sync that moved nothing", async () => {
+    // Recording a "last mirrored" here made the Overview report that backups were kept off-box on
+    // a server that had never taken one.
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-empty-mirror-"));
+    directories.push(directory);
+    await writeFile(path.join(directory, "backup-mirror-key"), "key", { mode: 0o600 });
+    await writeFile(path.join(directory, "backup-mirror-known_hosts"), "nas.local ssh-ed25519 AAAA", { mode: 0o600 });
+    const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
+    await expect(backupRemoteSync(destination, {
+      run,
+      secretsDirectory: directory,
+      sources: [{ name: "controller", root: path.join(directory, "does-not-exist") }],
+    })).rejects.toThrow(/nothing to mirror yet/i);
+    expect(run.mock.calls.filter(([binary]) => String(binary).endsWith("rsync"))).toHaveLength(0);
   });
 });

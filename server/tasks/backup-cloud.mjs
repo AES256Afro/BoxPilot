@@ -90,7 +90,10 @@ export async function backupCloudSync(parameters = {}, { run = fixedRun, log = n
     filesTransferred += stats.filesTransferred; errors += stats.errors;
     mirrored.push({ name: source.name, ...stats });
   }
+  // Nothing to copy is not a copy, and errors mean this did not do what it says it did.
+  if (mirrored.length === 0) throw new Error("There is nothing to mirror yet: take a backup or a machine snapshot first, then run this again.");
+  if (errors > 0) throw new Error(`rclone reported ${errors} error(s) while copying, so this mirror is not complete. Check the log and run it again.`);
   const completedAt = now().toISOString();
-  log?.(`Mirrored ${mirrored.length} backup root(s) to ${target}: ${filesTransferred} file(s) transferred${errors ? `, ${errors} error(s)` : ""}`, "stdout");
+  log?.(`Mirrored ${mirrored.length} backup root(s) to ${target}: ${filesTransferred} file(s) transferred`, "stdout");
   return { synced: true, destination: target, completedAt, mirrored, filesTransferred, bytesTransferred: mirrored.map((entry) => entry.bytesTransferred).filter(Boolean).join(" + ") || null, errors, boundary: { deletesPerformed: false, checksumVerified: true } };
 }

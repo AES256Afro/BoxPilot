@@ -138,16 +138,18 @@ export function createControllerRetentionHelper({
     if (after && !afterIdentityValid) verification.push("post-inspection-identity-unverified");
     const verifiedAfter = afterIdentityValid ? after : null;
     const afterIds = new Set(verifiedAfter?.snapshots?.map((snapshot) => snapshot.id) ?? []);
-    const actuallyForgotten = verifiedAfter
-      ? parameters.forgetSnapshotIds.filter((id) => !afterIds.has(id))
-      : forgetSucceeded ? [...parameters.forgetSnapshotIds] : [];
-    if (actuallyForgotten.length === 0) throw new Error("Controller retention failed before any reviewed snapshot removal was confirmed");
+    // Only what a fresh inspection shows gone counts as forgotten. Trusting the forget command's
+    // own exit code marked backups as removed that might still be there, and then reported the run
+    // as complete — so the next preview found snapshots it could not account for and blocked.
+    const actuallyForgotten = verifiedAfter ? parameters.forgetSnapshotIds.filter((id) => !afterIds.has(id)) : [];
+    if (actuallyForgotten.length === 0) throw new Error("Controller retention could not confirm that any reviewed snapshot was removed");
     const allCandidatesAbsent = actuallyForgotten.length === parameters.forgetSnapshotIds.length;
     const allKeptPresent = verifiedAfter ? expectedKept.every((id) => afterIds.has(id)) : false;
     if (!allCandidatesAbsent) verification.push("candidate-still-present");
     if (!allKeptPresent) verification.push("noncandidate-presence-unverified");
     if (after && after.repositoryId !== before.repositoryId) verification.push("repository-identity-changed");
-    const complete = forgetSucceeded && allCandidatesAbsent;
+    // A run whose result could not be read is not a run known to be complete.
+    const complete = forgetSucceeded && allCandidatesAbsent && verifiedAfter !== null;
     const repositoryVerified = complete && repositoryCheckPassed && allKeptPresent && after?.repositoryId === before.repositoryId;
     return {
       applied: true,
