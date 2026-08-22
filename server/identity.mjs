@@ -129,7 +129,9 @@ export function createIdentityService({
     if (claimed && claimed !== String(identity.login).toLowerCase()) {
       return { available: false, reason: "identity-mismatch", login: null, displayName: null, node: null, linked: false, address };
     }
-    return { available: true, ...identity, linked: Boolean(tailscaleAccountFor(identity.login)) };
+    // Whether the proxy itself vouched for this identity, rather than it resting on a forwarded
+    // address alone. Reported so the sign-in screen can say which it is.
+    return { available: true, ...identity, proxyVerified: Boolean(claimed), linked: Boolean(tailscaleAccountFor(identity.login)) };
   }
 
   /**
