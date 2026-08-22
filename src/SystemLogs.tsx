@@ -22,6 +22,8 @@ export default function SystemLogs({ csrfToken = "" }: { csrfToken?: string }) {
   const [pick, setPick] = useState("");
   const pre = useRef<HTMLPreElement | null>(null);
   const readSequence = useRef(0);
+  /** Newest log timestamp on screen, so following asks only for what came after it. */
+  const lastTimestamp = useRef<string | null>(null);
   useEffect(() => {
     const timer = window.setTimeout(() => setAppliedFilter(filter), 300);
     return () => window.clearTimeout(timer);
@@ -29,18 +31,36 @@ export default function SystemLogs({ csrfToken = "" }: { csrfToken?: string }) {
 
   useEffect(() => { inspectOperation<Sources>("logs.sources").then(({ result }) => setSources(result)).catch((requestError: unknown) => setError(requestError instanceof Error ? requestError.message : "Could not list log sources")); }, []);
 
-  const read = useCallback(async () => {
+  /**
+   * `follow` asks only for what has arrived since the newest line already on screen, instead of
+   * re-fetching the whole window every five seconds. On the server that is the difference between
+   * journalctl scanning back for N matching lines each tick and reading the tail of the journal.
+   */
+  const read = useCallback(async (mode: "replace" | "append" = "replace") => {
     if (!target) return;
     const sequence = (readSequence.current += 1);
     setLoading(true);
     try {
       const parameters: Record<string, unknown> = { kind, target, lines };
-      if (since.trim()) parameters.since = since.trim();
+      const newest = mode === "append" ? lastTimestamp.current : null;
+      if (newest) parameters.since = newest;
+      else if (since.trim()) parameters.since = since.trim();
       if (appliedFilter.trim()) parameters.filter = appliedFilter.trim();
       const response = await fetch("/api/v1/operations/logs.read/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters }) });
       const body = await readJson<{ result?: { lines: string[] } }>(response);
       if (sequence !== readSequence.current) return; // a newer read already answered
-      setEntries(body.result?.lines ?? []); setError(null);
+      const received = body.result?.lines ?? [];
+      setEntries((current) => {
+        if (mode === "replace") return received;
+        // Overlap is expected: --since is inclusive to the second, so drop what we already hold.
+        const held = new Set(current.slice(-400));
+        const fresh = received.filter((line) => !held.has(line));
+        return fresh.length ? [...current, ...fresh].slice(-2000) : current;
+      });
+      const newestLine = received.at(-1) ?? null;
+      const stamp = newestLine ? /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})/.exec(newestLine)?.[1] ?? null : null;
+      if (stamp) lastTimestamp.current = stamp.replace(" ", "T");
+      setError(null);
     } catch (requestError) {
       if (sequence === readSequence.current) setError(requestError instanceof Error ? requestError.message : "Could not read logs");
     } finally {
@@ -48,8 +68,9 @@ export default function SystemLogs({ csrfToken = "" }: { csrfToken?: string }) {
     }
   }, [csrfToken, kind, target, lines, since, appliedFilter]);
 
-  useEffect(() => { void read(); }, [read]);
-  useEffect(() => { if (!follow) return undefined; const timer = window.setInterval(() => { void read(); }, 5000); return () => window.clearInterval(timer); }, [follow, read]);
+  // Any change of source, filter or window starts a fresh read; following only asks for the rest.
+  useEffect(() => { lastTimestamp.current = null; void read("replace"); }, [read]);
+  useEffect(() => { if (!follow) return undefined; const timer = window.setInterval(() => { void read(lastTimestamp.current ? "append" : "replace"); }, 5000); return () => window.clearInterval(timer); }, [follow, read]);
   useEffect(() => { if (follow && pre.current) pre.current.scrollTop = pre.current.scrollHeight; }, [entries, follow]);
 
   const unitOptions = useMemo(() => (sources?.units ?? []).filter((unit) => !pick || unit.unit.toLowerCase().includes(pick.toLowerCase())).slice(0, 200), [sources, pick]);

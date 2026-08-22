@@ -23,7 +23,11 @@ export function createOperationsRouter({ state, helper, jobs, prerequisites, rec
     if (role === "viewer") { response.status(403).json({ error: "Viewers can look but not reveal secrets", code: "forbidden" }); return true; }
     const elevatedUntil = request.boxpilotSession.elevatedUntil ? Date.parse(request.boxpilotSession.elevatedUntil) : Number.NaN;
     if (!(Number.isFinite(elevatedUntil) && elevatedUntil > Date.now())) { response.status(401).json({ error: "Enter your password to unlock this for 10 minutes", code: "elevation_required" }); return true; }
-    state.recordAudit("operation.elevated-read", { actorId: request.boxpilotSession.owner.id, subjectId: operation.id, details: { parameters: request.body?.parameters ?? {} } });
+    // The names, not the values, and this runs before the registry has validated either. The whole
+    // body used to go in — up to the JSON limit, unfiltered, on the one route that reveals secrets.
+    const submitted = request.body?.parameters;
+    const parameterNames = submitted && typeof submitted === "object" && !Array.isArray(submitted) ? Object.keys(submitted).slice(0, 20) : [];
+    state.recordAudit("operation.elevated-read", { actorId: request.boxpilotSession.owner.id, subjectId: operation.id, details: { parameterNames } });
     return false;
   }
 

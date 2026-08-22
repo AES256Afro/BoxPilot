@@ -33,3 +33,32 @@ describe("job log", () => {
     await expect(writer.append("x")).resolves.toBeUndefined();
   });
 });
+
+describe("following a job log", () => {
+  it("returns only what is new, without re-reading the whole file", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-joblog-follow-"));
+    directories.push(directory);
+    const jobId = "11111111-1111-4111-8111-111111111111";
+    const writer = createJobLogWriter({ jobId, directory });
+    const reader = createJobLogReader({ directory });
+
+    await writer.append("first line\n");
+    const first = await reader.read(jobId, 0);
+    expect(first.text).toContain("first line");
+    expect(first.exists).toBe(true);
+
+    // Nothing new: no bytes, and the offset does not move.
+    const idle = await reader.read(jobId, first.offset);
+    expect(idle).toMatchObject({ text: "", offset: first.offset, exists: true });
+
+    await writer.append("second line\n");
+    const next = await reader.read(jobId, first.offset);
+    // Only the new bytes, not the file: the first line is not in this read.
+    expect(next.text).toContain("second line");
+    expect(next.text).not.toContain("first line");
+    expect(next.offset).toBeGreaterThan(first.offset);
+
+    // An offset past the end (a truncated or rotated file) is clamped rather than throwing.
+    expect(await reader.read(jobId, next.offset + 10_000)).toMatchObject({ text: "" });
+  });
+});

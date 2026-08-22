@@ -56,6 +56,15 @@ export function createStateStore({
   mkdirSync(resolvedStateDirectory, { recursive: true, mode: 0o700 });
   const resolvedDatabasePath = databasePath ?? path.join(resolvedStateDirectory, "boxpilot.sqlite3");
   const database = new DatabaseSync(resolvedDatabasePath);
+  // Every query here used to compile its SQL on each call. The statements are fixed strings,
+  // so they are compiled once and reused; `prepare` below is that cache, not the raw method.
+  const compiled = new Map();
+  const rawPrepare = database.prepare.bind(database);
+  database.prepare = (sql) => {
+    let statement = compiled.get(sql);
+    if (!statement) { statement = rawPrepare(sql); compiled.set(sql, statement); }
+    return statement;
+  };
   database.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
   database.exec(`
     CREATE TABLE IF NOT EXISTS owners (
@@ -285,8 +294,18 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_vm_backups_created_at ON vm_backups(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_vm_recoveries_created_at ON vm_recoveries(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_vm_retention_runs_created_at ON vm_retention_runs(created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_events(created_at DESC);
+    -- Columns that are actually filtered on. Without these, every non-owner job list and every
+    -- session cleanup was a full scan, and the scheduler's due check runs once a minute.
+    CREATE INDEX IF NOT EXISTS idx_jobs_created_by ON jobs(created_by, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_jobs_state ON jobs(state);
+    CREATE INDEX IF NOT EXISTS idx_sessions_owner_id ON sessions(owner_id);
+    CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules(enabled, next_due_at);
+    CREATE INDEX IF NOT EXISTS idx_plans_expires_at ON plans(expires_at);
   `);
+  // idx_audit_created_at duplicated idx_audit_events_created_at under a second name, doubling the
+  // write cost of every audit insert for nothing.
+  database.exec("DROP INDEX IF EXISTS idx_audit_created_at;");
 
   // Tables from retired features (legacy application recovery/protection, migrations, fleet,
   // router checkpoints, DNS acceptance). Controller backups retain history if it is ever needed.
@@ -416,11 +435,30 @@ export function createStateStore({
   /** Self-service password change; other sessions of the account are ended. */
   /** Forget every browser this account had marked trusted (used when its password or role changes). */
   function forgetTrustedDevices(ownerId) {
-    const devices = getSetting("trustedDevices", []) ?? [];
-    if (!Array.isArray(devices) || !devices.length) return 0;
-    const kept = devices.filter((entry) => entry?.ownerId !== ownerId);
-    if (kept.length !== devices.length) setSetting("trustedDevices", kept, { updatedBy: ownerId });
-    return devices.length - kept.length;
+    // Read and write in one transaction. Node being single-threaded makes this safe today, but
+    // that is incidental — the guarantee should be in the query, not in the runtime.
+    return updateSetting("trustedDevices", [], (devices) => {
+      if (!Array.isArray(devices) || !devices.length) return { value: devices, result: 0 };
+      const kept = devices.filter((entry) => entry?.ownerId !== ownerId);
+      return { value: kept, result: devices.length - kept.length };
+    }, ownerId);
+  }
+
+  /**
+   * Read a setting, transform it, and write it back atomically. Used where the transform depends
+   * on what is already there, so two writers cannot each read the old value.
+   */
+  function updateSetting(key, fallback, transform, updatedBy = null) {
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      const { value, result } = transform(getSetting(key, fallback));
+      setSetting(key, value, { updatedBy });
+      database.exec("COMMIT");
+      return result;
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   function setOwnerPassword(id, passwordHash, { keepSessionTokenHash = null } = {}) {
@@ -490,7 +528,7 @@ export function createStateStore({
   }
 
   function saveJobOutput(jobId, output) {
-    database.prepare("INSERT INTO job_output (job_id, output, created_at) VALUES (?, ?, ?) ON CONFLICT(job_id) DO UPDATE SET output = excluded.output").run(jobId, String(output ?? "").slice(-2 * 1024 * 1024), timestamp());
+    database.prepare("INSERT INTO job_output (job_id, output, created_at) VALUES (?, ?, ?) ON CONFLICT(job_id) DO UPDATE SET output = excluded.output, created_at = excluded.created_at").run(jobId, String(output ?? "").slice(-2 * 1024 * 1024), timestamp());
   }
 
   function getJobOutput(jobId) {
@@ -672,17 +710,36 @@ export function createStateStore({
     return normalizeJob(row, steps, approvals);
   }
 
+  /**
+   * Turn job rows into full jobs with three queries in total, rather than three per job. The jobs
+   * list is polled while any job runs, and `?limit=200` used to mean 601 statements per request.
+   */
+  function hydrateJobs(rows) {
+    if (!rows.length) return [];
+    const placeholders = rows.map(() => "?").join(", ");
+    const ids = rows.map((row) => row.id);
+    const stepsByJob = new Map(ids.map((id) => [id, []]));
+    const approvalsByJob = new Map(ids.map((id) => [id, []]));
+    for (const step of database.prepare(`SELECT job_id AS jobId, name, state, detail, created_at AS createdAt FROM job_steps WHERE job_id IN (${placeholders}) ORDER BY created_at`).all(...ids)) {
+      stepsByJob.get(step.jobId)?.push({ name: step.name, state: step.state, detail: step.detail, createdAt: step.createdAt });
+    }
+    for (const approval of database.prepare(`SELECT job_id AS jobId, owner_id AS ownerId, method, tier, created_at AS createdAt FROM approvals WHERE job_id IN (${placeholders}) ORDER BY created_at`).all(...ids)) {
+      approvalsByJob.get(approval.jobId)?.push({ ownerId: approval.ownerId, method: approval.method, tier: approval.tier, createdAt: approval.createdAt });
+    }
+    return rows.map((row) => normalizeJob(row, stepsByJob.get(row.id) ?? [], approvalsByJob.get(row.id) ?? []));
+  }
+
   /** Recent jobs, newest first. `createdBy` limits the list to one account (non-owners see only their own). */
   function listJobs(limit = 50, { createdBy = null } = {}) {
     const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
     const rows = createdBy
-      ? database.prepare("SELECT id FROM jobs WHERE created_by = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(createdBy, safeLimit)
-      : database.prepare("SELECT id FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT ?").all(safeLimit);
-    return rows.map((row) => getJob(row.id));
+      ? database.prepare("SELECT * FROM jobs WHERE created_by = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(createdBy, safeLimit)
+      : database.prepare("SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT ?").all(safeLimit);
+    return hydrateJobs(rows);
   }
 
   function listActiveJobs() {
-    return database.prepare("SELECT id FROM jobs WHERE state IN ('applying', 'verifying') ORDER BY created_at").all().map((row) => getJob(row.id));
+    return hydrateJobs(database.prepare("SELECT * FROM jobs WHERE state IN ('applying', 'verifying') ORDER BY created_at").all());
   }
 
   function normalizeSchedule(row) {
@@ -1147,10 +1204,20 @@ export function createStateStore({
 
   function recoverInterruptedJobs() {
     const interrupted = database.prepare("SELECT id FROM jobs WHERE state IN ('applying', 'verifying')").all();
-    for (const { id } of interrupted) {
-      database.prepare("UPDATE jobs SET state = 'failed', error = ?, updated_at = ? WHERE id = ?")
-        .run("BoxPilot restarted while this job was running. Review recovery guidance before retrying.", timestamp(), id);
-      addJobStep(id, "recovery", "required", "The operation was interrupted; no automatic retry was attempted");
+    if (!interrupted.length) return 0;
+    // One transaction: a crash during startup recovery would otherwise leave some jobs marked
+    // failed with no step saying why.
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      for (const { id } of interrupted) {
+        database.prepare("UPDATE jobs SET state = 'failed', error = ?, updated_at = ? WHERE id = ?")
+          .run("BoxPilot restarted while this job was running. Review recovery guidance before retrying.", timestamp(), id);
+        addJobStep(id, "recovery", "required", "The operation was interrupted; no automatic retry was attempted");
+      }
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
     }
     return interrupted.length;
   }
@@ -1179,6 +1246,7 @@ export function createStateStore({
     clearSessionElevation,
     getSetting,
     setSetting,
+    updateSetting,
     saveJobOutput,
     getJobOutput,
     deleteSession,
