@@ -64,7 +64,14 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
       const response = await fetch(`/api/v1/catalog/${encodeURIComponent(manifest.id)}/precheck`, { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ values: compact }) });
       const body = (await response.json().catch(() => ({}))) as { ok: boolean; errors: string[]; conflicts: Array<{ label: string; port: number; protocol: string; listeners: string[] }>; error?: string };
       if (!response.ok && !body.errors?.length) throw new Error(body.error ?? "Precheck failed");
-      const found = [...(body.errors ?? []), ...(body.conflicts ?? []).map((conflict) => `${conflict.label}: port ${conflict.port}/${conflict.protocol} is already in use on this server (${conflict.listeners.join(", ")}). Pick another port.`)];
+      const found = [...(body.errors ?? []), ...(body.conflicts ?? []).map((conflict) => {
+        const held = conflict.listeners.join(", ");
+        // "Pick another port" is useless advice for a DNS server, and resolved is the usual culprit.
+        const resolved = conflict.port === 53 && held.includes("127.0.0.53");
+        return resolved
+          ? `Port 53 is held by Ubuntu's own resolver (${held}). Set DNSStubListener=no in /etc/systemd/resolved.conf, restart systemd-resolved, then install again.`
+          : `${conflict.label}: port ${conflict.port}/${conflict.protocol} is already in use on this server (${held}). Pick another port.`;
+      })];
       if (found.length) { setProblems(found); return; }
       onSubmit(compact);
     } catch (requestError) {
@@ -126,7 +133,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [logs, setLogs] = useState<{ id: string; lines: string[] } | null>(null);
   const [effectiveConfig, setEffectiveConfig] = useState<{ id: string; name: string; compose: string | null; env: Array<{ name: string; value: string; secret: boolean }>; directory: string } | null>(null);
   const [composeDraft, setComposeDraft] = useState<string | null>(null);
-  const [appBackups, setAppBackups] = useState<{ id: string; name: string; backups: Array<{ artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; image: string | null }> } | null>(null);
+  const [appBackups, setAppBackups] = useState<{ id: string; name: string; backups: Array<{ artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; skippedVolumes?: string[]; image: string | null }> } | null>(null);
   const [browsing, setBrowsing] = useState<{ backup: string; files: Array<{ path: string; sizeBytes: number; type: string }>; truncated: boolean; filter: string } | null>(null);
   const browseBackup = async (id: string, backup: string) => {
     try {
@@ -193,7 +200,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const showBackups = async (manifest: Manifest) => {
     try {
       const response = await fetch("/api/v1/operations/app.backups.inspect/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id: manifest.id } }) });
-      const body = (await response.json().catch(() => ({}))) as { result?: { id: string; backups: Array<{ artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; image: string | null }> }; error?: string };
+      const body = (await response.json().catch(() => ({}))) as { result?: { id: string; backups: Array<{ artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; skippedVolumes?: string[]; image: string | null }> }; error?: string };
       if (!response.ok || !body.result) throw new Error(body.error ?? "Could not list backups");
       setAppBackups({ id: manifest.id, name: manifest.name, backups: body.result.backups });
     } catch (requestError) {
@@ -292,6 +299,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                   </table>
                 </div>
               )}
+              {appBackups.backups.some((backup) => (backup.skippedVolumes ?? []).length > 0) && <p className="muted">Not included in these archives: {[...new Set(appBackups.backups.flatMap((backup) => backup.skippedVolumes ?? []))].join(", ")}.</p>}
               {appBackups.backups.some((backup) => backup.skippedHostPaths.length > 0) && <p className="muted">Volumes at operator-managed host paths are not included: {[...new Set(appBackups.backups.flatMap((backup) => backup.skippedHostPaths))].join(", ")}</p>}
             </div>
           </section>

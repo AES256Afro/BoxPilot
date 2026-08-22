@@ -46,4 +46,4 @@ sidecars:
 health:
   kind: running
   stableSeconds: 10
-notes: "Open the setup UI first and choose port 80 for the admin interface and 53 for DNS in the wizard (they are mapped to the ports shown here). For private lookups, set the upstream DNS server to unbound:53 under Settings → DNS settings: that is the bundled recursive resolver, which asks the root servers directly. Ubuntu's systemd-resolved stub on 127.0.0.53 does not conflict; if port 53 is busy, Pi-hole or another resolver is already installed."
+notes: "Open the setup UI first and choose port 80 for the admin interface and 53 for DNS in the wizard (they are mapped to the ports shown here). For private lookups, set the upstream DNS server to unbound:53 under Settings → DNS settings: that is the bundled recursive resolver, which asks the root servers directly. On Ubuntu Server systemd-resolved holds port 53 by default: set DNSStubListener=no in /etc/systemd/resolved.conf and restart systemd-resolved before installing, or port 53 will already be in use. If it is still busy after that, Pi-hole or another resolver is installed."
