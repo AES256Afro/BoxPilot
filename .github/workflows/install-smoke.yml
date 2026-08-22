@@ -20,6 +20,18 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
 
+      - name: The installer explains itself the way a fresh server would ask
+        run: |
+          # Piped into sh, which is how the README says to run it: $0 is "sh", so anything that
+          # reads help out of the script file finds nothing.
+          help="$(cat scripts/boxpilot-install.sh | sh -s -- --help)"
+          case "$help" in *"--access"*) ;; *) echo "--help printed no usage" >&2; exit 1 ;; esac
+          # A missing value has to say which option is short, not fail on an unbound variable.
+          if message="$(sh scripts/boxpilot-install.sh --ref 2>&1)"; then
+            echo "a missing option value should have failed" >&2; exit 1
+          fi
+          case "$message" in *"needs a value"*) ;; *) echo "unhelpful message: $message" >&2; exit 1 ;; esac
+
       - name: Install BoxPilot from this commit with the production installer
         run: sudo sh scripts/boxpilot-install.sh --ref "${GITHUB_SHA}" --access local --no-token
 
