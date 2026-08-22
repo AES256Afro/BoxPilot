@@ -13,7 +13,7 @@ Install updates, add apps from a catalog, open only the ports you mean to, mount
 On a fresh Ubuntu Server (22.04 or newer):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh -s -- --ref v0.83.0
+curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh -s -- --ref v0.83.1
 ```
 
 It installs Node 24, builds BoxPilot under `/opt/boxpilot`, enables the `boxpilot` and `boxpilot-helper` services, and prints the URL with a one-time owner token. Create the owner account, pick a setup profile (home server, DNS appliance, hypervisor, dev box, essentials), and follow the checklist on the Overview. BoxPilot updates itself from GitHub releases and rolls back if a new version fails its health check.

@@ -192,7 +192,9 @@ export function createAppHelper({
     for (const sidecar of manifest.sidecars ?? []) for (const volume of sidecar.volumes) await mkdir(path.join(directory, volume.path), { recursive: true, mode: 0o755 });
     for (const volume of manifest.volumes) {
       const hostPath = values.volumes?.[volume.id];
-      if (!hostPath) continue;
+      // Only paths the owner changed are checked: the manifest's own mounts (e.g. the Docker socket, which
+      // lives under /run) are curated and already carry the app's risk tier.
+      if (!hostPath || hostPath === volume.hostPath) continue;
       const real = await realpath(hostPath).catch(() => hostPath);
       if (isDeniedHostPath(real)) throw new Error(`${hostPath} resolves to ${real}, a protected system location; pick a folder under /srv, /mnt, /media, or your home`);
     }
