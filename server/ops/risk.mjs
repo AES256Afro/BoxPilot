@@ -44,7 +44,6 @@ const jobRiskTiers = Object.freeze({
   "application.backup.protect": "medium",
   "application.backup.retention.apply": "high",
   "network.dns.acceptance.run": "low",
-  "network.flint2-adguard.acceptance.run": "low",
   "migration.bundle.transfer": "medium",
   "virtualization.media.import": "medium",
   "virtualization.domain.create": "medium",
