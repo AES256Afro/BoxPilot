@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { readJson } from "./http";
 import { inspectOperation } from "./operations";
 
 interface Sources { groups: Array<{ id: string; label: string }>; units: Array<{ unit: string; description: string; active: string }>; containers: Array<{ name: string; state: string; image: string }>; dockerAvailable: boolean }
@@ -37,8 +38,7 @@ export default function SystemLogs({ csrfToken = "" }: { csrfToken?: string }) {
       if (since.trim()) parameters.since = since.trim();
       if (appliedFilter.trim()) parameters.filter = appliedFilter.trim();
       const response = await fetch("/api/v1/operations/logs.read/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters }) });
-      const body = (await response.json()) as { result?: { lines: string[] }; error?: string };
-      if (!response.ok) throw new Error(body.error ?? "Could not read logs");
+      const body = await readJson<{ result?: { lines: string[] } }>(response);
       if (sequence !== readSequence.current) return; // a newer read already answered
       setEntries(body.result?.lines ?? []); setError(null);
     } catch (requestError) {

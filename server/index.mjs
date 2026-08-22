@@ -1,4 +1,5 @@
 import express from "express";
+import { randomUUID } from "node:crypto";
 import { createDeviceResolver } from "./catalog/devices.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -251,6 +252,16 @@ app.use((request, response, next) => {
 
 app.use((_request, response) => {
   response.status(404).json({ error: "Not found" });
+});
+
+// Anything that throws past a route lands here. Without this Express answers with an HTML page,
+// which reaches the browser as "Unexpected token '<'" instead of something the page can show.
+// eslint-disable-next-line no-unused-vars
+app.use((error, request, response, _next) => {
+  const reference = randomUUID().slice(0, 8);
+  console.error(`Unhandled error ${reference} on ${request.method} ${request.path}: ${error?.stack ?? error}`);
+  if (response.headersSent) { response.destroy(); return; }
+  response.status(500).json({ error: `Something went wrong in BoxPilot (reference ${reference}). The Logs page has the details.`, code: "internal_error", reference });
 });
 
 // Keep history bounded: finished jobs older than 90 days beyond the newest 500, audit beyond the newest 20,000 rows.

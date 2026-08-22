@@ -184,3 +184,26 @@ describe("password attempts", () => {
     expect((await signIn("owner")).csrfToken).toBeTruthy();
   });
 });
+
+describe("unexpected failures", () => {
+  it("answers with JSON, not an HTML error page, when a route throws", async () => {
+    const app = express();
+    app.use(express.json());
+    app.get("/api/v1/boom", async () => { throw new Error("helper exploded"); });
+    app.use((_request, response) => { response.status(404).json({ error: "Not found" }); });
+    // eslint-disable-next-line no-unused-vars
+    app.use((error, request, response, _next) => {
+      response.status(500).json({ error: `Something went wrong in BoxPilot (reference abc12345).`, code: "internal_error", reference: "abc12345" });
+    });
+    const listener = app.listen(0, "127.0.0.1");
+    await new Promise((resolve) => listener.once("listening", resolve));
+    const url = `http://127.0.0.1:${listener.address().port}/api/v1/boom`;
+    const response = await fetch(url);
+    expect(response.status).toBe(500);
+    expect(response.headers.get("content-type")).toContain("application/json");
+    const body = await response.json();
+    expect(body.code).toBe("internal_error");
+    expect(body.error).not.toContain("helper exploded"); // the message stays in the log, not the browser
+    await new Promise((resolve) => listener.close(resolve));
+  });
+});

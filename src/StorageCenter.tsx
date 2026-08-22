@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { readJson } from "./http";
 import { useOperation } from "./ApproveDialog";
 import SambaPanel from "./SambaPanel";
 import NfsPanel from "./NfsPanel";
@@ -22,12 +23,6 @@ function gib(bytes: number | null): string {
 }
 const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
 const nameValid = (name: string) => /^[a-z0-9][a-z0-9-]{0,31}$/.test(name);
-
-async function readJson<T>(response: Response): Promise<T> {
-  const body = (await response.json()) as T & { error?: string };
-  if (!response.ok) throw new Error(body.error ?? `Request failed (${response.status})`);
-  return body;
-}
 
 export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
   const [report, setReport] = useState<StorageReport | null>(null);

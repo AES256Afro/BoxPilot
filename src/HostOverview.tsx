@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { readJson } from "./http";
 
 type Inventory = {
   generatedAt: string;
@@ -40,8 +41,7 @@ export default function HostOverview() {
     setLoading(true);
     try {
       const response = await fetch("/api/v1/inventory");
-      const body = await response.json() as Inventory & { error?: string };
-      if (!response.ok) throw new Error(body.error ?? "Host inventory is unavailable");
+      const body = await readJson<Inventory>(response);
       setInventory(body);
       setError(null);
     } catch (caught) {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { readJson } from "./http";
 import { useOperation } from "./ApproveDialog";
 import { inspectOperation } from "./operations";
 import type { ViewName } from "./data";
@@ -72,12 +73,6 @@ interface ActionCenter {
   summary: { critical: number; warning: number; info: number; total: number };
   notices: ActionNotice[];
   boundary: { mutationPerformed: boolean; automaticRepair: boolean; persistence: boolean; browserNotifications: boolean; externalDelivery: boolean; credentialsIncluded: boolean; arbitraryLogsIncluded: boolean };
-}
-
-async function readJson<T>(response: Response): Promise<T> {
-  const body = await response.json() as T & { error?: string };
-  if (!response.ok) throw new Error(body.error ?? `Request failed with status ${response.status}`);
-  return body;
 }
 
 export default function RepairCenter({ csrfToken, onNavigate = () => undefined }: { csrfToken: string; onNavigate?: (view: ViewName) => void }) {

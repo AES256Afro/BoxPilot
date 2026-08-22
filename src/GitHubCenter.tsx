@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { readJson } from "./http";
 
 type CommitEvidence = {
   sha: string;
@@ -43,12 +44,6 @@ type GithubStatus = {
   boundary: { repositoryAllowlist: string[]; tokenConfigured: boolean; credentialsAccepted: boolean; repositoryWrites: boolean; cloneOrDownload: boolean; webhookConfigured: boolean; workflowDispatch: boolean; installationSupported: boolean; localDigestVerification: boolean };
   limitations: string[];
 };
-
-async function readJson<T>(response: Response): Promise<T> {
-  const body = await response.json() as T & { error?: string };
-  if (!response.ok) throw new Error(body.error ?? `Request failed with status ${response.status}`);
-  return body;
-}
 
 function formatDate(value: string | null | undefined) {
   return value ? new Date(value).toLocaleString() : "Not reported";

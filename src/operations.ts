@@ -1,4 +1,5 @@
 /** Client for the operation registry and the generic job path (ADR-001). */
+import { readJson } from "./http";
 
 export type RiskTier = "low" | "medium" | "high";
 
@@ -35,12 +36,6 @@ export interface Job {
   updatedAt?: string;
   steps: JobStep[];
   approvals: Array<{ ownerId: string; method?: string; tier?: string; createdAt: string }>;
-}
-
-async function readJson<T>(response: Response): Promise<T> {
-  const body = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok) throw new Error(body.error ?? `Request failed (${response.status})`);
-  return body;
 }
 
 export function listOperations(): Promise<{ operations: OperationDescription[] }> {
