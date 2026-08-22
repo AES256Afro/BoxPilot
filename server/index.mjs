@@ -61,7 +61,9 @@ const dist = path.join(root, "dist");
 const vmPlanner = createVmPlanner();
 const audit = createAuditLog();
 const state = createStateStore();
-const auth = createAuthService(state);
+// The identity service is created below; the throttle asks it who the caller is, lazily, so the
+// two can be wired without ordering them.
+const auth = createAuthService(state, { resolveClientAddress: (request) => identity.clientAddress(request) });
 const helper = createHelperClient({ timeoutMs: 180000 });
 const maintenance = createMaintenanceService();
 const libvirt = createHelperLibvirtService({ helper });
