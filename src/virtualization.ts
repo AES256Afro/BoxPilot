@@ -1,3 +1,8 @@
+import { readJson as readJsonBase } from "./http";
+
+/** The VM pages treat 503 as "virtualization is not set up on this server", not as a failure. */
+const readJson = <T,>(response: Response) => readJsonBase<T>(response, { allowStatus: [503] });
+
 export interface VirtualizationCheck {
   id: string;
   label: string;
@@ -271,14 +276,6 @@ export interface VmRecoveryRecord {
   network: "none";
   autostart: false;
   createdAt: string;
-}
-
-async function readJson<T>(response: Response): Promise<T> {
-  const body = (await response.json()) as T & { error?: string; errors?: string[] };
-  if (!response.ok && response.status !== 503) {
-    throw new Error(body.error ?? body.errors?.join(" | ") ?? `Request failed with status ${response.status}`);
-  }
-  return body;
 }
 
 export async function fetchVirtualization(): Promise<[VirtualizationStatus, DomainList, LibvirtResources, ConsoleGuidance]> {

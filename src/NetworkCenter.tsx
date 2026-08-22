@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { readJson } from "./http";
 import { useOperation } from "./ApproveDialog";
 import TailscalePanel from "./TailscalePanel";
 
@@ -44,12 +45,6 @@ type DnsCheck = {
   latencyMs?: number;
   passed?: boolean;
 };
-
-async function readJson<T>(response: Response): Promise<T> {
-  const body = await response.json() as T & { error?: string };
-  if (!response.ok) throw new Error(body.error ?? `Request failed with status ${response.status}`);
-  return body;
-}
 
 export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepair }: { csrfToken: string; onAssessmentReady?: (planId: string) => void; onOpenRepair?: () => void }) {
   const [topology, setTopology] = useState<Topology | null>(null);
