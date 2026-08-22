@@ -346,7 +346,7 @@ export function createStateStore({
       const owner = { id: randomUUID(), username, role: "owner", createdAt: at };
       database.prepare("INSERT INTO owners (id, username, password_hash, role, created_at) VALUES (?, ?, ?, 'owner', ?)")
         .run(owner.id, owner.username, passwordHash, owner.createdAt);
-      database.prepare("UPDATE bootstrap_tokens SET used_at = ? WHERE token_hash = ?").run(at, digest(token));
+      database.prepare("DELETE FROM bootstrap_tokens WHERE token_hash = ?").run(digest(token));
       database.prepare("INSERT INTO audit_events (id, type, actor_id, subject_id, details_json, created_at) VALUES (?, ?, ?, ?, ?, ?)")
         .run(randomUUID(), "owner.bootstrapped", owner.id, owner.id, json({ username }), at);
       database.exec("COMMIT");
@@ -520,7 +520,7 @@ export function createStateStore({
 
   function listAudit(limit = 100) {
     const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 200);
-    return database.prepare("SELECT * FROM audit_events ORDER BY created_at DESC LIMIT ?").all(safeLimit).map((row) => ({
+    return database.prepare("SELECT * FROM audit_events ORDER BY created_at DESC, rowid DESC LIMIT ?").all(safeLimit).map((row) => ({
       id: row.id,
       type: row.type,
       actorId: row.actor_id,
@@ -625,12 +625,23 @@ export function createStateStore({
     return approval;
   }
 
-  /** Delete finished jobs older than `jobDays` beyond the newest `keepJobs`, and audit rows beyond `keepAudit`. */
-  function pruneHistory({ keepJobs = 500, jobDays = 90, keepAudit = 20_000, now = timestamp() } = {}) {
+  /**
+   * Housekeeping, run daily. Every row class that grows with use is bounded here — a home server
+   * runs for years untouched, and a table nothing ever deletes from ends up inside every controller
+   * backup as well as on disk.
+   */
+  function pruneHistory({ keepJobs = 500, jobDays = 90, keepAudit = 20_000, staleJobDays = 30, now = timestamp() } = {}) {
     const cutoff = new Date(Date.parse(now) - jobDays * 86_400_000).toISOString();
-    const removedJobs = database.prepare("DELETE FROM jobs WHERE state IN ('completed', 'failed', 'cancelled') AND created_at < ? AND id NOT IN (SELECT id FROM jobs ORDER BY created_at DESC, id DESC LIMIT ?)").run(cutoff, keepJobs).changes;
-    const removedAudit = database.prepare("DELETE FROM audit_events WHERE id NOT IN (SELECT id FROM audit_events ORDER BY created_at DESC LIMIT ?)").run(keepAudit).changes;
-    return { removedJobs, removedAudit };
+    const removedJobs = database.prepare("DELETE FROM jobs WHERE state IN ('completed', 'failed', 'cancelled') AND created_at < ? AND id NOT IN (SELECT id FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT ?)").run(cutoff, keepJobs).changes;
+    const removedAudit = database.prepare("DELETE FROM audit_events WHERE id NOT IN (SELECT id FROM audit_events ORDER BY created_at DESC, rowid DESC LIMIT ?)").run(keepAudit).changes;
+    // A job nobody approved is abandoned, not pending: the staged parameters it refers to live in
+    // memory and did not survive the restart that left it here.
+    const staleCutoff = new Date(Date.parse(now) - staleJobDays * 86_400_000).toISOString();
+    const removedAbandoned = database.prepare("DELETE FROM jobs WHERE state = 'awaiting_approval' AND created_at < ?").run(staleCutoff).changes;
+    const removedSessions = deleteExpiredSessions();
+    // Plans carry the inputs and outputs of a preview and expire in half an hour.
+    const removedPlans = database.prepare("DELETE FROM plans WHERE expires_at <= ?").run(now).changes;
+    return { removedJobs, removedAudit, removedAbandoned, removedSessions, removedPlans };
   }
 
   function transitionJob(jobId, fromStates, state, { result = undefined, error = undefined } = {}) {
@@ -638,7 +649,9 @@ export function createStateStore({
     const placeholders = allowed.map(() => "?").join(", ");
     const current = database.prepare(`SELECT state FROM jobs WHERE id = ? AND state IN (${placeholders})`).get(jobId, ...allowed);
     if (!current) throw new Error("Job is not in an allowed state");
-    database.prepare("UPDATE jobs SET state = ?, result_json = ?, error = ?, updated_at = ? WHERE id = ?")
+    // COALESCE, not overwrite: a job that succeeded on the host and then failed its evidence check
+    // would otherwise lose the artifact path and checksum the earlier transition recorded.
+    database.prepare("UPDATE jobs SET state = ?, result_json = COALESCE(?, result_json), error = COALESCE(?, error), updated_at = ? WHERE id = ?")
       .run(state, result === undefined ? null : json(result), error ?? null, timestamp(), jobId);
     emitJobChanged(jobId);
     return getJob(jobId);
@@ -656,8 +669,8 @@ export function createStateStore({
   function listJobs(limit = 50, { createdBy = null } = {}) {
     const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
     const rows = createdBy
-      ? database.prepare("SELECT id FROM jobs WHERE created_by = ? ORDER BY created_at DESC LIMIT ?").all(createdBy, safeLimit)
-      : database.prepare("SELECT id FROM jobs ORDER BY created_at DESC LIMIT ?").all(safeLimit);
+      ? database.prepare("SELECT id FROM jobs WHERE created_by = ? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(createdBy, safeLimit)
+      : database.prepare("SELECT id FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT ?").all(safeLimit);
     return rows.map((row) => getJob(row.id));
   }
 
@@ -739,12 +752,12 @@ export function createStateStore({
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, applicationId, destination, artifactPath, checksumSha256, sizeBytes, downtimeMs, json(restoreDrill), createdBy, at, at);
     recordAudit("backup.verified", { actorId: createdBy, subjectId: id, details: { applicationId, destination, checksumSha256, sizeBytes } });
-    return listBackups(1)[0];
+    return getBackup(id);
   }
 
   function listBackups(limit = 50) {
     const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
-    return database.prepare("SELECT * FROM backups ORDER BY created_at DESC LIMIT ?").all(safeLimit).map((row) => ({
+    return database.prepare("SELECT * FROM backups ORDER BY created_at DESC, rowid DESC LIMIT ?").all(safeLimit).map((row) => ({
       id: row.id,
       applicationId: row.application_id,
       destination: row.destination_type,
@@ -899,7 +912,7 @@ export function createStateStore({
 
   function listControllerRetentionRuns(limit = 50) {
     const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
-    return database.prepare("SELECT * FROM controller_retention_runs ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapControllerRetentionRun);
+    return database.prepare("SELECT * FROM controller_retention_runs ORDER BY created_at DESC, rowid DESC LIMIT ?").all(safeLimit).map(mapControllerRetentionRun);
   }
 
   function recordVmExport({ id, domainName, domainUuid, destination, artifactPath, manifestChecksumSha256, sizeBytes, protected: protectedState, encrypted, restoreDrill, createdBy }) {
@@ -909,7 +922,7 @@ export function createStateStore({
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, domainName, domainUuid, destination, artifactPath, manifestChecksumSha256, sizeBytes, protectedState ? 1 : 0, encrypted ? 1 : 0, json(restoreDrill), createdBy, at);
     recordAudit("vm.export.recorded", { actorId: createdBy, subjectId: id, details: { domainName, domainUuid, destination, manifestChecksumSha256, sizeBytes, protected: protectedState, encrypted } });
-    return listVmExports(1)[0];
+    return getVmExport(id);
   }
 
   function mapVmExport(row) {
@@ -931,7 +944,7 @@ export function createStateStore({
 
   function listVmExports(limit = 50) {
     const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
-    return database.prepare("SELECT * FROM vm_exports ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapVmExport);
+    return database.prepare("SELECT * FROM vm_exports ORDER BY created_at DESC, rowid DESC LIMIT ?").all(safeLimit).map(mapVmExport);
   }
 
   function getVmExport(id) {
@@ -945,7 +958,7 @@ export function createStateStore({
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, exportId, domainName, domainUuid, destination, repositoryId, snapshotId, sizeBytes, encrypted ? 1 : 0, independent ? 1 : 0, repositoryVerified ? 1 : 0, protectedState ? 1 : 0, json(restoreDrill), createdBy, at);
     recordAudit("vm.backup.recorded", { actorId: createdBy, subjectId: id, details: { exportId, domainName, destination, repositoryId, snapshotId, sizeBytes, encrypted, independent, repositoryVerified, protected: protectedState } });
-    return listVmBackups(1)[0];
+    return getVmBackup(id);
   }
 
   function mapVmBackup(row) {
@@ -1061,11 +1074,11 @@ export function createStateStore({
 
   function listVmRecoveries(limit = 50) {
     const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
-    return database.prepare("SELECT * FROM vm_recoveries ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapVmRecovery);
+    return database.prepare("SELECT * FROM vm_recoveries ORDER BY created_at DESC, rowid DESC LIMIT ?").all(safeLimit).map(mapVmRecovery);
   }
 
   function listAllVmRecoveries() {
-    return database.prepare("SELECT * FROM vm_recoveries ORDER BY created_at DESC").all().map(mapVmRecovery);
+    return database.prepare("SELECT * FROM vm_recoveries ORDER BY created_at DESC, rowid DESC").all().map(mapVmRecovery);
   }
 
   function mapVmRetentionRun(row) {
@@ -1122,7 +1135,7 @@ export function createStateStore({
 
   function listVmRetentionRuns(limit = 50) {
     const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
-    return database.prepare("SELECT * FROM vm_retention_runs ORDER BY created_at DESC LIMIT ?").all(safeLimit).map(mapVmRetentionRun);
+    return database.prepare("SELECT * FROM vm_retention_runs ORDER BY created_at DESC, rowid DESC LIMIT ?").all(safeLimit).map(mapVmRetentionRun);
   }
 
   function recoverInterruptedJobs() {

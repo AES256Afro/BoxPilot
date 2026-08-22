@@ -72,12 +72,12 @@ export function parseJail(content) {
 
 async function lanSubnetsFrom(run) {
   const result = await run(binaries.ip, ["-j", "-4", "route", "show"], { timeout: 10_000 });
-  if (!result.ok) return [];
+  if (!result.ok) throw new Error(`Could not read this server's own networks, so "never ban the LAN" could not be honoured: ${String(result.stderr ?? "").split("\n").filter(Boolean).slice(-1)[0] ?? "ip route failed"}`);
   try {
     return [...new Set(JSON.parse(result.stdout)
       .filter((route) => route.scope === "link" && typeof route.dst === "string" && route.dst.includes("/") && !/^(tailscale|docker|br-|virbr|veth|lo)/.test(route.dev ?? ""))
       .map((route) => route.dst))];
-  } catch { return []; }
+  } catch { throw new Error("This server's own networks could not be read, so \"never ban the LAN\" could not be honoured"); }
 }
 
 const tail = (text) => String(text ?? "").split("\n").filter(Boolean).slice(-3).join(" ");
@@ -96,6 +96,9 @@ export async function fail2banApply({ enabled = true, maxRetry = 5, findTimeMinu
     return { enabled: false };
   }
   const lanSubnets = ignoreLan ? await lanSubnetsFrom(run) : [];
+  // Without a subnet to exempt, "never ban the LAN" is a promise the jail does not keep — and the
+  // owner's own laptop can be banned for up to a month after a few mistyped passwords.
+  if (ignoreLan && lanSubnets.length === 0) throw new Error("No local network was found to exempt, so brute-force protection was not applied. Turn off \"never ban my LAN\" to apply it anyway.");
   const ufwPresent = await files.access(binaries.ufw).then(() => true, () => false);
   const previous = await files.readFile(jailPath, "utf8").catch(() => null);
   await files.mkdir("/etc/fail2ban/jail.d", { recursive: true, mode: 0o755 });

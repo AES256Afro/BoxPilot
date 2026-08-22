@@ -1,5 +1,5 @@
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
-import { defaultThrottle as throttle } from "./login-throttle.mjs";
+import { defaultThrottle as throttle, defaultSprayThrottle as sprayThrottle } from "./login-throttle.mjs";
 import { tailnetClientAddress } from "./identity.mjs";
 import { promisify } from "node:util";
 import { elevationTtlMs } from "./ops/risk.mjs";
@@ -155,18 +155,25 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
    * Verify a password with throttling: five consecutive failures pause further attempts, doubling
    * each time up to fifteen minutes. Failures are audited.
    *
-   * The blocking key is the *account*. A client-address key would look stronger but would be a
-   * lock-out weapon: behind `tailscale serve` every request arrives from 127.0.0.1, so one
-   * attacker's failures would freeze the owner out of their own server. The address is throttled
-   * only for attempts against usernames that do not exist, which is what spraying looks like.
+   * The key is the *pair* of account and caller. Keying on the account alone made the throttle a
+   * lock-out weapon — anyone who could reach the port could hold the owner's account blocked
+   * indefinitely with one wrong guess every fifteen minutes, and password approval for jobs went
+   * with it. Keying on the address alone is no good either: behind `tailscale serve` every request
+   * arrives from 127.0.0.1, so every caller would share one counter. A separate, far higher
+   * per-account ceiling still slows an attack spread across many callers.
    */
   async function checkPassword(request, owner, password) {
-    const keys = owner ? [`user:${owner.id}`] : ["user:unknown", clientKey(request)];
+    const caller = clientKey(request);
+    const keys = owner ? [`user:${owner.id}|${caller}`] : ["user:unknown", caller];
     const gate = throttle.check(keys);
     if (gate.blocked) return { ok: false, blocked: true, retryAfterMs: gate.retryAfterMs };
+    const account = owner ? [`user:${owner.id}`] : [];
+    const spread = owner ? sprayThrottle.check(account) : { blocked: false, retryAfterMs: 0 };
+    if (spread.blocked) return { ok: false, blocked: true, retryAfterMs: spread.retryAfterMs };
     const ok = Boolean(owner) && typeof password === "string" && (await verifyPassword(password, owner.passwordHash));
     throttle.record(keys, ok);
-    if (!ok) store.recordAudit("auth.failed", { actorId: owner?.id ?? null, subjectId: owner?.id ?? null, details: { client: clientKey(request).slice(3) } });
+    if (owner) sprayThrottle.record(account, ok);
+    if (!ok) store.recordAudit("auth.failed", { actorId: owner?.id ?? null, subjectId: owner?.id ?? null, details: { client: caller.slice(3) } });
     return { ok, blocked: false, retryAfterMs: 0 };
   }
 

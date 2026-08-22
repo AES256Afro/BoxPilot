@@ -18,6 +18,9 @@ describe("cloud-init VM input and seed", () => {
     expect(validateCloudVmInput({ ...good, packages: ["rm -rf /"] })).toContainEqual(expect.stringContaining("packages"));
     expect(validateCloudVmInput({ ...good, extra: 1 })).toContainEqual(expect.stringContaining("unknown field"));
     expect(validateCloudVmInput({ ...good, username: "Root" })).toContainEqual(expect.stringContaining("username"));
+    // The drill namespace is reserved: a VM inside it looks to startup recovery like an abandoned
+    // drill it cannot account for, and the helper would refuse to start at all.
+    expect(validateCloudVmInput({ ...good, name: "boxpilot-drill-test" })).toContainEqual(expect.stringContaining("boxpilot-drill-"));
   });
 
   it("renders cloud-init with the key, sudo user, guest agent, and dhcp networking", () => {

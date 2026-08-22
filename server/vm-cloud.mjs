@@ -3,7 +3,7 @@
  * `vm.cloud-image.ensure`; this module clones the image, writes the cloud-init seed, runs
  * virt-install --import, waits for a DHCP lease, and rolls back on failure.
  */
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile, stat } from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
 import { fixedRun } from "./exec.mjs";
@@ -20,6 +20,8 @@ export function validateCloudVmInput(value) {
   const allowed = ["name", "image", "vcpus", "memoryMiB", "diskGiB", "username", "sshKeys", "packages", "autostart", "password"];
   for (const key of Object.keys(value)) if (!allowed.includes(key)) errors.push(`unknown field ${key}`);
   if (typeof value.name !== "string" || !namePattern.test(value.name)) errors.push("name must be 1-63 characters: letters, digits, . _ -");
+  // boxpilot-drill-* belongs to restore drills; a VM there would be mistaken for an abandoned one.
+  else if (value.name.toLowerCase().startsWith("boxpilot-drill-")) errors.push("name cannot start with boxpilot-drill-, which BoxPilot reserves for restore drills");
   if (!cloudImages[value.image]) errors.push(`image must be one of ${Object.keys(cloudImages).join(", ")}`);
   if (!Number.isInteger(value.vcpus) || value.vcpus < 1 || value.vcpus > 64) errors.push("vcpus must be 1-64");
   if (!Number.isInteger(value.memoryMiB) || value.memoryMiB < 512 || value.memoryMiB > 512 * 1024) errors.push("memoryMiB must be 512-524288");
@@ -101,6 +103,12 @@ export function createVmCloudHelper({
     progress?.(`Ensuring base image ${spec.label}`, "stdout");
     const base = await runUnit.runTask("vm.cloud-image.ensure", { image }, { timeoutMs: 60 * 60_000, logPath: jobLog?.path ?? null });
     const diskPath = path.join(imagesRoot, `${name}.qcow2`);
+    // Deleting a VM while keeping its disk is the documented way to preserve its data, so a disk
+    // with this name is somebody's data, not leftovers: qemu-img convert would overwrite it
+    // without a word, and the rollback below would then delete what it never created.
+    if (await stat(diskPath).then(() => true, () => false)) {
+      throw new Error(`A disk named ${name}.qcow2 is already in ${imagesRoot}. It may hold the data of a VM that was deleted without its storage. Choose another name, or remove that file first.`);
+    }
     const seedDirectory = path.join(seedRoot, name);
     let diskCreated = false; let defined = false;
     try {
@@ -137,7 +145,12 @@ export function createVmCloudHelper({
       return { created: true, name, image, imageDigest: base.digest, ip, user: rendered.user, sshCommand: ip ? `ssh ${rendered.user}@${ip}` : null, disk: diskPath, vcpus, memoryMiB, diskGiB, autostart: Boolean(input.autostart) };
     } catch (error) {
       progress?.(`Creation failed: ${error.message}. Rolling back...`, "stderr");
-      if (defined) { await virsh(["destroy", name], { timeout: 30_000 }); await virsh(["undefine", name, "--nvram"], { timeout: 60_000 }).catch(() => {}); }
+      if (defined || (await domainExists(name))) {
+        await virsh(["destroy", name], { timeout: 30_000 });
+        const undefined_ = await virsh(["undefine", name, "--nvram"], { timeout: 60_000 });
+        // --nvram is rejected on domains without an NVRAM file; the plain form is the fallback.
+        if (!undefined_.ok) await virsh(["undefine", name], { timeout: 60_000 });
+      }
       if (diskCreated) await rm(diskPath, { force: true }).catch(() => {});
       await rm(seedDirectory, { recursive: true, force: true }).catch(() => {});
       throw new Error(`VM creation failed and was rolled back. ${error.message}`);

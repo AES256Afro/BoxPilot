@@ -129,6 +129,12 @@ export async function sshPasswordAuthSet({ enabled } = {}, { run = fixedRun, log
   if (!enabled) {
     const keyed = await usersWithKeys(run, files);
     if (keyed.length === 0) throw new Error("No user has an SSH key yet. Import a key first so key-only login still works.");
+    // A key is only a way in if sshd will accept keys at all.
+    const effective = await run("/usr/sbin/sshd", ["-T"], { timeout: 15_000 });
+    if (effective.ok && /^pubkeyauthentication\s+no$/im.test(effective.stdout)) {
+      throw new Error("This server's SSH configuration has key logins turned off (PubkeyAuthentication no), so turning off password logins would leave no way in over SSH.");
+    }
+    if (!effective.ok) throw new Error("Could not read the effective SSH configuration, so BoxPilot cannot confirm key logins would still work. Nothing was changed.");
     log?.(`Users with keys: ${keyed.join(", ")}`, "stdout");
   }
   const content = `# Managed by BoxPilot (Users & SSH page). sshd uses the first value it reads,\n# and this file sorts before the distribution drop-ins.\nPasswordAuthentication ${enabled ? "yes" : "no"}\n`;

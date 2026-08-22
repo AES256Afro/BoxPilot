@@ -45,12 +45,18 @@ const controllerProtection = createControllerProtectionHelper();
 const controllerRetention = createControllerRetentionHelper({ inspectDestination: controllerProtection.inspect });
 await controllerBackups.initialize();
 await controllerProtection.initialize();
-const recovery = await vmRestoreDrill.recoverOrphans();
+const recovery = await vmRestoreDrill.recoverOrphans().catch((error) => {
+  console.error(`BoxPilot restore drill recovery could not finish: ${error.message}`);
+  return { stoppedDomains: 0, removedNvramFiles: 0, normalizedWorkspaces: 0, blocked: error.message };
+});
 const hostInspect = createHostInspectHelper();
 const virtualization = createVmHelper();
 const vmProtection = createVmProtectionHelper();
 const machineSnapshot = createMachineSnapshotHelper({ controllerBackups });
 const helperDependencies = { runUnit, apps, vmCloud, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRestoreDrill, vmRecovery, vmRetention, machineSnapshot };
+if (recovery.blocked) {
+  console.error("BoxPilot is serving requests; restore drills stay unavailable until that is resolved.");
+}
 if (recovery.stoppedDomains > 0 || recovery.removedNvramFiles > 0 || recovery.normalizedWorkspaces > 0) {
   console.log(`BoxPilot restore drill recovery stopped=${recovery.stoppedDomains} nvram=${recovery.removedNvramFiles} workspaces=${recovery.normalizedWorkspaces}`);
 }

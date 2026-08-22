@@ -358,12 +358,49 @@ describe("history retention", () => {
     store.transitionJob(ids[0], "awaiting_approval", "completed");
     store.transitionJob(ids[1], "awaiting_approval", "failed", { error: "x" });
     for (let i = 0; i < 30; i += 1) store.recordAudit("test.event", { actorId: owner.id, subjectId: null, details: {} });
+    // A day later: the finished jobs are inside their window, and nothing is abandoned yet.
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString();
+    const early = store.pruneHistory({ keepJobs: 0, jobDays: 90, keepAudit: 20_000, now: tomorrow });
+    expect(early).toMatchObject({ removedJobs: 0, removedAbandoned: 0 });
+    expect(store.getJob(ids[2])).not.toBeNull();
+
     const future = new Date(Date.now() + 100 * 86_400_000).toISOString();
     const result = store.pruneHistory({ keepJobs: 0, jobDays: 90, keepAudit: 10, now: future });
-    expect(result.removedJobs).toBe(2); // the two finished ones; awaiting jobs are never pruned
+    expect(result.removedJobs).toBe(2); // the two finished ones
     expect(store.getJob(ids[0])).toBeNull();
-    expect(store.getJob(ids[2])).not.toBeNull();
+    // The two still awaiting approval were staged before a restart that lost their parameters:
+    // after a month they are abandoned, not pending, so they go too.
+    expect(result.removedAbandoned).toBe(2);
+    expect(store.getJob(ids[2])).toBeNull();
     expect(result.removedAudit).toBeGreaterThan(0);
+  });
+
+  it("clears expired sessions and spent plans, and keeps the ones still in use", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-prune-sessions-"));
+    directories.push(directory);
+    const store = createStateStore({ stateDirectory: directory });
+    const owner = store.consumeBootstrapToken(store.createBootstrapToken().token, { username: "admin", passwordHash: "x" });
+    const live = store.createSession(owner.id, { ttlMs: 60 * 60_000 });
+    const dead = store.createSession(owner.id, { ttlMs: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const result = store.pruneHistory({ now: new Date().toISOString() });
+    expect(result.removedSessions).toBe(1);
+    expect(store.getSession(live.token)).not.toBeNull();
+    expect(store.getSession(dead.token)).toBeNull();
+  });
+
+  it("removes the bootstrap token row once it has been spent", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-prune-bootstrap-"));
+    directories.push(directory);
+    const store = createStateStore({ stateDirectory: directory });
+    const { token } = store.createBootstrapToken();
+    store.consumeBootstrapToken(token, { username: "admin", passwordHash: "x" });
+    // Nothing may be left holding a hash of a credential that has already been used.
+    const inspector = new DatabaseSync(path.join(directory, "boxpilot.sqlite3"), { readOnly: true });
+    expect(inspector.prepare("SELECT COUNT(*) AS n FROM bootstrap_tokens").get().n).toBe(0);
+    inspector.close();
+    expect(() => store.consumeBootstrapToken(token, { username: "second", passwordHash: "x" })).toThrow();
   });
 });
 
