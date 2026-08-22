@@ -51,7 +51,7 @@ describe("samba tasks", () => {
       { name: "Private", path: "/srv/private", comment: "Private", readOnly: false, guest: false, users: ["jamie", "sam"], forceUser: "homebox" },
     ]);
     expect(renderSmbConf({ scope: "lan", lanInterface: "eno1" })).toContain("   interfaces = lo tailscale0 eno1\n   bind interfaces only = yes\n   smb ports = 445\n   disable netbios = no");
-    expect(parseSmbConf("[global]\n   workgroup = HOME\n[printers]\n   path = /var/spool/samba\n   printable = yes\n")).toMatchObject({ managed: false, workgroup: "HOME", scope: "lan", shares: [{ name: "printers", readOnly: true }] });
+    expect(parseSmbConf("[global]\n   workgroup = HOME\n[printers]\n   path = /var/spool/samba\n   printable = yes\n")).toMatchObject({ managed: false, workgroup: "HOME", scope: "lan", shares: [] });
   });
 
   it("applies the configuration: backs up a foreign smb.conf, validates with testparm, reloads, and verifies listening", async () => {

@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useOperation } from "./ApproveDialog";
 import CloudBackupPanel from "./CloudBackupPanel";
 import RestorePanel from "./RestorePanel";
 import { inspectOperation } from "./operations";
+import { readJson } from "./http";
 
 interface BackupRecord { id: string; applicationId: string; destination: string; checksumSha256: string; sizeBytes: number; downtimeMs: number; restoreDrill: { passed?: boolean } | null; createdAt: string }
-interface ControllerProtection { id: string; backupId: string; snapshotId?: string; createdAt: string }
-interface ProtectionState { destination: { mounted?: boolean; repositoryInitialized?: boolean } | null; protections: ControllerProtection[] }
+interface ControllerProtection { id: string; backupId: string; snapshotId?: string; createdAt: string; protected?: boolean; retained?: boolean }
+interface ProtectionState { destination: { ready?: boolean; encrypted?: boolean; repositoryId?: string | null; blockers?: string[] } | null; protections: ControllerProtection[] }
 interface RetentionStatus { policy?: { minimumCopies?: number; minimumAgeDays?: number }; candidates?: unknown[]; beforeCount?: number }
 interface MachineSnapshot { artifact: string; sizeBytes: number | null; checksumSha256: string | null; createdAt: string | null; contents: { apps?: unknown[]; vms?: { domains?: string[] } } | null }
 interface RemoteMirrorState { keyReady: boolean; publicKey: string | null; fingerprint: string | null; hostKeysPinned: number; rsyncInstalled: boolean }
@@ -18,12 +19,7 @@ interface MachineSnapshotState {
   sync: { destination: string; mount: { mounted: boolean; blocker?: string | null; freeBytes?: number | null }; lastSync: { completedAt: string; copiedCount: number } | null };
 }
 
-async function requestJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, options);
-  const body = (await response.json().catch(() => ({}))) as T & { error?: string };
-  if (!response.ok) throw new Error(body.error ?? `Request failed (${response.status})`);
-  return body;
-}
+const requestJson = async <T,>(url: string, options?: RequestInit): Promise<T> => readJson<T>(await fetch(url, options));
 
 function formatBytes(bytes: number): string {
   return bytes >= 1024 ** 2 ? `${(bytes / 1024 ** 2).toFixed(1)} MiB` : `${(bytes / 1024).toFixed(0)} KiB`;
@@ -41,6 +37,8 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
   const [remote, setRemote] = useState<RemoteMirrorState | null>(null);
   const [remoteSettings, setRemoteSettings] = useState<RemoteSettings | null>(null);
   const [form, setForm] = useState<RemoteDestination & { password: string }>({ host: "", port: 22, user: "", path: "", password: "" });
+  const formTouched = useRef(false);
+  const editForm = (patch: Partial<RemoteDestination & { password: string }>) => { formTouched.current = true; setForm((current) => ({ ...current, ...patch })); };
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,7 +61,8 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
       setMachine(machineState);
       setRemote(remoteState);
       setRemoteSettings(remoteConfig);
-      if (remoteConfig?.destination) setForm((current) => ({ ...current, ...remoteConfig.destination!, password: current.password }));
+      // Seed the form from the saved destination only while the owner has not started editing it.
+      if (remoteConfig?.destination && !formTouched.current) setForm((current) => ({ ...current, ...remoteConfig.destination!, password: current.password }));
       setError(null);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not load backup state");
@@ -74,7 +73,8 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  const { start, dialog } = useOperation(csrfToken, () => { void refresh(); });
+  const [panelRefresh, setPanelRefresh] = useState(0);
+  const { start, dialog } = useOperation(csrfToken, () => { void refresh(); setPanelRefresh((key) => key + 1); });
 
   const protectBackup = (backupId: string) => {
     start({
@@ -93,7 +93,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
       const body = (await response.json().catch(() => ({}))) as RemoteSettings & { error?: string };
       if (!response.ok) throw new Error(body.error ?? "Could not save the destination");
       setRemoteSettings(body);
-      setForm((current) => ({ ...current, password: "" }));
+      editForm({ password: "" });
     } catch (requestError) {
       setFormError(requestError instanceof Error ? requestError.message : "Could not save the destination");
     } finally {
@@ -102,7 +102,10 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
   };
 
   const latest = backups[0] ?? null;
-  const protectedIds = new Set((protection?.protections ?? []).map((entry) => entry.backupId));
+  // A copy the retention run forgot is no longer in the repository, so it is not a protected copy.
+  const liveProtections = (protection?.protections ?? []).filter((entry) => entry.retained !== false && entry.protected !== false);
+  const protectedIds = new Set(liveProtections.map((entry) => entry.backupId));
+  const destinationReady = Boolean(protection?.destination?.ready);
 
   return (
     <div className="backup-center">
@@ -120,8 +123,8 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
         </article>
         <article className="panel">
           <span className="eyebrow">Independent copies</span>
-          <strong>{loading ? "…" : protection?.protections.length ?? "—"}</strong>
-          <span>{protection?.destination?.repositoryInitialized ? "encrypted restic repository ready" : "restic repository needs terminal setup"}</span>
+          <strong>{loading ? "…" : protection ? liveProtections.length : "—"}</strong>
+          <span>{destinationReady ? "encrypted restic repository ready" : protection?.destination?.blockers?.[0] ?? "restic repository needs terminal setup"}</span>
         </article>
         <article className="panel">
           <span className="eyebrow">Everything else</span>
@@ -143,7 +146,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
                   <td>{formatBytes(backup.sizeBytes)}</td>
                   <td>{backup.restoreDrill?.passed ? <span className="status-pill status-good">passed</span> : <span className="status-pill status-warning">unverified</span>}</td>
                   <td>{protectedIds.has(backup.id) ? <span className="status-pill status-good">protected</span> : "—"}</td>
-                  <td>{!protectedIds.has(backup.id) && protection?.destination?.repositoryInitialized ? <button className="text-button" type="button" onClick={() => protectBackup(backup.id)}>Protect</button> : null}</td>
+                  <td>{!protectedIds.has(backup.id) && destinationReady ? <button className="text-button" type="button" onClick={() => protectBackup(backup.id)}>Protect</button> : null}</td>
                 </tr>
               ))}
             </tbody>
@@ -204,11 +207,11 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
         </div>
         {remote?.publicKey && <pre className="app-logs" aria-label="Mirror public key">{remote.publicKey}</pre>}
         <form className="recovery-actions" onSubmit={(event) => { event.preventDefault(); void saveDestination(); }}>
-          <input aria-label="Destination host" placeholder="host or IP" value={form.host} onChange={(event) => setForm({ ...form, host: event.target.value })} required />
-          <input aria-label="Destination port" type="number" min={1} max={65535} value={form.port} onChange={(event) => setForm({ ...form, port: Number(event.target.value) })} style={{ width: "6em" }} />
-          <input aria-label="Destination user" placeholder="user" value={form.user} onChange={(event) => setForm({ ...form, user: event.target.value })} required />
-          <input aria-label="Destination path" placeholder="/absolute/path" value={form.path} onChange={(event) => setForm({ ...form, path: event.target.value })} required />
-          <input aria-label="Owner password" type="password" placeholder="owner password" autoComplete="current-password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} required />
+          <input aria-label="Destination host" placeholder="host or IP" value={form.host} onChange={(event) => editForm({ host: event.target.value })} required />
+          <input aria-label="Destination port" type="number" min={1} max={65535} value={form.port} onChange={(event) => editForm({ port: Number(event.target.value) })} style={{ width: "6em" }} />
+          <input aria-label="Destination user" placeholder="user" value={form.user} onChange={(event) => editForm({ user: event.target.value })} required />
+          <input aria-label="Destination path" placeholder="/absolute/path" value={form.path} onChange={(event) => editForm({ path: event.target.value })} required />
+          <input aria-label="Owner password" type="password" placeholder="owner password" autoComplete="current-password" value={form.password} onChange={(event) => editForm({ password: event.target.value })} required />
           <button className="secondary-button" type="submit" disabled={saving}>{saving ? "Saving…" : "Save destination"}</button>
         </form>
         {formError && <div className="auth-error" role="alert">{formError}</div>}
@@ -222,7 +225,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
             : <button className="secondary-button" type="button" onClick={() => start({ operationId: "apt.install", title: "Install rsync", parameters: { packages: ["rsync"] }, preview: <span>Installs the <code>rsync</code> package from Ubuntu's repositories; the mirror needs it on this server.</span> })}>Install rsync</button>)}
         </div>
       </section>
-      <CloudBackupPanel start={start} />
+      <CloudBackupPanel start={start} refreshKey={panelRefresh} />
     </div>
   );
 }

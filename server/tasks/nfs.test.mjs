@@ -64,3 +64,20 @@ describe("nfs tasks", () => {
     await expect(nfsApply({ exports: [] }, { run: fakeRun(), files: missing })).rejects.toThrow("not installed");
   });
 });
+
+describe("root-owned exports", () => {
+  it("squashes clients to nobody rather than mapping them to root", () => {
+    // anonuid=0 would give every client on the network root inside the export.
+    const rendered = renderExports({ exports: [{ path: "/srv/data", readOnly: false }], clients: ["100.64.0.0/10"], owners: { "/srv/data": { uid: 0, gid: 0 } } });
+    expect(rendered).toContain("anonuid=65534,anongid=65534");
+    expect(rendered).not.toContain("anonuid=0");
+    const owned = renderExports({ exports: [{ path: "/srv/data", readOnly: false }], clients: ["100.64.0.0/10"], owners: { "/srv/data": { uid: 1000, gid: 1000 } } });
+    expect(owned).toContain("anonuid=1000,anongid=1000");
+  });
+
+  it("refuses to export BoxPilot's own tree or the VM images", () => {
+    for (const path of ["/opt/boxpilot", "/opt", "/var/lib/libvirt/images", "/var/lib/docker"]) {
+      expect(validateNfsConfig({ scope: "tailscale", exports: [{ path, readOnly: false }] })).toBeTruthy();
+    }
+  });
+});

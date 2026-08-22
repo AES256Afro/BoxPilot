@@ -141,7 +141,7 @@ export default function FirewallCenter({ csrfToken }: { csrfToken: string }) {
         <article className="panel">
           <span className="eyebrow">Firewall</span>
           <strong>{loading && !report ? "…" : report?.enabled === null || !report ? "Unknown" : report.enabled ? "Enabled" : "Disabled"}</strong>
-          <span>{report?.enabled ? "Incoming traffic is filtered" : "All incoming traffic is accepted"}</span>
+          <span>{!report || report.enabled === null ? "State unavailable" : report.enabled ? "Incoming traffic is filtered" : "All incoming traffic is accepted"}</span>
           {report && report.enabled !== null && (
             <div className="recovery-actions">
               <button className="secondary-button" type="button" disabled={loading} onClick={() => start({

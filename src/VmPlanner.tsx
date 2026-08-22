@@ -3,6 +3,7 @@ import {
   createVmPlan,
   fetchVmPlanningOptions,
   formatBytes,
+  formatMemory,
   type VmCreationPlan,
   type VmPlanInput,
   type VmPlanningOptions,
@@ -125,7 +126,7 @@ export default function VmPlanner({ onClose, onStage, csrfToken = "" }: { onClos
                   <dl className="vm-plan-summary">
                     <div><dt>Guest</dt><dd>{plan.input.name}</dd></div>
                     <div><dt>Profile</dt><dd>{plan.profile.label}</dd></div>
-                    <div><dt>Resources</dt><dd>{plan.input.vcpus} vCPU | {Math.floor(plan.input.memoryMiB / 1024)} GiB RAM | {plan.input.diskGiB} GiB disk</dd></div>
+                    <div><dt>Resources</dt><dd>{plan.input.vcpus} vCPU | {formatMemory(plan.input.memoryMiB * 1024)} RAM | {plan.input.diskGiB} GiB disk</dd></div>
                     <div><dt>Media</dt><dd>{plan.media.name}</dd></div>
                   </dl>
                   {plan.warnings.length > 0 && <div className="vm-plan-warnings"><strong>Warnings</strong>{plan.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div>}

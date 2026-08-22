@@ -19,7 +19,7 @@ export const workgroupPattern = /^[A-Za-z0-9_-]{1,15}$/;
 export const sambaUsernamePattern = /^[a-z_][a-z0-9_-]{0,31}$/;
 export const scopes = Object.freeze(["tailscale", "lan"]);
 export const reservedShareNames = Object.freeze(["global", "homes", "printers", "print$", "ipc$"]);
-export const sharePathDenyPrefixes = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/usr", "/bin", "/sbin", "/lib", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/docker", "/var/lib/samba"]);
+export const sharePathDenyPrefixes = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/docker", "/var/lib/samba"]);
 export const maxShares = 32;
 
 const binaries = {
@@ -126,7 +126,8 @@ export function parseSmbConf(content) {
   const interfaces = (global.interfaces ?? "").split(/\s+/).filter(Boolean);
   const shares = [];
   for (const [name, values] of sections) {
-    if (name === "global" || !values.path) continue;
+    // Ubuntu ships [printers] and [print$]; adopting them into the draft would make every Apply fail.
+    if (name === "global" || reservedShareNames.includes(name.toLowerCase()) || !values.path) continue;
     shares.push({
       name,
       path: values.path,

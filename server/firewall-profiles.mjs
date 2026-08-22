@@ -158,9 +158,18 @@ function ruleAllows(rule, port, protocol) {
  * @param {Array} input.apps           installed apps: [{ id, name, ports: [{ port, protocol, label }] }]
  * @param {object|null} input.current  the stored profile setting, if any
  */
+/** ufw comments allow letters, digits, spaces, dot, underscore and dash — nothing else. */
+function ruleComment(text) {
+  return String(text).replace(/[^A-Za-z0-9 ._-]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
+}
+
 export function adviseFirewall({ report, listeners = [], apps = [], current = null, fail2ban = null, webPort = defaultWebPort, webHost = "127.0.0.1" } = {}) {
   const advice = [];
-  if (!report || !report.installed) {
+  if (!report) {
+    advice.push({ id: "unavailable", level: "warn", title: "The firewall state could not be read", detail: "BoxPilot could not reach the part of itself that reads ufw. Check the BoxPilot services on the Services page, then refresh.", focus: undefined });
+    return advice;
+  }
+  if (!report.installed) {
     advice.push({ id: "install", level: "action", title: "Install ufw", detail: "BoxPilot manages the firewall through ufw. Installing it does not turn it on.", focus: "install" });
     return advice;
   }
@@ -203,7 +212,7 @@ export function adviseFirewall({ report, listeners = [], apps = [], current = nu
       advice.push({
         id: `risky-listen-${entry.port}-${entry.protocol}`, level: "warn", title: `${entry.label} is reachable from the LAN`,
         detail: `Something is listening on ${entry.port}/${entry.protocol} and the default policy lets it through.`,
-        operationId: "firewall.rule.add", parameters: { action: "deny", port: entry.port, protocol: entry.protocol, comment: `BoxPilot: block ${entry.label}`.slice(0, 60) }, actionLabel: "Block it",
+        operationId: "firewall.rule.add", parameters: { action: "deny", port: entry.port, protocol: entry.protocol, comment: ruleComment(`BoxPilot block ${entry.label}`) }, actionLabel: "Block it",
       });
     }
   }

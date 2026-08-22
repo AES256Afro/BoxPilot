@@ -25,7 +25,8 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       host = { lanAddress: snapshot?.network?.addresses?.find((entry) => /^\d+\.\d+\.\d+\.\d+$/.test(entry.address))?.address ?? null, tailscaleDnsName: snapshot?.network?.tailscale?.dnsName ?? null };
     } catch { /* host addresses are a convenience only */ }
     const applications = manifests.map((manifest) => ({ manifest, live: live?.applications?.find((entry) => entry.id === manifest.id) ?? null }));
-    response.json({ applications, problems: [...problems, ...(live?.problems ?? [])], liveError, host });
+    response.json({ applications, // The catalog is read on both sides, so the same file would otherwise be reported twice.
+      problems: [...new Map([...problems, ...(live?.problems ?? [])].map((problem) => [problem.file, problem])).values()], liveError, host });
   });
 
   // Precheck an install/reconfigure: validates values against the manifest and reports host port conflicts.

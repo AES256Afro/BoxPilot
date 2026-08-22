@@ -62,8 +62,8 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
     setChecking(true); setProblems([]);
     try {
       const response = await fetch(`/api/v1/catalog/${encodeURIComponent(manifest.id)}/precheck`, { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ values: compact }) });
-      const body = (await response.json()) as { ok: boolean; errors: string[]; conflicts: Array<{ label: string; port: number; protocol: string; listeners: string[] }>; error?: string };
-      if (!response.ok && body.errors?.length === 0) throw new Error(body.error ?? "Precheck failed");
+      const body = (await response.json().catch(() => ({}))) as { ok: boolean; errors: string[]; conflicts: Array<{ label: string; port: number; protocol: string; listeners: string[] }>; error?: string };
+      if (!response.ok && !body.errors?.length) throw new Error(body.error ?? "Precheck failed");
       const found = [...(body.errors ?? []), ...(body.conflicts ?? []).map((conflict) => `${conflict.label}: port ${conflict.port}/${conflict.protocol} is already in use on this server (${conflict.listeners.join(", ")}). Pick another port.`)];
       if (found.length) { setProblems(found); return; }
       onSubmit(compact);
@@ -131,7 +131,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const browseBackup = async (id: string, backup: string) => {
     try {
       const response = await fetch("/api/v1/operations/app.backup.files/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id, backup } }) });
-      const body = (await response.json()) as { result?: { files: Array<{ path: string; sizeBytes: number; type: string }>; truncated: boolean }; error?: string };
+      const body = (await response.json().catch(() => ({}))) as { result?: { files: Array<{ path: string; sizeBytes: number; type: string }>; truncated: boolean }; error?: string };
       if (!response.ok || !body.result) throw new Error(body.error ?? "Could not read the backup");
       setBrowsing({ backup, files: body.result.files, truncated: body.result.truncated, filter: "" });
     } catch (requestError) {
@@ -147,7 +147,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
     setLoading(true);
     try {
       const response = await fetch("/api/v1/catalog");
-      const body = (await response.json()) as CatalogResponse & { error?: string };
+      const body = (await response.json().catch(() => ({}))) as CatalogResponse & { error?: string };
       if (!response.ok) throw new Error(body.error ?? "Could not load the catalog");
       setData(body);
       setError(null);
@@ -171,7 +171,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const showLogs = async (id: string) => {
     try {
       const response = await fetch("/api/v1/operations/app.logs/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id, lines: 200 } }) });
-      const body = (await response.json()) as { result?: { lines: string[] }; error?: string };
+      const body = (await response.json().catch(() => ({}))) as { result?: { lines: string[] }; error?: string };
       if (!response.ok) throw new Error(body.error ?? "Could not read logs");
       setLogs({ id, lines: body.result?.lines ?? [] });
     } catch (requestError) {
@@ -182,7 +182,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const showEffectiveConfig = async (id: string) => {
     try {
       const response = await fetch("/api/v1/operations/app.config.inspect/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id } }) });
-      const body = (await response.json()) as { result?: { id: string; name: string; compose: string | null; env: Array<{ name: string; value: string; secret: boolean }>; directory: string }; error?: string };
+      const body = (await response.json().catch(() => ({}))) as { result?: { id: string; name: string; compose: string | null; env: Array<{ name: string; value: string; secret: boolean }>; directory: string }; error?: string };
       if (!response.ok || !body.result) throw new Error(body.error ?? "Could not read the configuration");
       setEffectiveConfig(body.result);
     } catch (requestError) {
@@ -193,7 +193,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const showBackups = async (manifest: Manifest) => {
     try {
       const response = await fetch("/api/v1/operations/app.backups.inspect/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id: manifest.id } }) });
-      const body = (await response.json()) as { result?: { id: string; backups: Array<{ artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; image: string | null }> }; error?: string };
+      const body = (await response.json().catch(() => ({}))) as { result?: { id: string; backups: Array<{ artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; image: string | null }> }; error?: string };
       if (!response.ok || !body.result) throw new Error(body.error ?? "Could not list backups");
       setAppBackups({ id: manifest.id, name: manifest.name, backups: body.result.backups });
     } catch (requestError) {
@@ -209,12 +209,13 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
         window.dispatchEvent(new Event("boxpilot:auth-changed"));
       }
       const response = await fetch("/api/v1/operations/app.secrets/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id: manifest.id } }) });
-      const body = (await response.json()) as { result?: { secrets: Array<{ name: string; label: string; value: string }> }; error?: string; code?: string };
+      const body = (await response.json().catch(() => ({}))) as { result?: { secrets: Array<{ name: string; label: string; value: string }> }; error?: string; code?: string };
       if (response.status === 401 && body.code === "elevation_required") { setSecrets({ id: manifest.id, name: manifest.name, items: null, needsPassword: true, password: "", error: null }); return; }
       if (!response.ok) throw new Error(body.error ?? "Could not read secrets");
       setSecrets({ id: manifest.id, name: manifest.name, items: body.result?.secrets ?? [], needsPassword: false, password: "", error: null });
     } catch (requestError) {
-      setSecrets((current) => ({ id: manifest.id, name: manifest.name, items: null, needsPassword: true, password: "", error: requestError instanceof Error ? requestError.message : "Could not read secrets", ...(current ? {} : {}) }));
+      const refused = requestError instanceof Error && /owner|Viewers/i.test(requestError.message);
+      setSecrets((current) => ({ id: manifest.id, name: manifest.name, items: null, needsPassword: !refused, password: "", error: requestError instanceof Error ? requestError.message : "Could not read secrets", ...(current ? {} : {}) }));
     }
   };
 

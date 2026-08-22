@@ -17,7 +17,7 @@ describe("Backup Center", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url.endsWith("/api/v1/backups")) return json({ backups: [backup, { ...backup, id: "x", applicationId: "legacy-app" }] });
-      if (url.endsWith("/controller-backup-protection")) return json({ destination: { repositoryInitialized: true }, protections: [{ id: "p1", backupId: backup.id, createdAt: backup.createdAt }] });
+      if (url.endsWith("/controller-backup-protection")) return json({ destination: { ready: true, encrypted: true, repositoryId: "restic-controller", blockers: [] }, protections: [{ id: "p1", backupId: backup.id, createdAt: backup.createdAt }] });
       if (url.endsWith("/controller-backup-retention")) return json({ policy: { minimumCopies: 3, minimumAgeDays: 30 }, candidates: [] });
       if (url.endsWith("/operations/controller.backup.create/jobs")) { staged = init?.body as string; return json({ job: { id: "job-b", type: "op:controller.backup.create", title: "Back up the BoxPilot database", state: "awaiting_approval", risk: "low", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "low", passwordRequired: false, elevated: false, mode: "tiered", reason: "low risk" } }, 201); }
       return json({ error: `unexpected ${url}` }, 500);
@@ -38,7 +38,7 @@ describe("Backup Center", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url.endsWith("/api/v1/backups")) return json({ backups: [backup] });
-      if (url.endsWith("/controller-backup-protection")) return json({ destination: { repositoryInitialized: true }, protections: [] });
+      if (url.endsWith("/controller-backup-protection")) return json({ destination: { ready: true, encrypted: true, repositoryId: "restic-controller", blockers: [] }, protections: [] });
       if (url.endsWith("/controller-backup-retention")) return json({});
       if (url.endsWith("/operations/controller.backup.protect/jobs")) { staged = init?.body as string; return json({ job: { id: "job-p", type: "op:controller.backup.protect", title: "Protect a database backup independently", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201); }
       return json({ error: `unexpected ${url}` }, 500);
