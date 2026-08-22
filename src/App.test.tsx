@@ -34,11 +34,11 @@ describe("BoxPilot console", () => {
     vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Server overview" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("Live sanitized inventory");
+    expect(screen.getByRole("region", { name: "Features" }).textContent).toContain("Setup checklist");
     expect(await screen.findByText("homebox")).toBeTruthy();
     fireEvent.click(within(screen.getByRole("navigation", { name: "Product areas" })).getByRole("button", { name: /Backups/ }));
     expect(screen.getByRole("heading", { name: "Backups" })).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Data source" }).textContent).toContain("verified restore drills");
+    expect(screen.getByRole("region", { name: "Features" }).textContent).toContain("Restore from a snapshot");
   });
 
   it("opens the page named in the URL and keeps the URL in step", async () => {
