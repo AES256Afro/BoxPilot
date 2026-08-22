@@ -401,17 +401,29 @@ export function createStateStore({
     if (account.role === "owner" && role !== "owner" && activeOwnerCount() <= 1) throw new Error("BoxPilot needs at least one owner");
     database.prepare("UPDATE owners SET role = ? WHERE id = ?").run(role, id);
     database.prepare("DELETE FROM sessions WHERE owner_id = ?").run(id);
+    forgetTrustedDevices(id);
     recordAudit("people.role-changed", { actorId, subjectId: id, details: { username: account.username, from: account.role, to: role } });
     return { ...account, role };
   }
 
   /** Self-service password change; other sessions of the account are ended. */
+  /** Forget every browser this account had marked trusted (used when its password or role changes). */
+  function forgetTrustedDevices(ownerId) {
+    const devices = getSetting("trustedDevices", []) ?? [];
+    if (!Array.isArray(devices) || !devices.length) return 0;
+    const kept = devices.filter((entry) => entry?.ownerId !== ownerId);
+    if (kept.length !== devices.length) setSetting("trustedDevices", kept, { updatedBy: ownerId });
+    return devices.length - kept.length;
+  }
+
   function setOwnerPassword(id, passwordHash, { keepSessionTokenHash = null } = {}) {
     const account = findOwnerById(id);
     if (!account) throw new Error("Account not found");
     database.prepare("UPDATE owners SET password_hash = ? WHERE id = ?").run(passwordHash, id);
     if (keepSessionTokenHash) database.prepare("DELETE FROM sessions WHERE owner_id = ? AND token_hash != ?").run(id, keepSessionTokenHash);
     else database.prepare("DELETE FROM sessions WHERE owner_id = ?").run(id);
+    // A new password must also end password-free sign-in from a browser that was trusted before it.
+    forgetTrustedDevices(id);
     recordAudit("people.password-changed", { actorId: id, subjectId: id, details: { username: account.username } });
     return { id, username: account.username };
   }
@@ -423,6 +435,7 @@ export function createStateStore({
     if (account.role === "owner" && activeOwnerCount() <= 1) throw new Error("BoxPilot needs at least one owner");
     database.prepare("UPDATE owners SET role = 'disabled' WHERE id = ?").run(id);
     database.prepare("DELETE FROM sessions WHERE owner_id = ?").run(id);
+    forgetTrustedDevices(id);
     recordAudit("people.disabled", { actorId, subjectId: id, details: { username: account.username } });
     return { ...account, role: "disabled" };
   }
@@ -1155,6 +1168,7 @@ export function createStateStore({
     transitionJob,
     getJob,
     listJobs,
+    forgetTrustedDevices,
     pruneHistory,
     listActiveJobs,
     createSchedule,

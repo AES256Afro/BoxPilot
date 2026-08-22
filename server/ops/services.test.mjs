@@ -36,3 +36,16 @@ describe("service operations", () => {
     await expect(registry.execute("service.action", { unit: "docker.service", action: "mask" }, { run })).rejects.toThrow("must be one of");
   });
 });
+
+describe("units with a high-risk equivalent", () => {
+  it("refuses to stop or disable ufw and fail2ban from the Services page", async () => {
+    const { registry } = await import("./index.mjs");
+    const action = registry.get("service.action");
+    const run = async (unit, act) => action.run({ unit, action: act }, { run: async () => ({ ok: true, stdout: "", stderr: "" }), progress: () => {} });
+    await expect(run("ufw.service", "disable")).rejects.toThrow("Firewall page");
+    await expect(run("fail2ban.service", "stop")).rejects.toThrow("Firewall page");
+    await expect(run("ssh.service", "stop")).rejects.toThrow("protected");
+    // Restarting them is still fine — that is not a way around the firewall's own approval.
+    await expect(run("ufw.service", "restart")).resolves.toBeTruthy();
+  });
+});

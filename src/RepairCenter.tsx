@@ -95,11 +95,13 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
     setRecoveryError(null);
     setActionError(null);
     try {
+      // The fetches must start before allSettled sees them, or they run one after another and a
+      // dropped connection escapes to the outer catch instead of failing just its own collector.
       const [prerequisiteResult, jobResult, recoveryResult, actionResult] = await Promise.allSettled([
-        readJson<{ checks: Prerequisite[] }>(await fetch("/api/v1/operations/prerequisites")),
-        readJson<{ jobs: Job[] }>(await fetch("/api/v1/jobs?limit=25")),
-        readJson<RecoveryKit>(await fetch("/api/v1/operations/recovery-kit")),
-        readJson<ActionCenter>(await fetch("/api/v1/operations/action-center")),
+        fetch("/api/v1/operations/prerequisites").then((response) => readJson<{ checks: Prerequisite[] }>(response)),
+        fetch("/api/v1/jobs?limit=25").then((response) => readJson<{ jobs: Job[] }>(response)),
+        fetch("/api/v1/operations/recovery-kit").then((response) => readJson<RecoveryKit>(response)),
+        fetch("/api/v1/operations/action-center").then((response) => readJson<ActionCenter>(response)),
       ]);
       if (actionResult.status === "fulfilled") setActionCenter(actionResult.value);
       else {

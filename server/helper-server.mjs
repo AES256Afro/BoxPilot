@@ -8,7 +8,7 @@ import { createAppHelper } from "./app-helper.mjs";
 import { createVmCloudHelper } from "./vm-cloud.mjs";
 import { createHostInspectHelper } from "./host-inspect-helper.mjs";
 import { executeHelperOperation } from "./helper-protocol.mjs";
-import { createLaneQueues, laneFor } from "./helper-lanes.mjs";
+import { createLaneQueues, exclusiveLane, laneFor } from "./helper-lanes.mjs";
 import { createVmRecoveryHelper } from "./vm-recovery-helper.mjs";
 import { createVmRestoreDrillHelper } from "./vm-restore-drill-helper.mjs";
 import { createVmRetentionHelper } from "./vm-retention-helper.mjs";
@@ -58,6 +58,11 @@ await unlink(socketPath).catch((error) => {
 });
 
 const server = net.createServer({ allowHalfOpen: true }, (connection) => {
+  // The web side destroys its socket when a request times out or the service restarts. Writing the
+  // reply then raises EPIPE, and an unhandled 'error' here would take the root helper down mid-operation.
+  connection.on("error", () => connection.destroy());
+  /** Send a reply only if the peer is still there. */
+  const reply = (payload) => { if (!connection.destroyed && connection.writable) connection.end(`${JSON.stringify(payload)}\n`); else connection.destroy(); };
   connection.setEncoding("utf8");
   connection.setTimeout(180000);
   let payload = "";
@@ -70,7 +75,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
     try {
       request = JSON.parse(payload);
     } catch {
-      connection.end(`${JSON.stringify({ version: 1, id: null, ok: false, error: "Malformed JSON request", code: "malformed_json" })}\n`);
+      reply({ version: 1, id: null, ok: false, error: "Malformed JSON request", code: "malformed_json" });
       return;
     }
     try {
@@ -84,9 +89,11 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
         // Waiting behind another operation must not look like a hung request: a heartbeat line keeps
         // both idle timers alive, and the client ignores every line before the last one.
         let heartbeat = null;
-        if (lanes.busy(lane)) {
+        // Anything can be held up by the exclusive lane, and an exclusive request waits for every lane.
+        const willWait = lanes.busy(lane) || lanes.busy(exclusiveLane) || (lane === exclusiveLane && lanes.size() > 0);
+        if (willWait) {
           heartbeat = setInterval(() => {
-            if (!connection.destroyed) connection.write(`${JSON.stringify({ version: 1, id: request?.id ?? null, queued: true, lane })}\n`);
+            if (!connection.destroyed && connection.writable) connection.write(`${JSON.stringify({ version: 1, id: request?.id ?? null, queued: true, lane })}\n`);
           }, queuedHeartbeatMs);
           heartbeat.unref?.();
         }
@@ -102,9 +109,9 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
           if (heartbeat) clearInterval(heartbeat);
         }
       }
-      connection.end(`${JSON.stringify(result)}\n`);
+      reply(result);
     } catch (error) {
-      connection.end(`${JSON.stringify({ version: 1, id: request?.id ?? null, ok: false, error: error.message, code: "operation_failed" })}\n`);
+      reply({ version: 1, id: request?.id ?? null, ok: false, error: error.message, code: "operation_failed" });
     }
   }
 
@@ -112,7 +119,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
     payload += chunk;
     if (Buffer.byteLength(payload, "utf8") > maxRequestBytes) {
       handled = true;
-      connection.end(`${JSON.stringify({ version: 1, id: null, ok: false, error: "Request is too large", code: "request_too_large" })}\n`);
+      reply({ version: 1, id: null, ok: false, error: "Request is too large", code: "request_too_large" });
       return;
     }
     if (payload.includes("\n")) {

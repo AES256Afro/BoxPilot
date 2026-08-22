@@ -86,12 +86,16 @@ export default function SchedulesPanel({ csrfToken }: { csrfToken: string }) {
   };
 
   const toggle = async (schedule: Schedule) => {
-    await fetch(`/api/v1/schedules/${encodeURIComponent(schedule.id)}`, { method: "PUT", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ enabled: !schedule.enabled }) }).catch(() => {});
+    const response = await fetch(`/api/v1/schedules/${encodeURIComponent(schedule.id)}`, { method: "PUT", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ enabled: !schedule.enabled }) });
+    if (!response.ok) { setError(((await response.json().catch(() => ({}))) as { error?: string }).error ?? "Could not change the schedule"); return; }
+    setError(null);
     await refresh();
   };
 
   const remove = async (schedule: Schedule) => {
-    await fetch(`/api/v1/schedules/${encodeURIComponent(schedule.id)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } }).catch(() => {});
+    const response = await fetch(`/api/v1/schedules/${encodeURIComponent(schedule.id)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } });
+    if (!response.ok) { setError(((await response.json().catch(() => ({}))) as { error?: string }).error ?? "Could not remove the schedule"); return; }
+    setError(null);
     await refresh();
   };
 
