@@ -24,7 +24,9 @@ export async function fixedRun(binary, args = [], { timeout = 30_000, maxBuffer 
       ok: false,
       code: typeof error.code === "number" ? error.code : null,
       stdout: typeof error.stdout === "string" ? error.stdout.trim() : "",
-      stderr: typeof error.stderr === "string" ? error.stderr.trim() : (error.message ?? ""),
+      // A command that never started (ENOENT, EACCES) has an empty stderr; without the message
+      // the job log would say nothing at all about why it failed.
+      stderr: (typeof error.stderr === "string" && error.stderr.trim()) || error.message || "",
     };
   }
 }
