@@ -68,7 +68,9 @@ export function createNotificationService({ store, fetcher = fetch, now = () => 
     if (problem) throw new Error(problem);
     const saved = { kind: target.kind, url: target.url, topic: target.topic ?? null, token: target.token ?? null };
     store.setSetting(settingKey, saved, { updatedBy });
-    store.recordAudit("notifications.configured", { actorId: updatedBy, details: { kind: saved.kind, url: saved.url } });
+    // The kind only. For a webhook the URL *is* the credential, and the audit log is kept for
+    // twenty thousand rows and copied into every controller backup.
+    store.recordAudit("notifications.configured", { actorId: updatedBy, details: { kind: saved.kind, hasToken: Boolean(saved.token) } });
     return saved;
   }
 

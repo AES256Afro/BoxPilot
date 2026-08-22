@@ -30,6 +30,9 @@ function sinceArgument(since) {
   return ["--since", since];
 }
 
+/** Containers seen recently, so following one does not run `docker ps` on every poll. */
+const knownContainers = new Map();
+
 export function logOperations() {
   return [
     defineOperation({
@@ -60,8 +63,14 @@ export function logOperations() {
         let result;
         if (kind === "container") {
           if (!containerPattern.test(target)) throw new Error("Container name is invalid");
-          const known = await run(dockerBinary, ["ps", "--all", "--format", "{{.Names}}"], { timeout: 15_000 });
-          if (!known.ok || !known.stdout.split("\n").includes(target)) throw new Error(`Container ${target} was not found`);
+          // Following a container polls this every few seconds; the container does not appear and
+          // disappear between ticks, so the existence check is remembered briefly.
+          if (!knownContainers.has(target) || Date.now() - knownContainers.get(target) > 30_000) {
+            const known = await run(dockerBinary, ["ps", "--all", "--format", "{{.Names}}"], { timeout: 15_000 });
+            if (!known.ok || !known.stdout.split("\n").includes(target)) { knownContainers.delete(target); throw new Error(`Container ${target} was not found`); }
+            if (knownContainers.size > 200) knownContainers.clear();
+            knownContainers.set(target, Date.now());
+          }
           result = await run(dockerBinary, ["logs", "--timestamps", "--tail", String(lines), ...(since ? ["--since", since.match(/^\d+[mhd]$/) ? since : since.replace(" ", "T")] : []), target], { timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
           if (!result.ok && !result.stdout && !result.stderr) throw new Error("docker logs failed");
           let entries = `${result.stdout}\n${result.stderr}`.split("\n").filter(Boolean);

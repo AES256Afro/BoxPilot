@@ -4,7 +4,7 @@
  * web service can tail it and stream it to the browser. The web service persists and removes the
  * file when the job finishes.
  */
-import { appendFile, chown, mkdir, open, readFile, rm, stat } from "node:fs/promises";
+import { appendFile, chown, mkdir, open, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 export const defaultJobLogDirectory = process.env.BOXPILOT_JOB_LOG_DIRECTORY ?? "/run/boxpilot/logs";
@@ -44,13 +44,22 @@ export function createJobLogWriter({ jobId, directory = defaultJobLogDirectory, 
 export function createJobLogReader({ directory = defaultJobLogDirectory } = {}) {
   async function read(jobId, offset = 0) {
     const target = jobLogPath(jobId, directory);
+    // Read from the offset rather than loading the file and slicing: the job stream polls this
+    // every 700 ms per open connection, and a long install's log settles at the 4 MiB cap.
+    let handle;
     try {
-      const buffer = await readFile(target);
-      const text = buffer.toString("utf8", Math.min(offset, buffer.length));
-      return { text, offset: buffer.length, exists: true };
+      handle = await open(target, "r");
+      const { size } = await handle.stat();
+      const from = Math.min(Math.max(0, offset), size);
+      if (from >= size) return { text: "", offset: size, exists: true };
+      const buffer = Buffer.allocUnsafe(size - from);
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, from);
+      return { text: buffer.toString("utf8", 0, bytesRead), offset: from + bytesRead, exists: true };
     } catch (error) {
       if (error.code === "ENOENT") return { text: "", offset, exists: false };
       throw error;
+    } finally {
+      await handle?.close().catch(() => {});
     }
   }
   async function remove(jobId) {

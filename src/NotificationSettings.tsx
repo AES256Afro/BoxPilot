@@ -80,6 +80,7 @@ export default function NotificationSettings({ csrfToken }: { csrfToken: string 
               {kind !== "ntfy" && <input aria-label="Token" type="password" placeholder={kind === "gotify" ? "application token" : "bearer token (optional)"} value={token} onChange={(event) => setToken(event.target.value)} />}
               {kind === "ntfy" && <input aria-label="Token" type="password" placeholder="access token (optional)" value={token} onChange={(event) => setToken(event.target.value)} />}
             </div>
+            <p className="muted">The address and any token are kept on this server so alerts can be sent while you are away, and they are included in BoxPilot's own database backups. Use a token scoped to sending notifications rather than one that can do more.</p>
             <div className="recovery-actions">
               <input aria-label="Owner password" type="password" autoComplete="current-password" placeholder="Owner password to confirm" value={password} onChange={(event) => setPassword(event.target.value)} />
               <button className="primary-button" type="button" disabled={busy || password.length < 12 || !url} onClick={() => void save({ kind, url, ...(kind === "ntfy" ? { topic } : {}), ...(token ? { token } : {}) })}>{busy ? "Saving..." : "Save"}</button>
