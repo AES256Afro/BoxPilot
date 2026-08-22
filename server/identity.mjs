@@ -68,12 +68,22 @@ export function createIdentityService({
    * X-Forwarded-For trustworthy — Serve's configuration needs privilege to change, so an ordinary
    * local process cannot arrange to be believed.
    */
-  /** True when a Serve proxy target is this service on loopback at our own port. */
+  /**
+   * True when a Serve proxy target is this service, on this machine, at our own port.
+   *
+   * `tailscale serve` records the target as the owner typed it, so "localhost:8787" and
+   * "http://127.0.0.1:8787" are both ordinary — and refusing the first would quietly stop
+   * zero-password Tailscale sign-in with nothing to show for it. The URL's port is blank when it
+   * is the scheme's default, which is what a BoxPilot on 80 or 443 looks like.
+   */
   function proxiesThisService(target) {
     if (typeof target !== "string" || !Number.isInteger(webPort)) return false;
     try {
-      const url = new URL(target);
-      return Number(url.port) === webPort && loopbacks.has(url.hostname.replace(/^\[|\]$/g, ""));
+      const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(target) ? target : `http://${target}`);
+      const port = url.port === "" ? (url.protocol === "https:" ? 443 : 80) : Number(url.port);
+      const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+      const localhost = host === "localhost" || host === "::1" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+      return port === webPort && localhost;
     } catch { return false; }
   }
 
@@ -280,7 +290,10 @@ export function createIdentityService({
   function githubOwnerFor(login) {
     if (typeof login !== "string") return null;
     const entry = links("githubLinks")[login.toLowerCase()];
-    return entry && typeof entry.ownerId === "string" ? entry.ownerId : null;
+    if (entry && typeof entry.ownerId === "string") return entry.ownerId;
+    // Recorded before per-account links existed: it belongs to the first owner, who made it. The
+    // same fallback tailscaleAccountFor uses, and without it this guard skipped exactly those.
+    return logins("githubLogins").some((item) => item.toLowerCase() === login.toLowerCase()) ? store.findFirstOwner()?.id ?? null : null;
   }
 
   function githubLinked(login, githubId = null) { return Boolean(githubAccountFor(login, githubId)); }
@@ -318,10 +331,11 @@ export function createIdentityService({
     // and silently dropping it from the list would leave the owner wondering where it went.
     const needsRelink = logins("githubLogins").filter((login) => {
       const entry = githubMap[login.toLowerCase()];
-      if (entry && typeof entry.ownerId === "string" && ownerId && entry.ownerId !== ownerId) return false;
-      // A login with no entry at all belongs to whoever made it before per-account links existed,
-      // which is the first owner; show it to them rather than to everyone.
-      if (!entry && ownerId && store.findFirstOwner()?.id !== ownerId) return false;
+      if (!ownerId) return !entry || entry.id === null || entry.id === undefined; // the owner sees all
+      // Anything without a usable ownerId belongs to whoever made it before per-account links
+      // existed, which is the first owner — not to everybody.
+      const belongsTo = entry && typeof entry.ownerId === "string" ? entry.ownerId : store.findFirstOwner()?.id ?? null;
+      if (belongsTo !== ownerId) return false;
       return !entry || entry.id === null || entry.id === undefined;
     });
     return {

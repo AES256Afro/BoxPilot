@@ -48,9 +48,10 @@ export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, 
     const timer = setTimeout(() => { try { child.kill("SIGTERM"); } catch { /* ignore */ } setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* ignore */ } }, 5000).unref?.(); }, timeout);
     const deliver = (stream, line) => {
       const clean = line.replace(/\r/g, "").trimEnd();
-      if (!clean) return;
+      // A blank line is still output: it goes into the tail the caller reads, even though there is
+      // nothing worth handing to a log writer.
       tails[stream] = (tails[stream] + clean + "\n").slice(-tailBytes);
-      try { onLine(clean, stream); } catch { /* logging must never break the command */ }
+      if (clean) { try { onLine(clean, stream); } catch { /* logging must never break the command */ } }
     };
     const consume = (stream, chunk) => {
       const text = partial[stream] + chunk.toString("utf8");
