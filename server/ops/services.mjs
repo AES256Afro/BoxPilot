@@ -9,6 +9,15 @@ export const serviceActions = Object.freeze(["start", "stop", "restart", "reload
  * Units BoxPilot will not stop or disable from the UI because doing so cuts off the operator or the
  * product itself. Restart is still allowed (with confirmation).
  */
+/**
+ * Units with a high-risk operation of their own: stopping or disabling them here would reach the
+ * same effect through a medium-risk path, so those actions are refused and the owner is redirected.
+ */
+export const guardedUnits = Object.freeze({
+  "ufw.service": "Use the Firewall page to turn the firewall off; that asks for your password.",
+  "fail2ban.service": "Use the Firewall page to turn off brute-force protection.",
+});
+
 export const criticalUnitPatterns = Object.freeze([
   /^boxpilot(-helper)?\.service$/, /^ssh(d)?\.service$/, /^ssh\.socket$/, /^systemd-/, /^dbus(-broker)?\.(service|socket)$/,
   /^tailscaled\.service$/, /^NetworkManager\.service$/, /^networkd-dispatcher\.service$/, /^getty@/, /^serial-getty@/, /^user@/, /^init\.scope$/, /^-\.mount$/,
@@ -56,7 +65,7 @@ export function serviceOperations() {
       },
     }),
     defineOperation({
-      id: "service.journal", title: "Read service journal", risk: "low", readOnly: true, timeoutMs: 60_000,
+      id: "service.journal", title: "Read service journal", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
       parameters: { fields: { unit: { type: "string", pattern: unitPattern }, lines: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 1000 ? null : "must be 1-1000") } } },
       run: async (parameters, { run }) => {
         const lines = parameters.lines ?? 200;
@@ -72,6 +81,7 @@ export function serviceOperations() {
       run: async (parameters, { run, progress }) => {
         const { unit, action } = parameters;
         if (isCriticalUnit(unit) && ["stop", "disable"].includes(action)) throw new Error(`${unit} is protected: stopping or disabling it would cut off access to this server or to BoxPilot`);
+        if (guardedUnits[unit] && ["stop", "disable"].includes(action)) throw new Error(`${unit} is not turned off from here. ${guardedUnits[unit]}`);
         const args = action === "enable" || action === "disable" ? [action, unit] : [action, unit];
         progress?.(`$ systemctl ${args.join(" ")}`, "stdout");
         const result = await run(systemctl, args, { timeout: 4 * 60_000, onLine: progress ?? undefined });

@@ -129,3 +129,31 @@ describe("scheduler hygiene", () => {
     await first;
   });
 });
+
+describe("schedules and secrets", () => {
+  it("refuses to store a credential and shows an account only its own schedules", async () => {
+    const { store, jobs, owner } = await setup();
+    const registry = {
+      get: (id) => ({
+        "share.mount": { id, title: "Mount a network share", risk: "medium", readOnly: false, parameters: { fields: { host: { type: "string" }, password: { type: "string", optional: true, secret: true } } } },
+        "apt.refresh": { id, title: "Refresh package lists", risk: "low", readOnly: false, parameters: { fields: {} } },
+      })[id] ?? null,
+      validate: () => null,
+    };
+    const scheduler = createSchedulerService({ store, jobs, registry, now: () => new Date("2026-08-20T10:30:00") });
+    await expect(scheduler.create({ operationId: "share.mount", parameters: { host: "nas", password: "hunter2 hunter2" }, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id }))
+      .rejects.toThrow("cannot run unattended");
+    expect(store.listSchedules()).toHaveLength(0);
+
+    const helper = store.createOwnerAccount({ username: "helper", passwordHash: "x", role: "operator", createdBy: owner.id });
+    await scheduler.create({ operationId: "apt.refresh", parameters: {}, frequency: "hourly", minute: 0, createdBy: owner.id });
+    await scheduler.create({ operationId: "apt.refresh", parameters: {}, frequency: "hourly", minute: 30, createdBy: helper.id });
+    expect(scheduler.list()).toHaveLength(2); // the owner sees the whole box
+    expect(scheduler.list({ createdBy: helper.id })).toHaveLength(1);
+    // Someone else's schedule is not theirs to pause or delete.
+    const ownerSchedule = scheduler.list({ createdBy: owner.id })[0];
+    expect(() => scheduler.setEnabled(ownerSchedule.id, false, helper.id)).toThrow("not found");
+    expect(() => scheduler.remove(ownerSchedule.id, helper.id)).toThrow("not found");
+    expect(() => scheduler.setEnabled(ownerSchedule.id, false, owner.id)).not.toThrow();
+  });
+});

@@ -1,4 +1,5 @@
 import { registry as defaultRegistry } from "./ops/index.mjs";
+import { secretFields } from "./ops/registry.mjs";
 
 /**
  * Operation scheduler (M6.1): runs registered low/medium-risk operations on a cadence,
@@ -51,6 +52,9 @@ export function createSchedulerService({ store, jobs, registry = defaultRegistry
     if (operation.readOnly) throw new Error("Read-only operations run on demand; they are not scheduled");
     if (operation.risk === "high") throw new Error(`${operation.title} is high risk and cannot run unattended`);
     if (operation.minimumRole === "owner" && (store.findOwnerById?.(createdBy)?.role ?? "owner") !== "owner") throw new Error(`Only the owner can schedule ${operation.title}`);
+    // A schedule is stored, so a credential given to it would sit in the database and in every backup.
+    const secrets = secretFields(operation.parameters).filter((name) => parameters?.[name] !== undefined && parameters?.[name] !== null && parameters?.[name] !== "");
+    if (secrets.length) throw new Error(`${operation.title} needs a password or key each time, so it cannot run unattended`);
     // Destination-pinning hooks supply host/provider fields at run time; validate the same way here.
     const prepared = typeof jobs.prepareParameters === "function" ? await jobs.prepareParameters(operationId, parameters ?? {}) : parameters ?? {};
     const parameterError = registry.validate(operationId, prepared);
@@ -61,8 +65,17 @@ export function createSchedulerService({ store, jobs, registry = defaultRegistry
     return store.createSchedule({ operationId, parameters, frequency, minute, hour: frequency === "hourly" ? null : hour, weekday: frequency === "weekly" ? weekday : null, createdBy, nextDueAt });
   }
 
-  function list() {
-    return store.listSchedules().map((schedule) => ({ ...schedule, title: registry.get(schedule.operationId)?.title ?? schedule.operationId, cadence: describeCadence(schedule) }));
+  /** Schedules for one account (the owner sees all). Parameters are summarised, never echoed whole. */
+  function list({ createdBy = null } = {}) {
+    return store.listSchedules()
+      .filter((schedule) => !createdBy || schedule.createdBy === createdBy)
+      .map((schedule) => ({ ...schedule, parameters: describeParameters(schedule.parameters), title: registry.get(schedule.operationId)?.title ?? schedule.operationId, cadence: describeCadence(schedule) }));
+  }
+
+  /** What the schedule acts on, for the panel to show — the subject, not the whole parameter set. */
+  function describeParameters(parameters) {
+    const subject = parameters?.id ?? parameters?.name ?? parameters?.unit ?? parameters?.device ?? null;
+    return subject === null ? {} : { subject: String(subject).slice(0, 64) };
   }
 
   /** A schedule belongs to whoever created it; the owner may manage every schedule. */

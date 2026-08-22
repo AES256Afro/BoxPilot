@@ -20,8 +20,9 @@ export function laneFor(operation, parameters = {}) {
   const id = String(operation ?? "");
   if (exclusiveOperations.has(id)) return exclusiveLane;
   const subject = (value) => (typeof value === "string" && value.length && value.length <= 64 ? value : null);
-  // Installing or removing an app rewrites the shared Homepage dashboard file, so those share its lane.
-  if (id === "homepage.sync") return "app:homepage";
+  // Installing or removing an app also rewrites the shared Homepage dashboard file, so those run on
+  // its lane rather than the app's own; two installs would otherwise race on one services.yaml.
+  if (id === "homepage.sync" || ["app.install", "app.uninstall", "app.purge"].includes(id)) return "app:homepage";
   if (id.startsWith("app.")) {
     const app = subject(parameters?.id);
     if (app) return `app:${app}`;

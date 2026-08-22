@@ -14,10 +14,26 @@ export function createOperationsRouter({ state, helper, jobs, prerequisites, rec
   });
 
   // Read-only registered operations run immediately (no job, no approval); parameter-free only for now.
+  /** Read-only operations may still be limited to a role (the journal) or to an elevated session (secrets). */
+  function refuseRead(request, response, operation) {
+    const role = request.boxpilotSession?.owner?.role ?? "owner";
+    if (operation.minimumRole === "owner" && role !== "owner") { response.status(403).json({ error: "Only the owner can read this", code: "forbidden" }); return true; }
+    if (operation.minimumRole === "operator" && !["owner", "operator"].includes(role)) { response.status(403).json({ error: "Viewers can look at the pages, but not read raw system logs", code: "forbidden" }); return true; }
+    if (!operation.elevatedOnly) return false;
+    if (role === "viewer") { response.status(403).json({ error: "Viewers can look but not reveal secrets", code: "forbidden" }); return true; }
+    const elevatedUntil = request.boxpilotSession.elevatedUntil ? Date.parse(request.boxpilotSession.elevatedUntil) : Number.NaN;
+    if (!(Number.isFinite(elevatedUntil) && elevatedUntil > Date.now())) { response.status(401).json({ error: "Enter your password to unlock this for 10 minutes", code: "elevation_required" }); return true; }
+    state.recordAudit("operation.elevated-read", { actorId: request.boxpilotSession.owner.id, subjectId: operation.id, details: {} });
+    return false;
+  }
+
   router.get("/operations/:id/inspect", async (request, response) => {
     const operation = registry.get(request.params.id);
     if (!operation) return response.status(404).json({ error: "Operation not found", code: "operation_not_found" });
     if (!operation.readOnly) return response.status(405).json({ error: "This operation changes the host; stage it as a job", code: "operation_not_read_only" });
+    if (refuseRead(request, response, operation)) return undefined;
+    const problem = registry.validate(operation.id, {});
+    if (problem) return response.status(400).json({ error: problem, code: "invalid_parameters" });
     try {
       return response.json({ operation: operation.id, result: await helper.request(operation.id, {}, { timeoutMs: operation.timeoutMs }) });
     } catch (error) {
@@ -29,16 +45,11 @@ export function createOperationsRouter({ state, helper, jobs, prerequisites, rec
   router.post("/operations/:id/run", auth.requireCsrf, async (request, response) => {
     const operation = registry.get(request.params.id);
     if (!operation) return response.status(404).json({ error: "Operation not found", code: "operation_not_found" });
+    if (refuseRead(request, response, operation)) return undefined;
     if (!operation.readOnly) return response.status(405).json({ error: "This operation changes the host; stage it as a job", code: "operation_not_read_only" });
     const parameters = request.body?.parameters ?? {};
     const problem = registry.validate(operation.id, parameters);
     if (problem) return response.status(400).json({ error: problem, code: "invalid_parameters" });
-    if (operation.elevatedOnly) {
-      if (request.boxpilotSession.owner.role === "viewer") return response.status(403).json({ error: "Viewers can look but not reveal secrets", code: "forbidden" });
-      const elevatedUntil = request.boxpilotSession.elevatedUntil ? Date.parse(request.boxpilotSession.elevatedUntil) : Number.NaN;
-      if (!(Number.isFinite(elevatedUntil) && elevatedUntil > Date.now())) return response.status(401).json({ error: "Enter your password to unlock this for 10 minutes", code: "elevation_required" });
-      state.recordAudit("operation.elevated-read", { actorId: request.boxpilotSession.owner.id, subjectId: operation.id, details: { parameters } });
-    }
     try {
       return response.json({ operation: operation.id, result: await helper.request(operation.id, parameters, { timeoutMs: operation.timeoutMs }) });
     } catch (error) {

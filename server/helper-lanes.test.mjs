@@ -5,7 +5,8 @@ describe("helper lanes", () => {
   it("gives each app and VM its own lane and keeps shared host work on one", () => {
     expect(laneFor("app.backup", { id: "jellyfin" })).toBe("app:jellyfin");
     expect(laneFor("app.action", { id: "immich", action: "restart" })).toBe("app:immich");
-    expect(laneFor("app.install", {})).toBe("host"); // no subject: stay conservative
+    expect(laneFor("app.install", {})).toBe("app:homepage"); // installs write the shared dashboard file
+    expect(laneFor("app.backup", {})).toBe("host"); // no subject: stay conservative
     expect(laneFor("vm.action", { name: "dev-lab" })).toBe("vm:dev-lab");
     expect(laneFor("vm.create", { name: "dev-lab" })).toBe("host"); // shared pools and libvirt config
     expect(laneFor("vm.media.import", { name: "iso" })).toBe("host");
@@ -56,5 +57,16 @@ describe("whole-box operations", () => {
     await Promise.all([appWork, snapshot, otherApp]);
     // The snapshot waited for the running app work, and the app queued behind it waited for the snapshot.
     expect(order).toEqual(["app", "snapshot", "other-app"]);
+  });
+});
+
+describe("apps that touch the shared dashboard", () => {
+  it("puts installs and removals on the Homepage lane so one services.yaml has one writer", () => {
+    expect(laneFor("app.install", { id: "jellyfin" })).toBe("app:homepage");
+    expect(laneFor("app.purge", { id: "immich" })).toBe("app:homepage");
+    expect(laneFor("homepage.sync", {})).toBe("app:homepage");
+    // Everything else about an app still gets that app's own lane.
+    expect(laneFor("app.backup", { id: "jellyfin" })).toBe("app:jellyfin");
+    expect(laneFor("app.action", { id: "jellyfin", action: "restart" })).toBe("app:jellyfin");
   });
 });

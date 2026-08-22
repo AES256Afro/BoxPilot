@@ -47,7 +47,7 @@ export function logOperations() {
       },
     }),
     defineOperation({
-      id: "logs.read", title: "Read logs", risk: "low", readOnly: true, timeoutMs: 60_000,
+      id: "logs.read", title: "Read logs", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
       description: "Tail a journal group, one systemd unit, or one container, with optional time window and text filter. Lines are redacted.",
       parameters: { fields: {
         kind: { type: "string", enum: ["group", "unit", "container"] },

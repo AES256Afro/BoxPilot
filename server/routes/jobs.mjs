@@ -103,8 +103,8 @@ export function createJobsRouter({ state, jobs, scheduler, jobLogReader, auth })
 
   // Scheduled operations: low/medium registered ops on an hourly/daily/weekly cadence,
   // approved automatically as the schedule's creator. High-risk ops cannot be scheduled.
-  router.get("/schedules", (_request, response) => {
-    response.json({ schedules: scheduler.list() });
+  router.get("/schedules", (request, response) => {
+    response.json({ schedules: scheduler.list(scopeFor(request)) });
   });
 
   router.post("/schedules", auth.requireCsrf, async (request, response) => {
