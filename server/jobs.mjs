@@ -1,4 +1,5 @@
 import { verifyPassword } from "./security.mjs";
+import { defaultThrottle as throttle } from "./login-throttle.mjs";
 import { approvalRequirement, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "./ops/risk.mjs";
 import { registry } from "./ops/index.mjs";
 import { secretFields } from "./ops/registry.mjs";
@@ -38,7 +39,13 @@ export function createJobService(store, helper, {
     const owner = store.findOwnerById(ownerId);
     if (!owner) throw new Error("Approval reauthentication failed");
     const passwordProvided = typeof password === "string" && password.length > 0;
-    if (passwordProvided && !(await verifyPassword(password, owner.passwordHash))) throw new Error("Approval reauthentication failed");
+    if (passwordProvided) {
+      const gate = throttle.check([`user:${owner.id}`]);
+      if (gate.blocked) throw new Error(`Approval reauthentication failed: too many wrong passwords, try again in ${Math.ceil(gate.retryAfterMs / 1000)} s`);
+      const ok = await verifyPassword(password, owner.passwordHash);
+      throttle.record([`user:${owner.id}`], ok);
+      if (!ok) throw new Error("Approval reauthentication failed");
+    }
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
     if (job.createdBy !== ownerId) throw new Error("Job not found");
@@ -75,9 +82,10 @@ export function createJobService(store, helper, {
       failed: `${registeredOperation.title} failed; review the recorded error and job log`,
       validate: () => true,
     };
+    // The transition is the atomic guard against a double approval; record evidence only once it succeeded.
+    store.transitionJob(jobId, "awaiting_approval", "applying");
     store.addApproval(jobId, ownerId, { method: approvalMethod, tier: policy.tier });
     store.recordAudit("job.approved", { actorId: ownerId, subjectId: jobId, details: { type: job.type, tier: policy.tier, method: approvalMethod } });
-    store.transitionJob(jobId, "awaiting_approval", "applying");
     store.addJobStep(jobId, "approval", "completed", `Approved by ${owner.username} (${policy.tier} risk, ${approvalMethod})`);
     store.addJobStep(jobId, "apply", "running", execution.applying);
     return { job, owner, execution, approval: { tier: policy.tier, method: approvalMethod, elevatedUntil } };
@@ -178,11 +186,27 @@ export function createJobService(store, helper, {
   }
 
   /** Read-only: what approving this job would require for the given session. */
+  /** Apply the operation's prepare hook without staging — the scheduler validates with it. */
+  async function prepareParameters(operationId, parameters = {}) {
+    return operationPrepareHooks[operationId] ? operationPrepareHooks[operationId](parameters ?? {}) : parameters ?? {};
+  }
+
+  /** Withdraw a job that is still awaiting approval (its creator, or the owner); staged secrets are dropped. */
+  function cancelJob(jobId, ownerId, { role = "owner", reason = "Cancelled before approval" } = {}) {
+    const job = store.getJob(jobId);
+    if (!job || (job.createdBy !== ownerId && role !== "owner")) throw new Error("Job not found");
+    if (job.state !== "awaiting_approval") throw new Error("Only jobs that are awaiting approval can be cancelled");
+    store.transitionJob(jobId, "awaiting_approval", "cancelled", { error: reason });
+    stagedSecrets.delete(jobId);
+    store.recordAudit("job.cancelled", { actorId: ownerId, subjectId: jobId, details: { type: job.type, reason } });
+    return store.getJob(jobId);
+  }
+
   function describeApproval(jobId, session = null) {
     const job = store.getJob(jobId);
     if (!job) return null;
     return approvalPolicy(job, session);
   }
 
-  return { createOperationJob, approveAndRun, approveAndStart, describeApproval, approvalPolicy };
+  return { createOperationJob, approveAndRun, approveAndStart, describeApproval, approvalPolicy, cancelJob, prepareParameters };
 }

@@ -43,7 +43,12 @@ export function parseLsblkTree(json) {
   // devices anyone should see; hide them and attach their children to the next real parent.
   const internal = (row) => /-(real|cow)$/.test(row.path ?? "");
   for (const row of rows) {
-    if (row.path && seen.has(row.path)) continue; // an LV over several PVs is listed once per PV
+    if (row.path && seen.has(row.path)) {
+      // An LV over several PVs is listed once per PV: keep the extra parent → LV link so the group can be rebuilt.
+      const parent = row.pkname ? byKname.get(row.pkname) : null;
+      if (parent && row.type === "lvm") (parent.lvmVolumes ??= []).push(row.path);
+      continue;
+    }
     if (row.path) seen.add(row.path);
     if (internal(row)) continue;
     let parent = (row.pkname ? byKname.get(row.pkname) : null) ?? row.visitParent ?? null;
@@ -133,7 +138,9 @@ export function volumeGroupsFrom(devices) {
   const groups = new Map();
   devices.forEach((device, index) => {
     if (device.fstype !== "LVM2_member") return;
-    const volumes = descendantsOf(devices, index).filter((row) => row.type === "lvm" && row.path?.startsWith("/dev/mapper/"));
+    const direct = descendantsOf(devices, index).filter((row) => row.type === "lvm" && row.path?.startsWith("/dev/mapper/"));
+    const linked = (device.lvmVolumes ?? []).map((volumePath) => devices.find((row) => row.path === volumePath)).filter(Boolean);
+    const volumes = [...direct, ...linked.filter((row) => !direct.includes(row))];
     const names = [...new Set(volumes.map((row) => splitDmName(row.path.slice("/dev/mapper/".length)).vg).filter(Boolean))];
     const name = names[0] ?? null;
     const key = name ?? `pv:${device.path}`;

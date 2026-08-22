@@ -3,7 +3,7 @@
  * Owner-only (enforced in index.mjs); every change re-asks the owner's password.
  */
 import { Router } from "express";
-import { hashPassword, verifyPassword } from "../security.mjs";
+import { hashPassword } from "../security.mjs";
 
 const usernamePattern = /^[a-z0-9][a-z0-9._-]{1,31}$/;
 
@@ -12,7 +12,9 @@ export function createPeopleRouter({ state, auth }) {
 
   async function ownerWithPassword(request, response) {
     const owner = state.findOwnerById(request.boxpilotSession.owner.id);
-    if (!owner || typeof request.body?.password !== "string" || !(await verifyPassword(request.body.password, owner.passwordHash))) {
+    const verdict = await auth.checkPassword(request, owner, request.body?.password);
+    if (verdict.blocked) { auth.rejectThrottled(response, verdict); return null; }
+    if (!verdict.ok) {
       response.status(401).json({ error: "Owner password required", code: "reauthentication_required" });
       return null;
     }

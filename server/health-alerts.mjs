@@ -49,6 +49,21 @@ export function evaluateHealth(inventory) {
   return alerts;
 }
 
+/** Which condition families have live evidence in this snapshot; absent evidence must not read as "cleared". */
+export function collectorAvailability(inventory) {
+  const storage = inventory?.storage;
+  const maintenance = inventory?.maintenance;
+  return {
+    "storage.root.full": Boolean(storage?.root && Number.isFinite(storage.root.usedPercent)),
+    "storage.mount.full": storage?.filesystems?.available !== false && Array.isArray(storage?.filesystems?.mounts),
+    "storage.smart": storage?.smart?.available !== false && Array.isArray(storage?.smart?.disks) && storage.smart.disks.length > 0,
+    "power.ups": inventory?.power?.ups?.available === true,
+    "system.services": maintenance?.available !== false && Number.isFinite(maintenance?.system?.failedServiceCount),
+    "system.reboot": maintenance?.available !== false && typeof maintenance?.reboot?.required === "boolean",
+    "docker.unhealthy": inventory?.docker?.available !== false && Array.isArray(inventory?.docker?.containers),
+  };
+}
+
 export function createHealthAlerts({ inventory, notifications, store, intervalMs = 15 * 60 * 1000, initialDelayMs = 3 * 60 * 1000, now = () => new Date(), setInterval: schedule = globalThis.setInterval, setTimeout: delay = globalThis.setTimeout, clearInterval: unschedule = globalThis.clearInterval, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
   const settingKey = "healthAlertsState";
 
@@ -73,8 +88,12 @@ export function createHealthAlerts({ inventory, notifications, store, intervalMs
         delete nextState[alert.key]; // try again next round
       }
     }
+    const availability = collectorAvailability(snapshot);
     for (const [key, entry] of Object.entries(previous)) {
-      if (nextState[key] || !target) continue;
+      if (nextState[key]) continue;
+      // Evidence that is temporarily missing (stale SMART file, systemctl timeout) carries the alert forward unchanged.
+      if (availability[key.split(":")[0]] === false) { nextState[key] = entry; continue; }
+      if (!target) continue;
       try {
         await notifications.send({ title: `BoxPilot: resolved — ${entry.title ?? key}`, message: `This condition cleared at ${now().toLocaleString()}.`, priority: "default" });
         sent.push(`resolved:${key}`);

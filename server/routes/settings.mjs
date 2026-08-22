@@ -4,7 +4,6 @@
  */
 import { Router } from "express";
 import { approvalModes, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "../ops/risk.mjs";
-import { verifyPassword } from "../security.mjs";
 import { normalizeDestination } from "../backup-destination.mjs";
 
 export function createSettingsRouter({ state, notifications, auth }) {
@@ -14,7 +13,9 @@ export function createSettingsRouter({ state, notifications, auth }) {
 
   async function ownerWithPassword(request, response, message) {
     const owner = state.findOwnerById(request.boxpilotSession.owner.id);
-    if (!owner || typeof request.body?.password !== "string" || !(await verifyPassword(request.body.password, owner.passwordHash))) {
+    const verdict = await auth.checkPassword(request, owner, request.body?.password);
+    if (verdict.blocked) { auth.rejectThrottled(response, verdict); return null; }
+    if (!verdict.ok) {
       response.status(401).json({ error: message, code: "reauthentication_required" });
       return null;
     }

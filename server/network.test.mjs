@@ -89,7 +89,7 @@ describe("network topology and DNS assessment", () => {
       ["ip", ["-j", "-4", "route", "show", "default"]],
       ["resolvectl", ["status", "--json=short"]],
       ["ss", ["-H", "-l", "-n", "-t", "-u"]],
-      ["tailscale", ["status", "--json"]],
+      ["tailscale", ["status", "--json", "--peers=false"]],
       ["ip", ["-j", "-4", "neigh", "show"]],
       ["tailscale", ["debug", "prefs"]],
       ["ip", ["-j", "-4", "route", "show"]],

@@ -1,4 +1,6 @@
 import express from "express";
+import { readdir } from "node:fs/promises";
+import { resolveDevices } from "./catalog/compose.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { productVersion } from "./version.mjs";
@@ -127,6 +129,10 @@ const jobs = createJobService(state, helper, {
   },
   // Prepare hooks pin server-derived expectations into the staged parameters.
   operationPrepareHooks: {
+    // Device globs (/dev/sd?, /dev/ttyUSB?) resolve here against the real /dev; the helper runs with PrivateDevices.
+    "app.install": (parameters) => withResolvedDevices(parameters),
+    "app.update": (parameters) => withResolvedDevices(parameters),
+    "app.reconfigure": (parameters) => withResolvedDevices(parameters),
     "controller.backup.protect": (parameters) => controllerProtection.prepareOperation(parameters),
     "system.update": (parameters) => releaseUpdates.prepareOperation(parameters),
     // Dashboard links need the address the browser uses; fall back to the LAN address for scheduled runs.
@@ -245,6 +251,18 @@ app.use((request, response, next) => {
 app.use((_request, response) => {
   response.status(404).json({ error: "Not found" });
 });
+
+// Device globs in manifests are resolved by this process: the helper's sandbox has no real /dev.
+async function withResolvedDevices(parameters) {
+  const manifest = await catalogService.get(parameters?.id).catch(() => null);
+  if (!manifest?.devices?.some((pattern) => /[?*[]/.test(pattern))) return parameters;
+  return { ...parameters, devices: await resolveDevices(manifest.devices, (directory) => readdir(directory)) };
+}
+
+// Keep history bounded: finished jobs older than 90 days beyond the newest 500, audit beyond the newest 20,000 rows.
+const pruneHistory = () => { try { state.pruneHistory(); } catch (error) { console.warn(`History pruning failed: ${error.message}`); } };
+setTimeout(pruneHistory, 2 * 60_000).unref?.();
+setInterval(pruneHistory, 24 * 3600_000).unref?.();
 
 app.listen(port, host, () => {
   console.log(`BoxPilot ${productVersion} listening on http://${host}:${port}`);

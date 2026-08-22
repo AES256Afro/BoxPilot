@@ -276,6 +276,8 @@ export function createStateStore({
     CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_plans_created_at ON plans(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_job_steps_job_id ON job_steps(job_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_approvals_job_id ON approvals(job_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_audit_events_created_at ON audit_events(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_backups_created_at ON backups(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_controller_backup_protections_created_at ON controller_backup_protections(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_controller_retention_runs_created_at ON controller_retention_runs(created_at DESC);
@@ -608,6 +610,14 @@ export function createStateStore({
       .run(approval.id, approval.jobId, approval.ownerId, approval.method, approval.tier, approval.createdAt);
     emitJobChanged(jobId);
     return approval;
+  }
+
+  /** Delete finished jobs older than `jobDays` beyond the newest `keepJobs`, and audit rows beyond `keepAudit`. */
+  function pruneHistory({ keepJobs = 500, jobDays = 90, keepAudit = 20_000, now = timestamp() } = {}) {
+    const cutoff = new Date(Date.parse(now) - jobDays * 86_400_000).toISOString();
+    const removedJobs = database.prepare("DELETE FROM jobs WHERE state IN ('completed', 'failed', 'cancelled') AND created_at < ? AND id NOT IN (SELECT id FROM jobs ORDER BY created_at DESC, id DESC LIMIT ?)").run(cutoff, keepJobs).changes;
+    const removedAudit = database.prepare("DELETE FROM audit_events WHERE id NOT IN (SELECT id FROM audit_events ORDER BY created_at DESC LIMIT ?)").run(keepAudit).changes;
+    return { removedJobs, removedAudit };
   }
 
   function transitionJob(jobId, fromStates, state, { result = undefined, error = undefined } = {}) {
@@ -1141,6 +1151,7 @@ export function createStateStore({
     transitionJob,
     getJob,
     listJobs,
+    pruneHistory,
     listActiveJobs,
     createSchedule,
     getSchedule,

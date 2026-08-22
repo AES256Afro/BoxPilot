@@ -115,7 +115,7 @@ describe("durable job executor", () => {
     expect(job).toMatchObject({ type: "op:apt.upgrade", title: "Install package updates", risk: "medium", state: "awaiting_approval" });
     expect(jobs.describeApproval(job.id, session)).toMatchObject({ tier: "medium", passwordRequired: false });
     const completed = await jobs.approveAndRun(job.id, owner.id, { session });
-    expect(helper.request).toHaveBeenCalledWith("apt.upgrade", { packages: ["htop"] }, expect.objectContaining({ timeoutMs: 70 * 60 * 1000 }));
+    expect(helper.request).toHaveBeenCalledWith("apt.upgrade", { packages: ["htop"] }, expect.objectContaining({ timeoutMs: 185 * 60 * 1000 }));
     expect(completed.state).toBe("completed");
     expect(completed.result).toMatchObject({ upgraded: true });
     const purge = await jobs.createOperationJob("apt.purge", { packages: ["htop"] }, owner.id);
@@ -216,6 +216,20 @@ describe("durable job executor", () => {
     await expect(jobs.approveAndRun(staged.id, operator.id, { password: "sams long password", session: operatorSession })).rejects.toThrow("Only the owner can approve high-risk");
     const viewer = store.createOwnerAccount({ username: "vee", passwordHash: "x", role: "viewer", createdBy: owner.id });
     await expect(jobs.createOperationJob("apt.refresh", {}, viewer.id, { role: "viewer" })).rejects.toThrow("Viewers cannot stage");
+    store.close();
+  });
+});
+
+describe("cancelling staged jobs", () => {
+  it("lets the creator withdraw a job awaiting approval and refuses to approve it afterwards", async () => {
+    const helper = { request: vi.fn() };
+    const { store, owner, jobs } = await setup(helper);
+    const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+    const cancelled = jobs.cancelJob(job.id, owner.id, { role: "owner" });
+    expect(cancelled.state).toBe("cancelled");
+    expect(() => jobs.cancelJob(job.id, owner.id)).toThrow("awaiting approval");
+    await expect(jobs.approveAndRun(job.id, owner.id, { session: store.getSession(store.createSession(owner.id).token) })).rejects.toThrow();
+    expect(helper.request).not.toHaveBeenCalled();
     store.close();
   });
 });

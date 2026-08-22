@@ -69,6 +69,11 @@ export function approveJob(jobId: string, csrfToken: string, password?: string, 
   }).then((response) => readJson(response));
 }
 
+/** Withdraw a job that is still awaiting approval (the dialog was dismissed). */
+export function cancelJob(jobId: string, csrfToken: string): Promise<{ job: Job }> {
+  return fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } }).then((response) => readJson(response));
+}
+
 export function getJob(jobId: string): Promise<{ job: Job }> {
   return fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}`).then((response) => readJson(response));
 }

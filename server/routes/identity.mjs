@@ -4,7 +4,6 @@
  * Authenticated (+CSRF): POST/DELETE /auth/identity/tailscale, POST /auth/identity/github/start, DELETE /auth/identity/github, PUT /settings/github-client-id.
  */
 import { Router } from "express";
-import { verifyPassword } from "../security.mjs";
 
 export function createIdentityRouter({ store, auth, identity }) {
   const router = Router();
@@ -13,7 +12,9 @@ export function createIdentityRouter({ store, auth, identity }) {
     const session = request.boxpilotSession;
     const owner = session ? store.findOwnerById(session.owner.id) : null;
     const password = request.body?.password;
-    if (!owner || typeof password !== "string" || !(await verifyPassword(password, owner.passwordHash))) {
+    const verdict = await auth.checkPassword(request, owner, password);
+    if (verdict.blocked) { auth.rejectThrottled(response, verdict); return null; }
+    if (!verdict.ok) {
       response.status(401).json({ error: "Owner password required", code: "reauthentication_required" });
       return null;
     }
@@ -37,7 +38,9 @@ export function createIdentityRouter({ store, auth, identity }) {
     // Anything that can reach the loopback listener could otherwise claim a tailnet address.
     if (!auth.trustedDevice(request, account)) {
       const password = request.body?.password;
-      if (typeof password !== "string" || !(await verifyPassword(password, account.passwordHash))) {
+      const verdict = typeof password === "string" ? await auth.checkPassword(request, account, password) : { ok: false, blocked: false };
+      if (verdict.blocked) return auth.rejectThrottled(response, verdict);
+      if (!verdict.ok) {
         return response.status(401).json({ error: `First sign-in from this browser: enter the password for ${account.username}`, code: "device_password_required", username: account.username });
       }
       auth.rememberDevice(request, response, account);
