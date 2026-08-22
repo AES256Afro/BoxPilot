@@ -228,9 +228,30 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
 
   const categories = useMemo(() => [...new Set((data?.applications ?? []).map((entry) => entry.manifest.category))].sort(), [data]);
   const visible = useMemo(() => (data?.applications ?? []).filter((entry) => !filter || entry.manifest.category === filter), [data, filter]);
-  const hostForLinks = data?.host.lanAddress ?? window.location.hostname;
+  /**
+   * Which host to send the browser to.
+   *
+   * Whatever address this page was loaded from is, by definition, one that reaches this server
+   * from where you are sitting — so use it. Preferring the LAN address meant every "Open" button
+   * pointed into the LAN even when BoxPilot was open over the tailnet from somewhere else, and
+   * every one of them failed to connect. The LAN address is only the better guess when the page
+   * itself came from loopback, where nothing about the browser's host is informative.
+   */
+  const browserHost = window.location.hostname;
+  const viewingFromLoopback = browserHost === "localhost" || browserHost === "127.0.0.1" || browserHost === "::1" || browserHost === "[::1]";
+  const hostForLinks = viewingFromLoopback ? data?.host.lanAddress ?? browserHost : browserHost;
 
-  const openUrl = (port: { host: number; exposure: string }, manifest: Manifest) => `${manifest.id === "portainer" ? "https" : "http"}://${port.exposure === "loopback" ? "127.0.0.1" : hostForLinks}:${port.host}`;
+  /**
+   * Where an app's web UI actually is. An app published on the tailnet has Tailscale Serve holding
+   * that port for HTTPS, so a plain http:// link to it is answered with 400 — the address has to
+   * be the HTTPS one.
+   */
+  const openUrl = (port: { host: number; exposure: string }, manifest: Manifest) => {
+    const served = (serves ?? []).find((serve) => serve.port === port.host);
+    if (served) return `https://${served.dnsName}:${served.port}`;
+    const scheme = manifest.id === "portainer" ? "https" : "http";
+    return `${scheme}://${port.exposure === "loopback" ? "127.0.0.1" : hostForLinks}:${port.host}`;
+  };
 
   const statusPill = (live: LiveState | null): ReactNode => {
     if (!live) return <span className="status-pill status-neutral">Unknown</span>;
