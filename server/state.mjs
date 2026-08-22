@@ -639,9 +639,13 @@ export function createStateStore({
     return normalizeJob(row, steps, approvals);
   }
 
-  function listJobs(limit = 50) {
+  /** Recent jobs, newest first. `createdBy` limits the list to one account (non-owners see only their own). */
+  function listJobs(limit = 50, { createdBy = null } = {}) {
     const safeLimit = Math.min(Math.max(Number.parseInt(limit, 10) || 50, 1), 200);
-    return database.prepare("SELECT id FROM jobs ORDER BY created_at DESC LIMIT ?").all(safeLimit).map((row) => getJob(row.id));
+    const rows = createdBy
+      ? database.prepare("SELECT id FROM jobs WHERE created_by = ? ORDER BY created_at DESC LIMIT ?").all(createdBy, safeLimit)
+      : database.prepare("SELECT id FROM jobs ORDER BY created_at DESC LIMIT ?").all(safeLimit);
+    return rows.map((row) => getJob(row.id));
   }
 
   function listActiveJobs() {

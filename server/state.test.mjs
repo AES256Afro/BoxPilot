@@ -366,3 +366,17 @@ describe("history retention", () => {
     expect(result.removedAudit).toBeGreaterThan(0);
   });
 });
+
+describe("job visibility", () => {
+  it("lists only one account's jobs when scoped", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-scope-"));
+    directories.push(directory);
+    const store = createStateStore({ stateDirectory: directory });
+    const owner = store.consumeBootstrapToken(store.createBootstrapToken().token, { username: "admin", passwordHash: "x" });
+    const helper = store.createOwnerAccount({ username: "helper", passwordHash: "x", role: "operator", createdBy: owner.id });
+    const ownerJob = store.createJob({ type: "op:apt.refresh", title: "owner", risk: "low", parameters: { secret: "theirs" }, createdBy: owner.id, initialSteps: [] });
+    const helperJob = store.createJob({ type: "op:apt.refresh", title: "helper", risk: "low", parameters: {}, createdBy: helper.id, initialSteps: [] });
+    expect(store.listJobs(50).map((job) => job.id).sort()).toEqual([ownerJob.id, helperJob.id].sort());
+    expect(store.listJobs(50, { createdBy: helper.id }).map((job) => job.id)).toEqual([helperJob.id]);
+  });
+});

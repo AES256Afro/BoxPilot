@@ -50,7 +50,7 @@ export function createIdentityRouter({ store, auth, identity }) {
 
   router.post("/auth/github/start", async (request, response) => {
     try {
-      const flow = await identity.githubStart({ purpose: "signin" });
+      const flow = await identity.githubStart({ purpose: "signin", client: request.socket?.remoteAddress ?? null });
       return response.json(flow);
     } catch (error) {
       return response.status(503).json({ error: error.message, code: "github_start_failed" });
@@ -110,7 +110,7 @@ export function createIdentityRouter({ store, auth, identity }) {
   router.post("/auth/identity/github/start", auth.requireSession, auth.requireCsrf, async (request, response) => {
     const owner = await ownerWithPassword(request, response); if (!owner) return;
     try {
-      response.json(await identity.githubStart({ purpose: "link", ownerId: owner.id }));
+      response.json(await identity.githubStart({ purpose: "link", ownerId: owner.id, client: request.socket?.remoteAddress ?? null }));
     } catch (error) {
       response.status(503).json({ error: error.message, code: "github_start_failed" });
     }

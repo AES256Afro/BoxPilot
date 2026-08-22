@@ -8,6 +8,7 @@ import { createAppHelper } from "./app-helper.mjs";
 import { createVmCloudHelper } from "./vm-cloud.mjs";
 import { createHostInspectHelper } from "./host-inspect-helper.mjs";
 import { executeHelperOperation } from "./helper-protocol.mjs";
+import { createLaneQueues, laneFor } from "./helper-lanes.mjs";
 import { createVmRecoveryHelper } from "./vm-recovery-helper.mjs";
 import { createVmRestoreDrillHelper } from "./vm-restore-drill-helper.mjs";
 import { createVmRetentionHelper } from "./vm-retention-helper.mjs";
@@ -25,7 +26,8 @@ const socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.s
 const maxRequestBytes = 128 * 1024; // compose edits and key imports declare 64 KiB fields
 const legacyReadOnlyOperations = new Set(["container.docker.inspect", "container.docker.inventory", "controller.database.backup.inspect", "controller.database.protection.inspect", "controller.database.protection.retention.inspect", "virtualization.foundation.inspect", "virtualization.media.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
 const readOnlyOperations = new Set([...registry.readOnlyIds(), ...legacyReadOnlyOperations]);
-let operationQueue = Promise.resolve();
+const lanes = createLaneQueues();
+const queuedHeartbeatMs = 20_000;
 const vmRestoreDrill = createVmRestoreDrillHelper();
 const vmRecovery = createVmRecoveryHelper({ restoreEngine: vmRestoreDrill });
 const vmRetention = createVmRetentionHelper();
@@ -74,15 +76,33 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
     try {
       const registeredTimeout = registry.timeoutFor(request.operation);
       if (registeredTimeout) connection.setTimeout(registeredTimeout);
-      const execution = readOnlyOperations.has(request.operation)
-        ? executeHelperOperation(request, helperDependencies)
-        : operationQueue.then(() => {
-            // The web side gave up (timeout) while this waited in the queue: running it now would change the host with no job watching.
-            if (connection.destroyed) throw new Error("The request was abandoned while it waited for an earlier operation");
+      let result;
+      if (readOnlyOperations.has(request.operation)) {
+        result = await executeHelperOperation(request, helperDependencies);
+      } else {
+        const lane = laneFor(request.operation, request.parameters);
+        // Waiting behind another operation must not look like a hung request: a heartbeat line keeps
+        // both idle timers alive, and the client ignores every line before the last one.
+        let heartbeat = null;
+        if (lanes.busy(lane)) {
+          heartbeat = setInterval(() => {
+            if (!connection.destroyed) connection.write(`${JSON.stringify({ version: 1, id: request?.id ?? null, queued: true, lane })}\n`);
+          }, queuedHeartbeatMs);
+          heartbeat.unref?.();
+        }
+        try {
+          result = await lanes.run(lane, async () => {
+            // The web side gave up while this waited: running it now would change the host with no job watching.
+            if (connection.destroyed) throw new Error("The request was abandoned while it waited for an earlier operation on this subject");
+            if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
+            if (registeredTimeout) connection.setTimeout(registeredTimeout); // the operation's own budget starts now
             return executeHelperOperation(request, helperDependencies);
           });
-      if (!readOnlyOperations.has(request.operation)) operationQueue = execution.catch(() => {});
-      connection.end(`${JSON.stringify(await execution)}\n`);
+        } finally {
+          if (heartbeat) clearInterval(heartbeat);
+        }
+      }
+      connection.end(`${JSON.stringify(result)}\n`);
     } catch (error) {
       connection.end(`${JSON.stringify({ version: 1, id: request?.id ?? null, ok: false, error: error.message, code: "operation_failed" })}\n`);
     }
