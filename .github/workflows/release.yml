@@ -41,12 +41,25 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cat > notes.md <<NOTES
+          instructions="$(cat <<NOTES
+
+          ---
+
           **Update from BoxPilot:** System → *Update to ${GITHUB_REF_NAME}* (password approval; automatic rollback on a failed health check).
 
           **Update from the server:**
 
               curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_REF_NAME}/scripts/boxpilot-upgrade.sh | sudo sh -s -- ${GITHUB_REF_NAME}
-
           NOTES
-          gh release create "${GITHUB_REF_NAME}" --title "BoxPilot ${GITHUB_REF_NAME}" --notes-file notes.md --generate-notes
+          )"
+          # A release may already have been published by hand with notes describing what changed.
+          # Keep those and append the update instructions rather than failing on the duplicate.
+          if existing="$(gh release view "${GITHUB_REF_NAME}" --json body --jq .body 2>/dev/null)"; then
+            case "$existing" in
+              *"boxpilot-upgrade.sh"*) echo "Release ${GITHUB_REF_NAME} already carries the update instructions." ;;
+              *) printf '%s\n%s\n' "$existing" "$instructions" > notes.md; gh release edit "${GITHUB_REF_NAME}" --notes-file notes.md ;;
+            esac
+          else
+            printf '%s\n' "$instructions" > notes.md
+            gh release create "${GITHUB_REF_NAME}" --title "BoxPilot ${GITHUB_REF_NAME}" --notes-file notes.md --generate-notes
+          fi

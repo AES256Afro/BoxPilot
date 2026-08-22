@@ -26,6 +26,8 @@ boxpilot_has_command() {
   command -v "$1" >/dev/null 2>&1
 }
 
+boxpilot_service_user="${BOXPILOT_SERVICE_USER:-boxpilot}"
+
 printf 'BoxPilot host doctor\n'
 printf 'Connection: %s\n' "$boxpilot_uri"
 printf 'ISO library: %s\n\n' "$boxpilot_iso_directory"
@@ -37,12 +39,28 @@ else
   boxpilot_fail "This native deployment requires Linux; detected $(uname -s)"
 fi
 
-if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+# Access checks answer for whoever runs this script. Only root and the service account can answer
+# for the service; from an ordinary admin login the honest answer is "present, not verifiable here",
+# because the socket is deliberately closed to everyone else.
+boxpilot_whoami="$(id -un 2>/dev/null || echo unknown)"
+if [ "$boxpilot_whoami" = root ] || [ "$boxpilot_whoami" = "$boxpilot_service_user" ]; then
+  if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+    boxpilot_pass "/dev/kvm is readable and writable for this host-side doctor session"
+  elif [ -S "$boxpilot_helper_socket" ] && [ -w "$boxpilot_helper_socket" ]; then
+    boxpilot_pass "KVM and libvirt inspection is delegated to the restricted helper socket"
+  else
+    boxpilot_fail "neither direct KVM access nor the restricted helper socket is available"
+  fi
+elif [ -S "$boxpilot_helper_socket" ]; then
+  boxpilot_pass "the restricted helper socket is present (only root and $boxpilot_service_user may open it, so this check cannot go further as $boxpilot_whoami)"
+elif boxpilot_has_command systemctl && systemctl is-active --quiet boxpilot-helper.service 2>/dev/null; then
+  # The socket's own directory is closed to other accounts, so its absence here proves nothing.
+  # systemd can still say whether the helper that owns it is running.
+  boxpilot_pass "the helper service is running; its socket directory is closed to $boxpilot_whoami, which is how it should be"
+elif [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
   boxpilot_pass "/dev/kvm is readable and writable for this host-side doctor session"
-elif [ -S "$boxpilot_helper_socket" ] && [ -w "$boxpilot_helper_socket" ]; then
-  boxpilot_pass "KVM and libvirt inspection is delegated to the restricted helper socket"
 else
-  boxpilot_fail "neither direct KVM access nor the restricted helper socket is available"
+  boxpilot_fail "the helper service is not running and /dev/kvm is not available to $boxpilot_whoami"
 fi
 
 # node is required. virsh/virt-install matter only with virtualization, tailscale only with tailnet
@@ -71,10 +89,16 @@ if boxpilot_has_command node; then
   fi
 fi
 
-case " $(id -nG) " in
-  *" libvirt "*|*" kvm "*) boxpilot_warn "$(id -un) still has direct virtualization group access; the boxpilot service account should use only the helper socket" ;;
-  *) boxpilot_pass "$(id -un) has no direct libvirt or kvm group membership" ;;
-esac
+# What matters is the service account's reach, not the admin's: a person who administers this box
+# is expected to be in libvirt, and warning about that taught nothing.
+if id "$boxpilot_service_user" >/dev/null 2>&1; then
+  case " $(id -nG "$boxpilot_service_user" 2>/dev/null) " in
+    *" libvirt "*|*" kvm "*) boxpilot_warn "the $boxpilot_service_user service account has direct libvirt or kvm group access; it should reach virtualization only through the helper socket" ;;
+    *) boxpilot_pass "the $boxpilot_service_user service account has no direct libvirt or kvm group membership" ;;
+  esac
+else
+  boxpilot_warn "the $boxpilot_service_user service account does not exist on this host"
+fi
 
 if boxpilot_has_command virsh; then
   if virsh --connect "$boxpilot_uri" uri >/dev/null 2>&1; then
@@ -111,6 +135,10 @@ fi
 
 if [ -d "$boxpilot_state_directory" ] && [ -w "$boxpilot_state_directory" ]; then
   boxpilot_pass "state directory is writable for redacted audit events"
+elif [ -d "$boxpilot_state_directory" ] && [ "$boxpilot_whoami" != root ] && [ "$boxpilot_whoami" != "$boxpilot_service_user" ]; then
+  # 0700 and owned by the service account is what it should be; $boxpilot_whoami not being able to
+  # write it is the design, not a fault.
+  boxpilot_pass "state directory exists and is closed to other accounts: $boxpilot_state_directory"
 else
   boxpilot_warn "state directory is missing or not writable: $boxpilot_state_directory"
 fi
