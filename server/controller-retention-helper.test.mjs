@@ -66,7 +66,7 @@ describe("controller retention helper", () => {
     await expect(helper.apply(input())).rejects.toThrow("changed after approval");
   });
 
-  it("returns confirmed partial removal evidence after a post-forget verification failure", async () => {
+  it("refuses to call a run complete when it could not read what was removed", async () => {
     let snapshotCall = 0;
     const run = vi.fn(async (_binary, args) => {
       if (args.includes("snapshots")) {
@@ -79,9 +79,10 @@ describe("controller retention helper", () => {
     });
     const helper = createControllerRetentionHelper({ inspectDestination: async () => destination, run });
     const preview = await helper.inspect();
-    const result = await helper.apply(input({ expectedSnapshotSetRevision: preview.snapshotSetRevision }));
-    expect(result).toMatchObject({ applied: true, complete: true, repositoryVerified: false, forgottenSnapshotIds: [snapshots[0].id], afterCount: null, prunePerformed: false });
-    expect(result.verification).toEqual(expect.arrayContaining(["repository-check-failed", "post-inspection-failed", "noncandidate-presence-unverified"]));
+    // The forget command exited zero, but nothing could confirm what actually went. Recording that
+    // as a complete run marked copies as gone that may still be there, and the next preview then
+    // found snapshots it could not account for and blocked on them.
+    await expect(helper.apply(input({ expectedSnapshotSetRevision: preview.snapshotSetRevision }))).rejects.toThrow(/could not confirm/i);
   });
 
   it("does not infer removal from an unavailable post-inspection after forget fails", async () => {
@@ -97,6 +98,6 @@ describe("controller retention helper", () => {
     });
     const helper = createControllerRetentionHelper({ inspectDestination, run });
     const preview = await helper.inspect();
-    await expect(helper.apply(input({ expectedSnapshotSetRevision: preview.snapshotSetRevision }))).rejects.toThrow("before any reviewed snapshot removal was confirmed");
+    await expect(helper.apply(input({ expectedSnapshotSetRevision: preview.snapshotSetRevision }))).rejects.toThrow(/could not confirm that any reviewed snapshot was removed/i);
   });
 });

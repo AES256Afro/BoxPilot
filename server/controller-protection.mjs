@@ -29,7 +29,11 @@ export function createControllerProtectionService({ store, helper }) {
   }
 
   function backup(backupId) {
-    return store.listBackups(200).find((candidate) => candidate.id === backupId && candidate.applicationId === "boxpilot-controller") ?? null;
+    // Look the row up rather than scanning a capped list: that list is shared with every app's
+    // backups, so on a box backing several apps up daily a controller backup a few weeks old fell
+    // off the end and was reported as "unavailable or lacking verification".
+    const candidate = store.getBackup?.(backupId) ?? store.listBackups(200).find((item) => item.id === backupId);
+    return candidate && candidate.applicationId === "boxpilot-controller" ? candidate : null;
   }
 
   function verifiedBackup(backupId) {
@@ -48,7 +52,15 @@ export function createControllerProtectionService({ store, helper }) {
   /** Pin the expected evidence for one verified local backup (staging-time, server-derived). */
   async function prepareOperation({ backupId } = {}) {
     const source = verifiedBackup(backupId);
-    if (store.getControllerBackupProtectionByBackup(source.id)) throw new Error("This controller backup already has durable independent protection evidence");
+    // A protection that retention has since forgotten is not protection. It used to block a new
+    // one anyway, while the Backups page — which does filter forgotten ones out — went on offering
+    // the button, so the owner got an error saying evidence exists for a copy BoxPilot deleted.
+    const existing = store.getControllerBackupProtectionByBackup(source.id);
+    if (existing && existing.retained !== false) throw new Error("This controller backup already has durable independent protection evidence");
+    // One protection row per backup, so a copy retention has already forgotten cannot be protected
+    // again onto a new snapshot. Taking a fresh backup is the right move anyway — but say that,
+    // rather than claiming evidence exists for something BoxPilot deleted.
+    if (existing) throw new Error("The encrypted copy of this backup was removed by retention, and a backup can only be protected once. Take a new backup and protect that instead.");
     const currentDestination = await destination();
     if (currentDestination.ready !== true) throw new Error(currentDestination.blockers?.[0] ?? "The encrypted independent controller destination is not ready");
     if (!(Number.isSafeInteger(currentDestination.destinationFreeBytes) && currentDestination.destinationFreeBytes >= source.sizeBytes + 256 * 1024 ** 2)) throw new Error("The independent controller destination does not have enough free space");

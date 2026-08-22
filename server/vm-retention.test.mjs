@@ -62,10 +62,12 @@ describe("VM backup retention service", () => {
 
   it("preserves backups consumed by an active restore or recovery job", async () => {
     const { service, store, backups } = fixture();
+    // The shape jobs.mjs actually stores: "op:<operation id>" with flat parameters. The fixture
+    // used to invent an "input" wrapper and a legacy name, matching a filter no real job could.
     store.listActiveJobs.mockReturnValue([{
-      type: "virtualization.export.backup.restore-drill",
+      type: "op:vm.backup.restore-drill",
       state: "applying",
-      parameters: { input: { backupId: backups[4].id } },
+      parameters: { backupId: backups[4].id },
     }]);
     const status = await service.inspect();
     expect(status.candidates.map((item) => item.backupId)).not.toContain(backups[4].id);

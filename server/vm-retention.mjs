@@ -55,9 +55,11 @@ export function createVmRetentionService({ store, helper, now = () => new Date()
     const inspection = await helper.request("virtualization.export.backup.retention.inspect", {});
     const backups = store.listAllVmBackups();
     const recoveries = store.listAllVmRecoveries();
+    // Same shape as the controller side: "op:<operation id>", flat parameters. These are the
+    // backups a drill or a recovery is using right now, which retention must not remove.
     const activeSnapshotConsumers = store.listActiveJobs()
-      .filter((job) => ["virtualization.export.backup.restore-drill", "virtualization.backup.recovery.create"].includes(job.type))
-      .map((job) => ({ backupId: job.parameters?.input?.backupId }))
+      .filter((job) => ["op:vm.backup.restore-drill", "op:vm.recovery.create"].includes(job.type))
+      .map((job) => ({ backupId: job.parameters?.backupId }))
       .filter((item) => typeof item.backupId === "string");
     const blockers = [...(inspection.blockers ?? [])];
     const active = backups.filter((backup) => backup.retained !== false && backup.repositoryId === inspection.repositoryId);

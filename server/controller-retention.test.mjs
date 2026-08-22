@@ -53,7 +53,10 @@ describe("controller backup retention service", () => {
 
   it("preserves protections referenced by an active controller operation", async () => {
     const { service, store, protections } = fixture();
-    store.listActiveJobs.mockReturnValue([{ type: "controller.database.backup.retention.apply", parameters: { input: { forgetSnapshotIds: [protections[4].snapshotId] } } }]);
+    // The shape jobs.mjs actually stores: "op:<operation id>" with flat parameters. The fixture
+    // used to invent an "input" wrapper and the legacy helper name, so it matched a filter that
+    // could never match a real job — and the guard it was testing was dead.
+    store.listActiveJobs.mockReturnValue([{ type: "op:controller.backup.retention.apply", parameters: { forgetSnapshotIds: [protections[4].snapshotId] } }]);
     const status = await service.inspect();
     expect(status.candidates.map((item) => item.protectionId)).not.toContain(protections[4].id);
     expect(status.kept.find((item) => item.protectionId === protections[4].id)?.reasons).toContain("active-controller-operation");

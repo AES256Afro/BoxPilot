@@ -23,7 +23,18 @@ export function compareVersions(left, right) {
   if (a.prerelease === b.prerelease) return 0;
   if (a.prerelease === null) return 1;
   if (b.prerelease === null) return -1;
-  return a.prerelease < b.prerelease ? -1 : 1;
+  // Dot-separated identifiers, compared numerically where both are numbers: plain string order
+  // puts rc.10 below rc.2.
+  const left_ = a.prerelease.split("."); const right_ = b.prerelease.split(".");
+  for (let index = 0; index < Math.max(left_.length, right_.length); index += 1) {
+    const one = left_[index]; const two = right_[index];
+    if (one === undefined) return -1;
+    if (two === undefined) return 1;
+    const bothNumeric = /^\d+$/.test(one) && /^\d+$/.test(two);
+    if (bothNumeric) { if (Number(one) !== Number(two)) return Number(one) < Number(two) ? -1 : 1; continue; }
+    if (one !== two) return one < two ? -1 : 1;
+  }
+  return 0;
 }
 
 function safeText(value, maximum) {
@@ -67,6 +78,9 @@ export function createReleaseUpdateService({ requestJson = createGithubRequester
     if (typeof tag !== "string" || !tagPattern.test(tag)) throw new Error("Choose a release tag like v1.2.3");
     const release = await requestJson(`${basePath}/releases/tags/${encodeURIComponent(tag)}`, { allowNotFound: true });
     if (!release || release.draft === true) throw new Error(`${tag} is not a published release`);
+    // The page only ever offers the latest release, which GitHub excludes prereleases from — but
+    // this is the staging boundary, and it should not accept one just because it was asked to.
+    if (release.prerelease === true) throw new Error(`${tag} is a prerelease, so BoxPilot will not install it`);
     if (compareVersions(tag.slice(1), currentVersion) <= 0) throw new Error(`${tag} is not newer than the installed ${currentVersion}`);
     const commit = await requestJson(`${basePath}/commits/${encodeURIComponent(tag)}`);
     if (typeof commit?.sha !== "string" || !shaPattern.test(commit.sha)) throw new Error("GitHub returned an invalid commit for the release");

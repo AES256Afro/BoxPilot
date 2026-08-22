@@ -28,3 +28,39 @@ describe("support-bundle redaction policy", () => {
     expect(output.self).toBe("[REDACTED_CYCLE]");
   });
 });
+
+describe("shapes this product's own logs and configs actually produce", () => {
+  const { redact } = createRedactor({ status: "default", additionalLiterals: [], additionalPathPrefixes: [] });
+
+  it("redacts a credential however it is written", () => {
+    // Every one of these was untouched: the rule needed the key bare and the value to stop at a
+    // space, and these are BoxPilot's own webdav field, its cloud tokens, restic's unit
+    // environment, an rclone config line, an rclone flag, and a webdav URL with credentials in it.
+    for (const line of [
+      '{"password":"hunter2"}',
+      '{"access_token":"ya29.abc","refresh_token":"1//0gXYZ"}',
+      "Environment=RESTIC_PASSWORD=hunter2-recovery-passphrase",
+      "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI",
+      "secret_access_key = wJalrXUtnFEMI",
+      "rclone: --sftp-pass 8fj20fj20fj2 --sftp-user backup",
+      "https://alice:hunter2@cloud.example.com/dav",
+    ]) {
+      expect(redact(line), line).toContain("REDACTED");
+      expect(redact(line), line).not.toMatch(/hunter2-recovery-passphrase|ya29\.abc|wJalrXUtnFEMI|8fj20fj20fj2/);
+    }
+  });
+
+  it("redacts a secret field whatever its type, and leaves ordinary fields alone", () => {
+    expect(redact({ apiKey: "abcd", key: "K001x", token: 12345678, pin: 1234 })).toEqual({
+      apiKey: "[REDACTED_FIELD]", key: "[REDACTED_FIELD]", token: "[REDACTED_FIELD]", pin: 1234,
+    });
+    // "passed" is a real field in this codebase's own evidence; redacting it would hide whether a
+    // restore drill succeeded. A boolean can never be a credential, so booleans are left alone
+    // whatever they are called — which is what keeps flags like credentialsIncluded readable.
+    expect(redact({ restoreDrill: { passed: true }, passes: 2, credentialsIncluded: false })).toEqual({
+      restoreDrill: { passed: true }, passes: 2, credentialsIncluded: false,
+    });
+    // A session id is a credential, so it goes even though "sessionCount" goes with it.
+    expect(redact({ sessionId: "abc", sessionCount: 3 })).toEqual({ sessionId: "[REDACTED_FIELD]", sessionCount: "[REDACTED_FIELD]" });
+  });
+});
