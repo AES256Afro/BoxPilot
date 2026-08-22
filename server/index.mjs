@@ -1,6 +1,5 @@
 import express from "express";
-import { readdir } from "node:fs/promises";
-import { resolveDevices } from "./catalog/compose.mjs";
+import { createDeviceResolver } from "./catalog/devices.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { productVersion } from "./version.mjs";
@@ -87,6 +86,8 @@ const recoveryKit = createRecoveryKitService({ store: state, prerequisites, help
 const actionCenter = createActionCenterService({ recoveryKit, inventory });
 const supportBundle = createSupportBundleService({ inventory, prerequisites, actionCenter, audit, helper });
 const catalogService = createCatalogService();
+// Device globs in manifests are resolved by this process: the helper's sandbox has no real /dev.
+const withResolvedDevices = createDeviceResolver({ catalog: catalogService });
 const jobLogReader = createJobLogReader();
 function pinnedBackupDestination() {
   const destination = state.getSetting("backupDestination", null);
@@ -251,13 +252,6 @@ app.use((request, response, next) => {
 app.use((_request, response) => {
   response.status(404).json({ error: "Not found" });
 });
-
-// Device globs in manifests are resolved by this process: the helper's sandbox has no real /dev.
-async function withResolvedDevices(parameters) {
-  const manifest = await catalogService.get(parameters?.id).catch(() => null);
-  if (!manifest?.devices?.some((pattern) => /[?*[]/.test(pattern))) return parameters;
-  return { ...parameters, devices: await resolveDevices(manifest.devices, (directory) => readdir(directory)) };
-}
 
 // Keep history bounded: finished jobs older than 90 days beyond the newest 500, audit beyond the newest 20,000 rows.
 const pruneHistory = () => { try { state.pruneHistory(); } catch (error) { console.warn(`History pruning failed: ${error.message}`); } };

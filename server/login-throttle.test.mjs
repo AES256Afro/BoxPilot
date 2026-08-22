@@ -28,3 +28,22 @@ describe("login throttle", () => {
     expect(throttle.check(["k"]).retryAfterMs).toBeLessThanOrEqual(120_000);
   });
 });
+
+describe("who gets throttled", () => {
+  it("blocks the account, not the address, so nobody can lock the owner out from one client", async () => {
+    const { createAuthService } = await import("./security.mjs");
+    const store = {
+      recordAudit: () => {},
+      getSetting: () => null,
+      setSetting: () => {},
+    };
+    const auth = createAuthService(store);
+    const request = { socket: { remoteAddress: "127.0.0.1" }, get: () => undefined, headers: {} };
+    const attacker = { id: "owner-1", passwordHash: "scrypt$16384$8$1$c2FsdA$aGFzaA" }; // never matches
+    for (let i = 0; i < 6; i += 1) await auth.checkPassword(request, attacker, "wrong");
+    expect((await auth.checkPassword(request, attacker, "wrong")).blocked).toBe(true);
+    // A different account from the same address is unaffected.
+    const other = { id: "owner-2", passwordHash: "scrypt$16384$8$1$c2FsdA$aGFzaA" };
+    expect((await auth.checkPassword(request, other, "wrong")).blocked).toBe(false);
+  });
+});
