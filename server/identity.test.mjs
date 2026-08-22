@@ -144,3 +144,26 @@ describe("GitHub device-flow limits", () => {
     await expect(identity.githubStart({ purpose: "link", ownerId: owner.id, client: "e" })).resolves.toMatchObject({ userCode: "ABCD-EFGH" });
   });
 });
+
+describe("Tailscale Serve's own identity header", () => {
+  const serveStatus = JSON.stringify({ Web: { "box.tail1234.ts.net:443": { Handlers: { "/": { Proxy: "http://127.0.0.1:8787" } } } } });
+  const whoisJson = JSON.stringify({ Node: { Name: "laptop.tail.ts.net." }, UserProfile: { LoginName: "me@example.com", DisplayName: "Me" } });
+  const run = () => vi.fn(async (_binary, args) => (args[0] === "serve" ? { ok: true, stdout: serveStatus, stderr: "" } : { ok: true, stdout: whoisJson, stderr: "" }));
+
+  it("accepts a request whose header agrees with the address", async () => {
+    const state = await store();
+    const identity = createIdentityService({ store: state, run: run(), now: () => 1000 });
+    const result = await identity.tailscaleIdentity(req("127.0.0.1", { "x-forwarded-for": "100.67.166.49", "tailscale-user-login": "me@example.com" }));
+    expect(result).toMatchObject({ available: true, login: "me@example.com" });
+    state.close();
+  });
+
+  it("refuses a request whose header names somebody else", async () => {
+    // Two independent statements about who is calling; they have to agree.
+    const state = await store();
+    const identity = createIdentityService({ store: state, run: run(), now: () => 1000 });
+    const result = await identity.tailscaleIdentity(req("127.0.0.1", { "x-forwarded-for": "100.67.166.49", "tailscale-user-login": "someone.else@example.com" }));
+    expect(result).toMatchObject({ available: false, reason: "identity-mismatch" });
+    state.close();
+  });
+});
