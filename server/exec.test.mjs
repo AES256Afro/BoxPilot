@@ -82,12 +82,21 @@ describe("streaming a command", () => {
 });
 
 describe("a child that never writes a newline", () => {
-  it("still reports progress and does not grow a buffer without bound", async () => {
+  it("reports the latest state of a redrawn line, not every frame of it", async () => {
     const lines = [];
-    // curl --progress-bar and similar tools rewrite one line with \r for the whole transfer.
+    // curl --progress-bar rewrites one line with \r for the whole transfer. Every frame used to
+    // become its own job-log entry, which can exhaust the log's size cap before the lines that
+    // matter are written. The newest frame is the one worth having.
     const result = await streamRun("/bin/sh", ["-c", "printf 'a\\rb\\rc\\r'; printf 'done\\n'"], { onLine: (line) => lines.push(line) });
     expect(result.ok).toBe(true);
-    expect(lines).toEqual(["a", "b", "c", "done"]);
+    expect(lines).toEqual(["done"]);
+  });
+
+  it("still reports each redraw that arrives separately, so progress is visible over time", async () => {
+    const lines = [];
+    const result = await streamRun("/bin/sh", ["-c", "printf '10%%\\r'; sleep 0.05; printf '60%%\\r'; sleep 0.05; printf 'complete\\n'"], { onLine: (line) => lines.push(line) });
+    expect(result.ok).toBe(true);
+    expect(lines).toEqual(["10%", "60%", "complete"]);
   });
 
   it("caps a single endless line at the tail size", async () => {

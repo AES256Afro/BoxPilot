@@ -65,6 +65,9 @@ export function createAppHelper({
 } = {}) {
   const root = path.resolve(catalogRoot);
   const dirFor = (id) => path.join(root, id);
+  /** Apps this process has installed or uninstalled: their containers are worth asking about even
+   *  when no project directory remains, because a rollback that could not stop them removes it. */
+  const recentlyTouched = new Set();
   const backupDirFor = (id) => path.join(path.resolve(backupRoot), id);
   const docker = (args, options) => runDocker(dockerBinary, args, options);
 
@@ -267,10 +270,18 @@ export function createAppHelper({
     };
   }
 
-  /** App ids with a project directory. Everything else is known-uninstalled without reading a file. */
+  /**
+   * App ids with a project directory, or null when the catalog root itself could not be read —
+   * which is not the same as "nothing is installed" and must not be reported as such.
+   */
   async function presentIds() {
-    const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
-    return new Set(entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name));
+    try {
+      const entries = await readdir(root, { withFileTypes: true });
+      return new Set(entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name));
+    } catch (error) {
+      if (error.code === "ENOENT") return new Set(); // nothing installed yet: a genuine empty set
+      return null;
+    }
   }
 
   async function inspect({ id = null } = {}) {
@@ -280,12 +291,17 @@ export function createAppHelper({
     // 128 state files (125 of them missing) and asked Docker about 128 container names that do not
     // exist — on every Overview load, three times over.
     const present = await presentIds();
-    const candidates = selected.filter((manifest) => present.has(manifest.id));
+    // A rollback that could not stop its containers removes the project directory anyway, so
+    // "no directory" is not proof that nothing is running. The container lookup is one call for
+    // any number of names, so ask about the recently-touched ids too.
+    const known = present === null ? null : new Set([...present, ...recentlyTouched]);
+    const candidates = known === null ? selected : selected.filter((manifest) => known.has(manifest.id));
     const statuses = await containerStatuses(candidates.map((manifest) => manifest.id));
-    const described = await Promise.all(selected.map((manifest) => (present.has(manifest.id)
+    const described = await Promise.all(selected.map((manifest) => (known === null || known.has(manifest.id)
       ? describe(manifest, statuses.get(manifest.id))
       : describe(manifest, undefined, { state: null }))));
-    return { applications: described, problems, catalogRoot: root };
+    const readProblems = present === null ? [...problems, { file: root, errors: ["The application directory could not be read, so installed state is unknown"] }] : problems;
+    return { applications: described, problems: readProblems, catalogRoot: root };
   }
 
   async function install({ id, values: rawValues = {}, devices = null }, { progress = null } = {}) {
@@ -312,6 +328,7 @@ export function createAppHelper({
     } catch (error) {
       progress?.(`Install failed: ${error.message}. Rolling back...`, "stderr");
       await compose(id, ["down", "--remove-orphans"], { timeout: 120_000, progress }).catch(() => {});
+      recentlyTouched.add(id);
       if (!directoryExisted) await rm(dirFor(id), { recursive: true, force: true }).catch(() => {});
       throw new Error(`${manifest.name} installation failed and was rolled back. ${error.message}`);
     }

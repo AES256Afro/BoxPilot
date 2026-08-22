@@ -180,3 +180,25 @@ describe("a forwarded address with no label from the proxy", () => {
     state.close();
   });
 });
+
+describe("administering a GitHub link", () => {
+  it("knows who a link belongs to without being told the account number", async () => {
+    // Signing in needs the immutable id; deciding whose link it is does not, and asking the
+    // sign-in question without an id always answered "nobody" — which silently made the
+    // ownership guard useless and hid an operator's own link from their settings page.
+    const state = await store();
+    const owner = state.consumeBootstrapToken(state.createBootstrapToken().token, { username: "admin", passwordHash: "x" });
+    const operator = state.createOwnerAccount({ username: "helper", passwordHash: "x", role: "operator", createdBy: owner.id });
+    const identity = createIdentityService({ store: state, run: vi.fn(async () => ({ ok: false, stdout: "", stderr: "" })), now: () => 1000 });
+    identity.linkGithub(operator.id, "HelperDev", 4242);
+
+    expect(identity.githubOwnerFor("helperdev")).toBe(operator.id);
+    // The operator can see and manage their own link...
+    expect(identity.summary(operator.id).githubLogins).toEqual(["HelperDev"]);
+    // ...and cannot remove somebody else's.
+    identity.linkGithub(owner.id, "OwnerDev", 99);
+    expect(() => identity.unlinkGithub(operator.id, "OwnerDev")).toThrow(/Only the owner/);
+    expect(identity.summary(operator.id).githubLogins).toEqual(["HelperDev"]);
+    state.close();
+  });
+});

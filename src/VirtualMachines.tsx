@@ -310,7 +310,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
               {domains.map((domain) => (
                 <article className="vm-domain" key={domain.uuid ?? domain.name}>
                   <div className="vm-domain-summary">
-                    <div className="vm-domain-name"><span className="vm-icon">VM</span><div><strong>{domain.name}</strong><span>{domain.vcpus} vCPU | {formatMemory(domain.memoryKiB)} | {domain.autostart ? "Autostart on" : "Autostart off"}</span><span>{domain.guestAgent.available ? `Guest agent ready${domain.guestAgent.filesystemState ? ` | filesystems ${domain.guestAgent.filesystemState}` : ""}` : "Guest agent not reachable"}</span></div></div>
+                    <div className="vm-domain-name"><span className="vm-icon">VM</span><div><strong>{domain.name}</strong><span>{domain.vcpus} vCPU | {formatMemory(domain.memoryKiB)} | {domain.autostart ? "Autostart on" : "Autostart off"}</span><span>{!domain.guestAgent ? "Guest agent not checked" : domain.guestAgent.available ? `Guest agent ready${domain.guestAgent.filesystemState ? ` | filesystems ${domain.guestAgent.filesystemState}` : ""}` : "Guest agent not reachable"}</span></div></div>
                     <span className={`status-pill status-${stateTone(domain.state)}`}>{domain.state}</span>
                   </div>
                   {rates[domain.name] && domain.state === "running" && (

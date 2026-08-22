@@ -49,8 +49,13 @@ export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, 
       const text = partial[stream] + chunk.toString("utf8");
       // \r-delimited progress output (curl --progress-bar) is one endless "line": split on it too,
       // so the callback fires and the buffer cannot grow without bound.
-      const lines = text.split(/\r\n|[\n\r]/);
-      partial[stream] = lines.pop() ?? "";
+      // Split on \r as well as \n so a progress bar cannot become one endless line — but a run of
+      // \r-separated frames is one line being redrawn, so only its final state is reported.
+      const rows = text.split("\n");
+      partial[stream] = rows.pop() ?? "";
+      const lines = rows.map((row) => row.split("\r").filter(Boolean).at(-1) ?? "");
+      const trailing = partial[stream].split("\r");
+      if (trailing.length > 1) { lines.push(trailing.slice(0, -1).filter(Boolean).at(-1) ?? ""); partial[stream] = trailing.at(-1) ?? ""; }
       // A child that emits neither is still bounded: keep the newest tailBytes of the partial line.
       if (partial[stream].length > tailBytes) partial[stream] = partial[stream].slice(-tailBytes);
       for (const line of lines) {

@@ -68,6 +68,15 @@ export function createIdentityService({
    * X-Forwarded-For trustworthy — Serve's configuration needs privilege to change, so an ordinary
    * local process cannot arrange to be believed.
    */
+  /** True when a Serve proxy target is this service on loopback at our own port. */
+  function proxiesThisService(target) {
+    if (typeof target !== "string" || !Number.isInteger(webPort)) return false;
+    try {
+      const url = new URL(target);
+      return Number(url.port) === webPort && loopbacks.has(url.hostname.replace(/^\[|\]$/g, ""));
+    } catch { return false; }
+  }
+
   async function serveProxiesUs() {
     if (serveState && now() - serveState.at < serveTtlMs) return serveState.proxying;
     let proxying = false;
@@ -75,7 +84,9 @@ export function createIdentityService({
     if (result.ok) {
       try {
         const web = JSON.parse(result.stdout || "{}")?.Web ?? {};
-        proxying = Object.values(web).some((entry) => Object.values(entry?.Handlers ?? {}).some((handler) => typeof handler?.Proxy === "string" && handler.Proxy.includes(`:${webPort}`)));
+        // The target has to be *this* service: a substring match also accepted another machine's
+        // port, or a handler on some unrelated path, and either would have granted blanket trust.
+        proxying = Object.values(web).some((entry) => Object.values(entry?.Handlers ?? {}).some((handler) => proxiesThisService(handler?.Proxy)));
       } catch { proxying = false; }
     }
     serveState = { at: now(), proxying };
@@ -259,6 +270,19 @@ export function createIdentityService({
     return String(entry.id) === String(githubId ?? "") ? entry.ownerId : null;
   }
 
+  /**
+   * Which account a GitHub login is *administered* by, ignoring the id.
+   *
+   * githubAccountFor answers "may this login sign in", which needs the immutable id. Asking that
+   * question without an id always says no — so using it for ownership made unlinkGithub's guard
+   * dead code, and hid every operator's own link from their settings page.
+   */
+  function githubOwnerFor(login) {
+    if (typeof login !== "string") return null;
+    const entry = links("githubLinks")[login.toLowerCase()];
+    return entry && typeof entry.ownerId === "string" ? entry.ownerId : null;
+  }
+
   function githubLinked(login, githubId = null) { return Boolean(githubAccountFor(login, githubId)); }
 
   function linkGithub(ownerId, login, githubId = null) {
@@ -276,7 +300,7 @@ export function createIdentityService({
 
   function unlinkGithub(ownerId, login, { force = false } = {}) {
     const map = links("githubLinks");
-    const belongsTo = githubAccountFor(String(login));
+    const belongsTo = githubOwnerFor(String(login));
     if (belongsTo && belongsTo !== ownerId && !force) throw new Error("Only the owner can unlink another person's identity");
     delete map[String(login).toLowerCase()];
     store.setSetting("githubLinks", map, { updatedBy: ownerId });
@@ -294,16 +318,20 @@ export function createIdentityService({
     // and silently dropping it from the list would leave the owner wondering where it went.
     const needsRelink = logins("githubLogins").filter((login) => {
       const entry = githubMap[login.toLowerCase()];
+      if (entry && typeof entry.ownerId === "string" && ownerId && entry.ownerId !== ownerId) return false;
+      // A login with no entry at all belongs to whoever made it before per-account links existed,
+      // which is the first owner; show it to them rather than to everyone.
+      if (!entry && ownerId && store.findFirstOwner()?.id !== ownerId) return false;
       return !entry || entry.id === null || entry.id === undefined;
     });
     return {
       tailscaleLogins: mine(logins("tailscaleLogins"), tailscaleAccountFor),
-      githubLogins: mine(logins("githubLogins"), (login) => githubAccountFor(login)),
+      githubLogins: mine(logins("githubLogins"), githubOwnerFor),
       githubRelinkNeeded: needsRelink,
       githubConfigured: githubConfigured(),
       githubClientId: githubConfigured() ? String(setting("githubClientId", "")) : "",
     };
   }
 
-  return { clientAddress: addressFor, tailscaleIdentity, tailscaleAccountFor, githubAccountFor, linkTailscale, unlinkTailscale, githubConfigured, setGithubClientId, githubStart, githubPoll, githubLinked, linkGithub, unlinkGithub, summary, internals: { whois, flows: githubFlows } };
+  return { clientAddress: addressFor, tailscaleIdentity, tailscaleAccountFor, githubAccountFor, githubOwnerFor, linkTailscale, unlinkTailscale, githubConfigured, setGithubClientId, githubStart, githubPoll, githubLinked, linkGithub, unlinkGithub, summary, internals: { whois, flows: githubFlows } };
 }

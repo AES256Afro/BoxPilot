@@ -378,7 +378,9 @@ export function createStateStore({
       database.exec("COMMIT");
       return owner;
     } catch (error) {
-      database.exec("ROLLBACK");
+      // If BEGIN itself failed there is no transaction of ours to roll back, and rolling one back
+      // would report the wrong error — or discard somebody else's.
+      try { database.exec("ROLLBACK"); } catch { /* nothing of ours was open */ }
       throw error;
     }
   }
@@ -456,7 +458,9 @@ export function createStateStore({
       database.exec("COMMIT");
       return result;
     } catch (error) {
-      database.exec("ROLLBACK");
+      // If BEGIN itself failed there is no transaction of ours to roll back, and rolling one back
+      // would report the wrong error — or discard somebody else's.
+      try { database.exec("ROLLBACK"); } catch { /* nothing of ours was open */ }
       throw error;
     }
   }
@@ -1216,7 +1220,9 @@ export function createStateStore({
       }
       database.exec("COMMIT");
     } catch (error) {
-      database.exec("ROLLBACK");
+      // If BEGIN itself failed there is no transaction of ours to roll back, and rolling one back
+      // would report the wrong error — or discard somebody else's.
+      try { database.exec("ROLLBACK"); } catch { /* nothing of ours was open */ }
       throw error;
     }
     return interrupted.length;

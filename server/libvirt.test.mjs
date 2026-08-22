@@ -65,10 +65,10 @@ describe("libvirt service", () => {
     expect(result.domains[0].interfaces[0]).toMatchObject({ source: "default", model: "virtio" });
     expect(result.domains[0].snapshotCount).toBe(2);
     expect(result.domains[0].snapshots[1]).toMatchObject({ name: "pre-upgrade", current: true, state: "stopped", location: "internal" });
-    // The list does not probe the guest agent: on a VM without one each probe waits out libvirt's
-    // timeout, and this list is what the Overview loads. Address discovery still comes from the
-    // agent-sourced address read, which fails fast.
-    expect(result.domains[0].guestAgent).toEqual({ available: false, filesystemState: null, addressDiscovery: true });
+    // The list reports null rather than "not reachable": it does not probe the agent, because on
+    // a VM without one each probe waits out libvirt's timeout, and this list is what the Overview
+    // loads. Saying "unreachable" for every VM would have been worse than saying nothing.
+    expect(result.domains[0].guestAgent).toBeNull();
     expect(result.domains[1].state).toBe("stopped");
 
     // Reading one VM does probe it, so the detail is still there when it is asked for.

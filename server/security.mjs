@@ -199,7 +199,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
    */
   async function checkPassword(request, owner, password) {
     const caller = await clientKeyFor(request);
-    const keys = owner ? [`user:${owner.id}|${caller}`] : ["user:unknown", caller];
+    const keys = owner ? [`user:${owner.id}|${caller}`] : [`user:unknown|${caller}`, caller];
     const gate = throttle.check(keys);
     if (gate.blocked) return { ok: false, blocked: true, retryAfterMs: gate.retryAfterMs };
     const account = owner ? [`user:${owner.id}`] : [];

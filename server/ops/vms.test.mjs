@@ -97,3 +97,16 @@ describe("vm lifecycle operations", () => {
     expect(run.mock.calls[0][1]).toEqual(expect.arrayContaining(["domstats", "--cpu-total", "--balloon", "--block", "--interface"]));
   });
 });
+
+describe("staging the forget-an-unrecorded-snapshot repair", () => {
+  it("keeps the chosen snapshot and adds the guard list, and the result validates", async () => {
+    const operation = vmOperations().find((entry) => entry.id === "vm.backup.snapshot.forget");
+    const snapshotId = "a".repeat(64);
+    // What server/index.mjs's prepare hook produces: the subject the owner picked, plus the ids
+    // that do have local records. The hook replaces the parameters wholesale, so dropping the
+    // subject there made this operation impossible to stage at all.
+    const prepared = { snapshotId, knownSnapshotIds: ["b".repeat(64)] };
+    expect(validateParameters(operation.parameters, prepared, operation.title)).toBeNull();
+    expect(operation.confirm(prepared)).toBe(snapshotId.slice(0, 8));
+  });
+});
