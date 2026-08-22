@@ -82,21 +82,29 @@ describe("streaming a command", () => {
 });
 
 describe("a child that never writes a newline", () => {
-  it("reports the latest state of a redrawn line, not every frame of it", async () => {
+  it("collapses a redrawn line instead of reporting every frame of it", async () => {
     const lines = [];
     // curl --progress-bar rewrites one line with \r for the whole transfer. Every frame used to
     // become its own job-log entry, which can exhaust the log's size cap before the lines that
-    // matter are written. The newest frame is the one worth having.
-    const result = await streamRun("/bin/sh", ["-c", "printf 'a\\rb\\rc\\r'; printf 'done\\n'"], { onLine: (line) => lines.push(line) });
+    // matter are written. How many frames share a chunk is up to the kernel, so this asserts the
+    // property — far fewer callbacks than frames, and the final state always delivered — rather
+    // than an exact sequence that depends on chunk boundaries.
+    const frames = 500;
+    const script = "i=0; while [ $i -lt " + frames + " ]; do printf 'frame $i\\r'; i=$((i+1)); done; printf 'done\\n'";
+    const result = await streamRun("/bin/sh", ["-c", script], { onLine: (line) => lines.push(line) });
     expect(result.ok).toBe(true);
-    expect(lines).toEqual(["done"]);
+    expect(lines.at(-1)).toBe("done");
+    expect(lines.length).toBeLessThan(frames / 10);
   });
 
-  it("still reports each redraw that arrives separately, so progress is visible over time", async () => {
+  it("still shows progress over time, sampling the redraws", async () => {
     const lines = [];
-    const result = await streamRun("/bin/sh", ["-c", "printf '10%%\\r'; sleep 0.05; printf '60%%\\r'; sleep 0.05; printf 'complete\\n'"], { onLine: (line) => lines.push(line) });
+    // A short sampling interval so the test does not have to wait a second between frames; the
+    // point is that redraws still reach the log, just not every one of them.
+    const result = await streamRun("/bin/sh", ["-c", "printf '10%%\\r'; sleep 0.08; printf '60%%\\r'; sleep 0.08; printf 'complete\\n'"], { onLine: (line) => lines.push(line), redrawIntervalMs: 20 });
     expect(result.ok).toBe(true);
-    expect(lines).toEqual(["10%", "60%", "complete"]);
+    expect(lines.at(-1)).toBe("complete");
+    expect(lines).toContain("60%");
   });
 
   it("caps a single endless line at the tail size", async () => {

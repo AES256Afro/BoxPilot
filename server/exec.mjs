@@ -32,7 +32,7 @@ export async function fixedRun(binary, args = [], { timeout = 30_000, maxBuffer 
 }
 
 /** Spawn with line-by-line callbacks. Same result shape as fixedRun. */
-export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, onLine, tailBytes = 256 * 1024 } = {}) {
+export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, onLine, tailBytes = 256 * 1024, redrawIntervalMs = 1000, clock = () => Date.now() } = {}) {
   return new Promise((resolve) => {
     let child;
     try {
@@ -43,26 +43,36 @@ export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, 
     }
     const tails = { stdout: "", stderr: "" };
     const partial = { stdout: "", stderr: "" };
+    const lastRedrawAt = { stdout: 0, stderr: 0 };
     let settled = false;
     const timer = setTimeout(() => { try { child.kill("SIGTERM"); } catch { /* ignore */ } setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* ignore */ } }, 5000).unref?.(); }, timeout);
+    const deliver = (stream, line) => {
+      const clean = line.replace(/\r/g, "").trimEnd();
+      if (!clean) return;
+      tails[stream] = (tails[stream] + clean + "\n").slice(-tailBytes);
+      try { onLine(clean, stream); } catch { /* logging must never break the command */ }
+    };
     const consume = (stream, chunk) => {
       const text = partial[stream] + chunk.toString("utf8");
-      // \r-delimited progress output (curl --progress-bar) is one endless "line": split on it too,
-      // so the callback fires and the buffer cannot grow without bound.
-      // Split on \r as well as \n so a progress bar cannot become one endless line — but a run of
-      // \r-separated frames is one line being redrawn, so only its final state is reported.
       const rows = text.split("\n");
       partial[stream] = rows.pop() ?? "";
-      const lines = rows.map((row) => row.split("\r").filter(Boolean).at(-1) ?? "");
-      const trailing = partial[stream].split("\r");
-      if (trailing.length > 1) { lines.push(trailing.slice(0, -1).filter(Boolean).at(-1) ?? ""); partial[stream] = trailing.at(-1) ?? ""; }
-      // A child that emits neither is still bounded: keep the newest tailBytes of the partial line.
-      if (partial[stream].length > tailBytes) partial[stream] = partial[stream].slice(-tailBytes);
-      for (const line of lines) {
-        const clean = line.replace(/\r/g, "").trimEnd();
-        tails[stream] = (tails[stream] + clean + "\n").slice(-tailBytes);
-        if (clean) { try { onLine(clean, stream); } catch { /* logging must never break the command */ } }
+      // A completed line is always delivered.
+      for (const row of rows) deliver(stream, row.split("\r").filter(Boolean).at(-1) ?? "");
+      // What is left is a line still being written. A \r in it means it is being *redrawn* — a
+      // progress bar, which can repaint hundreds of times a second. Each repaint used to become
+      // its own job-log entry and could exhaust the log's size cap before the lines that matter
+      // were written, so redraws are sampled: the newest state, at most once a second.
+      const redraws = partial[stream].split("\r");
+      if (redraws.length > 1) {
+        partial[stream] = redraws.at(-1) ?? "";
+        const at = clock();
+        if (at - lastRedrawAt[stream] >= redrawIntervalMs) {
+          lastRedrawAt[stream] = at;
+          deliver(stream, redraws.slice(0, -1).filter(Boolean).at(-1) ?? "");
+        }
       }
+      // A child that emits neither newline nor carriage return is still bounded.
+      if (partial[stream].length > tailBytes) partial[stream] = partial[stream].slice(-tailBytes);
     };
     child.stdout.on("data", (chunk) => consume("stdout", chunk));
     child.stderr.on("data", (chunk) => consume("stderr", chunk));
