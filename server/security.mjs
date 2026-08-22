@@ -1,5 +1,6 @@
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { defaultThrottle as throttle } from "./login-throttle.mjs";
+import { tailnetClientAddress } from "./identity.mjs";
 import { promisify } from "node:util";
 import { elevationTtlMs } from "./ops/risk.mjs";
 
@@ -142,19 +143,25 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     }
   }
 
-  const clientKey = (request) => `ip:${request.socket?.remoteAddress ?? request.ip ?? "unknown"}`;
+  /** Who is asking: the tailnet peer when BoxPilot is served over Tailscale, otherwise the socket address. */
+  const clientKey = (request) => `ip:${tailnetClientAddress(request) ?? request.socket?.remoteAddress ?? request.ip ?? "unknown"}`;
 
   /**
-   * Verify a password for an account with throttling: five consecutive failures (per account or per
-   * client address) pause further attempts, doubling each time. Failures are audited.
+   * Verify a password with throttling: five consecutive failures pause further attempts, doubling
+   * each time up to fifteen minutes. Failures are audited.
+   *
+   * The blocking key is the *account*. A client-address key would look stronger but would be a
+   * lock-out weapon: behind `tailscale serve` every request arrives from 127.0.0.1, so one
+   * attacker's failures would freeze the owner out of their own server. The address is throttled
+   * only for attempts against usernames that do not exist, which is what spraying looks like.
    */
   async function checkPassword(request, owner, password) {
-    const keys = [owner ? `user:${owner.id}` : "user:unknown", clientKey(request)];
+    const keys = owner ? [`user:${owner.id}`] : ["user:unknown", clientKey(request)];
     const gate = throttle.check(keys);
     if (gate.blocked) return { ok: false, blocked: true, retryAfterMs: gate.retryAfterMs };
     const ok = Boolean(owner) && typeof password === "string" && (await verifyPassword(password, owner.passwordHash));
     throttle.record(keys, ok);
-    if (!ok) store.recordAudit("auth.failed", { actorId: owner?.id ?? null, subjectId: owner?.id ?? null, details: { client: request.socket?.remoteAddress ?? null } });
+    if (!ok) store.recordAudit("auth.failed", { actorId: owner?.id ?? null, subjectId: owner?.id ?? null, details: { client: clientKey(request).slice(3) } });
     return { ok, blocked: false, retryAfterMs: 0 };
   }
 
