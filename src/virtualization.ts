@@ -1,7 +1,12 @@
 import { readJson as readJsonBase } from "./http";
 
-/** The VM pages treat 503 as "virtualization is not set up on this server", not as a failure. */
+/**
+ * Virtualization status, domains, resources and plans answer with their real payload and a 503 when
+ * libvirt is not set up here, so those readers accept it. Media and retention answer 503 with an
+ * error object, so they must not — an empty library is not the same as a library that failed to load.
+ */
 const readJson = <T,>(response: Response) => readJsonBase<T>(response, { allowStatus: [503] });
+const readStrictJson = <T,>(response: Response) => readJsonBase<T>(response);
 
 export interface VirtualizationCheck {
   id: string;
@@ -298,7 +303,7 @@ export async function fetchVmPlanningOptions(): Promise<VmPlanningOptions> {
 }
 
 export async function fetchVmMedia(): Promise<VmMediaInventory> {
-  return readJson<VmMediaInventory>(await fetch("/api/v1/virtualization/media"));
+  return readStrictJson<VmMediaInventory>(await fetch("/api/v1/virtualization/media"));
 }
 
 export async function uploadVmMedia(file: File, csrfToken: string): Promise<{ name: string; sizeBytes: number; sha256: string; uploadedAt: string }> {
@@ -343,7 +348,7 @@ export async function fetchVmProtection(): Promise<{ destination: VmProtectionDe
 }
 
 export async function fetchVmRetention(): Promise<VmRetentionStatus> {
-  return readJson<VmRetentionStatus>(await fetch("/api/v1/virtualization/retention"));
+  return readStrictJson<VmRetentionStatus>(await fetch("/api/v1/virtualization/retention"));
 }
 
 export async function fetchVmRecoveries(): Promise<VmRecoveryRecord[]> {

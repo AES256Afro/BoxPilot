@@ -8,7 +8,7 @@ import { createAppHelper } from "./app-helper.mjs";
 import { createVmCloudHelper } from "./vm-cloud.mjs";
 import { createHostInspectHelper } from "./host-inspect-helper.mjs";
 import { executeHelperOperation } from "./helper-protocol.mjs";
-import { createLaneQueues, exclusiveLane, laneFor } from "./helper-lanes.mjs";
+import { createLaneQueues, laneFor } from "./helper-lanes.mjs";
 import { createVmRecoveryHelper } from "./vm-recovery-helper.mjs";
 import { createVmRestoreDrillHelper } from "./vm-restore-drill-helper.mjs";
 import { createVmRetentionHelper } from "./vm-retention-helper.mjs";
@@ -85,22 +85,23 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       if (readOnlyOperations.has(request.operation)) {
         result = await executeHelperOperation(request, helperDependencies);
       } else {
-        const lane = laneFor(request.operation, request.parameters);
+        const held = laneFor(request.operation, request.parameters);
         // Waiting behind another operation must not look like a hung request: a heartbeat line keeps
         // both idle timers alive, and the client ignores every line before the last one.
         let heartbeat = null;
         // Anything can be held up by the exclusive lane, and an exclusive request waits for every lane.
-        const willWait = lanes.busy(lane) || lanes.busy(exclusiveLane) || (lane === exclusiveLane && lanes.size() > 0);
+        const willWait = lanes.busy(held);
         if (willWait) {
           heartbeat = setInterval(() => {
-            if (!connection.destroyed && connection.writable) connection.write(`${JSON.stringify({ version: 1, id: request?.id ?? null, queued: true, lane })}\n`);
+            if (!connection.destroyed && connection.writable) connection.write(`${JSON.stringify({ version: 1, id: request?.id ?? null, queued: true, lane: held.join("+") })}\n`);
           }, queuedHeartbeatMs);
           heartbeat.unref?.();
         }
         try {
-          result = await lanes.run(lane, async () => {
+          result = await lanes.run(held, async () => {
             // The web side gave up while this waited: running it now would change the host with no job watching.
-            if (connection.destroyed) throw new Error("The request was abandoned while it waited for an earlier operation on this subject");
+            // allowHalfOpen keeps `destroyed` false after the peer's FIN, so check the read side too.
+            if (connection.destroyed || connection.readableEnded) throw new Error("The request was abandoned while it waited for an earlier operation on this subject");
             if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
             if (registeredTimeout) connection.setTimeout(registeredTimeout); // the operation's own budget starts now
             return executeHelperOperation(request, helperDependencies);

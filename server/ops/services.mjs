@@ -36,11 +36,11 @@ export function mergeUnitLists(unitsJson, filesJson) {
   const seen = new Set();
   const merged = units.filter((unit) => typeof unit.unit === "string" && unitPattern.test(unit.unit)).map((unit) => {
     seen.add(unit.unit);
-    return { unit: unit.unit, description: unit.description ?? "", load: unit.load ?? "", active: unit.active ?? "", sub: unit.sub ?? "", enabled: enabledState.get(unit.unit) ?? "static", critical: isCriticalUnit(unit.unit) };
+    return { unit: unit.unit, description: unit.description ?? "", load: unit.load ?? "", active: unit.active ?? "", sub: unit.sub ?? "", enabled: enabledState.get(unit.unit) ?? "static", guarded: guardedUnits[unit.unit] ?? null, critical: isCriticalUnit(unit.unit) };
   });
   for (const file of files) {
     if (seen.has(file.unit_file) || !unitPattern.test(file.unit_file ?? "") || file.unit_file.includes("@.")) continue;
-    merged.push({ unit: file.unit_file, description: "", load: "not-loaded", active: "inactive", sub: "dead", enabled: file.state ?? "", critical: isCriticalUnit(file.unit_file) });
+    merged.push({ unit: file.unit_file, description: "", load: "not-loaded", active: "inactive", sub: "dead", enabled: file.state ?? "", guarded: guardedUnits[file.unit_file] ?? null, critical: isCriticalUnit(file.unit_file) });
   }
   return merged.sort((a, b) => a.unit.localeCompare(b.unit));
 }

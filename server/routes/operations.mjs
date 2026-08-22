@@ -23,7 +23,7 @@ export function createOperationsRouter({ state, helper, jobs, prerequisites, rec
     if (role === "viewer") { response.status(403).json({ error: "Viewers can look but not reveal secrets", code: "forbidden" }); return true; }
     const elevatedUntil = request.boxpilotSession.elevatedUntil ? Date.parse(request.boxpilotSession.elevatedUntil) : Number.NaN;
     if (!(Number.isFinite(elevatedUntil) && elevatedUntil > Date.now())) { response.status(401).json({ error: "Enter your password to unlock this for 10 minutes", code: "elevation_required" }); return true; }
-    state.recordAudit("operation.elevated-read", { actorId: request.boxpilotSession.owner.id, subjectId: operation.id, details: {} });
+    state.recordAudit("operation.elevated-read", { actorId: request.boxpilotSession.owner.id, subjectId: operation.id, details: { parameters: request.body?.parameters ?? {} } });
     return false;
   }
 
@@ -45,8 +45,9 @@ export function createOperationsRouter({ state, helper, jobs, prerequisites, rec
   router.post("/operations/:id/run", auth.requireCsrf, async (request, response) => {
     const operation = registry.get(request.params.id);
     if (!operation) return response.status(404).json({ error: "Operation not found", code: "operation_not_found" });
-    if (refuseRead(request, response, operation)) return undefined;
+    // Say "stage it as a job" before "you may not read this": the caller's mistake is the method, not the role.
     if (!operation.readOnly) return response.status(405).json({ error: "This operation changes the host; stage it as a job", code: "operation_not_read_only" });
+    if (refuseRead(request, response, operation)) return undefined;
     const parameters = request.body?.parameters ?? {};
     const problem = registry.validate(operation.id, parameters);
     if (problem) return response.status(400).json({ error: problem, code: "invalid_parameters" });

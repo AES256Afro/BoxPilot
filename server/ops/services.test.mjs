@@ -12,8 +12,8 @@ describe("service operations", () => {
     expect(isCriticalUnit("docker.service")).toBe(false);
     const merged = mergeUnitLists(JSON.stringify([{ unit: "docker.service", description: "Docker", load: "loaded", active: "active", sub: "running" }, { unit: "weird name", description: "x" }]), JSON.stringify([{ unit_file: "docker.service", state: "enabled" }, { unit_file: "cron.service", state: "disabled" }, { unit_file: "getty@.service", state: "enabled-runtime" }]));
     expect(merged).toEqual([
-      { unit: "cron.service", description: "", load: "not-loaded", active: "inactive", sub: "dead", enabled: "disabled", critical: false },
-      { unit: "docker.service", description: "Docker", load: "loaded", active: "active", sub: "running", enabled: "enabled", critical: false },
+      { unit: "cron.service", description: "", load: "not-loaded", active: "inactive", sub: "dead", enabled: "disabled", guarded: null, critical: false },
+      { unit: "docker.service", description: "Docker", load: "loaded", active: "active", sub: "running", enabled: "enabled", guarded: null, critical: false },
     ]);
   });
 

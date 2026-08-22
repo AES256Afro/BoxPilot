@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useOperation } from "./ApproveDialog";
 import { inspectOperation } from "./operations";
 
-interface Unit { unit: string; description: string; load: string; active: string; sub: string; enabled: string; critical: boolean }
+interface Unit { unit: string; description: string; load: string; active: string; sub: string; enabled: string; critical: boolean; guarded?: string | null }
 interface ServiceList { units: Unit[]; counts: { total: number; active: number; failed: number } }
 
 const interesting = /^(docker|containerd|libvirtd|virtqemud|tailscaled|ssh|cron|nginx|caddy|apache2|smbd|nmbd|nfs-server|cockpit|unattended-upgrades|fail2ban|ufw|boxpilot|restic|smartmontools|smartd|nut-|upsd|postgresql|mariadb|mysql|redis|pihole|adguard|jellyfin|plex|homeassistant|zfs|snapd|fwupd|apt-daily|dpkg-db-backup|logrotate|man-db|e2scrub|fstrim|motd-news|systemd-tmpfiles-clean|update-notifier)/;
@@ -106,9 +106,10 @@ export default function ServicesCenter({ csrfToken }: { csrfToken: string }) {
                     <div className="recovery-actions">
                       {unit.active === "active" ? <>
                         <button className="text-button" type="button" onClick={() => act(unit, "restart")}>Restart</button>
-                        {!unit.critical && <button className="text-button" type="button" onClick={() => act(unit, "stop")}>Stop</button>}
+                        {!unit.critical && !unit.guarded && <button className="text-button" type="button" onClick={() => act(unit, "stop")}>Stop</button>}
+                        {unit.guarded && <span className="muted" title={unit.guarded}>Managed on the Firewall page</span>}
                       </> : <button className="text-button" type="button" onClick={() => act(unit, "start")}>Start</button>}
-                      {unit.enabled === "enabled" && !unit.critical && <button className="text-button" type="button" onClick={() => act(unit, "disable")}>Disable</button>}
+                      {unit.enabled === "enabled" && !unit.critical && !unit.guarded && <button className="text-button" type="button" onClick={() => act(unit, "disable")}>Disable</button>}
                       {(unit.enabled === "disabled") && <button className="text-button" type="button" onClick={() => act(unit, "enable")}>Enable</button>}
                       <button className="text-button" type="button" onClick={() => void showJournal(unit.unit)}>Journal</button>
                     </div>

@@ -106,20 +106,21 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       const [[nextStatus, nextDomains, nextResources, nextConsoleGuidance], nextFoundation, nextExports, nextProtection, nextRecoveries, nextRetention] = await Promise.all([
         fetchVirtualization(),
         fetchLibvirtFoundation(),
-        fetchVmExports(),
-        fetchVmProtection(),
-        fetchVmRecoveries(),
-        fetchVmRetention(),
+        // These four are extras: if one cannot be read the page still shows the VMs.
+        fetchVmExports().catch(() => null),
+        fetchVmProtection().catch(() => null),
+        fetchVmRecoveries().catch(() => null),
+        fetchVmRetention().catch(() => null),
       ]);
       setStatus(nextStatus);
       setDomainList(nextDomains);
       setResources(nextResources);
       setFoundation(nextFoundation);
       setConsoleGuidance(nextConsoleGuidance);
-      setExports(nextExports);
+      setExports(nextExports ?? []);
       setProtectionDestination(nextProtection?.destination ?? null);
       setProtectedBackups(Array.isArray(nextProtection?.backups) ? nextProtection.backups : []);
-      setRecoveries(nextRecoveries);
+      setRecoveries(nextRecoveries ?? []);
       setRetentionStatus(nextRetention);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to load virtualization status");

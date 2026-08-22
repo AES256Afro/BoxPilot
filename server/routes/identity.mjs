@@ -29,7 +29,7 @@ export function createIdentityRouter({ store, auth, identity }) {
     const tailscale = await identity.tailscaleIdentity(request);
     const summary = identity.summary();
     // Anyone who can reach the port sees this, so it says whether a method is available, not who can use it.
-    response.json({ tailscale: { available: tailscale.available, login: tailscale.login, displayName: tailscale.displayName, node: tailscale.node, linked: tailscale.linked }, github: { configured: summary.githubConfigured, linkedLogins: summary.githubLogins } });
+    response.json({ tailscale: { available: tailscale.available, login: tailscale.login, displayName: tailscale.displayName, node: tailscale.node, linked: tailscale.linked }, github: { configured: summary.githubConfigured } });
   });
 
   router.post("/auth/tailscale", async (request, response) => {
@@ -82,7 +82,8 @@ export function createIdentityRouter({ store, auth, identity }) {
   });
 
   // ---- authenticated management --------------------------------------------------------------
-  router.get("/auth/identity/links", auth.requireSession, async (request, response) => {
+  // Who is linked is management information: viewers do not see other accounts' identities.
+  router.get("/auth/identity/links", auth.requireSession, auth.requireRole("owner", "operator"), async (request, response) => {
     const tailscale = await identity.tailscaleIdentity(request);
     response.json({ ...identity.summary(), currentTailscale: tailscale.available ? { login: tailscale.login, displayName: tailscale.displayName, node: tailscale.node, linked: tailscale.linked } : null });
   });

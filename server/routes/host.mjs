@@ -110,7 +110,8 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     }
   });
 
-  router.get("/support-bundle", async (_request, response) => {
+  // The bundle includes journal excerpts, so it needs the same role as reading the journal directly.
+  router.get("/support-bundle", auth.requireRole("owner", "operator"), async (_request, response) => {
     response.json(await supportBundle.inspect());
   });
 

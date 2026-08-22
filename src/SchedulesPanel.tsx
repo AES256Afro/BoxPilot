@@ -111,7 +111,7 @@ export default function SchedulesPanel({ csrfToken }: { csrfToken: string }) {
             {schedules?.length === 0 ? <tr><td colSpan={5}>Nothing scheduled yet.</td></tr> : null}
             {schedules?.map((schedule) => (
               <tr key={schedule.id} className={schedule.enabled ? "" : "schedule-disabled"}>
-                <td>{schedule.title}{typeof schedule.parameters.id === "string" ? <> · <code>{schedule.parameters.id}</code></> : null}</td>
+                <td>{schedule.title}{typeof schedule.parameters.subject === "string" ? <> · <code>{schedule.parameters.subject}</code></> : null}</td>
                 <td>{schedule.cadence}</td>
                 <td>{schedule.enabled ? new Date(schedule.nextDueAt).toLocaleString() : "paused"}</td>
                 <td>{lastResultPill(schedule)}</td>
