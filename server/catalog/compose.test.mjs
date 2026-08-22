@@ -30,3 +30,32 @@ describe("values the owner typed", () => {
     expect(envFileLine("ADMIN_PASSWORD", password)).toBe(envFile.trimEnd());
   });
 });
+
+describe("where an app's ports are published", () => {
+  const manifest = {
+    id: "dash", sha256: "x", image: { reference: "example/dash:1" }, network: "bridge",
+    ports: [{ id: "web", label: "Web UI", container: 80, host: 3000, protocol: "tcp", exposure: "lan" }],
+    volumes: [], env: [], capabilities: [], devices: [], extraHosts: [], sysctls: [], sidecars: [],
+  };
+  const values = { ports: { web: 3000 }, env: {}, volumes: {} };
+
+  it("binds to the network address by default", () => {
+    const { compose } = renderCompose(manifest, values, { lanAddress: "192.168.1.10" });
+    expect(compose.services.dash.ports).toEqual(["192.168.1.10:3000:80"]);
+  });
+
+  it("binds to this server only when the owner chose tailnet", () => {
+    // Not a firewall rule: the container stops listening on the network at all, so the only way
+    // in is Tailscale Serve, which authenticates before the app sees anyone. Several apps in this
+    // catalog have no login of their own.
+    const { compose, hostPorts } = renderCompose(manifest, { ...values, exposure: "tailnet" }, { lanAddress: "192.168.1.10" });
+    expect(compose.services.dash.ports).toEqual(["127.0.0.1:3000:80"]);
+    expect(hostPorts[0].exposure).toBe("loopback");
+  });
+
+  it("leaves a manifest's own loopback port alone whatever the choice", () => {
+    const loopbackManifest = { ...manifest, ports: [{ ...manifest.ports[0], exposure: "loopback" }] };
+    const { compose } = renderCompose(loopbackManifest, { ...values, exposure: "lan" }, { lanAddress: "192.168.1.10" });
+    expect(compose.services.dash.ports).toEqual(["127.0.0.1:3000:80"]);
+  });
+});

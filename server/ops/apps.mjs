@@ -4,7 +4,7 @@ import { parseServeStatus } from "../tailscale-serve.mjs";
 export { parseServeStatus };
 
 const idField = { type: "string", pattern: /^[a-z0-9][a-z0-9-]{1,62}$/ };
-const valuesField = { type: "object", optional: true, validate: (value) => (Object.keys(value).every((key) => ["ports", "env", "volumes", "setup"].includes(key)) ? null : "may only contain ports, env, volumes, and setup") };
+const valuesField = { type: "object", optional: true, validate: (value) => (Object.keys(value).every((key) => ["ports", "env", "volumes", "setup", "exposure"].includes(key)) ? null : "may only contain ports, env, volumes, setup, and exposure") };
 // Concrete device paths resolved by the web process (the helper's sandbox has no real /dev); the deployer keeps only those matching the manifest.
 const devicesField = { type: "array", optional: true, nullable: true, validate: (value) => (value.length > 32 || value.some((entry) => typeof entry !== "string" || !/^\/dev\/[A-Za-z0-9._/-]{1,64}$/.test(entry)) ? "must be up to 32 /dev paths" : null) };
 const minutes = (value) => value * 60_000;
@@ -181,6 +181,31 @@ export function appOperations() {
       description: "Takes a data checkpoint, pulls the catalog's current image, and recreates the container; restores the previous image if it fails to become healthy.",
       parameters: { fields: { id: idField, checkpoint: { type: "boolean", optional: true }, devices: devicesField } },
       run: (parameters, { apps, progress }) => apps.update({ id: parameters.id, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true }),
+    }),
+    defineOperation({
+      id: "app.exposure.set", title: "Change who can reach an application", risk: "medium", timeoutMs: minutes(15),
+      description: "Tailnet only publishes the app on your tailnet over HTTPS and stops it listening on the network, so Tailscale authenticates every visitor before the app sees them. Home network publishes it on the LAN address instead, where anything on your network can reach it and only the firewall stands in the way.",
+      parameters: { fields: { id: idField, mode: { type: "string", validate: (value) => (["lan", "tailnet"].includes(value) ? null : "must be lan or tailnet") } } },
+      run: async (parameters, { apps, run, progress }) => {
+        const tailnet = parameters.mode === "tailnet";
+        // Rebind first, then publish. Doing it the other way round would leave Serve pointing at a
+        // port that is still answering the whole LAN.
+        progress?.(tailnet ? "Binding the app to this server only..." : "Publishing the app on the LAN address...", "stdout");
+        const reconfigured = await apps.reconfigure({ id: parameters.id, values: { exposure: parameters.mode } }, { progress, checkpoint: false });
+        const port = reconfigured.hostPorts?.find((entry) => entry.protocol !== "udp")?.host ?? null;
+        if (!port) return { id: parameters.id, mode: parameters.mode, port: null, url: null, served: false };
+        const args = tailnet
+          ? ["serve", "--bg", "--yes", `--https=${port}`, `http://127.0.0.1:${port}`]
+          : ["serve", "--yes", `--https=${port}`, "off"];
+        progress?.(`$ tailscale ${args.join(" ")}`, "stdout");
+        const result = await run(tailscaleBinary(), args, { timeout: 60_000 });
+        // A tailnet-only app that is not published has no way in at all, so that failure has to be
+        // loud. Turning publishing off when it was never on is not a failure.
+        if (!result.ok && tailnet) throw new Error(`The app is now reachable only on this server, but publishing it on the tailnet failed: ${result.stderr.split("\n").slice(-2).join(" ") || "is Tailscale running?"}`);
+        const status = await run(tailscaleBinary(), ["serve", "status", "--json"], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 });
+        const entry = (status.ok ? parseServeStatus(status.stdout) : []).find((serve) => serve.port === port) ?? null;
+        return { id: parameters.id, mode: parameters.mode, port, served: Boolean(entry), url: entry ? `https://${entry.dnsName}:${entry.port}` : null };
+      },
     }),
     defineOperation({
       id: "app.reconfigure", title: "Change application settings", risk: "medium", timeoutMs: minutes(15),

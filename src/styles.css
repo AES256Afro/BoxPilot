@@ -3442,3 +3442,10 @@ textarea {
 .backup-file-list li { display: flex; align-items: center; gap: 10px; font-size: 12px; }
 .backup-file-list li code { flex: 1; word-break: break-all; }
 .people-help { padding: 0 15px 12px; font-size: 12px; }
+
+/* App catalog: what is already on this server comes first, and a search that reaches all of it. */
+.app-catalog-search { align-items: center; gap: 10px; margin-bottom: 10px; }
+.app-catalog-search input[type="search"] { flex: 1 1 320px; min-width: 220px; }
+.app-section + .app-section { margin-top: 26px; }
+.app-section-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
+.app-section-header h2 { margin: 0; font-size: 1.02rem; letter-spacing: .01em; }

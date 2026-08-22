@@ -12,6 +12,15 @@ const containerPathPattern = /^\/[^\0]*$/;
 const relativePathPattern = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 
 export const exposures = Object.freeze(["loopback", "lan"]);
+/**
+ * Where an installed app's ports are published, chosen by the owner rather than the manifest.
+ *
+ * "lan" binds them on the LAN address, so anything on the home network can reach them — subject to
+ * the firewall, which is the only thing standing in the way. "tailnet" binds them to loopback, so
+ * the only way in is Tailscale Serve, which authenticates before anything reaches the app. That
+ * matters for the several catalog apps that have no login of their own.
+ */
+export const appExposures = Object.freeze(["lan", "tailnet"]);
 export const healthKinds = Object.freeze(["running", "healthcheck"]);
 export const envTypes = Object.freeze(["string", "password", "number", "boolean", "timezone", "path"]);
 export const riskTiers = Object.freeze(["low", "medium", "high"]);
@@ -311,8 +320,14 @@ export function resolveValues(manifest, raw = {}) {
   } else if (raw.setup !== undefined && !(Array.isArray(raw.setup) && raw.setup.length === 0)) {
     fail(errors, "values.setup", "this application has no setup choices");
   }
+  let exposure;
+  if (raw.exposure !== undefined && raw.exposure !== null) {
+    if (!appExposures.includes(raw.exposure)) fail(errors, "values.exposure", `must be one of ${appExposures.join(", ")}`);
+    else exposure = raw.exposure;
+  }
+
   if (errors.length) return { values: null, errors };
-  return { values: { ports, env, volumes, ...(manifest.setup ? { setup } : {}) }, errors: [] };
+  return { values: { ports, env, volumes, ...(exposure ? { exposure } : {}), ...(manifest.setup ? { setup } : {}) }, errors: [] };
 }
 
 /**
@@ -329,6 +344,7 @@ export function sanitizeStoredValues(manifest, stored = {}) {
     ports: Object.fromEntries(Object.entries(ports).filter(([id]) => manifest.ports.some((port) => port.id === id))),
     env: Object.fromEntries(Object.entries(env).filter(([name]) => manifest.env.some((entry) => entry.name === name))),
     volumes: Object.fromEntries(Object.entries(volumes).filter(([id]) => manifest.volumes.some((volume) => volume.id === id && volume.configurable))),
+    ...(appExposures.includes(raw.exposure) ? { exposure: raw.exposure } : {}),
     ...(manifest.setup && Array.isArray(raw.setup) ? { setup: raw.setup.filter((id) => manifest.setup.choices.some((choice) => choice.id === id)) } : {}),
   };
 }
