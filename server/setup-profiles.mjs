@@ -71,12 +71,31 @@ export function createSetupService({ helper, scheduler }) {
     return { apps, prerequisites: { docker, restic, smartmontools, virtualization }, unattended: unattendedState, foundation: foundationState, schedules: scheduler.list() };
   }
 
+  /**
+   * Why a prerequisite cannot be repaired from here. "No installable candidate is configured" was
+   * the only message any blocked step could show — including for Docker installed but stopped,
+   * where the candidate is configured and the fix is to start the service.
+   */
+  function blockedReason(name, inspection) {
+    if (inspection.providerPresent && !inspection.installed) {
+      return name === "docker"
+        ? "Docker is installed but its service is not running: start it from the Services page, then come back."
+        : `${name} is already present in a form BoxPilot did not install, so it will not replace it.`;
+    }
+    if (!inspection.candidateVersion && !(inspection.candidatePackages ?? []).length) {
+      return name === "virtualization"
+        ? "This host does not offer the virtualization packages (it may have no KVM support)."
+        : "This server's package lists offer no version to install: refresh them on the Updates page.";
+    }
+    return "BoxPilot cannot install this one automatically.";
+  }
+
   function resolveStep(step, state) {
     if (step.kind === "prerequisite") {
       const inspection = state.prerequisites[step.name];
       if (!inspection) return { ...step, status: "unknown", detail: "Inspection unavailable", job: null };
       if (inspection.installed) return { ...step, status: "done", detail: inspection.installedVersion ? `installed ${inspection.installedVersion}` : "installed", job: null };
-      if (!inspection.repairAvailable) return { ...step, status: "blocked", detail: inspection.detail ?? "No installable candidate is configured", job: null };
+      if (!inspection.repairAvailable) return { ...step, status: "blocked", detail: blockedReason(step.name, inspection), job: null };
       const parameters = step.name === "virtualization" ? { expectedPackages: inspection.candidatePackages } : { expectedVersion: inspection.candidateVersion };
       return { ...step, status: "ready", detail: step.name === "virtualization" ? "installs the fixed package set" : `installs ${inspection.candidateVersion}`, job: { operationId: `prerequisite.${step.name}.install`, parameters } };
     }
@@ -104,12 +123,15 @@ export function createSetupService({ helper, scheduler }) {
 
   async function describe() {
     const state = await liveState();
-    const installedApps = state.apps?.applications?.filter((entry) => entry.installed).length ?? 0;
+    // A probe that failed leaves `apps` null, which is not the same as an empty box: the Overview
+    // used to invite the owner of a dozen running apps to "set up this server".
+    const appsKnown = Array.isArray(state.apps?.applications);
+    const installedApps = appsKnown ? state.apps.applications.filter((entry) => entry.installed).length : 0;
     const profiles = setupProfiles.map((profile) => {
       const steps = profile.steps.map((step) => resolveStep(step, state));
       return { id: profile.id, name: profile.name, icon: profile.icon, description: profile.description, steps, remaining: steps.filter((step) => step.status === "ready").length, blocked: steps.filter((step) => step.status === "blocked").length };
     });
-    return { firstRun: installedApps === 0 && state.schedules.length === 0, installedApps, profiles };
+    return { firstRun: appsKnown && installedApps === 0 && state.schedules.length === 0, installedApps, appsKnown, profiles };
   }
 
   return { describe, resolveStep };

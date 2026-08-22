@@ -176,13 +176,13 @@ Acceptance:
 
 ## Phase 8: fleet and plugin model
 
-Status: `0.22.0` ships the first narrow node identity and evidence path: password-gated one-time enrollment, device-generated Ed25519 keys, signed requests, timestamp and sequence replay protection, revocation, node-local execution, and one fixed second-device Pi-hole probe. Version `0.24.0` adds credential-free sanitized provenance for the fixed public BoxPilot and Keel repositories. Version `0.25.0` consumes only the fixed Keel release metadata in a non-executable plan. Version `0.26.0` adds an authenticated read-only disaster recovery readiness kit and secret-free JSON and Markdown runbook exports. Version `0.28.0` adds owner-approved immediate, 5-minute, and 10-minute one-shot windows. Version `0.29.0` adds a fail-closed local Action Center with fixed sanitized evidence, manual guidance, and in-product handoffs. Version `0.37.0` adds the second allowlisted task: four fixed Flint 2 DNS checks after a node-local default-gateway match. Multiple controllers, a general or recurring scheduler, locally verified signed adapter installation, private repository credentials, broader policy templates, persistent alerts, external notification delivery, and executable recovery automation remain pending.
+Status: `0.22.0` ships the first narrow node identity and evidence path: password-gated one-time enrollment, device-generated Ed25519 keys, signed requests, timestamp and sequence replay protection, revocation, node-local execution, and one fixed second-device Pi-hole probe. Version `0.24.0` adds credential-free sanitized provenance for the fixed public BoxPilot and Keel repositories. Version `0.25.0` consumes only the fixed Keel release metadata in a non-executable plan. Version `0.26.0` adds an authenticated read-only disaster recovery readiness kit and secret-free JSON and Markdown runbook exports. Version `0.28.0` adds owner-approved immediate, 5-minute, and 10-minute one-shot windows. Version `0.29.0` adds a fail-closed local Action Center with fixed sanitized evidence, manual guidance, and in-product handoffs. Version `0.37.0` adds the second allowlisted task: four fixed edge-router DNS checks after a node-local default-gateway match. Multiple controllers, a general or recurring scheduler, locally verified signed adapter installation, private repository credentials, broader policy templates, persistent alerts, external notification delivery, and executable recovery automation remain pending.
 
 - Multiple BoxPilot nodes
 - Signed adapter packages with compatibility declarations
 - Central inventory with node-local execution and approval
 - Fixed one-shot signed DNS proof policy included in `0.28.0`; broader policy templates, scheduled maintenance, and notification integrations remain pending
-- Signed Flint 2 proof linked to fresh controller evidence and an exact node-local default-gateway match included in `0.37.0`
+- Signed edge-router proof linked to fresh controller evidence and an exact node-local default-gateway match included in `0.37.0`
 - Exportable disaster-recovery kit
 - Read-only local Action Center with fixed severity, evidence explanations, manual steps, and navigation included in `0.29.0`
 
@@ -194,12 +194,12 @@ Acceptance:
 
 ## Phase 9: router integration and DNS cutover
 
-Status: `0.23.0` added a fixed three-model declaration catalog and browser-local SHA-256 checkpoint ledger. Version `0.27.0` added model-specific, vendor-grounded operator checklists and correlates the single default-gateway address observed by the server without claiming router identity. Version `0.36.0` adds a password-approved four-query DNS acceptance against only that observed gateway after a retained Flint 2 checkpoint, Tailscale recovery, and six fixed operator declarations. Version `0.37.0` adds an owner-approved signed second-device task that re-derives and matches its local gateway before repeating those tests. The unprivileged controller and node-local agent store bounded evidence without a router login or helper call. Configuration upload, credentials, sessions, neighbor discovery, operator-supplied targets, live device-state claims, writes, restore claims, DHCP, DNS advertisement, and cutover remain unavailable.
+Status: `0.23.0` added a fixed device declaration catalog and browser-local SHA-256 checkpoint ledger. Version `0.27.0` added role-specific operator checklists and correlates the single default-gateway address observed by the server without claiming router identity. Version `0.36.0` adds a password-approved four-query DNS acceptance against only that observed gateway after a retained edge-router checkpoint, Tailscale recovery, and six fixed operator declarations. Version `0.37.0` adds an owner-approved signed second-device task that re-derives and matches its local gateway before repeating those tests. The unprivileged controller and node-local agent store bounded evidence without a router login or helper call. Configuration upload, credentials, sessions, neighbor discovery, operator-supplied targets, live device-state claims, writes, restore claims, DHCP, DNS advertisement, and cutover remain unavailable.
 
 - Browser-local configuration identity with external-file retention evidence included in `0.23.0`
 - Fixed intended-role guidance, live gateway-address correlation, explicit operator checks, and vendor handoff included in `0.27.0`
-- Immutable observed-gateway Flint 2 DNS acceptance with four fixed queries and durable no-write evidence included in `0.36.0`
-- Signed second-device Flint 2 evidence with a node-local default-gateway match included in `0.37.0`
+- Immutable observed-gateway edge-router DNS acceptance with four fixed queries and durable no-write evidence included in `0.36.0`
+- Signed second-device edge-router evidence with a node-local default-gateway match included in `0.37.0`
 - Exact model and firmware compatibility declarations for future executable adapters
 - Encrypted least-privilege credential storage only where vendor support permits it
 - Read-only router discovery with bounded redaction

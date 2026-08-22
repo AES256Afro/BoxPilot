@@ -4,8 +4,8 @@ import os from "node:os";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
-const topologyIds = new Set(["flint2-edge-tplink-ap", "omada-edge-access-points", "single-router", "custom"]);
-const dnsRoleIds = new Set(["current-external", "flint2-adguard-home", "pihole-on-host", "pihole-in-vm", "other"]);
+const topologyIds = new Set(["edge-router-with-access-points", "alternate-edge-router", "single-router", "custom"]);
+const dnsRoleIds = new Set(["current-external", "router-hosted-resolver", "pihole-on-host", "pihole-in-vm", "other"]);
 /** Older clients and stored plans used a hostname-specific role id; accept it and normalize. */
 const legacyDnsRolePattern = /^pihole-on-(?!host$)[a-z0-9-]+$/;
 
@@ -20,99 +20,99 @@ function normalizeNetworkPlanInput(value) {
 }
 const interfacePattern = /^[A-Za-z0-9_.:-]{1,32}$/;
 
-const routerCatalog = [
+/** Roles the owner assigns to their own hardware. BoxPilot plans around the role, not a model. */
+const deviceRoles = [
   {
-    id: "glinet-flint-2",
-    name: "GL.iNet Flint 2",
-    roles: ["edge-router", "wireless-access-point", "adguard-home-host"],
-    integration: "read-only-declaration",
-    note: "BoxPilot can plan around Flint 2 and its AdGuard Home role. It does not accept router credentials or change the router in this release.",
-    officialSource: "https://docs.gl-inet.com/router/en/4/interface_guide/adguardhome/",
+    id: "edge-router",
+    name: "Edge router",
+    summary: "The one device doing NAT and DHCP for the LAN. Its address is the default gateway this server observes, and its configuration checkpoint is the recovery path if a change goes wrong.",
   },
   {
-    id: "omada-er707-m2",
-    name: "Omada ER707-M2",
-    roles: ["edge-router", "vpn-gateway"],
-    integration: "read-only-declaration",
-    note: "Controller-backed discovery and configuration are pending. Keep it out of the forwarding path unless it is intentionally the only edge router.",
-    officialSource: "https://www.omadanetworks.com/us/business-networking/omada-router-wired-router/er707-m2/",
+    id: "access-point",
+    name: "Access point",
+    summary: "Wireless coverage bridged to the edge router. Switch it to access-point mode in its own admin page so it does not add a second NAT boundary or a competing DHCP server.",
   },
   {
-    id: "tp-link-archer-be400",
-    name: "TP-Link Archer BE400 (BE6500 class)",
-    roles: ["wireless-router", "wireless-access-point"],
-    integration: "read-only-declaration",
-    note: "BoxPilot records the intended router or access-point role but does not log in to or configure the device.",
-    officialSource: "https://www.tp-link.com/us/home-networking/wifi-router/archer-be400/",
+    id: "spare-or-lab",
+    name: "Spare or lab device",
+    summary: "A router kept out of the forwarding path as a cold spare or on an isolated lab network until a reviewed change window promotes it.",
   },
 ];
 
-const routerGuides = [
+const deviceRoleIds = new Set(deviceRoles.map((role) => role.id));
+const labelMaximum = 64;
+
+/** Owner-typed labels (device names, firmware strings) stay short printable text, never a payload. */
+function safeLabel(value) {
+  if (typeof value !== "string") return null;
+  const label = value.replace(/\p{C}/gu, " ").trim().replace(/\s+/g, " ");
+  return label.length > 0 && label.length <= labelMaximum ? label : null;
+}
+
+function declaredDevices(value) {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    const name = safeLabel(entry?.name);
+    return name && deviceRoleIds.has(entry?.role) ? [{ name, role: entry.role }] : [];
+  }).slice(0, 8);
+}
+
+function namesInRole(devices, role) {
+  return devices.filter((device) => device.role === role).map((device) => device.name);
+}
+
+const roleGuides = [
   {
-    modelId: "glinet-flint-2",
-    intendedRole: "Only edge router, NAT authority, DHCP authority, and optional AdGuard Home host",
+    roleId: "edge-router",
+    intendedRole: "The only NAT authority, DHCP authority, and LAN gateway",
     mode: "Router mode",
-    officialSources: [
-      { label: "Flint 2 user guide", url: "https://docs.gl-inet.com/router/en/4/user_guide/gl-mt6000/" },
-      { label: "GL.iNet network modes", url: "https://docs.gl-inet.com/router/en/4/interface_guide/network_mode/" },
-      { label: "GL.iNet AdGuard Home", url: "https://docs.gl-inet.com/router/en/4/interface_guide/adguardhome/" },
-    ],
     steps: [
-      "Export the current Flint 2 configuration, retain it away from this server, and record its checksum in BoxPilot before changing the forwarding path.",
-      "Use Router mode only if Flint 2 is the selected edge. Connect its WAN to the modem or upstream handoff and its LAN to the home switch or access points.",
-      "Confirm Flint 2 is the only device providing NAT and DHCP before connecting downstream wireless equipment.",
-      "For the later AdGuard Home change window, open APPLICATIONS > AdGuard Home. Review the vendor warning about Handle Client Requests before enabling anything.",
+      "Export the current configuration from the router's own admin page, keep the file away from this server, and record its checksum in BoxPilot before changing the forwarding path.",
+      "Connect its WAN port to the modem or upstream handoff and its LAN port to the switch or the access points.",
+      "Confirm it is the only device offering NAT and DHCP before connecting downstream wireless equipment.",
+      "Leave DNS advertisement as it is; a resolver change belongs in its own reviewed change window.",
     ],
     verify: [
-      "From the router interface, confirm its LAN address equals the gateway This server observes.",
-      "From two LAN clients, confirm the same default gateway and only one DHCP authority.",
-      "Confirm ordinary internet access and the existing this server's Tailscale path before any DNS work.",
-      "Keep the current independent DNS resolvers active until separate server-side and second-device DNS acceptance passes.",
+      "In the router's admin page, confirm its LAN address is the gateway this server observes.",
+      "From two LAN clients, confirm the same default gateway and a single DHCP server.",
+      "Confirm ordinary internet access and this server's Tailscale path before any DNS work.",
+      "Keep the current independent resolvers active until server-side and second-device DNS acceptance both pass.",
     ],
-    rollback: "Disconnect Flint 2 from the forwarding path or restore its retained configuration using the vendor interface. Restore the previously working edge router and independent resolver before troubleshooting AdGuard Home.",
+    rollback: "Restore the retained configuration from the router's own admin page, or put the previous edge router back in the path. Bring the independent resolver back before troubleshooting anything else.",
   },
   {
-    modelId: "tp-link-archer-be400",
-    intendedRole: "Wireless access point only",
-    mode: "Access Point mode",
-    officialSources: [
-      { label: "Archer BE400 user guide", url: "https://static.tp-link.com/upload/manual/2025/202505/20250514/1910013703_Archer%20BE400_UG_REV1.0.0.pdf" },
-      { label: "TP-Link access-point mode guide", url: "https://www.tp-link.com/us/support/faq/3774/" },
-    ],
+    roleId: "access-point",
+    intendedRole: "Wireless coverage only",
+    mode: "Access-point mode",
     steps: [
-      "Export the current TP-Link configuration, retain it away from this server, and record its checksum in BoxPilot.",
-      "While connected locally, open tplinkwifi.net and choose Advanced > System > Operation Mode > Access Point, then save. The router reboots.",
-      "After reboot, connect it by Ethernet to the Flint 2 LAN or the downstream switch, then reopen its management page and complete Advanced > Quick Setup for Wi-Fi.",
-      "Do not configure a second WAN, NAT, DHCP server, DNS advertisement, or port-forwarding boundary on this access point.",
+      "Export the current configuration from the device's own admin page, keep the file away from this server, and record its checksum in BoxPilot.",
+      "While connected to it locally, put the second router into access-point mode in its own admin page and save. Most consumer routers reboot into the new mode.",
+      "After the reboot, connect it by Ethernet to the edge router's LAN or the downstream switch, then reopen its admin page and set up Wi-Fi.",
+      "Leave WAN, NAT, DHCP, DNS advertisement, and port forwarding switched off on this device.",
     ],
     verify: [
-      "Confirm the TP-Link interface reports Access Point mode.",
-      "Confirm a connected client receives its gateway and DHCP lease from the selected edge router, not the TP-Link.",
-      "Record the TP-Link management address assigned by the edge router so it can be reached after the mode change.",
-      "Confirm Wi-Fi, ordinary DNS, and access to this server before removing the prior wireless path.",
+      "Confirm the device's own admin page reports access-point or bridge mode.",
+      "Confirm a client connected to it receives its gateway and DHCP lease from the edge router.",
+      "Record the management address the edge router assigned it so it stays reachable after the mode change.",
+      "Confirm Wi-Fi, ordinary DNS, and access to this server before removing the previous wireless path.",
     ],
-    rollback: "Use a wired local connection and the retained vendor instructions or configuration to restore the prior mode. Reconnect the old wireless path before diagnosing coverage or roaming.",
+    rollback: "Use a wired local connection and the retained configuration to restore the previous mode. Reconnect the old wireless path before diagnosing coverage or roaming.",
   },
   {
-    modelId: "omada-er707-m2",
-    intendedRole: "Disconnected standby or isolated lab gateway",
+    roleId: "spare-or-lab",
+    intendedRole: "Cold spare or isolated lab gateway",
     mode: "Outside the production forwarding path",
-    officialSources: [
-      { label: "ER707-M2 support", url: "https://support.omadanetworks.com/en/product/er707-m2/v1/" },
-      { label: "ER707-M2 installation guide", url: "https://static.tp-link.com/upload/manual/2025/202509/20250905/7100001295_ER707-M2_IG_REV1.30.0.pdf" },
-    ],
     steps: [
-      "Keep the ER707-M2 disconnected from the production WAN and LAN while Flint 2 is the selected edge router.",
-      "If testing it in a lab, use an isolated client and choose either Standalone mode at omadaer.net or Controller mode. Do not mix ownership models.",
-      "Remember that adopting the gateway into an Omada Controller can override its standalone configuration.",
+      "Keep it disconnected from the production WAN and LAN while another device is the edge router.",
+      "For lab work, put it on an isolated client and network so its DHCP server cannot answer production clients.",
       "Export and retain a configuration checkpoint before promoting it to the edge in a separate reviewed change window.",
     ],
     verify: [
-      "Confirm no production client uses the ER707-M2 as its default gateway or DHCP server.",
-      "Confirm no cable creates a second path between production LAN and WAN.",
-      "If it is later promoted, first replace the topology plan so it is the only edge router and both Wi-Fi routers are access points.",
+      "Confirm no production client uses it as a default gateway or DHCP server.",
+      "Confirm no cable creates a second path between the production LAN and WAN.",
+      "Before promoting it, replace the topology plan so it becomes the only edge router and every other wireless device becomes an access point.",
     ],
-    rollback: "Disconnect the ER707-M2 from production and restore the previously working single edge router. Do not leave two DHCP or NAT authorities connected.",
+    rollback: "Disconnect it from production and restore the previously working single edge router. Two NAT or DHCP authorities on one LAN break name resolution in ways that are hard to diagnose.",
   },
 ];
 
@@ -120,56 +120,54 @@ function readinessCheck(id, state, title, evidence, action) {
   return { id, state, title, evidence, action };
 }
 
-function buildRouterReadiness(topology, checkpointStatus) {
+function buildRouterReadiness(topology, checkpointStatus, declaration) {
+  const checkpoints = checkpointStatus?.latestByRole ?? {};
+  const devices = declaredDevices(declaration);
+  const edgeNames = namesInRole(devices, "edge-router");
+  const edgeRouter = edgeNames.join(" and ") || "your edge router";
   const routeCollector = topology.collectors.routes === true;
   const route = topology.defaultRoutes.length === 1 ? topology.defaultRoutes[0] : null;
-  const flintCheckpoint = checkpointStatus.latestByModel?.["glinet-flint-2"] ?? null;
+  const edgeCheckpoint = checkpoints["edge-router"] ?? null;
+  const checkpointDevice = safeLabel(edgeCheckpoint?.deviceName) ?? edgeRouter;
+  const checkpointFirmware = safeLabel(edgeCheckpoint?.firmwareVersion) ?? "an unrecorded version";
   const checks = [
     routeCollector && route
-      ? readinessCheck("gateway.observed", "verified", "One live default gateway", `${route.gateway} is observed on ${route.interface}. This confirms the address and path only, not the router model.`, "Confirm in the Flint 2 interface that its LAN address is the observed gateway." )
+      ? readinessCheck("gateway.observed", "verified", "One live default gateway", `${route.gateway} is observed on ${route.interface}. That is the address and the path; it does not identify a router model.`, `Confirm in the admin page of ${edgeRouter} that its LAN address is the observed gateway.`)
       : routeCollector
         ? readinessCheck("gateway.observed", "action-required", "One live default gateway", `${topology.defaultRoutes.length} live default routes were observed.`, "Restore one unambiguous default route before changing router roles.")
         : readinessCheck("gateway.observed", "unavailable", "One live default gateway", "The fixed default-route collector is unavailable.", "Repair the host route collector and refresh this page."),
-    readinessCheck("gateway.identity", "operator-check", "Gateway model identity", route ? `${route.gateway} is observed, but BoxPilot does not inspect neighbor tables, MAC addresses, router pages, or credentials.` : "No gateway identity can be correlated without a live route.", "Compare the observed address with the LAN address shown in the Flint 2 interface."),
-    flintCheckpoint
-      ? readinessCheck("flint.checkpoint", "verified", "Flint 2 recovery checkpoint", `Checkpoint ${flintCheckpoint.id} records firmware ${flintCheckpoint.firmwareVersion}, ${flintCheckpoint.sizeBytes} bytes, and a browser-reported SHA-256 digest.`, "Keep the original configuration file available away from this server.")
-      : readinessCheck("flint.checkpoint", "action-required", "Flint 2 recovery checkpoint", "No Flint 2 configuration checksum is recorded.", "Export the configuration, retain it externally, then hash and record it below."),
-    readinessCheck("routing.single-authority", "operator-check", "One NAT and DHCP authority", "Host routes cannot prove which downstream devices are running DHCP or NAT.", "Confirm Flint 2 is the only production router and DHCP server."),
-    readinessCheck("tplink.ap-mode", "operator-check", "TP-Link access-point mode", "BoxPilot does not log in to the TP-Link or claim its operating mode.", "Confirm Advanced > System > Operation Mode reports Access Point."),
-    readinessCheck("omada.out-of-path", "operator-check", "ER707-M2 outside production", "BoxPilot performs no discovery or network probe against the Omada gateway.", "Confirm the ER707-M2 is disconnected from the production forwarding path."),
+    readinessCheck("gateway.identity", "operator-check", "Gateway identity", route ? `${route.gateway} answers as the gateway. An address does not identify a router model, so the device behind it is whatever you declare it to be.` : "No gateway identity can be correlated without a live route.", `Compare the observed address with the LAN address shown in the admin page of ${edgeRouter}.`),
+    edgeCheckpoint
+      ? readinessCheck("edge.checkpoint", "verified", "Edge router recovery checkpoint", `Checkpoint ${edgeCheckpoint.id} records ${checkpointDevice} on firmware ${checkpointFirmware}, ${edgeCheckpoint.sizeBytes} bytes, and a browser-computed SHA-256 digest.`, "Keep the original configuration file available away from this server.")
+      : readinessCheck("edge.checkpoint", "action-required", "Edge router recovery checkpoint", `No configuration checksum is recorded for ${edgeRouter}.`, "Export the configuration, retain it externally, then hash and record it below."),
+    readinessCheck("routing.single-authority", "operator-check", "One NAT and DHCP authority", "Host routes cannot show which downstream devices are running DHCP or NAT.", `Confirm ${edgeRouter} is the only device on the LAN doing NAT and handing out DHCP leases.`),
     topology.tailscale.connected
       ? readinessCheck("recovery.tailscale", "verified", "Private recovery access", `${topology.tailscale.dnsName ?? "This server"} reports a connected Tailscale state.`, "Keep console access available during physical router changes.")
       : readinessCheck("recovery.tailscale", "action-required", "Private recovery access", "This server does not report connected Tailscale state.", "Restore Tailscale and confirm console access before changing the edge router."),
   ];
+  const accessPoints = namesInRole(devices, "access-point");
+  if (accessPoints.length) checks.push(readinessCheck("access-point.mode", "operator-check", "Access-point mode", `You declared ${accessPoints.join(", ")} as access points. Their operating mode is only visible in their own admin pages.`, "Confirm each one reports access-point or bridge mode, with its DHCP server switched off."));
+  const spares = namesInRole(devices, "spare-or-lab");
+  if (spares.length) checks.push(readinessCheck("spare.out-of-path", "operator-check", "Spare devices out of the path", `You declared ${spares.join(", ")} as spare or lab devices.`, "Confirm each one is disconnected from the production forwarding path or sits on an isolated lab network."));
   const counts = Object.fromEntries(["verified", "action-required", "operator-check", "unavailable"].map((state) => [state, checks.filter((item) => item.state === state).length]));
   return {
     generatedAt: topology.generatedAt,
+    roles: deviceRoles,
+    declaredDevices: devices,
     recommendedTopology: {
-      id: "flint2-edge-tplink-ap",
-      summary: topologyGuidance("flint2-edge-tplink-ap").summary,
-      rationale: "This gives AdGuard Home a supported router host while keeping one NAT and DHCP boundary. The ER707-M2 remains useful as a cold spare or isolated lab gateway.",
+      id: "edge-router-with-access-points",
+      summary: topologyGuidance("edge-router-with-access-points").summary,
+      rationale: "One NAT and DHCP boundary is the shape that stays diagnosable, and it leaves every other router useful as an access point or a cold spare.",
     },
     alternateTopology: {
-      id: "omada-edge-access-points",
-      summary: topologyGuidance("omada-edge-access-points").summary,
-      gate: "Choose this only in a separate migration plan. Flint 2 AdGuard Home is unavailable when Flint 2 runs as an access point, so DNS needs a different reviewed host.",
+      id: "alternate-edge-router",
+      summary: topologyGuidance("alternate-edge-router").summary,
+      gate: "Plan this as its own change window: the outgoing edge router has to drop to access-point mode first, and anything it hosted needs a new home before the swap.",
     },
-    observedGateway: route ? { address: route.gateway, interface: route.interface, protocol: route.protocol, modelVerified: false, identityClaim: "address-observed-model-unverified" } : null,
+    observedGateway: route ? { address: route.gateway, interface: route.interface, protocol: route.protocol } : null,
     checks,
     counts,
-    guides: routerGuides.map((guide) => ({ ...guide, checkpoint: checkpointStatus.latestByModel?.[guide.modelId] ?? null })),
-    sourceReviewedAt: "2026-08-16",
-    boundary: {
-      credentialsAccepted: false,
-      routerSessionsOpened: false,
-      neighborDiscoveryPerformed: false,
-      arbitraryTargetsProbed: false,
-      configurationUploaded: false,
-      routerMutationSupported: false,
-      dhcpMutationSupported: false,
-      dnsCutoverSupported: false,
-      tailscaleMutationSupported: false,
-    },
+    guides: roleGuides.map((guide) => ({ ...guide, checkpoint: checkpoints[guide.roleId] ?? null })),
   };
 }
 
@@ -321,13 +319,13 @@ export function validateNetworkPlanInput(value) {
 }
 
 function topologyGuidance(topology) {
-  if (topology === "flint2-edge-tplink-ap") return {
-    summary: "Keep Flint 2 as the only edge router, NAT, and DHCP server. Run the TP-Link as an access point and leave the ER707-M2 outside the forwarding path unless it later replaces Flint 2.",
-    devices: ["Flint 2: edge router and optional AdGuard Home", "TP-Link BE400: access point only", "ER707-M2: disconnected standby or lab device"],
+  if (topology === "edge-router-with-access-points") return {
+    summary: "One router at the edge, everything else as access points. The edge router is the only NAT and DHCP authority; a second router that keeps its own WAN adds double NAT, and a second DHCP server hands clients the wrong gateway.",
+    devices: ["Edge router: NAT, DHCP, and the LAN gateway", "Second router: access point only, no WAN and no DHCP", "Spare or lab device: out of the production forwarding path"],
   };
-  if (topology === "omada-edge-access-points") return {
-    summary: "Keep the ER707-M2 as the only edge router, NAT, and DHCP server. Put both wireless routers in access-point or bridge roles to avoid double NAT.",
-    devices: ["ER707-M2: edge router", "Flint 2: access point or separately justified DNS appliance", "TP-Link BE400: access point only"],
+  if (topology === "alternate-edge-router") return {
+    summary: "A different device at the edge. It becomes the only NAT and DHCP authority, and the router it replaces drops to access-point or bridge mode. Leaving both routing creates double NAT and competing DHCP servers on one LAN.",
+    devices: ["New edge router: NAT, DHCP, and the LAN gateway", "Previous edge router: access point or bridge only", "Any other wireless device: access point only"],
   };
   if (topology === "single-router") return { summary: "Keep exactly one device responsible for routing, NAT, and DHCP.", devices: ["Current gateway: router and DHCP", "Any downstream Wi-Fi device: access point or bridge only"] };
   return { summary: "Document one edge gateway and verify that every downstream router is intentionally bridged or isolated.", devices: ["Custom topology requires manual role verification"] };
@@ -411,7 +409,7 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
         overrideState: defaultResolvers.includes("100.100.100.100") ? "tailscale-default-observed" : "non-tailscale-default-observed",
       },
       dnsListeners,
-      routerCatalog,
+      deviceRoles,
       mutationSupported: false,
     };
   }
@@ -437,13 +435,13 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
     else warnings.push("Tailscale DNS override is declared off. BoxPilot will preserve that recovery boundary.");
     if (topology.tailscale.defaultDnsObserved !== input.tailscaleDnsOverride) warnings.push("The operator declaration and the host's observed default resolver path differ. Verify Tailscale DNS policy before cutover.");
 
-    if (input.dnsRole === "flint2-adguard-home" && input.dnsServiceAddress !== input.gatewayAddress) blockers.push({ id: "flint-dns-address", summary: "Flint 2 AdGuard Home must be planned at the declared Flint gateway address" });
+    if (input.dnsRole === "router-hosted-resolver" && input.dnsServiceAddress !== input.gatewayAddress) blockers.push({ id: "router-dns-address", summary: "A resolver hosted on the edge router must be planned at the declared gateway address" });
     if (input.dnsRole === "pihole-on-host" && input.dnsServiceAddress !== input.serverAddress) blockers.push({ id: "host-dns-address", summary: "Pi-hole on this server must use the declared live server LAN address" });
     if (input.dnsRole === "pihole-in-vm") {
       if (!server?.cidr || !sameIpv4Subnet(input.dnsServiceAddress, server.cidr)) blockers.push({ id: "vm-dns-subnet", summary: "The dedicated Pi-hole VM address must be inside the live server LAN subnet" });
       if ([input.serverAddress, input.gatewayAddress].includes(input.dnsServiceAddress)) blockers.push({ id: "vm-dns-address-collision", summary: "The dedicated Pi-hole VM address must differ from this server and the gateway" });
     }
-    if (["pihole-on-host", "pihole-in-vm", "flint2-adguard-home"].includes(input.dnsRole) && net.isIP(input.fallbackDnsAddress) !== 4) blockers.push({ id: "fallback-dns", summary: "A valid emergency resolver is required" });
+    if (["pihole-on-host", "pihole-in-vm", "router-hosted-resolver"].includes(input.dnsRole) && net.isIP(input.fallbackDnsAddress) !== 4) blockers.push({ id: "fallback-dns", summary: "A valid emergency resolver is required" });
     if (input.dnsRole === "current-external" && topology.defaultResolvers.length && !topology.defaultResolvers.includes(input.dnsServiceAddress)) warnings.push("The declared primary external resolver is not one of the host's observed default resolvers.");
     if (input.dnsRole === "pihole-on-host") {
       const collision = topology.dnsListeners.some((listener) => listener.scope === "wildcard" || listener.address === input.serverAddress);
@@ -485,8 +483,8 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
     return output;
   }
 
-  async function routerReadiness(checkpointStatus) {
-    return buildRouterReadiness(await inspect(), checkpointStatus);
+  async function routerReadiness(checkpointStatus, declaration) {
+    return buildRouterReadiness(await inspect(), checkpointStatus, declaration);
   }
 
   async function plan(rawInput, ownerId) {
@@ -539,4 +537,4 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
   return { inspect, plan, routerReadiness, validateAssessment, validateAcceptanceBaseline };
 }
 
-export const networkInternals = { buildRouterReadiness, eligibleLanAddresses, hostAddresses, ipv4Number, parseDefaultRoutes, parseDnsListeners, parseIpAddresses, parseResolverStatus, routerCatalog, routerGuides, sameIpv4Subnet, topologyGuidance };
+export const networkInternals = { buildRouterReadiness, declaredDevices, deviceRoles, eligibleLanAddresses, hostAddresses, ipv4Number, parseDefaultRoutes, parseDnsListeners, parseIpAddresses, parseResolverStatus, roleGuides, safeLabel, sameIpv4Subnet, topologyGuidance };

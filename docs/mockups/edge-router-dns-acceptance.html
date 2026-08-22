@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>BoxPilot Flint 2 AdGuard Home acceptance mock</title>
+  <title>BoxPilot edge-router DNS acceptance mock</title>
   <style>
     :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; background: #07100f; color: #f4f7f6; }
     * { box-sizing: border-box; }
@@ -67,15 +67,15 @@
       <div class="source"><strong>Observed gateway only</strong> | Derived from Homebox's one live default route. Physical model and AdGuard configuration are not remotely attested.</div>
       <div class="grid">
         <section class="panel">
-          <span class="eyebrow">Flint 2 AdGuard Home direct acceptance</span><h2>Recovery declarations complete</h2><p>Six fixed operator checks are required before BoxPilot can create an immutable no-write plan.</p>
-          <div class="target"><strong>192.168.8.1:53</strong><span>via eno1 | checkpoint 7a32... | firmware 4.8.2</span><span class="tag">model unverified</span></div>
+          <span class="eyebrow">Edge router direct DNS acceptance</span><h2>Recovery declarations complete</h2><p>Six fixed operator checks are required before BoxPilot can create an immutable no-write plan.</p>
+          <div class="target"><strong>192.168.1.1:53</strong><span>via eno1 | checkpoint 7a32... | firmware 1.4.0</span><span class="tag">model unverified</span></div>
           <div class="checks"><div class="check"><b>✓</b>AdGuard Home enabled locally</div><div class="check"><b>✓</b>Emergency resolver tested</div><div class="check"><b>✓</b>Handle Client Requests reviewed</div><div class="check"><b>✓</b>Router mode confirmed</div><div class="check"><b>✓</b>Single DHCP authority confirmed</div><div class="check"><b>✓</b>VPN and parental-control impact reviewed</div></div>
           <div class="plan"><div class="plan-head"><strong>Immutable acceptance plan</strong><span>revision 1 | expires in 13m</span></div><div class="tests"><div class="test">UDP example.com :53</div><div class="test">TCP example.com :53</div><div class="test">UDP example.net :53</div><div class="test">UDP boxpilot.invalid :53</div></div></div>
         </section>
         <section class="panel">
           <span class="eyebrow">Evidence boundary</span><h2>What a passing run means</h2><p>Homebox reached a DNS service at the observed gateway and received the four exact expected responses.</p>
-          <div class="boundary"><div><strong>Not model attestation</strong><span>The gateway is not remotely proven to be a Flint 2.</span></div><div><strong>Not configuration inspection</strong><span>AdGuard state, filters, DHCP advertisement, and client use are not proven.</span></div><div><strong>No privileged helper</strong><span>Fixed TCP and UDP reads run in the unprivileged controller only.</span></div><div><strong>No setting change</strong><span>No router, DHCP, DNS, VPN, client, firewall, or Tailscale write exists.</span></div></div>
-          <div class="warning"><strong>Recovery first.</strong> Keep the independently tested resolver available. On failure, review Flint 2 locally and create a new plan. BoxPilot performs no rollback because it performs no mutation.</div>
+          <div class="boundary"><div><strong>Not model attestation</strong><span>An observed address does not identify a router model.</span></div><div><strong>Not configuration inspection</strong><span>AdGuard state, filters, DHCP advertisement, and client use are not proven.</span></div><div><strong>No privileged helper</strong><span>Fixed TCP and UDP reads run in the unprivileged controller only.</span></div><div><strong>No setting change</strong><span>No router, DHCP, DNS, VPN, client, firewall, or Tailscale write exists.</span></div></div>
+          <div class="warning"><strong>Recovery first.</strong> Keep the independently tested resolver available. On failure, review the router locally and create a new plan. BoxPilot performs no rollback because it performs no mutation.</div>
         </section>
         <section class="panel approval"><div><strong>Password approval is still required</strong><span>Staging creates a durable awaiting-approval job. The target and four queries cannot be edited.</span></div><span class="button">Stage for password approval</span></section>
       </div>

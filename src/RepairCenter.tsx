@@ -234,7 +234,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
     anchor.href = url;
     anchor.download = format === "json" ? "boxpilot-recovery-kit.json" : "boxpilot-recovery-runbook.md";
     anchor.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   return (

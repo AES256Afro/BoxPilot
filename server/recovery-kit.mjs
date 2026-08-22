@@ -37,13 +37,14 @@ function renderRunbook(kit) {
 
 export function createRecoveryKitService({ store, prerequisites, helper, libvirt, now = () => new Date(), version = productVersion } = {}) {
   async function catalogInventory() {
-    const live = await helper.request("app.inspect", {}, { timeoutMs: 30_000 });
+    // Two reads for the whole catalog, not one per installed app: the kit only asks whether each
+    // app has any backup at all.
+    const [live, counted] = await Promise.all([
+      helper.request("app.inspect", {}, { timeoutMs: 30_000 }),
+      helper.request("app.backups.counts", {}, { timeoutMs: 30_000 }).catch(() => ({ counts: {} })),
+    ]);
     const installed = (live.applications ?? []).filter((item) => item.installed === true);
-    const withBackups = await Promise.all(installed.map(async (item) => {
-      const backups = await helper.request("app.backups.inspect", { id: item.id }, { timeoutMs: 30_000 }).then((result) => result.backups ?? []).catch(() => []);
-      return { ...item, backups };
-    }));
-    return withBackups;
+    return installed.map((item) => ({ ...item, backupCount: counted.counts?.[item.id] ?? 0 }));
   }
 
   async function inspect() {
@@ -64,7 +65,7 @@ export function createRecoveryKitService({ store, prerequisites, helper, libvirt
     const protectedControllerBackup = controllerBackups.find((backup) => controllerProtections.some((protection) => protection.backupId === backup.id)) ?? null;
     const vmBackups = store.listVmBackups(200).filter((item) => item.retained !== false);
 
-    const unbackedApplications = installedApplications.filter((item) => item.backups.length === 0);
+    const unbackedApplications = installedApplications.filter((item) => (item.backupCount ?? 0) === 0);
     const domains = domainInventory.connected === true ? domainInventory.domains : [];
     const protectedDomainNames = new Set(vmBackups.filter((item) => item.protected && item.encrypted && item.independent && item.repositoryVerified && item.restoreDrill?.passed).map((item) => item.domainName));
     const unprotectedDomains = domains.filter((item) => !protectedDomainNames.has(item.name));
@@ -135,7 +136,9 @@ export function createRecoveryKitService({ store, prerequisites, helper, libvirt
         controllerBackups: controllerBackups.map((item) => ({ id: item.id, destination: item.destination, checksumSha256: item.checksumSha256, sizeBytes: item.sizeBytes, downtimeMs: item.downtimeMs, restorePassed: item.restoreDrill?.passed === true, integrityCheck: item.restoreDrill?.integrityCheck ?? null, foreignKeyIssues: item.restoreDrill?.foreignKeyIssues ?? null, schemaVerified: item.restoreDrill?.schemaVerified === true, manifestChecksumSha256: item.restoreDrill?.manifestChecksumSha256 ?? null, createdAt: item.createdAt, verifiedAt: item.verifiedAt })),
         controllerProtections: controllerProtections.map((item) => ({ id: item.id, backupId: item.backupId, destination: item.destination, repositoryId: item.repositoryId, snapshotId: item.snapshotId, sizeBytes: item.sizeBytes, encrypted: item.encrypted, independent: item.independent, repositoryVerified: item.repositoryVerified, protected: item.protected, restorePassed: item.restoreDrill?.passed === true, restoreMode: item.restoreDrill?.mode ?? null, createdAt: item.createdAt })),
         controllerRetentionRuns: controllerRetentionRuns.map((item) => ({ id: item.id, repositoryId: item.repositoryId, beforeCount: item.beforeCount, afterCount: item.afterCount, forgottenCount: item.forgotten?.length ?? 0, repositoryVerified: item.repositoryVerified, complete: item.complete, prunePerformed: item.prunePerformed, createdAt: item.createdAt })),
-        applications: installedApplications.map((item) => ({ id: item.id, installed: true, container: item.container?.state ?? "unknown", backups: item.backups.map((backup) => ({ artifact: backup.artifact, sizeBytes: backup.sizeBytes, checksumSha256: backup.checksumSha256, createdAt: backup.createdAt })) })),
+        // How many backups each app has, not every artifact: the kit is a readiness report, and
+        // listing every archive of every app made it grow without telling the reader anything more.
+        applications: installedApplications.map((item) => ({ id: item.id, installed: true, container: item.container?.state ?? "unknown", backupCount: item.backupCount ?? 0 })),
         virtualMachines: { inventoryAvailable: domainInventory.connected === true, domains: domains.map((item) => ({ name: item.name, state: item.state, autostart: item.autostart === true })) },
         vmBackups: vmBackups.map((item) => ({ id: item.id, domainName: item.domainName, repositoryId: item.repositoryId, snapshotId: item.snapshotId, sizeBytes: item.sizeBytes, encrypted: item.encrypted, independent: item.independent, repositoryVerified: item.repositoryVerified, protected: item.protected, restorePassed: item.restoreDrill?.passed === true, retained: item.retained !== false, createdAt: item.createdAt })),
         prerequisites: prerequisiteInventory.checks.map((item) => ({ id: item.id, name: item.name, group: item.group, status: item.status, summary: item.summary, repair: item.repair ? { kind: item.repair.kind, description: item.repair.description } : null })),

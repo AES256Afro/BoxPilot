@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { readJson } from "./http";
 import { useOperation } from "./ApproveDialog";
 import TailscalePanel from "./TailscalePanel";
@@ -12,7 +12,7 @@ type Topology = {
   tailscale: { connected: boolean; dnsName: string | null; resolverPresent: boolean; defaultDnsObserved: boolean; overrideState: string; address?: string | null; exitNodeAdvertised?: boolean | null; advertisedRoutes?: string[]; approvedRoutes?: string[]; lanSubnets?: string[] };
   dnsListeners: Array<{ protocol: string; address: string; port: number; scope: string; interface: string | null }>;
   devices?: Array<{ address: string; mac: string; interface: string | null; state: string }>;
-  routerCatalog: Array<{ id: string; name: string; roles: string[]; integration: string; note: string; officialSource: string }>;
+  deviceRoles?: Array<{ id: string; name: string; summary: string }>;
   mutationSupported: boolean;
 };
 
@@ -48,7 +48,7 @@ type DnsCheck = {
 
 export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepair }: { csrfToken: string; onAssessmentReady?: (planId: string) => void; onOpenRepair?: () => void }) {
   const [topology, setTopology] = useState<Topology | null>(null);
-  const [selectedTopology, setSelectedTopology] = useState("flint2-edge-tplink-ap");
+  const [selectedTopology, setSelectedTopology] = useState("edge-router-with-access-points");
   const [dnsRole, setDnsRole] = useState("current-external");
   const [gatewayAddress, setGatewayAddress] = useState("");
   const [serverAddress, setServerAddress] = useState("");
@@ -58,6 +58,8 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
   const [emergencyResolverTested, setEmergencyResolverTested] = useState(false);
   const [secondDeviceReady, setSecondDeviceReady] = useState(false);
   const [tailscaleDnsOverride, setTailscaleDnsOverride] = useState(false);
+  /** True once the owner has set this themselves, so a refresh stops overwriting their answer. */
+  const declarationTouched = useRef(false);
   const [plan, setPlan] = useState<NetworkPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -74,7 +76,9 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
       setServerAddress((value) => value || next.eligibleLanAddresses[0]?.address || "");
       setDnsServiceAddress((value) => value || next.defaultResolvers[0] || "");
       setFallbackDnsAddress((value) => value || next.defaultResolvers[1] || "");
-      setTailscaleDnsOverride(next.tailscale.defaultDnsObserved);
+      // Only adopt the observed value before the owner has said anything: refreshing used to
+      // untick a declaration they had made deliberately.
+      setTailscaleDnsOverride((current) => (declarationTouched.current ? current : next.tailscale.defaultDnsObserved));
       setPlan(null);
       setError(null);
     } catch (caught) {
@@ -148,16 +152,16 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
           {topology.dnsListeners.length ? <div className="workload-list">{topology.dnsListeners.map((listener, index) => <div className="workload" key={`${listener.protocol}-${listener.address}-${index}`}><div><strong>{listener.address}:{listener.port}</strong><span>{listener.interface ?? "no host interface match"}</span></div><span className="workload-kind">{listener.protocol.toUpperCase()}</span><span className={`status-pill status-${listener.scope === "wildcard" || listener.scope === "host-address" ? "warning" : "neutral"}`}>{listener.scope}</span></div>)}</div> : <p className="empty-state">No TCP or UDP port 53 listeners were reported.</p>}
         </section>
         <section className="panel">
-          <header className="panel-header"><strong>Supported device declarations</strong><span>Read-only in this release</span></header>
-          <div className="workload-list">{topology.routerCatalog.map((router) => <div className="router-entry" key={router.id}><div><strong>{router.name}</strong><span>{router.roles.join(" | ")}</span><p>{router.note}</p></div><a href={router.officialSource} target="_blank" rel="noreferrer">Official source</a></div>)}</div>
+          <header className="panel-header"><div><strong>Device roles</strong><span>Assessments plan around the role a device plays, not its make or model</span></div></header>
+          <div className="workload-list">{(topology.deviceRoles ?? []).map((role) => <div className="router-entry" key={role.id}><div><strong>{role.name}</strong><p>{role.summary}</p></div></div>)}</div>
         </section>
       </div>
 
       <section className="panel network-planner">
         <header className="panel-header"><strong>Check DNS before changing it</strong><span>Writes a plan you can review; your router is never touched</span></header>
         <div className="network-form-grid">
-          <label>Intended topology<select value={selectedTopology} onChange={(event) => { setSelectedTopology(event.target.value); setPlan(null); }}><option value="flint2-edge-tplink-ap">Flint 2 edge + TP-Link AP</option><option value="omada-edge-access-points">ER707-M2 edge + wireless APs</option><option value="single-router">Single current router</option><option value="custom">Custom, manually verified</option></select></label>
-          <label>DNS role<select value={dnsRole} onChange={(event) => { setDnsRole(event.target.value); setPlan(null); }}><option value="current-external">Keep current external resolvers</option><option value="flint2-adguard-home">Flint 2 AdGuard Home</option><option value="pihole-on-host">Pi-hole on this server</option><option value="pihole-in-vm">Pi-hole in a dedicated VM</option><option value="other">Other resolver</option></select></label>
+          <label>Intended topology<select value={selectedTopology} onChange={(event) => { setSelectedTopology(event.target.value); setPlan(null); }}><option value="edge-router-with-access-points">One edge router, everything else as access points</option><option value="alternate-edge-router">A different device at the edge</option><option value="single-router">Single current router</option><option value="custom">Custom, manually verified</option></select></label>
+          <label>DNS role<select value={dnsRole} onChange={(event) => { setDnsRole(event.target.value); setPlan(null); }}><option value="current-external">Keep current external resolvers</option><option value="router-hosted-resolver">Resolver hosted on the edge router</option><option value="pihole-on-host">Pi-hole on this server</option><option value="pihole-in-vm">Pi-hole in a dedicated VM</option><option value="other">Other resolver</option></select></label>
           <label>Live gateway IPv4<input value={gatewayAddress} onChange={(event) => { setGatewayAddress(event.target.value); setPlan(null); }} inputMode="decimal" /></label>
           <label>Server LAN IPv4<input value={serverAddress} onChange={(event) => { setServerAddress(event.target.value); setPlan(null); }} inputMode="decimal" /></label>
           <label>Proposed primary DNS IPv4<input value={dnsServiceAddress} onChange={(event) => { setDnsServiceAddress(event.target.value); setPlan(null); }} inputMode="decimal" /></label>
@@ -167,7 +171,7 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
           <label><input type="checkbox" checked={routerBackupRecorded} onChange={(event) => { setRouterBackupRecorded(event.target.checked); setPlan(null); }} /> Router configuration backup or checkpoint recorded</label>
           <label><input type="checkbox" checked={emergencyResolverTested} onChange={(event) => { setEmergencyResolverTested(event.target.checked); setPlan(null); }} /> Emergency resolver tested independently</label>
           <label><input type="checkbox" checked={secondDeviceReady} onChange={(event) => { setSecondDeviceReady(event.target.checked); setPlan(null); }} /> Second LAN device ready for DNS testing</label>
-          <label><input type="checkbox" checked={tailscaleDnsOverride} onChange={(event) => { setTailscaleDnsOverride(event.target.checked); setPlan(null); }} /> Tailscale DNS override is enabled</label>
+          <label><input type="checkbox" checked={tailscaleDnsOverride} onChange={(event) => { declarationTouched.current = true; setTailscaleDnsOverride(event.target.checked); setPlan(null); }} /> Tailscale DNS override is enabled</label>
         </div>
         <div className="network-plan-actions"><button className="primary-button" type="button" onClick={() => void generatePlan()} disabled={submitting}>{submitting ? "Rechecking live topology..." : "Generate no-change assessment"}</button><span>No credentials, router sessions, network probes, or settings are accepted.</span></div>
       </section>

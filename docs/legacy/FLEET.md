@@ -1,6 +1,6 @@
 # Signed fleet agents
 
-BoxPilot `0.22.0` introduced the first deliberately narrow fleet slice. Version `0.28.0` added an owner-approved one-shot scheduling policy for the Pi-hole proof. Version `0.37.0` adds a second task contract for Flint 2 observed-gateway DNS evidence. A separately enrolled LAN device can collect either proof without giving the BoxPilot controller a shell, package manager, filesystem browser, arbitrary network probe, recurring scheduler, or unattended executor.
+BoxPilot `0.22.0` introduced the first deliberately narrow fleet slice. Version `0.28.0` added an owner-approved one-shot scheduling policy for the Pi-hole proof. Version `0.37.0` adds a second task contract for edge-router observed-gateway DNS evidence. A separately enrolled LAN device can collect either proof without giving the BoxPilot controller a shell, package manager, filesystem browser, arbitrary network probe, recurring scheduler, or unattended executor.
 
 ## What ships
 
@@ -9,12 +9,12 @@ BoxPilot `0.22.0` introduced the first deliberately narrow fleet slice. Version 
 - A device-generated Ed25519 keypair whose private key never leaves that device
 - Signed controller requests with a five-minute timestamp window and strictly increasing sequence numbers
 - Agent revocation that rejects future requests and expires pending tasks
-- Two task contracts: `dns.pi-hole.acceptance.v1` and `dns.flint2-adguard.acceptance.v1`
+- Two task contracts: `dns.pi-hole.acceptance.v1` and `dns.edge-router.acceptance.v1`
 - Owner-password reauthentication before every task window
 - Only three dispatch choices: immediate, 5 minutes, or 10 minutes
 - An exact ten-minute execution window with no recurrence or unattended retry
 - Four fixed A-record checks against the exact resolver from a fresh matching server-side acceptance record
-- A fixed Linux or macOS local-default-gateway read for Flint 2 tasks; the agent rejects any mismatch
+- A fixed Linux or macOS local-default-gateway read for edge-router tasks; the agent rejects any mismatch
 - Durable task and signed evidence records in SQLite
 
 There is no remote shell, arbitrary command, operator-provided probe target, plugin download, router credential, router write, DHCP change, client DNS change, firewall change, or Tailscale change.
@@ -43,14 +43,14 @@ The agent creates `~/.config/boxpilot-agent/agent.json` with mode `0600`. That f
 The Fleet page can schedule a one-shot task only when all of these are true:
 
 - The agent is active and has the fixed `dns-probe-v1` capability.
-- The selected Pi-hole or Flint 2 path has a passing direct server-side acceptance record.
+- The selected Pi-hole or edge-router path has a passing direct server-side acceptance record.
 - That controller record is no more than 30 minutes old.
 - The selected agent has no other pending DNS probe.
 - The owner password is re-entered for this task.
 - The selected delay is exactly 0, 5, or 10 minutes.
 - The controller proof will still be no more than 30 minutes old when the window opens.
 
-Choose **Managed Pi-hole** or **Flint 2 observed gateway**, choose the delay, and schedule the task. Then run this on the enrolled device during the displayed ten-minute window:
+Choose **Managed Pi-hole** or **edge router observed gateway**, choose the delay, and schedule the task. Then run this on the enrolled device during the displayed ten-minute window:
 
 ```sh
 npm run agent -- run-once
@@ -65,7 +65,7 @@ For managed Pi-hole it performs:
 3. `example.com` A over UDP
 4. `boxpilot.invalid` A over UDP, expecting NXDOMAIN
 
-For Flint 2 it first runs one fixed local route read: `ip -j -4 route show default` on Linux or `route -n get default` on macOS. Exactly one IPv4 default gateway must exist and it must equal the fresh controller acceptance target. It then performs:
+For the edge router it first runs one fixed local route read: `ip -j -4 route show default` on Linux or `route -n get default` on macOS. Exactly one IPv4 default gateway must exist and it must equal the fresh controller acceptance target. It then performs:
 
 1. `example.com` A over UDP
 2. `example.com` A over TCP
@@ -76,7 +76,7 @@ Before the window opens, signed polls return no task. The result is signed and s
 
 ## What a passing result proves
 
-A passing Pi-hole result proves that the enrolled device could directly reach the exact managed Pi-hole resolver and complete the four fixed checks during the task window. A passing Flint 2 result proves that the enrolled device had one local default gateway matching the fresh server target and could complete the four fixed queries against it during the window.
+A passing Pi-hole result proves that the enrolled device could directly reach the exact managed Pi-hole resolver and complete the four fixed checks during the task window. A passing edge-router result proves that the enrolled device had one local default gateway matching the fresh server target and could complete the four fixed queries against it during the window.
 
 Neither result remotely attests the device, router model, AdGuard Home configuration, filters, DHCP advertisement, use by every client, or fallback recovery. The signed record proves which enrolled key submitted the evidence and that the current allowlisted agent contract was used; it is not hardware attestation.
 

@@ -28,10 +28,17 @@ export function createHostInspectHelper({
       docker(["volume", "ls", "--format", "{{json .}}"], { timeout: 15000 }),
       docker(["compose", "ls", "--all", "--format", "json"], { timeout: 15000 }),
     ]);
-    const containers = parseJsonLines(containerResult.stdout).map((item) => ({
-      id: String(item.ID ?? "").slice(0, 12), name: item.Names ?? null, image: item.Image ?? null,
-      state: item.State ?? "unknown", status: item.Status ?? "unknown", ports: item.Ports ?? "", networks: item.Networks ?? "",
-    }));
+    const containers = parseJsonLines(containerResult.stdout).map((item) => {
+      const status = item.Status ?? "unknown";
+      // docker ps puts health in the status text: "Up 2 hours (healthy)". Pull it out here so
+      // callers can ask about health without parsing prose.
+      const health = /\((healthy|unhealthy|health: starting)\)/i.exec(status)?.[1]?.toLowerCase() ?? "none";
+      return {
+        id: String(item.ID ?? "").slice(0, 12), name: item.Names ?? null, image: item.Image ?? null,
+        state: item.State ?? "unknown", status, health: health === "health: starting" ? "starting" : health,
+        ports: item.Ports ?? "", networks: item.Networks ?? "",
+      };
+    });
     const images = parseJsonLines(imageResult.stdout).map((item) => ({ repository: item.Repository ?? null, tag: item.Tag ?? null, digest: item.Digest === "<none>" ? null : item.Digest ?? null, id: String(item.ID ?? "").slice(0, 19), size: item.Size ?? null }));
     const networks = parseJsonLines(networkResult.stdout).map((item) => ({ name: item.Name ?? null, driver: item.Driver ?? null, scope: item.Scope ?? null, internal: item.Internal === "true", ipv6: item.IPv6 === "true" }));
     const volumes = parseJsonLines(volumeResult.stdout).map((item) => ({ name: item.Name ?? null, driver: item.Driver ?? null, scope: item.Scope ?? null }));

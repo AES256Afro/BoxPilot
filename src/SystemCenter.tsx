@@ -3,6 +3,7 @@ import { useOperation } from "./ApproveDialog";
 import UpsPanel from "./UpsPanel";
 import SchedulesPanel from "./SchedulesPanel";
 import { inspectOperation } from "./operations";
+import { readJson } from "./http";
 
 interface DockerDisk { available: boolean; rows: Array<{ type: string; total: number | string | null; active: number | string | null; size: string | null; reclaimable: string | null }>; logging?: { configured: boolean; logDriver: string | null; maxSize: string | null; liveRestore: boolean } }
 
@@ -41,12 +42,22 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
   const [updating, setUpdating] = useState<string | null>(null);
   const [updateOutcome, setUpdateOutcome] = useState<"live" | "timeout" | null>(null);
   const updateTarget = useRef<string | null>(null);
+  const [releaseError, setReleaseError] = useState<string | null>(null);
+  const [checkingRelease, setCheckingRelease] = useState(false);
+  /** Fields the owner has typed into, so a background refresh does not overwrite their work. */
+  const edited = useRef<Set<string>>(new Set());
 
   const loadRelease = useCallback(async (refresh = false) => {
+    setCheckingRelease(true);
     try {
       const response = await fetch(`/api/v1/system/update${refresh ? "?refresh=1" : ""}`);
-      if (response.ok) setRelease((await response.json()) as ReleaseUpdate);
-    } catch { /* the card says the check is unavailable */ }
+      setRelease(await readJson<ReleaseUpdate>(response));
+      setReleaseError(null);
+    } catch (requestError) {
+      setReleaseError(requestError instanceof Error ? requestError.message : "The release check is unavailable");
+    } finally {
+      setCheckingRelease(false);
+    }
     inspectOperation<UpdateStatus>("system.update.status").then(({ result }) => setUpdateStatus(result)).catch(() => setUpdateStatus(null));
   }, []);
 
@@ -75,10 +86,12 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
       ]);
       setSettings(result);
       setDockerDisk(docker?.result && Array.isArray(docker.result.rows) ? docker.result : null);
-      setHostname(result.hostname.static ?? "");
-      setTimezone(result.timezone ?? "");
-      setLocale(result.locale ?? "");
-      setSwappiness(result.swappiness === null ? "" : String(result.swappiness));
+      // Only adopt server values for fields the owner has not edited: refresh() also runs when an
+      // unrelated job on this page finishes, and it used to wipe a half-typed hostname.
+      if (!edited.current.has("hostname")) setHostname(result.hostname.static ?? "");
+      if (!edited.current.has("timezone")) setTimezone(result.timezone ?? "");
+      if (!edited.current.has("locale")) setLocale(result.locale ?? "");
+      if (!edited.current.has("swappiness")) setSwappiness(result.swappiness === null ? "" : String(result.swappiness));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read system settings");
     } finally {
@@ -115,19 +128,21 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
 
       <section className="panel">
         <header className="panel-header">
-          <div><strong>BoxPilot updates</strong><span>Running {release?.current.version ?? __BOXPILOT_VERSION__}. Releases come from GitHub: the update downloads the tag, builds it, swaps it in, restarts BoxPilot, and rolls back by itself if the new version fails its health check.</span></div>
+          <div><strong>BoxPilot updates</strong><span>Running {release?.current.version ?? __BOXPILOT_VERSION__}. Releases come from GitHub: the update downloads the exact commit the release points at, builds it, swaps it in, restarts BoxPilot, and rolls back by itself if the new version fails its health check.</span></div>
           {release?.updateAvailable && release.latest && !updating && (
-            <button className="primary-button" type="button" onClick={() => { const target = release.latest!; updateTarget.current = target.version; start({ operationId: "system.update", title: `Update BoxPilot to ${target.tag}`, parameters: { tag: target.tag }, confirmText: target.tag, preview: <span>Downloads <code>{target.tag}</code> from GitHub, builds it, and swaps it in. BoxPilot restarts for about a minute; running jobs are interrupted, so let them finish first. If the new version does not answer its health check, the previous version is restored automatically.</span> }); }}>Update to {release.latest.tag}</button>
+            <button className="primary-button" type="button" onClick={() => { const target = release.latest!; updateTarget.current = target.version; start({ operationId: "system.update", title: `Update BoxPilot to ${target.tag}`, parameters: { tag: target.tag }, confirmText: target.tag, preview: <span>Downloads the commit <code>{target.tag}</code> points at from GitHub, builds it, and swaps it in. BoxPilot restarts for about a minute; running jobs are interrupted, so let them finish first. If the new version does not answer its health check, the previous version is restored automatically.</span> }); }}>Update to {release.latest.tag}</button>
           )}
         </header>
         <div className="recovery-actions">
           <span className="muted">
-            {!release ? "Checking GitHub for releases…"
+            {releaseError ? `Release check unavailable: ${releaseError}`
+              : checkingRelease && !release ? "Checking GitHub for releases…"
+              : !release ? "The release check has not run yet."
               : release.latest ? `Latest release ${release.latest.tag}${release.latest.publishedAt ? ` (${new Date(release.latest.publishedAt).toLocaleDateString()})` : ""} — ${release.updateAvailable ? "newer than the installed version" : "you are up to date"}.`
               : release.error ? `Release check unavailable: ${release.error}` : "No releases have been published yet."}
           </span>
           {release?.latest && <a href={release.latest.url} target="_blank" rel="noreferrer">Release notes</a>}
-          <button className="secondary-button" type="button" onClick={() => void loadRelease(true)}>Check again</button>
+          <button className="secondary-button" type="button" disabled={checkingRelease} onClick={() => void loadRelease(true)}>{checkingRelease ? "Checking…" : "Check again"}</button>
         </div>
         {updating && (
           <div className={updateOutcome === "timeout" ? "auth-error" : "surface-notice"} role="status">
@@ -154,12 +169,12 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
         <header className="panel-header"><div><strong>Time zone</strong><span>Log timestamps, cron schedules, and timers follow the system time zone.</span></div></header>
         <div className="recovery-actions">
           {settings && settings.timezones.length > 0 ? (
-            <select aria-label="Time zone" value={timezone} onChange={(event) => setTimezone(event.target.value)}>
+            <select aria-label="Time zone" value={timezone} onChange={(event) => { edited.current.add("timezone"); setTimezone(event.target.value); }}>
               {settings.timezone && !settings.timezones.includes(settings.timezone) && <option value={settings.timezone}>{settings.timezone}</option>}
               {settings.timezones.map((zone) => <option key={zone} value={zone}>{zone}</option>)}
             </select>
           ) : (
-            <input aria-label="Time zone" value={timezone} onChange={(event) => setTimezone(event.target.value)} placeholder="Europe/Berlin" />
+            <input aria-label="Time zone" value={timezone} onChange={(event) => { edited.current.add("timezone"); setTimezone(event.target.value); }} placeholder="Europe/Berlin" />
           )}
           <button className="primary-button" type="button" disabled={loading || !timezone || timezone === settings?.timezone} onClick={() => start({ operationId: "system.timezone.set", title: `Change time zone to ${timezone}`, parameters: { timezone }, preview: <span><code>timedatectl set-timezone {timezone}</code></span> })}>Change</button>
         </div>
@@ -169,7 +184,7 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
         <section className="panel">
           <header className="panel-header"><div><strong>System language</strong><span>LANG for services and shells. Only locales already generated on this system are offered.</span></div></header>
           <div className="recovery-actions">
-            <select aria-label="System locale" value={locale} onChange={(event) => setLocale(event.target.value)}>
+            <select aria-label="System locale" value={locale} onChange={(event) => { edited.current.add("locale"); setLocale(event.target.value); }}>
               {settings.locale && !settings.locales?.includes(settings.locale) && <option value={settings.locale}>{settings.locale}</option>}
               {settings.locales?.map((entry) => <option key={entry} value={entry}>{entry}</option>)}
             </select>
@@ -181,7 +196,7 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
       <section className="panel">
         <header className="panel-header"><div><strong>Swap and memory pressure</strong><span>Swappiness {settings?.swappiness ?? "—"} today. Lower values keep more in RAM; 10 suits most servers, 60 is the Ubuntu default.</span></div></header>
         <div className="recovery-actions">
-          <input aria-label="Swappiness" inputMode="numeric" value={swappiness} onChange={(event) => setSwappiness(event.target.value)} placeholder="10" />
+          <input aria-label="Swappiness" inputMode="numeric" value={swappiness} onChange={(event) => { edited.current.add("swappiness"); setSwappiness(event.target.value); }} placeholder="10" />
           <button className="primary-button" type="button" disabled={loading || !swappinessValid || swappinessValue === settings?.swappiness} onClick={() => start({ operationId: "system.swappiness.set", title: `Set swappiness to ${swappinessValue}`, parameters: { value: swappinessValue }, preview: <span>Applies now with <code>sysctl</code> and persists in <code>/etc/sysctl.d/99-boxpilot.conf</code>.</span> })}>Apply</button>
         </div>
         {settings && settings.swap.length > 0 && (

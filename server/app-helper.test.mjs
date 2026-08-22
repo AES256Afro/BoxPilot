@@ -381,3 +381,24 @@ describe("dashboard links for an app bound to the server itself", () => {
     expect(services).not.toContain("on the server itself");
   });
 });
+
+describe("inspecting the whole catalog", () => {
+  it("asks Docker only about apps that have a project directory", async () => {
+    const { apps, calls, catalogDirectory } = await setup();
+    // Two more manifests that were never installed, as the real catalog is mostly uninstalled apps.
+    for (const id of ["spare-one", "spare-two"]) {
+      await writeFile(path.join(catalogDirectory, `${id}.yaml`), `schemaVersion: 2\nid: ${id}\nname: ${id}\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n`);
+    }
+    await apps.install({ id: "demo" });
+    calls.length = 0;
+    const result = await apps.inspect({});
+    // Every manifest is still described...
+    expect(result.applications.map((item) => item.id).sort()).toEqual(["demo", "spare-one", "spare-two"]);
+    expect(result.applications.filter((item) => item.installed)).toHaveLength(1);
+    expect(result.applications.find((item) => item.id === "demo")).toMatchObject({ installed: true });
+    // ...but the one docker inspect names only the app that exists, not all 128 catalog ids.
+    const inspects = calls.filter((call) => call.startsWith("inspect "));
+    expect(inspects).toHaveLength(1);
+    expect(inspects[0].split(" ").filter((argument) => argument.startsWith("bp-"))).toEqual(["bp-demo"]);
+  });
+});

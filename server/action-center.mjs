@@ -157,9 +157,14 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
       boundary: boundary(),
     });
 
+    let hostEvidenceMissing = false;
     if (inventory) {
       let hostInventory = null;
       try { hostInventory = await inventory.inspect(); } catch { hostInventory = null; }
+      // Every host-side family below reads from this one collection. When it fails, they all go
+      // quiet — including the notices whose whole job is to refuse an all-clear — so the page said
+      // "recovery evidence available" for a box it had learned nothing about.
+      hostEvidenceMissing = hostInventory === null;
       if (!hostInventory?.storage?.filesystems?.available) {
         notices.push({
           id: "storage.inventory-unavailable",
@@ -358,8 +363,20 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
       boundary: boundary(),
     });
 
+    if (hostEvidenceMissing) {
+      notices.push({
+        id: "host.evidence-unavailable",
+        severity: "warning",
+        category: "Readiness",
+        title: "Nothing could be read from this host",
+        summary: "Disk health, power protection and maintenance evidence were all unavailable, so none of them is being reported either way.",
+        evidence: ["The host inventory collector returned nothing."],
+        recommendation: { view: "overview", title: "Open Overview", steps: ["Refresh the Overview page.", "Check that the BoxPilot helper service is running.", "Read this page again once evidence returns."] },
+        boundary: boundary(),
+      });
+    }
     notices.sort((left, right) => priority[left.severity] - priority[right.severity] || left.id.localeCompare(right.id));
-    return response(notices, now, version, "ready");
+    return response(notices, now, version, hostEvidenceMissing ? "unavailable" : "ready");
   }
 
   return { inspect };

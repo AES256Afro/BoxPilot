@@ -12,6 +12,7 @@ function catalogHelper({ installed = true, backups = [] } = {}) {
     request: vi.fn(async (operation, parameters) => {
       if (operation === "app.inspect") return { applications: [{ id: "uptime-kuma", installed, container: { state: installed ? "running" : "absent" } }] };
       if (operation === "app.backups.inspect") return { id: parameters.id, directory: "/secret/backups/uptime-kuma", backups };
+      if (operation === "app.backups.counts") return { counts: { "uptime-kuma": backups.length } };
       throw new Error(`Unexpected operation ${operation}`);
     }),
   };
@@ -77,7 +78,7 @@ describe("secret-free disaster recovery kit", () => {
     expect(serialized).not.toContain("do-not-export");
     expect(serialized).toContain("repository-safe-reference");
     expect(kit.evidence.controllerBackups).toEqual([expect.objectContaining({ checksumSha256: "e".repeat(64), manifestChecksumSha256: "f".repeat(64), restorePassed: true, schemaVerified: true })]);
-    expect(kit.evidence.applications).toEqual([expect.objectContaining({ id: "uptime-kuma", installed: true, backups: [expect.objectContaining({ artifact: "uptime-kuma-20260816.tar.gz", checksumSha256: "a".repeat(64) })] })]);
+    expect(kit.evidence.applications).toEqual([expect.objectContaining({ id: "uptime-kuma", installed: true, backupCount: 1 })]);
     expect(kit.runbookMarkdown).toContain("Installed catalog applications: 1");
     store.close();
   });

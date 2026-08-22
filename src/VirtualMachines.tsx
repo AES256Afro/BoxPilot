@@ -49,6 +49,11 @@ function availableActions(domain: VirtualDomain) {
   return actions;
 }
 
+// libvirt.mjs marks a domain or snapshot unmanageable when its name is one BoxPilot's operations
+// will refuse; saying so is better than staging a job that fails with a validator string.
+const unmanagedNote = "This VM's name is not one BoxPilot can act on. Manage it with virsh.";
+const unmanagedSnapshotNote = "This snapshot's name is not one BoxPilot can act on. Manage it with virsh.";
+
 export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {} }: { csrfToken?: string; onOpenRepair?: () => void }) {
   const [status, setStatus] = useState<VirtualizationStatus | null>(null);
   const [domainList, setDomainList] = useState<DomainList | null>(null);
@@ -56,6 +61,8 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
   const [foundation, setFoundation] = useState<LibvirtFoundation | null>(null);
   const [consoleGuidance, setConsoleGuidance] = useState<ConsoleGuidance | null>(null);
   const [loading, setLoading] = useState(true);
+  // Which of the page's extra reads failed, so their panels say so instead of showing an empty list.
+  const [unread, setUnread] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -107,21 +114,27 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
         fetchVirtualization(),
         fetchLibvirtFoundation(),
         // These four are extras: if one cannot be read the page still shows the VMs.
-        fetchVmExports().catch(() => null),
-        fetchVmProtection().catch(() => null),
-        fetchVmRecoveries().catch(() => null),
-        fetchVmRetention().catch(() => null),
+        fetchVmExports().then((value) => ({ read: true, value }), () => ({ read: false, value: null })),
+        fetchVmProtection().then((value) => ({ read: true, value }), () => ({ read: false, value: null })),
+        fetchVmRecoveries().then((value) => ({ read: true, value }), () => ({ read: false, value: null })),
+        fetchVmRetention().then((value) => ({ read: true, value }), () => ({ read: false, value: null })),
       ]);
       setStatus(nextStatus);
       setDomainList(nextDomains);
       setResources(nextResources);
       setFoundation(nextFoundation);
       setConsoleGuidance(nextConsoleGuidance);
-      setExports(nextExports ?? []);
-      setProtectionDestination(nextProtection?.destination ?? null);
-      setProtectedBackups(Array.isArray(nextProtection?.backups) ? nextProtection.backups : []);
-      setRecoveries(nextRecoveries ?? []);
-      setRetentionStatus(nextRetention);
+      setExports(nextExports.value ?? []);
+      setProtectionDestination(nextProtection.value?.destination ?? null);
+      setProtectedBackups(Array.isArray(nextProtection.value?.backups) ? nextProtection.value.backups : []);
+      setRecoveries(nextRecoveries.value ?? []);
+      setRetentionStatus(nextRetention.value);
+      setUnread([
+        ...(nextExports.read ? [] : ["exports"]),
+        ...(nextProtection.read ? [] : ["the encrypted destination"]),
+        ...(nextRecoveries.read ? [] : ["recoveries"]),
+        ...(nextRetention.read ? [] : ["retention"]),
+      ]);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to load virtualization status");
     } finally {
@@ -327,8 +340,8 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
                     ))}
                     {domain.state === "stopped" && <button type="button" className="text-button" disabled={pending !== null || !domain.managed || !domain.persistent} onClick={() => openSnapshotPlanner(domain)}>Plan snapshot</button>}
                     {domain.state === "stopped" && <button type="button" className="text-button" disabled={pending !== null || !domain.managed || !domain.persistent} onClick={() => startExport(domain)}>Export</button>}
-                    {domain.state === "running" && <button type="button" className="text-button" disabled={pending !== null} onClick={() => startOperation({ operationId: "vm.force-off", title: `Force off ${domain.name}`, parameters: { name: domain.name }, preview: <span>Pulls the virtual power plug with <code>virsh destroy</code>. Unsaved data inside the guest is lost; start the VM again afterwards.</span> })}>Force off</button>}
-                    {domain.state === "stopped" && <button type="button" className="text-button" disabled={pending !== null} onClick={() => startOperation({ operationId: "vm.delete", title: `Delete ${domain.name}`, parameters: { name: domain.name, deleteStorage: true }, preview: <span>Removes the VM definition and deletes its disks. Independent restic backups are kept. This cannot be undone from here.</span> })}>Delete VM</button>}
+                    {domain.state === "running" && <button type="button" className="text-button" disabled={pending !== null || !domain.managed} title={domain.managed ? undefined : unmanagedNote} onClick={() => startOperation({ operationId: "vm.force-off", title: `Force off ${domain.name}`, parameters: { name: domain.name }, preview: <span>Pulls the virtual power plug with <code>virsh destroy</code>. Unsaved data inside the guest is lost; start the VM again afterwards.</span> })}>Force off</button>}
+                    {domain.state === "stopped" && <button type="button" className="text-button" disabled={pending !== null || !domain.managed} title={domain.managed ? undefined : unmanagedNote} onClick={() => startOperation({ operationId: "vm.delete", title: `Delete ${domain.name}`, parameters: { name: domain.name, deleteStorage: true }, preview: <span>Removes the VM definition and deletes its disks. Independent restic backups are kept. This cannot be undone from here.</span> })}>Delete VM</button>}
                   </div>
                   <details className="vm-domain-details">
                     <summary>Disks, network, and snapshots</summary>
@@ -338,8 +351,8 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
                       <div><strong>Snapshots</strong><span>{domain.snapshotCount === null ? "Unavailable" : `${domain.snapshotCount} reported | not independent backups`}</span>{domain.snapshots.map((snapshot) => (
                         <span key={snapshot.name}>
                           <code>{snapshot.name}</code>{snapshot.current ? "current" : snapshot.state ?? "state unavailable"} | {snapshot.location ?? "location unavailable"}
-                          {domain.state === "stopped" && <button type="button" className="text-button" disabled={pending !== null} onClick={() => startOperation({ operationId: "vm.snapshot.revert", title: `Revert ${domain.name} to ${snapshot.name}`, parameters: { name: domain.name, snapshotName: snapshot.name }, preview: <span>Discards everything changed since <code>{snapshot.name}</code> and leaves the VM off.</span> })}>Revert</button>}
-                          <button type="button" className="text-button" disabled={pending !== null} onClick={() => startOperation({ operationId: "vm.snapshot.delete", title: `Delete snapshot ${snapshot.name}`, parameters: { name: domain.name, snapshotName: snapshot.name }, preview: <span>Deletes the snapshot and merges its state into the disk. The VM itself is unchanged.</span> })}>Delete</button>
+                          {domain.state === "stopped" && <button type="button" className="text-button" disabled={pending !== null || snapshot.manageable === false} title={snapshot.manageable === false ? unmanagedSnapshotNote : undefined} onClick={() => startOperation({ operationId: "vm.snapshot.revert", title: `Revert ${domain.name} to ${snapshot.name}`, parameters: { name: domain.name, snapshotName: snapshot.name }, preview: <span>Discards everything changed since <code>{snapshot.name}</code> and leaves the VM off.</span> })}>Revert</button>}
+                          <button type="button" className="text-button" disabled={pending !== null || snapshot.manageable === false} title={snapshot.manageable === false ? unmanagedSnapshotNote : undefined} onClick={() => startOperation({ operationId: "vm.snapshot.delete", title: `Delete snapshot ${snapshot.name}`, parameters: { name: domain.name, snapshotName: snapshot.name }, preview: <span>Deletes the snapshot and merges its state into the disk. The VM itself is unchanged.</span> })}>Delete</button>
                         </span>
                       ))}</div>
                     </div>
@@ -399,19 +412,23 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       </section>
 
       <section className="panel vm-resources-panel">
-        <header className="panel-header"><div><strong>VM integrity exports</strong><span>Local artifacts, not protected backups</span></div><span className="status-pill status-warning">Protection pending</span></header>
+        <header className="panel-header"><div><strong>VM integrity exports</strong><span>Local artifacts, not protected backups</span></div><span className={`status-pill ${protectedBackups.length ? "status-good" : "status-warning"}`}>{protectedBackups.length ? `${protectedBackups.length} protected` : "Protection pending"}</span></header>
+        {unread.length > 0 && <div className="vm-plan-warnings"><strong>Not everything on this page could be read</strong><span>BoxPilot could not read {unread.join(", ")} just now, so what is shown for those is not a complete picture. Refresh in a moment.</span></div>}
         <div className="vm-control-lock">
           <div><strong>Encrypted independent destination</strong><span>{protectionDestination?.ready ? `Ready with restic ${protectionDestination.resticVersion ?? "detected"} on ${protectionDestination.mount?.sourceType ?? "mounted storage"}` : "Setup is required before local exports can move toward protection"}</span></div>
           <span className={`status-pill status-${protectionDestination?.ready ? "good" : "warning"}`}>{protectionDestination?.ready ? "ready" : "setup required"}</span>
         </div>
         <div className="vm-control-lock">
-          <div><strong>Guarded retention</strong><span>Keep at least {retentionStatus?.policy?.minimumCopiesPerDomain ?? 3} copies per VM and every copy under {retentionStatus?.policy?.minimumAgeDays ?? 30} days. Only restore-tested, unreferenced snapshots can qualify.</span></div>
+          <div><strong>Guarded retention</strong><span>{retentionStatus ? `Keep at least ${retentionStatus.policy?.minimumCopiesPerDomain ?? 3} copies per VM and every copy under ${retentionStatus.policy?.minimumAgeDays ?? 30} days. Only restore-tested, unreferenced snapshots can qualify.` : "The retention policy could not be read just now."}</span></div>
           <button type="button" className="secondary-button" onClick={() => startRetention()} disabled={pending !== null || !protectionDestination?.ready || (retentionStatus?.candidates?.length ?? 0) === 0}>Apply retention</button>
         </div>
         {retentionStatus && <div className="vm-plan-warnings"><strong>Retention status</strong><span>{retentionStatus.candidates?.length ?? 0} currently eligible | {retentionStatus.beforeCount ?? 0} repository snapshot(s) | {retentionStatus.retentionRuns?.length ?? 0} completed run(s)</span>{retentionStatus.blockers?.map((blocker) => <span key={blocker}>{blocker}</span>)}<span>Prune is disabled, so retention does not claim reclaimed disk space.</span></div>}
         {!protectionDestination?.ready && protectionDestination && <div className="vm-plan-warnings"><strong>Destination blockers</strong>{protectionDestination.blockers.map((blocker) => <span key={blocker}>{blocker}</span>)}<span>Run from the server terminal: <code>{protectionDestination.setupCommand}</code></span><span>Keep a recovery copy of the repository password outside this server.</span></div>}
         {exports.length === 0 ? (
-          <div className="vm-empty"><strong>No VM exports recorded</strong><p>Stop a managed persistent VM, then generate a reviewed export plan. Encryption, an independent destination, and an isolated restore boot are still required before BoxPilot will call it protected.</p></div>
+          <div className="vm-empty">
+            <strong>{unread.includes("exports") ? "Exports could not be read" : "No VM exports recorded"}</strong>
+            <p>{unread.includes("exports") ? "This list is not empty — BoxPilot could not read it just now. Refresh in a moment." : "Stop a managed persistent VM, then generate a reviewed export plan. Encryption, an independent destination, and an isolated restore boot are still required before BoxPilot will call it protected."}</p>
+          </div>
         ) : (
           <div className="vm-resource-grid">
             {exports.map((artifact) => (

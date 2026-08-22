@@ -15,13 +15,13 @@ describe("tailnet addressing", () => {
     expect(isTailnetAddress("100.67.166.48")).toBe(true);
     expect(isTailnetAddress("::ffff:100.101.1.1")).toBe(true);
     expect(isTailnetAddress("fd7a:115c:a1e0::1")).toBe(true);
-    expect(isTailnetAddress("192.168.8.10")).toBe(false);
+    expect(isTailnetAddress("192.168.1.10")).toBe(false);
     expect(isTailnetAddress("100.200.1.1")).toBe(false);
     expect(tailnetClientAddress(req("100.67.166.48"))).toBe("100.67.166.48");
     expect(tailnetClientAddress(req("127.0.0.1", { "x-forwarded-for": "100.67.166.49" }))).toBe("100.67.166.49");
-    expect(tailnetClientAddress(req("192.168.8.20", { "x-forwarded-for": "100.67.166.49" }))).toBeNull();
+    expect(tailnetClientAddress(req("192.168.1.20", { "x-forwarded-for": "100.67.166.49" }))).toBeNull();
     expect(tailnetClientAddress(req("127.0.0.1", { "x-forwarded-for": "203.0.113.5" }))).toBeNull();
-    expect(tailnetClientAddress(req("192.168.8.20"))).toBeNull();
+    expect(tailnetClientAddress(req("192.168.1.20"))).toBeNull();
   });
 });
 
@@ -31,7 +31,7 @@ describe("identity service", () => {
     const owner = state.consumeBootstrapToken(state.createBootstrapToken().token, { username: "admin", passwordHash: "x" });
     const run = vi.fn(async (_binary, args) => args[0] === "whois" && args[2] === "100.67.166.49" ? { ok: true, stdout: JSON.stringify({ Node: { Name: "laptop.tail.ts.net." }, UserProfile: { LoginName: "me@example.com", DisplayName: "Me" } }), stderr: "" } : { ok: false, stdout: "", stderr: "no match" });
     const identity = createIdentityService({ store: state, run, now: () => 1000 });
-    expect(await identity.tailscaleIdentity(req("192.168.8.20"))).toMatchObject({ available: false, reason: "not-tailnet" });
+    expect(await identity.tailscaleIdentity(req("192.168.1.20"))).toMatchObject({ available: false, reason: "not-tailnet" });
     expect(await identity.tailscaleIdentity(req("100.67.166.50"))).toMatchObject({ available: false, reason: "whois-unavailable" });
     const me = await identity.tailscaleIdentity(req("127.0.0.1", { "x-forwarded-for": "100.67.166.49" }));
     expect(me).toMatchObject({ available: true, login: "me@example.com", displayName: "Me", node: "laptop.tail.ts.net", linked: false });

@@ -10,8 +10,8 @@ import { inspectOperation, type Job } from "./operations";
 
 interface AppSummary { id: string; name: string; running: boolean; installed: boolean; health: string; updateAvailable: boolean; url: string | null }
 interface Tile { updates: number | null; security: number; rebootRequired: boolean }
-interface ChecklistItem { id: string; title: string; detail: string; done: boolean; optional: boolean; view: ViewName }
-interface Checklist { items: ChecklistItem[]; done: number; total: number; allEssentialDone: boolean }
+interface ChecklistItem { id: string; title: string; detail: string; done: boolean; known?: boolean; optional: boolean; view: ViewName }
+interface Checklist { items: ChecklistItem[]; done: number; total: number; allEssentialDone: boolean; unknown?: number }
 
 const jobTone: Record<string, string> = { completed: "status-good", failed: "status-danger", applying: "status-warning", verifying: "status-warning" };
 
@@ -131,7 +131,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
         </button>
         <button type="button" className="panel metric-link" onClick={() => onNavigate("services")}>
           <span className="eyebrow">Services</span><strong>{failedServices === null ? "—" : failedServices === 0 ? "Healthy" : failedServices}</strong>
-          <span>{failedServices ? "failed units need attention" : "no failed units"}</span>
+          <span>{failedServices === null ? "could not be read" : failedServices ? "failed units need attention" : "no failed units"}</span>
         </button>
         <button type="button" className="panel metric-link" onClick={() => onNavigate("catalog")}>
           <span className="eyebrow">Apps</span><strong>{apps ? `${apps.filter((app) => app.running).length}/${apps.length}` : "—"}</strong>
@@ -150,15 +150,18 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
       {checklist && (
         <section className="panel checklist">
           <header className="panel-header">
-            <div><strong>Set up your server</strong><span>{checklist.allEssentialDone ? `All ${checklist.total} essentials are in place.` : `${checklist.done} of ${checklist.total} essentials done. Each one is a few clicks; BoxPilot explains what it does before it runs.`}</span></div>
+            <div><strong>Set up your server</strong><span>{checklist.allEssentialDone ? `All ${checklist.total} essentials are in place.` : `${checklist.done} of ${checklist.total} essentials done${checklist.unknown ? `, ${checklist.unknown} could not be checked` : ""}. Each one is a few clicks; BoxPilot explains what it does before it runs.`}</span></div>
             <span className={`status-pill ${checklist.allEssentialDone ? "status-good" : "status-neutral"}`}>{checklist.done}/{checklist.total}</span>
           </header>
           <ul className="checklist-items">
             {checklist.items.filter((item) => !item.done || !checklist.allEssentialDone).map((item) => (
               <li key={item.id} className={item.done ? "done" : ""}>
-                <span className="checklist-mark" aria-hidden="true">{item.done ? "✓" : "○"}</span>
-                <div><strong>{item.title}{item.optional && !item.done ? <span className="muted"> (optional)</span> : null}</strong><span className="muted">{item.detail}</span></div>
-                {!item.done && <button type="button" className="secondary-button" onClick={() => onNavigate(item.view)}>Open</button>}
+                <span className="checklist-mark" aria-hidden="true">{item.done ? "✓" : item.known === false ? "?" : "○"}</span>
+                <div>
+                  <strong>{item.title}{item.optional && !item.done ? <span className="muted"> (optional)</span> : null}</strong>
+                  <span className="muted">{item.known === false ? "BoxPilot could not check this just now." : item.detail}</span>
+                </div>
+                {!item.done && item.known !== false && <button type="button" className="secondary-button" onClick={() => onNavigate(item.view)}>Open</button>}
               </li>
             ))}
           </ul>

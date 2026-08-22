@@ -15,7 +15,7 @@ describe("sanitized host inventory", () => {
       runCommand,
       readOsRelease: vi.fn(async () => 'PRETTY_NAME="Ubuntu 26.04 LTS"\n'),
       getFilesystem: vi.fn(async () => ({ blocks: 1000, bavail: 250, bsize: 4096 })),
-      getNetworkInterfaces: vi.fn(() => ({ eth0: [{ internal: false, family: "IPv4", address: "192.168.8.10", cidr: "192.168.8.10/24" }] })),
+      getNetworkInterfaces: vi.fn(() => ({ eth0: [{ internal: false, family: "IPv4", address: "192.168.1.10", cidr: "192.168.1.10/24" }] })),
       maintenance: { inspect: vi.fn(async () => ({ system: { state: "running", failedServiceCount: 0 }, reboot: { required: false }, packageManager: { state: "ready" } })) },
       ups: { inspect: vi.fn(async () => ({ installed: true, configured: true, available: true, state: "online", reason: "ok" })) },
       readStorageHealth: vi.fn(async () => JSON.stringify({ schemaVersion: 1, generatedAt: new Date().toISOString(), available: true, reason: "fixed-root-scan", disks: [{ device: "/dev/nvme0n1", health: "healthy", passed: true, reason: "ok" }] })),

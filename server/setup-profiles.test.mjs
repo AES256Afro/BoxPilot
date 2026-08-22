@@ -43,7 +43,7 @@ describe("first-run setup profiles", () => {
     const virt = hypervisor.steps.find((step) => step.id === "prerequisite-virtualization");
     expect(virt).toMatchObject({ status: "ready", job: { operationId: "prerequisite.virtualization.install", parameters: { expectedPackages: { virtinst: "1" } } } });
     expect(hypervisor.steps.find((step) => step.id === "vm-foundation")).toMatchObject({ status: "ready", job: { operationId: "vm.foundation.initialize" } });
-    expect(hypervisor.steps.find((step) => step.id === "prerequisite-smartmontools")).toMatchObject({ status: "blocked", detail: "No candidate" });
+    expect(hypervisor.steps.find((step) => step.id === "prerequisite-smartmontools")).toMatchObject({ status: "blocked", detail: expect.stringContaining("package lists") });
     expect(hypervisor.blocked).toBe(1);
   });
 
@@ -53,5 +53,18 @@ describe("first-run setup profiles", () => {
     const result = await setup.describe();
     expect(result.firstRun).toBe(true);
     expect(result.profiles.find((profile) => profile.id === "essentials").steps.find((step) => step.id === "prerequisite-docker")).toMatchObject({ status: "unknown" });
+  });
+});
+
+describe("why a step is blocked", () => {
+  it("names the real reason instead of blaming the package lists", () => {
+    const service = createSetupService({ helper: { request: async () => ({}) }, scheduler: { list: () => [] } });
+    const step = { id: "prerequisite-docker", kind: "prerequisite", name: "docker", title: "Install Docker" };
+    // Installed but not running: the candidate is configured, so "no candidate" was simply wrong.
+    const stopped = service.resolveStep(step, { prerequisites: { docker: { installed: false, providerPresent: true, candidateVersion: "27.5.1", repairAvailable: false } } });
+    expect(stopped).toMatchObject({ status: "blocked", detail: expect.stringContaining("service is not running") });
+    // Genuinely no candidate.
+    const noCandidate = service.resolveStep(step, { prerequisites: { docker: { installed: false, providerPresent: false, candidateVersion: null, repairAvailable: false } } });
+    expect(noCandidate.detail).toContain("package lists");
   });
 });

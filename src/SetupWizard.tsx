@@ -73,13 +73,38 @@ export default function SetupWizard({ csrfToken, onDone }: { csrfToken: string; 
     }
   }
 
+  /** The profile as the server sees it right now, so a later step is judged on the state the
+   * earlier ones left behind — not on the snapshot taken when the page opened. Installing KVM makes
+   * the libvirt step go from blocked to ready, and the wizard used to skip it and say "All done". */
+  async function currentProfile(id: string): Promise<Profile | null> {
+    try {
+      const response = await fetch("/api/v1/setup");
+      if (!response.ok) return null;
+      const fresh = (await response.json()) as SetupState;
+      setSetup(fresh);
+      return fresh.profiles.find((entry) => entry.id === id) ?? null;
+    } catch { return null; }
+  }
+
   async function run(from: Profile) {
     setPhase("running");
     setNeedPassword(false);
-    for (const step of from.steps) {
-      if (step.status !== "ready" || skipped.current.has(step.id) || progress[step.id]?.state === "done") continue;
+    let plan = from;
+    for (let index = 0; index < plan.steps.length; index += 1) {
+      const step = plan.steps[index];
+      if (skipped.current.has(step.id) || progress[step.id]?.state === "done") continue;
+      if (step.status === "done") continue;
+      if (step.status !== "ready") {
+        // Blocked or unknown: ask the server again before writing it off, since the step before
+        // this one may have just unblocked it.
+        const refreshed = await currentProfile(plan.id);
+        const now = refreshed?.steps.find((entry) => entry.id === step.id) ?? null;
+        if (refreshed) plan = refreshed;
+        if (!now || now.status !== "ready") { mark(step.id, { state: "skipped" }); continue; }
+        plan.steps[index] = now;
+      }
       mark(step.id, { state: "running" });
-      const outcome = await runStep(step);
+      const outcome = await runStep(plan.steps[index]);
       if (outcome === "password") { mark(step.id, { state: "pending" }); setNeedPassword(true); setPhase("paused"); return; }
       if (outcome === "failed") { setPhase("paused"); return; }
       mark(step.id, { state: "done" });

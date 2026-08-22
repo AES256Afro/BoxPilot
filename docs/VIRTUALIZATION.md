@@ -335,7 +335,7 @@ One run accepts no more than 100 exact candidates. Additional candidates are def
 
 ## 12. Choose VM networking deliberately
 
-Start with libvirt's default NAT network. Guests receive an address such as `192.168.122.x`, can reach the internet, and remain separated from the main `192.168.8.x` LAN.
+Start with libvirt's default NAT network. Guests receive an address such as `192.168.122.x`, can reach the internet, and remain separated from the main `192.168.1.x` LAN.
 
 To reach a guest application remotely, use one of these approaches:
 
