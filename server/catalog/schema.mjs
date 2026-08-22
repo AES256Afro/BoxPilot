@@ -280,6 +280,9 @@ export function resolveValues(manifest, raw = {}) {
     if (entry.type === "timezone" && !/^[A-Za-z_]+(?:\/[A-Za-z0-9_+-]+){0,2}$/.test(value)) { fail(errors, `values.env.${entry.name}`, "must look like Region/City"); continue; }
     if (entry.type === "path" && !/^\/[^\0]*$/.test(value)) { fail(errors, `values.env.${entry.name}`, "must be an absolute path"); continue; }
     if (entry.options && !entry.options.includes(value)) { fail(errors, `values.env.${entry.name}`, `must be one of ${entry.options.join(", ")}`); continue; }
+    // A secret is stored single-quoted in the app's .env, where a closing backslash would escape
+    // the quote that ends the value. Every other character survives that form intact.
+    if (entry.secret && value.endsWith("\\")) { fail(errors, `values.env.${entry.name}`, "cannot end with a backslash"); continue; }
     env[entry.name] = value;
   }
 

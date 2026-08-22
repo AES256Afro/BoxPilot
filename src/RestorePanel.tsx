@@ -4,7 +4,7 @@ import { inspectOperation } from "./operations";
 
 interface SnapshotEntry { artifact: string; sizeBytes: number | null; createdAt: string | null; checksumSha256: string | null; apps: number | null }
 interface Sources { sources: Array<{ source: "local" | "mirror"; root: string; available: boolean; snapshots: SnapshotEntry[] }>; mount: { mounted: boolean; blocker: string | null } }
-interface Described { source: string; artifact: string; createdAt: string | null; apps: Array<{ id: string; installed: boolean; newestBackup: string | null; dataAvailable: boolean; dataLocation: string | null }>; system: { netplanFiles?: number; ufwFiles?: number; fstab?: boolean } | null; vms: { domains: string[] } | null }
+interface Described { source: string; artifact: string; createdAt: string | null; apps: Array<{ id: string; installed: boolean; newestBackup: string | null; dataAvailable: boolean; dataLocation: string | null }>; system: { netplanFiles?: number; ufwFiles?: number; fstab?: boolean } | null; vms: { domains: string[]; disksIncluded?: boolean; diskRepositoryReachable?: boolean } | null }
 
 function formatBytes(value: number | null) {
   if (!value) return "—";
@@ -86,6 +86,9 @@ export default function RestorePanel({ csrfToken, start }: { csrfToken: string; 
             </div>
             <label className="cloud-vm-check"><input type="checkbox" checked={restoreData} onChange={(event) => setRestoreData(event.target.checked)} /> Restore each app's newest data archive after installing it</label>
             <p className="muted">Network, firewall, fstab, VM definitions{described.vms?.domains?.length ? ` (${described.vms.domains.join(", ")})` : ""}, and the database copy are staged under the snapshot folder for you to review — they are never applied automatically.</p>
+            {described.vms?.domains?.length ? (
+              <p className="muted">A snapshot holds VM definitions, not their disks. Those come from the encrypted VM repository, which is {described.vms.diskRepositoryReachable ? "reachable now" : "not reachable right now — mount the backup drive before restoring a VM"}.</p>
+            ) : null}
             <footer className="recovery-actions">
               <button className="primary-button" type="button" disabled={!chosen || selected.size === 0} onClick={() => chosen && start({ operationId: "host.snapshot.restore", title: `Restore ${selected.size} app${selected.size === 1 ? "" : "s"} from snapshot`, parameters: { source: chosen.source, artifact: chosen.snapshot.artifact, apps: [...selected], restoreData }, preview: <span>Reinstalls {[...selected].join(", ")} from <code>{chosen.snapshot.artifact}</code>{restoreData ? " and restores each one's newest data archive (a safety copy of any existing data is taken first)" : " without touching data"}. Apps already installed on this box are skipped.</span> })}>Restore selected</button>
             </footer>

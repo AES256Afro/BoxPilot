@@ -143,3 +143,44 @@ describe("machine snapshot helper", () => {
     expect(inspection.sync.mount).toMatchObject({ mounted: false, independentFilesystem: false });
   });
 });
+
+describe("restoring from a machine snapshot", () => {
+  /** A stand-in deployer that keeps the app's state file the way the real one does. */
+  function deployer(paths, calls = { install: 0, restoreData: 0 }) {
+    const stateFile = path.join(paths.catalogRoot, "uptime-kuma", "boxpilot.json");
+    return {
+      calls,
+      internals: { readState: async (id) => JSON.parse(await readFile(path.join(paths.catalogRoot, id, "boxpilot.json"), "utf8")).id ? JSON.parse(await readFile(path.join(paths.catalogRoot, id, "boxpilot.json"), "utf8")) : null },
+      install: async () => { calls.install += 1; await writeFile(stateFile, JSON.stringify({ id: "uptime-kuma", installed: true })); },
+      restoreAppBackup: async () => { calls.restoreData += 1; },
+    };
+  }
+
+  it("refuses an archive whose checksum file is missing, before touching anything", async () => {
+    const { helper, paths } = await fixture();
+    const created = await helper.create({ snapshotId });
+    await rm(`${created.artifactPath}.meta.json`);
+    await writeFile(path.join(paths.catalogRoot, "uptime-kuma", "boxpilot.json"), JSON.stringify({ id: "uptime-kuma", installed: false }));
+    const apps = deployer(paths);
+    await expect(helper.restore({ source: "local", artifact: created.artifact }, { apps })).rejects.toThrow(/cannot be verified/);
+    expect(apps.calls.install).toBe(0);
+  });
+
+  it("picks up where an interrupted restore stopped instead of starting over", async () => {
+    const { helper, paths } = await fixture();
+    const created = await helper.create({ snapshotId });
+    const stateFile = path.join(paths.catalogRoot, "uptime-kuma", "boxpilot.json");
+    // The app was installed by an earlier run of this same restore, which stopped before its data.
+    await writeFile(stateFile, JSON.stringify({ id: "uptime-kuma", installed: true, restoredFrom: created.artifact }));
+    const apps = deployer(paths);
+    const first = await helper.restore({ source: "local", artifact: created.artifact }, { apps });
+    expect(first.apps[0]).toMatchObject({ id: "uptime-kuma", installed: true, alreadyRestored: true, dataRestored: true, error: null });
+    expect(apps.calls).toEqual({ install: 0, restoreData: 1 }); // installed once already; only the data was outstanding
+    expect(JSON.parse(await readFile(stateFile, "utf8")).restoredDataFrom).toBe("20260816T030000Z.tar.gz");
+
+    // Running it a third time is a no-op rather than a second data restore.
+    const again = await helper.restore({ source: "local", artifact: created.artifact }, { apps });
+    expect(again.apps[0]).toMatchObject({ installed: true, alreadyRestored: true, dataRestored: true });
+    expect(apps.calls).toEqual({ install: 0, restoreData: 1 });
+  });
+});

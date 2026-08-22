@@ -30,6 +30,14 @@ function sha256File(filePath) {
   });
 }
 
+/** Record how far a restore got in the app's own state file, without disturbing the rest of it. */
+async function stamp(appDirectory, fields) {
+  const file = path.join(appDirectory, "boxpilot.json");
+  const state = await readFile(file, "utf8").then(JSON.parse).catch(() => ({}));
+  await writeFile(`${file}.tmp`, `${JSON.stringify({ ...state, ...fields }, null, 2)}\n`, { mode: 0o600 });
+  await rename(`${file}.tmp`, file);
+}
+
 async function copyIfExists(source, target) {
   try {
     await stat(source);
@@ -309,7 +317,7 @@ export function createMachineSnapshotHelper({
   }
 
   async function readManifestFromArchive(artifactPath) {
-    const result = await run(tarBinary, ["-xzf", artifactPath, "-O", "./manifest.json"], { timeout: 10 * 60_000, maxBuffer: 16 * 1024 * 1024 });
+    const result = await run(tarBinary, ["-xzf", artifactPath, "--no-same-owner", "--no-same-permissions", "-O", "./manifest.json"], { timeout: 10 * 60_000, maxBuffer: 16 * 1024 * 1024 });
     if (!result.ok) throw new Error(`Could not read the snapshot manifest: ${result.stderr.split("\n").slice(-2).join(" ")}`);
     try { return JSON.parse(result.stdout); } catch { throw new Error("The snapshot manifest is not valid JSON"); }
   }
@@ -334,13 +342,18 @@ export function createMachineSnapshotHelper({
     const manifest = await readManifestFromArchive(artifactPath);
     const apps = [];
     for (const app of manifest.contents?.apps ?? []) {
-      const listing = await run(tarBinary, ["-xzf", artifactPath, "-O", `./apps/${app.id}/backups.json`], { timeout: 5 * 60_000, maxBuffer: 4 * 1024 * 1024 }).catch(() => ({ ok: false }));
+      const listing = await run(tarBinary, ["-xzf", artifactPath, "--no-same-owner", "--no-same-permissions", "-O", `./apps/${app.id}/backups.json`], { timeout: 5 * 60_000, maxBuffer: 4 * 1024 * 1024 }).catch(() => ({ ok: false }));
       let newest = null;
       if (listing.ok) { try { newest = JSON.parse(listing.stdout).backups?.[0]?.artifact ?? null; } catch { newest = null; } }
       const located = newest ? await locateAppArchive(app.id, newest) : null;
       apps.push({ id: app.id, installed: app.installed, projectFiles: app.projectFiles, newestBackup: newest, dataAvailable: Boolean(located), dataLocation: located?.location ?? null });
     }
-    return { source, artifact, createdAt: manifest.createdAt ?? meta?.createdAt ?? null, checksumSha256: meta?.checksumSha256 ?? null, apps, system: manifest.contents?.system ?? null, vms: manifest.contents?.vms ?? null, containsSecrets: true };
+    // A snapshot carries VM definitions, never their disks: those live in the encrypted VM
+    // repository, so say whether it is reachable rather than implying the VMs are inside.
+    const archivedVms = manifest.contents?.vms ?? null;
+    const diskRepository = path.join(resolvedMountRoot, "restic-vm");
+    const vms = archivedVms && { ...archivedVms, disksIncluded: false, diskRepository, diskRepositoryReachable: await stat(diskRepository).then((info) => info.isDirectory()).catch(() => false) };
+    return { source, artifact, createdAt: manifest.createdAt ?? meta?.createdAt ?? null, checksumSha256: meta?.checksumSha256 ?? null, apps, system: manifest.contents?.system ?? null, vms: vms ?? null, containsSecrets: true };
   }
 
   /**
@@ -353,16 +366,17 @@ export function createMachineSnapshotHelper({
     const { artifactPath, metaPath } = resolveArtifact(source, artifact);
     await stat(artifactPath).catch(() => { throw new Error(`Snapshot ${artifact} was not found in the ${source} source`); });
     const meta = await readFile(metaPath, "utf8").then(JSON.parse).catch(() => null);
-    if (meta?.checksumSha256) {
-      progress?.("Verifying the snapshot checksum...", "stdout");
-      if ((await sha256File(artifactPath)) !== meta.checksumSha256) throw new Error("The snapshot failed its checksum; it may be damaged. Nothing was changed.");
-    }
+    if (!meta?.checksumSha256) throw new Error(`${artifact}.meta.json is missing its checksum, so this archive cannot be verified. Copy the .meta.json file next to the archive and try again. Nothing was changed.`);
+    progress?.("Verifying the snapshot checksum...", "stdout");
+    if ((await sha256File(artifactPath)) !== meta.checksumSha256) throw new Error("The snapshot failed its checksum; it may be damaged. Nothing was changed.");
     const staging = path.join(resolvedSnapshotRoot, `.restore-${randomUUID()}`);
     await mkdir(staging, { recursive: true, mode: 0o700 });
     const summary = { source, artifact, apps: [], system: null, vms: [], controllerBackupStaged: null };
     try {
       progress?.(`$ tar -xzf ${artifact}`, "stdout");
-      const extract = await run(tarBinary, ["-xzf", artifactPath, "-C", staging], { timeout: 30 * 60_000 });
+      // As root, tar would otherwise reproduce whatever owner, mode and set-user-id bits the archive
+      // names — including a set-user-id root binary put there by whoever last held the file.
+      const extract = await run(tarBinary, ["-xzf", artifactPath, "--no-same-owner", "--no-same-permissions", "-C", staging], { timeout: 30 * 60_000 });
       if (!extract.ok) throw new Error(`Could not extract the snapshot: ${extract.stderr.split("\n").slice(-2).join(" ")}`);
       const manifest = JSON.parse(await readFile(path.join(staging, "manifest.json"), "utf8"));
       progress?.("Verifying file inventory...", "stdout");
@@ -372,21 +386,36 @@ export function createMachineSnapshotHelper({
       }
       const wanted = (manifest.contents?.apps ?? []).filter((app) => selected === "all" ? app.installed : Array.isArray(selected) && selected.includes(app.id));
       for (const app of wanted) {
-        const entry = { id: app.id, installed: false, dataRestored: false, error: null };
+        const entry = { id: app.id, installed: false, dataRestored: false, alreadyRestored: false, error: null };
         summary.apps.push(entry);
         try {
           const stateRaw = await readFile(path.join(staging, "apps", app.id, "boxpilot.json"), "utf8").catch(() => null);
           const archivedState = stateRaw ? JSON.parse(stateRaw) : null;
           const live = await appHelper.internals.readState(app.id);
-          if (live?.installed) throw new Error("already installed on this box; uninstall it first if you want the snapshot's version");
-          progress?.(`[${app.id}] restoring project files`, "stdout");
           const target = path.join(catalogRoot, app.id);
-          await mkdir(target, { recursive: true, mode: 0o700 });
-          for (const file of [".env"]) await copyIfExists(path.join(staging, "apps", app.id, file), path.join(target, file));
-          await writeFile(path.join(target, "boxpilot.json"), JSON.stringify({ ...(archivedState ?? { id: app.id }), installed: false, restoredFrom: artifact }, null, 2), { mode: 0o600 });
-          progress?.(`[${app.id}] installing with the archived settings`, "stdout");
-          await appHelper.install({ id: app.id, values: archivedState?.values ?? {} }, { progress });
-          entry.installed = true;
+          // Each app is stamped as it completes, so a restore interrupted half way through can be
+          // run again: what finished is left alone and what did not is picked up where it stopped.
+          const alreadyInstalled = live?.installed === true && live.restoredFrom === artifact;
+          if (live?.installed && !alreadyInstalled) throw new Error("already installed on this box; uninstall it first if you want the snapshot's version");
+          if (alreadyInstalled) {
+            entry.installed = true;
+            entry.alreadyRestored = true;
+            progress?.(`[${app.id}] already installed from this snapshot`, "stdout");
+          } else {
+            progress?.(`[${app.id}] restoring project files`, "stdout");
+            await mkdir(target, { recursive: true, mode: 0o700 });
+            for (const file of [".env"]) await copyIfExists(path.join(staging, "apps", app.id, file), path.join(target, file));
+            await writeFile(path.join(target, "boxpilot.json"), JSON.stringify({ ...(archivedState ?? { id: app.id }), installed: false, restoredFrom: artifact }, null, 2), { mode: 0o600 });
+            progress?.(`[${app.id}] installing with the archived settings`, "stdout");
+            await appHelper.install({ id: app.id, values: archivedState?.values ?? {} }, { progress });
+            await stamp(target, { restoredFrom: artifact });
+            entry.installed = true;
+          }
+          if (live?.restoredDataFrom && alreadyInstalled) {
+            entry.dataRestored = true;
+            progress?.(`[${app.id}] data already restored from ${live.restoredDataFrom}`, "stdout");
+            continue;
+          }
           if (restoreData) {
             const listing = await readFile(path.join(staging, "apps", app.id, "backups.json"), "utf8").then(JSON.parse).catch(() => null);
             const newest = listing?.backups?.[0]?.artifact ?? null;
@@ -401,6 +430,7 @@ export function createMachineSnapshotHelper({
               }
               progress?.(`[${app.id}] restoring data from ${newest}`, "stdout");
               await appHelper.restoreAppBackup({ id: app.id, backup: newest }, { progress });
+              await stamp(target, { restoredFrom: artifact, restoredDataFrom: newest });
               entry.dataRestored = true;
             }
           }

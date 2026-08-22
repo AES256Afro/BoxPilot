@@ -27,6 +27,9 @@ function serviceGroupId() {
   } catch { return null; }
 }
 
+/** Longest a task may ask for: the unit's TimeoutStartSec, less a minute for systemd to stop it cleanly. */
+export const maxTaskTimeoutMs = 12 * 60 * 60 * 1000 - 60_000;
+
 export function parseSpec(raw, now = new Date()) {
   let value;
   try { value = JSON.parse(raw); } catch { throw new Error("Task spec is not valid JSON"); }
@@ -39,7 +42,9 @@ export function parseSpec(raw, now = new Date()) {
   }
   if (typeof value.task !== "string" || !Object.prototype.hasOwnProperty.call(tasks, value.task)) throw new Error("Task is not in the root task table");
   if (!value.parameters || typeof value.parameters !== "object" || Array.isArray(value.parameters)) throw new Error("Task parameters must be an object");
-  if (!Number.isInteger(value.timeoutMs) || value.timeoutMs < 1000 || value.timeoutMs > 24 * 60 * 60 * 1000) throw new Error("Task timeout is out of range");
+  // The ceiling matches TimeoutStartSec in boxpilot-run@.service: past it systemd kills the unit
+  // before the task can write a result, and the caller waits out a deadline that will never fire.
+  if (!Number.isInteger(value.timeoutMs) || value.timeoutMs < 1000 || value.timeoutMs > maxTaskTimeoutMs) throw new Error("Task timeout is out of range");
   const approvedTime = Date.parse(value.approvedAt);
   const age = now.getTime() - approvedTime;
   if (!Number.isFinite(approvedTime) || age < -30_000 || age > maxApprovalAgeMs) throw new Error("Task approval is stale");

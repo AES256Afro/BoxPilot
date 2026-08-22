@@ -45,11 +45,20 @@ else
   boxpilot_fail "neither direct KVM access nor the restricted helper socket is available"
 fi
 
-for boxpilot_command in node virsh virt-install tailscale; do
+# node is required. virsh/virt-install matter only with virtualization, tailscale only with tailnet
+# access — a LAN-only box without them is a supported configuration, not a failure.
+for boxpilot_command in node; do
   if boxpilot_has_command "$boxpilot_command"; then
     boxpilot_pass "$boxpilot_command is installed at $(command -v "$boxpilot_command")"
   else
     boxpilot_fail "$boxpilot_command is not installed or not in PATH"
+  fi
+done
+for boxpilot_command in virsh virt-install tailscale; do
+  if boxpilot_has_command "$boxpilot_command"; then
+    boxpilot_pass "$boxpilot_command is installed at $(command -v "$boxpilot_command")"
+  else
+    boxpilot_warn "$boxpilot_command is not installed (only needed for $([ "$boxpilot_command" = tailscale ] && echo "tailnet access" || echo "virtual machines"))"
   fi
 done
 
