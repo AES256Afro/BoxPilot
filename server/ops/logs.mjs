@@ -70,7 +70,7 @@ export function logOperations() {
         }
         const args = ["--no-pager", "-o", "short-iso", "-n", String(lines), ...sinceArgument(since)];
         if (kind === "group") {
-          const group = logGroups[target];
+          const group = Object.hasOwn(logGroups, target) ? logGroups[target] : undefined;
           if (!group) throw new Error("Unknown log group");
           if (group.kernel) args.push("-k");
           else if (!group.all) for (const unit of group.units) args.push("-u", unit);

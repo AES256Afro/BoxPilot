@@ -56,7 +56,7 @@ export function appOperations() {
     defineOperation({ id: "app.inspect", title: "Inspect catalog applications", risk: "low", readOnly: true, description: "Installed state, container status, and ports for every catalog application.", run: (_p, { apps }) => apps.inspect({}) }),
     defineOperation({ id: "app.updates.inspect", title: "Check application updates", risk: "low", readOnly: true, description: "Compares installed applications with the current catalog.", run: (_p, { apps }) => apps.checkUpdates() }),
     defineOperation({
-      id: "app.logs", title: "Read application logs", risk: "low", readOnly: true, timeoutMs: 60_000,
+      id: "app.logs", title: "Read application logs", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
       parameters: { fields: { id: idField, lines: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 1000 ? null : "must be 1-1000") } } },
       run: (parameters, { apps }) => apps.logs(parameters),
     }),
@@ -158,7 +158,7 @@ export function appOperations() {
       run: (parameters, { apps }) => apps.config(parameters),
     }),
     defineOperation({
-      id: "app.secrets", title: "Reveal application secrets", risk: "low", readOnly: true, elevatedOnly: true, timeoutMs: 30_000,
+      id: "app.secrets", title: "Reveal application secrets", risk: "low", readOnly: true, elevatedOnly: true, minimumRole: "owner", timeoutMs: 30_000,
       description: "Shows the generated passwords and tokens stored in the application's .env. Requires a recent password (elevated session) and is audited.",
       parameters: { fields: { id: idField } },
       run: (parameters, { apps }) => apps.secrets(parameters),

@@ -3,17 +3,17 @@ import { createLaneQueues, exclusiveLane, laneFor } from "./helper-lanes.mjs";
 
 describe("helper lanes", () => {
   it("gives each app and VM its own lane and keeps shared host work on one", () => {
-    expect(laneFor("app.backup", { id: "jellyfin" })).toBe("app:jellyfin");
-    expect(laneFor("app.action", { id: "immich", action: "restart" })).toBe("app:immich");
-    expect(laneFor("app.install", {})).toBe("app:homepage"); // installs write the shared dashboard file
-    expect(laneFor("app.backup", {})).toBe("host"); // no subject: stay conservative
-    expect(laneFor("vm.action", { name: "dev-lab" })).toBe("vm:dev-lab");
-    expect(laneFor("vm.create", { name: "dev-lab" })).toBe("host"); // shared pools and libvirt config
-    expect(laneFor("vm.media.import", { name: "iso" })).toBe("host");
-    expect(laneFor("apt.upgrade", {})).toBe("host");
-    expect(laneFor("firewall.set", { enabled: true })).toBe("host");
-    expect(laneFor("storage.format", { device: "/dev/sdb" })).toBe("host");
-    expect(laneFor("app.backup", { id: "x".repeat(100) })).toBe("host"); // implausible subject
+    expect(laneFor("app.backup", { id: "jellyfin" })).toEqual(["app:jellyfin"]);
+    expect(laneFor("app.action", { id: "immich", action: "restart" })).toEqual(["app:immich"]);
+    expect(laneFor("app.install", {})).toEqual(["app:homepage"]); // installs write the shared dashboard file
+    expect(laneFor("app.backup", {})).toEqual(["host"]); // no subject: stay conservative
+    expect(laneFor("vm.action", { name: "dev-lab" })).toEqual(["vm:dev-lab"]);
+    expect(laneFor("vm.create", { name: "dev-lab" })).toEqual(["host"]); // shared pools and libvirt config
+    expect(laneFor("vm.media.import", { name: "iso" })).toEqual(["host"]);
+    expect(laneFor("apt.upgrade", {})).toEqual(["host"]);
+    expect(laneFor("firewall.set", { enabled: true })).toEqual(["host"]);
+    expect(laneFor("storage.format", { device: "/dev/sdb" })).toEqual(["host"]);
+    expect(laneFor("app.backup", { id: "x".repeat(100) })).toEqual(["host"]); // implausible subject
   });
 
   it("runs different lanes concurrently and the same lane in order, surviving failures", async () => {
@@ -44,8 +44,8 @@ describe("helper lanes", () => {
 
 describe("whole-box operations", () => {
   it("takes an exclusive lane so a machine snapshot never runs beside app writes", async () => {
-    expect(laneFor("host.snapshot.create", {})).toBe(exclusiveLane);
-    expect(laneFor("controller.backup.create", {})).toBe(exclusiveLane);
+    expect(laneFor("host.snapshot.create", {})).toEqual([exclusiveLane]);
+    expect(laneFor("controller.backup.create", {})).toEqual([exclusiveLane]);
     const queues = createLaneQueues();
     const order = [];
     let releaseApp;
@@ -62,11 +62,50 @@ describe("whole-box operations", () => {
 
 describe("apps that touch the shared dashboard", () => {
   it("puts installs and removals on the Homepage lane so one services.yaml has one writer", () => {
-    expect(laneFor("app.install", { id: "jellyfin" })).toBe("app:homepage");
-    expect(laneFor("app.purge", { id: "immich" })).toBe("app:homepage");
-    expect(laneFor("homepage.sync", {})).toBe("app:homepage");
+    expect(laneFor("app.install", { id: "jellyfin" })).toEqual(["app:jellyfin", "app:homepage"]);
+    expect(laneFor("app.purge", { id: "immich" })).toEqual(["app:immich", "app:homepage"]);
+    expect(laneFor("homepage.sync", {})).toEqual(["app:homepage"]);
     // Everything else about an app still gets that app's own lane.
-    expect(laneFor("app.backup", { id: "jellyfin" })).toBe("app:jellyfin");
-    expect(laneFor("app.action", { id: "jellyfin", action: "restart" })).toBe("app:jellyfin");
+    expect(laneFor("app.backup", { id: "jellyfin" })).toEqual(["app:jellyfin"]);
+    expect(laneFor("app.action", { id: "jellyfin", action: "restart" })).toEqual(["app:jellyfin"]);
+  });
+});
+
+describe("an operation holds every lane it touches", () => {
+  it("keeps purge and backup of the same app apart while still sharing the dashboard lane", async () => {
+    // Installing and purging rewrite the shared dashboard file AND the app's own directory,
+    // so they must never run beside another operation on that app.
+    expect(laneFor("app.purge", { id: "jellyfin" })).toEqual(["app:jellyfin", "app:homepage"]);
+
+    const queues = createLaneQueues();
+    const order = [];
+    let releaseBackup;
+    const backup = queues.run(laneFor("app.backup", { id: "jellyfin" }), async () => {
+      order.push("backup:start");
+      await new Promise((resolve) => { releaseBackup = resolve; });
+      order.push("backup:end");
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const purge = queues.run(laneFor("app.purge", { id: "jellyfin" }), async () => { order.push("purge"); });
+    // A different app's install shares only the dashboard lane, so it waits for the purge but not the backup.
+    const otherInstall = queues.run(laneFor("app.install", { id: "immich" }), async () => { order.push("other-install"); });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(order).toEqual(["backup:start"]); // nothing else has started
+
+    releaseBackup();
+    await Promise.all([backup, purge, otherInstall]);
+    expect(order).toEqual(["backup:start", "backup:end", "purge", "other-install"]);
+  });
+
+  it("lets two apps work at once when they share no lane", async () => {
+    const queues = createLaneQueues();
+    const order = [];
+    let release;
+    const slow = queues.run(laneFor("app.backup", { id: "jellyfin" }), async () => { await new Promise((resolve) => { release = resolve; }); order.push("jellyfin"); });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await queues.run(laneFor("app.action", { id: "immich", action: "restart" }), async () => { order.push("immich"); });
+    expect(order).toEqual(["immich"]); // the other app did not wait
+    release();
+    await slow;
   });
 });

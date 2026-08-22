@@ -56,11 +56,18 @@ export default function SetupWizard({ csrfToken, onDone }: { csrfToken: string; 
     if (approve.status === 401) return "password";
     if (!approve.ok) { const body = (await approve.json().catch(() => ({}))) as { error?: string }; mark(step.id, { state: "failed", error: body.error ?? `Approval failed (${approve.status})` }); return "failed"; }
     const started = Date.now();
+    let unreadable = 0;
     for (;;) {
       const poll = await fetch(`/api/v1/jobs/${stagedBody.job.id}`);
-      const body = (await poll.json().catch(() => ({}))) as { job?: { state: string; error: string | null } };
+      const body = (await poll.json().catch(() => ({}))) as { job?: { state: string; error: string | null }; error?: string };
       if (body.job?.state === "completed") return "done";
       if (body.job?.state === "failed") { mark(step.id, { state: "failed", error: body.job.error ?? "The job failed" }); return "failed"; }
+      if (body.job?.state === "cancelled") { mark(step.id, { state: "failed", error: "The job was cancelled" }); return "failed"; }
+      // A job that has gone (or a session that has ended) will never report a state: stop asking.
+      if (!poll.ok || !body.job) {
+        unreadable += 1;
+        if (unreadable >= 5) { mark(step.id, { state: "failed", error: body.error ?? "BoxPilot stopped reporting on this job" }); return "failed"; }
+      } else unreadable = 0;
       if (Date.now() - started > 45 * 60 * 1000) { mark(step.id, { state: "failed", error: "Timed out waiting for the job" }); return "failed"; }
       await sleep(2000);
     }

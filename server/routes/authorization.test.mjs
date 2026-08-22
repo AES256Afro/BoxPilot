@@ -19,6 +19,7 @@ import { createJobsRouter } from "./jobs.mjs";
 import { createOperationsRouter } from "./operations.mjs";
 import { createPeopleRouter } from "./people.mjs";
 import { createSettingsRouter } from "./settings.mjs";
+import { createHostRouter } from "./host.mjs";
 import { createJobService } from "../jobs.mjs";
 import { createSchedulerService } from "../scheduler.mjs";
 import { createNotificationService } from "../notifications.mjs";
@@ -61,6 +62,7 @@ beforeAll(async () => {
   accounts.owner = state.consumeBootstrapToken(state.createBootstrapToken().token, { username: "owner", passwordHash });
   accounts.operator = state.createOwnerAccount({ username: "operator", passwordHash, role: "operator", createdBy: accounts.owner.id });
   accounts.viewer = state.createOwnerAccount({ username: "viewer", passwordHash, role: "viewer", createdBy: accounts.owner.id });
+  accounts.throttled = state.createOwnerAccount({ username: "throttled", passwordHash, role: "viewer", createdBy: accounts.owner.id });
 
   const helper = { request: vi.fn(async () => ({ ok: true })) };
   const auth = createAuthService(state);
@@ -92,6 +94,8 @@ beforeAll(async () => {
   app.use("/api/v1", createOperationsRouter({ state, helper, jobs, prerequisites: { inspect: async () => ({}) }, recoveryKit: { inspect: async () => ({}) }, actionCenter: { inspect: async () => ({}) }, auth }));
   app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, jobLogReader: { read: async () => "" }, auth }));
   app.use("/api/v1", createSettingsRouter({ state, notifications, auth }));
+  const stub = { inspect: async () => ({}) };
+  app.use("/api/v1", createHostRouter({ state, helper, catalogService: { all: async () => ({ manifests: [], problems: [] }), get: async () => null }, inventory: stub, network: stub, controllerProtection: stub, controllerRetention: stub, githubProvenance: stub, releaseUpdates: stub, setup: stub, supportBundle: { inspect: async () => ({ logs: ["a journal line"] }) }, audit: stub, auth }));
 
   server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
@@ -172,7 +176,8 @@ describe("job visibility and cancellation", () => {
 
 describe("password attempts", () => {
   it("stops answering after repeated wrong passwords and says when to retry", async () => {
-    const attempt = () => fetch(`${base}/api/v1/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: "viewer", password: "not the password" }) });
+    // A dedicated account: blocking it must not affect any other test in this file.
+    const attempt = () => fetch(`${base}/api/v1/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: "throttled", password: "not the password" }) });
     const codes = [];
     for (let i = 0; i < 6; i += 1) codes.push((await attempt()).status);
     expect(codes.slice(0, 5)).toEqual([401, 401, 401, 401, 401]);
@@ -191,7 +196,6 @@ describe("unexpected failures", () => {
     app.use(express.json());
     app.get("/api/v1/boom", async () => { throw new Error("helper exploded"); });
     app.use((_request, response) => { response.status(404).json({ error: "Not found" }); });
-    // eslint-disable-next-line no-unused-vars
     app.use((error, request, response, _next) => {
       response.status(500).json({ error: `Something went wrong in BoxPilot (reference abc12345).`, code: "internal_error", reference: "abc12345" });
     });
@@ -205,5 +209,22 @@ describe("unexpected failures", () => {
     expect(body.code).toBe("internal_error");
     expect(body.error).not.toContain("helper exploded"); // the message stays in the log, not the browser
     await new Promise((resolve) => listener.close(resolve));
+  });
+});
+
+describe("routes that carry operation output", () => {
+  it("keeps the support bundle away from viewers, and does not name who can sign in", async () => {
+    const viewer = await signIn("viewer");
+    // The bundle contains journal excerpts, which a viewer may not read directly either.
+    expect((await api("GET", "/api/v1/support-bundle", { session: viewer })).status).toBe(403);
+    expect((await api("POST", "/api/v1/operations/logs.read/run", { session: viewer, body: { parameters: { kind: "group", target: "boxpilot" } } })).status).toBe(403);
+    expect((await api("POST", "/api/v1/operations/app.logs/run", { session: viewer, body: { parameters: { id: "jellyfin" } } })).status).toBe(403);
+    // The sign-in screen says which methods exist, never which accounts can use them.
+    const anonymous = await api("GET", "/api/v1/auth/identity");
+    expect(anonymous.status).toBe(200);
+    expect(JSON.stringify(anonymous.body)).not.toContain("Logins");
+    expect(Object.keys(anonymous.body.github)).toEqual(["configured"]);
+    // Who is linked is management information.
+    expect((await api("GET", "/api/v1/auth/identity/links", { session: viewer })).status).toBe(403);
   });
 });

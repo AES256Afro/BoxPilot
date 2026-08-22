@@ -256,7 +256,6 @@ app.use((_request, response) => {
 
 // Anything that throws past a route lands here. Without this Express answers with an HTML page,
 // which reaches the browser as "Unexpected token '<'" instead of something the page can show.
-// eslint-disable-next-line no-unused-vars
 app.use((error, request, response, _next) => {
   const reference = randomUUID().slice(0, 8);
   console.error(`Unhandled error ${reference} on ${request.method} ${request.path}: ${error?.stack ?? error}`);

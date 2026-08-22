@@ -109,6 +109,14 @@ export function createSchedulerService({ store, jobs, registry = defaultRegistry
   async function runDue() {
     const due = store.listDueSchedules(now().toISOString());
     for (const schedule of due) {
+      // Schedules stored before credentials were refused still carry one: stop them rather than run them.
+      const carried = secretFields(registry.get(schedule.operationId)?.parameters ?? {}).filter((name) => schedule.parameters?.[name]);
+      if (carried.length) {
+        store.setScheduleEnabled(schedule.id, false, { actorId: schedule.createdBy, nextDueAt: null });
+        store.markScheduleRun(schedule.id, { jobId: schedule.lastJobId ?? null, result: "paused: it holds a password, which schedules no longer store", nextDueAt: null });
+        store.recordAudit("schedule.paused", { actorId: schedule.createdBy, subjectId: schedule.id, details: { reason: "stored credential" } });
+        continue;
+      }
       const nextDueAt = computeNextRun(schedule, now()).toISOString();
       // Advance first so nothing fires twice; the final mark below records what happened.
       store.markScheduleRun(schedule.id, { jobId: schedule.lastJobId ?? null, result: "starting", nextDueAt });

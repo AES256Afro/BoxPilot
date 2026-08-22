@@ -1,11 +1,11 @@
 /**
  * Which mutations may run at the same time in the helper.
  *
- * Every change used to share one FIFO, so a 70-minute application backup delayed an unrelated
- * app restart and every scheduled job behind it. Operations are now serialized per *subject*:
- * two apps can work in parallel, two operations on the same app never do, and anything that
- * touches shared host state (apt, systemd, storage, firewall, users, VMs' host config) stays on
- * one "host" lane so those keep their old, safe ordering.
+ * Every change used to share one FIFO, so a 70-minute application backup delayed an unrelated app
+ * restart and every scheduled job behind it. Operations now hold one lane per *subject* they touch:
+ * two apps can work in parallel, two operations on the same app never do, and an operation that
+ * touches more than one subject — installing an app also rewrites the shared Homepage dashboard —
+ * holds every lane involved, so it cannot slip past either.
  */
 
 /**
@@ -15,45 +15,61 @@
 export const exclusiveLane = "exclusive";
 const exclusiveOperations = new Set(["host.snapshot.create", "host.snapshot.restore", "controller.backup.create", "controller.backup.protect", "controller.backup.retention.apply"]);
 
-/** Lane key for an operation and its parameters. Read-only operations never queue. */
+/** Installing or removing an app rewrites the dashboard's shared services.yaml as well as the app. */
+export const homepageLane = "app:homepage";
+const homepageOperations = new Set(["homepage.sync", "app.install", "app.uninstall", "app.purge"]);
+
+/** Everything shared with no subject of its own: apt, systemd, storage, firewall, users. */
+export const hostLane = "host";
+
+/** The lanes an operation must hold, as an array. Read-only operations never queue, so never get here. */
 export function laneFor(operation, parameters = {}) {
   const id = String(operation ?? "");
-  if (exclusiveOperations.has(id)) return exclusiveLane;
+  if (exclusiveOperations.has(id)) return [exclusiveLane];
   const subject = (value) => (typeof value === "string" && value.length && value.length <= 64 ? value : null);
-  // Installing or removing an app also rewrites the shared Homepage dashboard file, so those run on
-  // its lane rather than the app's own; two installs would otherwise race on one services.yaml.
-  if (id === "homepage.sync" || ["app.install", "app.uninstall", "app.purge"].includes(id)) return "app:homepage";
+  const lanes = [];
   if (id.startsWith("app.")) {
     const app = subject(parameters?.id);
-    if (app) return `app:${app}`;
+    if (app) lanes.push(`app:${app}`);
   }
   if (id.startsWith("vm.")) {
     const vm = subject(parameters?.name) ?? subject(parameters?.domain);
-    // VM creation and media import write to shared pools and libvirt config: keep them on the host lane.
-    if (vm && !["vm.create", "vm.cloud.create", "vm.media.import", "vm.foundation.initialize"].includes(id)) return `vm:${vm}`;
+    // VM creation and media import write to shared pools and libvirt config: those stay on the host lane.
+    if (vm && !["vm.create", "vm.cloud.create", "vm.media.import", "vm.foundation.initialize"].includes(id)) lanes.push(`vm:${vm}`);
   }
-  return "host";
+  if (homepageOperations.has(id)) lanes.push(homepageLane);
+  return lanes.length ? [...new Set(lanes)] : [hostLane];
 }
 
-/** A set of independent FIFOs keyed by lane; `run(lane, task)` resolves with the task's result. */
+/**
+ * Independent FIFOs keyed by lane. `run(lanes, task)` waits until every lane it names is free (and
+ * the exclusive lane with it), then holds all of them until the task settles.
+ */
 export function createLaneQueues() {
   const lanes = new Map();
 
-  function run(lane, task) {
-    // The exclusive lane waits for every other lane, and every other lane waits for it.
-    const previous = lane === exclusiveLane
-      ? Promise.allSettled([...lanes.values()])
-      : Promise.allSettled([lanes.get(lane), lanes.get(exclusiveLane)].filter(Boolean));
-    const result = previous.then(task, task); // an earlier failure must not cancel the next entry
-    // Keep the chain alive but never leak rejections, and drop the lane once it is idle again.
+  function run(requested, task) {
+    const held = [...new Set(Array.isArray(requested) ? requested : [requested])];
+    // Take every lane in one step: acquiring them one at a time could deadlock two operations that
+    // want the same pair in the opposite order.
+    const waitFor = held.includes(exclusiveLane)
+      ? [...lanes.values()]
+      : [...held.map((lane) => lanes.get(lane)), lanes.get(exclusiveLane)].filter(Boolean);
+    const result = Promise.allSettled(waitFor).then(task, task); // an earlier failure must not cancel this one
+    // Keep the chain alive but never leak rejections, and drop a lane once it is idle again.
     const settled = result.then(() => {}, () => {});
-    lanes.set(lane, settled);
-    settled.then(() => { if (lanes.get(lane) === settled) lanes.delete(lane); });
+    for (const lane of held) {
+      lanes.set(lane, settled);
+      settled.then(() => { if (lanes.get(lane) === settled) lanes.delete(lane); });
+    }
     return result;
   }
 
-  function busy(lane) {
-    return lanes.has(lane);
+  /** True when any of these lanes — or the exclusive one — would make a request wait. */
+  function busy(requested) {
+    const held = Array.isArray(requested) ? requested : [requested];
+    if (held.includes(exclusiveLane)) return lanes.size > 0;
+    return held.some((lane) => lanes.has(lane)) || lanes.has(exclusiveLane);
   }
 
   return { run, busy, size: () => lanes.size };
