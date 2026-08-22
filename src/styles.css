@@ -3449,3 +3449,14 @@ textarea {
 .app-section + .app-section { margin-top: 26px; }
 .app-section-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
 .app-section-header h2 { margin: 0; font-size: 1.02rem; letter-spacing: .01em; }
+
+/* Housekeeping: one row per category, with what it is and why it is safe to clear. */
+.housekeeping-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.housekeeping-list > li { border: 1px solid var(--line); border-radius: 11px; padding: 12px 14px; }
+.housekeeping-list > li.is-empty { opacity: .55; }
+.housekeeping-list label { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
+.housekeeping-list label > div { display: grid; gap: 3px; }
+.housekeeping-list input[type="checkbox"] { margin-top: 3px; flex: none; }
+.housekeeping-size { color: var(--mint); font-variant-numeric: tabular-nums; font-size: .86rem; }
+.housekeeping-list details { margin-top: 4px; }
+.housekeeping-list details summary { cursor: pointer; color: var(--muted); font-size: .8rem; }

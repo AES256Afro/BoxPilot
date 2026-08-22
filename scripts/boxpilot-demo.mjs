@@ -20,6 +20,7 @@ import { annotateDevices, parseLsblkTree, sharesFrom, volumeGroupsFrom } from ".
 import { cloudProviders } from "../server/backup-cloud.mjs";
 import { buildChecklist } from "../server/setup-checklist.mjs";
 import { productVersion } from "../server/version.mjs";
+import { humanBytes } from "../server/housekeeping.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
@@ -165,6 +166,18 @@ const inspections = {
   "system.update.status": { running: false, log: [], startedAt: null, finishedAt: null, ok: null },
   "users.inspect": { users: [{ username: host.owner, uid: 1000, sudo: true, shell: "/bin/bash", keys: 2 }] },
   "docker.disk.inspect": { images: { count: 22, sizeBytes: 9.4 * GiB, reclaimableBytes: 1.1 * GiB }, containers: { count: 14, sizeBytes: 0.6 * GiB }, volumes: { count: 9, sizeBytes: 3.2 * GiB }, buildCache: { sizeBytes: 0 } },
+  "housekeeping.inspect": (() => {
+    const categories = [
+      { id: "boxpilot-versions", title: "Previous BoxPilot releases", summary: "Copies of BoxPilot left in /opt by past updates. The most recent one is kept — that is what a failed update rolls back to.", items: 4, bytes: 1.4 * GiB, detail: ["boxpilot.prev.1750", "boxpilot.prev.1746", "boxpilot.rollback-1741", "boxpilot-prev-1738"], keeping: ["boxpilot.prev.1752"], safe: true },
+      { id: "docker-unused", title: "Stopped containers and dangling images", summary: "What a Docker prune removes: containers that exited, networks nothing joins, untagged image layers, and the build cache. Nothing in use is touched.", items: null, bytes: 1.1 * GiB, detail: ["Images: 1.1GB of 9.4GB", "Containers: 0B of 612MB", "Local Volumes: 0B of 3.2GB", "Build Cache: 0B of 0B"], keeping: [], safe: true },
+      { id: "docker-unreferenced-images", title: "Images no app uses", summary: "Complete images that no container references and no installed app needs — left by apps you removed, versions replaced by updates, or a trial run. Installing one of these again downloads it again.", items: 3, bytes: 2.3 * GiB, detail: ["ghcr.io/example/oldapp:1.2 (980.0 MiB)", "ghcr.io/example/oldapp:1.1 (960.0 MiB)", "example/scratch:latest (416.0 MiB)"], keeping: [], safe: true },
+      { id: "app-backups", title: "Older application backups", summary: "Backup archives beyond the newest 3 for each app. The newest 3 are always kept, and any copy already mirrored off this server is unaffected.", items: 5, bytes: 780 * 1024 ** 2, detail: ["immich: 3 archive(s)", "nextcloud: 2 archive(s)"], keeping: [], safe: true },
+      { id: "restore-leftovers", title: "Unfinished restores", summary: "Folders a restore left behind when it could not finish swapping data back. They are copies, not the live data an app is using.", items: 0, bytes: 0, detail: [], keeping: [], safe: true },
+      { id: "job-logs", title: "Logs for jobs no longer listed", summary: "Output from jobs older than 90 days, which is longer than the history keeps them — nothing lists those jobs any more.", items: 214, bytes: 18 * 1024 ** 2, detail: [], keeping: [], safe: true },
+    ].map((category) => ({ ...category, humanBytes: humanBytes(category.bytes) }));
+    const totalBytes = categories.reduce((sum, category) => sum + category.bytes, 0);
+    return { generatedAt: now().toISOString(), categories, totalBytes, totalHumanBytes: humanBytes(totalBytes) };
+  })(),
   "logs.sources": { sources: [{ id: "system", label: "System journal" }, { id: "boxpilot", label: "BoxPilot" }] },
   "vm.cloud.images": { images: [] },
   "vm.stats.inspect": { available: true, domains: {} },
