@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useOperation } from "./ApproveDialog";
 import { inspectOperation } from "./operations";
+import { appUrl } from "./appLinks";
 
 /** Types mirror server/catalog/schema.mjs (normalized manifest) and server/app-helper.mjs (live state). */
 interface ManifestPort { id: string; label: string; container: number; host: number; protocol: "tcp" | "udp"; exposure: "lan" | "loopback"; fixed: boolean }
@@ -228,30 +229,8 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
 
   const categories = useMemo(() => [...new Set((data?.applications ?? []).map((entry) => entry.manifest.category))].sort(), [data]);
   const visible = useMemo(() => (data?.applications ?? []).filter((entry) => !filter || entry.manifest.category === filter), [data, filter]);
-  /**
-   * Which host to send the browser to.
-   *
-   * Whatever address this page was loaded from is, by definition, one that reaches this server
-   * from where you are sitting — so use it. Preferring the LAN address meant every "Open" button
-   * pointed into the LAN even when BoxPilot was open over the tailnet from somewhere else, and
-   * every one of them failed to connect. The LAN address is only the better guess when the page
-   * itself came from loopback, where nothing about the browser's host is informative.
-   */
-  const browserHost = window.location.hostname;
-  const viewingFromLoopback = browserHost === "localhost" || browserHost === "127.0.0.1" || browserHost === "::1" || browserHost === "[::1]";
-  const hostForLinks = viewingFromLoopback ? data?.host.lanAddress ?? browserHost : browserHost;
-
-  /**
-   * Where an app's web UI actually is. An app published on the tailnet has Tailscale Serve holding
-   * that port for HTTPS, so a plain http:// link to it is answered with 400 — the address has to
-   * be the HTTPS one.
-   */
-  const openUrl = (port: { host: number; exposure: string }, manifest: Manifest) => {
-    const served = (serves ?? []).find((serve) => serve.port === port.host);
-    if (served) return `https://${served.dnsName}:${served.port}`;
-    const scheme = manifest.id === "portainer" ? "https" : "http";
-    return `${scheme}://${port.exposure === "loopback" ? "127.0.0.1" : hostForLinks}:${port.host}`;
-  };
+  const openUrl = (port: { host: number; exposure: string }, manifest: Manifest) =>
+    appUrl(port, { lanAddress: data?.host.lanAddress ?? null, serves: serves ?? [], https: manifest.id === "portainer" });
 
   const statusPill = (live: LiveState | null): ReactNode => {
     if (!live) return <span className="status-pill status-neutral">Unknown</span>;

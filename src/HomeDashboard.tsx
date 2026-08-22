@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ViewName } from "./data";
 import { inspectOperation, type Job } from "./operations";
+import { appUrl, type TailnetServe } from "./appLinks";
 
 /**
  * Home dashboard (M8.1): what is on this box and what needs attention, one glance.
@@ -49,10 +50,14 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
     inspectOperation<{ counts: { failed: number } }>("service.list")
       .then(({ result }) => guard(setFailedServices)(result.counts.failed))
       .catch(() => {});
+    const servesPromise = inspectOperation<{ available: boolean; serves: TailnetServe[] }>("app.serve.inspect")
+      .then(({ result }) => (result.available ? result.serves : []))
+      .catch(() => [] as TailnetServe[]);
     fetch("/api/v1/catalog")
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("catalog unavailable"))))
-      .then((data: { applications: Array<{ manifest: { id: string; name: string }; live: { installed: boolean; container: { running: boolean; health: string }; updateAvailable?: boolean; urls: Array<{ host: number; exposure: string }> } | null }>; host: { lanAddress: string | null } }) => {
-        const hostForLinks = data.host.lanAddress ?? window.location.hostname;
+      .then(async (data: { applications: Array<{ manifest: { id: string; name: string }; live: { installed: boolean; container: { running: boolean; health: string }; updateAvailable?: boolean; urls: Array<{ host: number; exposure: string }> } | null }>; host: { lanAddress: string | null } }) => {
+        const servesSoFar = await servesPromise;
+
         guard(setApps)(data.applications
           .filter((entry) => entry.live?.installed)
           .map((entry) => ({
@@ -62,7 +67,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
             running: entry.live?.container.running ?? false,
             health: entry.live?.container.health ?? "",
             updateAvailable: entry.live?.updateAvailable ?? false,
-            url: entry.live?.urls.length ? `http://${entry.live.urls[0].exposure === "loopback" ? "127.0.0.1" : hostForLinks}:${entry.live.urls[0].host}` : null,
+            url: entry.live?.urls.length ? appUrl(entry.live.urls[0], { lanAddress: data.host.lanAddress, serves: servesSoFar }) : null,
           })));
       })
       .catch(() => {});
