@@ -1,4 +1,7 @@
 import { defineOperation } from "./registry.mjs";
+import { parseServeStatus } from "../tailscale-serve.mjs";
+
+export { parseServeStatus };
 
 const idField = { type: "string", pattern: /^[a-z0-9][a-z0-9-]{1,62}$/ };
 const valuesField = { type: "object", optional: true, validate: (value) => (Object.keys(value).every((key) => ["ports", "env", "volumes", "setup"].includes(key)) ? null : "may only contain ports, env, volumes, and setup") };
@@ -36,19 +39,6 @@ export function aggregateAppStats(rows, appIds) {
   return stats;
 }
 
-/** Parse `tailscale serve status --json`: HTTPS ports proxied to local targets. */
-export function parseServeStatus(json) {
-  let parsed;
-  try { parsed = JSON.parse(json); } catch { return []; }
-  const entries = [];
-  for (const [key, config] of Object.entries(parsed?.Web ?? {})) {
-    const match = key.match(/^(.+):(\d+)$/);
-    if (!match) continue;
-    const target = config?.Handlers?.["/"]?.Proxy ?? null;
-    entries.push({ dnsName: match[1], port: Number(match[2]), target });
-  }
-  return entries.sort((a, b) => a.port - b.port);
-}
 
 /** Catalog application operations — one generic implementation for every manifest. */
 export function appOperations() {

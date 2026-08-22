@@ -1,6 +1,6 @@
 {
   "name": "boxpilot",
-  "version": "0.92.0",
+  "version": "0.92.1",
   "private": true,
   "description": "A safety-first local control plane for Ubuntu home servers.",
   "type": "module",
@@ -21,7 +21,8 @@
     "check": "npm run build && npm run test && npm run check:syntax && npm run lint && npm run check:shell",
     "check:syntax": "find server scripts -name '*.mjs' -not -path '*/node_modules/*' -print0 | xargs -0 -n 1 node --check",
     "demo": "node scripts/boxpilot-demo.mjs",
-    "demo:screenshots": "node scripts/demo-screenshots.mjs"
+    "demo:screenshots": "node scripts/demo-screenshots.mjs",
+    "version": "node scripts/sync-version.mjs && git add docker-compose.yml"
   },
   "dependencies": {
     "express": "5.2.1",
