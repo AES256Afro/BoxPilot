@@ -71,6 +71,7 @@ export function renderDockerRules({ defaultIncoming = "deny", allowed = [], deni
     `-A ${chainName} -i lo -j RETURN`,
     `-A ${chainName} -i tailscale0 -j RETURN`,
     `-A ${chainName} -i docker0 -j RETURN`,
+    `-A ${chainName} -i virbr+ -j RETURN`,
     `-A ${chainName} -i br-+ -j RETURN`,
     `-A ${chainName} -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN`,
     ...denied.map((entry) => rule(entry, "DROP")),
@@ -117,7 +118,13 @@ export async function syncDockerRules({ enabled } = {}, { run = fixedRun, log = 
     log?.("Docker-published ports are no longer filtered while the firewall is off", "stdout");
     return { synced: true, enabled: false };
   }
-  const status = parseUfwStatus((await run(ufw, ["status", "verbose"], { timeout: 30_000 })).stdout);
+  // The chain mirrors ufw's own rules, so it is only as good as this read. An unchecked failure
+  // returns an empty string, which parses as "no allowed ports" and renders a chain that drops
+  // every Docker-published port — silently, since the file is still syntactically valid.
+  const observed = await run(ufw, ["status", "verbose"], { timeout: 30_000 });
+  if (!observed.ok) throw new Error(`Could not read the firewall's own rules, so the Docker rules were left as they were: ${tail(observed.stderr) || tail(observed.stdout) || "ufw returned an error"}`);
+  const status = parseUfwStatus(observed.stdout);
+  if (!status.active) throw new Error("The firewall reports it is not active, so the Docker rules were left as they were rather than mirroring an empty rule set");
   const next = spliceManagedBlock(current, renderDockerRules(status));
   if (next !== current) await write(path, next);
   await detach();

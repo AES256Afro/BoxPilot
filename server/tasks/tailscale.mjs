@@ -26,7 +26,10 @@ export function validateRoutes(routes) {
     const octets = match.slice(1, 5).map(Number);
     const prefix = Number(match[5]);
     if (octets.some((octet) => octet > 255) || prefix < 8 || prefix > 30) return `${route} is not a usable subnet (prefix 8-30)`;
-    if (route.startsWith("100.64.") || route.startsWith("100.1") || route.startsWith("127.")) return `${route} cannot be advertised`;
+    // 100.64.0.0/10 is the tailnet's own range: advertising a route over it costs you the
+    // tailnet you are administering through. 127.0.0.0/8 is this machine.
+    if (octets[0] === 100 && octets[1] >= 64 && octets[1] <= 127) return `${route} overlaps the tailnet's own range (100.64.0.0/10) and cannot be advertised`;
+    if (octets[0] === 127) return `${route} is this machine's loopback range and cannot be advertised`;
   }
   return null;
 }

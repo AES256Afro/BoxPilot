@@ -30,20 +30,30 @@ describe("login throttle", () => {
 });
 
 describe("who gets throttled", () => {
-  it("blocks the account, not the address, so nobody can lock the owner out from one client", async () => {
+  async function service() {
     const { createAuthService } = await import("./security.mjs");
-    const store = {
-      recordAudit: () => {},
-      getSetting: () => null,
-      setSetting: () => {},
-    };
-    const auth = createAuthService(store);
-    const request = { socket: { remoteAddress: "127.0.0.1" }, get: () => undefined, headers: {} };
-    const attacker = { id: "owner-1", passwordHash: "scrypt$16384$8$1$c2FsdA$aGFzaA" }; // never matches
-    for (let i = 0; i < 6; i += 1) await auth.checkPassword(request, attacker, "wrong");
-    expect((await auth.checkPassword(request, attacker, "wrong")).blocked).toBe(true);
-    // A different account from the same address is unaffected.
-    const other = { id: "owner-2", passwordHash: "scrypt$16384$8$1$c2FsdA$aGFzaA" };
-    expect((await auth.checkPassword(request, other, "wrong")).blocked).toBe(false);
+    return createAuthService({ recordAudit: () => {}, getSetting: () => null, setSetting: () => {} });
+  }
+  const from = (address) => ({ socket: { remoteAddress: address }, get: () => undefined, headers: {} });
+  const account = (id) => ({ id, passwordHash: "scrypt$16384$8$1$c2FsdA$aGFzaA" }); // never matches
+
+  it("stops the caller who is guessing, and only that caller", async () => {
+    const auth = await service();
+    const guesser = from("100.64.0.9");
+    const target = account("owner-throttle-1");
+    for (let i = 0; i < 6; i += 1) await auth.checkPassword(guesser, target, "wrong");
+    expect((await auth.checkPassword(guesser, target, "wrong")).blocked).toBe(true);
+    // A different account from the same caller is unaffected...
+    expect((await auth.checkPassword(guesser, account("owner-throttle-2"), "wrong")).blocked).toBe(false);
+    // ...and, the point of the pair: the same account from anywhere else still gets in. Keying on
+    // the account alone let anyone who could reach the port hold the owner out of their own box.
+    expect((await auth.checkPassword(from("100.64.0.44"), target, "wrong")).blocked).toBe(false);
+  });
+
+  it("still slows an attack spread across many callers", async () => {
+    const auth = await service();
+    const target = account("owner-throttle-3");
+    for (let caller = 0; caller < 55; caller += 1) await auth.checkPassword(from(`100.64.1.${caller}`), target, "wrong");
+    expect((await auth.checkPassword(from("100.64.2.1"), target, "wrong")).blocked).toBe(true);
   });
 });

@@ -39,3 +39,11 @@ export function createLoginThrottle({ maxFailures = 5, baseDelayMs = 30_000, max
 }
 
 export const defaultThrottle = createLoginThrottle();
+
+/**
+ * The per-account ceiling, counted across every caller. It exists only to slow an attack spread
+ * over many callers, so it sits far above anything a person mistyping a password reaches: fifty
+ * wrong guesses before a one-minute pause, five minutes at most. The per-caller throttle is what
+ * actually stops guessing; this one must never be the thing that keeps the owner out.
+ */
+export const defaultSprayThrottle = createLoginThrottle({ maxFailures: 50, baseDelayMs: 60_000, maxDelayMs: 5 * 60_000 });

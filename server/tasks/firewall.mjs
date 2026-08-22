@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises";
+import { copyFile, readFile, rm } from "node:fs/promises";
+import path from "node:path";
 import { fixedRun } from "../exec.mjs";
 import { buildPlan, defaultWebPort, isProtected, protectedRules } from "../firewall-profiles.mjs";
 import { syncDockerRules } from "./firewall-docker.mjs";
@@ -14,6 +15,7 @@ import { syncDockerRules } from "./firewall-docker.mjs";
  */
 
 const ufw = "/usr/sbin/ufw";
+const ufwDirectory = "/etc/ufw";
 export const defaultEnvPath = "/etc/boxpilot/boxpilot.env";
 export const ruleActions = Object.freeze(["allow", "deny", "limit"]);
 export const ruleProtocols = Object.freeze(["tcp", "udp", "any"]);
@@ -116,26 +118,57 @@ export async function firewallRuleDelete({ action, port, protocol } = {}, { run 
   return { deleted: { action, port, protocol }, docker, status };
 }
 
+/** The files `ufw --force reset` overwrites; copied aside so a failed apply can put them back. */
+const resetFiles = ["user.rules", "user6.rules", "ufw.conf"];
+
 /**
  * Apply a profile: the exact argv list comes from buildPlan() so the preview the owner
  * approved is what runs. Any required step failing stops before `ufw enable`, so a failed
  * apply leaves the firewall no more closed than before.
+ *
+ * "Start from scratch" resets ufw before the new rules are added, and a step failing after that
+ * point would otherwise leave the owner with no rules at all and the firewall off. The files the
+ * reset overwrites are copied aside first and put back if anything fails.
  */
-export async function firewallProfileApply({ profile, services = [], replace = false, sshRateLimit = false } = {}, { run = fixedRun, log = null, envPath = defaultEnvPath, now = () => new Date(), dockerSync = syncDockerRules } = {}) {
+export async function firewallProfileApply({ profile, services = [], replace = false, sshRateLimit = false } = {}, { run = fixedRun, log = null, envPath = defaultEnvPath, now = () => new Date(), dockerSync = syncDockerRules, ufwDirectory: rulesDirectory = ufwDirectory, readEnv = undefined } = {}) {
   if (!Array.isArray(services) || services.some((id) => typeof id !== "string")) throw new Error("services must be a list of service ids");
   if (typeof replace !== "boolean" || typeof sshRateLimit !== "boolean") throw new Error("replace and sshRateLimit must be true or false");
-  const env = await readWebEnv({ envPath });
+  const env = await readWebEnv({ envPath, ...(readEnv ? { read: readEnv } : {}) });
   const plan = buildPlan({ profileId: profile, serviceIds: services, replace, sshRateLimit, ...env });
   log?.(`Applying firewall profile "${plan.profile.name}" (${plan.steps.length} steps)`, "stdout");
   const completed = [];
-  for (const step of plan.steps) {
-    log?.(`$ ufw ${step.args.join(" ")}  # ${step.label}`, "stdout");
-    const result = await run(ufw, step.args, { timeout: 60_000 });
-    if (result.ok) { completed.push(step.label); continue; }
-    if (step.tolerateFailure) { log?.(`${step.label}: ${tail(result.stderr) || "skipped"}; continuing`, "stderr"); continue; }
-    const enabling = step.args.includes("enable");
-    throw new Error(`${step.label} failed: ${tail(result.stderr) || tail(result.stdout) || "ufw returned an error"}${enabling ? "" : ". Stopped before turning the firewall on, so nothing new is blocked"}`);
+  const saved = [];
+  if (replace) {
+    for (const name of resetFiles) {
+      const source = path.join(rulesDirectory, name);
+      const copy = `${source}.boxpilot-pre`;
+      if (await copyFile(source, copy).then(() => true, () => false)) saved.push({ source, copy });
+    }
+    log?.(`Copied ${saved.length} rule file(s) aside so they can be put back if this fails`, "stdout");
   }
+  const putBack = async (reason) => {
+    if (!saved.length) return "";
+    for (const { source, copy } of saved) await copyFile(copy, source).catch(() => {});
+    const reloaded = await run(ufw, ["--force", "enable"], { timeout: 60_000 });
+    log?.(`Put the previous rules back after ${reason}${reloaded.ok ? "" : " (the firewall could not be re-enabled)"}`, "stderr");
+    return reloaded.ok ? " Your previous rules were put back." : " Your previous rules were put back on disk, but the firewall could not be turned back on.";
+  };
+  const discardSaved = async () => { for (const { copy } of saved) await rm(copy, { force: true }).catch(() => {}); };
+  try {
+    for (const step of plan.steps) {
+      log?.(`$ ufw ${step.args.join(" ")}  # ${step.label}`, "stdout");
+      const result = await run(ufw, step.args, { timeout: 60_000 });
+      if (result.ok) { completed.push(step.label); continue; }
+      if (step.tolerateFailure) { log?.(`${step.label}: ${tail(result.stderr) || "skipped"}; continuing`, "stderr"); continue; }
+      const enabling = step.args.includes("enable");
+      const restored = await putBack(`"${step.label}" failed`);
+      throw new Error(`${step.label} failed: ${tail(result.stderr) || tail(result.stdout) || "ufw returned an error"}${enabling ? "" : ". Stopped before turning the firewall on, so nothing new is blocked"}.${restored}`);
+    }
+  } catch (error) {
+    await discardSaved();
+    throw error;
+  }
+  await discardSaved();
   const docker = await dockerSync({ enabled: true }, { run, log });
   return { profile: plan.profile.id, services: plan.services, replace, sshRateLimit, steps: completed, docker, appliedAt: now().toISOString(), status: await statusLines(run) };
 }

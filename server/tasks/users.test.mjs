@@ -103,3 +103,26 @@ describe("root user and SSH tasks", () => {
     expect(run).not.toHaveBeenCalledWith("/usr/bin/systemctl", ["reload-or-restart", "ssh.service"], expect.anything());
   });
 });
+
+describe("turning password logins off", () => {
+  // One account with a real key in its authorized_keys, which is what makes the "no user has a
+  // key" guard pass and the effective-configuration guard the one under test.
+  const files = {
+    readFile: async (target) => (target === "/etc/passwd" ? "owner:x:1000:1000::/home/owner:/bin/bash\n" : `${ED_KEY}\n`),
+    writeFile: async () => {},
+    unlink: async () => {},
+  };
+  const withKeys = (stdout) => vi.fn(async () => ({ ok: true, stdout, stderr: "" }));
+
+  it("refuses when sshd would not accept a key either", async () => {
+    // The account has a key, but the effective configuration ignores keys: turning passwords off
+    // here removes the last way in over SSH.
+    await expect(sshPasswordAuthSet({ enabled: false }, { run: withKeys("pubkeyauthentication no\npasswordauthentication yes\n"), files }))
+      .rejects.toThrow(/key logins turned off/i);
+  });
+
+  it("refuses when the effective configuration cannot be read at all", async () => {
+    const run = vi.fn(async () => ({ ok: false, stdout: "", stderr: "sshd: no hostkeys available" }));
+    await expect(sshPasswordAuthSet({ enabled: false }, { run, files })).rejects.toThrow(/Nothing was changed/);
+  });
+});

@@ -109,3 +109,30 @@ describe("docker firewall rules", () => {
     expect(missing).toMatchObject({ synced: false, reason: "after-rules-missing" });
   });
 });
+
+describe("when ufw's own rules cannot be read", () => {
+  it("leaves the Docker rules alone instead of rendering a chain that drops every published port", async () => {
+    const written = [];
+    const run = vi.fn(async (_binary, args) => (args[0] === "status"
+      ? { ok: false, stdout: "", stderr: "ERROR: problem running ufw-init" }
+      : { ok: true, stdout: "", stderr: "" }));
+    await expect(syncDockerRules({ enabled: true }, {
+      run,
+      read: async () => "# after.rules\nCOMMIT\n",
+      write: async (path, text) => { written.push({ path, text }); },
+    })).rejects.toThrow(/could not read the firewall's own rules/i);
+    expect(written).toEqual([]); // nothing was rewritten on a guess
+    expect(run.mock.calls.some(([, args]) => args[0] === "reload")).toBe(false);
+  });
+
+  it("refuses to mirror an inactive firewall, which would read as no allowed ports at all", async () => {
+    const run = vi.fn(async (_binary, args) => (args[0] === "status"
+      ? { ok: true, stdout: "Status: inactive\n", stderr: "" }
+      : { ok: true, stdout: "", stderr: "" }));
+    await expect(syncDockerRules({ enabled: true }, {
+      run,
+      read: async () => "# after.rules\nCOMMIT\n",
+      write: async () => {},
+    })).rejects.toThrow(/not active/i);
+  });
+});

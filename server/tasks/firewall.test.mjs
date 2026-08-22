@@ -92,8 +92,10 @@ describe("root firewall tasks", () => {
     // The default env file does not exist in tests, so the LAN port is not opened here...
     expect(result).toMatchObject({ profile: "home-server", services: ["dns", "web"], sshRateLimit: true, appliedAt: "2026-08-21T16:00:00.000Z" });
     const calls = run.mock.calls.map(([, args]) => args.join(" "));
-    expect(calls[0]).toBe("insert 1 limit 22/tcp comment BoxPilot keeps SSH reachable (rate-limited)");
-    expect(calls[1]).toBe("--force delete allow 22/tcp");
+    // `limit` replaces an allow for the same tuple, so it needs no position and works on an empty
+    // rule list — which is exactly what "start from scratch" leaves behind.
+    expect(calls[0]).toBe("limit 22/tcp comment BoxPilot keeps SSH reachable (rate-limited)");
+    expect(calls).not.toContain("--force delete allow 22/tcp");
     expect(calls).toContain("allow 53/tcp comment BoxPilot service: DNS server");
     expect(calls).toContain("allow 53/udp comment BoxPilot service: DNS server");
     expect(calls).toContain("allow 443/tcp comment BoxPilot service: Web (HTTP/HTTPS)");
@@ -103,16 +105,29 @@ describe("root firewall tasks", () => {
     void readEnvFile;
   });
 
-  it("stops before enabling when a required step fails, and tolerates the tailnet rule failing", async () => {
+  it("stops before enabling when a required step fails", async () => {
+    // Served on the LAN, so the tailnet interface rule is a convenience and a box without
+    // tailscale0 is an ordinary configuration: that step may fail and the apply carries on.
+    const servedOnLan = { ...lanEnv, readEnv: async () => "BOXPILOT_HOST=0.0.0.0\nBOXPILOT_PORT=8787\n" };
     const run = vi.fn(async (binary, args) => {
       if (args.join(" ").startsWith("allow in on tailscale0")) return { ok: false, stdout: "", stderr: "ERROR: Unknown interface" };
       if (args[0] === "default") return { ok: false, stdout: "", stderr: "ERROR: policy" };
       return { ok: true, stdout: "", stderr: "" };
     });
-    await expect(firewallProfileApply({ profile: "trusted-lan" }, { run, ...lanEnv })).rejects.toThrow(/Default incoming: allow failed: .*Stopped before turning the firewall on/);
+    await expect(firewallProfileApply({ profile: "trusted-lan" }, { run, ...servedOnLan })).rejects.toThrow(/Default incoming: allow failed: .*Stopped before turning the firewall on/);
     const calls = run.mock.calls.map(([, args]) => args.join(" "));
     expect(calls).toContain("deny 3306/tcp comment BoxPilot profile: MySQL / MariaDB");
     expect(calls).not.toContain("--force enable");
+  });
+
+  it("will not carry on past a failed tailnet rule when the tailnet is the only way in", async () => {
+    // Loopback web host: no LAN rule is added for the UI, so `allow in on tailscale0` is the only
+    // thing keeping the page reachable. Losing it silently used to be a stderr line in a job log.
+    const run = vi.fn(async (binary, args) => (args.join(" ").startsWith("allow in on tailscale0")
+      ? { ok: false, stdout: "", stderr: "ERROR: Unknown interface" }
+      : { ok: true, stdout: "", stderr: "" }));
+    await expect(firewallProfileApply({ profile: "trusted-lan" }, { run, ...lanEnv })).rejects.toThrow(/Keep the tailnet interface reachable failed/);
+    expect(run.mock.calls.map(([, args]) => args.join(" "))).not.toContain("--force enable");
   });
 
   it("rejects unknown profiles and services before running anything", async () => {

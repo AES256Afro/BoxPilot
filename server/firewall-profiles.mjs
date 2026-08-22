@@ -121,15 +121,20 @@ export function buildPlan({ profileId, serviceIds: chosen = [], replace = false,
   for (const entry of protectedList) {
     if (!entry.allow) continue;
     if (entry.port === 22 && sshRateLimit) {
-      // Rate-limited SSH is still an allow (6 new connections per 30 s per address). Insert it
-      // first, then drop the plain allow so the limit rule is the one that matches.
-      steps.push({ args: ["insert", "1", "limit", "22/tcp", "comment", "BoxPilot keeps SSH reachable (rate-limited)"], label: "Keep SSH reachable, rate-limited against password guessing" });
-      steps.push({ args: ["--force", "delete", "allow", "22/tcp"], label: "Drop the plain SSH allow in favour of the rate-limited one", tolerateFailure: true });
+      // Rate-limited SSH is still an allow (6 new connections per 30 s per address). `ufw limit`
+      // replaces an existing allow for the same tuple, so this needs no position and works on an
+      // empty rule list — `insert 1` does not, and it was the first step after a reset that had
+      // already cleared every rule.
+      steps.push({ args: ["limit", "22/tcp", "comment", "BoxPilot keeps SSH reachable (rate-limited)"], label: "Keep SSH reachable, rate-limited against password guessing" });
       continue;
     }
     steps.push({ args: ["allow", spec(entry), "comment", `BoxPilot keeps ${entry.label} reachable`], label: `Keep ${entry.label} reachable (${spec(entry)})` });
   }
-  steps.push({ args: ["allow", "in", "on", "tailscale0", "comment", "BoxPilot keeps the tailnet reachable"], label: "Keep the tailnet interface reachable", tolerateFailure: true });
+  // When the web UI is on loopback there is no LAN rule for it, so this interface rule is the only
+  // thing keeping the page reachable — a failure there has to stop the apply, not be logged and
+  // passed over. On a LAN-served box the rule is a convenience and a missing tailscale0 is normal.
+  const tailnetIsTheOnlyWayIn = !protectedList.some((entry) => entry.label === "BoxPilot" && entry.allow);
+  steps.push({ args: ["allow", "in", "on", "tailscale0", "comment", "BoxPilot keeps the tailnet reachable"], label: "Keep the tailnet interface reachable", tolerateFailure: !tailnetIsTheOnlyWayIn });
   for (const rule of profile.rules) {
     steps.push({ args: [rule.action, spec(rule), ...(rule.comment ? ["comment", rule.comment] : [])], label: `${rule.action} ${spec(rule)}${rule.comment ? ` (${rule.comment.replace(/^BoxPilot profile: /, "")})` : ""}` });
   }
