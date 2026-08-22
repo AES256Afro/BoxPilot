@@ -91,9 +91,9 @@ export default function GitHubCenter() {
     {error && <p className="form-error" role="alert">{error}</p>}
 
     <section className="panel github-boundary">
-      <header className="panel-header"><strong>Credential-free provenance boundary</strong><span>{status.source}</span></header>
+      <header className="panel-header"><strong>Where this BoxPilot came from</strong><span>{status.source}</span></header>
       <div className="network-lock"><span className="status-pill status-good">Public metadata only</span><span className="status-pill status-good">Credentials rejected</span><span className="status-pill status-warning">Writes locked</span><span className="status-pill status-warning">Downloads locked</span><span className="status-pill status-warning">Install locked</span></div>
-      <p>BoxPilot reads a fixed set of public repository, commit, release, and asset-digest fields. It does not clone source, download an asset, dispatch a workflow, configure a webhook, or write to GitHub.</p>
+      <p>Release, commit, and asset details read from the public repository. No GitHub token is needed and nothing is written back.</p>
       <small>Fetched {formatDate(status.fetchedAt)}. Refresh respects the server cache.</small>
     </section>
 

@@ -78,7 +78,7 @@ export function getJob(jobId: string): Promise<{ job: Job }> {
   return fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}`).then((response) => readJson(response));
 }
 
-export const terminalJobStates = new Set(["completed", "failed"]);
+export const terminalJobStates = new Set(["completed", "failed", "cancelled"]);
 
 /** Poll until the job reaches a terminal state. */
 export async function waitForJob(jobId: string, { intervalMs = 2000, timeoutMs = 2 * 60 * 60 * 1000, sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)) } = {}): Promise<Job> {

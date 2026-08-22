@@ -9,6 +9,8 @@ export function createJobsRouter({ state, jobs, scheduler, jobLogReader, auth })
 
   /** Everyone sees their own jobs; the owner sees the whole box. */
   const scopeFor = (request) => (request.boxpilotSession?.owner?.role === "owner" ? {} : { createdBy: request.boxpilotSession.owner.id });
+  /** The owner is shown every job, so the owner may open every job; everyone else only their own. */
+  const mayRead = (request, job) => request.boxpilotSession?.owner?.role === "owner" || job.createdBy === request.boxpilotSession.owner.id;
 
   router.get("/jobs", (request, response) => {
     response.json({ jobs: state.listJobs(request.query.limit, scopeFor(request)) });
@@ -29,7 +31,7 @@ export function createJobsRouter({ state, jobs, scheduler, jobLogReader, auth })
   // Job output: persisted once the job is finished, otherwise the live file being written by the helper/runner.
   router.get("/jobs/:id/output", async (request, response) => {
     const job = state.getJob(request.params.id);
-    if (!job || job.createdBy !== request.boxpilotSession.owner.id) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
+    if (!job || !mayRead(request, job)) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
     const persisted = state.getJobOutput(job.id);
     if (persisted !== null) return response.json({ jobId: job.id, state: job.state, output: persisted, live: false });
     const live = await jobLogReader.read(job.id, 0).catch(() => ({ text: "", exists: false }));
@@ -39,7 +41,7 @@ export function createJobsRouter({ state, jobs, scheduler, jobLogReader, auth })
   // Server-sent events: streams new output as it is written, then a final `state` event when the job finishes.
   router.get("/jobs/:id/stream", async (request, response) => {
     const initial = state.getJob(request.params.id);
-    if (!initial || initial.createdBy !== request.boxpilotSession.owner.id) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
+    if (!initial || !mayRead(request, initial)) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
     response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive", "X-Accel-Buffering": "no" });
     response.write(": connected\n\n");
     let offset = 0; let closed = false;
@@ -52,7 +54,7 @@ export function createJobsRouter({ state, jobs, scheduler, jobLogReader, auth })
       const chunk = await jobLogReader.read(initial.id, offset).catch(() => ({ text: "", offset, exists: false }));
       if (chunk.text) { send("output", { text: chunk.text }); offset = chunk.offset; }
       const current = state.getJob(initial.id);
-      if (!current || ["completed", "failed"].includes(current.state)) {
+      if (!current || ["completed", "failed", "cancelled"].includes(current.state)) {
         const final = state.getJobOutput(initial.id);
         if (final !== null && final.length > offset) send("output", { text: final.slice(offset) });
         send("state", { state: current?.state ?? "unknown", error: current?.error ?? null });
@@ -66,7 +68,7 @@ export function createJobsRouter({ state, jobs, scheduler, jobLogReader, auth })
 
   router.get("/jobs/:id", (request, response) => {
     const job = state.getJob(request.params.id);
-    if (!job || job.createdBy !== request.boxpilotSession.owner.id) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
+    if (!job || !mayRead(request, job)) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
     return response.json({ job });
   });
 
@@ -92,6 +94,8 @@ export function createJobsRouter({ state, jobs, scheduler, jobLogReader, auth })
   });
 
   router.get("/jobs/:id/approval", (request, response) => {
+    const subject = state.getJob(request.params.id);
+    if (!subject || !mayRead(request, subject)) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
     const policy = jobs.describeApproval(request.params.id, request.boxpilotSession);
     if (!policy) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
     return response.json({ jobId: request.params.id, ...policy });

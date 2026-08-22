@@ -27,7 +27,7 @@ export function validateParameters(spec, parameters, title = "Operation") {
   const keys = Object.keys(parameters);
   if (names.length === 0) return keys.length === 0 ? null : `${title} accepts no parameters`;
   if (exact) {
-    for (const key of keys) if (!(key in fields)) return `${title} does not accept parameter "${key}"`;
+    for (const key of keys) if (!Object.hasOwn(fields, key)) return `${title} does not accept parameter "${key}"`;
   }
   for (const name of names) {
     const field = fields[name];

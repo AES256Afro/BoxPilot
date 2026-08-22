@@ -56,9 +56,9 @@ describe("Repair Center", () => {
     expect(screen.getByText("Docker Engine")).toBeTruthy();
     expect(screen.getByText("Recovery readiness and ordered runbook")).toBeTruthy();
     expect(screen.getByText("Prioritized evidence and guided next steps")).toBeTruthy();
-    expect(screen.getByText("No automatic fix, command, credential, or log payload.")).toBeTruthy();
+    expect(screen.getByText("BoxPilot shows the steps; you decide when to run them.")).toBeTruthy();
     expect(screen.getByText("Independent BoxPilot database copy")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Download evidence JSON" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download as JSON" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Verify the helper" }));
     expect(await screen.findByText(/version 0.61.0/)).toBeTruthy();
   });

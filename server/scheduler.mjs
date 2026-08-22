@@ -50,6 +50,7 @@ export function createSchedulerService({ store, jobs, registry = defaultRegistry
     if (!operation) throw new Error("Operation is not registered");
     if (operation.readOnly) throw new Error("Read-only operations run on demand; they are not scheduled");
     if (operation.risk === "high") throw new Error(`${operation.title} is high risk and cannot run unattended`);
+    if (operation.minimumRole === "owner" && (store.findOwnerById?.(createdBy)?.role ?? "owner") !== "owner") throw new Error(`Only the owner can schedule ${operation.title}`);
     // Destination-pinning hooks supply host/provider fields at run time; validate the same way here.
     const prepared = typeof jobs.prepareParameters === "function" ? await jobs.prepareParameters(operationId, parameters ?? {}) : parameters ?? {};
     const parameterError = registry.validate(operationId, prepared);
@@ -64,15 +65,23 @@ export function createSchedulerService({ store, jobs, registry = defaultRegistry
     return store.listSchedules().map((schedule) => ({ ...schedule, title: registry.get(schedule.operationId)?.title ?? schedule.operationId, cadence: describeCadence(schedule) }));
   }
 
+  /** A schedule belongs to whoever created it; the owner may manage every schedule. */
+  function assertMayManage(schedule, actorId) {
+    if (!schedule) throw new Error("Schedule not found");
+    const role = store.findOwnerById?.(actorId)?.role ?? "owner";
+    if (schedule.createdBy !== actorId && role !== "owner") throw new Error("Schedule not found");
+  }
+
   function setEnabled(id, enabled, actorId) {
     const schedule = store.getSchedule(id);
-    if (!schedule) throw new Error("Schedule not found");
+    assertMayManage(schedule, actorId);
     // Re-enabled schedules start from the next occurrence, not a backlog of missed runs.
     const nextDueAt = enabled ? computeNextRun(schedule, now()).toISOString() : null;
     return store.setScheduleEnabled(id, enabled, { actorId, nextDueAt });
   }
 
   function remove(id, actorId) {
+    assertMayManage(store.getSchedule(id), actorId);
     return store.deleteSchedule(id, { actorId });
   }
 
@@ -96,8 +105,9 @@ export function createSchedulerService({ store, jobs, registry = defaultRegistry
         if (previous && ["applying", "verifying"].includes(previous.state)) throw new Error("previous run still active");
         const creator = store.findOwnerById?.(schedule.createdBy) ?? null;
         if (creator && ["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
+        const creatorRole = creator?.role ?? "owner";
         if (jobs.approvalPolicy && store.getSetting?.("approvalMode", null) === "always-password") throw new Error("Approval reauthentication required: approvals are set to always ask");
-        job = await jobs.createOperationJob(schedule.operationId, schedule.parameters ?? {}, schedule.createdBy);
+        job = await jobs.createOperationJob(schedule.operationId, schedule.parameters ?? {}, schedule.createdBy, { role: creatorRole });
         await jobs.approveAndStart(job.id, schedule.createdBy, {});
         store.markScheduleRun(schedule.id, { jobId: job.id, result: "started", nextDueAt });
         store.recordAudit("schedule.run", { actorId: schedule.createdBy, subjectId: schedule.id, details: { operationId: schedule.operationId, jobId: job.id } });
@@ -105,7 +115,8 @@ export function createSchedulerService({ store, jobs, registry = defaultRegistry
         // A job that was staged but could not start is withdrawn rather than left awaiting approval forever.
         if (job && typeof jobs.cancelJob === "function") { try { jobs.cancelJob(job.id, schedule.createdBy, { role: "owner", reason: `Scheduled run could not start: ${error.message}`.slice(0, 200) }); } catch { /* already moved on */ } }
         const blocked = /reauthentication/i.test(error.message);
-        store.markScheduleRun(schedule.id, { jobId: job?.id ?? null, result: blocked ? "blocked-by-approval-mode" : `error: ${error.message}`.slice(0, 200), nextDueAt });
+        // Keep the pointer to the last real job: it is what the "still running" guard reads next tick.
+        store.markScheduleRun(schedule.id, { jobId: job?.id ?? schedule.lastJobId ?? null, result: blocked ? "blocked-by-approval-mode" : `error: ${error.message}`.slice(0, 200), nextDueAt });
         store.recordAudit("schedule.skipped", { actorId: schedule.createdBy, subjectId: schedule.id, details: { operationId: schedule.operationId, reason: blocked ? "always-password approval mode" : error.message } });
       }
     }

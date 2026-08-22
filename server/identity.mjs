@@ -103,7 +103,9 @@ export function createIdentityService({
 
   function unlinkTailscale(ownerId, login, { force = false } = {}) {
     const map = links("tailscaleLinks");
-    if (typeof map[login] === "string" && map[login] !== ownerId && !force) throw new Error("Only the owner can unlink another person's identity");
+    // Links made before per-account links existed have no map entry but still belong to the first owner.
+    const belongsTo = tailscaleAccountFor(login);
+    if (belongsTo && belongsTo !== ownerId && !force) throw new Error("Only the owner can unlink another person's identity");
     delete map[login];
     store.setSetting("tailscaleLinks", map, { updatedBy: ownerId });
     const next = logins("tailscaleLogins").filter((item) => item !== login);
@@ -197,8 +199,8 @@ export function createIdentityService({
 
   function unlinkGithub(ownerId, login, { force = false } = {}) {
     const map = links("githubLinks");
-    const existing = map[String(login).toLowerCase()];
-    if (existing && existing.ownerId !== ownerId && !force) throw new Error("Only the owner can unlink another person's identity");
+    const belongsTo = githubAccountFor(String(login));
+    if (belongsTo && belongsTo !== ownerId && !force) throw new Error("Only the owner can unlink another person's identity");
     delete map[String(login).toLowerCase()];
     store.setSetting("githubLinks", map, { updatedBy: ownerId });
     const next = logins("githubLogins").filter((item) => item.toLowerCase() !== String(login).toLowerCase());

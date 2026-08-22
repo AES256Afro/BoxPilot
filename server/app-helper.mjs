@@ -467,7 +467,9 @@ export function createAppHelper({
     try { const parsed = YAML.parse(await readFile(servicesPath, "utf8")); if (Array.isArray(parsed)) existing = parsed; } catch { existing = []; }
     const kept = existing.filter((group) => !(group && typeof group === "object" && Object.keys(group)[0] === homepageGroup));
     const services = [{ [homepageGroup]: entries }, ...kept];
-    await writeFile(servicesPath, `# The "${homepageGroup}" group is managed by BoxPilot and rewritten on every sync; other groups are kept.\n${YAML.stringify(services)}`, { mode: 0o644 });
+    await writeFile(`${servicesPath}.tmp`, `# The "${homepageGroup}" group is managed by BoxPilot and rewritten on every sync; other groups are kept.\n${YAML.stringify(services)}`, { mode: 0o644 });
+    // Replace in one step: a truncating write can leave torn YAML that the next sync would discard.
+    await rename(`${servicesPath}.tmp`, servicesPath);
     const dockerPath = path.join(configDirectory, "docker.yaml");
     try { await stat(dockerPath); } catch { await writeFile(dockerPath, "boxpilot:\n  socket: /var/run/docker.sock\n", { mode: 0o644 }); }
     await writeFile(rememberedPath, JSON.stringify({ host: linkHost, syncedAt: clock().toISOString() }), { mode: 0o600 });
