@@ -1,4 +1,5 @@
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
+import { defaultThrottle as throttle } from "./login-throttle.mjs";
 import { promisify } from "node:util";
 import { elevationTtlMs } from "./ops/risk.mjs";
 
@@ -77,7 +78,9 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     const session = request.boxpilotSession ?? requestSession(request);
     const owner = session ? store.findOwnerById(session.owner.id) : null;
     const { currentPassword, newPassword } = request.body ?? {};
-    if (!owner || typeof currentPassword !== "string" || !(await verifyPassword(currentPassword, owner.passwordHash))) {
+    const verdict = await checkPassword(request, owner, currentPassword);
+    if (verdict.blocked) return rejectThrottled(response, verdict);
+    if (!verdict.ok) {
       response.status(401).json({ error: "Current password is wrong", code: "invalid_credentials" });
       return;
     }
@@ -139,10 +142,33 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     }
   }
 
+  const clientKey = (request) => `ip:${request.socket?.remoteAddress ?? request.ip ?? "unknown"}`;
+
+  /**
+   * Verify a password for an account with throttling: five consecutive failures (per account or per
+   * client address) pause further attempts, doubling each time. Failures are audited.
+   */
+  async function checkPassword(request, owner, password) {
+    const keys = [owner ? `user:${owner.id}` : "user:unknown", clientKey(request)];
+    const gate = throttle.check(keys);
+    if (gate.blocked) return { ok: false, blocked: true, retryAfterMs: gate.retryAfterMs };
+    const ok = Boolean(owner) && typeof password === "string" && (await verifyPassword(password, owner.passwordHash));
+    throttle.record(keys, ok);
+    if (!ok) store.recordAudit("auth.failed", { actorId: owner?.id ?? null, subjectId: owner?.id ?? null, details: { client: request.socket?.remoteAddress ?? null } });
+    return { ok, blocked: false, retryAfterMs: 0 };
+  }
+
+  function rejectThrottled(response, verdict) {
+    response.setHeader("Retry-After", String(Math.ceil(verdict.retryAfterMs / 1000)));
+    response.status(429).json({ error: `Too many wrong passwords; try again in ${Math.ceil(verdict.retryAfterMs / 1000)} s`, code: "too_many_attempts" });
+  }
+
   async function login(request, response) {
     const { username, password } = request.body ?? {};
     const owner = typeof username === "string" ? store.findOwnerByUsername(username) : null;
-    if (!owner || owner.role === "disabled" || !(await verifyPassword(password, owner.passwordHash))) {
+    const verdict = await checkPassword(request, owner && owner.role !== "disabled" ? owner : null, password);
+    if (verdict.blocked) return rejectThrottled(response, verdict);
+    if (!verdict.ok) {
       response.status(401).json({ error: "Invalid username or password", code: "invalid_credentials" });
       return;
     }
@@ -208,7 +234,9 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
       response.status(403).json({ error: "Viewers can look but not unlock high-risk actions or secrets", code: "forbidden" });
       return;
     }
-    if (!owner || typeof password !== "string" || !(await verifyPassword(password, owner.passwordHash))) {
+    const verdict = await checkPassword(request, owner, password);
+    if (verdict.blocked) return rejectThrottled(response, verdict);
+    if (!verdict.ok) {
       response.status(401).json({ error: "Invalid password", code: "invalid_credentials" });
       return;
     }
@@ -230,7 +258,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     response.status(204).end();
   }
 
-  return { bootstrap, login, status, logout, elevate, dropElevation, changePassword, issueSession, requestSession, requireSession, requireCsrf, requireRole, trustedDevice, rememberDevice };
+  return { bootstrap, login, status, logout, elevate, dropElevation, changePassword, issueSession, requestSession, requireSession, requireCsrf, requireRole, trustedDevice, rememberDevice, checkPassword, rejectThrottled };
 }
 
 export const securityInternals = { cookieName, parseCookies, safeEqual, validateCredentials };

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { approveJob, followJobOutput, stageOperation, waitForJob, type ApprovalPolicy, type Job, type RiskTier } from "./operations";
+import { approveJob, followJobOutput, stageOperation, waitForJob, type ApprovalPolicy, type Job, type RiskTier, cancelJob } from "./operations";
 
 /**
  * The one approval surface for registered operations (ADR-001 risk tiers):
@@ -52,6 +52,12 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
     return () => { cancelled = true; };
   }, [operationId, parameters, csrfToken]);
 
+  // Dismissing a staged-but-unapproved job withdraws it so Activity does not fill with orphans.
+  const dismiss = useCallback(() => {
+    if (job && phase === "ready") void cancelJob(job.id, csrfToken).catch(() => undefined);
+    onClose();
+  }, [job, phase, csrfToken, onClose]);
+
   const approve = useCallback(async () => {
     if (!job) return;
     setPhase("approving");
@@ -90,7 +96,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
             <span className="eyebrow">{phase === "done" ? "Finished" : phase === "error" ? "Needs attention" : "Approval"}</span>
             <h2 id="approve-title">{title}</h2>
           </div>
-          <button className="icon-button" type="button" onClick={onClose} aria-label="Close dialog" disabled={busy}>X</button>
+          <button className="icon-button" type="button" onClick={dismiss} aria-label="Close dialog" disabled={busy}>X</button>
         </header>
         <div className="modal-copy">
           {policy && <p><span className={`status-pill ${tierTone[tier]}`}>{tierLabel[tier]}</span>{policy.elevated && tier === "high" ? <span className="good-text"> Session elevated — no password needed right now.</span> : null}</p>}
@@ -117,10 +123,10 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
         </div>
         <footer className="recovery-actions">
           {phase === "done" || phase === "error" ? (
-            <button className="primary-button" type="button" onClick={onClose}>Close</button>
+            <button className="primary-button" type="button" onClick={dismiss}>Close</button>
           ) : (
             <>
-              <button className="secondary-button" type="button" onClick={onClose} disabled={busy}>Cancel</button>
+              <button className="secondary-button" type="button" onClick={dismiss} disabled={busy}>Cancel</button>
               <button className="primary-button" type="button" onClick={() => void approve()} disabled={busy || phase !== "ready" || (passwordRequired && password.length < 12) || (Boolean(confirmRequired) && typedConfirm !== confirmRequired)}>{actionLabel}</button>
             </>
           )}

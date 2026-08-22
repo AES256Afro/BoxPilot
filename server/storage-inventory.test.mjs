@@ -100,3 +100,24 @@ describe("storage inventory", () => {
     expect(shares).toEqual([{ name: "media", kind: "nfs", source: "nas:/volume1/media", mountpoint: "/mnt/media", readOnly: false, automount: false, mounted: true, sizeBytes: 10, usedBytes: 4, availableBytes: 6 }]);
   });
 });
+
+describe("volume groups over several physical volumes", () => {
+  it("reports one group with the combined size when an LV spans two PVs", () => {
+    const TiB = 1024 ** 4;
+    const flat = JSON.stringify({ blockdevices: [
+      { path: "/dev/sdb", kname: "sdb", pkname: null, type: "disk", size: TiB, mountpoints: [null] },
+      { path: "/dev/sdb1", kname: "sdb1", pkname: "sdb", type: "part", size: TiB, fstype: "LVM2_member", mountpoints: [null] },
+      { path: "/dev/sdc", kname: "sdc", pkname: null, type: "disk", size: TiB, mountpoints: [null] },
+      { path: "/dev/sdc1", kname: "sdc1", pkname: "sdc", type: "part", size: TiB, fstype: "LVM2_member", mountpoints: [null] },
+      { path: "/dev/mapper/data--vg-media", kname: "dm-1", pkname: "sdb1", type: "lvm", size: 1.5 * TiB, fstype: "ext4", mountpoints: ["/mnt/media"] },
+      { path: "/dev/mapper/data--vg-media", kname: "dm-1", pkname: "sdc1", type: "lvm", size: 1.5 * TiB, fstype: "ext4", mountpoints: ["/mnt/media"] },
+    ] });
+    const devices = parseLsblkTree(flat);
+    expect(devices.filter((device) => device.path === "/dev/mapper/data--vg-media")).toHaveLength(1);
+    const groups = volumeGroupsFrom(devices);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({ name: "data-vg", sizeBytes: 2 * TiB, usedBytes: 1.5 * TiB, freeBytes: 0.5 * TiB });
+    expect(groups[0].physicalVolumes).toEqual(["/dev/sdb1", "/dev/sdc1"]);
+    expect(groups[0].logicalVolumes).toHaveLength(1);
+  });
+});

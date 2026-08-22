@@ -70,3 +70,21 @@ describe("health alerts", () => {
     expect(timers).toEqual([["timeout", 3 * 60 * 1000], ["interval", 15 * 60 * 1000]]);
   });
 });
+
+describe("health alerts with missing evidence", () => {
+  it("carries an alert forward while its collector is unavailable instead of announcing a resolution", async () => {
+    const settings = new Map();
+    const store = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: vi.fn() };
+    const send = vi.fn(async () => ({ sent: true }));
+    const notifications = { getTarget: () => ({ kind: "ntfy" }), send };
+    const bad = { storage: { root: { usedPercent: 10 }, smart: { available: true, disks: [{ device: "/dev/sda", health: "critical", mediaErrors: 3 }] } } };
+    let snapshot = bad;
+    const alerts = createHealthAlerts({ inventory: { inspect: async () => snapshot }, notifications, store, now: () => new Date("2026-08-22T01:00:00Z") });
+    expect(await alerts.check()).toMatchObject({ sent: ["storage.smart:/dev/sda"] });
+    snapshot = { storage: { root: { usedPercent: 10 }, smart: { available: false, disks: [] } } }; // stale storage-health.json
+    expect(await alerts.check()).toMatchObject({ sent: [] });
+    expect(settings.get("healthAlertsState")).toHaveProperty("storage.smart:/dev/sda");
+    snapshot = { storage: { root: { usedPercent: 10 }, smart: { available: true, disks: [{ device: "/dev/sda", health: "healthy" }] } } };
+    expect(await alerts.check()).toMatchObject({ sent: ["resolved:storage.smart:/dev/sda"] });
+  });
+});

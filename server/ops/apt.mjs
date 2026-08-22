@@ -100,10 +100,10 @@ export function aptOperations() {
       run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("apt.update", {}, { timeoutMs: minutes(10), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
-      id: "apt.upgrade", title: "Install package updates", risk: "medium", timeoutMs: minutes(70),
+      id: "apt.upgrade", title: "Install package updates", risk: "medium", timeoutMs: minutes(185),
       description: "Runs apt-get update then upgrades every package, or only the selected ones.",
       parameters: { fields: { packages: optionalPackagesField, refreshFirst: refreshField } },
-      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("apt.upgrade", { packages: parameters.packages ?? null, refreshFirst: parameters.refreshFirst ?? true }, { timeoutMs: minutes(65), logPath: jobLog?.path ?? null }),
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("apt.upgrade", { packages: parameters.packages ?? null, refreshFirst: parameters.refreshFirst ?? true }, { timeoutMs: minutes(180), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "apt.install", title: "Install packages", risk: "medium", timeoutMs: minutes(70),

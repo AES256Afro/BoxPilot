@@ -355,7 +355,7 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
       runCommand("ip", ["-j", "-4", "route", "show", "default"]),
       runCommand("resolvectl", ["status", "--json=short"]),
       runCommand("ss", ["-H", "-l", "-n", "-t", "-u"]),
-      runCommand("tailscale", ["status", "--json"]),
+      runCommand("tailscale", ["status", "--json", "--peers=false"]),
       runCommand("ip", ["-j", "-4", "neigh", "show"]),
       runCommand("tailscale", ["debug", "prefs"]),
       runCommand("ip", ["-j", "-4", "route", "show"]),

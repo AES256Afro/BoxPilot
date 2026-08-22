@@ -10,7 +10,7 @@ import path from "node:path";
 import YAML from "yaml";
 import { fixedRun } from "./exec.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
-import { renderCompose, projectNameFor, resolveDevices } from "./catalog/compose.mjs";
+import { deviceMatchesPattern, renderCompose, projectNameFor, resolveDevices } from "./catalog/compose.mjs";
 import { isDeniedHostPath } from "./catalog/schema.mjs";
 import { resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
 
@@ -176,7 +176,7 @@ export function createAppHelper({
     return { applied, failed };
   }
 
-  async function writeProject(manifest, values, { existingEnv = {} } = {}) {
+  async function writeProject(manifest, values, { existingEnv = {}, devices: provided = null } = {}) {
     const directory = dirFor(manifest.id);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     // Images that run as a fixed non-root user (declared with `user:`) must be able to write their
@@ -198,7 +198,10 @@ export function createAppHelper({
       const real = await realpath(hostPath).catch(() => hostPath);
       if (isDeniedHostPath(real)) throw new Error(`${hostPath} resolves to ${real}, a protected system location; pick a folder under /srv, /mnt, /media, or your home`);
     }
-    const devices = await resolveDevices(manifest.devices, listDevices);
+    // The web process resolves device globs against the real /dev (this process may run without one); only paths matching the manifest are accepted.
+    const devices = Array.isArray(provided)
+      ? [...new Set(provided.filter((device) => manifest.devices.some((pattern) => deviceMatchesPattern(device, pattern))))]
+      : await resolveDevices(manifest.devices, listDevices);
     if (manifest.devices.some((pattern) => /[?*[]/.test(pattern)) && !devices.length) throw new Error(`${manifest.name} needs a device matching ${manifest.devices.join(", ")} and none exists on this server`);
     const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices });
     await writeFile(path.join(directory, ".env.tmp"), rendered.envFile, { mode: 0o600 });
@@ -232,7 +235,7 @@ export function createAppHelper({
     return { applications, problems, catalogRoot: root };
   }
 
-  async function install({ id, values: rawValues = {} }, { progress = null } = {}) {
+  async function install({ id, values: rawValues = {}, devices = null }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
     const existing = await readState(id);
     if (existing?.installed) throw new Error(`${manifest.name} is already installed; use reconfigure or update`);
@@ -243,7 +246,7 @@ export function createAppHelper({
     let directoryExisted = true;
     try { await stat(dirFor(id)); } catch { directoryExisted = false; }
     progress?.(`Writing compose project for ${manifest.name} (${manifest.image.reference})`, "stdout");
-    const rendered = await writeProject(manifest, values, { existingEnv: await readEnv(id) });
+    const rendered = await writeProject(manifest, values, { existingEnv: await readEnv(id), devices });
     const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
     try {
       if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
@@ -290,7 +293,7 @@ export function createAppHelper({
     return { artifact: result.artifact, checksumSha256: result.checksumSha256, sizeBytes: result.sizeBytes, downtimeMs: result.downtimeMs };
   }
 
-  async function update({ id }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
+  async function update({ id, devices = null }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
@@ -300,7 +303,7 @@ export function createAppHelper({
     const { values, errors } = resolveValues(manifest, sanitizeStoredValues(manifest, state.values ?? {}));
     if (errors.length) throw new Error(`Stored settings no longer match the manifest: ${errors.join("; ")}`);
     const saved = takeCheckpoint ? await checkpoint({ id, reason: "update" }, { progress }) : null;
-    await writeProject(manifest, values, { existingEnv: await readEnv(id) }); // picks up manifest changes (new image tag)
+    await writeProject(manifest, values, { existingEnv: await readEnv(id), devices }); // picks up manifest changes (new image tag)
     const pull = await compose(id, ["pull"], { timeout: 30 * 60_000, progress });
     if (!pull.ok) throw new Error(`docker compose pull failed: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
     const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
@@ -313,7 +316,7 @@ export function createAppHelper({
       let rolledBack = false;
       if (before.image) {
         const pinned = { ...manifest, image: { ...manifest.image, reference: before.image } };
-        await writeProject(pinned, values, { existingEnv: await readEnv(id) }).catch(() => {});
+        await writeProject(pinned, values, { existingEnv: await readEnv(id), devices }).catch(() => {});
         progress?.(`Update failed: ${error.message}. Restoring previous image...`, "stderr");
         const rollback = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000, progress });
         rolledBack = rollback.ok;
@@ -323,7 +326,7 @@ export function createAppHelper({
     }
   }
 
-  async function reconfigure({ id, values: rawValues = {} }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
+  async function reconfigure({ id, values: rawValues = {}, devices = null }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
@@ -332,7 +335,7 @@ export function createAppHelper({
     const saved = takeCheckpoint ? await checkpoint({ id, reason: "settings change" }, { progress }) : null;
     const previousCompose = await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => null);
     const previousEnv = await readFile(path.join(dirFor(id), ".env"), "utf8").catch(() => "");
-    const rendered = await writeProject(manifest, values, { existingEnv: parseEnvFile(previousEnv) });
+    const rendered = await writeProject(manifest, values, { existingEnv: parseEnvFile(previousEnv), devices });
     const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
     try {
       if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);

@@ -79,6 +79,14 @@ export function createJobsRouter({ state, jobs, scheduler, jobLogReader, auth })
     }
   });
 
+  router.delete("/jobs/:id", auth.requireCsrf, (request, response) => {
+    try {
+      response.json({ job: jobs.cancelJob(request.params.id, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role ?? "owner" }) });
+    } catch (error) {
+      response.status(error.message === "Job not found" ? 404 : 409).json({ error: error.message, code: "job_cancel_failed" });
+    }
+  });
+
   router.get("/jobs/:id/approval", (request, response) => {
     const policy = jobs.describeApproval(request.params.id, request.boxpilotSession);
     if (!policy) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
@@ -91,10 +99,10 @@ export function createJobsRouter({ state, jobs, scheduler, jobLogReader, auth })
     response.json({ schedules: scheduler.list() });
   });
 
-  router.post("/schedules", auth.requireCsrf, (request, response) => {
+  router.post("/schedules", auth.requireCsrf, async (request, response) => {
     try {
       const { operationId, parameters, frequency, minute, hour, weekday } = request.body ?? {};
-      const schedule = scheduler.create({ operationId, parameters: parameters ?? {}, frequency, minute, hour: hour ?? null, weekday: weekday ?? null, createdBy: request.boxpilotSession.owner.id });
+      const schedule = await scheduler.create({ operationId, parameters: parameters ?? {}, frequency, minute, hour: hour ?? null, weekday: weekday ?? null, createdBy: request.boxpilotSession.owner.id });
       response.status(201).json({ schedule });
     } catch (error) {
       response.status(400).json({ error: error.message, code: "schedule_rejected" });

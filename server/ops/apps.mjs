@@ -2,6 +2,8 @@ import { defineOperation } from "./registry.mjs";
 
 const idField = { type: "string", pattern: /^[a-z0-9][a-z0-9-]{1,62}$/ };
 const valuesField = { type: "object", optional: true, validate: (value) => (Object.keys(value).every((key) => ["ports", "env", "volumes", "setup"].includes(key)) ? null : "may only contain ports, env, volumes, and setup") };
+// Concrete device paths resolved by the web process (the helper's sandbox has no real /dev); the deployer keeps only those matching the manifest.
+const devicesField = { type: "array", optional: true, nullable: true, validate: (value) => (value.length > 32 || value.some((entry) => typeof entry !== "string" || !/^\/dev\/[A-Za-z0-9._/-]{1,64}$/.test(entry)) ? "must be up to 32 /dev paths" : null) };
 const minutes = (value) => value * 60_000;
 const tailscaleBinary = () => process.env.BOXPILOT_TAILSCALE_BINARY ?? "/usr/bin/tailscale";
 
@@ -164,8 +166,8 @@ export function appOperations() {
     defineOperation({
       id: "app.install", title: "Install application", risk: "medium", timeoutMs: minutes(25),
       description: "Writes the compose project, pulls the image, starts the container, and waits for it to be healthy; rolls back on failure.",
-      parameters: { fields: { id: idField, values: valuesField } },
-      run: (parameters, { apps, progress }) => apps.install({ id: parameters.id, values: parameters.values ?? {} }, { progress }),
+      parameters: { fields: { id: idField, values: valuesField, devices: devicesField } },
+      run: (parameters, { apps, progress }) => apps.install({ id: parameters.id, values: parameters.values ?? {}, devices: parameters.devices ?? null }, { progress }),
     }),
     defineOperation({
       id: "app.uninstall", title: "Uninstall application (keep data)", risk: "medium", timeoutMs: minutes(10),
@@ -182,14 +184,14 @@ export function appOperations() {
     defineOperation({
       id: "app.update", title: "Update application", risk: "medium", timeoutMs: minutes(40),
       description: "Takes a data checkpoint, pulls the catalog's current image, and recreates the container; restores the previous image if it fails to become healthy.",
-      parameters: { fields: { id: idField, checkpoint: { type: "boolean", optional: true } } },
-      run: (parameters, { apps, progress }) => apps.update({ id: parameters.id }, { progress, checkpoint: parameters.checkpoint ?? true }),
+      parameters: { fields: { id: idField, checkpoint: { type: "boolean", optional: true }, devices: devicesField } },
+      run: (parameters, { apps, progress }) => apps.update({ id: parameters.id, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true }),
     }),
     defineOperation({
       id: "app.reconfigure", title: "Change application settings", risk: "medium", timeoutMs: minutes(15),
       description: "Takes a data checkpoint, rewrites ports, settings, and volume paths, and recreates the container; restores the previous configuration on failure.",
-      parameters: { fields: { id: idField, values: valuesField, checkpoint: { type: "boolean", optional: true } } },
-      run: (parameters, { apps, progress }) => apps.reconfigure({ id: parameters.id, values: parameters.values ?? {} }, { progress, checkpoint: parameters.checkpoint ?? true }),
+      parameters: { fields: { id: idField, values: valuesField, checkpoint: { type: "boolean", optional: true }, devices: devicesField } },
+      run: (parameters, { apps, progress }) => apps.reconfigure({ id: parameters.id, values: parameters.values ?? {}, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true }),
     }),
     defineOperation({
       id: "app.action", title: "Start, stop, or restart application", risk: "low", timeoutMs: minutes(5),

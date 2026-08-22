@@ -182,6 +182,15 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   const elevated = Number.isFinite(elevatedTime) && elevatedTime > clock;
   const elevatedLabel = elevated ? new Date(elevatedTime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
   const refreshAuth = () => fetchAuthStatus().then((status) => onAuthChanged?.(status)).catch(() => undefined);
+  // When the session reaches its expiry, go back to the sign-in screen instead of leaving every page red.
+  useEffect(() => {
+    const expiresAt = Date.parse(authStatus.expiresAt ?? "");
+    if (!Number.isFinite(expiresAt)) return undefined;
+    const delay = Math.min(2_147_000_000, Math.max(1000, expiresAt - Date.now() + 1000));
+    const timer = window.setTimeout(() => { void fetchAuthStatus().then((status) => { if (!status.authenticated) onSignedOut(); else onAuthChanged?.(status); }).catch(() => undefined); }, delay);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authStatus.expiresAt]);
   useEffect(() => {
     const listener = () => { void refreshAuth(); };
     window.addEventListener("boxpilot:auth-changed", listener);

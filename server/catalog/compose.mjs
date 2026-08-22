@@ -19,6 +19,21 @@ const globCharacters = /[?*[]/;
  * through untouched; a glob that matches nothing is simply dropped, so one manifest works on
  * hosts with SATA, NVMe, or both. `listDirectory(dir)` returns entry names for a directory.
  */
+/** Glob → anchored regex for one path segment: `?` one character, `*` any run, everything else literal. */
+function segmentRegex(namePattern) {
+  return new RegExp(`^${namePattern.replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, "[^/]*").replace(/\?/g, "[^/]")}$`);
+}
+
+/** True when a concrete /dev path matches one manifest device pattern (only the last segment may glob). */
+export function deviceMatchesPattern(devicePath, pattern) {
+  if (typeof devicePath !== "string" || typeof pattern !== "string") return false;
+  if (!globCharacters.test(pattern)) return devicePath === pattern;
+  const slash = pattern.lastIndexOf("/");
+  const directory = pattern.slice(0, slash) || "/";
+  if (globCharacters.test(directory)) return false;
+  const deviceSlash = devicePath.lastIndexOf("/");
+  return (devicePath.slice(0, deviceSlash) || "/") === directory && segmentRegex(pattern.slice(slash + 1)).test(devicePath.slice(deviceSlash + 1));
+}
 export async function resolveDevices(patterns, listDirectory) {
   const resolved = [];
   for (const pattern of patterns ?? []) {

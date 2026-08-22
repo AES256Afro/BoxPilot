@@ -346,3 +346,23 @@ describe("BoxPilot state store", () => {
     store.close();
   });
 });
+
+describe("history retention", () => {
+  it("prunes old finished jobs beyond the newest few and caps audit rows", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-prune-"));
+    directories.push(directory);
+    const store = createStateStore({ stateDirectory: directory });
+    const owner = store.consumeBootstrapToken(store.createBootstrapToken().token, { username: "admin", passwordHash: "x" });
+    const ids = [];
+    for (let i = 0; i < 4; i += 1) ids.push(store.createJob({ type: "op:apt.refresh", title: "x", risk: "low", parameters: {}, createdBy: owner.id, initialSteps: [] }).id);
+    store.transitionJob(ids[0], "awaiting_approval", "completed");
+    store.transitionJob(ids[1], "awaiting_approval", "failed", { error: "x" });
+    for (let i = 0; i < 30; i += 1) store.recordAudit("test.event", { actorId: owner.id, subjectId: null, details: {} });
+    const future = new Date(Date.now() + 100 * 86_400_000).toISOString();
+    const result = store.pruneHistory({ keepJobs: 0, jobDays: 90, keepAudit: 10, now: future });
+    expect(result.removedJobs).toBe(2); // the two finished ones; awaiting jobs are never pruned
+    expect(store.getJob(ids[0])).toBeNull();
+    expect(store.getJob(ids[2])).not.toBeNull();
+    expect(result.removedAudit).toBeGreaterThan(0);
+  });
+});

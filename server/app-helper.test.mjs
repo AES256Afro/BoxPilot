@@ -53,6 +53,9 @@ describe("generic app deployer", () => {
     const bare = await setup({ listDevices: async () => ["tty", "zero"] });
     await writeFile(path.join(bare.catalogDirectory, "smart.yaml"), manifestYaml);
     await expect(bare.apps.install({ id: "smart" })).rejects.toThrow("needs a device matching /dev/sd?, /dev/nvme?");
+    // The web process can hand over the devices it resolved; only paths matching the manifest survive.
+    await expect(bare.apps.install({ id: "smart", devices: ["/dev/sdb", "/dev/null"] })).resolves.toMatchObject({ installed: true });
+    await expect(bare.apps.reconfigure({ id: "smart", devices: ["/dev/null"] })).rejects.toThrow("needs a device matching");
 
     const host = await setup({ listDevices: async () => ["nvme0", "nvme0n1", "sda", "sda1"] });
     await writeFile(path.join(host.catalogDirectory, "smart.yaml"), manifestYaml);

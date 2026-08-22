@@ -55,8 +55,9 @@ function summarizeAptOutput(stdout) {
  */
 export async function repairPackageState({ run: baseRun = fixedRun, log = null } = {}) {
   const run = withLog(baseRun, log);
-  const configure = await run("/usr/bin/dpkg", ["--configure", "-a"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024 });
-  const fixBroken = await run(aptGet, ["install", "--fix-broken", "--yes"], { timeout: 60 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+  // Budget: the apt.upgrade task allows 180 min; these inner limits sum to less so a stuck step fails inside the job instead of outliving it.
+  const configure = await run("/usr/bin/dpkg", ["--configure", "-a"], { timeout: 20 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+  const fixBroken = await run(aptGet, ["install", "--fix-broken", "--yes"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024 });
   return {
     ok: configure.ok && fixBroken.ok,
     configured: configure.ok,
@@ -82,7 +83,7 @@ export async function aptUpgrade({ packages = null, refreshFirst = true } = {}, 
   if (refreshFirst) await aptUpdate({}, { run });
   const before = packages ? await installedVersions(run, packages) : {};
   const args = packages ? ["install", "--yes", "--only-upgrade", ...packages] : ["upgrade", "--yes", "--with-new-pkgs"];
-  const result = await run(aptGet, args, { timeout: 60 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+  const result = await run(aptGet, args, { timeout: 110 * 60_000, maxBuffer: 8 * 1024 * 1024 });
   if (!result.ok) throw new Error(`apt-get ${args[0]} failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   const after = packages ? await installedVersions(run, packages) : {};
   return { upgraded: true, scope: packages ? "selected" : "all", packages: packages ?? [], before, after, summary: summarizeAptOutput(result.stdout), packageStateRepaired: repair.ok, rebootRequired: await rebootRequired() };

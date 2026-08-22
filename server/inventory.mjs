@@ -53,7 +53,7 @@ export function createInventoryService({
   }
 
   async function inspectTailscale() {
-    const result = await runCommand("tailscale", ["status", "--json"]);
+    const result = await runCommand("tailscale", ["status", "--json", "--peers=false"]);
     if (!result.ok) return { installed: false, connected: false, dnsName: null };
     try {
       const parsed = JSON.parse(result.stdout);

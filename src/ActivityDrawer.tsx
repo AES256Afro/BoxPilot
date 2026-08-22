@@ -12,6 +12,7 @@ const activeStates = new Set(["applying", "verifying"]);
 
 const stateLabel: Record<string, string> = {
   awaiting_approval: "Awaiting approval",
+  cancelled: "Cancelled",
   applying: "Running",
   verifying: "Verifying",
   completed: "Completed",
