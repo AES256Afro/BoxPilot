@@ -3,6 +3,8 @@ Description=BoxPilot restricted local helper
 After=local-fs.target
 Before=boxpilot.service
 
+ConditionPathIsDirectory=/var/lib/boxpilot
+
 [Service]
 Type=simple
 User=root
@@ -72,7 +74,9 @@ ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectSystem=strict
-ReadOnlyPaths=/var/lib/boxpilot
+# The backup reads the database with VACUUM INTO. With the web service stopped SQLite has to
+# recreate the WAL index, which a read-only mount refuses — exactly when a backup matters most.
+ReadWritePaths=/var/lib/boxpilot
 ReadWritePaths=-/var/lib/libvirt/images
 ReadWritePaths=-/var/lib/libvirt/boot
 ReadWritePaths=-/var/lib/libvirt/qemu/nvram

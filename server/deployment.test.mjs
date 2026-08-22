@@ -40,11 +40,14 @@ describe("native systemd network boundaries", () => {
     expect(helperUnit).toContain("CacheDirectory=boxpilot-restic boxpilot-controller-restic boxpilot-application-restic");
     expect(helperUnit).toContain("CacheDirectoryMode=0700");
     expect(helperUnit).toContain("ReadWritePaths=-/mnt/boxpilot-backup");
-    expect(helperUnit).toContain("ReadOnlyPaths=/var/lib/boxpilot");
+    // The controller backup runs VACUUM INTO against the live database; with the web service stopped
+    // SQLite must recreate the WAL index, which a read-only mount refuses.
+    expect(helperUnit).toContain("ReadWritePaths=/var/lib/boxpilot");
+    expect(helperUnit).toContain("ConditionPathIsDirectory=/var/lib/boxpilot");
     expect(helperUnit).toContain("ReadWritePaths=-/var/lib/libvirt/images"); // optional: hosts without libvirt must still start the helper
     expect(helperUnit).toContain("ReadWritePaths=-/var/lib/libvirt/boot");
     expect(helperUnit).toContain("ReadWritePaths=-/var/lib/libvirt/qemu/nvram");
-    expect(webUnit).toContain("ReadWritePaths=/var/lib/boxpilot-managed/vm-media-inbox");
+    expect(webUnit).toContain("ReadWritePaths=-/var/lib/boxpilot-managed/vm-media-inbox"); // optional: a box with no VM media must still start
     expect(helperUnit).toContain("PrivateNetwork=true");
     expect(helperUnit).toContain("UMask=0077");
     expect(serverEntry).toContain("createHelperLibvirtService");

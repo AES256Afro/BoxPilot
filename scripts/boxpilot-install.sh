@@ -18,6 +18,8 @@
 # scripts/boxpilot-upgrade.sh, installs and enables the systemd units, configures access, checks
 # health, and prints the URL plus a one-time owner bootstrap token.
 set -eu
+# sudo keeps the caller's umask: a strict one would make /opt and node_modules unreadable to the service user.
+umask 022
 
 REPO="${BOXPILOT_REPO:-AES256Afro/BoxPilot}"
 REF="main"; ACCESS=""; PORT="8787"; NODE_PIN=""; PRINT_TOKEN=1
@@ -83,6 +85,10 @@ if ! id boxpilot >/dev/null 2>&1; then
   useradd --system --create-home --home-dir /var/lib/boxpilot --shell /usr/sbin/nologin boxpilot
 fi
 install -d -m 0700 -o boxpilot -g boxpilot /var/lib/boxpilot
+# The helper binds this at start: it must exist, or an independent backup disk mounted later
+# stays invisible inside the helper's namespace.
+install -d -o root -g root -m 0755 /mnt/boxpilot-backup
+
 install -d -m 0755 /etc/boxpilot
 
 # 4. Build and install the code (delegates to the upgrade script from the same ref)
@@ -92,7 +98,8 @@ curl -fsSL "https://codeload.github.com/${REPO}/tar.gz/${REF}" | tar -xz -C "$WO
 [ -f "$WORK/scripts/boxpilot-upgrade.sh" ] || fail "ref ${REF} has no scripts/boxpilot-upgrade.sh"
 [ -f /etc/boxpilot/boxpilot.env ] || install -m 0600 "$WORK/deploy/boxpilot.env.example" /etc/boxpilot/boxpilot.env
 [ -f /etc/boxpilot/redaction.json ] || install -m 0640 -o root -g boxpilot "$WORK/deploy/redaction.example.json" /etc/boxpilot/redaction.json
-BOXPILOT_REPO="$REPO" BOXPILOT_NODE_BIN=/usr/local/bin/node sh "$WORK/scripts/boxpilot-upgrade.sh" "$REF"
+# Re-running the installer is the documented upgrade path, so the health check must use this box's port.
+BOXPILOT_REPO="$REPO" BOXPILOT_NODE_BIN=/usr/local/bin/node BOXPILOT_HEALTH_URL="http://127.0.0.1:${PORT}/api/v1/health" sh "$WORK/scripts/boxpilot-upgrade.sh" "$REF"
 rm -rf "$WORK"
 
 # 5. Access mode → env file

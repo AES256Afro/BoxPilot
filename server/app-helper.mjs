@@ -176,6 +176,21 @@ export function createAppHelper({
     return { applied, failed };
   }
 
+  /** The uid/gid an app's container actually runs as, from `user:` or a PUID-style variable. */
+  function effectiveOwner(manifest) {
+    if (manifest.user) {
+      const [uid, gid] = manifest.user.split(":").map((part) => Number.parseInt(part, 10));
+      return Number.isInteger(uid) ? { uid, gid: Number.isInteger(gid) ? gid : uid } : null;
+    }
+    const number = (names) => {
+      const entry = manifest.env.find((item) => names.includes(item.name));
+      const value = Number.parseInt(entry?.default ?? "", 10);
+      return Number.isInteger(value) ? value : null;
+    };
+    const uid = number(["PUID", "UID", "USER_UID", "PLEX_UID"]);
+    return uid === null ? null : { uid, gid: number(["PGID", "GID", "USER_GID", "PLEX_GID"]) ?? uid };
+  }
+
   async function writeProject(manifest, values, { existingEnv = {}, devices: provided = null } = {}) {
     const directory = dirFor(manifest.id);
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -190,6 +205,19 @@ export function createAppHelper({
       if (owner && Number.isInteger(owner[0])) await chownDirectory(target, owner[0], Number.isInteger(owner[1]) ? owner[1] : owner[0]).catch(() => {});
     }
     for (const sidecar of manifest.sidecars ?? []) for (const volume of sidecar.volumes) await mkdir(path.join(directory, volume.path), { recursive: true, mode: 0o755 });
+    // A folder the app is pointed at may not exist yet. Docker would create it as root:root, and an
+    // app that runs as a normal user (PUID, or a declared `user:`) then cannot write its own data —
+    // the install looks fine and every download or upload fails. Create it ourselves and hand it over.
+    // An existing folder is never touched: it is the owner's library, with their ownership.
+    const runsAs = effectiveOwner(manifest);
+    for (const volume of manifest.volumes) {
+      const chosen = values.volumes?.[volume.id] ?? volume.hostPath;
+      // Only folders meant to hold data: every system mount a manifest declares is on the deny list.
+      if (!chosen || isDeniedHostPath(chosen)) continue;
+      if (await stat(chosen).then(() => true, () => false)) continue;
+      await mkdir(chosen, { recursive: true, mode: 0o755 }).catch(() => {});
+      if (runsAs) await chownDirectory(chosen, runsAs.uid, runsAs.gid).catch(() => {});
+    }
     for (const volume of manifest.volumes) {
       const hostPath = values.volumes?.[volume.id];
       // Only paths the owner changed are checked: the manifest's own mounts (e.g. the Docker socket, which
