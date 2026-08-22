@@ -65,8 +65,15 @@ describe("libvirt service", () => {
     expect(result.domains[0].interfaces[0]).toMatchObject({ source: "default", model: "virtio" });
     expect(result.domains[0].snapshotCount).toBe(2);
     expect(result.domains[0].snapshots[1]).toMatchObject({ name: "pre-upgrade", current: true, state: "stopped", location: "internal" });
-    expect(result.domains[0].guestAgent).toEqual({ available: true, filesystemState: "thawed", addressDiscovery: true });
+    // The list does not probe the guest agent: on a VM without one each probe waits out libvirt's
+    // timeout, and this list is what the Overview loads. Address discovery still comes from the
+    // agent-sourced address read, which fails fast.
+    expect(result.domains[0].guestAgent).toEqual({ available: false, filesystemState: null, addressDiscovery: true });
     expect(result.domains[1].state).toBe("stopped");
+
+    // Reading one VM does probe it, so the detail is still there when it is asked for.
+    const single = await service.getDomain("ubuntu-lab");
+    expect(single.guestAgent).toEqual({ available: true, filesystemState: "thawed", addressDiscovery: true });
   });
 
   it("discovers libvirt networks and storage pools", async () => {

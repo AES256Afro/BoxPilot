@@ -77,7 +77,9 @@ export function createRecoveryKitService({ store, prerequisites, helper, libvirt
         : controllerBackups[0]?.restoreDrill?.passed === true
         ? check("controller.database", "operator-check", "Independent BoxPilot database copy", `A WAL-aware local controller snapshot passed its isolated copy-open drill at ${controllerBackups[0].verifiedAt}, but it remains on this server.`, "Open Backups and protect the snapshot into the encrypted independent restic repository, then keep the repository password in a separate failure domain.")
         : check("controller.database", "action-required", "Verified BoxPilot database snapshot", "No WAL-aware local controller snapshot with passing isolated copy-open evidence is recorded.", "Open Backups and click Back up now; then protect the verified snapshot independently."),
-      check("controller.source", "operator-check", "Exact BoxPilot source and install notes", `This kit records BoxPilot ${version}, but the running controller does not attest its Git commit or retain an independent source archive.`, "Keep the exact release archive, Ubuntu bootstrap notes, systemd units, and Tailscale Serve command outside this server."),
+      // Informational, not an action: nothing the owner does on this server can clear it, and
+      // treating it as outstanding meant the Action Center could never report a quiet box.
+      check("controller.source", "informational", "Exact BoxPilot source and install notes", `This kit records BoxPilot ${version}. Rebuilding needs the release itself, which lives on GitHub rather than on this server.`, "Keep the release tag, your Ubuntu install notes and the Tailscale command with your other recovery material."),
       !applicationInventoryAvailable
         ? check("applications.backup", "unavailable", "Catalog application backups", "Catalog application inventory is unavailable, so backup coverage cannot be evaluated.", "Restore the helper connection and regenerate the kit.")
         : installedApplications.length === 0

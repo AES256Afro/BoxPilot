@@ -25,7 +25,9 @@ describe("first-run setup profiles", () => {
       "apt.unattended.inspect": { installed: true, enabled: false },
       "virtualization.foundation.inspect": { ready: false, planAvailable: true },
     });
-    const scheduler = { list: () => [{ operationId: "controller.backup.create", parameters: {} }] };
+    // The cadence is part of the match: a nightly database backup at a different hour is a
+    // different schedule from the one this profile offers to create.
+    const scheduler = { list: () => [{ operationId: "controller.backup.create", parameters: {}, frequency: "daily", hour: 3, weekday: null }] };
     const setup = createSetupService({ helper, scheduler });
     const result = await setup.describe();
     expect(result.firstRun).toBe(false);

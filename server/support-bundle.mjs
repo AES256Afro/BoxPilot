@@ -7,15 +7,18 @@ function settled(result) {
   return result.status === "fulfilled" ? { status: "available", data: result.value } : { status: "unavailable" };
 }
 
-export function createSupportBundleService({ inventory, prerequisites, actionCenter, audit, helper, loadPolicy = loadRedactionPolicy, now = () => new Date(), version = productVersion } = {}) {
+export function createSupportBundleService({ inventory, prerequisites, actionCenter, audit, helper, store = null, loadPolicy = loadRedactionPolicy, now = () => new Date(), version = productVersion } = {}) {
   async function inspect() {
     const policy = await loadPolicy().catch(() => ({ status: "unavailable", additionalLiterals: [], additionalPathPrefixes: [] }));
     const redactor = createRedactor(policy);
+    // The audit trail people mean is the one in the database. The file-backed log has a single
+    // writer (one VM-plan event), so a bundle labelled "audit" was empty on essentially every box.
+    const auditEvents = (limit) => (store?.listAudit ? store.listAudit(limit) : audit.list(limit));
     const [inventoryResult, prerequisiteResult, actionResult, auditResult, ...logResults] = await Promise.allSettled([
       inventory.inspect(),
       prerequisites.inspect(),
       actionCenter.inspect(),
-      audit.list(100),
+      Promise.resolve(auditEvents(100)),
       ...logSources.map((source) => helper.request("logs.read", { kind: "group", target: source, lines: 50 }, { timeoutMs: 60_000 })),
     ]);
     const logs = Object.fromEntries(logSources.map((source, index) => [source, settled(logResults[index])]));

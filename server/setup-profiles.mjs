@@ -57,8 +57,18 @@ export const setupProfiles = Object.freeze([
   },
 ]);
 
+/**
+ * Is an existing schedule the one this profile wanted? Compare what the list actually reports —
+ * the operation and the cadence. `scheduler.list()` summarises parameters rather than returning
+ * them, so comparing those told us nothing, while a weekly snapshot at a different hour counted
+ * as a match for a daily one.
+ */
 function sameSchedule(existing, wanted) {
-  return existing.operationId === wanted.operationId && JSON.stringify(existing.parameters ?? {}) === JSON.stringify(wanted.parameters ?? {});
+  if (existing.operationId !== wanted.operationId) return false;
+  if (existing.frequency !== wanted.frequency) return false;
+  if (wanted.hour !== undefined && existing.hour !== wanted.hour) return false;
+  if (wanted.weekday !== undefined && existing.weekday !== wanted.weekday) return false;
+  return true;
 }
 
 /** Resolve every profile step against live state: done, runnable, or blocked — and the exact job to stage. */

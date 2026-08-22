@@ -333,7 +333,9 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
             boundary: boundary(),
           });
         }
-        if (maintenance.automaticSecurityUpdates?.available && maintenance.automaticSecurityUpdates.state !== "enabled-active") {
+        // Including "not installed": `available` is false when the unit was never installed, so
+        // the notice used to fire for the mild case and stay quiet when there is no protection at all.
+        if (maintenance.automaticSecurityUpdates && maintenance.automaticSecurityUpdates.state !== "enabled-active") {
           notices.push({
             id: "maintenance.security-updates",
             severity: "info",
