@@ -35,8 +35,11 @@ function checkKeys(errors, path, value, allowed, required = []) {
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
-  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls"], ["schemaVersion", "id", "name", "category", "description", "image"]);
+  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize"], ["schemaVersion", "id", "name", "category", "description", "image"]);
   if (raw.schemaVersion !== 2) fail(errors, "manifest.schemaVersion", "must be 2");
+  // Docker gives a container 64 MB of shared memory. Anything decoding video wants far more, and
+  // runs out in ways that look like the app is broken rather than out of a resource.
+  if (raw.shmSize !== undefined && !(typeof raw.shmSize === "string" && /^[1-9][0-9]{0,4}[mg]$/.test(raw.shmSize))) fail(errors, "manifest.shmSize", "must look like 256m or 1g");
   if (typeof raw.id !== "string" || !idPattern.test(raw.id)) fail(errors, "manifest.id", "must be a short lower-case slug");
   for (const field of ["name", "category", "description"]) if (typeof raw[field] !== "string" || !raw[field].trim() || raw[field].length > 400) fail(errors, `manifest.${field}`, "must be a non-empty string");
   if (raw.website !== undefined && !(typeof raw.website === "string" && /^https:\/\/[^\s]+$/.test(raw.website))) fail(errors, "manifest.website", "must be an https URL");
@@ -227,6 +230,7 @@ export function validateManifest(raw) {
     } : null,
     networkVia: raw.networkVia ?? null,
     sysctls: raw.sysctls ?? [],
+    shmSize: raw.shmSize ?? null,
     sidecars: sidecars.map((sidecar) => ({
       id: sidecar.id,
       image: sidecar.image,

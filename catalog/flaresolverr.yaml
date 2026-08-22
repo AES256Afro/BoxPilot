@@ -1,0 +1,31 @@
+schemaVersion: 2
+id: flaresolverr
+name: FlareSolverr
+category: Media automation
+icon: "🛡️"
+description: Solves the browser checks some indexers put in front of their pages, so Prowlarr and Jackett can reach them. Nothing to configure — point Prowlarr at it.
+website: https://github.com/FlareSolverr/FlareSolverr
+risk: low
+image:
+  reference: ghcr.io/flaresolverr/flaresolverr:v3.5.0
+  version: v3.5.0
+ports:
+  - id: api
+    label: API
+    container: 8191
+    host: 8191
+    exposure: lan
+env:
+  - name: LOG_LEVEL
+    label: Log level
+    options: [info, debug]
+    default: info
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 8
+  timeoutSeconds: 120
+notes: "In Prowlarr: Settings → Indexers → add a FlareSolverr proxy with the host http://flaresolverr:8191, then tag the indexers that need it. It has no interface of its own — a browser will just show a small JSON status page."

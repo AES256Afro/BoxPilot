@@ -1,0 +1,51 @@
+schemaVersion: 2
+id: diun
+name: Diun
+category: Monitoring
+icon: "🔔"
+description: Watches the images your containers run and tells you when a new version is published. It only notifies — nothing is updated behind your back.
+website: https://crazymax.dev/diun
+risk: medium
+image:
+  reference: crazymax/diun:4.33.0
+  version: 4.33.0
+volumes:
+  - id: data
+    label: Data
+    container: /data
+    path: data
+  - id: docker
+    label: Docker socket
+    container: /var/run/docker.sock
+    hostPath: /var/run/docker.sock
+    readOnly: true
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: DIUN_WATCH_SCHEDULE
+    label: Check schedule (cron)
+    default: "0 */6 * * *"
+  - name: DIUN_WATCH_JITTER
+    fixed: true
+    default: 30s
+  - name: DIUN_PROVIDERS_DOCKER
+    fixed: true
+    default: "true"
+  - name: DIUN_PROVIDERS_DOCKER_WATCHBYDEFAULT
+    label: Watch every container
+    type: boolean
+    default: "true"
+  - name: DIUN_NOTIF_SCRIPT_CMD
+    label: Notify command
+    default: ""
+  - name: LOG_LEVEL
+    label: Log level
+    options: [info, debug, warn]
+    default: info
+health:
+  kind: running
+  stableSeconds: 8
+  timeoutSeconds: 120
+notes: Diun has no web interface — it writes what it finds to its log, which you can read from this app's Logs button. To have it reach your phone, point a notifier at the ntfy or Gotify you are already running; see the Diun documentation for the environment variable to add under Settings.

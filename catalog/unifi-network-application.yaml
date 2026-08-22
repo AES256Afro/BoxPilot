@@ -1,0 +1,90 @@
+schemaVersion: 2
+id: unifi-network-application
+name: UniFi Network Application
+category: Network
+icon: "🛜"
+description: The controller for Ubiquiti UniFi access points, switches and gateways — adopt them, configure Wi-Fi, and see what is connected. Runs here instead of on a Cloud Key.
+website: https://ui.com
+risk: medium
+image:
+  reference: linuxserver/unifi-network-application:10.5.67-ls141
+  version: 10.5.67-ls141
+ports:
+  - id: web
+    label: Web UI
+    container: 8443
+    host: 8443
+    exposure: lan
+  - id: inform
+    label: Device inform
+    container: 8080
+    host: 8080
+    exposure: lan
+  - id: discovery
+    label: Device discovery
+    container: 10001
+    host: 10001
+    protocol: udp
+    exposure: lan
+  - id: stun
+    label: STUN
+    container: 3478
+    host: 3478
+    protocol: udp
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /config
+    path: config
+env:
+  - name: PUID
+    label: Run as user id
+    type: number
+    default: 1000
+  - name: PGID
+    label: Run as group id
+    type: number
+    default: 1000
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: MONGO_HOST
+    fixed: true
+    default: mongo
+  - name: MONGO_PORT
+    fixed: true
+    default: "27017"
+  - name: MONGO_DBNAME
+    fixed: true
+    default: unifi
+  - name: MONGO_USER
+    fixed: true
+    default: unifi
+  - name: MONGO_PASS
+    label: Database password
+    type: password
+    generate: true
+    secret: true
+  - name: MEM_LIMIT
+    label: Java memory limit (MB)
+    default: "1024"
+  - name: MEM_STARTUP
+    label: Java startup memory (MB)
+    default: "1024"
+sidecars:
+  - id: mongo
+    image: mongo:7.0.14
+    env:
+      MONGO_INITDB_ROOT_USERNAME: unifi
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASS}
+    volumes:
+      - id: mongo-data
+        container: /data/db
+        path: mongo-data
+health:
+  kind: running
+  stableSeconds: 20
+  timeoutSeconds: 600
+notes: The UI is HTTPS on the port above with a self-signed certificate, so your browser will warn once. Devices need to reach the inform port on this server's address to be adopted, so leave this one on the home network rather than tailnet-only. It takes a couple of minutes to start the first time.
