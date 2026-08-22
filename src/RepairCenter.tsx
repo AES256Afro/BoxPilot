@@ -30,7 +30,7 @@ interface Job {
   recovery: { reason?: string; manual?: string };
 }
 
-interface ApprovalPolicy {
+interface ApprovalPolicy { confirmText?: string | null;
   tier: "low" | "medium" | "high";
   passwordRequired: boolean;
   elevated: boolean;
@@ -50,7 +50,7 @@ interface RecoveryKit {
   product: { name: string; version: string };
   summary: { status: string; verified: number; actionRequired: number; operatorChecks: number; notApplicable: number; total: number };
   checks: Array<{ id: string; state: "verified" | "action-required" | "operator-check" | "not-applicable" | "unavailable"; title: string; evidence: string; action: string }>;
-  evidence: { jobs: unknown[]; controllerBackups: unknown[]; controllerProtections?: unknown[]; controllerRetentionRuns?: unknown[]; applicationBackups: unknown[]; applicationProtections?: unknown[]; applicationRetentionRuns?: unknown[]; vmBackups: unknown[]; routerCheckpoints: unknown[]; migrationTransfers: unknown[]; fleet: { activeAgents: number; revokedAgents: number } };
+  evidence: { jobs: unknown[]; controllerBackups: unknown[]; controllerProtections?: unknown[]; controllerRetentionRuns?: unknown[]; applications?: unknown[]; virtualMachines?: unknown[]; vmBackups?: unknown[]; prerequisites?: unknown[] };
   boundary: { mutationsPerformed: boolean; databaseCopied: boolean; backupDataIncluded: boolean; configurationFilesIncluded: boolean; credentialsIncluded: boolean; excluded: string[] };
   runbookMarkdown: string;
 }
@@ -132,7 +132,8 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
 
   useEffect(() => {
     if (!jobs.some((job) => ["applying", "verifying"].includes(job.state))) return undefined;
-    const interval = window.setInterval(() => { void refresh(); }, 3000);
+    let busy = false;
+    const interval = window.setInterval(() => { if (busy) return; busy = true; void refresh().finally(() => { busy = false; }); }, 10_000);
     return () => window.clearInterval(interval);
   }, [jobs, refresh]);
 
@@ -204,6 +205,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
     }
   };
 
+  const [confirmTyped, setConfirmTyped] = useState("");
   const approve = async () => {
     if (!awaitingApproval) return;
     setPending(true);
@@ -295,13 +297,8 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
             <span>{recoveryKit.evidence.controllerBackups.length} controller backups</span>
             <span>{recoveryKit.evidence.controllerProtections?.length ?? 0} independently protected</span>
             <span>{recoveryKit.evidence.controllerRetentionRuns?.length ?? 0} controller retention runs</span>
-            <span>{recoveryKit.evidence.applicationRetentionRuns?.length ?? 0} application retention runs</span>
-            <span>{recoveryKit.evidence.applicationBackups.length} app backups</span>
-            <span>{recoveryKit.evidence.applicationProtections?.length ?? 0} protected app snapshots</span>
-            <span>{recoveryKit.evidence.vmBackups.length} VM backups</span>
-            <span>{recoveryKit.evidence.routerCheckpoints.length} router checkpoints</span>
-            <span>{recoveryKit.evidence.migrationTransfers.length} staged migrations</span>
-            <span>{recoveryKit.evidence.fleet.activeAgents} active agents</span>
+            <span>{recoveryKit.evidence.applications?.length ?? 0} installed apps</span>
+            <span>{recoveryKit.evidence.vmBackups?.length ?? 0} VM backups</span>
           </div>
           <div className="recovery-boundary"><strong>Evidence, not a backup</strong><span>No credential, database, application data, router configuration, backup payload, agent key, signature, or arbitrary log is included. Generating or downloading this kit performs no host mutation.</span></div>
           <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => downloadRecoveryKit("json")}>Download evidence JSON</button><button className="secondary-button" type="button" onClick={() => downloadRecoveryKit("markdown")}>Download recovery runbook</button></footer>
@@ -339,8 +336,9 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
                   <>
                     <strong>{passwordRequired ? `${copy.label} · password required` : `${copy.label} · ${tier === "low" ? "one click" : "confirm to run"}`}</strong>
                     <span>{passwordRequired ? tierCopy.high.description : copy.description}{approvalPolicy?.elevated && tier === "high" ? " Your session is elevated, so no password is needed right now." : ""}</span>
+                    {approvalPolicy?.confirmText && <label>Type <code>{approvalPolicy.confirmText}</code> to confirm<input aria-label="Typed confirmation" autoComplete="off" spellCheck="false" value={confirmTyped} onChange={(event) => setConfirmTyped(event.target.value)} /></label>}
                     {passwordRequired && <input aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />}
-                    <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || (passwordRequired && password.length < 12)}>{pending ? "Working..." : tier === "low" && !passwordRequired ? "Run" : "Approve and run"}</button>
+                    <button className="primary-button" type="button" onClick={() => void approve()} disabled={pending || (passwordRequired && password.length < 12) || Boolean(approvalPolicy?.confirmText && confirmTyped !== approvalPolicy.confirmText)}>{pending ? "Working..." : tier === "low" && !passwordRequired ? "Run" : "Approve and run"}</button>
                   </>
                 );
               })()}

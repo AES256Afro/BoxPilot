@@ -5,7 +5,7 @@ category: Monitoring
 icon: "📡"
 description: Reports this server's CPU, memory, disks, network, temperatures, and Docker containers to a Beszel hub. Install the Beszel hub first and paste the public key it shows when you add a system.
 website: https://beszel.dev/guide/agent-installation
-risk: low
+risk: medium
 image:
   reference: ghcr.io/henrygd/beszel/beszel-agent:0.18.8
   version: 0.18.8

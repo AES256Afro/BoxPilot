@@ -5,7 +5,7 @@ category: Media
 icon: "🎬"
 description: "Films, series, and music to every TV, phone, and console with the Plex apps. Uses host networking so clients on the LAN discover it automatically."
 website: https://www.plex.tv
-risk: low
+risk: medium
 image:
   reference: plexinc/pms-docker:1.43.3.10896-cb3ebc72d
   version: "1.43.3"

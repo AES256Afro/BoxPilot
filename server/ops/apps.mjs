@@ -174,7 +174,7 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.uninstall({ id: parameters.id, purge: false }, { progress }),
     }),
     defineOperation({
-      id: "app.purge", title: "Uninstall application and delete its data", risk: "high", timeoutMs: minutes(10),
+      id: "app.purge", title: "Uninstall application and delete its data", risk: "high", confirm: (parameters) => parameters.id, timeoutMs: minutes(10),
       description: "Stops and removes the container and deletes everything under the application's data directory.",
       parameters: { fields: { id: idField } },
       run: (parameters, { apps, progress }) => apps.uninstall({ id: parameters.id, purge: true }, { progress }),

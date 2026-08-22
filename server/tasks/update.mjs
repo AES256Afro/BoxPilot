@@ -44,8 +44,9 @@ export async function systemUpdate({ tag, expectedCommit } = {}, {
   await chmod(scriptCopy, 0o700);
 
   const unit = `boxpilot-update-${stamp}`;
-  log?.(`$ systemd-run --unit ${unit} /bin/sh ${scriptCopy} ${tag}`, "stdout");
-  const started = await run("/usr/bin/systemd-run", ["--quiet", "--unit", unit, "--description", `BoxPilot update to ${tag}`, `--setenv=BOXPILOT_NODE_BIN=${nodeBinary}`, "/bin/sh", scriptCopy, tag], { timeout: 30_000 });
+  // The script downloads by the reviewed commit, not the tag, so a moved tag cannot swap the code in.
+  log?.(`$ systemd-run --unit ${unit} /bin/sh ${scriptCopy} ${expectedCommit}`, "stdout");
+  const started = await run("/usr/bin/systemd-run", ["--quiet", "--unit", unit, "--description", `BoxPilot update to ${tag}`, `--setenv=BOXPILOT_NODE_BIN=${nodeBinary}`, "/bin/sh", scriptCopy, expectedCommit], { timeout: 30_000 });
   if (!started.ok) throw new Error(`Could not start the update unit: ${started.stderr.split("\n").slice(-2).join(" ")}`);
   log?.("Update unit started. BoxPilot restarts when the build finishes and rolls back on a failed health check.", "stdout");
   return { started: true, unit, tag, expectedCommit, fromVersion: productVersion, startedAt: now().toISOString() };

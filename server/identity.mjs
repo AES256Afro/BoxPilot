@@ -31,9 +31,9 @@ export function tailnetClientAddress(request) {
   const remote = normalizeAddress(request.socket?.remoteAddress ?? request.ip ?? null);
   if (isTailnetAddress(remote)) return remote;
   if (remote && loopbacks.has(remote)) {
+    // Tailscale Serve sets exactly one hop. A chain means someone forged the header, so it is ignored.
     const forwarded = String(request.get?.("x-forwarded-for") ?? request.headers?.["x-forwarded-for"] ?? "").split(",").map((part) => normalizeAddress(part)).filter(Boolean);
-    const candidate = forwarded.find((address) => isTailnetAddress(address));
-    if (candidate) return candidate;
+    if (forwarded.length === 1 && isTailnetAddress(forwarded[0])) return forwarded[0];
   }
   return null;
 }
@@ -51,6 +51,7 @@ export function createIdentityService({
 
   function setting(key, fallback) { return store.getSetting(key, fallback); }
   function logins(key) { const value = setting(key, []); return Array.isArray(value) ? value.filter((item) => typeof item === "string") : []; }
+  function links(key) { const value = setting(key, {}); return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}; }
 
   // ---- Tailscale ---------------------------------------------------------------------------
   async function whois(address) {
@@ -74,18 +75,37 @@ export function createIdentityService({
     if (!address) return { available: false, reason: "not-tailnet", login: null, displayName: null, node: null, linked: false };
     const identity = await whois(address).catch(() => null);
     if (!identity) return { available: false, reason: "whois-unavailable", login: null, displayName: null, node: null, linked: false, address };
-    return { available: true, ...identity, linked: logins("tailscaleLogins").includes(identity.login) };
+    return { available: true, ...identity, linked: Boolean(tailscaleAccountFor(identity.login)) };
+  }
+
+  /**
+   * Which account a Tailscale login signs in as. Links made before per-account links existed
+   * (a bare login in `tailscaleLogins`) belong to the first owner, which is who made them.
+   */
+  function tailscaleAccountFor(login) {
+    if (typeof login !== "string") return null;
+    const map = links("tailscaleLinks");
+    if (typeof map[login] === "string") return map[login];
+    return logins("tailscaleLogins").includes(login) ? store.findFirstOwner()?.id ?? null : null;
   }
 
   function linkTailscale(ownerId, login) {
     if (typeof login !== "string" || !login.includes("@") || login.length > 254) throw new Error("Tailscale login must be an email-style login name");
+    const map = links("tailscaleLinks");
+    if (typeof map[login] === "string" && map[login] !== ownerId) throw new Error("That Tailscale identity is already linked to another account");
+    map[login] = ownerId;
+    store.setSetting("tailscaleLinks", map, { updatedBy: ownerId });
     const next = [...new Set([...logins("tailscaleLogins"), login])];
     store.setSetting("tailscaleLogins", next, { updatedBy: ownerId });
     store.recordAudit("identity.tailscale.linked", { actorId: ownerId, subjectId: ownerId, details: { login } });
     return next;
   }
 
-  function unlinkTailscale(ownerId, login) {
+  function unlinkTailscale(ownerId, login, { force = false } = {}) {
+    const map = links("tailscaleLinks");
+    if (typeof map[login] === "string" && map[login] !== ownerId && !force) throw new Error("Only the owner can unlink another person's identity");
+    delete map[login];
+    store.setSetting("tailscaleLinks", map, { updatedBy: ownerId });
     const next = logins("tailscaleLogins").filter((item) => item !== login);
     store.setSetting("tailscaleLogins", next, { updatedBy: ownerId });
     store.recordAudit("identity.tailscale.unlinked", { actorId: ownerId, subjectId: ownerId, details: { login } });
@@ -141,17 +161,38 @@ export function createIdentityService({
     return { status: "complete", login: profile.login, githubId: profile.id ?? null, purpose: flow.purpose, ownerId: flow.ownerId };
   }
 
-  function githubLinked(login) { return logins("githubLogins").some((item) => item.toLowerCase() === String(login).toLowerCase()); }
+  /** Which account a GitHub login signs in as; a stored account id must match when both sides have one (logins are renameable). */
+  function githubAccountFor(login, githubId = null) {
+    if (typeof login !== "string") return null;
+    const entry = links("githubLinks")[login.toLowerCase()];
+    if (entry && typeof entry.ownerId === "string") {
+      if (entry.id !== null && entry.id !== undefined && githubId !== null && githubId !== undefined && String(entry.id) !== String(githubId)) return null;
+      return entry.ownerId;
+    }
+    return logins("githubLogins").some((item) => item.toLowerCase() === login.toLowerCase()) ? store.findFirstOwner()?.id ?? null : null;
+  }
 
-  function linkGithub(ownerId, login) {
+  function githubLinked(login, githubId = null) { return Boolean(githubAccountFor(login, githubId)); }
+
+  function linkGithub(ownerId, login, githubId = null) {
     if (typeof login !== "string" || !githubLoginPattern.test(login)) throw new Error("GitHub login looks invalid");
+    const map = links("githubLinks");
+    const existing = map[login.toLowerCase()];
+    if (existing && existing.ownerId !== ownerId) throw new Error("That GitHub account is already linked to another account");
+    map[login.toLowerCase()] = { ownerId, id: githubId ?? null, login };
+    store.setSetting("githubLinks", map, { updatedBy: ownerId });
     const next = [...new Set([...logins("githubLogins"), login])];
     store.setSetting("githubLogins", next, { updatedBy: ownerId });
     store.recordAudit("identity.github.linked", { actorId: ownerId, subjectId: ownerId, details: { login } });
     return next;
   }
 
-  function unlinkGithub(ownerId, login) {
+  function unlinkGithub(ownerId, login, { force = false } = {}) {
+    const map = links("githubLinks");
+    const existing = map[String(login).toLowerCase()];
+    if (existing && existing.ownerId !== ownerId && !force) throw new Error("Only the owner can unlink another person's identity");
+    delete map[String(login).toLowerCase()];
+    store.setSetting("githubLinks", map, { updatedBy: ownerId });
     const next = logins("githubLogins").filter((item) => item.toLowerCase() !== String(login).toLowerCase());
     store.setSetting("githubLogins", next, { updatedBy: ownerId });
     store.recordAudit("identity.github.unlinked", { actorId: ownerId, subjectId: ownerId, details: { login } });
@@ -162,5 +203,5 @@ export function createIdentityService({
     return { tailscaleLogins: logins("tailscaleLogins"), githubLogins: logins("githubLogins"), githubConfigured: githubConfigured(), githubClientId: githubConfigured() ? String(setting("githubClientId", "")) : "" };
   }
 
-  return { tailscaleIdentity, linkTailscale, unlinkTailscale, githubConfigured, setGithubClientId, githubStart, githubPoll, githubLinked, linkGithub, unlinkGithub, summary, internals: { whois, flows: githubFlows } };
+  return { tailscaleIdentity, tailscaleAccountFor, githubAccountFor, linkTailscale, unlinkTailscale, githubConfigured, setGithubClientId, githubStart, githubPoll, githubLinked, linkGithub, unlinkGithub, summary, internals: { whois, flows: githubFlows } };
 }

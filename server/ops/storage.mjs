@@ -2,6 +2,13 @@ import { readFile } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
 import { devicePattern, labelPattern, logicalVolumePattern, mountNamePattern, parseManagedFstab, uuidPattern } from "../tasks/storage.mjs";
 
+/** The LV name the Storage page shows for a snapshot path (device-mapper escapes "-" as "--"). */
+function snapshotNameFromPath(devicePath) {
+  const base = String(devicePath ?? "").split("/").pop() ?? "";
+  const index = base.search(/(?<!-)-(?!-)/);
+  return (index >= 0 ? base.slice(index + 1) : base).replaceAll("--", "-");
+}
+
 const minutes = (value) => value * 60_000;
 const lsblk = "/usr/bin/lsblk";
 const findmnt = process.env.BOXPILOT_FINDMNT_BINARY ?? "/usr/bin/findmnt";
@@ -83,7 +90,7 @@ export function storageOperations() {
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.unmount", { name: parameters.name }, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
-      id: "storage.format", title: "Erase and format a disk", risk: "high", timeoutMs: minutes(35),
+      id: "storage.format", title: "Erase and format a disk", risk: "high", confirm: (parameters) => parameters.device, timeoutMs: minutes(35),
       description: "Wipes every filesystem signature on the device and creates a fresh ext4. Everything on it is destroyed. Refused while anything on the device is mounted.",
       parameters: { fields: {
         device: { type: "string", maxLength: 32, pattern: devicePattern },
@@ -123,7 +130,7 @@ export function storageOperations() {
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.lvm-snapshot-delete", { path: parameters.path }, { timeoutMs: minutes(5), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
-      id: "storage.lvm.snapshot.rollback", title: "Roll back to a snapshot", risk: "high", timeoutMs: minutes(6),
+      id: "storage.lvm.snapshot.rollback", title: "Roll back to a snapshot", risk: "high", confirm: (parameters) => snapshotNameFromPath(parameters.path), timeoutMs: minutes(6),
       description: "Schedules a merge of the snapshot into its origin (lvconvert --merge). Everything written since the snapshot is discarded. For the root volume the merge happens during the next reboot.",
       parameters: { fields: { path: { type: "string", maxLength: 120, pattern: /^\/dev\/mapper\/[A-Za-z0-9._+-]+-boxpilot--snap--[A-Za-z0-9._+-]+$/ } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.lvm-snapshot-rollback", { path: parameters.path }, { timeoutMs: minutes(5), logPath: jobLog?.path ?? null }),

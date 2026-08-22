@@ -12,7 +12,7 @@ export interface OperationDescription {
   parameterNames: string[];
 }
 
-export interface ApprovalPolicy {
+export interface ApprovalPolicy { confirmText?: string | null; minimumRole?: string | null;
   jobId?: string;
   tier: RiskTier;
   passwordRequired: boolean;
@@ -61,11 +61,11 @@ export function stageOperation(id: string, parameters: Record<string, unknown>, 
   }).then((response) => readJson(response));
 }
 
-export function approveJob(jobId: string, csrfToken: string, password?: string): Promise<{ job: Job; elevatedUntil: string | null }> {
+export function approveJob(jobId: string, csrfToken: string, password?: string, confirmText?: string): Promise<{ job: Job; elevatedUntil: string | null }> {
   return fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}/approve`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-    body: JSON.stringify(password ? { password } : {}),
+    body: JSON.stringify({ ...(password ? { password } : {}), ...(confirmText ? { confirmText } : {}) }),
   }).then((response) => readJson(response));
 }
 

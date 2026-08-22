@@ -22,7 +22,7 @@ import { createVmProtectionHelper } from "./vm-protection-helper.mjs";
 import { createMachineSnapshotHelper } from "./machine-snapshot-helper.mjs";
 
 const socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock";
-const maxRequestBytes = 8192;
+const maxRequestBytes = 128 * 1024; // compose edits and key imports declare 64 KiB fields
 const legacyReadOnlyOperations = new Set(["container.docker.inspect", "container.docker.inventory", "controller.database.backup.inspect", "controller.database.protection.inspect", "controller.database.protection.retention.inspect", "virtualization.foundation.inspect", "virtualization.media.inspect", "virtualization.inventory.inspect", "virtualization.console.inspect", "virtualization.domain.export.inspect", "virtualization.export.backup.inspect", "virtualization.export.backup.retention.inspect", "virtualization.export.backup.restore-drill.inspect", "virtualization.backup.recovery.inspect"]);
 const readOnlyOperations = new Set([...registry.readOnlyIds(), ...legacyReadOnlyOperations]);
 let operationQueue = Promise.resolve();
@@ -76,7 +76,11 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       if (registeredTimeout) connection.setTimeout(registeredTimeout);
       const execution = readOnlyOperations.has(request.operation)
         ? executeHelperOperation(request, helperDependencies)
-        : operationQueue.then(() => executeHelperOperation(request, helperDependencies));
+        : operationQueue.then(() => {
+            // The web side gave up (timeout) while this waited in the queue: running it now would change the host with no job watching.
+            if (connection.destroyed) throw new Error("The request was abandoned while it waited for an earlier operation");
+            return executeHelperOperation(request, helperDependencies);
+          });
       if (!readOnlyOperations.has(request.operation)) operationQueue = execution.catch(() => {});
       connection.end(`${JSON.stringify(await execution)}\n`);
     } catch (error) {

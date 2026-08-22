@@ -9,6 +9,8 @@ import { normalizeDestination } from "../backup-destination.mjs";
 
 export function createSettingsRouter({ state, notifications, auth }) {
   const router = Router();
+  // Belt and braces with the policy middleware: only the owner changes settings, whatever the path casing.
+  router.use("/settings", (request, response, next) => (["GET", "HEAD", "OPTIONS"].includes(request.method) ? next() : auth.requireRole("owner")(request, response, next)));
 
   async function ownerWithPassword(request, response, message) {
     const owner = state.findOwnerById(request.boxpilotSession.owner.id);

@@ -21,7 +21,10 @@ export function createJobService(store, helper, {
    */
   function approvalPolicy(job, session = null) {
     const mode = normalizeApprovalMode(store.getSetting?.("approvalMode", null) ?? process.env.BOXPILOT_APPROVAL_MODE ?? defaultApprovalMode);
-    return { mode, ...approvalRequirement({ jobType: job.type, mode, elevatedUntil: session?.elevatedUntil ?? null }) };
+    const registered = job.type.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
+    let confirmText = null;
+    try { confirmText = registered?.confirm ? registered.confirm(job.parameters ?? {}) ?? null : null; } catch { confirmText = null; }
+    return { minimumRole: registered?.minimumRole ?? null, confirmText: typeof confirmText === "string" && confirmText ? confirmText : null, mode, ...approvalRequirement({ jobType: job.type, mode, elevatedUntil: session?.elevatedUntil ?? null }) };
   }
 
   /**
@@ -31,7 +34,7 @@ export function createJobService(store, helper, {
    *   A bare string is treated as a password (legacy callers).
    */
   async function prepareApproval(jobId, ownerId, approval = {}) {
-    const { password = null, session = null } = typeof approval === "string" ? { password: approval } : approval ?? {};
+    const { password = null, session = null, confirmText = null } = typeof approval === "string" ? { password: approval } : approval ?? {};
     const owner = store.findOwnerById(ownerId);
     if (!owner) throw new Error("Approval reauthentication failed");
     const passwordProvided = typeof password === "string" && password.length > 0;
@@ -48,6 +51,8 @@ export function createJobService(store, helper, {
     const role = session?.owner?.role ?? owner.role ?? "owner";
     if (role === "viewer" || role === "disabled") throw new Error("Viewers cannot approve jobs");
     if (policy.tier === "high" && role !== "owner") throw new Error("Only the owner can approve high-risk jobs");
+    if (policy.minimumRole === "owner" && role !== "owner") throw new Error("Only the owner can approve this job");
+    if (policy.confirmText && confirmText !== policy.confirmText) throw new Error(`Type ${policy.confirmText} to confirm this ${policy.tier}-risk job`);
     const approvalMethod = passwordProvided ? "password" : policy.elevated && policy.tier === "high" ? "elevated" : "confirm";
     const registeredOperation = job.type.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
     if (!registeredOperation) throw new Error("Job type is not supported by this executor");
@@ -141,6 +146,7 @@ export function createJobService(store, helper, {
     if (!operation) throw new Error("Operation not found");
     if (role === "viewer" || role === "disabled") throw new Error("Viewers cannot stage operations");
     if (operation.risk === "high" && role !== "owner") throw new Error("Only the owner can stage high-risk operations");
+    if (operation.minimumRole === "owner" && role !== "owner") throw new Error("Only the owner can stage this operation");
     if (operation.readOnly) throw new Error("Read-only operations run directly; they are not staged as jobs");
     // Prepare hooks pin server-derived expectations (recorded evidence, live revisions) into
     // the staged parameters, so the browser only ever names the subject.

@@ -5,7 +5,7 @@ const okRun = () => vi.fn(async (binary, args) => {
   if (args[0] === "status") return { ok: true, stdout: "Status: active\nTo  Action  From\n22/tcp  ALLOW IN  Anywhere", stderr: "" };
   return { ok: true, stdout: "Rule added", stderr: "" };
 });
-const lanEnv = { envPath: "/nonexistent/boxpilot.env" };
+const lanEnv = { envPath: "/nonexistent/boxpilot.env", dockerSync: vi.fn(async ({ enabled }) => ({ synced: true, enabled })) };
 const readLan = () => "BOXPILOT_HOST=0.0.0.0\nBOXPILOT_PORT=8787\n";
 
 describe("root firewall tasks", () => {

@@ -5,7 +5,7 @@ category: Monitoring
 icon: "📉"
 description: "Real-time dashboards for everything on this server at one-second resolution: CPU, memory, disks, network, every container, with anomaly detection and alerts. No account needed."
 website: https://www.netdata.cloud
-risk: low
+risk: medium
 image:
   reference: netdata/netdata:v2.11.0
   version: "2.11.0"

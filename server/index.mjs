@@ -211,11 +211,12 @@ app.use("/api/v1", (request, response, next) => {
 app.use("/api/v1", (request, response, next) => {
   const role = request.boxpilotSession?.owner?.role ?? "owner";
   const reading = ["GET", "HEAD", "OPTIONS"].includes(request.method);
-  const readOnlyRun = /^\/operations\/[^/]+\/run$/.test(request.path);
-  const selfService = request.path === "/auth/logout" || request.path === "/auth/elevate" || request.path === "/auth/password";
+  const pathname = request.path.toLowerCase(); // Express routes case-insensitively, so the policy must too
+  const readOnlyRun = /^\/operations\/[^/]+\/run$/.test(pathname);
+  const selfService = pathname === "/auth/logout" || pathname === "/auth/elevate" || pathname === "/auth/password";
   if (role === "disabled") return response.status(403).json({ error: "This account is disabled", code: "forbidden" });
   if (role === "viewer" && !reading && !readOnlyRun && !selfService) return response.status(403).json({ error: "Viewers can look but not change anything", code: "forbidden" });
-  if (role === "operator" && !reading && (request.path.startsWith("/settings") || request.path.startsWith("/people"))) return response.status(403).json({ error: "Only the owner can change settings or people", code: "forbidden" });
+  if (role === "operator" && !reading && (pathname.startsWith("/settings") || pathname.startsWith("/people"))) return response.status(403).json({ error: "Only the owner can change settings or people", code: "forbidden" });
   return next();
 });
 app.use("/api/v1/people", auth.requireRole("owner"));
@@ -230,6 +231,7 @@ app.use("/api/v1", createPowerRouter());
 app.use("/api/v1", createChecklistRouter({ state, helper, notifications, inventory, network }));
 app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth }));
 
+app.use("/assets", express.static(path.join(dist, "assets"), { index: false, maxAge: "365d", immutable: true }));
 app.use(express.static(dist, { index: false }));
 app.use((request, response, next) => {
   if (request.method !== "GET" || request.path.startsWith("/api/")) {
@@ -247,5 +249,4 @@ app.use((_request, response) => {
 app.listen(port, host, () => {
   console.log(`BoxPilot ${productVersion} listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
-  console.log("Safe mode: host mutations require durable plans, password approval, and typed helper operations.");
 });

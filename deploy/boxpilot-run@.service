@@ -5,6 +5,8 @@ Wants=network-online.target
 After=network-online.target
 ConditionPathExists=/usr/local/bin/node
 ConditionPathExists=/run/boxpilot/run/%i.json
+# Failed instances would otherwise stay listed in `systemctl --failed` forever.
+CollectMode=inactive-or-failed
 
 [Service]
 Type=oneshot

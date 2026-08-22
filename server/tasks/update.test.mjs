@@ -31,7 +31,7 @@ describe("system.update root task", () => {
     expect(fetchImpl).toHaveBeenCalledWith("https://api.github.com/repos/AES256Afro/BoxPilot/commits/v0.62.0", expect.anything());
     const scriptCopy = path.join(root, "run", "update-20260821T150000Z.sh");
     expect(await readFile(scriptCopy, "utf8")).toContain("echo upgrade");
-    expect(run).toHaveBeenCalledWith("/usr/bin/systemd-run", ["--quiet", "--unit", "boxpilot-update-20260821T150000Z", "--description", "BoxPilot update to v0.62.0", "--setenv=BOXPILOT_NODE_BIN=/usr/local/bin/node", "/bin/sh", scriptCopy, "v0.62.0"], expect.anything());
+    expect(run).toHaveBeenCalledWith("/usr/bin/systemd-run", ["--quiet", "--unit", "boxpilot-update-20260821T150000Z", "--description", "BoxPilot update to v0.62.0", "--setenv=BOXPILOT_NODE_BIN=/usr/local/bin/node", "/bin/sh", scriptCopy, sha], expect.anything());
     expect(log).toHaveBeenCalledWith(expect.stringContaining("rolls back"), "stdout");
   });
 

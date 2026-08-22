@@ -15,7 +15,7 @@ function digest(value) {
 }
 
 function json(value) {
-  return JSON.stringify(value ?? {});
+  return JSON.stringify(value === undefined ? null : value);
 }
 
 function parseJson(value, fallback = {}) {
@@ -444,7 +444,7 @@ export function createStateStore({
       WHERE sessions.token_hash = ? AND sessions.expires_at > ?
     `).get(digest(token), at);
     if (!row) return null;
-    database.prepare("UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?").run(at, digest(token));
+    if (!row.last_seen_at || Date.parse(at) - Date.parse(row.last_seen_at) > 60_000) database.prepare("UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?").run(at, digest(token));
     return {
       tokenHash: row.token_hash,
       owner: { id: row.owner_id, username: row.username, role: row.role ?? "owner" },

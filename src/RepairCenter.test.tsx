@@ -42,7 +42,7 @@ describe("Repair Center", () => {
             { id: "controller.database", state: "operator-check", title: "Independent BoxPilot database copy", evidence: "The controller cannot prove an off-host copy.", action: "Create and verify an independent copy." },
             { id: "router.checkpoint", state: "action-required", title: "Router configuration checkpoint", evidence: "No checkpoint exists.", action: "Export and hash the active router configuration." },
           ],
-          evidence: { jobs: [], controllerBackups: [], applicationBackups: [], vmBackups: [], routerCheckpoints: [], migrationTransfers: [], fleet: { activeAgents: 0, revokedAgents: 0 } },
+          evidence: { jobs: [], controllerBackups: [], controllerProtections: [], controllerRetentionRuns: [], applications: [], virtualMachines: [], vmBackups: [], prerequisites: [] },
           boundary: { mutationsPerformed: false, databaseCopied: false, backupDataIncluded: false, configurationFilesIncluded: false, credentialsIncluded: false, excluded: ["credentials"] },
           runbookMarkdown: "# BoxPilot recovery kit\n",
         }), { status: 200, headers: { "Content-Type": "application/json" } });

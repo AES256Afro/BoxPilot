@@ -75,3 +75,25 @@ describe("identity service", () => {
     state.close();
   });
 });
+
+describe("per-account identity links", () => {
+  it("signs identity logins in as the account that linked them, never the first owner by default", async () => {
+    const state = await store();
+    const owner = state.consumeBootstrapToken(state.createBootstrapToken().token, { username: "admin", passwordHash: "x" });
+    const operator = state.createOwnerAccount({ username: "helper", passwordHash: "x", role: "operator", createdBy: owner.id });
+    const identity = createIdentityService({ store: state, run: vi.fn(async () => ({ ok: false, stdout: "", stderr: "" })), now: () => 1000 });
+    identity.linkTailscale(operator.id, "helper@example.com");
+    expect(identity.tailscaleAccountFor("helper@example.com")).toBe(operator.id);
+    expect(identity.tailscaleAccountFor("nobody@example.com")).toBeNull();
+    // Links recorded before per-account links existed belong to the first owner.
+    state.setSetting("tailscaleLogins", ["legacy@example.com"]);
+    expect(identity.tailscaleAccountFor("legacy@example.com")).toBe(owner.id);
+    expect(() => identity.linkTailscale(owner.id, "helper@example.com")).toThrow("another account");
+    expect(() => identity.unlinkTailscale(owner.id, "helper@example.com")).toThrow("Only the owner");
+    expect(identity.unlinkTailscale(owner.id, "helper@example.com", { force: true })).not.toContain("helper@example.com");
+    identity.linkGithub(operator.id, "HelperDev", 4242);
+    expect(identity.githubAccountFor("helperdev", 4242)).toBe(operator.id);
+    expect(identity.githubAccountFor("helperdev", 9999)).toBeNull(); // a renamed login reused by someone else
+    expect(identity.githubLinked("HelperDev")).toBe(true);
+  });
+});
