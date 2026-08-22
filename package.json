@@ -1,6 +1,6 @@
 {
   "name": "boxpilot",
-  "version": "0.88.1",
+  "version": "0.88.2",
   "private": true,
   "description": "A safety-first local control plane for Ubuntu home servers.",
   "type": "module",
@@ -16,10 +16,10 @@
     "owner:token": "node scripts/boxpilot-owner.mjs create-bootstrap-token",
     "start": "node server/index.mjs",
     "test": "vitest run",
-    "check:shell": "sh -n scripts/boxpilot-doctor.sh scripts/boxpilot-install.sh scripts/boxpilot-upgrade.sh scripts/boxpilot-restic-setup.sh scripts/boxpilot-controller-restic-setup.sh scripts/boxpilot-application-restic-setup.sh",
+    "check:shell": "for f in scripts/*.sh deploy/*.sh; do [ -e \"$f\" ] || continue; sh -n \"$f\" || exit 1; done",
     "lint": "eslint server scripts eslint.config.mjs",
     "check": "npm run build && npm run test && npm run check:syntax && npm run lint && npm run check:shell",
-    "check:syntax": "find server scripts -name '*.mjs' -not -path '*/node_modules/*' -print0 | xargs -0 -n 25 node --check",
+    "check:syntax": "find server scripts -name '*.mjs' -not -path '*/node_modules/*' -print0 | xargs -0 -n 1 node --check",
     "demo": "node scripts/boxpilot-demo.mjs",
     "demo:screenshots": "node scripts/demo-screenshots.mjs"
   },
