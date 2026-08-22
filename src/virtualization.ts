@@ -256,6 +256,8 @@ export interface VmRetentionStatus {
   policy: { minimumCopiesPerDomain: number; minimumAgeDays: number; requiresProtectedRestoreDrill: true; preserveRecoverySources: true };
   repositoryId: string | null;
   beforeCount: number;
+  /** Snapshots the repository holds that have no local record; each can be forgotten on its own. */
+  unrecordedSnapshotIds?: string[];
   candidates: VmRetentionCandidate[];
   kept: Array<VmRetentionCandidate & { reasons: string[] }>;
   blockers: string[];

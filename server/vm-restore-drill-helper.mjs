@@ -1,24 +1,27 @@
-import { execFile as execFileCallback } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { chmod, chown, lstat, mkdir, readFile, readdir, rm, statfs } from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
+import { streamRun } from "./exec.mjs";
 import { createVmProtectionHelper } from "./vm-protection-helper.mjs";
 
-const execFile = promisify(execFileCallback);
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const shaPattern = /^[a-f0-9]{64}$/;
 const safeDomainPattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$/;
 const allowedDiskBuses = new Set(["virtio", "sata", "scsi", "ide"]);
 
-async function defaultRunner(binary, args, { timeout = 180000 } = {}) {
-  const result = await execFile(binary, args, {
-    timeout,
-    maxBuffer: 4 * 1024 * 1024,
-    encoding: "utf8",
-    env: { PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" },
-  });
+/**
+ * restic's --json output is a stream of status lines that runs for as long as the backup does.
+ * execFile held all of it in a fixed 4 MB buffer and killed the child on overflow — mid-backup,
+ * with the snapshot already written and nothing recorded. streamRun consumes it line by line and
+ * keeps only a bounded tail, and passes each line to the job log so a multi-hour run shows progress.
+ */
+async function defaultRunner(binary, args, { timeout = 180000, onLine = null } = {}) {
+  const result = await streamRun(binary, args, { timeout, onLine: onLine ?? (() => {}), tailBytes: 4 * 1024 * 1024 });
+  if (!result.ok) {
+    const detail = result.stderr.split("\n").filter(Boolean).slice(-2).join(" ") || `exit ${result.code ?? "unknown"}`;
+    throw Object.assign(new Error(`${binary} failed: ${detail}`), { stdout: result.stdout, stderr: result.stderr, code: result.code });
+  }
   return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };
 }
 
@@ -92,6 +95,11 @@ export function createVmRestoreDrillHelper({
   changeOwner = chown,
   run = defaultRunner,
   wait = delay,
+  removeDirectory = rm,
+  clock = () => Date.now(),
+  // How long a workspace left behind by a failed drill is kept so it can be inspected. Longer than
+  // a working day; shorter than the time it takes several of them to fill the VM disk.
+  preservedWorkspaceMs = 24 * 60 * 60 * 1000,
 } = {}) {
   const resolvedMountRoot = path.resolve(mountRoot);
   const resolvedRepository = path.join(resolvedMountRoot, "restic-vm");
@@ -233,14 +241,46 @@ export function createVmRestoreDrillHelper({
 
     let removedNvramFiles = 0;
     let normalizedWorkspaces = 0;
+    let removedWorkspaces = 0;
+    let reclaimedBytes = 0;
     for (const [domain, workspace] of workspaces) {
       removedNvramFiles += await removeGeneratedNvram(domain);
+      // A workspace is a full copy of the VM's disks, on the same filesystem as every live VM
+      // disk. One left behind by a failed drill is kept for a day so it can be looked at, then
+      // removed — before it fills the disk and blocks every future drill and recovery.
+      const age = await workspaceAgeMs(workspace);
+      if (age !== null && age > preservedWorkspaceMs && !remaining.includes(restoreDrillDomainName(path.basename(workspace)))) {
+        reclaimedBytes += await workspaceSize(workspace);
+        await removeDirectory(workspace, { recursive: true, force: true });
+        removedWorkspaces += 1;
+        continue;
+      }
       await securePreservedWorkspace(workspace);
       normalizedWorkspaces += 1;
     }
     await changeMode(resolvedRestoreRoot, 0o700);
     await changeOwner(resolvedRestoreRoot, 0, 0);
-    return { inspectedWorkspaces: workspaces.size, stoppedDomains, removedNvramFiles, normalizedWorkspaces };
+    return { inspectedWorkspaces: workspaces.size, stoppedDomains, removedNvramFiles, normalizedWorkspaces, removedWorkspaces, reclaimedBytes };
+  }
+
+  /** How long ago a preserved workspace was written, or null when it cannot be read. */
+  async function workspaceAgeMs(workspace) {
+    try { return Math.max(0, clock() - (await statFile(workspace)).mtimeMs); } catch { return null; }
+  }
+
+  /** Bytes a workspace occupies, best effort — reported so the log says what was reclaimed. */
+  async function workspaceSize(workspace) {
+    let total = 0;
+    const walk = async (directory) => {
+      const entries = await readDirectory(directory, { withFileTypes: true }).catch(() => []);
+      for (const entry of entries) {
+        const full = path.join(directory, entry.name);
+        if (entry.isDirectory()) await walk(full);
+        else total += await statFile(full).then((info) => info.size, () => 0);
+      }
+    };
+    await walk(workspace);
+    return total;
   }
 
   async function sha256(filePath) {

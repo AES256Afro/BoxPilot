@@ -80,3 +80,19 @@ describe("streaming a command", () => {
     expect(Date.now() - started).toBeLessThan(10_000);
   });
 });
+
+describe("a child that never writes a newline", () => {
+  it("still reports progress and does not grow a buffer without bound", async () => {
+    const lines = [];
+    // curl --progress-bar and similar tools rewrite one line with \r for the whole transfer.
+    const result = await streamRun("/bin/sh", ["-c", "printf 'a\\rb\\rc\\r'; printf 'done\\n'"], { onLine: (line) => lines.push(line) });
+    expect(result.ok).toBe(true);
+    expect(lines).toEqual(["a", "b", "c", "done"]);
+  });
+
+  it("caps a single endless line at the tail size", async () => {
+    const result = await streamRun("/bin/sh", ["-c", "i=0; while [ $i -lt 200 ]; do printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; i=$((i+1)); done"], { onLine: () => {}, tailBytes: 512 });
+    expect(result.ok).toBe(true);
+    expect(result.stdout.length).toBeLessThanOrEqual(512);
+  });
+});

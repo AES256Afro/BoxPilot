@@ -99,3 +99,44 @@ describe("VM retention helper", () => {
     });
   });
 });
+
+describe("forgetting a snapshot with no local record", () => {
+  const orphan = "f".repeat(64);
+  const recorded = "a".repeat(64);
+  const revision = "b".repeat(64);
+  const ready = { ready: true, repositoryId: revision, destinationRevision: revision, blockers: [] };
+
+  function helper(present) {
+    let snapshots = present.map((id) => ({ id, time: "2026-01-01T00:00:00Z", tags: ["boxpilot-vm"], paths: ["/x"] }));
+    const forgotten = [];
+    const run = vi.fn(async (_binary, args) => {
+      if (args.includes("snapshots")) return { stdout: JSON.stringify(snapshots), stderr: "" };
+      if (args.includes("forget")) {
+        const target = args[args.length - 1];
+        forgotten.push(target);
+        snapshots = snapshots.filter((snapshot) => snapshot.id !== target);
+        return { stdout: "", stderr: "" };
+      }
+      return { stdout: "", stderr: "" };
+    });
+    return { service: createVmRetentionHelper({ run, inspectDestination: async () => ready }), forgotten, run };
+  }
+
+  it("removes only a snapshot BoxPilot has no record of", async () => {
+    const { service, forgotten } = helper([orphan, recorded]);
+    await expect(service.forgetUnrecorded({ snapshotId: orphan, knownSnapshotIds: [recorded] })).resolves.toMatchObject({ forgotten: true, snapshotId: orphan, prunePerformed: false });
+    expect(forgotten).toEqual([orphan]);
+  });
+
+  it("refuses a snapshot that has a local backup record", async () => {
+    const { service, forgotten } = helper([orphan, recorded]);
+    await expect(service.forgetUnrecorded({ snapshotId: recorded, knownSnapshotIds: [recorded] })).rejects.toThrow(/local backup record/);
+    expect(forgotten).toEqual([]);
+  });
+
+  it("refuses an id the repository does not hold", async () => {
+    const { service, forgotten } = helper([recorded]);
+    await expect(service.forgetUnrecorded({ snapshotId: orphan, knownSnapshotIds: [recorded] })).rejects.toThrow(/not in the repository/);
+    expect(forgotten).toEqual([]);
+  });
+});

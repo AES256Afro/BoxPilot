@@ -57,8 +57,9 @@ const helperDependencies = { runUnit, apps, vmCloud, hostInspect, controllerBack
 if (recovery.blocked) {
   console.error("BoxPilot is serving requests; restore drills stay unavailable until that is resolved.");
 }
-if (recovery.stoppedDomains > 0 || recovery.removedNvramFiles > 0 || recovery.normalizedWorkspaces > 0) {
-  console.log(`BoxPilot restore drill recovery stopped=${recovery.stoppedDomains} nvram=${recovery.removedNvramFiles} workspaces=${recovery.normalizedWorkspaces}`);
+if (recovery.stoppedDomains > 0 || recovery.removedNvramFiles > 0 || recovery.normalizedWorkspaces > 0 || recovery.removedWorkspaces > 0) {
+  const reclaimed = recovery.reclaimedBytes ? ` reclaimed=${(recovery.reclaimedBytes / 1024 ** 3).toFixed(1)}GiB` : "";
+  console.log(`BoxPilot restore drill recovery stopped=${recovery.stoppedDomains} nvram=${recovery.removedNvramFiles} kept=${recovery.normalizedWorkspaces} removed=${recovery.removedWorkspaces ?? 0}${reclaimed}`);
 }
 
 // A task whose caller gave up can write its result hours later, into tmpfs nobody reads.

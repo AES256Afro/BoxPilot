@@ -159,6 +159,7 @@ const jobs = createJobService(state, helper, {
     "vm.export.create": (parameters) => vmExports.prepareOperation(parameters),
     "vm.export.protect": (parameters) => vmProtection.prepareOperation(parameters),
     "vm.backup.retention.apply": () => vmRetention.prepareOperation(),
+    "vm.backup.snapshot.forget": () => vmRetention.prepareForget(),
     "vm.backup.restore-drill": (parameters) => vmRestoreDrills.prepareOperation(parameters),
     "vm.recovery.create": (parameters) => vmRecoveries.prepareOperation(parameters),
     // The browser names nothing: the saved destination is pinned into the job.

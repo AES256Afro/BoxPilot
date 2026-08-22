@@ -10,8 +10,10 @@ if (connectionUri !== "qemu:///system") {
   throw new Error("BOXPILOT_LIBVIRT_URI must remain qemu:///system in this release");
 }
 const qemuSystemBinary = process.arch === "arm64" ? "qemu-system-aarch64" : "qemu-system-x86_64";
-const domainPattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$/;
-const snapshotPattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$/;
+// 64 characters, matching server/ops/vms.mjs: a name one accepted and the other dropped made a
+// VM invisible on the page while its operations still worked.
+const domainPattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
+const snapshotPattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 
 async function defaultRunCommand(command, args, options = {}) {
   try {
@@ -317,15 +319,15 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
         };
       })),
       Promise.all(poolNames.filter(validateDomainName).map(async (name) => {
-        const resource = await inspectResource("pool", name);
+        const [resource, detail] = await Promise.all([inspectResource("pool", name), poolDetail(name)]);
         return {
           name,
           active: resource.active,
           autostart: resource.autostart ?? false,
           persistent: resource.detail?.persistent === "yes",
           // pool-info reports capacity and state but not the type or path: those live in the XML.
-          type: (await poolDetail(name)).type,
-          targetPath: (await poolDetail(name)).targetPath,
+          type: detail.type,
+          targetPath: detail.targetPath,
           capacity: resource.detail?.capacity ?? null,
           allocation: resource.detail?.allocation ?? null,
           available: resource.detail?.available ?? null,

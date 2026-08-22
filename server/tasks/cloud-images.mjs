@@ -51,9 +51,16 @@ export async function ensureCloudImage({ image } = {}, { run = fixedRun, log = n
   try {
     const existing = await stat(target);
     if (existing.isFile() && existing.size > 0) {
-      log?.(`Base image already present: ${path.basename(target)}`, "stdout");
-      await writeFile(path.join(root, `${image}.current`), `${target}\n${digest}\n`, { mode: 0o644 });
-      return { path: target, digest, downloaded: false, algorithm: spec.algorithm };
+      // The file name carries only the first twelve hex characters of the digest, and a cached
+      // image is cloned straight into new VMs — so re-check it rather than trust the name.
+      log?.(`Verifying the cached base image ${path.basename(target)}`, "stdout");
+      const actual = await digestFile(target, spec.algorithm);
+      if (actual === digest) {
+        await writeFile(path.join(root, `${image}.current`), `${target}\n${digest}\n`, { mode: 0o644 });
+        return { path: target, digest, downloaded: false, algorithm: spec.algorithm };
+      }
+      log?.(`The cached base image does not match its checksum; downloading it again`, "stderr");
+      await unlink(target).catch(() => {});
     }
   } catch { /* not present */ }
   const partial = `${target}.part`;

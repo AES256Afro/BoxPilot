@@ -1,21 +1,26 @@
-import { execFile as execFileCallback } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { lstat, mkdir, readFile, statfs } from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
+import { streamRun } from "./exec.mjs";
 
-const execFile = promisify(execFileCallback);
 const uuidPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
 const shaPattern = /^[a-f0-9]{64}$/;
+/** Share of the repository's data packs re-hashed after each backup; restic rotates which ones. */
+const readDataSubsetPercent = 10;
 
-async function defaultRunner(binary, args, { timeout = 180000 } = {}) {
-  const result = await execFile(binary, args, {
-    timeout,
-    maxBuffer: 4 * 1024 * 1024,
-    encoding: "utf8",
-    env: { PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" },
-  });
+/**
+ * restic's --json output is a stream of status lines that runs for as long as the backup does.
+ * execFile held all of it in a fixed 4 MB buffer and killed the child on overflow — mid-backup,
+ * with the snapshot already written and nothing recorded. streamRun consumes it line by line and
+ * keeps only a bounded tail, and passes each line to the job log so a multi-hour run shows progress.
+ */
+async function defaultRunner(binary, args, { timeout = 180000, onLine = null } = {}) {
+  const result = await streamRun(binary, args, { timeout, onLine: onLine ?? (() => {}), tailBytes: 4 * 1024 * 1024 });
+  if (!result.ok) {
+    const detail = result.stderr.split("\n").filter(Boolean).slice(-2).join(" ") || `exit ${result.code ?? "unknown"}`;
+    throw Object.assign(new Error(`${binary} failed: ${detail}`), { stdout: result.stdout, stderr: result.stderr, code: result.code });
+  }
   return { stdout: result.stdout.trim(), stderr: result.stderr.trim() };
 }
 
@@ -177,7 +182,7 @@ export function createVmProtectionHelper({
     return { exportDirectory, fileCount: files.length + 1, sizeBytes };
   }
 
-  async function createBackup(parameters) {
+  async function createBackup(parameters, { progress = null } = {}) {
     const errors = validateVmProtectionInput(parameters);
     if (errors.length) throw new Error(errors.join(" | "));
     const destination = await inspect();
@@ -195,7 +200,11 @@ export function createVmProtectionHelper({
     if (!summary || !shaPattern.test(summary.snapshot_id ?? "") || summary.dry_run === true || summary.total_bytes_processed !== source.sizeBytes) {
       throw new Error("Restic did not return complete snapshot evidence");
     }
-    await run(resticBinary, [...commonResticArguments(), "check", "--read-data", "--quiet"], { timeout: 12 * 60 * 60 * 1000 });
+    // Structure always, plus a rotating slice of the data. A full --read-data grows with the
+    // repository rather than with this backup, so on a box with a few VMs it eventually runs past
+    // the operation's own deadline and every backup starts failing.
+    progress?.("Verifying the repository...", "stdout");
+    await run(resticBinary, [...commonResticArguments(), "check", `--read-data-subset=${readDataSubsetPercent}%`, "--quiet"], { timeout: 12 * 60 * 60 * 1000, onLine: progress ?? null });
     const snapshotsResult = await run(resticBinary, [...commonResticArguments(), "snapshots", "--json", "--tag", backupTag], { timeout: 30000 });
     const snapshots = JSON.parse(snapshotsResult.stdout);
     const snapshot = snapshots.find((candidate) => candidate.id === summary.snapshot_id);

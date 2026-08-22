@@ -85,7 +85,10 @@ describe("VM backup retention service", () => {
     inspection.snapshots.push({ id: "f".repeat(64), time: now.toISOString(), tags: ["boxpilot-vm"] });
     const result = await service.inspect();
     expect(result.executable).toBe(false);
-    expect(result.blockers.join(" ")).toContain("not attributable");
+    // The blocker names the snapshots and the way out, because there is one now.
+    const blocked = result.blockers.join(" ");
+    expect(blocked).toContain("have no local record");
+    expect(blocked).toContain("Forget an unrecorded snapshot");
   });
 
   it("records only exact helper evidence after execution", async () => {

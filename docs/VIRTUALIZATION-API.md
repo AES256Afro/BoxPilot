@@ -295,7 +295,7 @@ Body:
 
 Staging and password approval recheck the local export evidence, exact repository identity, independent mount identity, and capacity. The approved operation runs in the background with a twelve-hour typed-operation timeout. Helper mutations remain serialized.
 
-The helper rehashes the local manifest and all files, creates one tagged restic snapshot, requires an exact JSON summary, performs a full-repository `check --read-data`, and reads back the exact snapshot path and tags. The full check is compatible with Ubuntu 26.04's restic 0.18.1 package and can become slower as the repository grows. This operation cannot invoke `forget`, `prune`, repository deletion, an operator-selected destination, or an operator-selected restore. Failure never changes the local export and never automatically deletes repository data.
+The helper rehashes the local manifest and all files, creates one tagged restic snapshot, requires an exact JSON summary, verifies the repository structure and re-reads a rotating tenth of its data packs (`check --read-data-subset=10%`), and reads back the exact snapshot path and tags. Retention still runs a full `check --read-data`, since it happens once over a set you approved rather than after every backup. This operation cannot invoke `forget`, `prune`, repository deletion, an operator-selected destination, or an operator-selected restore. Failure never changes the local export and never automatically deletes repository data.
 
 ## Inspect guarded VM retention
 
