@@ -3139,11 +3139,6 @@ textarea {
 .router-file span { color: var(--muted); font-size: 0.75rem; }
 .router-retention { display: flex; gap: 9px; align-items: flex-start; color: var(--text); font-size: 0.84rem; }
 .router-retention input { margin-top: 2px; accent-color: var(--mint); }
-.flint2-acceptance, .flint2-plan, .flint2-declarations, .flint2-evidence { display: grid; gap: 12px; }
-.flint2-declarations { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.flint2-plan { padding: 15px; border: 1px solid var(--line); border-radius: 11px; background: rgba(255, 190, 92, .04); }
-.flint2-plan > div:first-child, .flint2-evidence { display: grid; gap: 5px; }
-.flint2-plan small, .flint2-evidence span { color: var(--muted); font-size: .78rem; }
 .router-center table code { color: #aee7d6; font: 0.78rem ui-monospace, SFMono-Regular, Menlo, monospace; }
 .router-guide-list { display: grid; gap: 12px; }
 .router-guide { padding: 0; overflow: hidden; }
@@ -3192,7 +3187,7 @@ textarea {
 @media (max-width: 900px) {
   .fleet-revoke { align-items: stretch; flex-direction: column; }
   .fleet-revoke label { min-width: 0; }
-  .router-model-grid, .router-readiness-grid, .router-guide-columns, .router-topology-summary, .flint2-declarations { grid-template-columns: 1fr; }
+  .router-model-grid, .router-readiness-grid, .router-guide-columns, .router-topology-summary { grid-template-columns: 1fr; }
   .github-commit { align-items: flex-start; flex-direction: column; }
 }
 .router-entry { display: flex; justify-content: space-between; gap: 18px; padding: 14px 0; border-bottom: 1px solid var(--line); }
