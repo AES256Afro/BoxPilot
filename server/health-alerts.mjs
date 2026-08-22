@@ -77,10 +77,14 @@ export function createHealthAlerts({ inventory, notifications, store, intervalMs
     const target = notifications.getTarget();
     for (const alert of active) {
       const seen = previous[alert.key];
-      nextState[alert.key] = seen ?? { since: now().toISOString(), title: alert.title };
-      if (seen || !target) continue;
+      // Remember a condition only once it has actually been announced, or the owner who configures
+      // notifications tomorrow would never hear about what broke today.
+      // Entries written before this flag existed count as announced, so upgrading does not replay them.
+      if (seen && seen.notified !== false) { nextState[alert.key] = seen; continue; }
+      if (!target) { nextState[alert.key] = { since: seen?.since ?? now().toISOString(), title: alert.title, notified: false }; continue; }
       try {
         await notifications.send({ title: `BoxPilot: ${alert.title}`, message: alert.message, priority: alert.priority });
+        nextState[alert.key] = { since: seen?.since ?? now().toISOString(), title: alert.title, notified: true };
         sent.push(alert.key);
         store.recordAudit("health.alert.sent", { actorId: null, subjectId: alert.key, details: { title: alert.title, at: now().toISOString() } });
       } catch (error) {
@@ -91,6 +95,7 @@ export function createHealthAlerts({ inventory, notifications, store, intervalMs
     const availability = collectorAvailability(snapshot);
     for (const [key, entry] of Object.entries(previous)) {
       if (nextState[key]) continue;
+      if (entry?.notified === false) continue; // never announced, so there is nothing to say it cleared
       // Evidence that is temporarily missing (stale SMART file, systemctl timeout) carries the alert forward unchanged.
       if (availability[key.split(":")[0]] === false) { nextState[key] = entry; continue; }
       if (!target) continue;

@@ -7,6 +7,9 @@ import { Router } from "express";
 
 export function createIdentityRouter({ store, auth, identity }) {
   const router = Router();
+  // This router is mounted before the global role policy (its first four routes are for people who
+  // are not signed in yet), so every managing route states its own requirement.
+  const manage = [auth.requireSession, auth.requireCsrf, auth.requireRole("owner", "operator")];
 
   async function ownerWithPassword(request, response) {
     const session = request.boxpilotSession;
@@ -25,6 +28,7 @@ export function createIdentityRouter({ store, auth, identity }) {
   router.get("/auth/identity", async (request, response) => {
     const tailscale = await identity.tailscaleIdentity(request);
     const summary = identity.summary();
+    // Anyone who can reach the port sees this, so it says whether a method is available, not who can use it.
     response.json({ tailscale: { available: tailscale.available, login: tailscale.login, displayName: tailscale.displayName, node: tailscale.node, linked: tailscale.linked }, github: { configured: summary.githubConfigured, linkedLogins: summary.githubLogins } });
   });
 
@@ -83,14 +87,14 @@ export function createIdentityRouter({ store, auth, identity }) {
     response.json({ ...identity.summary(), currentTailscale: tailscale.available ? { login: tailscale.login, displayName: tailscale.displayName, node: tailscale.node, linked: tailscale.linked } : null });
   });
 
-  router.post("/auth/identity/tailscale", auth.requireSession, auth.requireCsrf, async (request, response) => {
+  router.post("/auth/identity/tailscale", ...manage, async (request, response) => {
     const owner = await ownerWithPassword(request, response); if (!owner) return;
     const tailscale = await identity.tailscaleIdentity(request);
     if (!tailscale.available) return response.status(400).json({ error: "Open BoxPilot over Tailscale to link the identity you are connecting with", code: "no_tailscale_identity" });
     response.json({ tailscaleLogins: identity.linkTailscale(owner.id, tailscale.login), login: tailscale.login });
   });
 
-  router.delete("/auth/identity/tailscale", auth.requireSession, auth.requireCsrf, async (request, response) => {
+  router.delete("/auth/identity/tailscale", ...manage, async (request, response) => {
     const owner = await ownerWithPassword(request, response); if (!owner) return;
     const login = request.body?.login;
     if (typeof login !== "string") return response.status(400).json({ error: "login is required", code: "invalid_request" });
@@ -107,7 +111,7 @@ export function createIdentityRouter({ store, auth, identity }) {
     }
   });
 
-  router.post("/auth/identity/github/start", auth.requireSession, auth.requireCsrf, async (request, response) => {
+  router.post("/auth/identity/github/start", ...manage, async (request, response) => {
     const owner = await ownerWithPassword(request, response); if (!owner) return;
     try {
       response.json(await identity.githubStart({ purpose: "link", ownerId: owner.id, client: request.socket?.remoteAddress ?? null }));
@@ -116,7 +120,7 @@ export function createIdentityRouter({ store, auth, identity }) {
     }
   });
 
-  router.delete("/auth/identity/github", auth.requireSession, auth.requireCsrf, async (request, response) => {
+  router.delete("/auth/identity/github", ...manage, async (request, response) => {
     const owner = await ownerWithPassword(request, response); if (!owner) return;
     const login = request.body?.login;
     if (typeof login !== "string") return response.status(400).json({ error: "login is required", code: "invalid_request" });

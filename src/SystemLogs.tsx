@@ -12,32 +12,41 @@ export default function SystemLogs({ csrfToken = "" }: { csrfToken?: string }) {
   const [lines, setLines] = useState(300);
   const [since, setSince] = useState("");
   const [filter, setFilter] = useState("");
+  // One journalctl run per keystroke would hammer the host; read after typing pauses.
+  const [appliedFilter, setAppliedFilter] = useState("");
   const [follow, setFollow] = useState(false);
   const [entries, setEntries] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pick, setPick] = useState("");
   const pre = useRef<HTMLPreElement | null>(null);
+  const readSequence = useRef(0);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setAppliedFilter(filter), 300);
+    return () => window.clearTimeout(timer);
+  }, [filter]);
 
   useEffect(() => { inspectOperation<Sources>("logs.sources").then(({ result }) => setSources(result)).catch((requestError: unknown) => setError(requestError instanceof Error ? requestError.message : "Could not list log sources")); }, []);
 
   const read = useCallback(async () => {
     if (!target) return;
+    const sequence = (readSequence.current += 1);
     setLoading(true);
     try {
       const parameters: Record<string, unknown> = { kind, target, lines };
       if (since.trim()) parameters.since = since.trim();
-      if (filter.trim()) parameters.filter = filter.trim();
+      if (appliedFilter.trim()) parameters.filter = appliedFilter.trim();
       const response = await fetch("/api/v1/operations/logs.read/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters }) });
       const body = (await response.json()) as { result?: { lines: string[] }; error?: string };
       if (!response.ok) throw new Error(body.error ?? "Could not read logs");
+      if (sequence !== readSequence.current) return; // a newer read already answered
       setEntries(body.result?.lines ?? []); setError(null);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Could not read logs");
+      if (sequence === readSequence.current) setError(requestError instanceof Error ? requestError.message : "Could not read logs");
     } finally {
-      setLoading(false);
+      if (sequence === readSequence.current) setLoading(false);
     }
-  }, [csrfToken, kind, target, lines, since, filter]);
+  }, [csrfToken, kind, target, lines, since, appliedFilter]);
 
   useEffect(() => { void read(); }, [read]);
   useEffect(() => { if (!follow) return undefined; const timer = window.setInterval(() => { void read(); }, 5000); return () => window.clearInterval(timer); }, [follow, read]);

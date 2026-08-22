@@ -39,6 +39,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   const [output, setOutput] = useState("");
   const [showOutput, setShowOutput] = useState(true);
   const outputRef = useRef<HTMLPreElement | null>(null);
+  const busyRef = useRef(false);
   const stopFollowing = useRef<(() => void) | null>(null);
 
   useEffect(() => { if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight; }, [output]);
@@ -57,6 +58,13 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
     if (job && phase === "ready") void cancelJob(job.id, csrfToken).catch(() => undefined);
     onClose();
   }, [job, phase, csrfToken, onClose]);
+
+  // Escape closes the dialog (and withdraws the staged job) like Cancel does.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape" && !busyRef.current) dismiss(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [dismiss]);
 
   const approve = useCallback(async () => {
     if (!job) return;
@@ -80,16 +88,17 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
       setError(approveError instanceof Error ? approveError.message : "Approval failed");
       setPhase("ready");
     }
-  }, [job, csrfToken, password, onFinished]);
+  }, [job, csrfToken, password, typedConfirm, onFinished]);
 
   const tier = policy?.tier ?? "high";
   const passwordRequired = policy ? policy.passwordRequired : true;
   const confirmRequired = confirmText ?? policy?.confirmText ?? null;
   const busy = phase === "staging" || phase === "approving" || phase === "running";
+  busyRef.current = busy;
   const actionLabel = phase === "running" ? "Running..." : phase === "approving" ? "Approving..." : passwordRequired ? "Approve and run" : tier === "low" ? "Run" : "Confirm and run";
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={busy ? undefined : onClose}>
+    <div className="modal-backdrop" role="presentation" onMouseDown={busy ? undefined : dismiss}>
       <section className="modal" role="dialog" aria-modal="true" aria-labelledby="approve-title" onMouseDown={(event) => event.stopPropagation()}>
         <header className="modal-header">
           <div>

@@ -157,10 +157,10 @@ function Settings({ csrfToken, role = "owner" }: { csrfToken: string; role?: str
   );
 }
 
-/** Deep link: /?view=firewall opens that page, and a reload keeps the page you were on. */
+/** Deep link: /?view=firewall opens that page, and a reload keeps the page you were on (Setup included). */
 function viewFromLocation(): ViewName {
   const candidate = new URLSearchParams(window.location.search).get("view");
-  return navItems.some((item) => item.id === candidate) ? (candidate as ViewName) : "overview";
+  return candidate && Object.hasOwn(viewCopy, candidate) ? (candidate as ViewName) : "overview";
 }
 
 function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthStatus; onSignedOut: () => void; onAuthChanged?: (status: AuthStatus) => void }) {
@@ -187,8 +187,10 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     const expiresAt = Date.parse(authStatus.expiresAt ?? "");
     if (!Number.isFinite(expiresAt)) return undefined;
     const delay = Math.min(2_147_000_000, Math.max(1000, expiresAt - Date.now() + 1000));
-    const timer = window.setTimeout(() => { void fetchAuthStatus().then((status) => { if (!status.authenticated) onSignedOut(); else onAuthChanged?.(status); }).catch(() => undefined); }, delay);
-    return () => window.clearTimeout(timer);
+    let retry = 0;
+    const check = () => { void fetchAuthStatus().then((status) => { if (!status.authenticated) onSignedOut(); else onAuthChanged?.(status); }).catch(() => { retry = window.setTimeout(check, 15_000); }); };
+    const timer = window.setTimeout(check, delay);
+    return () => { window.clearTimeout(timer); if (retry) window.clearTimeout(retry); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authStatus.expiresAt]);
   useEffect(() => {
@@ -240,8 +242,9 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     setBundleError(null);
     try {
       const response = await fetch("/api/v1/support-bundle");
-      const bundle = await response.json() as Record<string, unknown> & { error?: string };
-      if (!response.ok) throw new Error(bundle.error ?? "Support bundle is unavailable");
+      // A crashed service or a proxy answers with HTML; say what to do rather than showing a parser error.
+      const bundle = await response.json().catch(() => ({})) as Record<string, unknown> & { error?: string };
+      if (!response.ok) throw new Error(bundle.error ?? "BoxPilot could not build the support bundle. Check the BoxPilot service on the Services page, then try again.");
       const url = URL.createObjectURL(new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" }));
       const anchor = document.createElement("a");
       anchor.href = url;

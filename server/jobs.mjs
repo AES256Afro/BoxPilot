@@ -48,7 +48,8 @@ export function createJobService(store, helper, {
     }
     const job = store.getJob(jobId);
     if (!job) throw new Error("Job not found");
-    if (job.createdBy !== ownerId) throw new Error("Job not found");
+    const approverRole = session?.owner?.role ?? owner.role ?? "owner";
+    if (job.createdBy !== ownerId && approverRole !== "owner") throw new Error("Job not found");
     const policy = approvalPolicy(job, session);
     if (policy.passwordRequired && !passwordProvided) throw new Error(`Approval reauthentication required: ${policy.tier}-risk job needs the owner password`);
     let elevatedUntil = session?.elevatedUntil ?? null;

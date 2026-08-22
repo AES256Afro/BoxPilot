@@ -64,7 +64,7 @@ describe("operation scheduler", () => {
     expect(await scheduler.tick()).toBe(0); // not due yet
     clock = new Date("2026-08-20T03:00:30");
     expect(await scheduler.tick()).toBe(1);
-    expect(jobs.createOperationJob).toHaveBeenCalledWith("app.backup", { id: "jellyfin" }, owner.id);
+    expect(jobs.createOperationJob).toHaveBeenCalledWith("app.backup", { id: "jellyfin" }, owner.id, { role: "owner" });
     expect(jobs.approveAndStart).toHaveBeenCalledTimes(1);
     const after = store.getSchedule(schedule.id);
     expect(after.lastResult).toBe("started");

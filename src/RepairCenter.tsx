@@ -214,10 +214,11 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       await readJson(await fetch(`/api/v1/jobs/${awaitingApproval.id}/approve`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-        body: JSON.stringify(password ? { password } : {}),
+        body: JSON.stringify({ ...(password ? { password } : {}), ...(confirmTyped ? { confirmText: confirmTyped } : {}) }),
       }));
       if (password) window.dispatchEvent(new Event("boxpilot:auth-changed"));
       setPassword("");
+      setConfirmTyped("");
       await refresh();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Job approval failed");
@@ -264,11 +265,10 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
                 <p>{item.summary}</p>
                 <div className="action-evidence"><strong>Why this appears</strong>{item.evidence.map((evidence) => <span key={evidence}>{evidence}</span>)}</div>
                 <ol>{item.recommendation.steps.map((step) => <li key={step}>{step}</li>)}</ol>
-                <footer><span>No automatic fix, command, credential, or log payload.</span><button className="secondary-button" type="button" onClick={() => onNavigate(item.recommendation.view)}>{item.recommendation.title}</button></footer>
+                <footer><span>BoxPilot shows the steps; you decide when to run them.</span><button className="secondary-button" type="button" onClick={() => onNavigate(item.recommendation.view)}>{item.recommendation.title}</button></footer>
               </article>
             ))}
           </div>
-          <div className="recovery-boundary"><strong>Guidance only</strong><span>Action Center is regenerated from sanitized evidence. It stores no notification state, sends nothing externally, and cannot install, repair, schedule, run a command, or mutate the host.</span></div>
         </section>
       )}
 
@@ -300,14 +300,13 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
             <span>{recoveryKit.evidence.applications?.length ?? 0} installed apps</span>
             <span>{recoveryKit.evidence.vmBackups?.length ?? 0} VM backups</span>
           </div>
-          <div className="recovery-boundary"><strong>Evidence, not a backup</strong><span>No credential, database, application data, router configuration, backup payload, agent key, signature, or arbitrary log is included. Generating or downloading this kit performs no host mutation.</span></div>
-          <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => downloadRecoveryKit("json")}>Download evidence JSON</button><button className="secondary-button" type="button" onClick={() => downloadRecoveryKit("markdown")}>Download recovery runbook</button></footer>
+          <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => downloadRecoveryKit("json")}>Download as JSON</button><button className="secondary-button" type="button" onClick={() => downloadRecoveryKit("markdown")}>Download recovery runbook</button></footer>
         </section>
       )}
 
       <div className="repair-layout">
         <section className="panel repair-checks">
-          <header className="panel-header"><div><strong>Prerequisites</strong><span>Read-only live checks</span></div></header>
+          <header className="panel-header"><div><strong>Prerequisites</strong><span>What this server has, and what it still needs</span></div></header>
           {checks.map((item) => (
             <article className="repair-check" key={item.id}>
               <span className={`repair-state repair-${item.status}`}>{item.status}</span>
@@ -317,9 +316,9 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
         </section>
 
         <aside className="panel helper-canary">
-          <span className="eyebrow">{awaitingApproval ? "Approval desk" : "Operations Core canary"}</span>
-          <h3>{awaitingApproval ? awaitingApproval.title : "Prove the restricted helper"}</h3>
-          <p>{awaitingApproval ? "Review the recorded preflight and recovery steps below, then approve this exact typed job." : "This job uses the real durable workflow and local Unix socket. Its allowlisted operation cannot mutate the host."}</p>
+          <span className="eyebrow">{awaitingApproval ? "Approval desk" : "Helper check"}</span>
+          <h3>{awaitingApproval ? awaitingApproval.title : "Is the root helper answering?"}</h3>
+          <p>{awaitingApproval ? "Check what this job will do, then approve it." : "Asks the helper that does root work to identify itself. It changes nothing on the server."}</p>
           {awaitingApproval && <p className="job-recovery"><strong>{awaitingApproval.risk} risk:</strong> {awaitingApproval.recovery.reason ?? "Follow the recorded recovery instructions if verification fails."}</p>}
           {!awaitingApproval ? (
             <>
@@ -349,7 +348,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
 
       <section className="panel job-history">
         <header className="panel-header"><div><strong>Durable jobs</strong><span>Plans, approvals, execution, and verification survive service restarts</span></div></header>
-        {jobs.length === 0 ? <div className="log-empty">No Operations Core jobs have been created.</div> : jobs.map((job) => (
+        {jobs.length === 0 ? <div className="log-empty">No jobs yet.</div> : jobs.map((job) => (
           <details className="job-row" key={job.id} open={job === jobs[0]}>
             <summary><div><strong>{job.title}</strong><span>{job.risk} risk | {job.steps.length} recorded steps</span></div><span className={`status-pill status-${job.state === "completed" ? "good" : job.state === "failed" ? "warning" : "neutral"}`}>{job.state.replaceAll("_", " ")}</span></summary>
             <div className="job-steps">{job.steps.map((step, index) => <div key={`${step.createdAt}-${index}`}><span>{step.state}</span><strong>{step.name}</strong><p>{step.detail}</p></div>)}</div>

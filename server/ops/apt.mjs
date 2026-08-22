@@ -3,7 +3,11 @@ import { defineOperation } from "./registry.mjs";
 import { validPackageList } from "../tasks/apt.mjs";
 
 /** Common server tools offered on the Updates & packages page (M2.2). */
-let needrestartCache = null; // { at, value } — needrestart is expensive and changes only after package work
+let needrestartCache = null; // { at, value } — needrestart walks every process, so reuse a recent answer
+/** Package work changes what needs restarting: the next inspection must ask again. */
+export function clearNeedrestartCache() { needrestartCache = null; }
+/** Run a package task, then forget what needed restarting before it. */
+const withCacheReset = (task) => task.finally(() => clearNeedrestartCache());
 
 export const curatedPackages = Object.freeze([
   "htop", "btop", "tmux", "git", "curl", "wget", "jq", "ncdu", "tree", "ripgrep", "zsh",
@@ -87,9 +91,13 @@ export function aptOperations() {
           // needrestart scans /proc/*/maps for every process (containers included): seconds of CPU, so reuse a recent answer.
           if (!needrestartCache || Date.now() - needrestartCache.at > 10 * 60_000) {
             const needrestart = await run("/usr/sbin/needrestart", ["-b"], { timeout: 90_000, maxBuffer: 2 * 1024 * 1024 });
-            needrestartCache = { at: Date.now(), value: parseNeedrestart(needrestart.stdout) };
+            // A failed run must not pin "nothing to restart" for ten minutes.
+            if (needrestart.ok) needrestartCache = { at: Date.now(), value: parseNeedrestart(needrestart.stdout) };
+            else needrestartCache = null;
+            servicesNeedingRestart = needrestart.ok ? needrestartCache.value : null;
+          } else {
+            servicesNeedingRestart = needrestartCache.value;
           }
-          servicesNeedingRestart = needrestartCache.value;
         }
         return { upgradable, count: upgradable.length, securityCount: security, rebootRequired: await rebootRequired(), needrestartPresent, servicesNeedingRestart };
       },
@@ -103,30 +111,30 @@ export function aptOperations() {
       id: "apt.upgrade", title: "Install package updates", risk: "medium", timeoutMs: minutes(185),
       description: "Runs apt-get update then upgrades every package, or only the selected ones.",
       parameters: { fields: { packages: optionalPackagesField, refreshFirst: refreshField } },
-      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("apt.upgrade", { packages: parameters.packages ?? null, refreshFirst: parameters.refreshFirst ?? true }, { timeoutMs: minutes(180), logPath: jobLog?.path ?? null }),
+      run: (parameters, { runUnit, jobLog }) => withCacheReset(runUnit.runTask("apt.upgrade", { packages: parameters.packages ?? null, refreshFirst: parameters.refreshFirst ?? true }, { timeoutMs: minutes(180), logPath: jobLog?.path ?? null })),
     }),
     defineOperation({
       id: "apt.install", title: "Install packages", risk: "medium", timeoutMs: minutes(70),
       description: "Installs the listed APT packages without recommends.",
       parameters: { fields: { packages: packagesField, refreshFirst: refreshField } },
-      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("apt.install", { packages: parameters.packages, refreshFirst: parameters.refreshFirst ?? true }, { timeoutMs: minutes(65), logPath: jobLog?.path ?? null }),
+      run: (parameters, { runUnit, jobLog }) => withCacheReset(runUnit.runTask("apt.install", { packages: parameters.packages, refreshFirst: parameters.refreshFirst ?? true }, { timeoutMs: minutes(65), logPath: jobLog?.path ?? null })),
     }),
     defineOperation({
       id: "apt.remove", title: "Remove packages", risk: "medium", timeoutMs: minutes(40),
       description: "Removes the listed packages and autoremoves what only they needed; configuration files are kept.",
       parameters: { fields: { packages: packagesField } },
-      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("apt.remove", { packages: parameters.packages, purge: false, autoremove: true }, { timeoutMs: minutes(35), logPath: jobLog?.path ?? null }),
+      run: (parameters, { runUnit, jobLog }) => withCacheReset(runUnit.runTask("apt.remove", { packages: parameters.packages, purge: false, autoremove: true }, { timeoutMs: minutes(35), logPath: jobLog?.path ?? null })),
     }),
     defineOperation({
       id: "apt.purge", title: "Purge packages", risk: "high", timeoutMs: minutes(40),
       description: "Removes the listed packages including their configuration files.",
       parameters: { fields: { packages: packagesField } },
-      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("apt.remove", { packages: parameters.packages, purge: true, autoremove: true }, { timeoutMs: minutes(35), logPath: jobLog?.path ?? null }),
+      run: (parameters, { runUnit, jobLog }) => withCacheReset(runUnit.runTask("apt.remove", { packages: parameters.packages, purge: true, autoremove: true }, { timeoutMs: minutes(35), logPath: jobLog?.path ?? null })),
     }),
     defineOperation({
       id: "apt.autoremove", title: "Remove unused packages", risk: "medium", timeoutMs: minutes(40),
       description: "Runs apt-get autoremove --purge.",
-      run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("apt.autoremove", {}, { timeoutMs: minutes(35), logPath: jobLog?.path ?? null }),
+      run: (_parameters, { runUnit, jobLog }) => withCacheReset(runUnit.runTask("apt.autoremove", {}, { timeoutMs: minutes(35), logPath: jobLog?.path ?? null })),
     }),
     defineOperation({
       id: "apt.unattended.inspect", title: "Read automatic update settings", risk: "low", readOnly: true,

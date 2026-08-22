@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createLaneQueues, laneFor } from "./helper-lanes.mjs";
+import { createLaneQueues, exclusiveLane, laneFor } from "./helper-lanes.mjs";
 
 describe("helper lanes", () => {
   it("gives each app and VM its own lane and keeps shared host work on one", () => {
@@ -38,5 +38,23 @@ describe("helper lanes", () => {
     expect(await slow).toBe("slow");
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(queues.size()).toBe(0); // idle lanes are dropped
+  });
+});
+
+describe("whole-box operations", () => {
+  it("takes an exclusive lane so a machine snapshot never runs beside app writes", async () => {
+    expect(laneFor("host.snapshot.create", {})).toBe(exclusiveLane);
+    expect(laneFor("controller.backup.create", {})).toBe(exclusiveLane);
+    const queues = createLaneQueues();
+    const order = [];
+    let releaseApp;
+    const appWork = queues.run("app:jellyfin", async () => { await new Promise((resolve) => { releaseApp = resolve; }); order.push("app"); });
+    const snapshot = queues.run(exclusiveLane, async () => { order.push("snapshot"); });
+    const otherApp = queues.run("app:immich", async () => { order.push("other-app"); });
+    await new Promise((resolve) => setTimeout(resolve, 0)); // let the lanes start before the app work finishes
+    releaseApp();
+    await Promise.all([appWork, snapshot, otherApp]);
+    // The snapshot waited for the running app work, and the app queued behind it waited for the snapshot.
+    expect(order).toEqual(["app", "snapshot", "other-app"]);
   });
 });

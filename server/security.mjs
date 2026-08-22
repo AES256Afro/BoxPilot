@@ -64,6 +64,12 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     return `${cookieName}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSeconds}${secure ? "; Secure" : ""}`;
   }
 
+  /** Add a cookie without dropping one an earlier step already set (device cookie + session). */
+  function appendCookie(request, response, value) {
+    const earlier = response.getHeader("Set-Cookie");
+    response.setHeader("Set-Cookie", [...(Array.isArray(earlier) ? earlier : earlier ? [String(earlier)] : []), value]);
+  }
+
   function requireSession(request, response, next) {
     const session = requestSession(request);
     if (!session) {
@@ -135,8 +141,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
       const passwordHash = await hashPassword(password);
       const owner = store.consumeBootstrapToken(bootstrapToken, { username, passwordHash });
       const session = store.createSession(owner.id, { ttlMs: sessionTtlMs });
-      const earlier = response.getHeader("Set-Cookie");
-    response.setHeader("Set-Cookie", [...(Array.isArray(earlier) ? earlier : earlier ? [String(earlier)] : []), cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000))]);
+      appendCookie(request, response, cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000)));
       response.status(201).json({ authenticated: true, owner: { id: owner.id, username: owner.username, role: owner.role ?? "owner" }, csrfToken: session.csrfToken, expiresAt: session.expiresAt });
     } catch (error) {
       response.status(401).json({ error: error.message, code: "bootstrap_rejected" });
@@ -181,7 +186,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     }
     const session = store.createSession(owner.id, { ttlMs: sessionTtlMs });
     store.recordAudit("session.created", { actorId: owner.id, subjectId: owner.id });
-    response.setHeader("Set-Cookie", cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000)));
+    appendCookie(request, response, cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000)));
     response.json({ authenticated: true, owner: { id: owner.id, username: owner.username, role: owner.role ?? "owner" }, csrfToken: session.csrfToken, expiresAt: session.expiresAt });
   }
 
@@ -190,7 +195,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     if (owner?.role === "disabled") throw new Error("This account is disabled");
     const session = store.createSession(owner.id, { ttlMs: sessionTtlMs });
     store.recordAudit("session.created", { actorId: owner.id, subjectId: owner.id, details: { method, ...(detail ? { detail } : {}) } });
-    response.setHeader("Set-Cookie", cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000)));
+    appendCookie(request, response, cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000)));
     return { authenticated: true, owner: { id: owner.id, username: owner.username, role: owner.role ?? "owner" }, csrfToken: session.csrfToken, expiresAt: session.expiresAt, elevatedUntil: null, method };
   }
 
@@ -216,8 +221,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     store.recordAudit("session.device-trusted", { actorId: owner.id, subjectId: owner.id });
     const forwardedHttps = request.get("x-forwarded-proto")?.split(",")[0].trim() === "https";
     const secure = process.env.BOXPILOT_COOKIE_SECURE === "true" || (process.env.BOXPILOT_COOKIE_SECURE !== "false" && (request.secure || forwardedHttps));
-    const earlier = response.getHeader("Set-Cookie");
-    response.setHeader("Set-Cookie", [...(Array.isArray(earlier) ? earlier : earlier ? [String(earlier)] : []), `${deviceCookieName}=${token}; Path=/api/v1/auth; HttpOnly; SameSite=Strict; Max-Age=${deviceTtlSeconds}${secure ? "; Secure" : ""}`]);
+    appendCookie(request, response, `${deviceCookieName}=${token}; Path=/api/v1/auth; HttpOnly; SameSite=Strict; Max-Age=${deviceTtlSeconds}${secure ? "; Secure" : ""}`);
   }
 
   function status(request, response) {

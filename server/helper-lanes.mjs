@@ -8,10 +8,20 @@
  * one "host" lane so those keep their old, safe ordering.
  */
 
+/**
+ * Operations that read or rewrite the whole box (a machine snapshot copies every app's project
+ * files while it runs). They take the exclusive lane: nothing else runs beside them.
+ */
+export const exclusiveLane = "exclusive";
+const exclusiveOperations = new Set(["host.snapshot.create", "host.snapshot.restore", "controller.backup.create", "controller.backup.protect", "controller.backup.retention.apply"]);
+
 /** Lane key for an operation and its parameters. Read-only operations never queue. */
 export function laneFor(operation, parameters = {}) {
   const id = String(operation ?? "");
+  if (exclusiveOperations.has(id)) return exclusiveLane;
   const subject = (value) => (typeof value === "string" && value.length && value.length <= 64 ? value : null);
+  // Installing or removing an app rewrites the shared Homepage dashboard file, so those share its lane.
+  if (id === "homepage.sync") return "app:homepage";
   if (id.startsWith("app.")) {
     const app = subject(parameters?.id);
     if (app) return `app:${app}`;
@@ -29,7 +39,10 @@ export function createLaneQueues() {
   const lanes = new Map();
 
   function run(lane, task) {
-    const previous = lanes.get(lane) ?? Promise.resolve();
+    // The exclusive lane waits for every other lane, and every other lane waits for it.
+    const previous = lane === exclusiveLane
+      ? Promise.allSettled([...lanes.values()])
+      : Promise.allSettled([lanes.get(lane), lanes.get(exclusiveLane)].filter(Boolean));
     const result = previous.then(task, task); // an earlier failure must not cancel the next entry
     // Keep the chain alive but never leak rejections, and drop the lane once it is idle again.
     const settled = result.then(() => {}, () => {});

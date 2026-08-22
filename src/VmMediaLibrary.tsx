@@ -70,7 +70,7 @@ export default function VmMediaLibrary({ csrfToken }: { csrfToken: string; onOpe
           </div>
         </div>
         {stagedCandidates.length > 0 && <div className="vm-media-candidates"><strong>Awaiting import approval</strong>{stagedCandidates.map((candidate) => <div className="vm-media-row" key={candidate.revision}><span><strong>{candidate.name}</strong><small>{formatBytes(candidate.sizeBytes)} | SHA-256 {candidate.sha256.slice(0, 16)}...</small></span><button type="button" className="text-button" disabled={pending !== null} onClick={() => startImport(candidate)}>Import</button></div>)}</div>}
-        <div className="vm-control-lock"><div><strong>Two-step safety boundary</strong><span>Upload writes only to the fixed staging area. Import pins the staged size and SHA-256 server-side and verifies both again during the copy. Existing media is never overwritten.</span></div></div>
+        <div className="vm-control-lock"><div><strong>How importing works</strong><span>The file is uploaded to a staging area first, then checked by size and SHA-256 again as it is copied into the library. Existing media is never overwritten.</span></div></div>
         {message && <p className="vm-message" aria-live="polite">{message}</p>}
       </section>
     </>

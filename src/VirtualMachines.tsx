@@ -479,7 +479,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
             <div className="vm-action-review">
               <form onSubmit={(event) => { event.preventDefault(); createSnapshot(); }}>
                 <label className="vm-snapshot-name">Snapshot name<input value={snapshotName} onChange={(event) => setSnapshotName(event.target.value)} pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,62}" maxLength={63} required autoComplete="off" /><span>Use 1-63 letters, numbers, dots, underscores, or hyphens.</span></label>
-                <div className="vm-plan-warnings"><strong>Important boundary</strong><span>This creates an internal snapshot while the VM is stopped. It is not an independent backup.</span></div>
+                <div className="vm-plan-warnings"><strong>Worth knowing</strong><span>This snapshot lives inside the VM's own disk while it is stopped. It is a quick undo, not a backup you could restore after a disk failure.</span></div>
                 <div className="vm-plan-form-actions"><button type="button" className="text-button" onClick={() => setSnapshotDomain(null)}>Cancel</button><button type="submit" className="primary-button" disabled={pending !== null}>Continue to confirm</button></div>
               </form>
             </div>
