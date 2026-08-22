@@ -1,0 +1,39 @@
+schemaVersion: 2
+id: pairdrop
+name: PairDrop
+category: Files
+icon: "📤"
+description: Send files and text between any two devices on your network from a browser — phones, laptops, anything. No app to install and nothing leaves your network.
+website: https://github.com/schlagmichdoch/PairDrop
+risk: low
+image:
+  reference: lscr.io/linuxserver/pairdrop:1.11.2
+  version: 1.11.2
+ports:
+  - id: web
+    label: Web UI
+    container: 3000
+    host: 3010
+    exposure: lan
+env:
+  - name: PUID
+    label: Run as user id
+    type: number
+    default: 1000
+  - name: PGID
+    label: Run as group id
+    type: number
+    default: 1000
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: RATE_LIMIT
+    label: Rate limit
+    type: boolean
+    default: "false"
+health:
+  kind: running
+  stableSeconds: 5
+  timeoutSeconds: 90
+notes: Open it on two devices and they find each other automatically. Devices only see each other when they reach PairDrop from the same address, so use one address for both — the tailnet name if you have made it tailnet-only.

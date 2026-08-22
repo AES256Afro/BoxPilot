@@ -1,0 +1,53 @@
+schemaVersion: 2
+id: backrest
+name: Backrest
+category: Backup
+icon: "🗄️"
+description: A web interface for restic backups — schedule them, browse snapshots, and restore single files. The same engine BoxPilot uses for its own encrypted copies.
+website: https://garethgeorge.github.io/backrest
+risk: medium
+image:
+  reference: garethgeorge/backrest:v1.14.1
+  version: v1.14.1
+ports:
+  - id: web
+    label: Web UI
+    container: 9898
+    host: 9898
+    exposure: lan
+volumes:
+  - id: data
+    label: Backrest data
+    container: /data
+    path: data
+  - id: config
+    label: Configuration
+    container: /config
+    path: config
+  - id: cache
+    label: Restic cache
+    container: /cache
+    path: cache
+  - id: sources
+    label: Folder to back up
+    container: /userdata
+    hostPath: /mnt
+env:
+  - name: BACKREST_DATA
+    fixed: true
+    default: /data
+  - name: BACKREST_CONFIG
+    fixed: true
+    default: /config/config.json
+  - name: XDG_CACHE_HOME
+    fixed: true
+    default: /cache
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 5
+  timeoutSeconds: 90
+notes: Set an admin password on first open. The folder you chose is mounted read-write at /userdata inside Backrest — point repositories and backup plans at that path. Keep each repository's password somewhere other than this server.

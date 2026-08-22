@@ -1,0 +1,41 @@
+schemaVersion: 2
+id: netalertx
+name: NetAlertX
+category: Network
+icon: "📡"
+description: Watches your network and tells you when a device appears that was not there before, or when a known one goes missing. Keeps a history of what has been connected.
+website: https://github.com/jokob-sk/NetAlertX
+risk: medium
+image:
+  reference: ghcr.io/jokob-sk/netalertx:26.8.5
+  version: 26.8.5
+network: host
+capabilities:
+  - CAP_NET_ADMIN
+  - CAP_NET_RAW
+volumes:
+  - id: config
+    label: Configuration
+    container: /app/config
+    path: config
+  - id: db
+    label: Database
+    container: /app/db
+    path: db
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: PORT
+    label: Web UI port
+    type: number
+    default: 20211
+  - name: ALWAYS_FRESH_INSTALL
+    fixed: true
+    default: "false"
+health:
+  kind: running
+  stableSeconds: 10
+  timeoutSeconds: 180
+notes: It shares this server's network so it can see the devices on yours, which means the web UI is on the port above rather than one BoxPilot assigns, and "reach only through Tailscale" does not apply to it. Give the first scan a few minutes. Set a password under Settings before you leave it running.

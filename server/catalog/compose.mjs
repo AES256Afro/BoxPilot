@@ -119,6 +119,7 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   if (devices.length) service.devices = devices.map((device) => `${device}:${device}`);
   if (manifest.extraHosts.length) service.extra_hosts = [...manifest.extraHosts];
   if ((manifest.sysctls ?? []).length) service.sysctls = Object.fromEntries(manifest.sysctls.map((entry) => entry.split("=")));
+  if (manifest.shmSize) service.shm_size = manifest.shmSize;
   service.security_opt = ["no-new-privileges:true"];
   const compose = { name: projectNameFor(manifest.id), services: { [manifest.id]: service } };
   // Sidecars: helper services on the project network, reachable from the app at their id.

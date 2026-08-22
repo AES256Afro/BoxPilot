@@ -1,0 +1,37 @@
+schemaVersion: 2
+id: glance
+name: Glance
+category: Monitoring
+icon: "🪟"
+description: A fast dashboard that puts feeds, weather, server stats, and links to everything you run on one page. Configured in a single YAML file.
+website: https://github.com/glanceapp/glance
+risk: medium
+image:
+  reference: glanceapp/glance:v0.8.5
+  version: v0.8.5
+ports:
+  - id: web
+    label: Dashboard
+    container: 8080
+    host: 8280
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /app/config
+    path: config
+  - id: docker
+    label: Docker socket
+    container: /var/run/docker.sock
+    hostPath: /var/run/docker.sock
+    readOnly: true
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 5
+  timeoutSeconds: 90
+notes: Edit config/glance.yml under the app's data folder to lay out your page. The Docker socket is mounted read-only so the container widget can list what is running; remove that volume if you would rather it could not.
