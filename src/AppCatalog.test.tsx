@@ -75,6 +75,7 @@ describe("App catalog", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<AppCatalog csrfToken="csrf-token" />);
     expect(await screen.findByText("Running")).toBeTruthy();
+    // The page itself came from localhost here, so the LAN address is the only useful guess.
     expect((screen.getByRole("link", { name: "Open Web UI" }) as HTMLAnchorElement).href).toBe("http://192.168.1.10:8096/");
     for (const name of ["Restart", "Stop", "Settings", "Update", "Logs", "Uninstall", "Delete data"]) expect(screen.getByRole("button", { name })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
@@ -101,5 +102,43 @@ describe("App catalog", () => {
     fireEvent.click(screen.getByRole("button", { name: "Restore this file" }));
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     expect(JSON.parse(staged[0] ?? "{}")).toEqual({ parameters: { id: "jellyfin", backup: "20260816T030000Z.tar.gz", path: "config/system.xml" } });
+  });
+});
+
+describe("where the Open button sends you", () => {
+  const installed = {
+    id: "jellyfin", installed: true, dataPresent: true,
+    state: { installedAt: "x", updatedAt: "x", manifestSha256: "abc", image: { reference: "jellyfin/jellyfin:10.10.7", id: "sha256:1" }, values: { ports: { web: 8096 }, env: {}, volumes: {} }, pinnedRollback: false, uninstalledAt: null },
+    container: { exists: true, running: true, status: "running", health: "healthy", restarts: 0, image: "sha256:1" },
+    urls: [{ id: "web", label: "Web UI", host: 8096, exposure: "lan" }],
+  };
+  const catalogBody = { applications: [{ manifest, live: installed }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: "box.tail1234.ts.net" } };
+
+  const mount = (hostname: string, serves: Array<{ dnsName: string; port: number; target: string | null }> = []) => {
+    // jsdom serves from localhost; the component reads window.location.hostname, so stub that.
+    vi.spyOn(window, "location", "get").mockReturnValue({ ...window.location, hostname } as Location);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json(catalogBody);
+      if (url.includes("app.serve.inspect")) return json({ result: { available: true, serves } });
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppCatalog csrfToken="csrf-token" />);
+  };
+
+  it("uses the address this page was reached on, not the LAN address", async () => {
+    // Preferring the LAN address pointed every Open button into the LAN even when BoxPilot was
+    // open over the tailnet from somewhere else — and none of them could connect.
+    mount("box.tail1234.ts.net");
+    expect(await screen.findByText("Running")).toBeTruthy();
+    expect((screen.getByRole("link", { name: "Open Web UI" }) as HTMLAnchorElement).href).toBe("http://box.tail1234.ts.net:8096/");
+  });
+
+  it("uses the HTTPS address when the app is published on the tailnet", async () => {
+    // Tailscale Serve holds that port for HTTPS, so a plain http:// link to it answers 400.
+    mount("box.tail1234.ts.net", [{ dnsName: "box.tail1234.ts.net", port: 8096, target: "http://127.0.0.1:8096" }]);
+    expect(await screen.findByText("Running")).toBeTruthy();
+    expect((screen.getByRole("link", { name: "Open Web UI" }) as HTMLAnchorElement).href).toBe("https://box.tail1234.ts.net:8096/");
   });
 });
