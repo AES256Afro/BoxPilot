@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { hashPassword, securityInternals, verifyPassword } from "./security.mjs";
 
 describe("owner security", () => {
