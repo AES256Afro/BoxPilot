@@ -59,19 +59,22 @@ describe("who gets throttled", () => {
 });
 
 describe("the per-account ceiling", () => {
-  it("cannot be held armed by one wrong guess per expiry", () => {
-    // The ceiling is a key any caller can drive, so escalation there is a lock-out weapon: an
-    // attacker who reaches it once could hold the owner's account shut indefinitely with a single
-    // guess every few minutes. Serving the block clears the count, so the next one costs a full run.
+  it("holds an attack to a trickle without ever locking the owner out for longer than one window", () => {
+    // The ceiling is a key any caller can drive, so a pause it can extend is a lock-out weapon.
+    // The pause never grows past one window, and holding it open costs a fresh guess each time —
+    // which is the difference between an attacker being slowed and the owner being shut out.
     let clock = 1_000_000;
-    const spray = createLoginThrottle({ maxFailures: 50, baseDelayMs: 60_000, maxDelayMs: 300_000, resetOnExpiry: true, now: () => clock });
+    const spray = createLoginThrottle({ maxFailures: 50, baseDelayMs: 60_000, maxDelayMs: 60_000, decayOnExpiry: true, now: () => clock });
     const keys = ["user:owner"];
-    for (let index = 0; index < 53; index += 1) spray.record(keys, false);
-    expect(spray.check(keys).retryAfterMs).toBe(300_000);
-    clock += 301_000;
-    expect(spray.check(keys).blocked).toBe(false);
-    spray.record(keys, false);
-    expect(spray.check(keys).blocked).toBe(false); // one guess does not re-arm it
+    let accepted = 0;
+    for (let window = 0; window < 10; window += 1) {
+      let guard = 0;
+      while (!spray.check(keys).blocked && guard++ < 200) { spray.record(keys, false); accepted += 1; }
+      expect(spray.check(keys).retryAfterMs).toBe(60_000); // never longer than one window
+      clock += 61_000;
+    }
+    // Fifty to reach the limit, then one per window — not fifty per window.
+    expect(accepted).toBe(59);
   });
 
   it("still escalates on a per-caller key, where only the guesser waits", () => {
@@ -90,8 +93,20 @@ describe("the per-account ceiling", () => {
     const throttle = createLoginThrottle({ now: () => clock, maxDelayMs: 60_000 });
     for (let index = 0; index < 50; index += 1) throttle.record([`user:owner|ip:10.0.0.${index}`], false);
     expect(throttle.size()).toBe(50);
-    clock += 10 * 60_000;
+    clock += 60 * 60_000; // well past the retention window, which outlasts the block on purpose
     throttle.record(["user:owner|ip:10.9.9.9"], false); // any activity prunes
     expect(throttle.size()).toBe(1);
+  });
+
+  it("never evicts a key that is actively blocking somebody, however many are created", () => {
+    // Creating keys is free for an attacker, so eviction by age let them flush their own block.
+    let clock = 1_000_000;
+    const throttle = createLoginThrottle({ now: () => clock, maxEntries: 100 });
+    const guesser = ["user:owner|ip:198.51.100.7"];
+    for (let index = 0; index < 5; index += 1) throttle.record(guesser, false);
+    expect(throttle.check(guesser).blocked).toBe(true);
+    for (let index = 0; index < 500; index += 1) throttle.record([`user:unknown|ip:203.0.113.${index}`], false);
+    expect(throttle.check(guesser).blocked).toBe(true);
+    expect(throttle.size()).toBeLessThanOrEqual(100);
   });
 });

@@ -177,6 +177,16 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
   }
 
   /**
+   * A hash of a random value, used to spend the same work on an account that does not exist as on
+   * one that does. Computed once, lazily, with the production scrypt parameters.
+   */
+  let decoy = null;
+  function decoyHash() {
+    decoy ??= hashPassword(randomBytes(24).toString("base64url"));
+    return decoy;
+  }
+
+  /**
    * Who is asking: the tailnet peer when BoxPilot is served over Tailscale, otherwise the socket
    * address. Behind Serve every socket is 127.0.0.1, so without the peer the throttle would treat
    * every tailnet user as one caller — which is exactly the lock-out this key exists to avoid.
@@ -199,13 +209,21 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
    */
   async function checkPassword(request, owner, password) {
     const caller = await clientKeyFor(request);
-    const keys = owner ? [`user:${owner.id}|${caller}`] : [`user:unknown|${caller}`, caller];
+    // One key per caller either way. The bare caller key alongside it only doubled the entries an
+    // attacker needs to create, and the two were perfectly correlated.
+    const keys = [`user:${owner ? owner.id : "unknown"}|${caller}`];
     const gate = throttle.check(keys);
     if (gate.blocked) return { ok: false, blocked: true, retryAfterMs: gate.retryAfterMs };
     const account = owner ? [`user:${owner.id}`] : [];
     const spread = owner ? sprayThrottle.check(account) : { blocked: false, retryAfterMs: 0 };
     if (spread.blocked) return { ok: false, blocked: true, retryAfterMs: spread.retryAfterMs };
-    const ok = Boolean(owner) && typeof password === "string" && (await verifyPassword(password, owner.passwordHash));
+    // Verify against a decoy hash when there is no account, so a username that does not exist —
+    // or one that has been disabled — takes the same ~20 ms as one that does. Short-circuiting
+    // here made the two distinguishable by timing alone, and made a flood of attempts against
+    // made-up usernames free for an attacker.
+    const ok = typeof password === "string"
+      ? await verifyPassword(password, owner ? owner.passwordHash : await decoyHash())
+      : false;
     throttle.record(keys, ok);
     if (owner) sprayThrottle.record(account, ok);
     if (!ok) store.recordAudit("auth.failed", { actorId: owner?.id ?? null, subjectId: owner?.id ?? null, details: { client: caller.slice(3) } });

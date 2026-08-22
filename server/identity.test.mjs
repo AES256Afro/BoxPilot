@@ -202,3 +202,32 @@ describe("administering a GitHub link", () => {
     state.close();
   });
 });
+
+describe("recognising this service behind Tailscale Serve", () => {
+  const forge = async (target, webPort) => {
+    const run = vi.fn(async (_binary, args) => (args[0] === "serve"
+      ? { ok: true, stdout: JSON.stringify({ Web: { "box:443": { Handlers: { "/": { Proxy: target } } } } }), stderr: "" }
+      : { ok: true, stdout: JSON.stringify({ UserProfile: { LoginName: "me@example.com" } }), stderr: "" }));
+    const state = await store();
+    const identity = createIdentityService({ store: state, run, now: () => 1000, webPort });
+    const result = await identity.tailscaleIdentity(req("127.0.0.1", { "x-forwarded-for": "100.67.166.49", "tailscale-user-login": "me@example.com" }));
+    state.close();
+    return result.available;
+  };
+
+  it("accepts the loopback forms Serve actually records", async () => {
+    // `tailscale serve` keeps the target as the owner typed it, so refusing "localhost:8787"
+    // would quietly stop zero-password sign-in on a perfectly ordinary setup.
+    expect(await forge("http://127.0.0.1:8787", 8787)).toBe(true);
+    expect(await forge("localhost:8787", 8787)).toBe(true);
+    expect(await forge("http://[::1]:8787", 8787)).toBe(true);
+    expect(await forge("https://127.0.0.1", 443)).toBe(true); // the default port is written as blank
+  });
+
+  it("refuses a target that is not this service on this machine", async () => {
+    expect(await forge("http://127.0.0.1:18787", 8787)).toBe(false);
+    expect(await forge("http://192.168.1.50:8787", 8787)).toBe(false);
+    expect(await forge("https://other.example:8787/x", 8787)).toBe(false);
+    expect(await forge("http://127.0.0.1:8787@evil.example:9", 8787)).toBe(false);
+  });
+});

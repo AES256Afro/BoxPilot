@@ -297,7 +297,7 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
   async function mapWithLimit(items, limit, work) {
     const results = new Array(items.length);
     let next = 0;
-    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    const workers = Array.from({ length: Math.min(Math.max(1, limit), items.length) }, async () => {
       for (let index = next++; index < items.length; index = next++) results[index] = await work(items[index], index);
     });
     await Promise.all(workers);

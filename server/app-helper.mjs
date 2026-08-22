@@ -65,7 +65,7 @@ export function createAppHelper({
 } = {}) {
   const root = path.resolve(catalogRoot);
   const dirFor = (id) => path.join(root, id);
-  /** Apps this process has installed or uninstalled: their containers are worth asking about even
+  /** Apps whose install rolled back in this process: their containers are worth asking about even
    *  when no project directory remains, because a rollback that could not stop them removes it. */
   const recentlyTouched = new Set();
   const backupDirFor = (id) => path.join(path.resolve(backupRoot), id);
