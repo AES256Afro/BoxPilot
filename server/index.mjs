@@ -257,9 +257,15 @@ app.use((_request, response) => {
 // Anything that throws past a route lands here. Without this Express answers with an HTML page,
 // which reaches the browser as "Unexpected token '<'" instead of something the page can show.
 app.use((error, request, response, _next) => {
+  if (response.headersSent) { response.destroy(); return; }
+  // Body-parser failures are the caller's mistake, not a fault in BoxPilot: answer as such.
+  const status = Number.isInteger(error?.status) ? error.status : Number.isInteger(error?.statusCode) ? error.statusCode : 500;
+  if (status >= 400 && status < 500) {
+    response.status(status).json({ error: error.type === "entity.too.large" ? "That request was too large." : "That request could not be read.", code: error.type === "entity.too.large" ? "request_too_large" : "invalid_request" });
+    return;
+  }
   const reference = randomUUID().slice(0, 8);
   console.error(`Unhandled error ${reference} on ${request.method} ${request.path}: ${error?.stack ?? error}`);
-  if (response.headersSent) { response.destroy(); return; }
   response.status(500).json({ error: `Something went wrong in BoxPilot (reference ${reference}). The Logs page has the details.`, code: "internal_error", reference });
 });
 

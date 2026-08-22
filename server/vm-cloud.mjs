@@ -131,6 +131,9 @@ export function createVmCloudHelper({
       const deadline = clock() + 180_000; let ip = null;
       while (clock() < deadline) { ip = await leaseAddress(name); if (ip) break; await wait(3000); }
       if (ip) progress?.(`VM is up at ${ip}`, "stdout"); else progress?.("No DHCP lease seen yet; cloud-init may still be running.", "stderr");
+      // virt-install has already built the seed ISO, so the plain user-data (which carries the
+      // account password) does not need to stay on disk.
+      await rm(seedDirectory, { recursive: true, force: true }).catch(() => {});
       return { created: true, name, image, imageDigest: base.digest, ip, user: rendered.user, sshCommand: ip ? `ssh ${rendered.user}@${ip}` : null, disk: diskPath, vcpus, memoryMiB, diskGiB, autostart: Boolean(input.autostart) };
     } catch (error) {
       progress?.(`Creation failed: ${error.message}. Rolling back...`, "stderr");
