@@ -67,13 +67,19 @@ describe("cloud-init VM helper", () => {
     await writeFile(path.join(baseRoot, "base.img"), "base");
     await writeFile(path.join(baseRoot, "ubuntu-24.04.current"), `${path.join(baseRoot, "base.img")}\nabc\n`);
     const calls = [];
+    const seedSnapshots = [];
     const domains = new Set();
     const run = vi.fn(async (binary, args) => {
       calls.push(`${path.basename(binary)} ${args.join(" ")}`);
       if (binary.endsWith("virsh") && args.includes("dominfo")) return domains.has(args[args.length - 1]) ? { ok: true, stdout: "Name: x", stderr: "" } : { ok: false, stdout: "", stderr: "not found" };
       if (binary.endsWith("virsh") && args.includes("domifaddr")) return { ok: true, stdout: " vnet0  52:54:00:aa:bb:cc  ipv4  192.168.122.45/24", stderr: "" };
       if (binary.endsWith("qemu-img") && args[0] === "convert") { await writeFile(args[args.length - 1], "disk"); return { ok: true, stdout: "", stderr: "" }; }
-      if (binary.endsWith("virt-install")) { domains.add(args[args.indexOf("--name") + 1]); return { ok: true, stdout: "Domain creation completed.", stderr: "" }; }
+      if (binary.endsWith("virt-install")) {
+        const seed = args[args.indexOf("--cloud-init") + 1].split(",")[0].replace("user-data=", "");
+        seedSnapshots.push(await readFile(seed, "utf8"));
+        domains.add(args[args.indexOf("--name") + 1]);
+        return { ok: true, stdout: "Domain creation completed.", stderr: "" };
+      }
       return { ok: true, stdout: "", stderr: "" };
     });
     const runUnit = { runTask: vi.fn(async () => ({ path: path.join(baseRoot, "base.img"), digest: "abc", downloaded: false })) };
@@ -86,7 +92,9 @@ describe("cloud-init VM helper", () => {
     expect(calls).toContainEqual(expect.stringMatching(/^qemu-img resize .*dev-1\.qcow2 20G$/));
     expect(calls.find((call) => call.startsWith("virt-install"))).toContain("--os-variant ubuntu24.04");
     expect(calls.find((call) => call.startsWith("virt-install"))).toContain("--cloud-init user-data=");
-    expect(await readFile(path.join(imagesRoot, "seeds", "dev-1", "user-data"), "utf8")).toContain(key);
+    // virt-install receives the seed, and it is deleted afterwards: the account password does not stay on disk.
+    expect(seedSnapshots.at(-1)).toContain(key);
+    await expect(readFile(path.join(imagesRoot, "seeds", "dev-1", "user-data"), "utf8")).rejects.toThrow();
     expect((await helper.images()).images.find((image) => image.id === "ubuntu-24.04")).toMatchObject({ cached: true, digest: "abc" });
     await expect(helper.create(good, { progress, runUnit })).rejects.toThrow("already exists");
   });

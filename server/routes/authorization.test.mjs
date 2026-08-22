@@ -97,6 +97,14 @@ beforeAll(async () => {
   const stub = { inspect: async () => ({}) };
   app.use("/api/v1", createHostRouter({ state, helper, catalogService: { all: async () => ({ manifests: [], problems: [] }), get: async () => null }, inventory: stub, network: stub, controllerProtection: stub, controllerRetention: stub, githubProvenance: stub, releaseUpdates: stub, setup: stub, supportBundle: { inspect: async () => ({ logs: ["a journal line"] }) }, audit: stub, auth }));
 
+  app.use((_request, response) => { response.status(404).json({ error: "Not found" }); });
+  app.use((error, request, response, _next) => {
+    if (response.headersSent) { response.destroy(); return; }
+    const status = Number.isInteger(error?.status) ? error.status : Number.isInteger(error?.statusCode) ? error.statusCode : 500;
+    if (status >= 400 && status < 500) { response.status(status).json({ error: error.type === "entity.too.large" ? "That request was too large." : "That request could not be read.", code: error.type === "entity.too.large" ? "request_too_large" : "invalid_request" }); return; }
+    response.status(500).json({ error: "Something went wrong in BoxPilot.", code: "internal_error" });
+  });
+
   server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -226,5 +234,22 @@ describe("routes that carry operation output", () => {
     expect(Object.keys(anonymous.body.github)).toEqual(["configured"]);
     // Who is linked is management information.
     expect((await api("GET", "/api/v1/auth/identity/links", { session: viewer })).status).toBe(403);
+  });
+});
+
+describe("bad requests", () => {
+  it("answers a malformed or oversized body as the caller's mistake, not a BoxPilot fault", async () => {
+    const owner = await signIn("owner");
+    const send = (body) => fetch(`${base}/api/v1/operations/apt.refresh/jobs`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Cookie: owner.cookie, "X-BoxPilot-CSRF": owner.csrfToken },
+      body,
+    });
+    const malformed = await send("{ not json");
+    expect(malformed.status).toBe(400);
+    expect((await malformed.json()).code).toBe("invalid_request");
+    const oversized = await send(JSON.stringify({ parameters: { blob: "x".repeat(300 * 1024) } }));
+    expect(oversized.status).toBe(413);
+    expect((await oversized.json()).code).toBe("request_too_large");
   });
 });
