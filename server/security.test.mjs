@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+
+// Password hashing runs at production scrypt cost; CI runners need more than the 5 s default.
+vi.setConfig({ testTimeout: 30_000 });
 import { hashPassword, securityInternals, verifyPassword } from "./security.mjs";
 
 describe("owner security", () => {

@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+
+// Password hashing runs at production scrypt cost; CI runners need more than the 5 s default.
+vi.setConfig({ testTimeout: 30_000 });
 import { hashPassword, renderAutoinstall, validateAutoinstallInput } from "./autoinstall.mjs";
 
 const base = { hostname: "garage-box", username: "owner", password: "correct horse battery", sshKeys: ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHexample owner@laptop"], network: { mode: "dhcp" }, disk: { layout: "lvm" } };
