@@ -116,10 +116,6 @@ const viewFeatures: Record<ViewName, string[]> = {
 };
 
 
-function Panel({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <section className={`panel ${className}`.trim()}>{children}</section>;
-}
-
 function StatusPill({ children, tone = "good" }: { children: ReactNode; tone?: string }) {
   return <span className={`status-pill status-${tone}`}>{children}</span>;
 }
@@ -149,16 +145,7 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
   );
 }
 
-function Settings({ apiMode, csrfToken, role = "owner" }: { apiMode: string; csrfToken: string; role?: string }) {
-  const rows = [
-    ["LAN address", "Deployment specific", "Use a router DHCP reservation"],
-    ["Private access", "Tailscale Serve recommended", "Keep Funnel disabled"],
-    ["Tailscale DNS", "Operator controlled", "BoxPilot does not change DNS"],
-    ["DNS resolvers", "Operator controlled", "BoxPilot does not replace a DNS service"],
-    ["Host mutation", "Durable typed jobs only", "Plans, password approval, narrow executors"],
-    ["API mode", apiMode, "Live host inspection endpoints"],
-  ];
-
+function Settings({ csrfToken, role = "owner" }: { csrfToken: string; role?: string }) {
   return (
     <div className="settings-grid">
       <ApprovalSettings csrfToken={csrfToken} />
@@ -166,29 +153,6 @@ function Settings({ apiMode, csrfToken, role = "owner" }: { apiMode: string; csr
       <NotificationSettings csrfToken={csrfToken} />
       <PasswordSettings csrfToken={csrfToken} />
       {role === "owner" && <PeopleSettings csrfToken={csrfToken} />}
-      <Panel className="settings-panel">
-        <header className="panel-header"><strong>Server and access</strong><span>Deployment guidance</span></header>
-        <dl>
-          {rows.map(([label, value, detail]) => (
-            <div key={label}>
-              <dt>{label}</dt>
-              <dd><strong>{value}</strong><span>{detail}</span></dd>
-            </div>
-          ))}
-        </dl>
-      </Panel>
-      <Panel className="safety-panel">
-        <span className="eyebrow">Safety contract</span>
-        <h3>Every future change follows the same path.</h3>
-        <ol>
-          <li>Plan</li>
-          <li>Dry run</li>
-          <li>Checkpoint</li>
-          <li>Approve and apply</li>
-          <li>Verify or roll back</li>
-        </ol>
-        <p>This release can inspect libvirt and optionally run allowlisted VM lifecycle actions. Package, firewall, bridge, storage, and arbitrary command execution remain disabled.</p>
-      </Panel>
     </div>
   );
 }
@@ -260,7 +224,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "backups") return <BackupCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "github") return <GitHubCenter />;
     if (view === "logs") return <SystemLogs csrfToken={authStatus.csrfToken ?? ""} />;
-    return <Settings apiMode={apiMode} csrfToken={authStatus.csrfToken ?? ""} role={authStatus.owner?.role ?? "owner"} />;
+    return <Settings csrfToken={authStatus.csrfToken ?? ""} role={authStatus.owner?.role ?? "owner"} />;
   }, [apiMode, authStatus.csrfToken, view]);
 
   const downloadSupportBundle = async () => {
