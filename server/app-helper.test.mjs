@@ -8,7 +8,7 @@ import { createCatalogService } from "./catalog/index.mjs";
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
 
-async function setup({ healthKind = "running", exitOnUp = false, failUp = false, listDevices = undefined, chownDirectory = undefined } = {}) {
+async function setup({ healthKind = "running", exitOnUp = false, failUp = false, listDevices = undefined, chownDirectory = undefined, runCommand = undefined } = {}) {
   const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
   const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
   await writeFile(path.join(catalogDirectory, "demo.yaml"), `schemaVersion: 2\nid: demo\nname: Demo\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8080\nvolumes:\n  - id: data\n    container: /data\n    path: data\n  - id: docker\n    container: /var/run/docker.sock\n    hostPath: /var/run/docker.sock\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\n  - name: TZ\n    default: Etc/UTC\nhealth:\n  kind: ${healthKind}\n  stableSeconds: 4\n  timeoutSeconds: 30\n`);
@@ -42,7 +42,7 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
   const wait = vi.fn(async (ms) => { nowMs += ms; });
   const catalog = createCatalogService({ directory: catalogDirectory, ttlMs: 0 });
   const backupRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-appbk-")); directories.push(backupRoot);
-  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, lanAddress: "192.168.1.10", ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}) });
+  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, lanAddress: "192.168.1.10", ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(runCommand ? { runCommand } : {}) });
   const advance = (ms) => { nowMs += ms; };
   return { apps, calls, containers, catalogRoot, catalogDirectory, backupRoot, advance };
 }
@@ -348,5 +348,36 @@ describe("restoring an application backup", () => {
     // No staging directories are left behind.
     const siblings = await readdir(catalogRoot);
     expect(siblings.filter((entry) => entry.includes(".restoring") || entry.includes(".replaced"))).toEqual([]);
+  });
+});
+
+describe("dashboard links for an app bound to the server itself", () => {
+  const loopbackManifest = "schemaVersion: 2\nid: files\nname: Files\ncategory: Files\ndescription: Browse files\nimage:\n  reference: x/files:1\nports:\n  - id: web\n    container: 80\n    host: 8085\n    exposure: loopback\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n";
+  const homepageManifest = "schemaVersion: 2\nid: homepage\nname: Homepage\ncategory: Dashboard\ndescription: dash\nimage:\n  reference: ghcr.io/gethomepage/homepage:v1\nports:\n  - id: web\n    container: 3000\n    host: 3000\nvolumes:\n  - id: config\n    container: /app/config\n    path: config\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n";
+
+  it("never sends the reader to their own machine, and links the tailnet address once it is published", async () => {
+    const serveStatus = JSON.stringify({ Web: { "box.tail1234.ts.net:8085": { Handlers: { "/": { Proxy: "http://127.0.0.1:8085" } } } } });
+    let published = false;
+    const runCommand = vi.fn(async (_binary, args) => (args[0] === "serve" ? { ok: published, stdout: published ? serveStatus : "", stderr: "" } : { ok: false, stdout: "", stderr: "" }));
+    const { apps, catalogRoot, catalogDirectory } = await setup({ runCommand });
+    await writeFile(path.join(catalogDirectory, "files.yaml"), loopbackManifest);
+    await writeFile(path.join(catalogDirectory, "homepage.yaml"), homepageManifest);
+    await apps.install({ id: "homepage" });
+    await apps.install({ id: "files" });
+    const servicesPath = path.join(catalogRoot, "homepage", "config", "services.yaml");
+
+    // On the LAN there is no address that works for the reader, so the entry says where it lives.
+    await apps.syncHomepage({ host: "192.168.1.10" });
+    let services = await readFile(servicesPath, "utf8");
+    expect(services).not.toContain("href: http://127.0.0.1"); // the reader's own machine, not the server
+    expect(services).not.toContain("href: http://192.168.1.10:8085"); // not reachable on the LAN either
+    expect(services).toContain("on the server itself, at 127.0.0.1:8085");
+
+    // Published on the tailnet and read from the tailnet: the HTTPS address is the right link.
+    published = true;
+    await apps.syncHomepage({ host: "box.tail1234.ts.net" });
+    services = await readFile(servicesPath, "utf8");
+    expect(services).toContain("href: https://box.tail1234.ts.net:8085");
+    expect(services).not.toContain("on the server itself");
   });
 });
