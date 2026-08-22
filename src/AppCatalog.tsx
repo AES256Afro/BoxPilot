@@ -19,7 +19,7 @@ export interface Manifest {
 }
 interface LiveState {
   id: string; installed: boolean; dataPresent: boolean;
-  state: { installedAt: string; updatedAt: string; manifestSha256: string | null; image: { reference: string; id: string | null } | null; values: { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string>; setup?: string[] }; pinnedRollback: boolean; uninstalledAt: string | null } | null;
+  state: { installedAt: string; updatedAt: string; manifestSha256: string | null; image: { reference: string; id: string | null } | null; values: { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string>; setup?: string[]; exposure?: "lan" | "tailnet" }; pinnedRollback: boolean; uninstalledAt: string | null } | null;
   container: { exists: boolean; running: boolean; status: string; health: string; restarts: number; image: string | null };
   urls: Array<{ id: string; label: string; host: number; exposure: string }>;
   updateAvailable?: boolean;
@@ -148,6 +148,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   };
   const [secrets, setSecrets] = useState<{ id: string; name: string; items: Array<{ name: string; label: string; value: string }> | null; needsPassword: boolean; password: string; error: string | null } | null>(null);
   const [filter, setFilter] = useState("");
+  const [search, setSearch] = useState("");
   const [serves, setServes] = useState<Array<{ dnsName: string; port: number; target: string | null }> | null>(null);
   const [stats, setStats] = useState<Record<string, { cpuPercent: number; memBytes: number; containers: number }> | null>(null);
 
@@ -228,7 +229,22 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   };
 
   const categories = useMemo(() => [...new Set((data?.applications ?? []).map((entry) => entry.manifest.category))].sort(), [data]);
-  const visible = useMemo(() => (data?.applications ?? []).filter((entry) => !filter || entry.manifest.category === filter), [data, filter]);
+  const visible = useMemo(() => {
+    const words = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    return (data?.applications ?? []).filter((entry) => {
+      if (filter && entry.manifest.category !== filter) return false;
+      if (!words.length) return true;
+      const haystack = `${entry.manifest.name} ${entry.manifest.id} ${entry.manifest.category} ${entry.manifest.description}`.toLowerCase();
+      return words.every((word) => haystack.includes(word));
+    });
+  }, [data, filter, search]);
+  // What is already on this server goes first, running before stopped, so it is never behind a
+  // scroll through a hundred-odd things that are not installed.
+  const installedVisible = useMemo(() => visible.filter((entry) => entry.live?.installed)
+    .sort((left, right) => Number(right.live?.container.running ?? false) - Number(left.live?.container.running ?? false) || left.manifest.name.localeCompare(right.manifest.name)), [visible]);
+  const availableVisible = useMemo(() => visible.filter((entry) => !entry.live?.installed), [visible]);
+  const runningCount = installedVisible.filter((entry) => entry.live?.container.running).length;
+  const installedCount = (data?.applications ?? []).filter((entry) => entry.live?.installed).length;
   const openUrl = (port: { host: number; exposure: string }, manifest: Manifest) =>
     appUrl(port, { lanAddress: data?.host.lanAddress ?? null, serves: serves ?? [], https: manifest.id === "portainer" });
 
@@ -237,6 +253,67 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
     if (!live.installed) return live.dataPresent ? <span className="status-pill status-neutral">Not installed · data kept</span> : <span className="status-pill status-neutral">Not installed</span>;
     if (live.container.running) return <span className={`status-pill ${live.container.health === "unhealthy" ? "status-warning" : "status-good"}`}>{live.container.health === "unhealthy" ? "Running · unhealthy" : "Running"}</span>;
     return <span className="status-pill status-warning">Stopped</span>;
+  };
+
+  /** One application's card. Both sections render the same card, so it lives in one place. */
+  const renderCard = ({ manifest, live }: { manifest: Manifest; live: LiveState | null }) => {
+          const installed = Boolean(live?.installed);
+          const running = Boolean(live?.container.running);
+          return (
+            <article key={manifest.id} className="panel app-card">
+              <header className="app-card-header">
+                <div><span className="app-icon" aria-hidden="true">{manifest.icon ?? "📦"}</span></div>
+                <div><strong>{manifest.name}</strong><span className="muted">{manifest.category} · {manifest.image.version ?? manifest.image.reference}</span></div>
+                {statusPill(live)}
+              </header>
+              <p>{manifest.description}</p>
+              {installed && stats?.[manifest.id] && (
+                <p className="muted app-stats">CPU {stats[manifest.id].cpuPercent.toFixed(1)}% · {(stats[manifest.id].memBytes / 1024 / 1024).toFixed(0)} MiB{stats[manifest.id].containers > 1 ? ` · ${stats[manifest.id].containers} containers` : ""}</p>
+              )}
+              {installed && live?.urls.length ? (
+                <div className="recovery-actions">
+                  {live.urls.map((port) => <a key={port.id} className="secondary-button" href={openUrl(port, manifest)} target="_blank" rel="noreferrer">Open {port.label}</a>)}
+                  {(() => {
+                    if (serves === null) return null;
+                    const primaryPort = live.urls[0]?.host;
+                    const served = serves.find((serve) => serve.port === primaryPort);
+                    // Where this app is reachable from. Tailnet-only is not just a firewall rule:
+                    // the container stops listening on the network, so the only way in is through
+                    // Tailscale, which authenticates before the app sees anyone. That matters for
+                    // the apps in this catalog that have no login of their own.
+                    const tailnetOnly = live.state?.values?.exposure === "tailnet" || live.urls.every((url) => url.exposure === "loopback");
+                    return (
+                      <>
+                        {served && <a className="secondary-button" href={`https://${served.dnsName}:${served.port}`} target="_blank" rel="noreferrer">Open on tailnet 🔒</a>}
+                        <span className={`status-pill ${tailnetOnly ? "status-good" : "status-neutral"}`} title={tailnetOnly ? "Only reachable through Tailscale" : "Listening on your home network; the firewall decides who can reach it"}>{tailnetOnly ? "tailnet only" : "home network"}</span>
+                        {tailnetOnly
+                          ? <button className="text-button" type="button" onClick={() => start({ operationId: "app.exposure.set", title: `Publish ${manifest.name} on your home network`, parameters: { id: manifest.id, mode: "lan" }, preview: <span>Recreates {manifest.name} listening on this server's network address on port {primaryPort}, and stops publishing it on your tailnet. Anything on your home network will be able to reach it — the firewall is then the only thing deciding who can.</span> })}>Publish on home network</button>
+                          : <button className="text-button" type="button" onClick={() => start({ operationId: "app.exposure.set", title: `Make ${manifest.name} reachable only through Tailscale`, parameters: { id: manifest.id, mode: "tailnet" }, preview: <span>Recreates {manifest.name} so it no longer listens on your home network, then publishes it at <code>https://…ts.net:{primaryPort}</code> with a real certificate. Tailscale authenticates every visitor before {manifest.name} sees them; nothing is opened on your router.</span> })}>Reach only through Tailscale</button>}
+                      </>
+                    );
+                  })()}
+                </div>
+              ) : null}
+              <footer className="recovery-actions">
+                {!installed && <button className="primary-button" type="button" onClick={() => setConfig({ manifest, live, mode: "install" })}>Install</button>}
+                {installed && (running
+                  ? <><button className="secondary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Restart ${manifest.name}`, parameters: { id: manifest.id, action: "restart" } })}>Restart</button><button className="secondary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Stop ${manifest.name}`, parameters: { id: manifest.id, action: "stop" } })}>Stop</button></>
+                  : <button className="primary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Start ${manifest.name}`, parameters: { id: manifest.id, action: "start" } })}>Start</button>)}
+                {installed && <button className="secondary-button" type="button" onClick={() => setConfig({ manifest, live, mode: "reconfigure" })}>Settings</button>}
+                {installed && <button className={live?.updateAvailable ? "primary-button" : "secondary-button"} type="button" onClick={() => start({ operationId: "app.update", title: `Update ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>{live?.updateAvailable ? <>Updates from <code>{live.installedImage}</code> to <code>{manifest.image.reference}</code>. </> : null}Pulls the image and recreates the container. The previous image is restored if the new one fails to become healthy.</span> })}>{live?.updateAvailable ? "Update available" : "Update"}</button>}
+                {installed && <button className="text-button" type="button" onClick={() => void showLogs(manifest.id)}>Logs</button>}
+                {installed && <button className="text-button" type="button" onClick={() => void showEffectiveConfig(manifest.id)}>Config</button>}
+                {installed && <button className="text-button" type="button" onClick={() => start({ operationId: "app.backup", title: `Back up ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Stops {manifest.name} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.{manifest.volumes.some((volume) => volume.hostPath) ? <> Your own folders ({manifest.volumes.filter((volume) => volume.hostPath).map((volume) => volume.hostPath).join(", ")}) are <strong>not</strong> included.</> : null}</span> })}>Back up</button>}
+                {installed && manifest.id === "homepage" && <button className="text-button" type="button" onClick={() => start({ operationId: "homepage.sync", title: "Sync Homepage with installed apps", parameters: { host: window.location.hostname }, preview: <span>Writes a <strong>BoxPilot</strong> group into Homepage's <code>services.yaml</code> with every installed app — links via <code>{window.location.hostname}</code>, descriptions, icons, and live container status. Groups you wrote yourself are kept. Repeats by itself after installs and uninstalls.</span> })}>Sync dashboard</button>}
+                {(installed || live?.dataPresent) && <button className="text-button" type="button" onClick={() => void showBackups(manifest)}>Backups</button>}
+                {installed && manifest.env.some((entry) => entry.secret) && <button className="text-button" type="button" onClick={() => void revealSecrets(manifest)}>Secrets</button>}
+                {installed && <button className="text-button" type="button" onClick={() => start({ operationId: "app.uninstall", title: `Uninstall ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Stops and removes the container. Data under the app directory is kept so you can reinstall later.</span> })}>Uninstall</button>}
+                {live?.dataPresent && <button className="text-button danger-text" type="button" onClick={() => start({ operationId: "app.purge", title: `Delete ${manifest.name} and its data`, parameters: { id: manifest.id }, preview: <span>Removes the container <strong>and deletes everything</strong> under the app's data directory. This cannot be undone.</span> })}>Delete data</button>}
+                {manifest.website && <a className="text-button" href={manifest.website} target="_blank" rel="noreferrer">Website</a>}
+              </footer>
+              {manifest.notes && installed && <p className="muted app-notes">{manifest.notes}</p>}
+            </article>
+          );
   };
 
   return (
@@ -363,66 +440,45 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
         </div>
       )}
 
+      <div className="recovery-actions app-catalog-search">
+        <input
+          type="search"
+          aria-label="Search applications"
+          placeholder="Search by name, category or what it does…"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        {(search || filter) && <button className="text-button" type="button" onClick={() => { setSearch(""); setFilter(""); }}>Clear</button>}
+        <span className="muted">{loading ? "Loading…" : `${installedCount} installed of ${data?.applications.length ?? 0}`}</span>
+        <button className="text-button" type="button" onClick={() => void refresh()}>Refresh</button>
+      </div>
       <div className="recovery-actions app-catalog-toolbar">
         <button className={`secondary-button${filter === "" ? " is-active" : ""}`} type="button" onClick={() => setFilter("")}>All</button>
         {categories.map((category) => <button key={category} className={`secondary-button${filter === category ? " is-active" : ""}`} type="button" onClick={() => setFilter(category)}>{category}</button>)}
-        <span className="muted">{loading ? "Loading…" : `${data?.applications.length ?? 0} apps in catalog`}</span>
-        <button className="text-button" type="button" onClick={() => void refresh()}>Refresh</button>
       </div>
       {error && <div className="auth-error" role="alert">{error}</div>}
       {data?.liveError && <div className="notice warning-notice"><strong>Live state unavailable</strong><span>{data.liveError}</span></div>}
       {data?.problems.map((problem) => <div key={problem.file} className="notice warning-notice"><strong>Catalog file {problem.file} was skipped</strong><span>{problem.errors.join("; ")}</span></div>)}
 
-      <div className="app-grid">
-        {visible.map(({ manifest, live }) => {
-          const installed = Boolean(live?.installed);
-          const running = Boolean(live?.container.running);
-          return (
-            <article key={manifest.id} className="panel app-card">
-              <header className="app-card-header">
-                <div><span className="app-icon" aria-hidden="true">{manifest.icon ?? "📦"}</span></div>
-                <div><strong>{manifest.name}</strong><span className="muted">{manifest.category} · {manifest.image.version ?? manifest.image.reference}</span></div>
-                {statusPill(live)}
-              </header>
-              <p>{manifest.description}</p>
-              {installed && stats?.[manifest.id] && (
-                <p className="muted app-stats">CPU {stats[manifest.id].cpuPercent.toFixed(1)}% · {(stats[manifest.id].memBytes / 1024 / 1024).toFixed(0)} MiB{stats[manifest.id].containers > 1 ? ` · ${stats[manifest.id].containers} containers` : ""}</p>
-              )}
-              {installed && live?.urls.length ? (
-                <div className="recovery-actions">
-                  {live.urls.map((port) => <a key={port.id} className="secondary-button" href={openUrl(port, manifest)} target="_blank" rel="noreferrer">Open {port.label}</a>)}
-                  {(() => {
-                    if (serves === null) return null;
-                    const primaryPort = live.urls[0]?.host;
-                    const served = serves.find((serve) => serve.port === primaryPort);
-                    return served
-                      ? <><a className="secondary-button" href={`https://${served.dnsName}:${served.port}`} target="_blank" rel="noreferrer">Open on tailnet 🔒</a><button className="text-button" type="button" onClick={() => start({ operationId: "app.serve.set", title: `Stop serving ${manifest.name} on the tailnet`, parameters: { id: manifest.id, enabled: false }, preview: <span><code>tailscale serve --https={served.port} off</code>. LAN access is unchanged.</span> })}>Stop tailnet HTTPS</button></>
-                      : <button className="text-button" type="button" onClick={() => start({ operationId: "app.serve.set", title: `Serve ${manifest.name} on the tailnet`, parameters: { id: manifest.id, enabled: true }, preview: <span>Publishes port {primaryPort} at <code>https://…ts.net:{primaryPort}</code> with a real certificate — reachable from your tailnet only; Funnel stays off.</span> })}>Serve on tailnet (HTTPS)</button>;
-                  })()}
-                </div>
-              ) : null}
-              <footer className="recovery-actions">
-                {!installed && <button className="primary-button" type="button" onClick={() => setConfig({ manifest, live, mode: "install" })}>Install</button>}
-                {installed && (running
-                  ? <><button className="secondary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Restart ${manifest.name}`, parameters: { id: manifest.id, action: "restart" } })}>Restart</button><button className="secondary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Stop ${manifest.name}`, parameters: { id: manifest.id, action: "stop" } })}>Stop</button></>
-                  : <button className="primary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Start ${manifest.name}`, parameters: { id: manifest.id, action: "start" } })}>Start</button>)}
-                {installed && <button className="secondary-button" type="button" onClick={() => setConfig({ manifest, live, mode: "reconfigure" })}>Settings</button>}
-                {installed && <button className={live?.updateAvailable ? "primary-button" : "secondary-button"} type="button" onClick={() => start({ operationId: "app.update", title: `Update ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>{live?.updateAvailable ? <>Updates from <code>{live.installedImage}</code> to <code>{manifest.image.reference}</code>. </> : null}Pulls the image and recreates the container. The previous image is restored if the new one fails to become healthy.</span> })}>{live?.updateAvailable ? "Update available" : "Update"}</button>}
-                {installed && <button className="text-button" type="button" onClick={() => void showLogs(manifest.id)}>Logs</button>}
-                {installed && <button className="text-button" type="button" onClick={() => void showEffectiveConfig(manifest.id)}>Config</button>}
-                {installed && <button className="text-button" type="button" onClick={() => start({ operationId: "app.backup", title: `Back up ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Stops {manifest.name} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.{manifest.volumes.some((volume) => volume.hostPath) ? <> Your own folders ({manifest.volumes.filter((volume) => volume.hostPath).map((volume) => volume.hostPath).join(", ")}) are <strong>not</strong> included.</> : null}</span> })}>Back up</button>}
-                {installed && manifest.id === "homepage" && <button className="text-button" type="button" onClick={() => start({ operationId: "homepage.sync", title: "Sync Homepage with installed apps", parameters: { host: window.location.hostname }, preview: <span>Writes a <strong>BoxPilot</strong> group into Homepage's <code>services.yaml</code> with every installed app — links via <code>{window.location.hostname}</code>, descriptions, icons, and live container status. Groups you wrote yourself are kept. Repeats by itself after installs and uninstalls.</span> })}>Sync dashboard</button>}
-                {(installed || live?.dataPresent) && <button className="text-button" type="button" onClick={() => void showBackups(manifest)}>Backups</button>}
-                {installed && manifest.env.some((entry) => entry.secret) && <button className="text-button" type="button" onClick={() => void revealSecrets(manifest)}>Secrets</button>}
-                {installed && <button className="text-button" type="button" onClick={() => start({ operationId: "app.uninstall", title: `Uninstall ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Stops and removes the container. Data under the app directory is kept so you can reinstall later.</span> })}>Uninstall</button>}
-                {live?.dataPresent && <button className="text-button danger-text" type="button" onClick={() => start({ operationId: "app.purge", title: `Delete ${manifest.name} and its data`, parameters: { id: manifest.id }, preview: <span>Removes the container <strong>and deletes everything</strong> under the app's data directory. This cannot be undone.</span> })}>Delete data</button>}
-                {manifest.website && <a className="text-button" href={manifest.website} target="_blank" rel="noreferrer">Website</a>}
-              </footer>
-              {manifest.notes && installed && <p className="muted app-notes">{manifest.notes}</p>}
-            </article>
-          );
-        })}
-      </div>
+      {installedVisible.length > 0 && (
+        <section className="app-section">
+          <header className="app-section-header">
+            <h2>On this server</h2>
+            <span className="muted">{runningCount} running of {installedVisible.length} installed</span>
+          </header>
+          <div className="app-grid">{installedVisible.map(renderCard)}</div>
+        </section>
+      )}
+
+      <section className="app-section">
+        <header className="app-section-header">
+          <h2>{installedCount > 0 ? "Add something else" : "Choose what this server runs"}</h2>
+          <span className="muted">{availableVisible.length} to choose from</span>
+        </header>
+        {availableVisible.length === 0
+          ? <p className="muted">Nothing in the catalog matches that.</p>
+          : <div className="app-grid">{availableVisible.map(renderCard)}</div>}
+      </section>
     </div>
   );
 }

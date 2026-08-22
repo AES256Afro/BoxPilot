@@ -142,3 +142,36 @@ describe("where the Open button sends you", () => {
     expect((screen.getByRole("link", { name: "Open Web UI" }) as HTMLAnchorElement).href).toBe("https://box.tail1234.ts.net:8096/");
   });
 });
+
+describe("finding things in a catalog of a hundred-odd apps", () => {
+  const dockge = { id: "dockge", name: "Dockge", category: "Developer", description: "Manage compose stacks", website: null, icon: null, risk: "medium" as const, notes: null, image: { reference: "louislam/dockge:1.5.0", version: "1.5.0" }, ports: [{ id: "web", label: "Web UI", container: 5001, host: 5001, protocol: "tcp", exposure: "lan", fixed: false }], volumes: [], env: [], devices: [], capabilities: [], extraHosts: [], sysctls: [], sidecars: [], network: "bridge", networkVia: null, user: null, command: null, health: { kind: "running", stableSeconds: 1, timeoutSeconds: 10 }, setup: null, sha256: "a" };
+  const runningLive = { id: "dockge", installed: true, dataPresent: true, state: { installedAt: "x", updatedAt: "x", manifestSha256: "a", image: { reference: "louislam/dockge:1.5.0", id: "sha256:1" }, values: { ports: { web: 5001 }, env: {}, volumes: {} }, pinnedRollback: false, uninstalledAt: null }, container: { exists: true, running: true, status: "running", health: "healthy", restarts: 0, image: "sha256:1" }, urls: [{ id: "web", label: "Web UI", host: 5001, exposure: "lan" }] };
+  const notInstalled = { id: "jellyfin", installed: false, dataPresent: false, state: null, container: { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, urls: [] };
+
+  const mount = () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest, live: notInstalled }, { manifest: dockge, live: runningLive }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      if (url.includes("app.serve.inspect")) return json({ result: { available: true, serves: [] } });
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppCatalog csrfToken="csrf-token" />);
+  };
+
+  it("puts what is already running first, in its own section", async () => {
+    // With 128 apps in the catalog, an installed app buried alphabetically is behind a long scroll.
+    mount();
+    expect(await screen.findByRole("heading", { name: "On this server" })).toBeTruthy();
+    expect(screen.getByText("1 running of 1 installed")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Add something else" })).toBeTruthy();
+  });
+
+  it("searches across name, category and description", async () => {
+    mount();
+    await screen.findByRole("heading", { name: "On this server" });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search applications" }), { target: { value: "compose stacks" } });
+    expect(screen.getByText("Dockge")).toBeTruthy();
+    expect(screen.queryByText("Jellyfin")).toBeNull();
+  });
+});

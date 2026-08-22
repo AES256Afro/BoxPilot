@@ -92,8 +92,10 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   const publishedPorts = manifest.network !== "host" && manifest.ports.length
     ? manifest.ports.map((port) => {
       const host = values.ports[port.id];
-      hostPorts.push({ id: port.id, host, protocol: port.protocol, exposure: port.exposure });
-      const bind = port.exposure === "loopback" ? "127.0.0.1" : lanAddress;
+      hostPorts.push({ id: port.id, host, protocol: port.protocol, exposure: port.exposure === "loopback" || values.exposure === "tailnet" ? "loopback" : port.exposure });
+      // "tailnet" means the port is not published on the network at all: Tailscale Serve reaches
+      // it over loopback, and authenticates before anything gets that far.
+      const bind = port.exposure === "loopback" || values.exposure === "tailnet" ? "127.0.0.1" : lanAddress;
       return `${bind}:${host}:${port.container}${port.protocol === "udp" ? "/udp" : ""}`;
     })
     : [];
