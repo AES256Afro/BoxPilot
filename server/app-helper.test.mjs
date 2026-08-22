@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,7 +8,7 @@ import { createCatalogService } from "./catalog/index.mjs";
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
 
-async function setup({ healthKind = "running", exitOnUp = false, failUp = false, listDevices = undefined } = {}) {
+async function setup({ healthKind = "running", exitOnUp = false, failUp = false, listDevices = undefined, chownDirectory = undefined } = {}) {
   const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
   const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
   await writeFile(path.join(catalogDirectory, "demo.yaml"), `schemaVersion: 2\nid: demo\nname: Demo\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8080\nvolumes:\n  - id: data\n    container: /data\n    path: data\n  - id: docker\n    container: /var/run/docker.sock\n    hostPath: /var/run/docker.sock\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\n  - name: TZ\n    default: Etc/UTC\nhealth:\n  kind: ${healthKind}\n  stableSeconds: 4\n  timeoutSeconds: 30\n`);
@@ -42,7 +42,7 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
   const wait = vi.fn(async (ms) => { nowMs += ms; });
   const catalog = createCatalogService({ directory: catalogDirectory, ttlMs: 0 });
   const backupRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-appbk-")); directories.push(backupRoot);
-  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, lanAddress: "192.168.1.10", ...(listDevices ? { listDevices } : {}) });
+  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, lanAddress: "192.168.1.10", ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}) });
   const advance = (ms) => { nowMs += ms; };
   return { apps, calls, containers, catalogRoot, catalogDirectory, backupRoot, advance };
 }
@@ -292,5 +292,41 @@ describe("generic app deployer", () => {
     await expect(apps.restoreAppBackup({ id: "demo", backup: "evil/../../x.tar.gz" })).rejects.toThrow("invalid");
     await expect(apps.deleteAppBackup({ id: "demo", backup: second.artifact })).resolves.toMatchObject({ deleted: true });
     await expect(apps.deleteAppBackup({ id: "demo", backup: second.artifact })).rejects.toThrow("does not exist");
+  });
+});
+
+describe("folders an app is pointed at", () => {
+  it("creates a missing data folder and gives it to the user the app runs as", async () => {
+    const chowns = [];
+    const { apps, catalogDirectory } = await setup({ chownDirectory: async (target, uid, gid) => { chowns.push(`${target}:${uid}:${gid}`); } });
+    const media = path.join(await mkdtemp(path.join(os.tmpdir(), "boxpilot-media-")), "srv", "media");
+    // A manifest that runs as PUID 1000 and mounts a folder the owner has not created yet.
+    await writeFile(path.join(catalogDirectory, "grabber.yaml"), [
+      "schemaVersion: 2", "id: grabber", "name: Grabber", "category: Media automation", "description: d",
+      "image:", "  reference: x/grabber:1", "env:", "  - name: PUID", "    default: '1000'", "  - name: PGID", "    default: '1000'",
+      "volumes:", "  - id: media", "    container: /data", `    hostPath: ${media}`, "    configurable: true",
+      "health:", "  kind: running", "  stableSeconds: 1", "  timeoutSeconds: 30",
+    ].join("\n"));
+
+    await apps.install({ id: "grabber", values: { setup: [] } });
+    const created = await stat(media).then((info) => info.isDirectory(), () => false);
+    expect(created).toBe(true);
+    expect(chowns.some((entry) => entry.startsWith(`${media}:1000:1000`))).toBe(true);
+  });
+
+  it("leaves a folder that already exists alone, whatever owns it", async () => {
+    const chowns = [];
+    const { apps, catalogDirectory } = await setup({ chownDirectory: async (target) => { chowns.push(target); } });
+    const library = await mkdtemp(path.join(os.tmpdir(), "boxpilot-library-"));
+    await writeFile(path.join(catalogDirectory, "reader.yaml"), [
+      "schemaVersion: 2", "id: reader", "name: Reader", "category: Books", "description: d",
+      "image:", "  reference: x/reader:1", "env:", "  - name: PUID", "    default: '1000'",
+      "volumes:", "  - id: books", "    container: /books", `    hostPath: ${library}`, "    configurable: true",
+      "health:", "  kind: running", "  stableSeconds: 1", "  timeoutSeconds: 30",
+    ].join("\n"));
+
+    await apps.install({ id: "reader", values: { setup: [] } });
+    // Someone's existing library keeps its own ownership; BoxPilot does not take it over.
+    expect(chowns).not.toContain(library);
   });
 });

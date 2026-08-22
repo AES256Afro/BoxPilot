@@ -14,6 +14,8 @@
 #
 # It does not touch /etc/boxpilot, /var/lib/boxpilot, systemd drop-ins, or the owner account.
 set -eu
+# sudo keeps the caller's umask: a strict one would make /opt and node_modules unreadable to the service user.
+umask 022
 
 REPO="${BOXPILOT_REPO:-AES256Afro/BoxPilot}"
 REF="${1:-main}"
@@ -63,12 +65,16 @@ NEW_VERSION="$("$NODE_BIN" -p 'require(process.argv[1]).version' "${STAGING}/pac
 log "building BoxPilot ${NEW_VERSION} in ${STAGING}"
 
 # 2. Build
+set +e
 (
-  cd "$STAGING"
-  npm ci --no-audit --no-fund --loglevel=error
-  npm run build --silent
+  cd "$STAGING" &&
+  npm ci --no-audit --no-fund --loglevel=error &&
+  npm run build --silent &&
   npm prune --omit=dev --no-audit --no-fund --loglevel=error
-) || { cleanup_staging; fail "build failed; ${INSTALL_DIR} was not touched"; }
+)
+BUILD_STATUS=$?
+set -e
+[ "$BUILD_STATUS" -eq 0 ] || { cleanup_staging; fail "build failed; ${INSTALL_DIR} was not touched"; }
 [ -f "${STAGING}/server/index.mjs" ] && [ -f "${STAGING}/dist/index.html" ] || { cleanup_staging; fail "build output incomplete"; }
 chown -R root:root "$STAGING"
 chmod 0755 "$STAGING"
@@ -85,17 +91,33 @@ else
 fi
 mv "$STAGING" "$INSTALL_DIR"
 
+# Units this run replaced, so a rollback can put the old ones back with the old tree.
+REPLACED_UNITS=""
+
 rollback() {
+  trap - EXIT
   log "rolling back to previous tree"
   systemctl stop boxpilot.service 2>/dev/null || true
-  rm -rf "${INSTALL_DIR}.failed.${STAMP}"
-  mv "$INSTALL_DIR" "${INSTALL_DIR}.failed.${STAMP}"
-  mv "$PREVIOUS" "$INSTALL_DIR"
-  systemctl daemon-reload
+  if [ -d "$INSTALL_DIR" ]; then
+    rm -rf "${INSTALL_DIR}.failed.${STAMP}"
+    mv "$INSTALL_DIR" "${INSTALL_DIR}.failed.${STAMP}"
+  fi
+  [ -d "$PREVIOUS" ] && mv "$PREVIOUS" "$INSTALL_DIR"
+  # Old code under new unit files would keep failing for the same reason the upgrade did.
+  for name in $REPLACED_UNITS; do
+    [ -f "/etc/systemd/system/${name}.pre-${STAMP}" ] || continue
+    mv "/etc/systemd/system/${name}.pre-${STAMP}" "/etc/systemd/system/${name}"
+    log "restored unit ${name}"
+  done
+  systemctl daemon-reload 2>/dev/null || true
   systemctl restart boxpilot-helper.service 2>/dev/null || true
   systemctl restart boxpilot.service 2>/dev/null || true
   fail "upgrade failed; previous tree restored (failed tree kept at ${INSTALL_DIR}.failed.${STAMP})"
 }
+
+# From here until the health check passes, any failure must put the old BoxPilot back rather than
+# leave the service stopped. Without this a read-only /etc or a full disk stops BoxPilot for good.
+if [ "$HAD_PREVIOUS" -eq 1 ]; then trap 'rollback' EXIT; fi
 
 # 4. Units (only when changed; keep a copy of the old one)
 UNITS_CHANGED=0
@@ -104,7 +126,7 @@ for unit in "${INSTALL_DIR}"/deploy/*.service "${INSTALL_DIR}"/deploy/*.timer; d
   name="$(basename "$unit")"
   target="/etc/systemd/system/${name}"
   if [ -f "$target" ] && cmp -s "$unit" "$target"; then continue; fi
-  if [ -f "$target" ]; then cp -p "$target" "${target}.pre-${STAMP}"; fi
+  if [ -f "$target" ]; then cp -p "$target" "${target}.pre-${STAMP}"; REPLACED_UNITS="${REPLACED_UNITS} ${name}"; fi
   install -m 0644 "$unit" "$target"
   UNITS_CHANGED=$((UNITS_CHANGED + 1))
   log "installed unit ${name}"
@@ -123,7 +145,7 @@ fi
 
 attempt=0; HEALTHY=0
 [ "$WEB_RESTARTED" -eq 1 ] || HEALTHY=1
-while [ "$attempt" -lt 20 ]; do
+while [ "$HEALTHY" -ne 1 ] && [ "$attempt" -lt 20 ]; do
   attempt=$((attempt + 1))
   body="$(curl -fsS --max-time 3 "$HEALTH_URL" 2>/dev/null || true)"
   case "$body" in *"\"version\":\"${NEW_VERSION}\""*) HEALTHY=1; break ;; esac
@@ -134,6 +156,10 @@ if [ "$HEALTHY" -ne 1 ]; then
   journalctl -u boxpilot.service -u boxpilot-helper.service -n 20 --no-pager 2>/dev/null || true
   if [ "$HAD_PREVIOUS" -eq 1 ]; then rollback; else fail "service unhealthy"; fi
 fi
+trap - EXIT
+
+# The old unit files are only stale once the new version is answering.
+for name in $REPLACED_UNITS; do rm -f "/etc/systemd/system/${name}.pre-${STAMP}"; done
 
 # 6. Prune old previous trees
 ls -d "${INSTALL_DIR}".prev.* 2>/dev/null | sort | head -n -"$KEEP_PREVIOUS" | while read -r old; do rm -rf "$old"; log "removed ${old}"; done
