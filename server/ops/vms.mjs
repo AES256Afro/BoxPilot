@@ -219,7 +219,7 @@ export function vmOperations() {
       },
     }),
     defineOperation({
-      id: "vm.snapshot.revert", title: "Revert a VM to a snapshot", risk: "high", timeoutMs: 10 * 60_000,
+      id: "vm.snapshot.revert", title: "Revert a VM to a snapshot", risk: "high", confirm: (parameters) => parameters.name, timeoutMs: 10 * 60_000,
       description: "Reverts the offline VM to the named snapshot. Everything changed since that snapshot is discarded; the VM stays off.",
       parameters: { fields: { name: nameField, snapshotName: snapshotField } },
       run: async (parameters, { run, progress }) => {
