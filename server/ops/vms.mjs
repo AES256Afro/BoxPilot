@@ -106,7 +106,7 @@ export function vmOperations() {
       id: "vm.backup.snapshot.forget", title: "Forget an unrecorded snapshot", risk: "high", timeoutMs: 2 * 60 * 60_000,
       description: "Removes one snapshot the encrypted repository holds and BoxPilot has no record of — normally a backup that was written and then failed its verification. Nothing that has a local record can be removed this way, and nothing is pruned.",
       minimumRole: "owner",
-      parameters: { fields: { snapshotId: { type: "string", maxLength: 64, pattern: /^[a-f0-9]{64}$/ } } },
+      parameters: { fields: { snapshotId: { type: "string", maxLength: 64, pattern: /^[a-f0-9]{64}$/ }, knownSnapshotIds: { type: "array", optional: true } } },
       confirm: (parameters) => String(parameters.snapshotId).slice(0, 8),
       run: (parameters, { vmRetention }) => vmRetention.forgetUnrecorded(parameters),
     }),

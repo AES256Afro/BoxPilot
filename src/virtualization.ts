@@ -59,7 +59,8 @@ export interface VirtualDomain {
   interfaces: Array<{ interface: string; type: string; source: string; model: string | null; mac: string }>;
   snapshotCount: number | null;
   snapshots: Array<{ name: string; manageable: boolean; current: boolean | null; state: string | null; location: string | null; parent: string | null; createdAt: string | null }>;
-  guestAgent: { available: boolean; filesystemState: string | null; addressDiscovery: boolean };
+  /** null in the list view, which does not probe the agent — not the same as "not reachable". */
+  guestAgent: { available: boolean; filesystemState: string | null; addressDiscovery: boolean } | null;
 }
 
 export interface DomainList {

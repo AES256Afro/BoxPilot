@@ -241,7 +241,10 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
     const running = normalizeState(info.state) === "running";
     const [leaseAddressResult, agentAddressResult, blockResult, interfaceResult, snapshotResult, agentPingResult, freezeResult] = await Promise.all([
       runCommand("virsh", ["--connect", connectionUri, "domifaddr", name, "--source", "lease"]),
-      running ? runCommand("virsh", ["--connect", connectionUri, "domifaddr", name, "--source", "agent"]) : Promise.resolve({ ok: false, stdout: "", stderr: "Guest is not running" }),
+      // Addresses the guest agent knows about are worth having in the list — a VM's tailnet
+      // address only shows up here. On a VM without an agent this waits out its timeout, so the
+      // list gives it two seconds rather than eight and carries on with the lease addresses.
+      running ? runCommand("virsh", ["--connect", connectionUri, "domifaddr", name, "--source", "agent"], probeGuestAgent ? {} : { timeout: 2000 }) : Promise.resolve({ ok: false, stdout: "", stderr: "Guest is not running" }),
       runCommand("virsh", ["--connect", connectionUri, "domblklist", name, "--details"]),
       runCommand("virsh", ["--connect", connectionUri, "domiflist", name]),
       runCommand("virsh", ["--connect", connectionUri, "snapshot-list", name, "--name"]),
@@ -249,7 +252,7 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
       running && probeGuestAgent ? runCommand("virsh", ["--connect", connectionUri, "qemu-agent-command", name, '{"execute":"guest-fsfreeze-status"}']) : Promise.resolve({ ok: false, stdout: "", stderr: running ? "Guest agent not probed in the list view" : "Guest is not running" }),
     ]);
     const snapshotNames = snapshotResult.ok ? snapshotResult.stdout.split("\n").map((snapshot) => snapshot.trim()).filter(Boolean) : [];
-    const snapshots = await Promise.all(snapshotNames.map(async (snapshotName) => {
+    const snapshots = await mapWithLimit(snapshotNames, 4, async (snapshotName) => {
       if (!validateSnapshotName(snapshotName)) return { name: snapshotName.slice(0, 128), manageable: false, current: null, state: null, location: null, parent: null, createdAt: null };
       const result = await runCommand("virsh", ["--connect", connectionUri, "snapshot-info", name, snapshotName]);
       const snapshotInfo = result.ok ? parseKeyValueOutput(result.stdout) : {};
@@ -262,7 +265,7 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
         parent: snapshotInfo.parent && snapshotInfo.parent !== "-" ? snapshotInfo.parent : null,
         createdAt: snapshotInfo.creation_time ?? null,
       };
-    }));
+    });
     const agentReturn = agentPingResult.ok ? parseAgentReturn(agentPingResult.stdout) : null;
     const freezeState = freezeResult.ok ? parseAgentReturn(freezeResult.stdout) : null;
     return {
@@ -282,11 +285,11 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
       interfaces: interfaceResult.ok ? parseInterfaces(interfaceResult.stdout) : [],
       snapshotCount: snapshotResult.ok ? snapshotNames.length : null,
       snapshots,
-      guestAgent: {
+      guestAgent: probeGuestAgent ? {
         available: agentPingResult.ok && agentReturn !== null,
         filesystemState: typeof freezeState === "string" ? freezeState : null,
         addressDiscovery: agentAddressResult.ok,
-      },
+      } : null,
     };
   }
 

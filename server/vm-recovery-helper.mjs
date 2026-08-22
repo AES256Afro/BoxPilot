@@ -234,7 +234,7 @@ export function createVmRecoveryHelper({
     return "completed";
   }
 
-  async function createRecovery(input) {
+  async function createRecovery(input, { progress = null } = {}) {
     const errors = validateVmRecoveryInput(input);
     if (errors.length) throw new Error(errors.join(" | "));
     const readiness = await inspect(input);
@@ -245,7 +245,8 @@ export function createVmRecoveryHelper({
     let moved = false;
     let domainDefined = false;
     try {
-      prepared = await restoreEngine.prepareSnapshot(restoreInput(input));
+      // The restore is the long part of a recovery; its output belongs in the job log.
+      prepared = await restoreEngine.prepareSnapshot(restoreInput(input), { progress });
       await mkdir(resolvedRecoveryRoot, { recursive: true, mode: 0o700 });
       await move(prepared.restored.restoredExport, finalDirectory);
       moved = true;

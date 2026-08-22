@@ -391,7 +391,7 @@ export function createVmRestoreDrillHelper({
     return { restoredExport, disks, firmware: /<loader\b/i.test(xml) ? "uefi" : "bios", sizeBytes, fileCount: names.length };
   }
 
-  async function prepareSnapshot(parameters) {
+  async function prepareSnapshot(parameters, { progress = null } = {}) {
     const errors = validateVmRestoreDrillInput(parameters);
     if (errors.length) throw new Error(errors.join(" | "));
     const readiness = await inspect(parameters);
@@ -412,7 +412,7 @@ export function createVmRestoreDrillHelper({
         || !snapshot.tags?.includes(backupTag) || !snapshot.tags?.includes(exportTag)) {
         throw new Error("The recorded restic snapshot identity, path, or tags changed");
       }
-      await run(resticBinary, [...resticArguments(), "restore", parameters.snapshotId, "--target", drillDirectory, "--verify"], { timeout: 12 * 60 * 60 * 1000 });
+      await run(resticBinary, [...resticArguments(), "restore", parameters.snapshotId, "--target", drillDirectory, "--verify"], { timeout: 12 * 60 * 60 * 1000, onLine: progress ?? null });
       const restored = await verifyRestoredExport(parameters, drillDirectory);
       return { drillDirectory, restored, readiness };
     } catch (error) {
@@ -484,7 +484,7 @@ export function createVmRestoreDrillHelper({
     }
   }
 
-  async function runDrill(parameters) {
+  async function runDrill(parameters, { progress = null } = {}) {
     const errors = validateVmRestoreDrillInput(parameters);
     if (errors.length) throw new Error(errors.join(" | "));
     const readiness = await inspect(parameters);
@@ -508,7 +508,7 @@ export function createVmRestoreDrillHelper({
         || !snapshot.tags?.includes(backupTag) || !snapshot.tags?.includes(exportTag)) {
         throw new Error("The recorded restic snapshot identity, path, or tags changed");
       }
-      await run(resticBinary, [...resticArguments(), "restore", parameters.snapshotId, "--target", drillDirectory, "--verify"], { timeout: 12 * 60 * 60 * 1000 });
+      await run(resticBinary, [...resticArguments(), "restore", parameters.snapshotId, "--target", drillDirectory, "--verify"], { timeout: 12 * 60 * 60 * 1000, onLine: progress ?? null });
       const restored = await verifyRestoredExport(parameters, drillDirectory);
       diskAccess = await grantQemuDiskAccess(drillDirectory, restored.restoredExport, restored.disks);
       const argumentsList = [

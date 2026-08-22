@@ -57,3 +57,41 @@ describe("who gets throttled", () => {
     expect((await auth.checkPassword(from("100.64.2.1"), target, "wrong")).blocked).toBe(true);
   });
 });
+
+describe("the per-account ceiling", () => {
+  it("cannot be held armed by one wrong guess per expiry", () => {
+    // The ceiling is a key any caller can drive, so escalation there is a lock-out weapon: an
+    // attacker who reaches it once could hold the owner's account shut indefinitely with a single
+    // guess every few minutes. Serving the block clears the count, so the next one costs a full run.
+    let clock = 1_000_000;
+    const spray = createLoginThrottle({ maxFailures: 50, baseDelayMs: 60_000, maxDelayMs: 300_000, resetOnExpiry: true, now: () => clock });
+    const keys = ["user:owner"];
+    for (let index = 0; index < 53; index += 1) spray.record(keys, false);
+    expect(spray.check(keys).retryAfterMs).toBe(300_000);
+    clock += 301_000;
+    expect(spray.check(keys).blocked).toBe(false);
+    spray.record(keys, false);
+    expect(spray.check(keys).blocked).toBe(false); // one guess does not re-arm it
+  });
+
+  it("still escalates on a per-caller key, where only the guesser waits", () => {
+    let clock = 1_000_000;
+    const throttle = createLoginThrottle({ now: () => clock });
+    const keys = ["user:owner|ip:100.64.0.9"];
+    for (let index = 0; index < 5; index += 1) throttle.record(keys, false);
+    expect(throttle.check(keys).retryAfterMs).toBe(30_000);
+    clock += 30_000;
+    throttle.record(keys, false);
+    expect(throttle.check(keys).retryAfterMs).toBe(60_000);
+  });
+
+  it("forgets a key nobody has used for a while, so the map cannot grow without bound", () => {
+    let clock = 1_000_000;
+    const throttle = createLoginThrottle({ now: () => clock, maxDelayMs: 60_000 });
+    for (let index = 0; index < 50; index += 1) throttle.record([`user:owner|ip:10.0.0.${index}`], false);
+    expect(throttle.size()).toBe(50);
+    clock += 10 * 60_000;
+    throttle.record(["user:owner|ip:10.9.9.9"], false); // any activity prunes
+    expect(throttle.size()).toBe(1);
+  });
+});

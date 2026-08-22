@@ -192,10 +192,14 @@ export function createVmProtectionHelper({
     await mkdir(resolvedCacheRoot, { recursive: true, mode: 0o700 });
     const exportTag = `boxpilot-export-${parameters.exportId}`;
     const backupTag = `boxpilot-backup-${parameters.backupId}`;
+    progress?.("Backing up the export into the encrypted repository...", "stdout");
     const backup = await run(resticBinary, [
       ...commonResticArguments(), "backup", source.exportDirectory, "--json", "--host", "boxpilot", "--tag", "boxpilot-vm", "--tag", exportTag, "--tag", backupTag,
     ], { timeout: 12 * 60 * 60 * 1000 });
-    const messages = backup.stdout.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    // Only the summary matters, and the retained tail can start mid-line once a long run passes
+    // the cap. A line that does not parse is a truncated status frame, not a reason to fail a
+    // backup whose snapshot already exists.
+    const messages = backup.stdout.split("\n").flatMap((line) => { try { return line.trim() ? [JSON.parse(line)] : []; } catch { return []; } });
     const summary = messages.findLast((message) => message.message_type === "summary");
     if (!summary || !shaPattern.test(summary.snapshot_id ?? "") || summary.dry_run === true || summary.total_bytes_processed !== source.sizeBytes) {
       throw new Error("Restic did not return complete snapshot evidence");
