@@ -2,6 +2,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Password hashing runs at production scrypt cost; CI runners need more than the 5 s default.
+vi.setConfig({ testTimeout: 30_000 });
 import { hashPassword } from "./security.mjs";
 import { createStateStore } from "./state.mjs";
 import { restoreDrillDomainName } from "./vm-restore-drill-helper.mjs";
