@@ -19,10 +19,18 @@ async function fixture() {
   const installRoot = path.join(root, "opt");
   const now = Date.parse("2026-08-22T12:00:00.000Z");
 
-  // Three leftover trees from past upgrades, plus the live one.
+  // Leftover trees from past upgrades under every naming scheme, plus the live one. The real host
+  // carries all six: `.prev.` is only what today's updater writes, and it prunes nothing else.
   await mkdir(path.join(installRoot, "boxpilot"), { recursive: true });
   await writeFile(path.join(installRoot, "boxpilot", "server.mjs"), "live");
-  for (const [name, ageDays] of [["boxpilot.prev.20260822T100000Z", 0], ["boxpilot.rollback-0.50.0-abc", 30], ["boxpilot-prev-0.40.0-20260816T093600Z", 60]]) {
+  for (const [name, ageDays] of [
+    ["boxpilot.prev.20260822T100000Z", 0],
+    ["boxpilot.failed.20260822T090000Z", 1],
+    ["boxpilot.rollback-0.50.0-abc", 30],
+    ["boxpilot-candidate-0.44.0-20260817T0000Z", 40],
+    ["boxpilot-live-before-0.38.0-20260816T080905Z", 50],
+    ["boxpilot-prev-0.40.0-20260816T093600Z", 60],
+  ]) {
     await mkdir(path.join(installRoot, name), { recursive: true });
     await writeFile(path.join(installRoot, name, "server.mjs"), "x".repeat(1024));
     const when = new Date(now - ageDays * 86_400_000);
@@ -67,13 +75,27 @@ async function fixture() {
 }
 
 describe("finding what can be reclaimed", () => {
-  it("keeps the release a failed update would roll back to", async () => {
+  it("keeps the newest version you could revert to, and the last failure's evidence", async () => {
     const { service } = await fixture();
     const report = await service.inspect();
     const trees = report.categories.find((category) => category.id === "boxpilot-versions");
-    expect(trees.items).toBe(2); // three leftovers, newest kept
-    expect(trees.keeping).toEqual(["boxpilot.prev.20260822T100000Z"]);
-    expect(trees.detail).not.toContain("boxpilot.prev.20260822T100000Z");
+    expect(trees.keeping).toEqual(["boxpilot.prev.20260822T100000Z", "boxpilot.failed.20260822T090000Z"]);
+    expect(trees.items).toBe(4); // six leftovers, two kept
+    for (const kept of trees.keeping) expect(trees.detail).not.toContain(kept);
+  });
+
+  it("offers the leftovers from updaters BoxPilot no longer ships", async () => {
+    const { service } = await fixture();
+    const report = await service.inspect();
+    const trees = report.categories.find((category) => category.id === "boxpilot-versions");
+    // The upgrade script only ever pruned its own `.prev.` trees, so these accumulated unseen.
+    expect(trees.detail).toEqual(expect.arrayContaining([
+      "boxpilot.rollback-0.50.0-abc",
+      "boxpilot-candidate-0.44.0-20260817T0000Z",
+      "boxpilot-live-before-0.38.0-20260816T080905Z",
+      "boxpilot-prev-0.40.0-20260816T093600Z",
+    ]));
+    expect(trees.detail).not.toContain("boxpilot");
   });
 
   it("counts an image nothing uses, and never one an app is running", async () => {
@@ -110,6 +132,7 @@ describe("reclaiming", () => {
     // those categories were not chosen.
     await expect(stat(path.join(installRoot, "boxpilot", "server.mjs"))).resolves.toBeTruthy();
     await expect(stat(path.join(installRoot, "boxpilot.prev.20260822T100000Z"))).resolves.toBeTruthy();
+    await expect(stat(path.join(installRoot, "boxpilot.failed.20260822T090000Z"))).resolves.toBeTruthy();
     await expect(stat(path.join(catalogRoot, "jellyfin", "data", "live"))).resolves.toBeTruthy();
     await expect(stat(path.join(applicationBackupRoot, "jellyfin", "20260801T000000Z.tar.gz"))).resolves.toBeTruthy();
   });

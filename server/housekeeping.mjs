@@ -14,8 +14,27 @@ import { readdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { fixedRun } from "./exec.mjs";
 
-/** Directories in /opt left behind by past upgrades, under every naming scheme BoxPilot has used. */
-const previousTreePattern = /^boxpilot(?:\.prev\.|\.rollback-|-prev-)/;
+/**
+ * Directories in /opt left behind by past upgrades, under every naming scheme BoxPilot has used.
+ *
+ * They fall into two kinds, and the difference decides what is kept. A **revert** tree is a working
+ * copy of a version that ran here, so the newest one is worth keeping: it is what you would move
+ * back into place by hand if a release turned out badly. A **spent** tree is neither — a build that
+ * has already been swapped in or a version that failed its health check and was rolled away — and
+ * only the most recent failure is worth keeping, as the evidence for why it failed.
+ *
+ * The upgrade script prunes just two of its own `.prev.` trees and has never known about the
+ * others, so on a box updated as often as this one they pile up unseen: nothing lists /opt.
+ */
+const previousTreeKinds = [
+  { kind: "revert", pattern: /^boxpilot(?:\.prev\.|\.rollback-|-prev-|-live-before-)/ },
+  { kind: "spent", pattern: /^boxpilot(?:-candidate-|\.failed\.)/ },
+];
+
+/** Which kind of leftover a directory name is, or null if it is not one. */
+function previousTreeKind(name) {
+  return previousTreeKinds.find((entry) => entry.pattern.test(name))?.kind ?? null;
+}
 
 /** Bytes in a directory tree, following nothing and tolerating races. */
 async function directorySize(target) {
@@ -68,15 +87,19 @@ export function createHousekeepingService({
     const entries = await readdir(installRoot, { withFileTypes: true }).catch(() => []);
     const found = [];
     for (const entry of entries) {
-      if (!entry.isDirectory() || entry.isSymbolicLink() || !previousTreePattern.test(entry.name)) continue;
+      const kind = previousTreeKind(entry.name);
+      if (!entry.isDirectory() || entry.isSymbolicLink() || !kind) continue;
       const full = path.join(installRoot, entry.name);
       if (path.resolve(full) === path.resolve(currentTree)) continue;
       const info = await stat(full).catch(() => null);
-      if (info) found.push({ path: full, name: entry.name, at: info.mtimeMs, bytes: await directorySize(full) });
+      if (info) found.push({ path: full, name: entry.name, kind, at: info.mtimeMs, bytes: await directorySize(full) });
     }
     found.sort((left, right) => right.at - left.at);
-    // The newest is what a failed upgrade rolls back to; everything older is finished with.
-    return { keep: found.slice(0, 1), remove: found.slice(1) };
+    // The newest of each kind stays: the version you would revert to by hand, and the last failed
+    // upgrade's tree, which is the evidence for why it failed. Everything behind them is finished
+    // with — several of these naming schemes belong to updaters BoxPilot no longer ships.
+    const keep = previousTreeKinds.map(({ kind }) => found.find((entry) => entry.kind === kind)).filter(Boolean);
+    return { keep, remove: found.filter((entry) => !keep.includes(entry)) };
   }
 
   /** Every image on the box, with what references it. */
@@ -178,7 +201,7 @@ export function createHousekeepingService({
       {
         id: "boxpilot-versions",
         title: "Previous BoxPilot releases",
-        summary: "Copies of BoxPilot left in /opt by past updates. The most recent one is kept — that is what a failed update rolls back to.",
+        summary: "Copies of BoxPilot that past updates left in /opt. The most recent working version is kept, so you can still put it back by hand, and so is the last update that failed its health check.",
         items: trees.remove.length,
         bytes: trees.remove.reduce((sum, entry) => sum + entry.bytes, 0),
         detail: trees.remove.map((entry) => entry.name),
