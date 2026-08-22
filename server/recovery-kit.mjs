@@ -83,7 +83,7 @@ export function createRecoveryKitService({ store, prerequisites, helper, libvirt
         ? check("applications.backup", "not-applicable", "Catalog application backups", "No catalog application is currently installed.", "Re-run this kit after installing an application.")
         : unbackedApplications.length > 0
           ? check("applications.backup", "action-required", "Catalog application backups", `${unbackedApplications.length} of ${installedApplications.length} installed application(s) have no recorded backup: ${unbackedApplications.map((item) => item.id).join(", ")}.`, "Back up each listed application from its catalog card, or schedule recurring backups on the System page.")
-          : check("applications.backup", "verified", "Catalog application backups", `All ${installedApplications.length} installed application(s) have at least one recorded checksummed backup archive.`, "Copy the application backup directory to independent storage and keep backup schedules enabled."),
+          : check("applications.backup", "verified", "Catalog application backups", `All ${installedApplications.length} installed application(s) have at least one recorded checksummed backup archive. Folders you pointed an app at yourself are not inside those archives.`, "Copy the application backup directory to independent storage, keep backup schedules enabled, and make sure any media or photo folders you chose are backed up too."),
       domainInventory.connected !== true
         ? check("virtualization.backup", "unavailable", "Virtual-machine recovery", "Libvirt domain inventory is unavailable, so VM coverage cannot be evaluated.", "Restore restricted-helper libvirt access and regenerate the kit.")
         : domains.length === 0

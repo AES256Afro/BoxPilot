@@ -107,7 +107,7 @@ export function appOperations() {
     }),
     defineOperation({
       id: "app.backup", title: "Back up application data", risk: "medium", timeoutMs: minutes(70),
-      description: "Stops the app briefly, archives its compose project and managed data volumes, restarts it, and keeps the newest copies.",
+      description: "Stops the app briefly, archives its compose project and the volumes BoxPilot manages, restarts it, and keeps the newest copies. Folders you pointed the app at yourself (a photo or media library, for instance) are not included — back those up the way you back up the rest of that disk.",
       parameters: { fields: { id: idField, keep: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 30 ? null : "must be a whole number between 1 and 30") } } },
       run: (parameters, { apps, progress }) => apps.backup({ id: parameters.id, keep: parameters.keep ?? 5 }, { progress }),
     }),
