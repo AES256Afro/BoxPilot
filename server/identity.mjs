@@ -125,16 +125,24 @@ export function createIdentityService({
     for (const [id, flow] of githubFlows) if (now() > flow.expiresAt) githubFlows.delete(id);
   }
 
-  async function githubStart({ purpose = "signin", ownerId = null } = {}) {
+  async function githubStart({ purpose = "signin", ownerId = null, client = null } = {}) {
     pruneFlows();
     if (!githubConfigured()) throw new Error("GitHub sign-in is not configured: add an OAuth App client ID in Settings");
-    if (githubFlows.size >= 10) throw new Error("Too many GitHub sign-in attempts in progress; try again in a minute");
+    // Anonymous sign-in flows are capped separately (and per client) so nobody can fill the table
+    // and lock the owner out of linking or signing in.
+    const flows = [...githubFlows.values()];
+    if (purpose === "signin") {
+      if (flows.filter((flow) => flow.purpose === "signin").length >= 5) throw new Error("Too many GitHub sign-in attempts in progress; try again in a minute");
+      if (client && flows.filter((flow) => flow.purpose === "signin" && flow.client === client).length >= 2) throw new Error("Too many GitHub sign-in attempts from this device; try again in a minute");
+    } else if (flows.filter((flow) => flow.purpose === "link").length >= 5) {
+      throw new Error("Too many GitHub link attempts in progress; try again in a minute");
+    }
     const clientId = setting("githubClientId", "");
     const response = await fetchImpl("https://github.com/login/device/code", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json", "User-Agent": `BoxPilot/${productVersion}` }, body: JSON.stringify({ client_id: clientId, scope: "read:user" }), signal: AbortSignal.timeout(10_000) });
     const body = await response.json().catch(() => ({}));
     if (!response.ok || !body.device_code) throw new Error(body.error_description ?? body.error ?? `GitHub returned ${response.status}`);
     const flowId = randomUUID();
-    githubFlows.set(flowId, { deviceCode: body.device_code, clientId, purpose, ownerId, intervalMs: Math.max(5, Number(body.interval) || 5) * 1000, nextPollAt: 0, expiresAt: now() + Math.min(Number(body.expires_in) || 900, 900) * 1000, status: "pending" });
+    githubFlows.set(flowId, { deviceCode: body.device_code, clientId, purpose, ownerId, client, intervalMs: Math.max(5, Number(body.interval) || 5) * 1000, nextPollAt: 0, expiresAt: now() + Math.min(Number(body.expires_in) || 900, 900) * 1000, status: "pending" });
     return { flowId, userCode: body.user_code, verificationUri: body.verification_uri, expiresIn: Number(body.expires_in) || 900, intervalSeconds: Math.max(5, Number(body.interval) || 5) };
   }
 

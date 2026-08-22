@@ -23,7 +23,9 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
       connection.on("end", () => {
         if (settled) return;
         try {
-          const response = JSON.parse(payload.trim());
+          // The helper may send "queued" heartbeat lines first; the reply is the last complete line.
+          const lines = payload.split("\n").map((line) => line.trim()).filter(Boolean);
+          const response = JSON.parse(lines.at(-1) ?? "");
           if (response.id !== id) throw new Error("Helper response id did not match the request");
           if (!response.ok) throw new Error(response.error ?? "Helper operation failed");
           settled = true;

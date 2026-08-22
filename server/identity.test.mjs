@@ -97,3 +97,23 @@ describe("per-account identity links", () => {
     expect(identity.githubLinked("HelperDev")).toBe(true);
   });
 });
+
+describe("GitHub device-flow limits", () => {
+  it("caps anonymous sign-in flows per client and keeps headroom for the owner's link flow", async () => {
+    const state = await store();
+    const owner = state.consumeBootstrapToken(state.createBootstrapToken().token, { username: "admin", passwordHash: "x" });
+    state.setSetting("githubClientId", "Ov23liabcdefghijklmn");
+    let issued = 0;
+    const fetchImpl = async (url) => (String(url).includes("device/code")
+      ? { ok: true, json: async () => ({ device_code: `d${issued++}`, user_code: "ABCD-EFGH", verification_uri: "https://github.com/login/device", interval: 5, expires_in: 900 }) }
+      : { ok: false, json: async () => ({}) });
+    const identity = createIdentityService({ store: state, fetchImpl, now: () => 1000 });
+    await identity.githubStart({ purpose: "signin", client: "100.64.0.9" });
+    await identity.githubStart({ purpose: "signin", client: "100.64.0.9" });
+    await expect(identity.githubStart({ purpose: "signin", client: "100.64.0.9" })).rejects.toThrow("from this device");
+    for (const client of ["a", "b", "c"]) await identity.githubStart({ purpose: "signin", client });
+    await expect(identity.githubStart({ purpose: "signin", client: "d" })).rejects.toThrow("sign-in attempts in progress");
+    // The owner can still start a link flow while sign-in slots are full.
+    await expect(identity.githubStart({ purpose: "link", ownerId: owner.id, client: "e" })).resolves.toMatchObject({ userCode: "ABCD-EFGH" });
+  });
+});

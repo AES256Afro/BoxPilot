@@ -7,8 +7,11 @@ import { Router } from "express";
 export function createJobsRouter({ state, jobs, scheduler, jobLogReader, auth }) {
   const router = Router();
 
+  /** Everyone sees their own jobs; the owner sees the whole box. */
+  const scopeFor = (request) => (request.boxpilotSession?.owner?.role === "owner" ? {} : { createdBy: request.boxpilotSession.owner.id });
+
   router.get("/jobs", (request, response) => {
-    response.json({ jobs: state.listJobs(request.query.limit) });
+    response.json({ jobs: state.listJobs(request.query.limit, scopeFor(request)) });
   });
 
   // Server-sent events for the Activity drawer: recent jobs on connect, then a snapshot of each
@@ -16,8 +19,9 @@ export function createJobsRouter({ state, jobs, scheduler, jobLogReader, auth })
   router.get("/events", (request, response) => {
     response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive", "X-Accel-Buffering": "no" });
     const send = (event, data) => response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-    send("snapshot", { jobs: state.listJobs(30) });
-    const unsubscribe = state.subscribeJobs((job) => send("job", { job }));
+    const scope = scopeFor(request);
+    send("snapshot", { jobs: state.listJobs(30, scope) });
+    const unsubscribe = state.subscribeJobs((job) => { if (!scope.createdBy || job.createdBy === scope.createdBy) send("job", { job }); });
     const heartbeat = setInterval(() => response.write(": ping\n\n"), 25_000);
     request.on("close", () => { clearInterval(heartbeat); unsubscribe(); });
   });
