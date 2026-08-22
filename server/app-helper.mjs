@@ -527,10 +527,16 @@ export function createAppHelper({
     const contents = ["boxpilot.json"];
     for (const name of ["compose.yaml", ".env"]) { try { await stat(path.join(directory, name)); contents.push(name); } catch { /* uninstalled apps have no compose.yaml */ } }
     const skippedHostPaths = [];
+    const skippedVolumes = [];
     for (const volume of manifest.volumes) {
-      if (!volume.backup) continue;
-      if (volume.path) { try { await stat(path.join(directory, volume.path)); contents.push(volume.path); } catch { /* volume directory not created yet */ } }
-      else if (volume.hostPath) skippedHostPaths.push(volume.hostPath);
+      // Anything not going into the archive is recorded, so the owner is told what a backup leaves out
+      // — whether it is a folder they chose or a volume the manifest does not archive.
+      if (!volume.backup || !volume.path) {
+        if (volume.hostPath) skippedHostPaths.push(volume.hostPath);
+        else if (volume.path) skippedVolumes.push(volume.label ?? volume.id);
+        continue;
+      }
+      try { await stat(path.join(directory, volume.path)); contents.push(volume.path); } catch { /* volume directory not created yet */ }
     }
     for (const sidecar of manifest.sidecars ?? []) {
       for (const volume of sidecar.volumes) {
@@ -574,7 +580,7 @@ export function createAppHelper({
       if (!start.ok) throw new Error(`The backup succeeded (${path.basename(artifact)}), but ${manifest.name} did not start again: ${redact(start.stderr).split("\n").slice(-3).join(" ")}`);
     }
     const [checksumSha256, artifactStat] = await Promise.all([sha256File(artifact), stat(artifact)]);
-    const meta = { id, createdAt: clock().toISOString(), artifact: path.basename(artifact), checksumSha256, sizeBytes: artifactStat.size, downtimeMs, contents, skippedHostPaths, image: state.image?.reference ?? null };
+    const meta = { id, createdAt: clock().toISOString(), artifact: path.basename(artifact), checksumSha256, sizeBytes: artifactStat.size, downtimeMs, contents, skippedVolumes, skippedHostPaths, image: state.image?.reference ?? null };
     await writeFile(path.join(backupDirectory, `${stamp}.json`), JSON.stringify(meta, null, 2), { mode: 0o600 });
     let pruned = [];
     if (keep !== null) {
@@ -600,7 +606,7 @@ export function createAppHelper({
       let meta = null;
       try { meta = JSON.parse(await readFile(path.join(backupDirectory, name.replace(/\.tar\.gz$/, ".json")), "utf8")); } catch { meta = null; }
       const artifactStat = await stat(path.join(backupDirectory, name)).catch(() => null);
-      backups.push({ artifact: name, createdAt: meta?.createdAt ?? artifactStat?.mtime?.toISOString() ?? null, sizeBytes: meta?.sizeBytes ?? artifactStat?.size ?? null, checksumSha256: meta?.checksumSha256 ?? null, downtimeMs: meta?.downtimeMs ?? null, skippedHostPaths: meta?.skippedHostPaths ?? [], image: meta?.image ?? null });
+      backups.push({ artifact: name, createdAt: meta?.createdAt ?? artifactStat?.mtime?.toISOString() ?? null, sizeBytes: meta?.sizeBytes ?? artifactStat?.size ?? null, checksumSha256: meta?.checksumSha256 ?? null, downtimeMs: meta?.downtimeMs ?? null, skippedHostPaths: meta?.skippedHostPaths ?? [], skippedVolumes: meta?.skippedVolumes ?? [], image: meta?.image ?? null });
     }
     return { id, directory: backupDirectory, backups };
   }
@@ -631,10 +637,31 @@ export function createAppHelper({
       const stop = await compose(id, ["stop"], { timeout: 120_000, progress });
       if (!stop.ok) throw new Error(`docker compose stop failed: ${redact(stop.stderr).split("\n").slice(-3).join(" ")}`);
     }
-    await mkdir(dirFor(id), { recursive: true, mode: 0o700 });
+    // Extract beside the app and swap, so the result is the backup and nothing else. Unpacking over
+    // the live directory would leave every file written since — for a database that means old control
+    // files next to newer WAL segments, which is neither the backup nor the present state.
+    const live = dirFor(id);
+    const staged = `${live}.restoring`;
+    const displaced = `${live}.replaced`;
+    await rm(staged, { recursive: true, force: true });
+    await rm(displaced, { recursive: true, force: true });
+    await mkdir(staged, { recursive: true, mode: 0o700 });
     progress?.(`$ tar -xzf ${backupName}`, "stdout");
-    const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", dirFor(id)], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
-    if (!extract.ok) throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. The safety backup above holds the pre-restore state.`);
+    const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", staged], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+    if (!extract.ok) {
+      await rm(staged, { recursive: true, force: true });
+      throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. Nothing was replaced; the safety backup above holds the pre-restore state.`);
+    }
+    if (await stat(live).then(() => true, () => false)) await rename(live, displaced);
+    try {
+      await rename(staged, live);
+    } catch (error) {
+      // Put the app back exactly as it was rather than leaving it with no directory at all.
+      if (await stat(displaced).then(() => true, () => false)) await rename(displaced, live).catch(() => {});
+      await rm(staged, { recursive: true, force: true });
+      throw new Error(`Could not swap in the restored files (${error.message}); the app was left as it was.`);
+    }
+    await rm(displaced, { recursive: true, force: true });
     const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
     if (!up.ok) throw new Error(`Restored the files, but docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
     const healthy = await waitHealthy(manifest, progress);

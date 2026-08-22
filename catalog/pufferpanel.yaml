@@ -29,7 +29,6 @@ volumes:
     label: Game servers
     container: /var/lib/pufferpanel
     path: servers
-    backup: false
 health:
   kind: running
   stableSeconds: 15

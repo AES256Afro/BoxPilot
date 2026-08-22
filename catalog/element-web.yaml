@@ -15,13 +15,6 @@ ports:
     container: 80
     host: 8108
     exposure: lan
-volumes:
-  - id: config
-    label: Client configuration
-    container: /app/config.json
-    hostPath: /srv/element/config.json
-    backup: false
-    description: Optional config.json to set the default home server; without it, enter the server address on the sign-in page.
 health:
   kind: running
   stableSeconds: 15

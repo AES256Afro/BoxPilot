@@ -24,7 +24,6 @@ volumes:
     label: Graph data
     container: /data
     path: data
-    backup: false
 env:
   - name: PUID
     default: "1000"

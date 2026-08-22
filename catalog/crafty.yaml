@@ -36,7 +36,6 @@ volumes:
     label: Servers
     container: /crafty/servers
     path: servers
-    backup: false
   - id: config
     label: Configuration
     container: /crafty/app/config

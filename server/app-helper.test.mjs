@@ -330,3 +330,23 @@ describe("folders an app is pointed at", () => {
     expect(chowns).not.toContain(library);
   });
 });
+
+describe("restoring an application backup", () => {
+  it("replaces the app directory rather than unpacking over it", async () => {
+    const { apps, catalogRoot } = await setup();
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const appDir = path.join(catalogRoot, "demo");
+    const made = await apps.backup({ id: "demo", keep: 5 });
+
+    // Something written after the backup — a database segment, a new upload — must not survive a restore.
+    await writeFile(path.join(appDir, "written-later.txt"), "written after the backup");
+    await apps.restoreAppBackup({ id: "demo", backup: made.artifact });
+
+    // What the archive holds is back...
+    expect(await readFile(path.join(appDir, "compose.yaml"), "utf8")).toContain("services:");
+    await expect(readFile(path.join(appDir, "written-later.txt"), "utf8")).rejects.toThrow();
+    // No staging directories are left behind.
+    const siblings = await readdir(catalogRoot);
+    expect(siblings.filter((entry) => entry.includes(".restoring") || entry.includes(".replaced"))).toEqual([]);
+  });
+});

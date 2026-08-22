@@ -20,7 +20,6 @@ volumes:
     label: Images
     container: /var/lib/registry
     path: data
-    backup: false
 health:
   kind: running
   stableSeconds: 15
