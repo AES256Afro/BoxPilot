@@ -417,3 +417,16 @@ describe("job visibility", () => {
     expect(store.listJobs(50, { createdBy: helper.id }).map((job) => job.id)).toEqual([helperJob.id]);
   });
 });
+
+describe("the bootstrap token", () => {
+  it("can be checked without being spent, and stops being usable once it is", async () => {
+    const store = await testStore();
+    const { token } = store.createBootstrapToken();
+    // Checking is read-only: the setup screen can reject junk without paying for a password hash.
+    expect(store.bootstrapTokenUsable(token)).toBe(true);
+    expect(store.bootstrapTokenUsable(token)).toBe(true);
+    expect(store.bootstrapTokenUsable("not-a-real-token")).toBe(false);
+    store.consumeBootstrapToken(token, { username: "admin", passwordHash: "x" });
+    expect(store.bootstrapTokenUsable(token)).toBe(false);
+  });
+});

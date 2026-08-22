@@ -8,6 +8,13 @@ const scrypt = promisify(scryptCallback);
 const usernamePattern = /^[a-zA-Z0-9][a-zA-Z0-9_.-]{2,31}$/;
 const passwordOptions = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 const cookieName = "boxpilot_session";
+/**
+ * Over HTTPS the session cookie carries the __Host- prefix, which pins it to this exact host: a
+ * ts.net tailnet shares a registrable domain, so another node on it could otherwise set a Domain
+ * cookie of the same name. The prefix requires Secure, so a LAN-only HTTP install keeps the plain
+ * name, and both names are read so nobody is signed out by an upgrade.
+ */
+const hostCookieName = `__Host-${cookieName}`;
 
 function safeEqual(left, right) {
   if (typeof left !== "string" || typeof right !== "string") return false;
@@ -16,16 +23,22 @@ function safeEqual(left, right) {
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
 
-function parseCookies(header = "") {
-  return Object.fromEntries(header.split(";").flatMap((part) => {
+export function parseCookies(header = "") {
+  const parsed = {};
+  const duplicated = new Set();
+  for (const part of String(header ?? "").split(";")) {
     const separator = part.indexOf("=");
-    if (separator < 1) return [];
-    try {
-      return [[part.slice(0, separator).trim(), decodeURIComponent(part.slice(separator + 1).trim())]];
-    } catch {
-      return [];
-    }
-  }));
+    if (separator < 1) continue;
+    const name = part.slice(0, separator).trim();
+    let value;
+    try { value = decodeURIComponent(part.slice(separator + 1).trim()); } catch { continue; }
+    // Two cookies of one name mean somebody set a second at a broader scope. Taking the last one
+    // silently picks whichever the browser happened to send first; neither is trustworthy.
+    if (name in parsed) { duplicated.add(name); continue; }
+    parsed[name] = value;
+  }
+  for (const name of duplicated) delete parsed[name];
+  return parsed;
 }
 
 function validateCredentials(username, password) {
@@ -51,9 +64,11 @@ export async function verifyPassword(password, encoded) {
   return safeEqual(Buffer.from(derived).toString("base64url"), expected);
 }
 
-export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } = {}) {
+export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, resolveClientAddress = null } = {}) {
   function requestSession(request) {
-    const token = parseCookies(request.get("cookie"))[cookieName];
+    const cookies = parseCookies(request.get("cookie"));
+    // The host-pinned name wins; the plain one keeps sessions issued before this alive.
+    const token = cookies[hostCookieName] ?? cookies[cookieName];
     const session = store.getSession(token);
     return session ? { ...session, token } : null;
   }
@@ -61,7 +76,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
   function cookieHeader(request, token, maxAgeSeconds) {
     const forwardedHttps = request.get("x-forwarded-proto")?.split(",")[0].trim() === "https";
     const secure = process.env.BOXPILOT_COOKIE_SECURE === "true" || (process.env.BOXPILOT_COOKIE_SECURE !== "false" && (request.secure || forwardedHttps));
-    return `${cookieName}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSeconds}${secure ? "; Secure" : ""}`;
+    return `${secure ? hostCookieName : cookieName}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAgeSeconds}${secure ? "; Secure" : ""}`;
   }
 
   /** Add a cookie without dropping one an earlier step already set (device cookie + session). */
@@ -106,7 +121,13 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
   /** Route guard for a role set; the session must already be attached by requireSession. */
   function requireRole(...roles) {
     return (request, response, next) => {
-      const role = request.boxpilotSession?.owner?.role ?? "owner";
+      // No session, no role. This used to default to "owner", so a route mounted ahead of
+      // requireSession would have granted anonymous callers everything.
+      if (!request.boxpilotSession?.owner) {
+        response.status(401).json({ error: "Sign in to do that", code: "unauthenticated" });
+        return;
+      }
+      const role = request.boxpilotSession.owner.role ?? "disabled";
       if (!roles.includes(role)) {
         response.status(403).json({ error: `This needs the ${roles.join(" or ")} role`, code: "forbidden" });
         return;
@@ -137,6 +158,13 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
       response.status(400).json({ error: errors.join(". "), code: "invalid_bootstrap" });
       return;
     }
+    // Check the token before hashing. scrypt costs ~16 MiB and ~100 ms on the shared thread pool,
+    // and this route has no session to throttle against, so hashing first let anyone who could
+    // reach the port stall the setup screen with junk tokens.
+    if (!store.bootstrapTokenUsable(bootstrapToken)) {
+      response.status(401).json({ error: "Bootstrap token is invalid or expired", code: "bootstrap_rejected" });
+      return;
+    }
     try {
       const passwordHash = await hashPassword(password);
       const owner = store.consumeBootstrapToken(bootstrapToken, { username, passwordHash });
@@ -148,8 +176,15 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     }
   }
 
-  /** Who is asking: the tailnet peer when BoxPilot is served over Tailscale, otherwise the socket address. */
-  const clientKey = (request) => `ip:${tailnetClientAddress(request) ?? request.socket?.remoteAddress ?? request.ip ?? "unknown"}`;
+  /**
+   * Who is asking: the tailnet peer when BoxPilot is served over Tailscale, otherwise the socket
+   * address. Behind Serve every socket is 127.0.0.1, so without the peer the throttle would treat
+   * every tailnet user as one caller — which is exactly the lock-out this key exists to avoid.
+   */
+  async function clientKeyFor(request) {
+    const peer = resolveClientAddress ? await resolveClientAddress(request).catch(() => null) : tailnetClientAddress(request);
+    return `ip:${peer ?? request.socket?.remoteAddress ?? request.ip ?? "unknown"}`;
+  }
 
   /**
    * Verify a password with throttling: five consecutive failures pause further attempts, doubling
@@ -163,7 +198,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
    * per-account ceiling still slows an attack spread across many callers.
    */
   async function checkPassword(request, owner, password) {
-    const caller = clientKey(request);
+    const caller = await clientKeyFor(request);
     const keys = owner ? [`user:${owner.id}|${caller}`] : ["user:unknown", caller];
     const gate = throttle.check(keys);
     if (gate.blocked) return { ok: false, blocked: true, retryAfterMs: gate.retryAfterMs };
@@ -272,7 +307,8 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     const session = request.boxpilotSession;
     store.deleteSession(session.token);
     store.recordAudit("session.deleted", { actorId: session.owner.id, subjectId: session.owner.id });
-    response.setHeader("Set-Cookie", cookieHeader(request, "", 0));
+    // Clear both names: whichever one this browser holds, signing out must end it.
+    response.setHeader("Set-Cookie", [cookieHeader(request, "", 0), `${cookieName}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`]);
     response.status(204).end();
   }
 

@@ -36,8 +36,11 @@ export function createIdentityRouter({ store, auth, identity }) {
     const tailscale = await identity.tailscaleIdentity(request);
     if (!tailscale.available) return response.status(401).json({ error: "This connection does not carry a Tailscale identity", code: "no_tailscale_identity" });
     if (!tailscale.linked) return response.status(403).json({ error: `${tailscale.login} is not linked to this BoxPilot. Sign in with your password and link it in Settings.`, code: "identity_not_linked" });
-    const account = store.findOwnerById(identity.tailscaleAccountFor(tailscale.login) ?? "");
-    if (!account) return response.status(403).json({ error: `${tailscale.login} is linked to an account that no longer exists`, code: "identity_not_linked" });
+    const found = store.findOwnerById(identity.tailscaleAccountFor(tailscale.login) ?? "");
+    // A disabled account is answered exactly like a missing one: otherwise this route tells an
+    // unauthenticated caller that the account exists, and checks a password against it.
+    const account = found && found.role !== "disabled" ? found : null;
+    if (!account) return response.status(403).json({ error: `${tailscale.login} is not linked to an account that can sign in`, code: "identity_not_linked" });
     // A browser signs in with the password once; after that the Tailscale identity alone is enough there.
     // Anything that can reach the loopback listener could otherwise claim a tailnet address.
     if (!auth.trustedDevice(request, account)) {
@@ -58,7 +61,7 @@ export function createIdentityRouter({ store, auth, identity }) {
 
   router.post("/auth/github/start", async (request, response) => {
     try {
-      const flow = await identity.githubStart({ purpose: "signin", client: request.socket?.remoteAddress ?? null });
+      const flow = await identity.githubStart({ purpose: "signin", client: (await identity.clientAddress(request)) ?? request.socket?.remoteAddress ?? null });
       return response.json(flow);
     } catch (error) {
       return response.status(503).json({ error: error.message, code: "github_start_failed" });

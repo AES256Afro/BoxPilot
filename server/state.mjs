@@ -336,6 +336,13 @@ export function createStateStore({
     return { token, expiresAt: iso(expiresAt) };
   }
 
+  /** Could this token still be spent? Read-only: consumeBootstrapToken remains the real guard. */
+  function bootstrapTokenUsable(token) {
+    if (typeof token !== "string" || !token.length) return false;
+    const entry = database.prepare("SELECT used_at, expires_at FROM bootstrap_tokens WHERE token_hash = ?").get(digest(token));
+    return Boolean(entry && !entry.used_at && entry.expires_at > timestamp());
+  }
+
   function consumeBootstrapToken(token, { username, passwordHash }) {
     const at = timestamp();
     database.exec("BEGIN IMMEDIATE");
@@ -1156,6 +1163,7 @@ export function createStateStore({
     databasePath: resolvedDatabasePath,
     ownerCount,
     createBootstrapToken,
+    bootstrapTokenUsable,
     consumeBootstrapToken,
     findOwnerByUsername,
     findFirstOwner,

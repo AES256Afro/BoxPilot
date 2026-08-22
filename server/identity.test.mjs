@@ -11,16 +11,24 @@ async function store() { const directory = await mkdtemp(path.join(os.tmpdir(), 
 const req = (remote, headers = {}) => ({ socket: { remoteAddress: remote }, get: (name) => headers[name.toLowerCase()] ?? undefined, headers });
 
 describe("tailnet addressing", () => {
-  it("recognises tailnet addresses and trusts X-Forwarded-For only from loopback", () => {
+  it("recognises tailnet addresses, and only tailnet addresses", () => {
     expect(isTailnetAddress("100.67.166.48")).toBe(true);
     expect(isTailnetAddress("::ffff:100.101.1.1")).toBe(true);
     expect(isTailnetAddress("fd7a:115c:a1e0::1")).toBe(true);
     expect(isTailnetAddress("192.168.1.10")).toBe(false);
     expect(isTailnetAddress("100.200.1.1")).toBe(false);
+    // The marker followed by anything at all used to pass, so a caller could mint an unlimited
+    // supply of distinct "addresses" — each one a whois subprocess and a permanent cache entry.
+    expect(isTailnetAddress(`fd7a:115c:a1e0:${"9".repeat(4000)}`)).toBe(false);
+  });
+
+  it("believes a forwarded address only when told the proxy in front is trustworthy", () => {
     expect(tailnetClientAddress(req("100.67.166.48"))).toBe("100.67.166.48");
-    expect(tailnetClientAddress(req("127.0.0.1", { "x-forwarded-for": "100.67.166.49" }))).toBe("100.67.166.49");
-    expect(tailnetClientAddress(req("192.168.1.20", { "x-forwarded-for": "100.67.166.49" }))).toBeNull();
-    expect(tailnetClientAddress(req("127.0.0.1", { "x-forwarded-for": "203.0.113.5" }))).toBeNull();
+    // Loopback alone proves nothing: an SSH tunnel or a container on this box reaches loopback too.
+    expect(tailnetClientAddress(req("127.0.0.1", { "x-forwarded-for": "100.67.166.49" }))).toBeNull();
+    expect(tailnetClientAddress(req("127.0.0.1", { "x-forwarded-for": "100.67.166.49" }), { trustForwarded: true })).toBe("100.67.166.49");
+    expect(tailnetClientAddress(req("192.168.1.20", { "x-forwarded-for": "100.67.166.49" }), { trustForwarded: true })).toBeNull();
+    expect(tailnetClientAddress(req("127.0.0.1", { "x-forwarded-for": "203.0.113.5" }), { trustForwarded: true })).toBeNull();
     expect(tailnetClientAddress(req("192.168.1.20"))).toBeNull();
   });
 });
@@ -29,7 +37,14 @@ describe("identity service", () => {
   it("resolves and links a Tailscale identity via whois", async () => {
     const state = await store();
     const owner = state.consumeBootstrapToken(state.createBootstrapToken().token, { username: "admin", passwordHash: "x" });
-    const run = vi.fn(async (_binary, args) => args[0] === "whois" && args[2] === "100.67.166.49" ? { ok: true, stdout: JSON.stringify({ Node: { Name: "laptop.tail.ts.net." }, UserProfile: { LoginName: "me@example.com", DisplayName: "Me" } }), stderr: "" } : { ok: false, stdout: "", stderr: "no match" });
+    // Serve is proxying this port, which is what makes a forwarded address believable.
+    const serveStatus = JSON.stringify({ Web: { "box.tail1234.ts.net:443": { Handlers: { "/": { Proxy: "http://127.0.0.1:8787" } } } } });
+    const run = vi.fn(async (_binary, args) => {
+      if (args[0] === "serve") return { ok: true, stdout: serveStatus, stderr: "" };
+      return args[0] === "whois" && args[2] === "100.67.166.49"
+        ? { ok: true, stdout: JSON.stringify({ Node: { Name: "laptop.tail.ts.net." }, UserProfile: { LoginName: "me@example.com", DisplayName: "Me" } }), stderr: "" }
+        : { ok: false, stdout: "", stderr: "no match" };
+    });
     const identity = createIdentityService({ store: state, run, now: () => 1000 });
     expect(await identity.tailscaleIdentity(req("192.168.1.20"))).toMatchObject({ available: false, reason: "not-tailnet" });
     expect(await identity.tailscaleIdentity(req("100.67.166.50"))).toMatchObject({ available: false, reason: "whois-unavailable" });
@@ -37,9 +52,14 @@ describe("identity service", () => {
     expect(me).toMatchObject({ available: true, login: "me@example.com", displayName: "Me", node: "laptop.tail.ts.net", linked: false });
     expect(identity.linkTailscale(owner.id, "me@example.com")).toEqual(["me@example.com"]);
     expect((await identity.tailscaleIdentity(req("100.67.166.49"))).linked).toBe(true);
-    expect(run).toHaveBeenCalledTimes(2); // cached
+    expect(run.mock.calls.filter(([, args]) => args[0] === "whois")).toHaveLength(2); // cached
     expect(identity.unlinkTailscale(owner.id, "me@example.com")).toEqual([]);
     expect(() => identity.linkTailscale(owner.id, "not-an-email")).toThrow("email");
+
+    // Without Serve in front, a loopback caller's X-Forwarded-For is just a header they wrote:
+    // an SSH tunnel or any container on the box could otherwise claim to be any tailnet peer.
+    const withoutServe = createIdentityService({ store: state, now: () => 1000, run: vi.fn(async (_binary, args) => (args[0] === "serve" ? { ok: true, stdout: "{}", stderr: "" } : { ok: true, stdout: JSON.stringify({ UserProfile: { LoginName: "me@example.com" } }), stderr: "" })) });
+    expect(await withoutServe.tailscaleIdentity(req("127.0.0.1", { "x-forwarded-for": "100.67.166.49" }))).toMatchObject({ available: false, reason: "not-tailnet" });
     expect(state.listAudit().map((event) => event.type)).toEqual(expect.arrayContaining(["identity.tailscale.linked", "identity.tailscale.unlinked"]));
     state.close();
   });
@@ -66,9 +86,12 @@ describe("identity service", () => {
     clock += 6000;
     expect(await identity.githubPoll(flow.flowId)).toMatchObject({ status: "complete", login: "AES256Afro", purpose: "link", ownerId: owner.id });
     expect(await identity.githubPoll(flow.flowId)).toMatchObject({ status: "expired" });
-    expect(identity.githubLinked("aes256afro")).toBe(false);
-    identity.linkGithub(owner.id, "AES256Afro");
-    expect(identity.githubLinked("aes256afro")).toBe(true);
+    expect(identity.githubLinked("aes256afro", 4242)).toBe(false);
+    identity.linkGithub(owner.id, "AES256Afro", 4242);
+    // The numeric id is what identifies the account: GitHub releases a login when an account is
+    // renamed or deleted, and whoever registers it next must not inherit the link.
+    expect(identity.githubLinked("aes256afro", 4242)).toBe(true);
+    expect(identity.githubLinked("aes256afro", 9999)).toBe(false);
     expect(identity.summary()).toMatchObject({ githubLogins: ["AES256Afro"], githubConfigured: true });
     identity.unlinkGithub(owner.id, "AES256Afro");
     expect(identity.summary().githubLogins).toEqual([]);
@@ -94,7 +117,11 @@ describe("per-account identity links", () => {
     identity.linkGithub(operator.id, "HelperDev", 4242);
     expect(identity.githubAccountFor("helperdev", 4242)).toBe(operator.id);
     expect(identity.githubAccountFor("helperdev", 9999)).toBeNull(); // a renamed login reused by someone else
-    expect(identity.githubLinked("HelperDev")).toBe(true);
+    expect(identity.githubLinked("HelperDev", 4242)).toBe(true);
+    // A bare login recorded before ids were kept is not an authentication source any more: the
+    // owner re-links it from Settings rather than have a released name sign in as the first owner.
+    state.setSetting("githubLogins", ["legacydev"]);
+    expect(identity.githubAccountFor("legacydev", 1234)).toBeNull();
   });
 });
 

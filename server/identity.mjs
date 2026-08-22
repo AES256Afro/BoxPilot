@@ -10,13 +10,15 @@ import { fixedRun } from "./exec.mjs";
 import { productVersion } from "./version.mjs";
 
 const tailnetV4 = /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}$/;
-const tailnetV6 = /^fd7a:115c:a1e0:/i;
+// Anchored at both ends: the old prefix-only test accepted the marker followed by anything at all,
+// so a caller could mint unlimited distinct "addresses", each one a whois subprocess and a cache entry.
+const tailnetV6 = /^fd7a:115c:a1e0(?::[0-9a-f]{0,4}){1,6}$/i;
 const loopbacks = new Set(["127.0.0.1", "::1"]);
 const githubLoginPattern = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 const clientIdPattern = /^[A-Za-z0-9._-]{6,128}$/;
 
 export function normalizeAddress(value) {
-  if (typeof value !== "string") return null;
+  if (typeof value !== "string" || value.length > 64) return null; // an address is never this long
   const trimmed = value.trim().replace(/^::ffff:/i, "").replace(/%.*$/, "");
   return trimmed || null;
 }
@@ -26,11 +28,20 @@ export function isTailnetAddress(value) {
   return Boolean(address && (tailnetV4.test(address) || tailnetV6.test(address)));
 }
 
-/** Work out which tailnet address (if any) stands behind a request. Loopback + X-Forwarded-For is only trusted because only local proxies (Tailscale Serve) can reach loopback. */
-export function tailnetClientAddress(request) {
+/**
+ * Which tailnet address (if any) stands behind a request.
+ *
+ * A request that arrives *from* a tailnet address speaks for itself. A request from loopback
+ * carrying X-Forwarded-For only speaks for that address when Tailscale Serve is the thing in
+ * front of us — and "loopback" is not evidence of that: the installer's local mode, an SSH tunnel
+ * (which the installer itself recommends), and every container BoxPilot deploys can all reach
+ * loopback and set any header they like. `trustForwarded` is decided by asking Serve whether it
+ * is proxying this port, which an unprivileged local process cannot arrange.
+ */
+export function tailnetClientAddress(request, { trustForwarded = false } = {}) {
   const remote = normalizeAddress(request.socket?.remoteAddress ?? request.ip ?? null);
   if (isTailnetAddress(remote)) return remote;
-  if (remote && loopbacks.has(remote)) {
+  if (trustForwarded && remote && loopbacks.has(remote)) {
     // Tailscale Serve sets exactly one hop. A chain means someone forged the header, so it is ignored.
     const forwarded = String(request.get?.("x-forwarded-for") ?? request.headers?.["x-forwarded-for"] ?? "").split(",").map((part) => normalizeAddress(part)).filter(Boolean);
     if (forwarded.length === 1 && isTailnetAddress(forwarded[0])) return forwarded[0];
@@ -45,18 +56,53 @@ export function createIdentityService({
   fetchImpl = globalThis.fetch,
   now = () => Date.now(),
   whoisTtlMs = 30_000,
+  webPort = Number.parseInt(process.env.BOXPILOT_PORT ?? "8787", 10),
+  serveTtlMs = 60_000,
 } = {}) {
   const whoisCache = new Map();
   const githubFlows = new Map();
+  let serveState = null; // { at, proxying }
+
+  /**
+   * Is Tailscale Serve proxying this port? That is what makes a loopback request carrying
+   * X-Forwarded-For trustworthy — Serve's configuration needs privilege to change, so an ordinary
+   * local process cannot arrange to be believed.
+   */
+  async function serveProxiesUs() {
+    if (serveState && now() - serveState.at < serveTtlMs) return serveState.proxying;
+    let proxying = false;
+    const result = await run(tailscaleBinary, ["serve", "status", "--json"], { timeout: 5_000 }).catch(() => ({ ok: false }));
+    if (result.ok) {
+      try {
+        const web = JSON.parse(result.stdout || "{}")?.Web ?? {};
+        proxying = Object.values(web).some((entry) => Object.values(entry?.Handlers ?? {}).some((handler) => typeof handler?.Proxy === "string" && handler.Proxy.includes(`:${webPort}`)));
+      } catch { proxying = false; }
+    }
+    serveState = { at: now(), proxying };
+    return proxying;
+  }
+
+  /** The tailnet address behind a request, believing X-Forwarded-For only when Serve is in front. */
+  async function addressFor(request) {
+    const direct = tailnetClientAddress(request);
+    if (direct) return direct;
+    return tailnetClientAddress(request, { trustForwarded: await serveProxiesUs() });
+  }
 
   function setting(key, fallback) { return store.getSetting(key, fallback); }
   function logins(key) { const value = setting(key, []); return Array.isArray(value) ? value.filter((item) => typeof item === "string") : []; }
   function links(key) { const value = setting(key, {}); return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}; }
 
   // ---- Tailscale ---------------------------------------------------------------------------
+  const whoisCacheLimit = 500;
   async function whois(address) {
     const cached = whoisCache.get(address);
     if (cached && now() - cached.at < whoisTtlMs) return cached.value;
+    // Bounded: the key comes from the request, so an unbounded map is something a caller can grow.
+    if (whoisCache.size >= whoisCacheLimit) {
+      for (const [key, entry] of whoisCache) if (now() - entry.at >= whoisTtlMs) whoisCache.delete(key);
+      while (whoisCache.size >= whoisCacheLimit) whoisCache.delete(whoisCache.keys().next().value);
+    }
     const result = await run(tailscaleBinary, ["whois", "--json", address], { timeout: 5_000 });
     let value = null;
     if (result.ok) {
@@ -71,7 +117,7 @@ export function createIdentityService({
   }
 
   async function tailscaleIdentity(request) {
-    const address = tailnetClientAddress(request);
+    const address = await addressFor(request);
     if (!address) return { available: false, reason: "not-tailnet", login: null, displayName: null, node: null, linked: false };
     const identity = await whois(address).catch(() => null);
     if (!identity) return { available: false, reason: "whois-unavailable", login: null, displayName: null, node: null, linked: false, address };
@@ -123,8 +169,14 @@ export function createIdentityService({
     store.recordAudit("identity.github.client-id", { actorId: ownerId, subjectId: ownerId, details: { configured: Boolean(clientId) } });
   }
 
+  const abandonedFlowMs = 3 * 60_000;
   function pruneFlows() {
-    for (const [id, flow] of githubFlows) if (now() > flow.expiresAt) githubFlows.delete(id);
+    for (const [id, flow] of githubFlows) {
+      // A flow the browser stopped polling is abandoned, and holding it for its full fifteen
+      // minutes let two unanswered requests occupy the sign-in cap for that whole time.
+      const abandoned = flow.status === "pending" && now() - (flow.lastPolledAt ?? flow.startedAt ?? 0) > abandonedFlowMs;
+      if (now() > flow.expiresAt || abandoned) githubFlows.delete(id);
+    }
   }
 
   async function githubStart({ purpose = "signin", ownerId = null, client = null } = {}) {
@@ -144,7 +196,7 @@ export function createIdentityService({
     const body = await response.json().catch(() => ({}));
     if (!response.ok || !body.device_code) throw new Error(body.error_description ?? body.error ?? `GitHub returned ${response.status}`);
     const flowId = randomUUID();
-    githubFlows.set(flowId, { deviceCode: body.device_code, clientId, purpose, ownerId, client, intervalMs: Math.max(5, Number(body.interval) || 5) * 1000, nextPollAt: 0, expiresAt: now() + Math.min(Number(body.expires_in) || 900, 900) * 1000, status: "pending" });
+    githubFlows.set(flowId, { deviceCode: body.device_code, clientId, purpose, ownerId, client, startedAt: now(), lastPolledAt: now(), intervalMs: Math.max(5, Number(body.interval) || 5) * 1000, nextPollAt: 0, expiresAt: now() + Math.min(Number(body.expires_in) || 900, 900) * 1000, status: "pending" });
     return { flowId, userCode: body.user_code, verificationUri: body.verification_uri, expiresIn: Number(body.expires_in) || 900, intervalSeconds: Math.max(5, Number(body.interval) || 5) };
   }
 
@@ -153,6 +205,7 @@ export function createIdentityService({
     pruneFlows();
     const flow = githubFlows.get(flowId);
     if (!flow) return { status: "expired" };
+    flow.lastPolledAt = now(); // a flow being polled is not abandoned
     if (flow.status !== "pending") { githubFlows.delete(flowId); return { status: flow.status, login: flow.login ?? null, githubId: flow.githubId ?? null, purpose: flow.purpose, ownerId: flow.ownerId };
     }
     if (now() < flow.nextPollAt) return { status: "pending", purpose: flow.purpose };
@@ -175,11 +228,12 @@ export function createIdentityService({
   function githubAccountFor(login, githubId = null) {
     if (typeof login !== "string") return null;
     const entry = links("githubLinks")[login.toLowerCase()];
-    if (entry && typeof entry.ownerId === "string") {
-      if (entry.id !== null && entry.id !== undefined && githubId !== null && githubId !== undefined && String(entry.id) !== String(githubId)) return null;
-      return entry.ownerId;
-    }
-    return logins("githubLogins").some((item) => item.toLowerCase() === login.toLowerCase()) ? store.findFirstOwner()?.id ?? null : null;
+    if (!entry || typeof entry.ownerId !== "string") return null;
+    // Links made before ids were recorded are not an authentication source: GitHub releases a
+    // name when an account is renamed or deleted, and whoever registers it next is a different
+    // person. Those entries need re-linking from Settings.
+    if (entry.id === undefined || entry.id === null) return null;
+    return String(entry.id) === String(githubId ?? "") ? entry.ownerId : null;
   }
 
   function githubLinked(login, githubId = null) { return Boolean(githubAccountFor(login, githubId)); }
@@ -215,5 +269,5 @@ export function createIdentityService({
     return { tailscaleLogins: mine(logins("tailscaleLogins"), tailscaleAccountFor), githubLogins: mine(logins("githubLogins"), (login) => githubAccountFor(login)), githubConfigured: githubConfigured(), githubClientId: githubConfigured() ? String(setting("githubClientId", "")) : "" };
   }
 
-  return { tailscaleIdentity, tailscaleAccountFor, githubAccountFor, linkTailscale, unlinkTailscale, githubConfigured, setGithubClientId, githubStart, githubPoll, githubLinked, linkGithub, unlinkGithub, summary, internals: { whois, flows: githubFlows } };
+  return { clientAddress: addressFor, tailscaleIdentity, tailscaleAccountFor, githubAccountFor, linkTailscale, unlinkTailscale, githubConfigured, setGithubClientId, githubStart, githubPoll, githubLinked, linkGithub, unlinkGithub, summary, internals: { whois, flows: githubFlows } };
 }
