@@ -87,7 +87,7 @@ const vmRetention = createVmRetentionService({ store: state, helper });
 const vmRestoreDrills = createVmRestoreDrillService({ store: state, helper });
 const recoveryKit = createRecoveryKitService({ store: state, prerequisites, helper, libvirt });
 const actionCenter = createActionCenterService({ recoveryKit, inventory });
-const supportBundle = createSupportBundleService({ inventory, prerequisites, actionCenter, audit, helper });
+const supportBundle = createSupportBundleService({ inventory, prerequisites, actionCenter, audit, helper, store: state });
 const catalogService = createCatalogService();
 // Device globs in manifests are resolved by this process: the helper's sandbox has no real /dev.
 const withResolvedDevices = createDeviceResolver({ catalog: catalogService });

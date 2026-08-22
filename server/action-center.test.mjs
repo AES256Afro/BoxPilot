@@ -101,3 +101,20 @@ describe("read-only local Action Center", () => {
     expect(serialized).not.toContain("shutdown -");
   });
 });
+
+describe("a box with nothing outstanding", () => {
+  it("can actually reach the all-clear", async () => {
+    // "Keep the release archive somewhere else" is standing advice, not something the owner can
+    // clear on this server, so it used to sit in the list for ever and the all-clear was dead code.
+    const kit = { generatedAt: "2026-08-22T00:00:00.000Z", evidence: { jobs: [] }, checks: [
+      { id: "controller.database", state: "verified", title: "x", evidence: "e", action: "a" },
+      { id: "controller.source", state: "informational", title: "y", evidence: "e", action: "a" },
+      { id: "applications.backup", state: "verified", title: "z", evidence: "e", action: "a" },
+    ] };
+    const service = createActionCenterService({ recoveryKit: { inspect: async () => kit }, inventory: null });
+    const result = await service.inspect();
+    expect(result.notices).toHaveLength(1);
+    expect(result.notices[0].id).toBe("action-center.no-current-actions");
+    expect(result.sourceStatus).toBe("ready");
+  });
+});

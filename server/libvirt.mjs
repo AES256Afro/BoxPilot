@@ -233,7 +233,7 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
     };
   }
 
-  async function getDomain(name) {
+  async function getDomain(name, { probeGuestAgent = true } = {}) {
     if (!validateDomainName(name)) return null;
     const infoResult = await runCommand("virsh", ["--connect", connectionUri, "dominfo", name]);
     if (!infoResult.ok) return null;
@@ -245,8 +245,8 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
       runCommand("virsh", ["--connect", connectionUri, "domblklist", name, "--details"]),
       runCommand("virsh", ["--connect", connectionUri, "domiflist", name]),
       runCommand("virsh", ["--connect", connectionUri, "snapshot-list", name, "--name"]),
-      running ? runCommand("virsh", ["--connect", connectionUri, "qemu-agent-command", name, '{"execute":"guest-ping"}']) : Promise.resolve({ ok: false, stdout: "", stderr: "Guest is not running" }),
-      running ? runCommand("virsh", ["--connect", connectionUri, "qemu-agent-command", name, '{"execute":"guest-fsfreeze-status"}']) : Promise.resolve({ ok: false, stdout: "", stderr: "Guest is not running" }),
+      running && probeGuestAgent ? runCommand("virsh", ["--connect", connectionUri, "qemu-agent-command", name, '{"execute":"guest-ping"}']) : Promise.resolve({ ok: false, stdout: "", stderr: running ? "Guest agent not probed in the list view" : "Guest is not running" }),
+      running && probeGuestAgent ? runCommand("virsh", ["--connect", connectionUri, "qemu-agent-command", name, '{"execute":"guest-fsfreeze-status"}']) : Promise.resolve({ ok: false, stdout: "", stderr: running ? "Guest agent not probed in the list view" : "Guest is not running" }),
     ]);
     const snapshotNames = snapshotResult.ok ? snapshotResult.stdout.split("\n").map((snapshot) => snapshot.trim()).filter(Boolean) : [];
     const snapshots = await Promise.all(snapshotNames.map(async (snapshotName) => {
@@ -290,13 +290,27 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
     };
   }
 
+  /** Run `work` over `items` with at most `limit` in flight, preserving order. */
+  async function mapWithLimit(items, limit, work) {
+    const results = new Array(items.length);
+    let next = 0;
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      for (let index = next++; index < items.length; index = next++) results[index] = await work(items[index], index);
+    });
+    await Promise.all(workers);
+    return results;
+  }
+
   async function listDomains() {
     const result = await runCommand("virsh", ["--connect", connectionUri, "list", "--all", "--name"]);
     if (!result.ok) {
       return { connected: false, domains: [], error: result.stderr || "Unable to query libvirt" };
     }
     const names = result.stdout.split("\n").map((name) => name.trim()).filter(Boolean);
-    const domains = (await Promise.all(names.map(getDomain))).filter(Boolean);
+    // Bounded fan-out, and no guest-agent probes here: on a VM without an agent each probe waits
+    // out libvirt's timeout, and this list is what the Overview loads. The per-VM read still does
+    // them. Eight domains with four snapshots each was ~100 concurrent virsh processes.
+    const domains = (await mapWithLimit(names, 4, (name) => getDomain(name, { probeGuestAgent: false }))).filter(Boolean);
     return { connected: true, domains, error: null };
   }
 
