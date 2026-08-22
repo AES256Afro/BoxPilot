@@ -11,7 +11,9 @@ export default function VmMediaLibrary({ csrfToken }: { csrfToken: string; onOpe
   const stagedCandidates = inventory?.inbox?.candidates ?? [];
 
   const refresh = async () => {
-    setInventory(await fetchVmMedia());
+    // Do not clear the message here: a refresh follows an upload, whose result the owner is reading.
+    try { setInventory(await fetchVmMedia()); }
+    catch (error) { setMessage(error instanceof Error ? error.message : "Unable to load VM media"); }
   };
 
   useEffect(() => {

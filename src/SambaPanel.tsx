@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode, useRef } from "react";
 import type { PendingOperation } from "./ApproveDialog";
 
 interface ShareConfig { name: string; path: string; comment: string | null; readOnly: boolean; guest: boolean; users: string[]; forceUser?: string | null }
@@ -24,6 +24,8 @@ export default function SambaPanel({ start, folders, refreshKey }: { start: (ope
   const [scope, setScope] = useState<"tailscale" | "lan">("tailscale");
   const [workgroup, setWorkgroup] = useState("WORKGROUP");
   const [dirty, setDirty] = useState(false);
+  const dirtyRef = useRef(false);
+  dirtyRef.current = dirty;
   const [name, setName] = useState("");
   const [path, setPath] = useState("");
   const [comment, setComment] = useState("");
@@ -40,10 +42,12 @@ export default function SambaPanel({ start, folders, refreshKey }: { start: (ope
       if (!response.ok) throw new Error(body.error ?? "Could not read the file server state");
       setState(body);
       setError(body.error ?? null);
-      setDraft(body.config.shares.map((share) => ({ ...share, users: share.users ?? [] })));
-      setScope(body.config.scope);
-      setWorkgroup(body.config.workgroup || "WORKGROUP");
-      setDirty(false);
+      // Keep an unapplied draft: any operation on the Storage page refreshes this panel.
+      if (!dirtyRef.current) {
+        setDraft(body.config.shares.map((share) => ({ ...share, users: share.users ?? [] })));
+        setScope(body.config.scope);
+        setWorkgroup(body.config.workgroup || "WORKGROUP");
+      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read the file server state");
     }
@@ -76,7 +80,7 @@ export default function SambaPanel({ start, folders, refreshKey }: { start: (ope
   const connectHost = scope === "lan" && state?.lanAddress ? state.lanAddress : state?.tailscaleDnsName ?? state?.tailscaleAddress ?? "<this server>";
   const hint = (text: ReactNode) => <span className="muted">{text}</span>;
 
-  if (state && !state.installed) {
+  if (state && !state.installed && !state.error) {
     return (
       <section className="panel" id="file-server">
         <header className="panel-header"><div><strong>Share folders from this server</strong><span>Turn this server into a file server for your other devices. Samba is not installed yet.</span></div>

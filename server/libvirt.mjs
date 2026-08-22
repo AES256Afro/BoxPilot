@@ -150,6 +150,16 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
     }
   });
 
+  /** A pool's type and target path, which `virsh pool-info` does not print. */
+  async function poolDetail(name) {
+    const result = await runCommand("virsh", ["--connect", connectionUri, "pool-dumpxml", name]);
+    if (!result.ok) return { type: null, targetPath: null };
+    return {
+      type: result.stdout.match(/<pool[^>]*\stype=['"]([^'"]+)['"]/)?.[1] ?? null,
+      targetPath: result.stdout.match(/<target>[\s\S]*?<path>([^<]+)<\/path>/)?.[1]?.trim() ?? null,
+    };
+  }
+
   async function inspectResource(resource, name) {
     const result = await runCommand("virsh", ["--connect", connectionUri, `${resource}-info`, name]);
     if (!result.ok) return { exists: false, active: false, detail: result.stderr };
@@ -313,8 +323,9 @@ export function createLibvirtService({ runCommand = defaultRunCommand, checkKvmA
           active: resource.active,
           autostart: resource.autostart ?? false,
           persistent: resource.detail?.persistent === "yes",
-          type: resource.detail?.type ?? null,
-          targetPath: resource.detail?.target_path ?? null,
+          // pool-info reports capacity and state but not the type or path: those live in the XML.
+          type: (await poolDetail(name)).type,
+          targetPath: (await poolDetail(name)).targetPath,
           capacity: resource.detail?.capacity ?? null,
           allocation: resource.detail?.allocation ?? null,
           available: resource.detail?.available ?? null,

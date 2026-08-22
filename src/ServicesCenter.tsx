@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { readJson } from "./http";
 import { useOperation } from "./ApproveDialog";
 import { inspectOperation } from "./operations";
 
@@ -33,8 +34,7 @@ export default function ServicesCenter({ csrfToken }: { csrfToken: string }) {
   const showJournal = async (unit: string) => {
     try {
       const response = await fetch("/api/v1/operations/service.journal/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { unit, lines: 200 } }) });
-      const body = (await response.json()) as { result?: { lines: string[] }; error?: string };
-      if (!response.ok) throw new Error(body.error ?? "Could not read the journal");
+      const body = await readJson<{ result?: { lines: string[] } }>(response);
       setJournal({ unit, lines: body.result?.lines ?? [] });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read the journal");

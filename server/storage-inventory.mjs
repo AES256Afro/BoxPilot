@@ -50,7 +50,14 @@ export function parseLsblkTree(json) {
       continue;
     }
     if (row.path) seen.add(row.path);
-    if (internal(row)) continue;
+    // The -cow node is hidden from the tree, but its size is what the snapshot actually occupies.
+    if (internal(row)) {
+      if (/-cow$/.test(row.path ?? "")) {
+        const snapshot = rows.find((candidate) => candidate.path === row.path.replace(/-cow$/, ""));
+        if (snapshot) snapshot.cowBytes = (snapshot.cowBytes ?? 0) + (row.sizeBytes ?? 0);
+      }
+      continue;
+    }
     let parent = (row.pkname ? byKname.get(row.pkname) : null) ?? row.visitParent ?? null;
     while (parent && internal(parent)) parent = (parent.pkname ? byKname.get(parent.pkname) : null) ?? parent.visitParent ?? null;
     if (parent && parent !== row) {
@@ -152,7 +159,8 @@ export function volumeGroupsFrom(devices) {
       const { lv } = splitDmName(volume.path.slice("/dev/mapper/".length));
       const snapshot = lv.startsWith("boxpilot-snap-");
       group.logicalVolumes.push({ path: volume.path, name: lv, sizeBytes: volume.sizeBytes ?? 0, fstype: volume.fstype ?? null, mountpoints: volume.mountpoints, snapshot, growable: !snapshot && ["ext4", "ext3", "ext2", "xfs"].includes(volume.fstype ?? "") && volume.mountpoints.length > 0 });
-      group.usedBytes += volume.sizeBytes ?? 0;
+      // A snapshot consumes only its copy-on-write area; lsblk reports it with the origin's size.
+      group.usedBytes += (volume.snapshot ? volume.cowBytes ?? volume.sizeBytes : volume.sizeBytes) ?? 0;
     }
     groups.set(key, group);
   });

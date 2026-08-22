@@ -403,7 +403,7 @@ export function createStateStore({
     database.prepare("DELETE FROM sessions WHERE owner_id = ?").run(id);
     forgetTrustedDevices(id);
     recordAudit("people.role-changed", { actorId, subjectId: id, details: { username: account.username, from: account.role, to: role } });
-    return { ...account, role };
+    return { id: account.id, username: account.username, role, createdAt: account.createdAt };
   }
 
   /** Self-service password change; other sessions of the account are ended. */
@@ -437,7 +437,7 @@ export function createStateStore({
     database.prepare("DELETE FROM sessions WHERE owner_id = ?").run(id);
     forgetTrustedDevices(id);
     recordAudit("people.disabled", { actorId, subjectId: id, details: { username: account.username } });
-    return { ...account, role: "disabled" };
+    return { id: account.id, username: account.username, role: "disabled", createdAt: account.createdAt };
   }
 
   function createSession(ownerId, { ttlMs = 12 * 60 * 60 * 1000 } = {}) {
@@ -714,7 +714,12 @@ export function createStateStore({
     return getSchedule(id);
   }
 
+  /** Record a run. `nextDueAt: null` leaves the due time alone (used when a schedule is paused). */
   function markScheduleRun(id, { jobId = null, result = null, nextDueAt }) {
+    if (nextDueAt === null || nextDueAt === undefined) {
+      database.prepare("UPDATE schedules SET last_job_id = ?, last_result = ?, last_run_at = ? WHERE id = ?").run(jobId, result, timestamp(), id);
+      return getSchedule(id);
+    }
     database.prepare("UPDATE schedules SET last_run_at = ?, last_job_id = ?, last_result = ?, next_due_at = ? WHERE id = ?")
       .run(timestamp(), jobId, result, nextDueAt, id);
     return getSchedule(id);

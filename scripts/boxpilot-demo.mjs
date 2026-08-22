@@ -186,7 +186,7 @@ api.get("/network/plans", (_request, response) => json(response, { plans: [] }))
 api.get("/jobs", (_request, response) => json(response, { jobs }));
 api.get("/jobs/:id", (request, response) => json(response, { job: jobs.find((job) => job.id === request.params.id) ?? jobs[0] }));
 api.get("/backups", (_request, response) => json(response, { backups }));
-api.get("/controller-backup-protection", (_request, response) => json(response, { destination: { mounted: true, repositoryInitialized: true }, protections: [{ id: "p1", backupId: backups[0].id, createdAt: ago(2) }] }));
+api.get("/controller-backup-protection", (_request, response) => json(response, { destination: { ready: true, encrypted: true, repositoryId: "restic-controller", blockers: [], mounted: true, unusedInitialized: true }, protections: [{ id: "p1", backupId: backups[0].id, createdAt: ago(2) }] }));
 api.get("/controller-backup-retention", (_request, response) => json(response, { policy: { minimumCopies: 3, minimumAgeDays: 30 }, candidates: [] }));
 api.get("/settings/backup-destination", (_request, response) => json(response, { destination: { host: "nas.local", port: 22, user: "backup", path: "/volume1/boxpilot" }, lastSync: { completedAt: ago(26), filesTransferred: 3, bytesTransferred: 58 * 1024 ** 2, destination: "backup@nas.local:/volume1/boxpilot" } }));
 api.get("/settings/cloud-destination", (_request, response) => json(response, { destination: { provider: "b2", account: "001a2b3c4d5e", bucket: "homebox-backups", path: "homebox" }, lastSync: { completedAt: ago(26), filesTransferred: 3, bytesTransferred: "58.1 MiB", destination: "boxpilot:homebox-backups/homebox", errors: 0 } }));

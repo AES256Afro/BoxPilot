@@ -22,6 +22,9 @@ const homepageOperations = new Set(["homepage.sync", "app.install", "app.uninsta
 /** Everything shared with no subject of its own: apt, systemd, storage, firewall, users. */
 export const hostLane = "host";
 
+/** Operations that read or write the shared backup tree; they hold the host lane as well as their own. */
+const backupTreeOperations = new Set(["app.backup", "app.backup.restore", "backup.sync", "backup.remote.sync", "backup.cloud.sync"]);
+
 /** The lanes an operation must hold, as an array. Read-only operations never queue, so never get here. */
 export function laneFor(operation, parameters = {}) {
   const id = String(operation ?? "");
@@ -38,6 +41,8 @@ export function laneFor(operation, parameters = {}) {
     if (vm && !["vm.create", "vm.cloud.create", "vm.media.import", "vm.foundation.initialize"].includes(id)) lanes.push(`vm:${vm}`);
   }
   if (homepageOperations.has(id)) lanes.push(homepageLane);
+  // An app backup writes the same tree the mirrors read, so they serialize through the host lane.
+  if (backupTreeOperations.has(id)) lanes.push(hostLane);
   return lanes.length ? [...new Set(lanes)] : [hostLane];
 }
 

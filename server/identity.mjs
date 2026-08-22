@@ -209,8 +209,10 @@ export function createIdentityService({
     return next;
   }
 
-  function summary() {
-    return { tailscaleLogins: logins("tailscaleLogins"), githubLogins: logins("githubLogins"), githubConfigured: githubConfigured(), githubClientId: githubConfigured() ? String(setting("githubClientId", "")) : "" };
+  /** Identities linked to one account (all of them when `ownerId` is null, for the owner's view). */
+  function summary(ownerId = null) {
+    const mine = (list, accountFor) => (ownerId ? list.filter((login) => accountFor(login) === ownerId) : list);
+    return { tailscaleLogins: mine(logins("tailscaleLogins"), tailscaleAccountFor), githubLogins: mine(logins("githubLogins"), (login) => githubAccountFor(login)), githubConfigured: githubConfigured(), githubClientId: githubConfigured() ? String(setting("githubClientId", "")) : "" };
   }
 
   return { tailscaleIdentity, tailscaleAccountFor, githubAccountFor, linkTailscale, unlinkTailscale, githubConfigured, setGithubClientId, githubStart, githubPoll, githubLinked, linkGithub, unlinkGithub, summary, internals: { whois, flows: githubFlows } };

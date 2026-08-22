@@ -76,10 +76,21 @@ export function getJob(jobId: string): Promise<{ job: Job }> {
 export const terminalJobStates = new Set(["completed", "failed", "cancelled"]);
 
 /** Poll until the job reaches a terminal state. */
+/** Poll until the job finishes, tolerating a few failed polls (a restart, a sleeping laptop). */
 export async function waitForJob(jobId: string, { intervalMs = 2000, timeoutMs = 2 * 60 * 60 * 1000, sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)) } = {}): Promise<Job> {
   const started = Date.now();
+  let failures = 0;
   for (;;) {
-    const { job } = await getJob(jobId);
+    let job: Job;
+    try {
+      ({ job } = await getJob(jobId));
+      failures = 0;
+    } catch (error) {
+      failures += 1;
+      if (failures >= 5) throw error;
+      await sleep(intervalMs);
+      continue;
+    }
     if (terminalJobStates.has(job.state)) return job;
     if (Date.now() - started > timeoutMs) throw new Error("Timed out waiting for the job to finish");
     await sleep(intervalMs);

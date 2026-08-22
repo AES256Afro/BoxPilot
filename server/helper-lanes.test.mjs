@@ -3,7 +3,7 @@ import { createConcurrencyGate, createLaneQueues, exclusiveLane, laneFor } from 
 
 describe("helper lanes", () => {
   it("gives each app and VM its own lane and keeps shared host work on one", () => {
-    expect(laneFor("app.backup", { id: "jellyfin" })).toEqual(["app:jellyfin"]);
+    expect(laneFor("app.backup", { id: "jellyfin" })).toEqual(["app:jellyfin", "host"]);
     expect(laneFor("app.action", { id: "immich", action: "restart" })).toEqual(["app:immich"]);
     expect(laneFor("app.install", {})).toEqual(["app:homepage"]); // installs write the shared dashboard file
     expect(laneFor("app.backup", {})).toEqual(["host"]); // no subject: stay conservative
@@ -66,7 +66,7 @@ describe("apps that touch the shared dashboard", () => {
     expect(laneFor("app.purge", { id: "immich" })).toEqual(["app:immich", "app:homepage"]);
     expect(laneFor("homepage.sync", {})).toEqual(["app:homepage"]);
     // Everything else about an app still gets that app's own lane.
-    expect(laneFor("app.backup", { id: "jellyfin" })).toEqual(["app:jellyfin"]);
+    expect(laneFor("app.backup", { id: "jellyfin" })).toEqual(["app:jellyfin", "host"]);
     expect(laneFor("app.action", { id: "jellyfin", action: "restart" })).toEqual(["app:jellyfin"]);
   });
 });

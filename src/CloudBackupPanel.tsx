@@ -10,7 +10,7 @@ const fieldLabels: Record<string, string> = { account: "Key ID", bucket: "Bucket
 const placeholders: Record<string, string> = { bucket: "home-backups", path: "boxpilot", endpoint: "https://s3.eu-central-1.wasabisys.com", region: "us-east-1", url: "https://cloud.example.com/remote.php/dav/files/me/" };
 
 /** Cloud mirror of the local backup folders through rclone; credentials go only to root-only rclone.conf. */
-export default function CloudBackupPanel({ start, refreshKey = 0 }: { start: (operation: PendingOperation) => void; refreshKey?: number }) {
+export default function CloudBackupPanel({ start, refreshKey }: { start: (operation: PendingOperation) => void; refreshKey?: number }) {
   const [state, setState] = useState<CloudState | null>(null);
   const [settings, setSettings] = useState<CloudSettings | null>(null);
   const [error, setError] = useState<string | null>(null);

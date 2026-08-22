@@ -16,7 +16,7 @@ export const nfsConfPath = "/etc/nfs.conf.d/boxpilot.conf";
 export const managedMarker = "# Managed by BoxPilot";
 export const tailscaleRange = "100.64.0.0/10";
 export const scopes = Object.freeze(["tailscale", "lan"]);
-export const exportPathDenyPrefixes = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/usr", "/bin", "/sbin", "/lib", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/docker", "/var/lib/nfs"]);
+export const exportPathDenyPrefixes = Object.freeze(["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/opt", "/snap", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/libvirt", "/var/lib/docker", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/var/lib/docker", "/var/lib/nfs"]);
 export const maxExports = 32;
 
 const binaries = {
@@ -55,7 +55,9 @@ export function renderExports({ scope = "tailscale", lanSubnets = [], exports = 
   const lines = [managedMarker, "# Edit from the BoxPilot Storage page; manual changes here are overwritten on Apply.", ""];
   for (const entry of exports) {
     const path = cleanPath(entry.path) ?? entry.path;
-    const owner = owners[path] ?? { uid: 65534, gid: 65534 };
+    // A root-owned folder must squash to nobody: anonuid=0 would make every client root inside the export.
+    const recorded = owners[path];
+    const owner = recorded && recorded.uid !== 0 && recorded.gid !== 0 ? recorded : { uid: 65534, gid: 65534 };
     const options = [entry.readOnly ? "ro" : "rw", "sync", "no_subtree_check", "all_squash", `anonuid=${owner.uid}`, `anongid=${owner.gid}`].join(",");
     lines.push(`"${path}" ${clients.map((client) => `${client}(${options})`).join(" ")}`);
   }
@@ -102,8 +104,8 @@ export async function nfsApply({ scope = "tailscale", exports = [] } = {}, { run
     const path = cleanPath(entry.path);
     const info = await files.stat(path);
     if (!info.isDirectory()) throw new Error(`${path} is not a folder`);
-    owners[path] = { uid: info.uid, gid: info.gid };
-    if (info.uid === 0) log?.(`${path} is owned by root: clients are mapped to nobody there and can only read`, "stderr");
+    if (info.uid !== 0) owners[path] = { uid: info.uid, gid: info.gid };
+    else log?.(`${path} is owned by root, so clients are mapped to nobody there; give the folder to a normal user to allow writes`, "stderr");
   }
   const lanSubnets = scope === "lan" ? await lanSubnetsFrom(run) : [];
   if (scope === "lan" && !lanSubnets.length) throw new Error("Could not determine the LAN subnet (no link route)");

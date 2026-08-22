@@ -31,10 +31,11 @@ export default function SchedulesPanel({ csrfToken }: { csrfToken: string }) {
   const refresh = useCallback(async () => {
     try {
       const response = await fetch("/api/v1/schedules");
-      const body = (await response.json()) as { schedules?: Schedule[]; error?: string };
+      const body = (await response.json().catch(() => ({}))) as { schedules?: Schedule[]; error?: string };
       if (!response.ok) throw new Error(body.error ?? "Could not load schedules");
       setSchedules(body.schedules ?? []);
     } catch (requestError) {
+      setSchedules([]);
       setError(requestError instanceof Error ? requestError.message : "Could not load schedules");
     }
   }, []);
@@ -76,7 +77,7 @@ export default function SchedulesPanel({ csrfToken }: { csrfToken: string }) {
           weekday: frequency === "weekly" ? weekday : null,
         }),
       });
-      const body = (await response.json()) as { error?: string };
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
       if (!response.ok) throw new Error(body.error ?? "Could not create the schedule");
       setTemplateKey("");
       await refresh();

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import type { PendingOperation } from "./ApproveDialog";
 
 interface ExportConfig { path: string; readOnly: boolean; clients?: string[] }
@@ -16,6 +16,8 @@ export default function NfsPanel({ start, folders, refreshKey }: { start: (opera
   const [draft, setDraft] = useState<ExportConfig[]>([]);
   const [scope, setScope] = useState<"tailscale" | "lan">("tailscale");
   const [dirty, setDirty] = useState(false);
+  const dirtyRef = useRef(false);
+  dirtyRef.current = dirty;
   const [path, setPath] = useState("");
   const [readOnly, setReadOnly] = useState(false);
 
@@ -26,9 +28,11 @@ export default function NfsPanel({ start, folders, refreshKey }: { start: (opera
       if (!response.ok) throw new Error(body.error ?? "Could not read the NFS state");
       setState(body);
       setError(body.error ?? null);
-      setDraft(body.config.exports.map((entry) => ({ path: entry.path, readOnly: entry.readOnly })));
-      setScope(body.config.scope);
-      setDirty(false);
+      // Keep an unapplied draft: any operation on the Storage page refreshes this panel.
+      if (!dirtyRef.current) {
+        setDraft(body.config.exports.map((entry) => ({ path: entry.path, readOnly: entry.readOnly })));
+        setScope(body.config.scope);
+      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read the NFS state");
     }
@@ -51,7 +55,7 @@ export default function NfsPanel({ start, folders, refreshKey }: { start: (opera
   });
   const host = scope === "lan" && state?.lanAddress ? state.lanAddress : state?.tailscaleDnsName ?? state?.tailscaleAddress ?? "<this server>";
 
-  if (state && !state.installed) {
+  if (state && !state.installed && !state.error) {
     return (
       <section className="panel" id="nfs-server">
         <header className="panel-header"><div><strong>Export folders over NFS</strong><span>For Linux and macOS clients and for VMs on this server. The NFS server is not installed yet.</span></div>

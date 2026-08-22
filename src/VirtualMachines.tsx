@@ -135,7 +135,11 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
 
   // The direct lifecycle verbs (force off, delete, snapshot revert/delete) use the shared
   // risk-tiered ApproveDialog instead of the legacy plan/stage path.
-  const { start: startOperation, dialog: operationDialog } = useOperation(csrfToken, () => { void refresh(); });
+  const { start: rawStart, dialog: operationDialog } = useOperation(csrfToken, () => { void refresh(); setPending(null); });
+  /** Marks the page busy while an approval dialog is open, so the disabled guards actually hold. */
+  const startOperation: typeof rawStart = (operation) => { setPending(operation.title); rawStart(operation); };
+  // The page is busy exactly while an approval dialog is open — including when it is dismissed.
+  useEffect(() => { if (!operationDialog) setPending(null); }, [operationDialog]);
 
   const copySetupCommands = async () => {
     if (!status) return;
@@ -472,7 +476,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       </div>
 
       {message && <p className="vm-message" aria-live="polite">{message}</p>}
-      {plannerOpen && <VmPlanner csrfToken={csrfToken} onClose={() => setPlannerOpen(false)} onStage={(input) => { setPlannerOpen(false); startOperation({ operationId: "vm.create", title: `Create VM ${input.name}`, parameters: { ...input }, preview: <span>Creates <code>{input.name}</code> exactly as planned through the restricted helper — {input.vcpus} vCPU, {Math.floor(input.memoryMiB / 1024)} GiB RAM, {input.diskGiB} GiB disk from <code>{input.isoFile}</code> — revalidated against the live host first. Failure rolls back the new domain and its storage.</span> }); }} />}
+      {plannerOpen && <VmPlanner csrfToken={csrfToken} onClose={() => setPlannerOpen(false)} onStage={(input) => { setPlannerOpen(false); startOperation({ operationId: "vm.create", title: `Create VM ${input.name}`, parameters: { ...input }, preview: <span>Creates <code>{input.name}</code> exactly as planned through the restricted helper — {input.vcpus} vCPU, {formatMemory(input.memoryMiB * 1024)} RAM, {input.diskGiB} GiB disk from <code>{input.isoFile}</code> — revalidated against the live host first. Failure rolls back the new domain and its storage.</span> }); }} />}
       {snapshotDomain && (
         <div className="vm-planner-backdrop" role="presentation">
           <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-snapshot-title">

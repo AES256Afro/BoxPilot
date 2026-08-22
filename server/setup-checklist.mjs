@@ -59,12 +59,13 @@ export function buildChecklist(evidence = {}) {
 /** Gather evidence from the services the web process already has; every call tolerates failure. */
 export async function gatherChecklistEvidence({ state, helper, notifications, inventory, network } = {}) {
   const quiet = (promise) => promise.catch(() => null);
-  const [firewall, apps, unattended, samba, nfs, snapshot, topology] = await Promise.all([
+  const [firewall, apps, unattended, samba, nfs, machine, snapshot, topology] = await Promise.all([
     quiet(helper.request("firewall.inspect", {}, { timeoutMs: 15_000 })),
     quiet(helper.request("app.inspect", {}, { timeoutMs: 15_000 })),
     quiet(helper.request("apt.unattended.inspect", {}, { timeoutMs: 15_000 })),
     quiet(helper.request("samba.inspect", {}, { timeoutMs: 15_000 })),
     quiet(helper.request("nfs.inspect", {}, { timeoutMs: 15_000 })),
+    quiet(helper.request("host.snapshot.inspect", {}, { timeoutMs: 15_000 })),
     quiet(inventory ? inventory.inspect() : Promise.resolve(null)),
     quiet(network ? network.inspect() : Promise.resolve(null)),
   ]);
@@ -76,7 +77,7 @@ export async function gatherChecklistEvidence({ state, helper, notifications, in
     unattended,
     backupDestination: state?.getSetting?.("backupDestination", null) ?? null,
     cloudDestination: state?.getSetting?.("cloudDestination", null) ?? null,
-    backupSync: null,
+    backupSync: machine?.sync?.mount ?? null,
     samba,
     nfs,
     ups: snapshot?.power?.ups ?? null,
