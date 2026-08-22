@@ -115,14 +115,17 @@ export function createRecoveryKitService({ store, prerequisites, helper, libvirt
       mode: "secret-free-readiness-and-runbook",
       summary,
       checks,
+      // The order the owner actually follows, and the one docs/RECOVERY.md prints. It includes the
+      // machine snapshot, which is how apps and their settings come back, and is written for
+      // somebody rebuilding a server rather than as a statement of what BoxPilot will not do.
       recoveryOrder: [
-        { order: 1, title: "Stabilize the host", instruction: "Use local console access, verify disks and filesystems, and do not change router or DNS settings while server health is uncertain." },
-        { order: 2, title: "Restore private access", instruction: "Bring up Tailscale and BoxPilot on loopback with Funnel off; keep owner authentication enabled." },
-        { order: 3, title: "Restore controller state", instruction: "Use the recorded controller restic repository and exact snapshot id to restore the complete backup directory. With BoxPilot stopped, recheck both hashes and SQLite integrity, restore the database with boxpilot ownership and mode 0600, then start and verify health." },
-        { order: 4, title: "Inspect before mutation", instruction: "Run Repair Center and live inventory. Treat missing feature-specific prerequisites as scoped blockers, not permission for broad repair commands." },
-        { order: 5, title: "Restore applications", instruction: "Reinstall each catalog application, then restore its data from the newest checksummed backup archive. Keep unclaimed services loopback-only and never copy a live SQLite database." },
-        { order: 6, title: "Restore virtual machines", instruction: "Restore only exact protected restic snapshots into stopped no-network clones before deciding whether to attach networking." },
-        { order: 7, title: "Validate and record", instruction: "Verify application health, backup integrity, access boundaries, and rollback; generate a new kit and store it away from this server." },
+        { order: 1, title: "Get the server back", instruction: "Install Ubuntu Server, then install BoxPilot at the release this kit names. Use a keyboard and monitor, or another machine on the LAN; do not change your router or DNS while you are still finding your feet." },
+        { order: 2, title: "Get back in privately", instruction: "Bring up Tailscale and sign in to BoxPilot. Keep it on the tailnet rather than opening anything on your router." },
+        { order: 3, title: "Restore BoxPilot's own database", instruction: "Restore the recorded controller snapshot from the encrypted repository — you will need the repository password you kept elsewhere. BoxPilot then knows your accounts, settings and history again." },
+        { order: 4, title: "Restore the machine snapshot", instruction: "This reinstalls your apps with the settings and secrets they had. Network, firewall, fstab and VM definitions are unpacked beside the snapshot for you to look at and apply yourself." },
+        { order: 5, title: "Restore each app's data", instruction: "Restore every app from its newest backup archive, which is checked against its recorded checksum before anything is replaced." },
+        { order: 6, title: "Restore virtual machines", instruction: "Restore protected snapshots into stopped clones with no network, and decide about networking once you have looked inside." },
+        { order: 7, title: "Check it, then make a new kit", instruction: "Confirm the apps are healthy and the backups are running again, then download a fresh recovery kit and keep it somewhere other than this server." },
       ],
       externalItems: [
         "Controller restic repository media and a separately stored repository password",

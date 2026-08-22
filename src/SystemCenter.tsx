@@ -234,7 +234,7 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
           {dockerDisk.logging && !dockerDisk.logging.configured && (
             <div className="recovery-actions">
               <span className="muted">Container logs are unlimited right now — a chatty container can fill the disk.</span>
-              <button className="secondary-button" type="button" disabled={loading} onClick={() => start({ operationId: "docker.logging.set", title: "Apply Docker log rotation defaults", parameters: {}, preview: <span>Caps container logs at 3 × 10 MB and turns on live-restore, then restarts dockerd. Running containers restart briefly this one time; future daemon restarts leave them running.</span> })}>Apply log rotation defaults</button>
+              <button className="secondary-button" type="button" disabled={loading} onClick={() => start({ operationId: "docker.logging.set", title: "Apply Docker log rotation defaults", parameters: {}, preview: <span>Sets the daemon default to 3 × 10 MB per container — for containers created from now on, not existing ones — and turns on live-restore, then restarts dockerd. Running containers restart briefly this one time; future daemon restarts leave them running.</span> })}>Apply log rotation defaults</button>
             </div>
           )}
           {dockerDisk.logging?.configured && <p className="muted">Log rotation: {dockerDisk.logging.maxSize} per file{dockerDisk.logging.liveRestore ? " · live-restore on" : ""}. Applies to containers created after it was set.</p>}

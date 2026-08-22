@@ -49,7 +49,7 @@ Block sanitization includes device name, parent, type, filesystem, size, sanitiz
 
 The evidence excludes serials, UUIDs, firmware, raw output, stderr, arbitrary attributes, and command arguments. The web service treats missing, malformed, more than 24-hour-old, or future-dated evidence as unavailable or stale. It never turns collector failure into a healthy claim.
 
-The timer itself never installs `smartmontools`. Until the package and timer are present, Overview honestly reports `smartctl not installed` or missing evidence. BoxPilot `0.31.0` exposes a separate durable Repair Center plan for only the fixed configured `smartmontools` candidate. It requires staging, password approval, exact-version revalidation, the static `boxpilot-smartmontools-install.service`, and a fresh scan. The inventory route cannot trigger it. See [Exact prerequisite repair boundary](PREREQUISITE-REPAIRS.md).
+The timer itself never installs `smartmontools`. Until the package and timer are present, Overview honestly reports `smartctl not installed` or missing evidence. BoxPilot `0.31.0` exposes a separate durable Repair Center plan for only the fixed configured `smartmontools` candidate. It requires staging, password approval, exact-version revalidation, the static `boxpilot-smartmontools-install.service`, and a fresh scan. The inventory route cannot trigger it. See [Exact prerequisite repair boundary](legacy/PREREQUISITE-REPAIRS.md).
 
 ## UPS power evidence
 
@@ -74,7 +74,7 @@ The response contains only fixed derived states, bounded counts, one APT timesta
 
 The collector cannot run `apt`, `apt-get`, `dpkg`, or `unattended-upgrade`; install, remove, or update a package; enable, disable, start, stop, or restart a service; change update policy; or reboot the host. Action Center guidance links only to fixed BoxPilot views and requires a separately reviewed console procedure for any change.
 
-The inventory collector remains read-only in `0.35.0`. A stale or unavailable metadata check with ready dpkg state may separately expose a Repair Center plan. That password-approved plan starts a static metadata-only unit and is documented in [Exact prerequisite repair boundary](PREREQUISITE-REPAIRS.md). It does not widen this collector or Action Center into an execution surface.
+The inventory collector remains read-only in `0.35.0`. A stale or unavailable metadata check with ready dpkg state may separately expose a Repair Center plan. That password-approved plan starts a static metadata-only unit and is documented in [Exact prerequisite repair boundary](legacy/PREREQUISITE-REPAIRS.md). It does not widen this collector or Action Center into an execution surface.
 
 ## Docker inventory
 

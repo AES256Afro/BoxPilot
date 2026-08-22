@@ -1,8 +1,8 @@
 {
   "name": "boxpilot",
-  "version": "0.95.1",
+  "version": "0.96.0",
   "private": true,
-  "description": "A safety-first local control plane for Ubuntu home servers.",
+  "description": "Point-and-click setup and management for an Ubuntu home server.",
   "type": "module",
   "engines": {
     "node": ">=24.0.0"
@@ -22,7 +22,7 @@
     "check:syntax": "find server scripts -name '*.mjs' -not -path '*/node_modules/*' -print0 | xargs -0 -n 1 node --check",
     "demo": "node scripts/boxpilot-demo.mjs",
     "demo:screenshots": "node scripts/demo-screenshots.mjs",
-    "version": "node scripts/sync-version.mjs && git add docker-compose.yml"
+    "version": "node scripts/sync-version.mjs && git add docker-compose.yml README.md"
   },
   "dependencies": {
     "express": "5.2.1",

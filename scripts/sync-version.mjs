@@ -10,6 +10,7 @@ import { productVersion } from "../server/version.mjs";
 
 const files = [
   { path: "docker-compose.yml", pattern: /^(\s*image: boxpilot:)\S+$/m },
+  { path: "README.md", pattern: /(--ref v)\d+\.\d+\.\d+/ },
 ];
 
 let changed = 0;

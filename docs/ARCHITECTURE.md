@@ -40,7 +40,7 @@ work that needs either is handed to a one-shot unit whose task table is fixed at
 
 ## Operations, jobs, approval
 
-An **operation** ([`server/ops/`](../server/ops)) declares an id, a risk tier, a JSON-schema for
+An **operation** ([`server/ops/`](../server/ops)) declares an id, a risk tier, a parameter spec (types, patterns, limits) for
 its parameters, what it does, and how to verify it. Nothing that is not declared can run. Each
 one carries:
 
