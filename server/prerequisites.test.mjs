@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPrerequisiteService } from "./prerequisites.mjs";
+import { createPrerequisiteService, port53Occupied } from "./prerequisites.mjs";
 
 describe("prerequisite inventory", () => {
   it("reports live readiness without returning raw peer or listener output", async () => {
@@ -70,5 +70,52 @@ describe("prerequisite inventory", () => {
     expect(result.checks.find((item) => item.id === "virtualization.libvirt")).toMatchObject({ status: "repairable", repair: { kind: "approved" } });
     expect(result.checks.find((item) => item.id === "host.apt-metadata")).toMatchObject({ status: "repairable", repair: { kind: "approved" } });
     expect(JSON.stringify(result)).not.toContain("apt-get");
+  });
+});
+
+describe("reading port 53 from ss output", () => {
+  it("sees the resolver Ubuntu ships, whose address carries an interface scope", () => {
+    // 127.0.0.53%lo:53 is systemd-resolved's stub listener on a stock Ubuntu Server, and it is
+    // exactly what makes a Pi-hole or AdGuard container fail to bind. It used to read as free.
+    expect(port53Occupied("udp   UNCONN 0 0 127.0.0.53%lo:53 0.0.0.0:*")).toBe(true);
+    expect(port53Occupied("udp   UNCONN 0 0 [fe80::1%eth0]:53 [::]:*")).toBe(true);
+  });
+
+  it("sees the ordinary forms, and is not fooled by a port that merely ends in 53", () => {
+    expect(port53Occupied("udp UNCONN 0 0 0.0.0.0:53 0.0.0.0:*")).toBe(true);
+    expect(port53Occupied("tcp LISTEN 0 4096 [::]:53 [::]:*")).toBe(true);
+    expect(port53Occupied("tcp LISTEN 0 4096 127.0.0.1:5353 0.0.0.0:*")).toBe(false);
+    expect(port53Occupied("tcp LISTEN 0 4096 0.0.0.0:22 0.0.0.0:*")).toBe(false);
+    expect(port53Occupied("")).toBe(false);
+  });
+});
+
+describe("collecting prerequisite evidence", () => {
+  function slowHelper(delayMs = 40) {
+    const request = vi.fn(async (operation) => {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      if (operation === "canary.verify") return { verified: true };
+      return { installed: true, installedVersion: "1", repairAvailable: false, providerPresent: true };
+    });
+    return { request };
+  }
+
+  it("asks the helper for everything at once rather than one after another", async () => {
+    const helper = slowHelper(40);
+    const service = createPrerequisiteService({ stateDirectory: "/tmp", helper, runCommand: async () => ({ ok: true, stdout: "" }), checkAccess: async () => {}, getFilesystem: async () => ({ bavail: 10n ** 7n, bsize: 4096n }) });
+    const started = Date.now();
+    await service.inspect();
+    // Six 40 ms reads: together that is ~40 ms, one after another it was ~240 ms.
+    expect(Date.now() - started).toBeLessThan(200);
+    expect(helper.request).toHaveBeenCalledTimes(6);
+  });
+
+  it("shares one collection between callers that arrive together", async () => {
+    const helper = slowHelper(10);
+    const service = createPrerequisiteService({ stateDirectory: "/tmp", helper, runCommand: async () => ({ ok: true, stdout: "" }), checkAccess: async () => {}, getFilesystem: async () => ({ bavail: 10n ** 7n, bsize: 4096n }) });
+    const [first, second, third] = await Promise.all([service.inspect(), service.inspect(), service.inspect()]);
+    expect(helper.request).toHaveBeenCalledTimes(6); // not eighteen
+    expect(second).toBe(first);
+    expect(third).toBe(first);
   });
 });

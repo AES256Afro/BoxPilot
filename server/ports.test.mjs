@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { findPortConflicts, parseListeners } from "./ports.mjs";
 
 const ss = `udp   UNCONN 0      0          127.0.0.54:53        0.0.0.0:*
-udp   UNCONN 0      0      192.168.8.10:53        0.0.0.0:*
+udp   UNCONN 0      0      192.168.1.10:53        0.0.0.0:*
 tcp   LISTEN 0      511       127.0.0.1:8787      0.0.0.0:*
 tcp   LISTEN 0      4096         0.0.0.0:3000      0.0.0.0:*
 tcp   LISTEN 0      4096            [::]:22           [::]:*

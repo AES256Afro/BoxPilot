@@ -6,9 +6,9 @@ import { createNetworkService, networkInternals, parseNeighbors, validateNetwork
 import { createStateStore } from "./state.mjs";
 
 const directories = [];
-const routes = JSON.stringify([{ dst: "default", gateway: "192.168.8.1", dev: "eno1", protocol: "static" }]);
+const routes = JSON.stringify([{ dst: "default", gateway: "192.168.1.1", dev: "eno1", protocol: "static" }]);
 const ipAddresses = JSON.stringify([
-  { ifname: "eno1", addr_info: [{ family: "inet", local: "192.168.8.10", prefixlen: 24, scope: "global" }] },
+  { ifname: "eno1", addr_info: [{ family: "inet", local: "192.168.1.10", prefixlen: 24, scope: "global" }] },
   { ifname: "virbr0", addr_info: [{ family: "inet", local: "192.168.122.1", prefixlen: 24, scope: "global" }] },
   { ifname: "tailscale0", addr_info: [{ family: "inet", local: "100.64.0.10", prefixlen: 32, scope: "global" }] },
 ]);
@@ -22,7 +22,7 @@ const tailscale = JSON.stringify({ BackendState: "Running", Self: { DNSName: "ho
 
 function interfaces() {
   return {
-    eno1: [{ address: "192.168.8.10", family: "IPv4", internal: false, cidr: "192.168.8.10/24" }],
+    eno1: [{ address: "192.168.1.10", family: "IPv4", internal: false, cidr: "192.168.1.10/24" }],
     virbr0: [{ address: "192.168.122.1", family: "IPv4", internal: false, cidr: "192.168.122.1/24" }],
     tailscale0: [{ address: "100.64.0.10", family: "IPv4", internal: false, cidr: "100.64.0.10/32" }],
   };
@@ -41,10 +41,10 @@ function command() {
 
 function input(overrides = {}) {
   return {
-    topology: "flint2-edge-tplink-ap",
+    topology: "edge-router-with-access-points",
     dnsRole: "current-external",
-    gatewayAddress: "192.168.8.1",
-    serverAddress: "192.168.8.10",
+    gatewayAddress: "192.168.1.1",
+    serverAddress: "192.168.1.10",
     dnsServiceAddress: "94.140.14.49",
     fallbackDnsAddress: "94.140.14.59",
     routerBackupRecorded: true,
@@ -74,8 +74,8 @@ describe("network topology and DNS assessment", () => {
     const { store, runCommand, service } = await fixture();
     const result = await service.inspect();
     expect(result).toMatchObject({
-      eligibleLanAddresses: [{ interface: "eno1", address: "192.168.8.10", cidr: "192.168.8.10/24" }],
-      defaultRoutes: [{ gateway: "192.168.8.1", interface: "eno1", protocol: "static" }],
+      eligibleLanAddresses: [{ interface: "eno1", address: "192.168.1.10", cidr: "192.168.1.10/24" }],
+      defaultRoutes: [{ gateway: "192.168.1.1", interface: "eno1", protocol: "static" }],
       defaultResolvers: ["94.140.14.49", "94.140.14.59"],
       tailscale: { connected: true, resolverPresent: true, defaultDnsObserved: false, overrideState: "non-tailscale-default-observed" },
       mutationSupported: false,
@@ -100,33 +100,41 @@ describe("network topology and DNS assessment", () => {
 
   it("parses resolved IPv4 neighbours with hardware addresses, reachable first", () => {
     const devices = parseNeighbors(JSON.stringify([
-      { dst: "192.168.8.20", dev: "eno1", lladdr: "AA:BB:CC:DD:EE:02", state: ["STALE"] },
-      { dst: "192.168.8.3", dev: "eno1", lladdr: "aa:bb:cc:dd:ee:01", state: ["REACHABLE"] },
-      { dst: "192.168.8.99", dev: "eno1", state: ["FAILED"] },
+      { dst: "192.168.1.20", dev: "eno1", lladdr: "AA:BB:CC:DD:EE:02", state: ["STALE"] },
+      { dst: "192.168.1.3", dev: "eno1", lladdr: "aa:bb:cc:dd:ee:01", state: ["REACHABLE"] },
+      { dst: "192.168.1.99", dev: "eno1", state: ["FAILED"] },
       { dst: "fe80::1", dev: "eno1", lladdr: "aa:bb:cc:dd:ee:03", state: ["REACHABLE"] },
-      { dst: "192.168.8.7", dev: "eno1", lladdr: "not-a-mac", state: ["REACHABLE"] },
+      { dst: "192.168.1.7", dev: "eno1", lladdr: "not-a-mac", state: ["REACHABLE"] },
     ]));
     expect(devices).toEqual([
-      { address: "192.168.8.3", mac: "aa:bb:cc:dd:ee:01", interface: "eno1", state: "REACHABLE" },
-      { address: "192.168.8.20", mac: "aa:bb:cc:dd:ee:02", interface: "eno1", state: "STALE" },
+      { address: "192.168.1.3", mac: "aa:bb:cc:dd:ee:01", interface: "eno1", state: "REACHABLE" },
+      { address: "192.168.1.20", mac: "aa:bb:cc:dd:ee:02", interface: "eno1", state: "STALE" },
     ]);
     expect(parseNeighbors("not json")).toEqual([]);
   });
 
-  it("correlates the observed gateway with fixed router guidance without claiming device identity", async () => {
+  it("correlates the observed gateway with role guidance without claiming device identity", async () => {
     const { store, service } = await fixture();
-    const checkpointStatus = { latestByModel: { "glinet-flint-2": null, "tp-link-archer-be400": null, "omada-er707-m2": null } };
-    const result = await service.routerReadiness(checkpointStatus);
+    const declaration = [{ name: "Hall router", role: "edge-router" }, { name: "Loft AP", role: "access-point" }, { name: "Bench box", role: "spare-or-lab" }];
+    const result = await service.routerReadiness({ latestByRole: { "edge-router": null } }, declaration);
     expect(result).toMatchObject({
-      recommendedTopology: { id: "flint2-edge-tplink-ap" },
-      observedGateway: { address: "192.168.8.1", interface: "eno1", modelVerified: false, identityClaim: "address-observed-model-unverified" },
+      recommendedTopology: { id: "edge-router-with-access-points" },
+      alternateTopology: { id: "alternate-edge-router" },
+      observedGateway: { address: "192.168.1.1", interface: "eno1" },
       counts: { verified: 2, "action-required": 1, "operator-check": 4, unavailable: 0 },
-      boundary: { credentialsAccepted: false, routerSessionsOpened: false, neighborDiscoveryPerformed: false, arbitraryTargetsProbed: false, configurationUploaded: false, routerMutationSupported: false, dhcpMutationSupported: false, dnsCutoverSupported: false, tailscaleMutationSupported: false },
+      declaredDevices: declaration,
     });
+    expect(result).not.toHaveProperty("boundary");
+    expect(result.roles.map((role) => role.id)).toEqual(["edge-router", "access-point", "spare-or-lab"]);
+    expect(result.checks.find((check) => check.id === "gateway.observed")?.evidence).toContain("does not identify a router model");
     expect(result.checks.find((check) => check.id === "gateway.identity")?.state).toBe("operator-check");
-    expect(result.checks.find((check) => check.id === "flint.checkpoint")?.state).toBe("action-required");
+    expect(result.checks.find((check) => check.id === "edge.checkpoint")?.state).toBe("action-required");
+    expect(result.checks.find((check) => check.id === "access-point.mode")?.evidence).toContain("Loft AP");
+    expect(result.checks.find((check) => check.id === "spare.out-of-path")?.evidence).toContain("Bench box");
     expect(result.guides).toHaveLength(3);
-    expect(result.guides.find((guide) => guide.modelId === "tp-link-archer-be400")?.steps.join(" ")).toContain("Operation Mode > Access Point");
+    expect(result.guides.find((guide) => guide.roleId === "access-point")?.steps.join(" ")).toContain("access-point mode in its own admin page");
+    // Guidance is written for any consumer router, so it links to no vendor's documentation.
+    expect(JSON.stringify(result)).not.toMatch(/https?:\/\//);
     expect(result).not.toHaveProperty("addresses");
     expect(result).not.toHaveProperty("resolverLinks");
     expect(result).not.toHaveProperty("dnsListeners");
@@ -135,13 +143,22 @@ describe("network topology and DNS assessment", () => {
     store.close();
   });
 
-  it("uses checkpoint evidence without treating it as router attestation", async () => {
+  it("names the owner's own device in checkpoint evidence and rejects unusable labels", async () => {
     const { store, service } = await fixture();
-    const checkpoint = { id: "router-checkpoint-one", modelId: "glinet-flint-2", firmwareVersion: "4.8.2", checksumSha256: "a".repeat(64), sizeBytes: 4096, createdAt: "2026-08-15T00:00:00.000Z" };
-    const result = await service.routerReadiness({ latestByModel: { "glinet-flint-2": checkpoint } });
-    expect(result.checks.find((check) => check.id === "flint.checkpoint")).toMatchObject({ state: "verified" });
+    const checkpoint = { id: "router-checkpoint-one", deviceName: "Hall router", firmwareVersion: "1.4.0", checksumSha256: "a".repeat(64), sizeBytes: 4096, createdAt: "2026-08-15T00:00:00.000Z" };
+    const result = await service.routerReadiness({ latestByRole: { "edge-router": checkpoint } }, [{ name: "Hall router", role: "edge-router" }]);
+    expect(result.checks.find((check) => check.id === "edge.checkpoint")).toMatchObject({ state: "verified" });
+    expect(result.checks.find((check) => check.id === "edge.checkpoint")?.evidence).toContain("Hall router on firmware 1.4.0");
     expect(result.checks.find((check) => check.id === "gateway.identity")).toMatchObject({ state: "operator-check" });
-    expect(result.guides.find((guide) => guide.modelId === "glinet-flint-2")?.checkpoint).toEqual(checkpoint);
+    expect(result.guides.find((guide) => guide.roleId === "edge-router")?.checkpoint).toEqual(checkpoint);
+
+    // Free-text labels are capped and stripped of control characters; anything left over is not a name.
+    expect(networkInternals.safeLabel("  Hall\u0000 router  ")).toBe("Hall router");
+    expect(networkInternals.safeLabel("x".repeat(65))).toBe(null);
+    expect(networkInternals.declaredDevices([{ name: "Hall router", role: "edge-router" }, { name: "", role: "edge-router" }, { name: "Loft AP", role: "not-a-role" }]))
+      .toEqual([{ name: "Hall router", role: "edge-router" }]);
+    const unnamed = await service.routerReadiness({ latestByRole: { "edge-router": { ...checkpoint, deviceName: "x".repeat(65) } } });
+    expect(unnamed.checks.find((check) => check.id === "edge.checkpoint")?.evidence).toContain("your edge router on firmware");
     store.close();
   });
 
@@ -150,7 +167,7 @@ describe("network topology and DNS assessment", () => {
     const plan = await service.plan(input(), owner.id);
     expect(plan.type).toBe("network.dns.assessment");
     expect(plan.output).toMatchObject({ executable: false, readyForChangeWindow: true, routerMutationSupported: false, dnsCutoverSupported: false, blockers: [] });
-    expect(plan.output.topology.summary).toContain("Flint 2 as the only edge router");
+    expect(plan.output.topology.summary).toContain("One router at the edge, everything else as access points");
     expect(plan.output.observed.defaultResolvers).toEqual(["94.140.14.49", "94.140.14.59"]);
     await expect(service.validateAssessment(plan.id, owner.id, "current-external")).resolves.toMatchObject({ id: plan.id });
     await expect(service.validateAssessment(plan.id, "different-owner", "current-external")).rejects.toThrow("not found");
@@ -187,7 +204,7 @@ describe("network topology and DNS assessment", () => {
 
   it("accepts the legacy hostname-specific DNS role id and normalizes it", async () => {
     const { store, owner, service } = await fixture();
-    const plan = await service.plan(input({ dnsRole: "pihole-on-homebox", dnsServiceAddress: "192.168.8.10" }), owner.id);
+    const plan = await service.plan(input({ dnsRole: "pihole-on-homebox", dnsServiceAddress: "192.168.1.10" }), owner.id);
     expect(plan.input.dnsRole).toBe("pihole-on-host");
     expect(plan.output.dns.role).toBe("pihole-on-host");
     await expect(service.validateAssessment(plan.id, owner.id, "pihole-on-host")).resolves.toMatchObject({ id: plan.id });
@@ -197,7 +214,7 @@ describe("network topology and DNS assessment", () => {
 
   it("does not confuse loopback or libvirt DNS with the reviewed server LAN binding", async () => {
     const { store, owner, service } = await fixture();
-    const plan = await service.plan(input({ dnsRole: "pihole-on-host", dnsServiceAddress: "192.168.8.10" }), owner.id);
+    const plan = await service.plan(input({ dnsRole: "pihole-on-host", dnsServiceAddress: "192.168.1.10" }), owner.id);
     expect(plan.output.readyForChangeWindow).toBe(true);
     expect(plan.output.blockers.map((item) => item.id)).not.toContain("dns-listener-collision");
     expect(plan.output.warnings.join(" ")).toContain("Loopback and virtual-network DNS listeners are present");
@@ -206,22 +223,22 @@ describe("network topology and DNS assessment", () => {
 
   it("revalidates a post-staging acceptance baseline with exact managed DNS listeners", async () => {
     const { store, owner, runCommand, service } = await fixture();
-    const plan = await service.plan(input({ dnsRole: "pihole-on-host", dnsServiceAddress: "192.168.8.10" }), owner.id);
+    const plan = await service.plan(input({ dnsRole: "pihole-on-host", dnsServiceAddress: "192.168.1.10" }), owner.id);
     runCommand.mockImplementation(async (binary, args) => {
       if (binary === "ip" && args.includes("address")) return { ok: true, stdout: ipAddresses };
       if (binary === "ip") return { ok: true, stdout: routes };
       if (binary === "resolvectl") return { ok: true, stdout: resolvers };
-      if (binary === "ss") return { ok: true, stdout: `${listeners}\nudp UNCONN 0 0 192.168.8.10:53 0.0.0.0:*\ntcp LISTEN 0 4096 192.168.8.10:53 0.0.0.0:*` };
+      if (binary === "ss") return { ok: true, stdout: `${listeners}\nudp UNCONN 0 0 192.168.1.10:53 0.0.0.0:*\ntcp LISTEN 0 4096 192.168.1.10:53 0.0.0.0:*` };
       return { ok: true, stdout: tailscale };
     });
-    await expect(service.validateAcceptanceBaseline(plan.id, owner.id, "192.168.8.10")).resolves.toMatchObject({
-      gatewayAddress: "192.168.8.1",
-      resolverAddress: "192.168.8.10",
+    await expect(service.validateAcceptanceBaseline(plan.id, owner.id, "192.168.1.10")).resolves.toMatchObject({
+      gatewayAddress: "192.168.1.1",
+      resolverAddress: "192.168.1.10",
       exactTcpListener: true,
       exactUdpListener: true,
       assessmentOriginallyReady: true,
     });
-    await expect(service.validateAcceptanceBaseline(plan.id, owner.id, "192.168.8.11")).rejects.toThrow("no longer matches");
+    await expect(service.validateAcceptanceBaseline(plan.id, owner.id, "192.168.1.11")).rejects.toThrow("no longer matches");
     store.close();
   });
 
@@ -235,10 +252,10 @@ describe("network topology and DNS assessment", () => {
   });
 
   it("parses only safe route and resolver data and checks IPv4 subnets", () => {
-    expect(networkInternals.parseDefaultRoutes('[{"dst":"default","gateway":"192.168.8.1","dev":"eno1"},{"dst":"default","gateway":"bad","dev":"eno1;reboot"}]')).toEqual([{ gateway: "192.168.8.1", interface: "eno1", protocol: "unknown" }]);
+    expect(networkInternals.parseDefaultRoutes('[{"dst":"default","gateway":"192.168.1.1","dev":"eno1"},{"dst":"default","gateway":"bad","dev":"eno1;reboot"}]')).toEqual([{ gateway: "192.168.1.1", interface: "eno1", protocol: "unknown" }]);
     expect(networkInternals.parseResolverStatus("not-json")).toEqual([]);
-    expect(networkInternals.parseIpAddresses('[{"ifname":"eno1","address":"not-returned","addr_info":[{"family":"inet","local":"192.168.8.10","prefixlen":24,"scope":"global"}]}]')).toEqual([{ interface: "eno1", address: "192.168.8.10", cidr: "192.168.8.10/24", family: 4, internal: false }]);
-    expect(networkInternals.sameIpv4Subnet("192.168.8.50", "192.168.8.10/24")).toBe(true);
-    expect(networkInternals.sameIpv4Subnet("192.168.9.50", "192.168.8.10/24")).toBe(false);
+    expect(networkInternals.parseIpAddresses('[{"ifname":"eno1","address":"not-returned","addr_info":[{"family":"inet","local":"192.168.1.10","prefixlen":24,"scope":"global"}]}]')).toEqual([{ interface: "eno1", address: "192.168.1.10", cidr: "192.168.1.10/24", family: 4, internal: false }]);
+    expect(networkInternals.sameIpv4Subnet("192.168.1.50", "192.168.1.10/24")).toBe(true);
+    expect(networkInternals.sameIpv4Subnet("192.168.9.50", "192.168.1.10/24")).toBe(false);
   });
 });

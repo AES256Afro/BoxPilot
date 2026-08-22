@@ -10,13 +10,16 @@ afterEach(() => {
 const topology = {
   generatedAt: "2026-08-16T00:00:00Z",
   collectors: { addresses: true, routes: true, resolvers: true, listeners: true, tailscale: true },
-  eligibleLanAddresses: [{ interface: "eno1", address: "192.168.8.10", cidr: "192.168.8.10/24" }],
-  defaultRoutes: [{ gateway: "192.168.8.1", interface: "eno1", protocol: "static" }],
+  eligibleLanAddresses: [{ interface: "eno1", address: "192.168.1.10", cidr: "192.168.1.10/24" }],
+  defaultRoutes: [{ gateway: "192.168.1.1", interface: "eno1", protocol: "static" }],
   defaultResolvers: ["94.140.14.49", "94.140.14.59"],
   tailscale: { connected: true, dnsName: "homebox.example.ts.net", resolverPresent: true, defaultDnsObserved: false, overrideState: "non-tailscale-default-observed" },
   dnsListeners: [{ protocol: "tcp", address: "127.0.0.53", port: 53, scope: "loopback", interface: null }],
   devices: [{ address: "192.168.1.50", mac: "aa:bb:cc:dd:ee:ff", interface: "eno1", state: "REACHABLE" }],
-  routerCatalog: [{ id: "glinet-flint-2", name: "GL.iNet Flint 2", roles: ["edge-router", "adguard-home-host"], integration: "read-only-declaration", note: "No router credentials are accepted.", officialSource: "https://docs.gl-inet.com/" }],
+  deviceRoles: [
+    { id: "edge-router", name: "Edge router", summary: "The one device doing NAT and DHCP for the LAN." },
+    { id: "access-point", name: "Access point", summary: "Wireless coverage bridged to the edge router." },
+  ],
   mutationSupported: false,
 };
 
@@ -37,11 +40,11 @@ describe("Network Center", () => {
       expect(init?.method).toBe("POST");
       expect(init?.headers).toMatchObject({ "X-BoxPilot-CSRF": "csrf" });
       const submitted = JSON.parse(String(init?.body));
-      expect(submitted).toMatchObject({ gatewayAddress: "192.168.8.1", serverAddress: "192.168.8.10", dnsServiceAddress: "94.140.14.49", fallbackDnsAddress: "94.140.14.59", tailscaleDnsOverride: false });
+      expect(submitted).toMatchObject({ gatewayAddress: "192.168.1.1", serverAddress: "192.168.1.10", dnsServiceAddress: "94.140.14.49", fallbackDnsAddress: "94.140.14.59", tailscaleDnsOverride: false });
       return new Response(JSON.stringify({ plan: {
         id: "plan-one", revision: "a".repeat(64), expiresAt: "2026-08-16T01:00:00Z",
         output: {
-          executable: false, readyForChangeWindow: false, topology: { summary: "Keep Flint 2 as the only edge router.", devices: ["Flint 2: edge router", "TP-Link: access point"] },
+          executable: false, readyForChangeWindow: false, topology: { summary: "One router at the edge, everything else as access points.", devices: ["Edge router: NAT, DHCP, and the LAN gateway", "Second router: access point only"] },
           dns: { role: "current-external", primary: "94.140.14.49", emergency: "94.140.14.59" },
           blockers: [{ id: "router-checkpoint", summary: "Record the router configuration" }], warnings: ["Tailscale DNS override is declared off."],
           changes: ["No setting will be changed"], recovery: ["Restore router DNS"], routerMutationSupported: false, dnsCutoverSupported: false,
@@ -50,11 +53,14 @@ describe("Network Center", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<NetworkCenter csrfToken="csrf" />);
-    expect(await screen.findByText("192.168.8.1")).toBeTruthy();
+    expect(await screen.findByText("192.168.1.1")).toBeTruthy();
     expect(screen.getByText("94.140.14.49 + 94.140.14.59")).toBeTruthy();
-    expect(screen.getByText("GL.iNet Flint 2")).toBeTruthy();
+    expect(screen.getByText("Edge router")).toBeTruthy();
+    expect(screen.getByText("Access point")).toBeTruthy();
+    expect(document.querySelectorAll(".router-entry a")).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Generate no-change assessment" }));
     expect(await screen.findByText("Change window blocked")).toBeTruthy();
+    expect(screen.getByText("One router at the edge, everything else as access points.")).toBeTruthy();
     expect(screen.getAllByText("Router writes locked").length).toBeGreaterThan(0);
     expect(screen.getByText("DNS cutover locked")).toBeTruthy();
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));

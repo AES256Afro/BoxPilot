@@ -70,7 +70,10 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
 
   const managedByMountpoint = new Map((report?.fstab ?? []).filter((row) => row.managedName && !row.managedName.startsWith("share-")).map((row) => [row.mountpoint, row.managedName as string]));
   const disks = (report?.devices ?? []).filter((device) => device.type === "disk");
-  const growable = (report?.volumeGroups ?? []).flatMap((group) => group.logicalVolumes.filter((volume) => volume.growable).map((volume) => ({ group, volume }))).filter(({ group }) => group.freeBytes >= 1024 ** 3);
+  // storage.lvm.extend keeps 32 GiB unallocated for snapshots and does nothing below 256 MiB of
+  // actual growth, so the offer only appears when there is really something to claim.
+  const snapshotReserveBytes = 32 * 1024 ** 3;
+  const growable = (report?.volumeGroups ?? []).flatMap((group) => group.logicalVolumes.filter((volume) => volume.growable).map((volume) => ({ group, volume }))).filter(({ group }) => group.freeBytes - snapshotReserveBytes >= 256 * 1024 ** 2);
 
   const canMount = (device: DeviceRow) => Boolean(!device.protected && device.uuid && device.fstype && device.fstype !== "swap" && device.mountpoints.length === 0 && !device.readOnly);
   const canFormat = (device: DeviceRow) => Boolean(!device.protected && device.path && !device.readOnly && ["disk", "part"].includes(device.type ?? "") && device.mountpoints.length === 0);
@@ -133,7 +136,7 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
         <article className="panel"><span className="eyebrow">Disks</span><strong>{loading && !report ? "…" : disks.length}</strong><span>{disks.filter((disk) => disk.removable).length} removable</span></article>
         <article className="panel"><span className="eyebrow">Mounted</span><strong>{loading && !report ? "…" : report?.mounts.length ?? "—"}</strong><span>real filesystems</span></article>
         <article className="panel"><span className="eyebrow">Network shares</span><strong>{loading && !report ? "…" : report?.shares.length ?? "—"}</strong><span>{report?.shares.filter((entry) => entry.mounted).length ?? 0} connected</span></article>
-        <article className="panel"><span className="eyebrow">Unallocated</span><strong>{loading && !report ? "…" : gib((report?.volumeGroups ?? []).reduce((sum, group) => sum + group.freeBytes, 0))}</strong><span>free inside LVM volume groups</span></article>
+        <article className="panel"><span className="eyebrow">Unallocated</span><strong>{loading && !report ? "…" : report ? gib(report.volumeGroups.reduce((sum, group) => sum + group.freeBytes, 0)) : "—"}</strong><span>free inside LVM volume groups</span></article>
       </div>
 
       {(report?.volumeGroups ?? []).some((group) => group.logicalVolumes.some((volume) => !volume.snapshot && volume.mountpoints.length > 0)) && (() => {
@@ -154,17 +157,17 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
                     {snapshots.map((snapshot) => (
                       <tr key={snapshot.path}>
                         <td><strong>{snapshot.suffix ?? snapshot.name.replace(/^boxpilot-snap-/, "")}</strong><span className="muted"> {snapshot.name}</span></td>
-                        <td><code>{snapshot.origin ?? chosen?.volume.path ?? "?"}</code></td>
+                        <td>{snapshot.origin ? <code>{snapshot.origin}</code> : <span className="muted">unknown</span>}</td>
                         <td>{snapshot.sizeGiB ? `${snapshot.sizeGiB} GiB` : gib(snapshot.sizeBytes)}</td>
                         <td>{snapshot.createdAt ? new Date(snapshot.createdAt).toLocaleString() : "—"}</td>
                         <td>
                           <div className="recovery-actions">
-                            <button className="text-button" type="button" onClick={() => start({
+                            <button className="text-button" type="button" disabled={!snapshot.origin} title={snapshot.origin ? undefined : "BoxPilot has no record of which volume this snapshot came from"} onClick={() => start({
                               operationId: "storage.lvm.snapshot.rollback",
                               title: `Roll back to ${snapshot.name}`,
                               parameters: { path: snapshot.path },
                               confirmText: snapshot.name,
-                              preview: <span>Runs <code>lvconvert --merge {snapshot.path}</code>. <strong>Everything written to {snapshot.origin ?? "the volume"} since {snapshot.createdAt ? new Date(snapshot.createdAt).toLocaleString() : "the snapshot"} is discarded.</strong> For the root volume the merge runs during the next reboot; reboot from the System page afterwards. The snapshot is consumed by the merge.</span>,
+                              preview: <span>Runs <code>lvconvert --merge {snapshot.path}</code>. <strong>Everything written to {snapshot.origin ?? "the volume"} since {snapshot.createdAt ? new Date(snapshot.createdAt).toLocaleString() : "the snapshot"} is discarded.</strong> For the root volume the merge runs during the next reboot, so reboot the server when convenient. The snapshot is consumed by the merge.</span>,
                             })}>Roll back</button>
                             <button className="text-button" type="button" onClick={() => start({ operationId: "storage.lvm.snapshot.delete", title: `Remove snapshot ${snapshot.name}`, parameters: { path: snapshot.path }, preview: <span>Runs <code>lvremove -f {snapshot.path}</code> and frees its space. The original volume is untouched.</span> })}>Remove</button>
                           </div>
@@ -201,7 +204,7 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
             </div>
             <button className="primary-button" type="button" onClick={() => start({
               operationId: "storage.lvm.extend",
-              title: `Grow ${volume.mountpoints[0]} by ${gib(Math.max(0, group.freeBytes - 32 * 1024 ** 3))}`,
+              title: `Grow ${volume.mountpoints[0]} by ${gib(group.freeBytes - snapshotReserveBytes)}`,
               parameters: { path: volume.path },
               preview: <span>Grows the logical volume into the free space of {group.name ?? "its group"} and resizes the {volume.fstype} filesystem while mounted (<code>lvextend -r</code>), keeping <strong>32 GiB</strong> unallocated for snapshots. Existing data is untouched.</span>,
             })}>Use the rest of the disk</button>
@@ -218,8 +221,8 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
             <thead><tr><th>Device</th><th>Size</th><th>Filesystem</th><th>Mounted at</th><th aria-label="Actions" /></tr></thead>
             <tbody>
               {loading && !report ? <tr><td colSpan={5}>Reading block devices...</td></tr> : null}
-              {report?.devices.map((device) => (
-                <tr key={device.path ?? Math.random()}>
+              {report?.devices.map((device, index) => (
+                <tr key={device.path ?? `row-${index}`}>
                   <td style={{ paddingLeft: `${8 + device.depth * 18}px` }}><code>{device.path}</code>{device.model ? <span className="muted"> {device.model}</span> : null}{device.removable ? <span className="status-pill status-neutral">removable</span> : null}{device.protected ? <span className="status-pill status-neutral" title={device.protectedReason ?? ""}>{device.protectedReason === "system disk" ? "system" : "protected"}</span> : null}</td>
                   <td>{gib(device.sizeBytes)}</td>
                   <td>

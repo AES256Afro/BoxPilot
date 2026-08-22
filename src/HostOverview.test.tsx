@@ -18,7 +18,7 @@ describe("live host overview", () => {
       },
       maintenance: { system: { available: true, state: "running", failedServiceCount: 0, failedServiceCountTruncated: false }, reboot: { available: true, required: false }, packageManager: { available: true, state: "ready", pendingUpdateFragments: 0, countTruncated: false }, aptMetadata: { available: true, state: "current", updatedAt: "2026-08-15T18:00:00Z", ageHours: 1 }, automaticSecurityUpdates: { available: true, state: "enabled-active", enabled: true, active: true } },
       power: { ups: { installed: true, configured: true, available: true, state: "online", reason: "ok", deviceCount: 1, statusTokens: ["CHRG", "OL"], batteryChargePercent: 96, estimatedRuntimeSeconds: 2700, loadPercent: 23, source: "nut-localhost-fixed", boundary: { mutationPerformed: false, powerCommandAvailable: false, shutdownPolicyChanged: false, localhostOnly: true, remoteNetworkProbePerformed: false, browserTargetAccepted: false, rawOutputIncluded: false, deviceNameIncluded: false, serialIncluded: false } } },
-      network: { addresses: [{ interface: "enp1s0", address: "192.168.8.10", cidr: "192.168.8.10/24" }], tailscale: { installed: true, connected: true, dnsName: "homebox.example.ts.net" } },
+      network: { addresses: [{ interface: "enp1s0", address: "192.168.1.10", cidr: "192.168.1.10/24" }], tailscale: { installed: true, connected: true, dnsName: "homebox.example.ts.net" } },
       services: [{ unit: "boxpilot.service", load: "loaded", active: "active", sub: "running", enabled: "enabled" }],
       docker: { available: true, containers: [{ id: "abc", name: "uptime", image: "uptime:2", state: "running", status: "Up", ports: "127.0.0.1:3001", networks: "app" }], images: [], networks: [], volumes: [], projects: [] },
     }), { status: 200 })));
@@ -26,7 +26,7 @@ describe("live host overview", () => {
     expect(await screen.findByText("homebox")).toBeTruthy();
     expect(screen.getByText("uptime")).toBeTruthy();
     expect(screen.getByText("Tailscale connected")).toBeTruthy();
-    expect(screen.getByText(/192.168.8.10\/24/)).toBeTruthy();
+    expect(screen.getByText(/192.168.1.10\/24/)).toBeTruthy();
     expect(screen.getByText("Disks and filesystems")).toBeTruthy();
     expect(screen.getByText("1 real mounts")).toBeTruthy();
     expect(screen.getByText("1 disk results")).toBeTruthy();

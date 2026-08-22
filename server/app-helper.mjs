@@ -247,9 +247,14 @@ export function createAppHelper({
     return rendered;
   }
 
-  async function describe(manifest, status = null) {
-    const state = await readState(manifest.id);
-    if (!status) status = await containerStatus(manifest.id);
+  /**
+   * One application's public shape. `known` lets a caller that has already established there is no
+   * project directory skip both the state read and the container lookup.
+   */
+  async function describe(manifest, status = null, known = undefined) {
+    const state = known ? known.state : await readState(manifest.id);
+    if (!status && !known) status = await containerStatus(manifest.id);
+    if (!status) status = { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null, startedAt: null };
     return {
       id: manifest.id,
       installed: Boolean(state && state.installed),
@@ -262,13 +267,25 @@ export function createAppHelper({
     };
   }
 
+  /** App ids with a project directory. Everything else is known-uninstalled without reading a file. */
+  async function presentIds() {
+    const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+    return new Set(entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name));
+  }
+
   async function inspect({ id = null } = {}) {
     const { manifests, problems } = await catalog.all();
     const selected = id ? manifests.filter((manifest) => manifest.id === id) : manifests;
-    const statuses = await containerStatuses(selected.map((manifest) => manifest.id));
-    const applications = [];
-    for (const manifest of selected) applications.push(await describe(manifest, statuses.get(manifest.id)));
-    return { applications, problems, catalogRoot: root };
+    // One readdir tells us which of the 128 apps could possibly be installed. Without it this read
+    // 128 state files (125 of them missing) and asked Docker about 128 container names that do not
+    // exist — on every Overview load, three times over.
+    const present = await presentIds();
+    const candidates = selected.filter((manifest) => present.has(manifest.id));
+    const statuses = await containerStatuses(candidates.map((manifest) => manifest.id));
+    const described = await Promise.all(selected.map((manifest) => (present.has(manifest.id)
+      ? describe(manifest, statuses.get(manifest.id))
+      : describe(manifest, undefined, { state: null }))));
+    return { applications: described, problems, catalogRoot: root };
   }
 
   async function install({ id, values: rawValues = {}, devices = null }, { progress = null } = {}) {
@@ -631,6 +648,22 @@ export function createAppHelper({
   }
 
   /** Backups on disk for one app, newest first. The filesystem is the source of truth. */
+  /**
+   * How many backups each app has, from one walk of the backup root. The recovery kit needs only
+   * the counts, and asking per app cost a helper round trip and a directory walk each.
+   */
+  async function countAppBackups() {
+    const backupRootPath = path.resolve(backupRoot);
+    const entries = await readdir(backupRootPath, { withFileTypes: true }).catch(() => []);
+    const counts = {};
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const names = await readdir(path.join(backupRootPath, entry.name)).catch(() => []);
+      counts[entry.name] = names.filter((name) => backupNamePattern.test(name)).length;
+    }
+    return { counts };
+  }
+
   async function listAppBackups({ id }) {
     await ensureManifest(id);
     const backupDirectory = backupDirFor(id);
@@ -792,5 +825,5 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { syncHomepage, inspect, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, countAppBackups, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

@@ -108,6 +108,11 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.syncHomepage({ host: parameters.host }, { progress }),
     }),
     defineOperation({
+      id: "app.backups.counts", title: "Count application backups", risk: "low", readOnly: true, timeoutMs: 30_000,
+      description: "How many data backups each application has, from one walk of the backup root.",
+      run: (_parameters, { apps }) => apps.countAppBackups(),
+    }),
+    defineOperation({
       id: "app.backups.inspect", title: "List application backups", risk: "low", readOnly: true, timeoutMs: 30_000,
       parameters: { fields: { id: idField } },
       run: (parameters, { apps }) => apps.listAppBackups(parameters),

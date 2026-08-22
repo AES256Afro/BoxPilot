@@ -100,6 +100,13 @@ function pinnedCloudDestination() {
   if (!destination) throw new Error("Save a cloud destination on the Backups page first");
   return destination;
 }
+/** Note that the rules have moved on from the profile, so the page stops naming a stale one. */
+function markProfileEdited(job) {
+  const current = state.getSetting("firewallProfile", null);
+  if (!current || current.editedAt) return;
+  state.setSetting("firewallProfile", { ...current, editedAt: new Date().toISOString() }, { updatedBy: job.createdBy });
+}
+
 const jobs = createJobService(state, helper, {
   jobLog: jobLogReader,
   // Registry ops whose results become durable evidence rows.
@@ -125,6 +132,10 @@ const jobs = createJobService(state, helper, {
     "storage.lvm.snapshot.rollback": (job, result) => state.setSetting("lvmSnapshots", (state.getSetting("lvmSnapshots", []) ?? []).filter((entry) => entry.path !== result.path), { updatedBy: job.createdBy }),
     // The Firewall page shows which profile is in force and when it was applied.
     "firewall.profile.apply": (job, result) => state.setSetting("firewallProfile", { id: result.profile, services: result.services ?? [], sshRateLimit: result.sshRateLimit ?? false, appliedAt: result.appliedAt, appliedBy: job.createdBy }, { updatedBy: job.createdBy }),
+    // Editing rules by hand moves the box away from the profile, so the page stops claiming one is
+    // in force rather than naming a profile whose rules are no longer what is loaded.
+    "firewall.rule.set": (job) => markProfileEdited(job),
+    "firewall.rule.delete": (job) => markProfileEdited(job),
     "backup.cloud.setup": (job, result) => state.setSetting("cloudDestination", result.destination, { updatedBy: job.createdBy }),
     "backup.cloud.sync": (job, result) => state.setSetting("cloudDestinationLastSync", { completedAt: result.completedAt, filesTransferred: result.filesTransferred, bytesTransferred: result.bytesTransferred, destination: result.destination, errors: result.errors ?? 0 }, { updatedBy: job.createdBy }),
     "backup.remote.sync": (job, result) => state.setSetting("backupDestinationLastSync", { completedAt: result.completedAt, filesTransferred: result.filesTransferred, bytesTransferred: result.bytesTransferred, destination: result.destination }, { updatedBy: job.createdBy }),
