@@ -149,7 +149,7 @@ sudo journalctl -u boxpilot-helper -u boxpilot -n 100 --no-pager
 curl http://127.0.0.1:8787/api/v1/health
 ```
 
-Create the first owner using [Operations Core setup and recovery](OPERATIONS-CORE.md), sign in, then open **Virtual Machines**. The preflight checklist names each missing requirement without changing the host. **Default VM foundation** either proves both fixed resources ready, offers the immutable setup plan, or reports the exact compatibility conflict that must be handled at the server console.
+Create the first owner with the token the installer printed, sign in, then open **Virtual Machines**. The preflight checklist names each missing requirement without changing the host. **Default VM foundation** either proves both fixed resources ready, offers the immutable setup plan, or reports the exact compatibility conflict that must be handled at the server console.
 
 Run the read-only deployment doctor at any time:
 

@@ -81,7 +81,7 @@ Version `0.59.0` adds a separate **Plan private access** action. BoxPilot derive
 
 The fixed command shape follows the current official [Tailscale Serve CLI reference](https://tailscale.com/docs/reference/tailscale-cli/serve). Tailscale access-control rules still apply to the published route.
 
-After deployment, the Backups page can record artifact integrity and an isolated restore test for the Uptime Kuma data directory. Version `0.44.0` can then copy that exact verified archive into the separate encrypted application restic repository, read the complete repository, restore the exact snapshot, and match its size and SHA-256 before reporting independent protection. See [Verified application backups](BACKUPS.md).
+After deployment, the Backups page can record artifact integrity and an isolated restore test for the Uptime Kuma data directory. Version `0.44.0` can then copy that exact verified archive into the separate encrypted application restic repository, read the complete repository, restore the exact snapshot, and match its size and SHA-256 before reporting independent protection. See [Verified application backups](../BACKUPS.md).
 
 ## Keel Notes discovery, safe staging, and private installation adapter
 

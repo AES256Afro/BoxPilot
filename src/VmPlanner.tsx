@@ -67,7 +67,7 @@ export default function VmPlanner({ onClose, onStage, csrfToken = "" }: { onClos
     <div className="vm-planner-backdrop" role="presentation">
       <section className="vm-planner-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-planner-title">
         <header className="vm-planner-header">
-          <div><span className="eyebrow">Durable guarded creation</span><h2 id="vm-planner-title">Plan a new virtual machine</h2><p>Validate capacity and media, then stage an immutable job for separate password approval.</p></div>
+          <div><span className="eyebrow">New virtual machine</span><h2 id="vm-planner-title">Plan a new virtual machine</h2><p>Check there is room and pick an image, then approve the job with your password.</p></div>
           <button type="button" className="modal-close" aria-label="Close VM planner" onClick={onClose} autoFocus>X</button>
         </header>
 

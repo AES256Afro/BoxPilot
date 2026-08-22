@@ -82,7 +82,7 @@ export default function GitHubCenter() {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  if (!status && loading) return <section className="vm-loading">Loading public GitHub provenance...</section>;
+  if (!status && loading) return <section className="vm-loading">Reading the release details...</section>;
   if (!status) return <p className="form-error" role="alert">{error}</p>;
 
   const available = status.repositories.filter((repository) => repository.status === "available").length;

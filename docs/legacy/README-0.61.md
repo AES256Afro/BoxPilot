@@ -466,28 +466,28 @@ docker build -t boxpilot:local .
 ## Documentation
 
 - [Architecture and security boundaries](../ARCHITECTURE.md)
-- [Operations Core setup and recovery](../OPERATIONS-CORE.md)
+- [Operations Core setup and recovery](OPERATIONS-CORE.md)
 - [Exact prerequisite repair boundary](../PREREQUISITE-REPAIRS.md)
-- [Curated application planning and deployment](../APPLICATIONS.md)
+- [Curated application planning and deployment](APPLICATIONS.md)
 - [Verified backup and isolated restore workflow](../BACKUPS.md)
 - [WAL-aware local and encrypted independent BoxPilot controller recovery runbook](../CONTROLLER-BACKUPS.md)
 - [Sanitized host, Docker, service, and log inventory](../INVENTORY.md)
 - [Router, DNS topology, and guarded direct acceptance](../NETWORK.md)
-- [Router checkpoint evidence and future adapter gates](../ROUTERS.md)
-- [Signed fleet agents and independent DNS evidence](../FLEET.md)
+- [Router checkpoint evidence and future adapter gates](ROUTERS.md)
+- [Signed fleet agents and independent DNS evidence](FLEET.md)
 - [Credential-free GitHub provenance and installation gates](../GITHUB.md)
-- [Keel Notes discovery, exact-release staging, private installation, and claim handoff](../KEEL.md)
+- [Keel Notes discovery, exact-release staging, private installation, and claim handoff](KEEL.md)
 - [Disaster recovery readiness kit and runbook](../RECOVERY.md)
-- [Guarded migration discovery and local staging](../MIGRATIONS.md)
-- [Dependency-ordered roadmap](../ROADMAP.md)
+- [Guarded migration discovery and local staging](MIGRATIONS.md)
+- [Dependency-ordered roadmap](ROADMAP.md)
 - [QEMU/KVM setup and operation](../VIRTUALIZATION.md)
-- [QEMU/KVM milestones](../VIRTUALIZATION-MILESTONES.md)
+- [QEMU/KVM milestones](VIRTUALIZATION-MILESTONES.md)
 - [QEMU/KVM API and agent contract](../VIRTUALIZATION-API.md)
-- [Ubuntu Server installation runbook](UBUNTU-SERVER-INSTALL-RUNBOOK.md)
+- [Ubuntu Server installation runbook](../../UBUNTU-SERVER-INSTALL-RUNBOOK.md)
 
 ## Keel Notes guarded native-service adapter
 
-Version `0.25.0` ships the first Keel-specific adapter as a non-executable planning boundary. Versions `0.41.0` through `0.46.0` add bounded discovery, fixed artifact acquisition, runtime archive membership checks, the corrected `v1.2.6` release, and inert root-owned staging. Version `0.47.0` adds a separate immutable and password-approved native-service install plan with a dedicated account, private state, exact activation link, hardened loopback unit, health proof, and state-preserving rollback. Version `0.48.0` adds a separate consistent-export backup job, guaranteed source restart, complete manifest and tree evidence, an isolated restored-SQLite drill, and eligibility for encrypted independent application protection. Version `0.49.0` adds exact-evidence transformation into a new stopped no-network root-only recovery clone without replacing production. Version `0.50.0` adds a disposable private-namespace startup and health rehearsal without owner-login proof. Version `0.51.0` adds exact-drill-gated atomic production promotion with a retained old-state checkpoint, fixed health verification, interrupted-operation reconciliation, and automatic rollback. Version `0.52.0` adds owner-requested exact checkpoint restoration while retaining displaced current production and leaving the original checkpoint unchanged. Version `0.53.0` adds terminal-only password owner-login, instance-owner authorization, forced logout, and revoked-session proof without credential or session storage. See [the Keel adapter guide](../KEEL.md) for the exact install, claim, login-proof, and recovery boundaries.
+Version `0.25.0` ships the first Keel-specific adapter as a non-executable planning boundary. Versions `0.41.0` through `0.46.0` add bounded discovery, fixed artifact acquisition, runtime archive membership checks, the corrected `v1.2.6` release, and inert root-owned staging. Version `0.47.0` adds a separate immutable and password-approved native-service install plan with a dedicated account, private state, exact activation link, hardened loopback unit, health proof, and state-preserving rollback. Version `0.48.0` adds a separate consistent-export backup job, guaranteed source restart, complete manifest and tree evidence, an isolated restored-SQLite drill, and eligibility for encrypted independent application protection. Version `0.49.0` adds exact-evidence transformation into a new stopped no-network root-only recovery clone without replacing production. Version `0.50.0` adds a disposable private-namespace startup and health rehearsal without owner-login proof. Version `0.51.0` adds exact-drill-gated atomic production promotion with a retained old-state checkpoint, fixed health verification, interrupted-operation reconciliation, and automatic rollback. Version `0.52.0` adds owner-requested exact checkpoint restoration while retaining displaced current production and leaving the original checkpoint unchanged. Version `0.53.0` adds terminal-only password owner-login, instance-owner authorization, forced logout, and revoked-session proof without credential or session storage. See [the Keel adapter guide](KEEL.md) for the exact install, claim, login-proof, and recovery boundaries.
 
 The generic migration packer still treats an offline Keel Compose project as opaque verified files. It does not yet coordinate the Keel database, managed-secret key, uploads, service health, account claim, activation, or cutover.
 

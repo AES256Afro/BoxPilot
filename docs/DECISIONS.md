@@ -6,7 +6,7 @@ Short, dated records of decisions that change the product's direction. Newer ent
 
 ## ADR-001 — BoxPilot is a point-and-click server setup tool; risk tiers replace universal password approval
 
-**Date:** 2026-08-19 · **Status:** Accepted · **Supersedes:** the "safety-first control plane" framing in `README.md` and `docs/ROADMAP.md` phases 0–9 where they conflict.
+**Date:** 2026-08-19 · **Status:** Accepted · **Supersedes:** the "safety-first control plane" framing in the pre-0.62 `README.md` and `docs/ROADMAP.md` phases 0–9 where they conflict.
 
 ### Context
 
@@ -36,5 +36,5 @@ The owner's goal for the product is the opposite: open the app on a fresh Ubuntu
 ### Consequences
 
 - Existing guarded workflows keep working during the transition; they are ported to the registry and re-tiered rather than rewritten from scratch.
-- `README.md` and `docs/ROADMAP.md` will be rewritten around the new goal; until then `docs/ROADMAP-V2.md` is authoritative.
+- `README.md` was rewritten around the new goal; `docs/ROADMAP-V2.md` is the authoritative plan, and the pre-pivot roadmap moved to `docs/legacy/ROADMAP.md`.
 - Anyone (human or agent) adding a feature should add a registry entry or a catalog manifest, not a new named systemd unit, a new per-workflow SQLite ledger, or a new paragraph of boundary prose.

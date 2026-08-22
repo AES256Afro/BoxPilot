@@ -159,7 +159,7 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
       </div>
 
       <section className="panel network-planner">
-        <header className="panel-header"><strong>Router and DNS change-window assessment</strong><span>Creates an attributable immutable plan, never a router change</span></header>
+        <header className="panel-header"><strong>Check DNS before changing it</strong><span>Writes a plan you can review; your router is never touched</span></header>
         <div className="network-form-grid">
           <label>Intended topology<select value={selectedTopology} onChange={(event) => { setSelectedTopology(event.target.value); setPlan(null); }}><option value="flint2-edge-tplink-ap">Flint 2 edge + TP-Link AP</option><option value="omada-edge-access-points">ER707-M2 edge + wireless APs</option><option value="single-router">Single current router</option><option value="custom">Custom, manually verified</option></select></label>
           <label>DNS role<select value={dnsRole} onChange={(event) => { setDnsRole(event.target.value); setPlan(null); }}><option value="current-external">Keep current external resolvers</option><option value="flint2-adguard-home">Flint 2 AdGuard Home</option><option value="pihole-on-host">Pi-hole on this server</option><option value="pihole-in-vm">Pi-hole in a dedicated VM</option><option value="other">Other resolver</option></select></label>
