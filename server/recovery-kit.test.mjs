@@ -7,18 +7,18 @@ import { createStateStore } from "./state.mjs";
 
 const directories = [];
 
-function catalogHelper({ installed = true, backups = [] } = {}) {
+function catalogHelper({ installed = true, backups = [], countsAvailable = true } = {}) {
   return {
     request: vi.fn(async (operation, parameters) => {
       if (operation === "app.inspect") return { applications: [{ id: "uptime-kuma", installed, container: { state: installed ? "running" : "absent" } }] };
       if (operation === "app.backups.inspect") return { id: parameters.id, directory: "/secret/backups/uptime-kuma", backups };
-      if (operation === "app.backups.counts") return { counts: { "uptime-kuma": backups.length } };
+      if (operation === "app.backups.counts") return countsAvailable ? { available: true, counts: { "uptime-kuma": backups.length } } : { available: false, counts: {} };
       throw new Error(`Unexpected operation ${operation}`);
     }),
   };
 }
 
-async function setup({ installed = true, backups = [], domains = [{ name: "notes-vm", state: "shut off", autostart: false }] } = {}) {
+async function setup({ installed = true, backups = [], countsAvailable = true, domains = [{ name: "notes-vm", state: "shut off", autostart: false }] } = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-recovery-kit-"));
   directories.push(directory);
   const store = createStateStore({ stateDirectory: directory, now: () => new Date("2026-08-16T04:00:00.000Z") });
@@ -27,7 +27,7 @@ async function setup({ installed = true, backups = [], domains = [{ name: "notes
   const service = createRecoveryKitService({
     store,
     prerequisites: { inspect: vi.fn(async () => ({ checks: [{ id: "helper.boundary", group: "BoxPilot", name: "Restricted helper", status: "ready", summary: "Typed protocol ready", repair: null }] })) },
-    helper: catalogHelper({ installed, backups }),
+    helper: catalogHelper({ installed, backups, countsAvailable }),
     libvirt: { listDomains: vi.fn(async () => ({ connected: true, domains })) },
     now: () => new Date("2026-08-16T04:05:00.000Z"),
     version: "0.26.0-test",
@@ -119,5 +119,21 @@ describe("secret-free disaster recovery kit", () => {
     const serialized = JSON.stringify(kit);
     expect(serialized).not.toContain("/secret/controller/boxpilot.sqlite3");
     store.close();
+  });
+});
+
+describe("when the backup folder cannot be read", () => {
+  it("says so, instead of reporting that no application has a backup", async () => {
+    // Zero backups is an alarm the owner should act on; not knowing is not, and the two used to
+    // look identical because a failed directory read returned an empty count map.
+    const { owner, service } = await setup({ backups: [] });
+    void owner;
+    const kit = await service.inspect();
+    const check = kit.checks.find((item) => item.id === "applications.backup");
+    expect(check.state).toBe("action-required"); // the readable-but-empty case still warns
+
+    const unreadable = await setup({ backups: [], countsAvailable: false });
+    const blindKit = await unreadable.service.inspect();
+    expect(blindKit.checks.find((item) => item.id === "applications.backup").state).toBe("unavailable");
   });
 });

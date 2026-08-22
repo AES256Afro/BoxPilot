@@ -41,10 +41,12 @@ export function createRecoveryKitService({ store, prerequisites, helper, libvirt
     // app has any backup at all.
     const [live, counted] = await Promise.all([
       helper.request("app.inspect", {}, { timeoutMs: 30_000 }),
-      helper.request("app.backups.counts", {}, { timeoutMs: 30_000 }).catch(() => ({ counts: {} })),
+      helper.request("app.backups.counts", {}, { timeoutMs: 30_000 }).catch(() => ({ available: false, counts: {} })),
     ]);
     const installed = (live.applications ?? []).filter((item) => item.installed === true);
-    return installed.map((item) => ({ ...item, backupCount: counted.counts?.[item.id] ?? 0 }));
+    // A count that could not be taken is not a count of zero; the check reports unavailable.
+    const known = counted.available !== false;
+    return installed.map((item) => ({ ...item, backupCount: known ? counted.counts?.[item.id] ?? 0 : null }));
   }
 
   async function inspect() {
@@ -65,7 +67,8 @@ export function createRecoveryKitService({ store, prerequisites, helper, libvirt
     const protectedControllerBackup = controllerBackups.find((backup) => controllerProtections.some((protection) => protection.backupId === backup.id)) ?? null;
     const vmBackups = store.listVmBackups(200).filter((item) => item.retained !== false);
 
-    const unbackedApplications = installedApplications.filter((item) => (item.backupCount ?? 0) === 0);
+    const backupCountsKnown = installedApplications.every((item) => item.backupCount !== null);
+    const unbackedApplications = installedApplications.filter((item) => item.backupCount === 0);
     const domains = domainInventory.connected === true ? domainInventory.domains : [];
     const protectedDomainNames = new Set(vmBackups.filter((item) => item.protected && item.encrypted && item.independent && item.repositoryVerified && item.restoreDrill?.passed).map((item) => item.domainName));
     const unprotectedDomains = domains.filter((item) => !protectedDomainNames.has(item.name));
@@ -84,6 +87,8 @@ export function createRecoveryKitService({ store, prerequisites, helper, libvirt
         ? check("applications.backup", "unavailable", "Catalog application backups", "Catalog application inventory is unavailable, so backup coverage cannot be evaluated.", "Restore the helper connection and regenerate the kit.")
         : installedApplications.length === 0
         ? check("applications.backup", "not-applicable", "Catalog application backups", "No catalog application is currently installed.", "Re-run this kit after installing an application.")
+        : !backupCountsKnown
+        ? check("applications.backup", "unavailable", "Catalog application backups", "The application backup folder could not be read, so how many backups each app has is unknown.", "Check that the BoxPilot helper is running, then generate the kit again.")
         : unbackedApplications.length > 0
           ? check("applications.backup", "action-required", "Catalog application backups", `${unbackedApplications.length} of ${installedApplications.length} installed application(s) have no recorded backup: ${unbackedApplications.map((item) => item.id).join(", ")}.`, "Back up each listed application from its catalog card, or schedule recurring backups on the System page.")
           : check("applications.backup", "verified", "Catalog application backups", `All ${installedApplications.length} installed application(s) have at least one recorded checksummed backup archive. Folders you pointed an app at yourself are not inside those archives.`, "Copy the application backup directory to independent storage, keep backup schedules enabled, and make sure any media or photo folders you chose are backed up too."),

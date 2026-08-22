@@ -671,14 +671,22 @@ export function createAppHelper({
    */
   async function countAppBackups() {
     const backupRootPath = path.resolve(backupRoot);
-    const entries = await readdir(backupRootPath, { withFileTypes: true }).catch(() => []);
+    let entries;
+    try {
+      entries = await readdir(backupRootPath, { withFileTypes: true });
+    } catch (error) {
+      // A root that does not exist yet genuinely holds nothing; one that cannot be read is
+      // unknown, and reporting it as zero would tell the owner every app is unprotected.
+      if (error.code !== "ENOENT") return { available: false, counts: {}, reason: error.message };
+      entries = [];
+    }
     const counts = {};
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const names = await readdir(path.join(backupRootPath, entry.name)).catch(() => []);
       counts[entry.name] = names.filter((name) => backupNamePattern.test(name)).length;
     }
-    return { counts };
+    return { available: true, counts };
   }
 
   async function listAppBackups({ id }) {
