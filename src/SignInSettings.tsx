@@ -4,6 +4,7 @@ import { pollGithubSignIn, type GithubFlow } from "./auth";
 interface Links {
   tailscaleLogins: string[];
   githubLogins: string[];
+  githubRelinkNeeded?: string[];
   githubConfigured: boolean;
   githubClientId: string;
   currentTailscale: { login: string; displayName: string; node: string; linked: boolean } | null;
@@ -89,6 +90,11 @@ export default function SignInSettings({ csrfToken }: { csrfToken: string }) {
           </div>
           {flow && <div className="github-device"><span>Open <a href={flow.verificationUri} target="_blank" rel="noreferrer">{flow.verificationUri}</a> and enter</span><code className="github-code">{flow.userCode}</code><span className="muted">Waiting for GitHub…</span></div>}
           {links?.githubLogins.length ? <div className="recovery-actions" style={{ marginTop: 8 }}>{links.githubLogins.map((login) => <button key={login} className="secondary-button" type="button" disabled={busy || !passwordOk} onClick={() => void unlinkGithub(login)}>Unlink {login}</button>)}</div> : null}
+          {links?.githubRelinkNeeded?.length ? (
+            <p className="muted" style={{ marginTop: 8 }}>
+              {links.githubRelinkNeeded.join(", ")} {links.githubRelinkNeeded.length === 1 ? "was" : "were"} linked before BoxPilot recorded GitHub's account number. A GitHub name can be released and taken by somebody else, so a name on its own no longer signs anyone in — link {links.githubRelinkNeeded.length === 1 ? "it" : "them"} again to use GitHub sign-in.
+            </p>
+          ) : null}
         </div></div>
 
         {message && <p className="good-text">{message}</p>}
