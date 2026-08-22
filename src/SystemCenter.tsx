@@ -5,6 +5,8 @@ import SchedulesPanel from "./SchedulesPanel";
 import { inspectOperation } from "./operations";
 import { readJson } from "./http";
 
+interface HousekeepingCategory { id: string; title: string; summary: string; items: number | null; bytes: number; humanBytes: string; detail: string[]; keeping: string[]; safe: boolean }
+interface Housekeeping { generatedAt: string; categories: HousekeepingCategory[]; totalBytes: number; totalHumanBytes: string }
 interface DockerDisk { available: boolean; rows: Array<{ type: string; total: number | string | null; active: number | string | null; size: string | null; reclaimable: string | null }>; logging?: { configured: boolean; logDriver: string | null; maxSize: string | null; liveRestore: boolean } }
 
 interface SystemSettings {
@@ -37,6 +39,9 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
   const [swappiness, setSwappiness] = useState("");
 
   const [dockerDisk, setDockerDisk] = useState<DockerDisk | null>(null);
+  const [housekeeping, setHousekeeping] = useState<Housekeeping | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [chosenCleanup, setChosenCleanup] = useState<Set<string>>(new Set());
   const [release, setRelease] = useState<ReleaseUpdate | null>(null);
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [updating, setUpdating] = useState<string | null>(null);
@@ -100,6 +105,30 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  /** What can be reclaimed, asked for once when the page opens and again on demand. */
+  const scanHousekeeping = useCallback(async () => {
+    setScanning(true);
+    try {
+      const { result } = await inspectOperation<Housekeeping>("housekeeping.inspect");
+      setHousekeeping(result);
+      setChosenCleanup(new Set());
+    } catch {
+      setHousekeeping(null);
+    } finally {
+      setScanning(false);
+    }
+  }, []);
+
+  useEffect(() => { void scanHousekeeping(); }, [scanHousekeeping]);
+
+  const chosenHumanBytes = (() => {
+    const bytes = (housekeeping?.categories ?? []).filter((category) => chosenCleanup.has(category.id)).reduce((sum, category) => sum + category.bytes, 0);
+    if (bytes <= 0) return "nothing";
+    const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+    const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+    return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
+  })();
 
   const { start, dialog } = useOperation(csrfToken, (job) => {
     if (job.type === "op:system.update" && job.state === "completed" && updateTarget.current) setUpdating(updateTarget.current);
@@ -219,11 +248,66 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
         ))}
       </section>
 
+      <section className="panel">
+        <header className="panel-header">
+          <div>
+            <strong>Housekeeping</strong>
+            <span>{housekeeping ? `${housekeeping.totalHumanBytes} can be reclaimed. Pick what to clear — nothing else is touched.` : "What is taking up room that nothing needs any more."}</span>
+          </div>
+          <div className="recovery-actions">
+            <button className="text-button" type="button" disabled={scanning} onClick={() => void scanHousekeeping()}>{scanning ? "Looking…" : "Rescan"}</button>
+            <button
+              className="primary-button"
+              type="button"
+              disabled={loading || chosenCleanup.size === 0}
+              onClick={() => start({
+                operationId: "housekeeping.reclaim",
+                title: `Reclaim ${chosenHumanBytes}`,
+                parameters: { targets: [...chosenCleanup] },
+                preview: (
+                  <span>
+                    Removes {[...chosenCleanup].map((id) => housekeeping?.categories.find((category) => category.id === id)?.title.toLowerCase()).filter(Boolean).join(", ")} — about {chosenHumanBytes}.
+                    Images a container uses, the release a failed update would roll back to, and the newest backups of each app are not touched.
+                  </span>
+                ),
+              })}
+            >Reclaim {chosenCleanup.size > 0 ? chosenHumanBytes : "space"}</button>
+          </div>
+        </header>
+        {!housekeeping && <p className="muted">{scanning ? "Working out what can go…" : "Press Rescan to look."}</p>}
+        {housekeeping && (
+          <ul className="housekeeping-list">
+            {housekeeping.categories.map((category) => (
+              <li key={category.id} className={category.bytes > 0 ? "" : "is-empty"}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={chosenCleanup.has(category.id)}
+                    disabled={category.bytes === 0 || !category.safe}
+                    onChange={(event) => setChosenCleanup((current) => {
+                      const next = new Set(current);
+                      if (event.target.checked) next.add(category.id); else next.delete(category.id);
+                      return next;
+                    })}
+                  />
+                  <div>
+                    <strong>{category.title}</strong>
+                    <span className="housekeeping-size">{category.bytes > 0 ? category.humanBytes : "nothing to clear"}{category.items !== null && category.items > 0 ? ` · ${category.items} item${category.items === 1 ? "" : "s"}` : ""}</span>
+                    <span className="muted">{category.summary}</span>
+                    {category.keeping.length > 0 && <span className="muted">Keeping: {category.keeping.join(", ")}.</span>}
+                    {category.detail.length > 0 && <details><summary>What exactly</summary><span className="muted">{category.detail.join(" · ")}</span></details>}
+                  </div>
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       {dockerDisk?.available && (
         <section className="panel">
           <header className="panel-header">
-            <div><strong>Docker disk use</strong><span>Cleanup removes stopped containers, unused networks, dangling images, and the build cache. Volumes and running apps are kept.</span></div>
-            <button className="secondary-button" type="button" disabled={loading} onClick={() => start({ operationId: "docker.prune", title: "Clean up Docker disk space", parameters: {}, preview: <span><code>docker system prune --force</code> — volumes and images in use are kept.</span> })}>Clean up</button>
+            <div><strong>Docker disk use</strong><span>How Docker accounts for its own space. Shared layers mean the reclaimable figure is usually well under the sum of the sizes.</span></div>
           </header>
           <div className="table-scroll">
             <table>
