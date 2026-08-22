@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { bootstrapOwner, fetchIdentityOptions, loginOwner, loginWithTailscale, pollGithubSignIn, startGithubSignIn, type AuthStatus, type GithubFlow, type IdentityOptions } from "./auth";
+import { AuthError, bootstrapOwner, fetchIdentityOptions, loginOwner, loginWithTailscale, pollGithubSignIn, startGithubSignIn, type AuthStatus, type GithubFlow, type IdentityOptions } from "./auth";
 
 export default function AuthScreen({ bootstrapRequired, onAuthenticated }: { bootstrapRequired: boolean; onAuthenticated: (status: AuthStatus) => void }) {
   const [username, setUsername] = useState("operator");
@@ -18,9 +18,18 @@ export default function AuthScreen({ bootstrapRequired, onAuthenticated }: { boo
   }, [bootstrapRequired]);
   useEffect(() => () => { if (pollTimer.current) window.clearTimeout(pollTimer.current); }, []);
 
-  const tailscaleSignIn = async () => {
+  // First Tailscale sign-in from a browser confirms the password once; the server then remembers the browser.
+  const [devicePrompt, setDevicePrompt] = useState<{ username: string } | null>(null);
+  const [devicePassword, setDevicePassword] = useState("");
+  const tailscaleSignIn = async (password?: string) => {
     setSubmitting(true); setError(null);
-    try { onAuthenticated(await loginWithTailscale()); } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Tailscale sign-in failed"); } finally { setSubmitting(false); }
+    try {
+      onAuthenticated(await loginWithTailscale(password));
+      setDevicePrompt(null); setDevicePassword("");
+    } catch (requestError) {
+      if (requestError instanceof AuthError && requestError.code === "device_password_required") { setDevicePrompt({ username: requestError.username ?? "" }); if (password) setError("That password was not accepted"); }
+      else setError(requestError instanceof Error ? requestError.message : "Tailscale sign-in failed");
+    } finally { setSubmitting(false); }
   };
 
   const githubSignIn = async () => {
@@ -81,6 +90,13 @@ export default function AuthScreen({ bootstrapRequired, onAuthenticated }: { boo
         {!bootstrapRequired && identity && (identity.tailscale.linked || identity.github.configured) && (
           <div className="identity-signin">
             {identity.tailscale.linked && <button className="primary-button" type="button" disabled={submitting} onClick={() => void tailscaleSignIn()}>Continue as {identity.tailscale.displayName ?? identity.tailscale.login} (Tailscale)</button>}
+            {devicePrompt && (
+              <form className="stack" onSubmit={(event) => { event.preventDefault(); void tailscaleSignIn(devicePassword); }}>
+                <p className="muted">First time in this browser: confirm the password for <strong>{devicePrompt.username}</strong>. Next time, Tailscale alone signs you in here.</p>
+                <input aria-label="Password" type="password" autoComplete="current-password" value={devicePassword} onChange={(event) => setDevicePassword(event.target.value)} />
+                <button className="primary-button" type="submit" disabled={submitting || devicePassword.length < 12}>Confirm and sign in</button>
+              </form>
+            )}
             {identity.github.configured && !github && <button className="secondary-button" type="button" disabled={submitting || Boolean(githubStatus)} onClick={() => void githubSignIn()}>Sign in with GitHub</button>}
             {github && (
               <div className="github-device">

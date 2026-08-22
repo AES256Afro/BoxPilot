@@ -75,6 +75,7 @@ export async function userAdd({ username, githubUser = null } = {}, { run = fixe
 
 export async function userKeysImport({ username, githubUser = null, keys = null } = {}, { run = fixedRun, log = null, files = { readFile, writeFile }, fetchKeys = defaultFetchKeys } = {}) {
   assertUsername(username);
+  if (username === "root") throw new Error("Keys are never added for root; give an administrator account sudo instead");
   const entry = await userEntry(run, username);
   if (!entry) throw new Error(`User ${username} does not exist`);
   let candidate = [];

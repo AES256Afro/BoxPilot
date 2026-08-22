@@ -2,6 +2,7 @@ import { access, readFile } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
 import { commentPattern, ruleActions, ruleProtocols } from "../tasks/firewall.mjs";
 import { profileIds, serviceIds } from "../firewall-profiles.mjs";
+import { hasDockerRules } from "../tasks/firewall-docker.mjs";
 
 const minutes = (value) => value * 60_000;
 
@@ -87,6 +88,7 @@ export function firewallOperations() {
           enabled: parseUfwConf(conf),
           defaults: parseDefaultPolicies(defaults),
           rules: mergeRuleFamilies(parseUserRules(v4, "v4"), parseUserRules(v6, "v6")),
+          dockerRules: hasDockerRules(await readFile("/etc/ufw/after.rules", "utf8").catch(() => "")),
         };
       },
     }),

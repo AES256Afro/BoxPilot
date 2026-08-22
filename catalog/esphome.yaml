@@ -5,7 +5,7 @@ category: Home automation
 icon: "🔌"
 description: "Build and flash firmware for ESP32/ESP8266 boards from the browser: sensors, relays, LED strips, and displays that show up in Home Assistant automatically."
 website: https://esphome.io
-risk: low
+risk: medium
 image:
   reference: esphome/esphome:2026.8.0
   version: "2026.8.0"

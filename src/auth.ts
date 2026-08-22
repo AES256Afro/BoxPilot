@@ -14,14 +14,21 @@ export interface AuthStatus {
   elevatedUntil?: string | null;
 }
 
+/** An auth failure with the server's machine-readable code (e.g. device_password_required). */
+export class AuthError extends Error {
+  code: string | null;
+  username: string | null;
+  constructor(message: string, code: string | null = null, username: string | null = null) { super(message); this.code = code; this.username = username; }
+}
+
 async function authRequest(path: string, body?: Record<string, string>): Promise<AuthStatus> {
   const response = await fetch(path, body ? {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   } : undefined);
-  const result = await response.json() as AuthStatus & { error?: string };
-  if (!response.ok) throw new Error(result.error ?? "Authentication request failed");
+  const result = await response.json().catch(() => ({})) as AuthStatus & { error?: string; code?: string; username?: string };
+  if (!response.ok) throw new AuthError(result.error ?? "Authentication request failed", result.code ?? null, result.username ?? null);
   return result;
 }
 
@@ -63,8 +70,8 @@ export function fetchIdentityOptions(): Promise<IdentityOptions> {
   });
 }
 
-export function loginWithTailscale(): Promise<AuthStatus> {
-  return authRequest("/api/v1/auth/tailscale", {}).then((result) => ({ ...result, bootstrapRequired: false }));
+export function loginWithTailscale(password?: string): Promise<AuthStatus> {
+  return authRequest("/api/v1/auth/tailscale", password ? { password } : {}).then((result) => ({ ...result, bootstrapRequired: false }));
 }
 
 export interface GithubFlow { flowId: string; userCode: string; verificationUri: string; expiresIn: number; intervalSeconds: number }

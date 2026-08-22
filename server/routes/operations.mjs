@@ -34,6 +34,7 @@ export function createOperationsRouter({ state, helper, jobs, prerequisites, rec
     const problem = registry.validate(operation.id, parameters);
     if (problem) return response.status(400).json({ error: problem, code: "invalid_parameters" });
     if (operation.elevatedOnly) {
+      if (request.boxpilotSession.owner.role === "viewer") return response.status(403).json({ error: "Viewers can look but not reveal secrets", code: "forbidden" });
       const elevatedUntil = request.boxpilotSession.elevatedUntil ? Date.parse(request.boxpilotSession.elevatedUntil) : Number.NaN;
       if (!(Number.isFinite(elevatedUntil) && elevatedUntil > Date.now())) return response.status(401).json({ error: "Enter your password to unlock this for 10 minutes", code: "elevation_required" });
       state.recordAudit("operation.elevated-read", { actorId: request.boxpilotSession.owner.id, subjectId: operation.id, details: { parameters } });

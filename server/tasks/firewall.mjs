@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { fixedRun } from "../exec.mjs";
 import { buildPlan, defaultWebPort, isProtected, protectedRules } from "../firewall-profiles.mjs";
+import { syncDockerRules } from "./firewall-docker.mjs";
 
 /**
  * Root-side ufw tasks executed by scripts/boxpilot-run.mjs inside boxpilot-run@.service.
@@ -44,6 +45,12 @@ async function statusLines(run) {
   return result.ok ? result.stdout.split("\n").filter(Boolean) : [];
 }
 
+/** Rule changes only need the Docker chain refreshed while ufw is on; off means unfiltered anyway. */
+async function syncIfActive(status, dockerSync, run, log) {
+  const active = status.some((line) => /^Status:\s*active/i.test(line));
+  return dockerSync({ enabled: active }, { run, log });
+}
+
 function tail(text) {
   return String(text ?? "").split("\n").filter(Boolean).slice(-2).join(" ");
 }
@@ -61,7 +68,7 @@ async function ensureProtected(run, log, { webPort, webHost }) {
 }
 
 /** Keep SSH, Tailscale, BoxPilot, and the tailnet reachable, then flip the firewall. Disable never needs guards. */
-export async function firewallSet({ enabled } = {}, { run = fixedRun, log = null, envPath = defaultEnvPath } = {}) {
+export async function firewallSet({ enabled } = {}, { run = fixedRun, log = null, envPath = defaultEnvPath, dockerSync = syncDockerRules } = {}) {
   if (typeof enabled !== "boolean") throw new Error("enabled must be true or false");
   if (enabled) {
     log?.("Ensuring SSH, Tailscale, BoxPilot, and tailscale0 stay reachable before enabling", "stdout");
@@ -70,10 +77,11 @@ export async function firewallSet({ enabled } = {}, { run = fixedRun, log = null
   log?.(`$ ufw --force ${enabled ? "enable" : "disable"}`, "stdout");
   const result = await run(ufw, ["--force", enabled ? "enable" : "disable"], { timeout: 60_000 });
   if (!result.ok) throw new Error(`ufw ${enabled ? "enable" : "disable"} failed: ${tail(result.stderr)}`);
-  return { enabled, status: await statusLines(run) };
+  const docker = await dockerSync({ enabled }, { run, log });
+  return { enabled, docker, status: await statusLines(run) };
 }
 
-export async function firewallRuleAdd({ action, port, protocol, comment = null } = {}, { run = fixedRun, log = null, envPath = defaultEnvPath } = {}) {
+export async function firewallRuleAdd({ action, port, protocol, comment = null } = {}, { run = fixedRun, log = null, envPath = defaultEnvPath, dockerSync = syncDockerRules } = {}) {
   const problem = validateRule({ action, port, protocol, comment });
   if (problem) throw new Error(`Invalid rule: ${problem}`);
   if (action === "deny") {
@@ -85,10 +93,12 @@ export async function firewallRuleAdd({ action, port, protocol, comment = null }
   log?.(`$ ufw ${args.join(" ")}`, "stdout");
   const result = await run(ufw, args, { timeout: 30_000 });
   if (!result.ok) throw new Error(`ufw rejected the rule: ${tail(result.stderr)}`);
-  return { action, port, protocol, comment, status: await statusLines(run) };
+  const status = await statusLines(run);
+  const docker = await syncIfActive(status, dockerSync, run, log);
+  return { action, port, protocol, comment, docker, status };
 }
 
-export async function firewallRuleDelete({ action, port, protocol } = {}, { run = fixedRun, log = null, envPath = defaultEnvPath } = {}) {
+export async function firewallRuleDelete({ action, port, protocol } = {}, { run = fixedRun, log = null, envPath = defaultEnvPath, dockerSync = syncDockerRules } = {}) {
   const problem = validateRule({ action, port, protocol });
   if (problem) throw new Error(`Invalid rule: ${problem}`);
   if (action !== "deny") {
@@ -101,7 +111,9 @@ export async function firewallRuleDelete({ action, port, protocol } = {}, { run 
   const result = await run(ufw, args, { timeout: 30_000 });
   if (!result.ok) throw new Error(`ufw could not delete the rule: ${tail(result.stderr)}`);
   if (/Could not delete non-existent rule/i.test(result.stdout)) throw new Error("That rule does not exist any more; refresh and try again");
-  return { deleted: { action, port, protocol }, status: await statusLines(run) };
+  const status = await statusLines(run);
+  const docker = await syncIfActive(status, dockerSync, run, log);
+  return { deleted: { action, port, protocol }, docker, status };
 }
 
 /**
@@ -109,7 +121,7 @@ export async function firewallRuleDelete({ action, port, protocol } = {}, { run 
  * approved is what runs. Any required step failing stops before `ufw enable`, so a failed
  * apply leaves the firewall no more closed than before.
  */
-export async function firewallProfileApply({ profile, services = [], replace = false, sshRateLimit = false } = {}, { run = fixedRun, log = null, envPath = defaultEnvPath, now = () => new Date() } = {}) {
+export async function firewallProfileApply({ profile, services = [], replace = false, sshRateLimit = false } = {}, { run = fixedRun, log = null, envPath = defaultEnvPath, now = () => new Date(), dockerSync = syncDockerRules } = {}) {
   if (!Array.isArray(services) || services.some((id) => typeof id !== "string")) throw new Error("services must be a list of service ids");
   if (typeof replace !== "boolean" || typeof sshRateLimit !== "boolean") throw new Error("replace and sshRateLimit must be true or false");
   const env = await readWebEnv({ envPath });
@@ -124,5 +136,6 @@ export async function firewallProfileApply({ profile, services = [], replace = f
     const enabling = step.args.includes("enable");
     throw new Error(`${step.label} failed: ${tail(result.stderr) || tail(result.stdout) || "ufw returned an error"}${enabling ? "" : ". Stopped before turning the firewall on, so nothing new is blocked"}`);
   }
-  return { profile: plan.profile.id, services: plan.services, replace, sshRateLimit, steps: completed, appliedAt: now().toISOString(), status: await statusLines(run) };
+  const docker = await dockerSync({ enabled: true }, { run, log });
+  return { profile: plan.profile.id, services: plan.services, replace, sshRateLimit, steps: completed, docker, appliedAt: now().toISOString(), status: await statusLines(run) };
 }

@@ -5,7 +5,7 @@ category: Monitoring
 icon: "🪟"
 description: "Live logs of every container in the browser with search and multi-container views. No setup, no database."
 website: https://dozzle.dev
-risk: low
+risk: medium
 image:
   reference: amir20/dozzle:v10.7.3
   version: "10.7.3"

@@ -68,13 +68,13 @@ export function createJobsRouter({ state, jobs, scheduler, jobLogReader, auth })
 
   router.post("/jobs/:id/approve", auth.requireCsrf, async (request, response) => {
     try {
-      const approval = { password: typeof request.body?.password === "string" ? request.body.password : null, session: request.boxpilotSession };
+      const approval = { password: typeof request.body?.password === "string" ? request.body.password : null, confirmText: typeof request.body?.confirmText === "string" ? request.body.confirmText : null, session: request.boxpilotSession };
       // Every op: job runs in the background; approval returns as soon as execution starts.
       const job = await jobs.approveAndStart(request.params.id, request.boxpilotSession.owner.id, approval);
       const session = auth.requestSession(request);
       response.status(202).json({ job, elevatedUntil: session?.elevatedUntil ?? null });
     } catch (error) {
-      const status = error.message === "Job not found" ? 404 : error.message.includes("reauthentication") ? 401 : 409;
+      const status = error.message === "Job not found" ? 404 : error.message.includes("reauthentication") ? 401 : /^(Only the owner|Viewers cannot)/.test(error.message) ? 403 : 409;
       response.status(status).json({ error: error.message, code: "job_approval_failed" });
     }
   });

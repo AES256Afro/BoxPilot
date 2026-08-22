@@ -165,6 +165,9 @@ export function adviseFirewall({ report, listeners = [], apps = [], current = nu
     return advice;
   }
   const protectedList = protectedRules({ webPort, webHost });
+  if (report.enabled && apps.length > 0 && report.dockerRules === false) {
+    advice.push({ id: "docker-rules", level: "action", title: "Docker apps are not following the firewall yet", detail: "Docker publishes app ports outside ufw, so until the firewall is re-applied every installed app is reachable from the LAN whatever the rules say. Apply a profile (or turn the firewall off and on) once; BoxPilot then adds the rules that make Docker ports follow it.", focus: "profiles" });
+  }
   const rules = report.rules ?? [];
   const incoming = report.defaults?.incoming ?? null;
   const denyByDefault = incoming === "drop" || incoming === "reject";

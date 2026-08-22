@@ -57,7 +57,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
     setPhase("approving");
     setError(null);
     try {
-      await approveJob(job.id, csrfToken, password || undefined);
+      await approveJob(job.id, csrfToken, password || undefined, typedConfirm || undefined);
       if (password) window.dispatchEvent(new Event("boxpilot:auth-changed"));
       setPassword("");
       setPhase("running");
@@ -78,6 +78,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
 
   const tier = policy?.tier ?? "high";
   const passwordRequired = policy ? policy.passwordRequired : true;
+  const confirmRequired = confirmText ?? policy?.confirmText ?? null;
   const busy = phase === "staging" || phase === "approving" || phase === "running";
   const actionLabel = phase === "running" ? "Running..." : phase === "approving" ? "Approving..." : passwordRequired ? "Approve and run" : tier === "low" ? "Run" : "Confirm and run";
 
@@ -95,8 +96,8 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
           {policy && <p><span className={`status-pill ${tierTone[tier]}`}>{tierLabel[tier]}</span>{policy.elevated && tier === "high" ? <span className="good-text"> Session elevated — no password needed right now.</span> : null}</p>}
           {preview && <div className="notice">{preview}</div>}
           {phase === "staging" && <p>Preparing...</p>}
-          {phase === "ready" && confirmText && (
-            <label>Type <code>{confirmText}</code> to confirm<input aria-label="Typed confirmation" autoComplete="off" spellCheck="false" value={typedConfirm} onChange={(event) => setTypedConfirm(event.target.value)} /></label>
+          {phase === "ready" && confirmRequired && (
+            <label>Type <code>{confirmRequired}</code> to confirm<input aria-label="Typed confirmation" autoComplete="off" spellCheck="false" value={typedConfirm} onChange={(event) => setTypedConfirm(event.target.value)} /></label>
           )}
           {phase === "ready" && passwordRequired && (
             <label>Owner password<input aria-label="Approval password" type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
@@ -120,7 +121,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
           ) : (
             <>
               <button className="secondary-button" type="button" onClick={onClose} disabled={busy}>Cancel</button>
-              <button className="primary-button" type="button" onClick={() => void approve()} disabled={busy || phase !== "ready" || (passwordRequired && password.length < 12) || (Boolean(confirmText) && typedConfirm !== confirmText)}>{actionLabel}</button>
+              <button className="primary-button" type="button" onClick={() => void approve()} disabled={busy || phase !== "ready" || (passwordRequired && password.length < 12) || (Boolean(confirmRequired) && typedConfirm !== confirmRequired)}>{actionLabel}</button>
             </>
           )}
         </footer>

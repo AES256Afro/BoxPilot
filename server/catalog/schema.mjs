@@ -176,6 +176,12 @@ export function validateManifest(raw) {
     if (raw[listField] !== undefined && !(Array.isArray(raw[listField]) && raw[listField].every((item) => typeof item === "string" && item.length <= 128 && !/\s/.test(item)))) fail(errors, `manifest.${listField}`, "must be a list of tokens");
   }
   if (Array.isArray(raw.capabilities) && raw.capabilities.some((cap) => !/^CAP_[A-Z_]+$/.test(cap))) fail(errors, "manifest.capabilities", "entries must look like CAP_NET_ADMIN");
+  // Anything with host-level reach (Docker socket, host network, kernel-level capabilities) at least asks for a confirmation.
+  const strongCapabilities = ["CAP_SYS_ADMIN", "CAP_SYS_MODULE", "CAP_SYS_RAWIO", "CAP_SYS_PTRACE", "CAP_NET_ADMIN", "CAP_DAC_READ_SEARCH"];
+  const hostReach = (Array.isArray(raw.volumes) && raw.volumes.some((volume) => typeof volume?.hostPath === "string" && /docker\.sock$/.test(volume.hostPath)))
+    || raw.network === "host"
+    || (Array.isArray(raw.capabilities) && raw.capabilities.some((cap) => strongCapabilities.includes(cap)));
+  if (hostReach && raw.risk === "low") fail(errors, "manifest.risk", "must be medium or high: this app reaches the Docker socket, the host network, or kernel capabilities");
   if (raw.sysctls !== undefined && !(Array.isArray(raw.sysctls) && raw.sysctls.length <= 16 && raw.sysctls.every((entry) => typeof entry === "string" && /^net\.[a-z0-9_.]+=[A-Za-z0-9_.-]+$/.test(entry)))) fail(errors, "manifest.sysctls", "entries must be net.* kernel settings like net.ipv4.ip_forward=1");
   if (Array.isArray(raw.devices) && raw.devices.some((device) => !/^\/dev\/[A-Za-z0-9._/?*[\]-]+$/.test(device))) fail(errors, "manifest.devices", "entries must be /dev paths (globs like /dev/sd? are resolved at install time)");
 
@@ -225,7 +231,13 @@ export function validateManifest(raw) {
   return { manifest, errors: [] };
 }
 
-const hostPathDenyPrefixes = ["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/usr", "/bin", "/sbin", "/lib", "/var/lib/docker"];
+const hostPathDenyPrefixes = ["/etc", "/proc", "/sys", "/dev", "/boot", "/root", "/run", "/var/run", "/var/lib/boxpilot", "/var/lib/boxpilot-managed", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var/lib/docker", "/var/lib/libvirt", "/opt/boxpilot", "/snap", "/var/lib/snapd"];
+
+/** True when a (resolved) host path is one the deployer must never bind-mount. */
+export function isDeniedHostPath(candidate) {
+  const normalized = String(candidate ?? "").replace(/\/+$/, "") || "/";
+  return normalized === "/" || hostPathDenyPrefixes.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`));
+}
 
 /**
  * Validate user-supplied install values against a manifest. Returns `{ values, errors }` with
@@ -279,7 +291,9 @@ export function resolveValues(manifest, raw = {}) {
     if (provided === undefined) { volumes[volume.id] = volume.hostPath; continue; }
     if (typeof provided !== "string" || !/^\/[^\0]*$/.test(provided) || provided.includes("/../") || provided.endsWith("/..") || provided.length > 512) { fail(errors, `values.volumes.${volume.id}`, "must be a clean absolute path"); continue; }
     const normalized = provided.replace(/\/+$/, "") || "/";
-    if (normalized === "/" || hostPathDenyPrefixes.some((prefix) => normalized === prefix || normalized.startsWith(`${prefix}/`))) { fail(errors, `values.volumes.${volume.id}`, "points at a protected system location"); continue; }
+    // "/./etc", "//etc", "/etc/." would pass a prefix test and still reach the real directory.
+    if (normalized.split("/").some((segment, index) => index > 0 && (segment === "" || segment === "." || segment === ".."))) { fail(errors, `values.volumes.${volume.id}`, "must be a clean absolute path (no empty, . or .. segments)"); continue; }
+    if (isDeniedHostPath(normalized)) { fail(errors, `values.volumes.${volume.id}`, "points at a protected system location"); continue; }
     volumes[volume.id] = normalized;
   }
   // setup choices: unknown ids are errors; omitted on install means "the recommended ones".

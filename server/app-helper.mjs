@@ -5,12 +5,13 @@
  */
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chown, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chown, mkdir, readFile, readdir, rename, rm, stat, writeFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
 import { fixedRun } from "./exec.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { renderCompose, projectNameFor, resolveDevices } from "./catalog/compose.mjs";
+import { isDeniedHostPath } from "./catalog/schema.mjs";
 import { resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
 
 const actions = Object.freeze(["start", "stop", "restart"]);
@@ -76,6 +77,27 @@ export function createAppHelper({
     const result = await docker(["inspect", "--format", '{"running":{{.State.Running}},"status":"{{.State.Status}}","health":"{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}","restarts":{{.RestartCount}},"image":"{{.Image}}","startedAt":"{{.State.StartedAt}}","exitCode":{{.State.ExitCode}}}', name], { timeout: 10_000 });
     if (!result.ok) return { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null, startedAt: null };
     try { return { exists: true, ...JSON.parse(result.stdout) }; } catch { return { exists: true, running: false, status: "unknown", health: "none", restarts: 0, image: null, startedAt: null }; }
+  }
+
+  /** Container status for many apps in one docker call; names that do not exist only add stderr noise. */
+  async function containerStatuses(ids) {
+    const absent = { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null, startedAt: null };
+    const statuses = new Map(ids.map((id) => [id, absent]));
+    if (!ids.length) return statuses;
+    const format = '{"name":"{{.Name}}","running":{{.State.Running}},"status":"{{.State.Status}}","health":"{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}","restarts":{{.RestartCount}},"image":"{{.Image}}","startedAt":"{{.State.StartedAt}}"}';
+    const inspected = await docker(["inspect", "--format", format, ...ids.map(projectNameFor)]);
+    for (const line of String(inspected?.stdout ?? "").split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const parsed = JSON.parse(line);
+        const name = typeof parsed.name === "string" ? parsed.name.replace(/^\//, "") : null;
+        const id = name ? ids.find((candidate) => projectNameFor(candidate) === name) : ids.length === 1 ? ids[0] : null;
+        if (!id) continue;
+        delete parsed.name;
+        statuses.set(id, { exists: true, ...parsed });
+      } catch { /* one malformed line does not hide the others */ }
+    }
+    return statuses;
   }
 
   async function waitHealthy(manifest, progress = null) {
@@ -168,6 +190,12 @@ export function createAppHelper({
       if (owner && Number.isInteger(owner[0])) await chownDirectory(target, owner[0], Number.isInteger(owner[1]) ? owner[1] : owner[0]).catch(() => {});
     }
     for (const sidecar of manifest.sidecars ?? []) for (const volume of sidecar.volumes) await mkdir(path.join(directory, volume.path), { recursive: true, mode: 0o755 });
+    for (const volume of manifest.volumes) {
+      const hostPath = values.volumes?.[volume.id];
+      if (!hostPath) continue;
+      const real = await realpath(hostPath).catch(() => hostPath);
+      if (isDeniedHostPath(real)) throw new Error(`${hostPath} resolves to ${real}, a protected system location; pick a folder under /srv, /mnt, /media, or your home`);
+    }
     const devices = await resolveDevices(manifest.devices, listDevices);
     if (manifest.devices.some((pattern) => /[?*[]/.test(pattern)) && !devices.length) throw new Error(`${manifest.name} needs a device matching ${manifest.devices.join(", ")} and none exists on this server`);
     const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices });
@@ -178,9 +206,9 @@ export function createAppHelper({
     return rendered;
   }
 
-  async function describe(manifest) {
+  async function describe(manifest, status = null) {
     const state = await readState(manifest.id);
-    const status = await containerStatus(manifest.id);
+    if (!status) status = await containerStatus(manifest.id);
     return {
       id: manifest.id,
       installed: Boolean(state && state.installed),
@@ -196,8 +224,9 @@ export function createAppHelper({
   async function inspect({ id = null } = {}) {
     const { manifests, problems } = await catalog.all();
     const selected = id ? manifests.filter((manifest) => manifest.id === id) : manifests;
+    const statuses = await containerStatuses(selected.map((manifest) => manifest.id));
     const applications = [];
-    for (const manifest of selected) applications.push(await describe(manifest));
+    for (const manifest of selected) applications.push(await describe(manifest, statuses.get(manifest.id)));
     return { applications, problems, catalogRoot: root };
   }
 

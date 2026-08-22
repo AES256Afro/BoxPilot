@@ -17,9 +17,9 @@ const destinationFields = {
   user: text(/^[^\s:]{1,128}$/),
 };
 const secretFields = {
-  key: { type: "string", optional: true, nullable: true, maxLength: 512, secret: true },
-  secretAccessKey: { type: "string", optional: true, nullable: true, maxLength: 512, secret: true },
-  password: { type: "string", optional: true, nullable: true, maxLength: 512, secret: true },
+  key: { type: "string", optional: true, nullable: true, maxLength: 512, pattern: /^[^\r\n]+$/, secret: true },
+  secretAccessKey: { type: "string", optional: true, nullable: true, maxLength: 512, pattern: /^[^\r\n]+$/, secret: true },
+  password: { type: "string", optional: true, nullable: true, maxLength: 512, pattern: /^[^\r\n]+$/, secret: true },
   token: { type: "string", optional: true, nullable: true, maxLength: 8192, secret: true },
 };
 const pick = (parameters) => Object.fromEntries(Object.entries(parameters).filter(([key, value]) => key in destinationFields && value !== null && value !== undefined && value !== ""));
@@ -39,19 +39,19 @@ export function backupCloudOperations() {
       },
     }),
     defineOperation({
-      id: "backup.cloud.setup", title: "Save the cloud backup destination", risk: "medium", timeoutMs: minutes(2),
+      id: "backup.cloud.setup", title: "Save the cloud backup destination", risk: "medium", minimumRole: "owner", timeoutMs: minutes(2),
       description: "Writes the rclone configuration for the destination under /etc/boxpilot/secrets (root only). Keys and tokens are kept in memory until this job runs and are never stored in the database.",
       parameters: { fields: { ...destinationFields, ...secretFields, provider: { ...destinationFields.provider, validate: (_value, parameters) => validate(parameters) } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("backup.cloud.setup", parameters, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
-      id: "backup.cloud.test", title: "Test the cloud backup destination", risk: "medium", timeoutMs: minutes(5),
+      id: "backup.cloud.test", title: "Test the cloud backup destination", risk: "medium", minimumRole: "owner", timeoutMs: minutes(5),
       description: "Creates the destination folder and lists it with the saved credentials; reports free space when the provider tells.",
       parameters: { fields: { ...destinationFields, provider: { ...destinationFields.provider, validate: (_value, parameters) => validate(parameters) } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("backup.cloud.test", pick(parameters), { timeoutMs: minutes(4), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
-      id: "backup.cloud.sync", title: "Mirror local backups to the cloud destination", risk: "medium", timeoutMs: 6 * 60 * 60_000,
+      id: "backup.cloud.sync", title: "Mirror local backups to the cloud destination", risk: "medium", minimumRole: "owner", timeoutMs: 6 * 60 * 60_000,
       description: "rclone copies the controller backups, application backups, and machine snapshots to the destination with checksum verification. Nothing is ever deleted there.",
       parameters: { fields: { ...destinationFields, provider: { ...destinationFields.provider, validate: (_value, parameters) => validate(parameters) } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("backup.cloud.sync", pick(parameters), { timeoutMs: 6 * 60 * 60_000 - 60_000, logPath: jobLog?.path ?? null }),

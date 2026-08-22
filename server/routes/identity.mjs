@@ -31,9 +31,18 @@ export function createIdentityRouter({ store, auth, identity }) {
     const tailscale = await identity.tailscaleIdentity(request);
     if (!tailscale.available) return response.status(401).json({ error: "This connection does not carry a Tailscale identity", code: "no_tailscale_identity" });
     if (!tailscale.linked) return response.status(403).json({ error: `${tailscale.login} is not linked to this BoxPilot. Sign in with your password and link it in Settings.`, code: "identity_not_linked" });
-    const owner = store.findFirstOwner();
-    if (!owner) return response.status(409).json({ error: "Owner bootstrap is required first", code: "bootstrap_required" });
-    return response.json(auth.issueSession(request, response, owner, { method: "tailscale", detail: tailscale.login }));
+    const account = store.findOwnerById(identity.tailscaleAccountFor(tailscale.login) ?? "");
+    if (!account) return response.status(403).json({ error: `${tailscale.login} is linked to an account that no longer exists`, code: "identity_not_linked" });
+    // A browser signs in with the password once; after that the Tailscale identity alone is enough there.
+    // Anything that can reach the loopback listener could otherwise claim a tailnet address.
+    if (!auth.trustedDevice(request, account)) {
+      const password = request.body?.password;
+      if (typeof password !== "string" || !(await verifyPassword(password, account.passwordHash))) {
+        return response.status(401).json({ error: `First sign-in from this browser: enter the password for ${account.username}`, code: "device_password_required", username: account.username });
+      }
+      auth.rememberDevice(request, response, account);
+    }
+    return response.json(auth.issueSession(request, response, account, { method: "tailscale", detail: tailscale.login }));
   });
 
   router.post("/auth/github/start", async (request, response) => {
@@ -55,12 +64,13 @@ export function createIdentityRouter({ store, auth, identity }) {
     if (result.purpose === "link") {
       const session = auth.requestSession(request);
       if (!session || session.owner.id !== result.ownerId) return response.status(403).json({ status: "error", error: "The link flow belongs to another session" });
-      const linked = identity.linkGithub(session.owner.id, result.login);
+      const linked = identity.linkGithub(session.owner.id, result.login, result.githubId ?? null);
       return response.json({ status: "complete", linked: true, login: result.login, githubLogins: linked });
     }
-    if (!identity.githubLinked(result.login)) return response.status(403).json({ status: "denied", error: `GitHub account ${result.login} is not linked to this BoxPilot. Sign in with your password and link it in Settings.`, code: "identity_not_linked" });
-    const owner = store.findFirstOwner();
-    if (!owner) return response.status(409).json({ status: "error", error: "Owner bootstrap is required first" });
+    const accountId = identity.githubAccountFor(result.login, result.githubId ?? null);
+    if (!accountId) return response.status(403).json({ status: "denied", error: `GitHub account ${result.login} is not linked to this BoxPilot. Sign in with your password and link it in Settings.`, code: "identity_not_linked" });
+    const owner = store.findOwnerById(accountId);
+    if (!owner) return response.status(403).json({ status: "denied", error: `GitHub account ${result.login} is linked to an account that no longer exists` });
     return response.json({ status: "complete", session: auth.issueSession(request, response, owner, { method: "github", detail: result.login }) });
   });
 
@@ -81,10 +91,10 @@ export function createIdentityRouter({ store, auth, identity }) {
     const owner = await ownerWithPassword(request, response); if (!owner) return;
     const login = request.body?.login;
     if (typeof login !== "string") return response.status(400).json({ error: "login is required", code: "invalid_request" });
-    response.json({ tailscaleLogins: identity.unlinkTailscale(owner.id, login) });
+    response.json({ tailscaleLogins: identity.unlinkTailscale(owner.id, login, { force: owner.role === "owner" }) });
   });
 
-  router.put("/settings/github-client-id", auth.requireSession, auth.requireCsrf, async (request, response) => {
+  router.put("/settings/github-client-id", auth.requireSession, auth.requireCsrf, auth.requireRole("owner"), async (request, response) => {
     const owner = await ownerWithPassword(request, response); if (!owner) return;
     try {
       identity.setGithubClientId(owner.id, request.body?.clientId ?? "");
@@ -107,7 +117,7 @@ export function createIdentityRouter({ store, auth, identity }) {
     const owner = await ownerWithPassword(request, response); if (!owner) return;
     const login = request.body?.login;
     if (typeof login !== "string") return response.status(400).json({ error: "login is required", code: "invalid_request" });
-    response.json({ githubLogins: identity.unlinkGithub(owner.id, login) });
+    response.json({ githubLogins: identity.unlinkGithub(owner.id, login, { force: owner.role === "owner" }) });
   });
 
   return router;

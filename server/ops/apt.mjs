@@ -3,6 +3,8 @@ import { defineOperation } from "./registry.mjs";
 import { validPackageList } from "../tasks/apt.mjs";
 
 /** Common server tools offered on the Updates & packages page (M2.2). */
+let needrestartCache = null; // { at, value } — needrestart is expensive and changes only after package work
+
 export const curatedPackages = Object.freeze([
   "htop", "btop", "tmux", "git", "curl", "wget", "jq", "ncdu", "tree", "ripgrep", "zsh",
   "unzip", "net-tools", "dnsutils", "iotop", "smartmontools", "restic", "nfs-common", "cifs-utils", "smbclient", "samba", "nfs-kernel-server", "nut", "fail2ban", "rclone", "needrestart",
@@ -82,8 +84,12 @@ export function aptOperations() {
         const needrestartPresent = await access("/usr/sbin/needrestart").then(() => true, () => false);
         let servicesNeedingRestart = null;
         if (needrestartPresent) {
-          const needrestart = await run("/usr/sbin/needrestart", ["-b"], { timeout: 90_000, maxBuffer: 2 * 1024 * 1024 });
-          servicesNeedingRestart = parseNeedrestart(needrestart.stdout);
+          // needrestart scans /proc/*/maps for every process (containers included): seconds of CPU, so reuse a recent answer.
+          if (!needrestartCache || Date.now() - needrestartCache.at > 10 * 60_000) {
+            const needrestart = await run("/usr/sbin/needrestart", ["-b"], { timeout: 90_000, maxBuffer: 2 * 1024 * 1024 });
+            needrestartCache = { at: Date.now(), value: parseNeedrestart(needrestart.stdout) };
+          }
+          servicesNeedingRestart = needrestartCache.value;
         }
         return { upgradable, count: upgradable.length, securityCount: security, rebootRequired: await rebootRequired(), needrestartPresent, servicesNeedingRestart };
       },

@@ -63,7 +63,18 @@ export function createInventoryService({
     }
   }
 
+  const inventoryTtlMs = 10_000;
+  let cached = null; // { at, value }
+  let inFlight = null;
+  /** The full inventory is ~17 commands; the Overview asks for it several times per visit. */
   async function inspect() {
+    if (cached && Date.now() - cached.at < inventoryTtlMs) return cached.value;
+    if (inFlight) return inFlight;
+    inFlight = collect().then((value) => { cached = { at: Date.now(), value }; return value; }).finally(() => { inFlight = null; });
+    return inFlight;
+  }
+
+  async function collect() {
     let release = {};
     try { release = parseKeyValues(await readOsRelease()); } catch { release = {}; }
     const cpuCount = os.cpus().length;

@@ -1,4 +1,4 @@
-import { randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { elevationTtlMs } from "./ops/risk.mjs";
 
@@ -131,7 +131,8 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
       const passwordHash = await hashPassword(password);
       const owner = store.consumeBootstrapToken(bootstrapToken, { username, passwordHash });
       const session = store.createSession(owner.id, { ttlMs: sessionTtlMs });
-      response.setHeader("Set-Cookie", cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000)));
+      const earlier = response.getHeader("Set-Cookie");
+    response.setHeader("Set-Cookie", [...(Array.isArray(earlier) ? earlier : earlier ? [String(earlier)] : []), cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000))]);
       response.status(201).json({ authenticated: true, owner: { id: owner.id, username: owner.username, role: owner.role ?? "owner" }, csrfToken: session.csrfToken, expiresAt: session.expiresAt });
     } catch (error) {
       response.status(401).json({ error: error.message, code: "bootstrap_rejected" });
@@ -160,6 +161,32 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     return { authenticated: true, owner: { id: owner.id, username: owner.username, role: owner.role ?? "owner" }, csrfToken: session.csrfToken, expiresAt: session.expiresAt, elevatedUntil: null, method };
   }
 
+  const deviceCookieName = "boxpilot_device";
+  const deviceTtlSeconds = 365 * 24 * 3600;
+  const deviceDigest = (token) => createHash("sha256").update(token).digest("hex");
+
+  /** A browser that confirmed the password once for this account (see rememberDevice). */
+  function trustedDevice(request, owner) {
+    const token = parseCookies(request.headers?.cookie ?? "")[deviceCookieName];
+    if (typeof token !== "string" || token.length < 20 || !owner) return false;
+    const devices = store.getSetting("trustedDevices", []);
+    const hash = deviceDigest(token);
+    return Array.isArray(devices) && devices.some((entry) => entry && entry.hash === hash && entry.ownerId === owner.id);
+  }
+
+  /** Mark this browser as trusted for identity sign-in: a long-lived cookie whose hash is kept in settings (newest 50). */
+  function rememberDevice(request, response, owner) {
+    const token = randomBytes(32).toString("base64url");
+    const devices = (store.getSetting("trustedDevices", []) ?? []).filter((entry) => entry && typeof entry.hash === "string").slice(-49);
+    devices.push({ hash: deviceDigest(token), ownerId: owner.id, createdAt: new Date().toISOString() });
+    store.setSetting("trustedDevices", devices, { updatedBy: owner.id });
+    store.recordAudit("session.device-trusted", { actorId: owner.id, subjectId: owner.id });
+    const forwardedHttps = request.get("x-forwarded-proto")?.split(",")[0].trim() === "https";
+    const secure = process.env.BOXPILOT_COOKIE_SECURE === "true" || (process.env.BOXPILOT_COOKIE_SECURE !== "false" && (request.secure || forwardedHttps));
+    const earlier = response.getHeader("Set-Cookie");
+    response.setHeader("Set-Cookie", [...(Array.isArray(earlier) ? earlier : earlier ? [String(earlier)] : []), `${deviceCookieName}=${token}; Path=/api/v1/auth; HttpOnly; SameSite=Strict; Max-Age=${deviceTtlSeconds}${secure ? "; Secure" : ""}`]);
+  }
+
   function status(request, response) {
     const session = requestSession(request);
     response.json({
@@ -177,6 +204,10 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     const session = request.boxpilotSession;
     const owner = store.findOwnerById(session.owner.id);
     const password = request.body?.password;
+    if (owner?.role === "viewer") {
+      response.status(403).json({ error: "Viewers can look but not unlock high-risk actions or secrets", code: "forbidden" });
+      return;
+    }
     if (!owner || typeof password !== "string" || !(await verifyPassword(password, owner.passwordHash))) {
       response.status(401).json({ error: "Invalid password", code: "invalid_credentials" });
       return;
@@ -199,7 +230,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000 } 
     response.status(204).end();
   }
 
-  return { bootstrap, login, status, logout, elevate, dropElevation, changePassword, issueSession, requestSession, requireSession, requireCsrf, requireRole };
+  return { bootstrap, login, status, logout, elevate, dropElevation, changePassword, issueSession, requestSession, requireSession, requireCsrf, requireRole, trustedDevice, rememberDevice };
 }
 
 export const securityInternals = { cookieName, parseCookies, safeEqual, validateCredentials };
