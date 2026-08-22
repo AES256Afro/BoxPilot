@@ -148,9 +148,10 @@ function Modal({ title, children, onClose }: { title: string; children: ReactNod
 function Settings({ csrfToken, role = "owner" }: { csrfToken: string; role?: string }) {
   return (
     <div className="settings-grid">
-      <ApprovalSettings csrfToken={csrfToken} />
-      <SignInSettings csrfToken={csrfToken} />
-      <NotificationSettings csrfToken={csrfToken} />
+      {/* Box-level settings are the owner's; a viewer's Settings page is their own password. */}
+      {role === "owner" && <ApprovalSettings csrfToken={csrfToken} />}
+      {role !== "viewer" && <SignInSettings csrfToken={csrfToken} />}
+      {role === "owner" && <NotificationSettings csrfToken={csrfToken} />}
       <PasswordSettings csrfToken={csrfToken} />
       {role === "owner" && <PeopleSettings csrfToken={csrfToken} />}
     </div>
