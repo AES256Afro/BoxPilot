@@ -83,7 +83,7 @@ describe("native systemd network boundaries", () => {
     expect(metadata.mode & 0o111).not.toBe(0);
     expect(setup).toContain("stty -echo");
     expect(setup).toContain("vm-backup-restic-password");
-    expect(setup).toContain("same filesystem as the server's data");
+    expect(setup).toContain("same filesystem as this server");
     expect(setup).toContain("cannot be a symbolic link");
     expect(setup).not.toMatch(/RESTIC_PASSWORD=/);
   });

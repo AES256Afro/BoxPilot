@@ -39,7 +39,7 @@ boxpilot_destination_device="$(stat -c %d "$boxpilot_mount")"
 boxpilot_state_device="$(stat -c %d /var/lib/boxpilot-managed)"
 boxpilot_image_device="$(stat -c %d /var/lib/libvirt/images)"
 if [ "$boxpilot_destination_device" = "$boxpilot_state_device" ] || [ "$boxpilot_destination_device" = "$boxpilot_image_device" ]; then
-  printf 'The destination is on the same filesystem as the server's data. It is not independent.\n' >&2
+  printf 'The destination is on the same filesystem as this server\047s data, so it is not independent.\n' >&2
   exit 1
 fi
 
