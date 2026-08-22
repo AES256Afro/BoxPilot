@@ -266,7 +266,20 @@ export function createIdentityService({
   /** Identities linked to one account (all of them when `ownerId` is null, for the owner's view). */
   function summary(ownerId = null) {
     const mine = (list, accountFor) => (ownerId ? list.filter((login) => accountFor(login) === ownerId) : list);
-    return { tailscaleLogins: mine(logins("tailscaleLogins"), tailscaleAccountFor), githubLogins: mine(logins("githubLogins"), (login) => githubAccountFor(login)), githubConfigured: githubConfigured(), githubClientId: githubConfigured() ? String(setting("githubClientId", "")) : "" };
+    const githubMap = links("githubLinks");
+    // A login recorded before BoxPilot kept GitHub's numeric id cannot sign anyone in any more,
+    // and silently dropping it from the list would leave the owner wondering where it went.
+    const needsRelink = logins("githubLogins").filter((login) => {
+      const entry = githubMap[login.toLowerCase()];
+      return !entry || entry.id === null || entry.id === undefined;
+    });
+    return {
+      tailscaleLogins: mine(logins("tailscaleLogins"), tailscaleAccountFor),
+      githubLogins: mine(logins("githubLogins"), (login) => githubAccountFor(login)),
+      githubRelinkNeeded: needsRelink,
+      githubConfigured: githubConfigured(),
+      githubClientId: githubConfigured() ? String(setting("githubClientId", "")) : "",
+    };
   }
 
   return { clientAddress: addressFor, tailscaleIdentity, tailscaleAccountFor, githubAccountFor, linkTailscale, unlinkTailscale, githubConfigured, setGithubClientId, githubStart, githubPoll, githubLinked, linkGithub, unlinkGithub, summary, internals: { whois, flows: githubFlows } };
