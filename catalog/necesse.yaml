@@ -1,0 +1,58 @@
+schemaVersion: 2
+id: necesse
+name: Necesse server
+category: Games
+icon: "🗺️"
+description: "Dedicated Necesse server with player limit and password. A small, cheerful survival sandbox that runs happily on modest hardware."
+website: https://necessegame.com
+risk: low
+image:
+  reference: brammys/necesse-server:1-3-2
+  version: "1.3.2"
+ports:
+  - id: game
+    label: Game port (UDP)
+    container: 14159
+    host: 14159
+    protocol: udp
+    exposure: lan
+volumes:
+  - id: data
+    label: Worlds and configuration
+    container: /config
+    path: data
+env:
+  - name: WORLD_NAME
+    label: World name
+    default: BoxPilot
+  - name: MOTD
+    label: Message of the day
+    default: Welcome
+  - name: SLOTS
+    label: Maximum players
+    type: number
+    default: 10
+  - name: PASSWORD
+    label: Join password
+    type: password
+    secret: true
+    generate: true
+  - name: PAUSE_WHEN_EMPTY
+    label: Pause when nobody is playing
+    type: boolean
+    default: "true"
+  - name: PUID
+    fixed: true
+    default: "1000"
+  - name: PGID
+    fixed: true
+    default: "1000"
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 600
+notes: "Players join <this server>:14159 with the join password from Secrets. Necesse is a small download, so this one is usually ready in under a minute."

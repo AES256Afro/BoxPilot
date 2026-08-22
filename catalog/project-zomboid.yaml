@@ -1,0 +1,76 @@
+schemaVersion: 2
+id: project-zomboid
+name: Project Zomboid server
+category: Games
+icon: "🧟"
+description: "Dedicated Project Zomboid server with player limit, join password, and admin account. Survive the outbreak with friends on your own map."
+website: https://projectzomboid.com
+risk: low
+image:
+  reference: renegademaster/zomboid-dedicated-server:2.5.0
+  version: "2.5.0"
+ports:
+  - id: game
+    label: Game port (UDP)
+    container: 16261
+    host: 16261
+    protocol: udp
+    exposure: lan
+  - id: direct
+    label: Direct connection (UDP)
+    container: 16262
+    host: 16262
+    protocol: udp
+    exposure: lan
+volumes:
+  - id: data
+    label: Server data and saves
+    container: /home/steam/ZomboidDedicatedServer
+    path: data
+  - id: config
+    label: Configuration
+    container: /home/steam/Zomboid
+    path: config
+env:
+  - name: SERVER_NAME
+    label: Server name
+    default: BoxPilotPZ
+  - name: MAX_PLAYERS
+    label: Maximum players
+    type: number
+    default: 16
+  - name: RCON_PASSWORD
+    label: Admin (RCON) password
+    type: password
+    secret: true
+    generate: true
+  - name: ADMIN_PASSWORD
+    label: In-game admin password
+    type: password
+    secret: true
+    generate: true
+  - name: SERVER_PASSWORD
+    label: Join password
+    type: password
+    secret: true
+    generate: true
+  - name: GAME_PORT
+    fixed: true
+    default: "16261"
+  - name: AUTOSAVE_INTERVAL
+    label: Autosave interval (minutes)
+    type: number
+    default: 15
+  - name: PAUSE_ON_EMPTY
+    label: Pause when nobody is playing
+    type: boolean
+    default: "true"
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 20
+  timeoutSeconds: 900
+notes: "Players join <this server>:16261 with the join password from Secrets. The first start downloads the server through SteamCMD (a few GB) and can take ten minutes or more — watch Logs. The server name must not contain spaces."
