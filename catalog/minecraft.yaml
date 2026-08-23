@@ -15,6 +15,7 @@ ports:
     container: 25565
     host: 25565
     exposure: lan
+    tailnet: address   # the Minecraft protocol, not HTTP
 volumes:
   - id: data
     label: Worlds, settings, plugins

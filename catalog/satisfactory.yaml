@@ -15,6 +15,7 @@ ports:
     container: 7777
     host: 7778
     exposure: lan
+    tailnet: address   # the game protocol, not HTTP
   - id: game-udp
     label: Game port (UDP)
     container: 7777

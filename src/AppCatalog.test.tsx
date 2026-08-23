@@ -175,6 +175,28 @@ describe("finding things in a catalog of a hundred-odd apps", () => {
     expect(screen.queryByText("Jellyfin")).toBeNull();
   });
 
+  it("still offers tailnet-only to an app with no web interface, and does not call it tailnet-only already", async () => {
+    // A database has nothing a browser opens, so it has no Open link. It used to lose the exposure
+    // switch with it — and an empty link list counted as "every link is loopback", so the pill
+    // claimed the app was already tailnet-only while it sat on the LAN.
+    const db = { ...dockge, id: "valkey", name: "Valkey", description: "Redis-compatible store", ports: [{ id: "redis", label: "Redis protocol", container: 6379, host: 6379, protocol: "tcp", exposure: "lan", fixed: false, tailnet: "address" }] };
+    const live = { ...runningLive, id: "valkey", state: { ...runningLive.state, values: { ports: { redis: 6379 }, env: {}, volumes: {} } }, urls: [] };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest: db, live }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      if (url.includes("app.serve.inspect")) return json({ result: { available: true, serves: [] } });
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppCatalog csrfToken="csrf-token" />);
+    expect(await screen.findByText("home network")).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /^Open / })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reach only through Tailscale" }));
+    const preview = (await screen.findByText(/Recreates Valkey/)).textContent ?? "";
+    expect(preview).toContain("no web interface to publish");
+    expect(preview).toContain("Redis protocol does not speak HTTP, so it moves to this server's tailnet address");
+  });
+
   it("says which ports tailnet-only will not move, before you commit to it", async () => {
     // Tailscale Serve can only front a web interface, so an app that also speaks DNS or a sync
     // protocol keeps those ports somewhere they still work. Saying so is the whole point: the

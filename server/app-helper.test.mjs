@@ -86,6 +86,16 @@ describe("generic app deployer", () => {
     expect(await readFile(path.join(withGpu.catalogRoot, "gpu", "compose.yaml"), "utf8")).toContain("/dev/dri/renderD128:/dev/dri/renderD128");
   });
 
+  it("offers an Open link only for ports a browser can open", async () => {
+    // Every TCP port used to get one, so Forgejo's card offered to open git-over-SSH in a tab and
+    // Pi-hole's first link — the one the Overview uses — was DNS on port 53.
+    const { apps, catalogDirectory } = await setup();
+    await writeFile(path.join(catalogDirectory, "forge.yaml"), "schemaVersion: 2\nid: forge\nname: Forge\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: ssh\n    label: Git over SSH\n    container: 22\n    host: 2222\n    tailnet: address\n  - id: web\n    label: Web UI\n    container: 3000\n    host: 3002\n  - id: quic\n    label: QUIC\n    container: 443\n    host: 4433\n    protocol: udp\n");
+    await apps.install({ id: "forge" });
+    const { applications } = await apps.inspect({});
+    expect(applications.find((entry) => entry.id === "forge").urls).toEqual([{ id: "web", label: "Web UI", host: 3002, exposure: "lan" }]);
+  });
+
   it("hands managed volume folders to the user the manifest runs as", async () => {
     const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
     const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
