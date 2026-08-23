@@ -281,7 +281,7 @@ export function createAppHelper({
       // Only the ports that speak HTTP get an "Open" link. Listing every TCP port offered to open
       // Pi-hole's DNS on 53 and Forgejo's SSH on 2222 in a browser tab, and made the Overview's
       // link for an app whichever port happened to be listed first.
-      urls: state && state.installed ? manifest.ports.filter((port) => port.protocol === "tcp" && (port.tailnet ?? "serve") === "serve").map((port) => ({ id: port.id, label: port.label, host: state.values?.ports?.[port.id] ?? port.host, exposure: port.exposure })) : [],
+      urls: state && state.installed ? manifest.ports.filter((port) => port.protocol === "tcp" && (port.tailnet ?? "serve") === "serve").map((port) => ({ id: port.id, label: port.label, host: state.values?.ports?.[port.id] ?? port.host, exposure: port.exposure, path: signInPortId(manifest) === port.id ? manifest.signIn?.path ?? null : null })) : [],
       updateAvailable: Boolean(state?.installed && state.image?.reference && state.image.reference !== manifest.image.reference),
       installedImage: state?.image?.reference ?? null,
     };
@@ -872,6 +872,31 @@ export function createAppHelper({
   }
 
   /** Generated/secret settings for an installed app, read from its .env. Only exposed to an elevated session; never stored in a job. */
+  /** The port a manifest's sign-in page lives on: the one it names, else its first web port. */
+  function signInPortId(manifest) {
+    if (!manifest.signIn) return null;
+    return manifest.signIn.port ?? manifest.ports.find((port) => port.protocol === "tcp" && port.exposure !== "loopback" && (port.tailnet ?? "serve") === "serve")?.id ?? null;
+  }
+
+  /**
+   * Set the password an app's sign-in page asks for.
+   *
+   * A generated password lived behind the elevated Secrets view and could only be changed by
+   * finding the right variable in Settings. For an app that reads it from the environment on every
+   * start — Pi-hole does — this is also the only place a change sticks. The stored values carry
+   * everything but secrets, and the project's .env keeps every other secret as it was.
+   */
+  async function setPassword({ id, password }, { progress = null } = {}) {
+    const manifest = await ensureManifest(id);
+    if (!manifest.signIn?.passwordEnv) throw new Error(`${manifest.name} does not have a sign-in password BoxPilot can set`);
+    if (typeof password !== "string" || password.length < 8 || password.length > 128) throw new Error("The password must be 8 to 128 characters");
+    const state = await readState(id);
+    if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
+    const stored = sanitizeStoredValues(manifest, state.values ?? {});
+    const result = await reconfigure({ id, values: { ...stored, env: { ...stored.env, [manifest.signIn.passwordEnv]: password } } }, { progress, checkpoint: false });
+    return { id, changed: true, hostPorts: result.hostPorts };
+  }
+
   async function secrets({ id }) {
     const manifest = await ensureManifest(id);
     const env = await readEnv(id);
@@ -890,5 +915,5 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { syncHomepage, inspect, countAppBackups, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, countAppBackups, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

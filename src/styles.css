@@ -3460,3 +3460,11 @@ textarea {
 .housekeeping-size { color: var(--mint); font-variant-numeric: tabular-nums; font-size: .86rem; }
 .housekeeping-list details { margin-top: 4px; }
 .housekeeping-list details summary { cursor: pointer; color: var(--muted); font-size: .8rem; }
+
+/* Sign-in panel on an app's card: the page, the credentials, and a way to change the password. */
+.sign-in-panel { display: grid; gap: 0.9rem; }
+.sign-in-details { display: grid; grid-template-columns: max-content 1fr; gap: 0.45rem 1rem; align-items: center; margin: 0; }
+.sign-in-details dt { font-weight: 600; color: var(--text-muted, #9aa4b2); }
+.sign-in-details dd { margin: 0; }
+.sign-in-details input[readonly] { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.sign-in-panel form input[type="password"] { flex: 1 1 16rem; min-width: 12rem; }

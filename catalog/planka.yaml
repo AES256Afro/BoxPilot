@@ -74,6 +74,10 @@ sidecars:
       - id: pgdata
         container: /var/lib/postgresql/data
         path: postgres
+signIn:
+  path: /login
+  usernameEnv: DEFAULT_ADMIN_EMAIL
+  passwordEnv: DEFAULT_ADMIN_PASSWORD
 health:
   kind: running
   stableSeconds: 15

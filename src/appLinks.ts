@@ -32,12 +32,15 @@ export function hostForAppLinks(lanAddress: string | null, browserHost = window.
  * plain http:// link to it is answered with 400 — it has to be the HTTPS address.
  */
 export function appUrl(
-  port: { host: number; exposure: string },
+  port: { host: number; exposure: string; path?: string | null },
   { lanAddress = null, serves = [], https = false, browserHost = window.location.hostname }:
   { lanAddress?: string | null; serves?: TailnetServe[]; https?: boolean; browserHost?: string } = {},
 ): string {
+  // Some apps keep their sign-in page off the root — Pi-hole answers at /admin/ — and a link that
+  // lands on the right page is the difference between "open" and "open, then hunt".
+  const path = port.path && port.path !== "/" ? (port.path.startsWith("/") ? port.path : `/${port.path}`) : "";
   const served = serves.find((serve) => serve.port === port.host);
-  if (served) return `https://${served.dnsName}:${served.port}`;
+  if (served) return `https://${served.dnsName}:${served.port}${path}`;
   const host = port.exposure === "loopback" ? "127.0.0.1" : hostForAppLinks(lanAddress, browserHost);
-  return `${https ? "https" : "http"}://${host}:${port.host}`;
+  return `${https ? "https" : "http"}://${host}:${port.host}${path}`;
 }

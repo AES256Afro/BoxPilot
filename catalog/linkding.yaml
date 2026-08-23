@@ -29,6 +29,10 @@ env:
     type: password
     secret: true
     generate: true
+signIn:
+  path: /login
+  usernameEnv: LD_SUPERUSER_NAME
+  passwordEnv: LD_SUPERUSER_PASSWORD
 health:
   kind: running
   stableSeconds: 15

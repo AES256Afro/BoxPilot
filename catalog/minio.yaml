@@ -38,6 +38,10 @@ env:
     type: password
     secret: true
     generate: true
+signIn:
+  path: /login
+  usernameEnv: MINIO_ROOT_USER
+  passwordEnv: MINIO_ROOT_PASSWORD
 health:
   kind: running
   stableSeconds: 10

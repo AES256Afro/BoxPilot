@@ -51,6 +51,10 @@ env:
     label: Ad blocking
     type: boolean
     default: true
+signIn:
+  path: /
+  username: admin
+  passwordEnv: DNS_SERVER_ADMIN_PASSWORD
 health:
   kind: running
   stableSeconds: 15

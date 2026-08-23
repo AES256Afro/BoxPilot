@@ -56,6 +56,10 @@ env:
   - name: PASS
     label: Web UI password
     type: password
+signIn:
+  path: /transmission/web/
+  usernameEnv: USER
+  passwordEnv: PASS
 health:
   kind: running
   stableSeconds: 15

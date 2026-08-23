@@ -175,6 +175,55 @@ describe("finding things in a catalog of a hundred-odd apps", () => {
     expect(screen.queryByText("Jellyfin")).toBeNull();
   });
 
+  it("lets you choose the sign-in password at install, and otherwise generates it", async () => {
+    const hole = { ...dockge, id: "pi-hole", name: "Pi-hole", description: "DNS blocker", ports: [{ id: "web", label: "Admin UI", container: 80, host: 8084, protocol: "tcp", exposure: "lan", fixed: false }], env: [{ name: "FTLCONF_webserver_api_password", label: "Admin password", description: null, type: "password", default: null, required: false, secret: true, generate: true, options: null, fixed: false }, { name: "DB_PASSWORD", label: "Database password", description: null, type: "password", default: null, required: false, secret: true, generate: true, options: null, fixed: false }], signIn: { path: "/admin/", port: null, username: null, usernameEnv: null, passwordEnv: "FTLCONF_webserver_api_password", note: null } };
+    let staged: string | undefined;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest: hole, live: notInstalled }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      if (url.endsWith("/precheck")) return json({ ok: true, errors: [], conflicts: [] });
+      if (url.endsWith("/operations/app.install/jobs")) { staged = init?.body as string; return json({ job: { id: "j", type: "op:app.install", title: "Install", state: "awaiting_approval", risk: "high", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "high", passwordRequired: true, elevated: false, mode: "tiered", reason: "high" } }, 201); }
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppCatalog csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Install" }));
+    // The sign-in password is offered; the database password is not something anyone types.
+    const field = await screen.findByLabelText("Admin password");
+    expect(screen.queryByLabelText("Database password")).toBeNull();
+    expect(screen.getByText(/Generated for you: Database password/)).toBeTruthy();
+    fireEvent.change(field, { target: { value: "my own password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue to install" }));
+    await waitFor(() => expect(JSON.parse(staged ?? "{}").parameters.values.env).toEqual({ FTLCONF_webserver_api_password: "my own password" }));
+  });
+
+  it("puts the sign-in page, the password and a way to change it in one place", async () => {
+    const hole = { ...dockge, id: "pi-hole", name: "Pi-hole", description: "DNS blocker", ports: [{ id: "web", label: "Admin UI", container: 80, host: 8084, protocol: "tcp", exposure: "lan", fixed: false }], env: [{ name: "FTLCONF_webserver_api_password", label: "Admin password", description: null, type: "password", default: null, required: false, secret: true, generate: true, options: null, fixed: false }], signIn: { path: "/admin/", port: null, username: null, usernameEnv: null, passwordEnv: "FTLCONF_webserver_api_password", note: "Change it here, not inside Pi-hole." } };
+    const live = { ...runningLive, id: "pi-hole", state: { ...runningLive.state, values: { ports: { web: 8084 }, env: {}, volumes: {} } }, urls: [{ id: "web", label: "Admin UI", host: 8084, exposure: "lan", path: "/admin/" }] };
+    let staged: string | undefined;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest: hole, live }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      if (url.includes("app.serve.inspect")) return json({ result: { available: true, serves: [] } });
+      if (url.endsWith("/operations/app.secrets/run")) return json({ result: { secrets: [{ name: "FTLCONF_webserver_api_password", label: "Admin password", value: "s3cret-generated" }] } });
+      if (url.endsWith("/operations/app.password.set/jobs")) { staged = init?.body as string; return json({ job: { id: "j", type: "op:app.password.set", title: "Change", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium" } }, 201); }
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppCatalog csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Sign in" }));
+    const link = await screen.findByRole("link", { name: "Open Pi-hole's sign-in page" });
+    expect((link as HTMLAnchorElement).href).toMatch(/:8084\/admin\/$/);
+    expect(screen.getByText(/asks only for the password/)).toBeTruthy();
+    expect(screen.getByText("Change it here, not inside Pi-hole.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Reveal" }));
+    expect(((await screen.findByLabelText("Admin password")) as HTMLInputElement).value).toBe("s3cret-generated");
+    fireEvent.change(screen.getByLabelText("New password"), { target: { value: "a better password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Change password" }));
+    expect(await screen.findByText("Medium risk")).toBeTruthy();
+    await waitFor(() => expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { id: "pi-hole", password: "a better password" } }));
+  });
+
   it("still offers tailnet-only to an app with no web interface, and does not call it tailnet-only already", async () => {
     // A database has nothing a browser opens, so it has no Open link. It used to lose the exposure
     // switch with it — and an empty link list counted as "every link is loopback", so the pill

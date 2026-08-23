@@ -89,6 +89,27 @@ describe("generic app deployer", () => {
     expect(await readFile(path.join(withGpu.catalogRoot, "gpu", "compose.yaml"), "utf8")).toContain("/dev/dri/renderD128:/dev/dri/renderD128");
   });
 
+  it("changes the sign-in password and nothing else", async () => {
+    // The generated password sat behind the elevated Secrets view and could only be changed by
+    // finding the right variable in Settings. For Pi-hole that is also the only change that
+    // sticks: the container sets the password from its environment on every start.
+    const { apps, catalogDirectory, catalogRoot } = await setup();
+    await writeFile(path.join(catalogDirectory, "hole.yaml"), "schemaVersion: 2\nid: hole\nname: Hole\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8084\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\n  - name: API_TOKEN\n    type: password\n    generate: true\n  - name: TZ\n    default: Etc/UTC\nsignIn:\n  path: /admin/\n  passwordEnv: ADMIN_PASSWORD\n");
+    await apps.install({ id: "hole", values: { env: { TZ: "Europe/London" } } });
+    const before = Object.fromEntries(((await readFile(path.join(catalogRoot, "hole", ".env"), "utf8")).match(/^[A-Z_]+=.*$/gm) ?? []).map((line) => line.split("=")));
+    expect(before.ADMIN_PASSWORD.length).toBeGreaterThan(10);
+
+    await expect(apps.setPassword({ id: "hole", password: "short" })).rejects.toThrow("8 to 128");
+    await expect(apps.setPassword({ id: "hole", password: "correct horse battery" })).resolves.toMatchObject({ id: "hole", changed: true });
+    const after = Object.fromEntries(((await readFile(path.join(catalogRoot, "hole", ".env"), "utf8")).match(/^[A-Z_]+=.*$/gm) ?? []).map((line) => line.split("=")));
+    expect(after.ADMIN_PASSWORD).toBe("'correct horse battery'");
+    expect(after.API_TOKEN).toBe(before.API_TOKEN); // the other secret survives
+    expect(after.TZ).toBe(before.TZ); // and so does every ordinary setting
+    // The sign-in link carries the page.
+    const { applications } = await apps.inspect({});
+    expect(applications.find((entry) => entry.id === "hole").urls).toEqual([{ id: "web", label: "web", host: 8084, exposure: "lan", path: "/admin/" }]);
+  });
+
   it("offers an Open link only for ports a browser can open", async () => {
     // Every TCP port used to get one, so Forgejo's card offered to open git-over-SSH in a tab and
     // Pi-hole's first link — the one the Overview uses — was DNS on port 53.
@@ -96,7 +117,7 @@ describe("generic app deployer", () => {
     await writeFile(path.join(catalogDirectory, "forge.yaml"), "schemaVersion: 2\nid: forge\nname: Forge\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: ssh\n    label: Git over SSH\n    container: 22\n    host: 2222\n    tailnet: address\n  - id: web\n    label: Web UI\n    container: 3000\n    host: 3002\n  - id: quic\n    label: QUIC\n    container: 443\n    host: 4433\n    protocol: udp\n");
     await apps.install({ id: "forge" });
     const { applications } = await apps.inspect({});
-    expect(applications.find((entry) => entry.id === "forge").urls).toEqual([{ id: "web", label: "Web UI", host: 3002, exposure: "lan" }]);
+    expect(applications.find((entry) => entry.id === "forge").urls).toEqual([{ id: "web", label: "Web UI", host: 3002, exposure: "lan", path: null }]);
   });
 
   it("hands managed volume folders to the user the manifest runs as", async () => {

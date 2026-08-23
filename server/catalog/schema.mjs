@@ -55,7 +55,7 @@ function checkKeys(errors, path, value, allowed, required = []) {
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
-  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices"], ["schemaVersion", "id", "name", "category", "description", "image"]);
+  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn"], ["schemaVersion", "id", "name", "category", "description", "image"]);
   if (raw.schemaVersion !== 2) fail(errors, "manifest.schemaVersion", "must be 2");
   // Docker gives a container 64 MB of shared memory. Anything decoding video wants far more, and
   // runs out in ways that look like the app is broken rather than out of a resource.
@@ -132,6 +132,27 @@ export function validateManifest(raw) {
     if (entry.generate && entry.type !== "password") fail(errors, `${path}.generate`, "only password entries can be generated");
     if (entry.fixed && entry.default === undefined) fail(errors, `${path}.fixed`, "fixed entries need a default");
   });
+
+  // signIn: how to get into the app's own interface, so the card can show it in one place —
+  // which page, which username, which password — and offer to change the password without a
+  // hunt through Settings for the right variable.
+  let signIn = null;
+  if (raw.signIn !== undefined) {
+    if (!isObject(raw.signIn)) fail(errors, "manifest.signIn", "must be a mapping");
+    else {
+      checkKeys(errors, "manifest.signIn", raw.signIn, ["path", "port", "username", "usernameEnv", "passwordEnv", "note"], ["passwordEnv"]);
+      const passwordEntry = env.find((entry) => isObject(entry) && entry.name === raw.signIn.passwordEnv);
+      if (!passwordEntry) fail(errors, "manifest.signIn.passwordEnv", "must name one of the app's env entries");
+      else if (passwordEntry.type !== "password") fail(errors, "manifest.signIn.passwordEnv", "must name a password entry");
+      if (raw.signIn.usernameEnv !== undefined && !env.some((entry) => isObject(entry) && entry.name === raw.signIn.usernameEnv)) fail(errors, "manifest.signIn.usernameEnv", "must name one of the app's env entries");
+      if (raw.signIn.username !== undefined && raw.signIn.usernameEnv !== undefined) fail(errors, "manifest.signIn.username", "give a fixed username or a usernameEnv, not both");
+      if (raw.signIn.username !== undefined && !(typeof raw.signIn.username === "string" && raw.signIn.username.length <= 128)) fail(errors, "manifest.signIn.username", "must be a short string");
+      if (raw.signIn.path !== undefined && !(typeof raw.signIn.path === "string" && /^\/[^\s?#]*$/.test(raw.signIn.path))) fail(errors, "manifest.signIn.path", "must be an absolute path like /admin/");
+      if (raw.signIn.port !== undefined && !ports.some((port) => isObject(port) && port.id === raw.signIn.port)) fail(errors, "manifest.signIn.port", "must name one of the app's ports");
+      if (raw.signIn.note !== undefined && !(typeof raw.signIn.note === "string" && raw.signIn.note.length <= 600)) fail(errors, "manifest.signIn.note", "must be a string");
+      signIn = { path: raw.signIn.path ?? null, port: raw.signIn.port ?? null, username: raw.signIn.username ?? null, usernameEnv: raw.signIn.usernameEnv ?? null, passwordEnv: raw.signIn.passwordEnv, note: raw.signIn.note ?? null };
+    }
+  }
 
   // health
   if (raw.health !== undefined) {
@@ -245,6 +266,7 @@ export function validateManifest(raw) {
     capabilities: raw.capabilities ?? [],
     devices: raw.devices ?? [],
     optionalDevices: raw.optionalDevices ?? [],
+    signIn,
     extraHosts: raw.extraHosts ?? [],
     command: raw.command ?? null,
     user: raw.user ?? null,

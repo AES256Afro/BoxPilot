@@ -36,6 +36,10 @@ env:
     label: Time zone
     type: timezone
     default: Etc/UTC
+signIn:
+  path: /login
+  usernameEnv: GF_SECURITY_ADMIN_USER
+  passwordEnv: GF_SECURITY_ADMIN_PASSWORD
 health:
   kind: running
   stableSeconds: 10
