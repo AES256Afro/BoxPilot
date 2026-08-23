@@ -161,7 +161,12 @@ trap - EXIT
 # The old unit files are only stale once the new version is answering.
 for name in $REPLACED_UNITS; do rm -f "/etc/systemd/system/${name}.pre-${STAMP}"; done
 
-# 6. Prune old previous trees
+# 6. Prune old previous trees.
+#
+# Both kinds, because only pruning .prev.* is how this server accumulated sixty-nine leftover
+# trees: every upgrade that failed its health check left a .failed.<stamp> copy behind and nothing
+# ever came back for it. The most recent failure is kept as the evidence for why it did not start.
 ls -d "${INSTALL_DIR}".prev.* 2>/dev/null | sort | head -n -"$KEEP_PREVIOUS" | while read -r old; do rm -rf "$old"; log "removed ${old}"; done
+ls -d "${INSTALL_DIR}".failed.* 2>/dev/null | sort | head -n -1 | while read -r old; do rm -rf "$old"; log "removed ${old}"; done
 
 log "BoxPilot ${NEW_VERSION} (${REF}) is live; ${UNITS_CHANGED} unit file(s) updated; previous tree at ${PREVIOUS}"

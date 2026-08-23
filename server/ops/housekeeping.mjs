@@ -7,6 +7,7 @@
  * pick.
  */
 import { defineOperation } from "./registry.mjs";
+import { categoryIds } from "../housekeeping.mjs";
 
 export function housekeepingOperations() {
   return [
@@ -17,8 +18,8 @@ export function housekeepingOperations() {
     }),
     defineOperation({
       id: "housekeeping.reclaim", title: "Reclaim disk space", risk: "medium", timeoutMs: 30 * 60_000,
-      description: "Removes only the categories you chose. Images a container uses, the release a failed update would roll back to, and the newest backups of each app are never candidates.",
-      parameters: { fields: { targets: { type: "array" } } },
+      description: "Removes only the categories you chose. Images a container or an installed app needs, the most recent release you could put back by hand, and the newest backups of each app are never candidates.",
+      parameters: { fields: { targets: { type: "array", validate: (value) => (value.every((entry) => categoryIds.includes(entry)) ? null : `must name only: ${categoryIds.join(", ")}`) } } },
       run: (parameters, { housekeeping, progress }) => housekeeping.reclaim({ targets: parameters.targets ?? [], progress }),
     }),
   ];
