@@ -16,6 +16,7 @@ ports:
     container: 7777
     host: 7777
     exposure: lan
+    tailnet: address   # the game protocol, not HTTP
 volumes:
   - id: worlds
     label: Worlds

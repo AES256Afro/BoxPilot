@@ -17,6 +17,7 @@ ports:
     container: 1883
     host: 1883
     exposure: lan
+    tailnet: address   # MQTT, not HTTP
 volumes:
   - id: data
     label: Retained messages

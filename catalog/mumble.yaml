@@ -16,6 +16,7 @@ ports:
     container: 64738
     host: 64738
     exposure: lan
+    tailnet: address   # the Mumble voice protocol, not HTTP
   - id: voice-udp
     label: Mumble (UDP)
     container: 64738

@@ -15,6 +15,7 @@ ports:
     container: 27017
     host: 27017
     exposure: lan
+    tailnet: address   # the MongoDB wire protocol, not HTTP
 volumes:
   - id: data
     label: Database files

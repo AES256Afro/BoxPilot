@@ -15,6 +15,7 @@ ports:
     container: 3306
     host: 3306
     exposure: lan
+    tailnet: address   # the MySQL wire protocol, not HTTP
 volumes:
   - id: data
     label: Database files

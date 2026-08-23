@@ -22,6 +22,7 @@ ports:
     container: 27015
     host: 27015
     exposure: lan
+    tailnet: address   # RCON, not HTTP
 volumes:
   - id: data
     label: Saves, mods, configuration
