@@ -59,11 +59,20 @@ export const humanBytes = (bytes) => {
   return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 };
 
+/** A `docker system df` reclaimable cell, which reads like "1.1GB (32%)". */
+function parseReclaimable(cell) {
+  const match = /^\s*([\d.]+\s*[KMGT]?B)/i.exec(String(cell ?? ""));
+  return match ? parseDockerSize(match[1]) : 0;
+}
+
 /** Docker's own size accounting, which is the only source that understands shared layers. */
 function parseDockerSize(text) {
   const match = /^([\d.]+)\s*([KMGT]?B)$/i.exec(String(text ?? "").trim());
   if (!match) return 0;
-  const scale = { B: 1, KB: 1024, MB: 1024 ** 2, GB: 1024 ** 3, TB: 1024 ** 4 };
+  // Powers of 1000, because that is what the Docker CLI printed. It formats every size this way —
+  // "1.7GB" means 1.7 billion bytes, not 1.7 GiB — so reading them as powers of 1024 overstated
+  // every figure by 7%, on the one screen whose whole job is telling you how much you get back.
+  const scale = { B: 1, KB: 1e3, MB: 1e6, GB: 1e9, TB: 1e12 };
   return Math.round(Number(match[1]) * (scale[match[2].toUpperCase()] ?? 1));
 }
 
@@ -103,6 +112,16 @@ export function createHousekeepingService({
   }
 
   /** Every image on the box, with what references it. */
+  /** Untagged layers an image update left behind. Nothing can reference these by name. */
+  async function danglingLayers() {
+    const listed = await docker(["images", "--filter", "dangling=true", "--format", "{{.ID}}\t{{.Size}}"]);
+    if (!listed.ok) return [];
+    return listed.stdout.split("\n").filter(Boolean).map((line) => {
+      const [id, size] = line.split("\t");
+      return { id, bytes: parseDockerSize(size) };
+    });
+  }
+
   async function imageInventory() {
     const listed = await docker(["images", "--format", "{{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.Size}}", "--filter", "dangling=false"]);
     if (!listed.ok) return null;
@@ -184,18 +203,22 @@ export function createHousekeepingService({
    * the web process, which is the side that has the database.
    */
   async function inspect() {
-    const [trees, images, backups, leftovers, logs, df] = await Promise.all([
+    const [trees, images, backups, leftovers, logs, df, dangling] = await Promise.all([
       previousTrees(),
       imageInventory(),
       oldApplicationBackups(),
       restoreLeftovers(),
       orphanedJobLogs(),
       docker(["system", "df", "--format", "json"]),
+      danglingLayers(),
     ]);
 
     const unusedImages = (images ?? []).filter((image) => !image.used);
     const dockerRows = df.ok ? df.stdout.split("\n").filter(Boolean).map((line) => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean) : [];
-    const reclaimableFromDf = dockerRows.reduce((sum, row) => sum + parseDockerSize(String(row.Reclaimable ?? "").split(" ")[0] + (String(row.Reclaimable ?? "").match(/[KMGT]?B/) ?? [""])[0]), 0);
+    // Only the build cache from `df`. Its "Images reclaimable" counts every image no *running*
+    // container holds, which is the other category's job and would be counted twice here.
+    const buildCacheBytes = dockerRows.filter((row) => /build cache/i.test(String(row.Type ?? ""))).reduce((sum, row) => sum + parseReclaimable(row.Reclaimable), 0);
+    const danglingBytes = dangling.reduce((sum, entry) => sum + entry.bytes, 0);
 
     const categories = [
       {
@@ -210,11 +233,14 @@ export function createHousekeepingService({
       },
       {
         id: "docker-unused",
-        title: "Stopped containers and dangling images",
-        summary: "What a Docker prune removes: containers that exited, networks nothing joins, untagged image layers, and the build cache. Nothing in use is touched.",
-        items: null,
-        bytes: reclaimableFromDf,
-        detail: dockerRows.map((row) => `${row.Type}: ${row.Reclaimable ?? "0B"} of ${row.Size ?? "0B"}`),
+        title: "Orphaned image layers and build cache",
+        summary: "Layers left behind when an image was replaced by a newer version, and what Docker cached while building. Nothing references either; both come back on their own if they are ever needed again.",
+        items: dangling.length || null,
+        bytes: danglingBytes + buildCacheBytes,
+        detail: [
+          ...(dangling.length ? [`${dangling.length} orphaned layer${dangling.length === 1 ? "" : "s"}: ${humanBytes(danglingBytes)}`] : []),
+          ...(buildCacheBytes ? [`build cache: ${humanBytes(buildCacheBytes)}`] : []),
+        ],
         keeping: [],
         safe: true,
       },
@@ -284,10 +310,16 @@ export function createHousekeepingService({
     }
 
     if (chosen.has("docker-unused")) {
-      const result = await docker(["system", "prune", "--force"], { timeout: 10 * 60_000 });
-      if (!result.ok) throw new Error(`docker system prune failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
-      const reclaimed = result.stdout.match(/Total reclaimed space:\s*(.+)$/m)?.[1] ?? null;
-      removed.push({ category: "docker-unused", what: "stopped containers, unused networks, dangling images, build cache", reclaimed });
+      // Deliberately not `docker system prune`. That also removes exited containers and unused
+      // networks, and an app you stopped from this very interface is both: pruning deletes its
+      // container and its network, and Docker then refuses to start it again — the container is
+      // pinned to a network ID that no longer exists, which not even `compose up` recovers from.
+      // Dangling layers and the build cache are the two things nothing can be holding.
+      for (const [what, args] of [["orphaned image layers", ["image", "prune", "--force"]], ["build cache", ["builder", "prune", "--force"]]]) {
+        const result = await docker(args, { timeout: 10 * 60_000 });
+        if (!result.ok) throw new Error(`docker ${args.slice(0, 2).join(" ")} failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
+        removed.push({ category: "docker-unused", what, reclaimed: result.stdout.match(/Total reclaimed space:\s*(.+)$/m)?.[1] ?? null });
+      }
     }
 
     if (chosen.has("docker-unreferenced-images")) {
@@ -327,5 +359,5 @@ export function createHousekeepingService({
     return { reclaimed: true, targets: [...chosen], removed, freedBytes, freedHumanBytes: humanBytes(freedBytes) };
   }
 
-  return { inspect, reclaim, internals: { previousTrees, imageInventory, oldApplicationBackups, restoreLeftovers, orphanedJobLogs, humanBytes } };
+  return { inspect, reclaim, internals: { previousTrees, imageInventory, danglingLayers, oldApplicationBackups, restoreLeftovers, orphanedJobLogs, humanBytes } };
 }

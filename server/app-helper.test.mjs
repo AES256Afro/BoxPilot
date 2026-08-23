@@ -8,12 +8,13 @@ import { createCatalogService } from "./catalog/index.mjs";
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
 
-async function setup({ healthKind = "running", exitOnUp = false, failUp = false, listDevices = undefined, chownDirectory = undefined, runCommand = undefined } = {}) {
+async function setup({ healthKind = "running", exitOnUp = false, failUp = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, runCommand = undefined } = {}) {
   const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
   const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
   await writeFile(path.join(catalogDirectory, "demo.yaml"), `schemaVersion: 2\nid: demo\nname: Demo\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8080\nvolumes:\n  - id: data\n    container: /data\n    path: data\n  - id: docker\n    container: /var/run/docker.sock\n    hostPath: /var/run/docker.sock\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\n  - name: TZ\n    default: Etc/UTC\nhealth:\n  kind: ${healthKind}\n  stableSeconds: 4\n  timeoutSeconds: 30\n`);
   const containers = new Map();
   const calls = [];
+  const networkGone = { value: networkGone_ };
   const runDocker = vi.fn(async (_binary, args) => {
     calls.push(args.join(" "));
     if (args[0] === "version") return { ok: true, stdout: "28.0.0", stderr: "" };
@@ -27,11 +28,14 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
       const name = args[args.indexOf("--project-name") + 1];
       const verb = args.find((arg, index) => index > 0 && ["up", "down", "pull", "start", "stop", "restart"].includes(arg));
       if (verb === "up") {
+        if (args.includes("--force-recreate")) networkGone.value = false;
         if (failUp) return { ok: false, stdout: "", stderr: "Error response from daemon: port is already allocated" };
         containers.set(name, exitOnUp ? { running: false, status: "exited", health: "none", restarts: 0, image: "sha256:new", startedAt: "x", exitCode: 1 } : { running: true, status: "running", health: healthKind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:new", startedAt: "x", exitCode: 0 });
       }
       if (verb === "down") containers.delete(name);
       if (verb === "stop") { const c = containers.get(name); if (c) Object.assign(c, { running: false, status: "exited" }); }
+      // Docker's own message when the network a stopped container was created on has been pruned.
+      if (verb === "start" && networkGone.value) return { ok: false, stdout: "", stderr: "Error response from daemon: failed to set up container networking: network 9c881bc331af929502fadc16d50ecf14b935a8b161ccf213589cfca7d7651dec not found" };
       if (verb === "start" || verb === "restart") { const c = containers.get(name); if (c) Object.assign(c, { running: true, status: "running" }); }
       return { ok: true, stdout: "", stderr: "" };
     }
@@ -160,6 +164,19 @@ describe("generic app deployer", () => {
     await apps.install({ id: "demo" });
     await expect(apps.uninstall({ id: "demo", purge: true })).resolves.toMatchObject({ purged: true, dataRemoved: true });
     await expect(readdir(path.join(catalogRoot, "demo"))).rejects.toThrow();
+  });
+
+  it("builds the container again when its network was pruned while it was stopped", async () => {
+    // `docker system prune` (or Portainer, or a compose UI the owner runs) removes the network a
+    // stopped container was created on, because nothing running is joined to it. Starting then
+    // fails on a network ID that no longer exists, and plain `up` fails the same way — only
+    // recreating the container recovers, which costs nothing: its data lives in volumes.
+    const { apps, calls } = await setup({ networkGone_: true });
+    await apps.install({ id: "demo" });
+    await apps.action({ id: "demo", action: "stop" });
+    calls.length = 0;
+    await expect(apps.action({ id: "demo", action: "start" })).resolves.toMatchObject({ running: true });
+    expect(calls.some((call) => call.includes("up --detach --force-recreate"))).toBe(true);
   });
 
   it("edits the raw compose file with validation and rollback", async () => {
