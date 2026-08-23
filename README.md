@@ -26,9 +26,9 @@ It installs Node 24, builds BoxPilot under `/opt/boxpilot`, enables the `boxpilo
 | --- | --- |
 | **Overview** | Health at a glance, a setup checklist, what needs attention, your installed apps. |
 | **Updates & packages** | Install APT updates (all or selected), automatic security updates, restart hints, one-click common tools. |
-| **App catalog** | 128 self-hosted apps: install, configure, update, back up, restore, uninstall. Logs, resource use, HTTPS on your tailnet. |
+| **App catalog** | 159 self-hosted apps and game servers: search, install, configure, update, back up, restore, uninstall. What is running sits at the top. Each app is reachable from your home network or only through Tailscale — one switch, with HTTPS and a real certificate. |
 | **Services** | systemd units and timers: start, stop, restart, enable, disable, journal. |
-| **System** | Hostname, time zone, language, swap, trim, Docker housekeeping, UPS monitoring, schedules, BoxPilot self-update. |
+| **System** | Hostname, time zone, language, swap, trim, UPS monitoring, schedules, BoxPilot self-update. Housekeeping finds what nothing needs any more — old releases, unused images, stale backups — and clears only what you tick. |
 | **Users & SSH** | Accounts, sudo, SSH keys (import from GitHub), password-login policy. |
 | **Firewall** | ufw profiles, service presets, suggestions from what is actually listening, fail2ban. SSH, Tailscale, and BoxPilot can never be locked out. |
 | **Storage** | Disks and LVM (grow the root volume, snapshots with rollback), mounts by UUID, SMB/NFS shares with LAN discovery, Samba and NFS servers bound to your tailnet. |
