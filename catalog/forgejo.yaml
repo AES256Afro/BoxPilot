@@ -20,6 +20,7 @@ ports:
     container: 22
     host: 2222
     exposure: lan
+    tailnet: address   # git over SSH, not HTTP
 volumes:
   - id: data
     label: Repositories and data

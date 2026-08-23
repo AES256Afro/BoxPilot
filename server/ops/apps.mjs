@@ -192,19 +192,32 @@ export function appOperations() {
         // port that is still answering the whole LAN.
         progress?.(tailnet ? "Binding the app to this server only..." : "Publishing the app on the LAN address...", "stdout");
         const reconfigured = await apps.reconfigure({ id: parameters.id, values: { exposure: parameters.mode } }, { progress, checkpoint: false });
-        const port = reconfigured.hostPorts?.find((entry) => entry.protocol !== "udp")?.host ?? null;
-        if (!port) return { id: parameters.id, mode: parameters.mode, port: null, url: null, served: false };
-        const args = tailnet
-          ? ["serve", "--bg", "--yes", `--https=${port}`, `http://127.0.0.1:${port}`]
-          : ["serve", "--yes", `--https=${port}`, "off"];
-        progress?.(`$ tailscale ${args.join(" ")}`, "stdout");
-        const result = await run(tailscaleBinary(), args, { timeout: 60_000 });
+        const hostPorts = reconfigured.hostPorts ?? [];
+        // Only the app's HTTP ports can go through Serve, which terminates HTTPS and proxies HTTP.
+        // The rest moved to the tailnet address or stayed on the LAN when the compose was written,
+        // and are reported here so the answer says where the whole app ended up, not just its UI.
+        const webPorts = hostPorts.filter((entry) => entry.protocol !== "udp" && (entry.tailnet ?? "serve") === "serve").map((entry) => entry.host);
+        const elsewhere = hostPorts.filter((entry) => entry.protocol === "udp" || (entry.tailnet ?? "serve") !== "serve")
+          .map((entry) => ({ id: entry.id, host: entry.host, protocol: entry.protocol, reach: entry.exposure }));
+        if (!webPorts.length) return { id: parameters.id, mode: parameters.mode, port: null, ports: [], urls: [], url: null, served: false, elsewhere };
+
+        const failures = [];
+        for (const port of webPorts) {
+          const args = tailnet
+            ? ["serve", "--bg", "--yes", `--https=${port}`, `http://127.0.0.1:${port}`]
+            : ["serve", "--yes", `--https=${port}`, "off"];
+          progress?.(`$ tailscale ${args.join(" ")}`, "stdout");
+          const result = await run(tailscaleBinary(), args, { timeout: 60_000 });
+          if (!result.ok) failures.push(`${port}: ${result.stderr.split("\n").slice(-2).join(" ").trim() || "is Tailscale running?"}`);
+        }
         // A tailnet-only app that is not published has no way in at all, so that failure has to be
         // loud. Turning publishing off when it was never on is not a failure.
-        if (!result.ok && tailnet) throw new Error(`The app is now reachable only on this server, but publishing it on the tailnet failed: ${result.stderr.split("\n").slice(-2).join(" ") || "is Tailscale running?"}`);
+        if (failures.length && tailnet) throw new Error(`The app is now reachable only on this server, but publishing it on the tailnet failed — ${failures.join("; ")}`);
+
         const status = await run(tailscaleBinary(), ["serve", "status", "--json"], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 });
-        const entry = (status.ok ? parseServeStatus(status.stdout) : []).find((serve) => serve.port === port) ?? null;
-        return { id: parameters.id, mode: parameters.mode, port, served: Boolean(entry), url: entry ? `https://${entry.dnsName}:${entry.port}` : null };
+        const serves = status.ok ? parseServeStatus(status.stdout) : [];
+        const urls = webPorts.map((port) => serves.find((serve) => serve.port === port)).filter(Boolean).map((serve) => `https://${serve.dnsName}:${serve.port}`);
+        return { id: parameters.id, mode: parameters.mode, port: webPorts[0], ports: webPorts, urls, url: urls[0] ?? null, served: urls.length > 0, elsewhere };
       },
     }),
     defineOperation({

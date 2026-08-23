@@ -15,6 +15,7 @@ ports:
     container: 53
     host: 53
     exposure: lan
+    tailnet: unchanged   # the house resolves names here; moving it off the LAN takes the network down
   - id: dns-udp
     label: DNS (UDP)
     container: 53

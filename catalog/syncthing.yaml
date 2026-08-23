@@ -20,6 +20,7 @@ ports:
     container: 22000
     host: 22000
     exposure: lan
+    tailnet: address   # the sync protocol, not HTTP
   - id: sync-udp
     label: Sync (QUIC)
     container: 22000

@@ -74,7 +74,26 @@ export async function resolveDevices(patterns, listDirectory) {
  * Secrets never go into compose.yaml; they are referenced as ${NAME} and live in .env (0600).
  * Returns `{ compose, composeYaml, envFile, env, hostPorts }`.
  */
-export function renderCompose(manifest, values, { existingEnv = {}, lanAddress = "0.0.0.0", devices = manifest.devices } = {}) {
+/**
+ * The address one port binds to, and what that leaves it reachable from.
+ *
+ * A manifest port marked `loopback` is private however the app is exposed. Otherwise the owner's
+ * app-level choice decides, but only as far as the port's own `tailnet` mode allows: an HTTP port
+ * steps back to loopback for Tailscale Serve to front, a protocol port moves to the tailnet
+ * address so it is still reachable by the things that speak it, and a port that serves the house
+ * by design stays where it is. Without a tailnet address to move to there is nothing better than
+ * the LAN binding, and taking the port away entirely would be worse than leaving it.
+ */
+function bindingFor(port, appExposure, { lanAddress, tailnetAddress }) {
+  if (port.exposure === "loopback") return { bind: "127.0.0.1", exposure: "loopback" };
+  if (appExposure !== "tailnet") return { bind: lanAddress, exposure: port.exposure };
+  const mode = port.tailnet ?? "serve";
+  if (mode === "serve") return { bind: "127.0.0.1", exposure: "loopback" };
+  if (mode === "address" && tailnetAddress) return { bind: tailnetAddress, exposure: "tailnet" };
+  return { bind: lanAddress, exposure: port.exposure };
+}
+
+export function renderCompose(manifest, values, { existingEnv = {}, lanAddress = "0.0.0.0", tailnetAddress = null, devices = manifest.devices } = {}) {
   const env = { ...values.env };
   for (const entry of manifest.env) {
     if (entry.generate && !env[entry.name]) env[entry.name] = existingEnv[entry.name] || generateSecret();
@@ -92,10 +111,8 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   const publishedPorts = manifest.network !== "host" && manifest.ports.length
     ? manifest.ports.map((port) => {
       const host = values.ports[port.id];
-      hostPorts.push({ id: port.id, host, protocol: port.protocol, exposure: port.exposure === "loopback" || values.exposure === "tailnet" ? "loopback" : port.exposure });
-      // "tailnet" means the port is not published on the network at all: Tailscale Serve reaches
-      // it over loopback, and authenticates before anything gets that far.
-      const bind = port.exposure === "loopback" || values.exposure === "tailnet" ? "127.0.0.1" : lanAddress;
+      const { bind, exposure } = bindingFor(port, values.exposure, { lanAddress, tailnetAddress });
+      hostPorts.push({ id: port.id, host, protocol: port.protocol, exposure, tailnet: port.tailnet ?? "serve" });
       return `${bind}:${host}:${port.container}${port.protocol === "udp" ? "/udp" : ""}`;
     })
     : [];

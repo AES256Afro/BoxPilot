@@ -20,6 +20,7 @@ ports:
     container: 8080
     host: 8080
     exposure: lan
+    tailnet: unchanged   # access points on the LAN check in here; they go offline without it
   - id: discovery
     label: Device discovery
     container: 10001

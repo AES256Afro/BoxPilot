@@ -4,7 +4,7 @@ import { inspectOperation } from "./operations";
 import { appUrl } from "./appLinks";
 
 /** Types mirror server/catalog/schema.mjs (normalized manifest) and server/app-helper.mjs (live state). */
-interface ManifestPort { id: string; label: string; container: number; host: number; protocol: "tcp" | "udp"; exposure: "lan" | "loopback"; fixed: boolean }
+interface ManifestPort { id: string; label: string; container: number; host: number; protocol: "tcp" | "udp"; exposure: "lan" | "loopback"; fixed: boolean; tailnet?: "serve" | "address" | "unchanged" }
 interface ManifestVolume { id: string; label: string; container: string; path: string | null; hostPath: string | null; readOnly: boolean; backup: boolean; configurable: boolean; description: string | null }
 interface SetupChoice { id: string; label: string; description: string | null; website: string | null; recommended: boolean; exec: string[] }
 interface ManifestSetup { title: string; note: string | null; finalize: string[] | null; finalizeLabel: string | null; choices: SetupChoice[] }
@@ -275,8 +275,18 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                   {live.urls.map((port) => <a key={port.id} className="secondary-button" href={openUrl(port, manifest)} target="_blank" rel="noreferrer">Open {port.label}</a>)}
                   {(() => {
                     if (serves === null) return null;
-                    const primaryPort = live.urls[0]?.host;
+                    // Only an app's HTTP ports can go through Tailscale Serve. The rest move to
+                    // the tailnet address, or stay on the LAN when the home network depends on
+                    // them — DNS on 53, a reverse proxy's 80 and 443, UniFi's inform port. Saying
+                    // which is which up front is the difference between an informed choice and an
+                    // app that half works afterwards.
+                    const publicPorts = (manifest.ports ?? []).filter((port) => port.exposure !== "loopback");
+                    const servePorts = publicPorts.filter((port) => port.protocol !== "udp" && (port.tailnet ?? "serve") === "serve");
+                    const stayOnLan = publicPorts.filter((port) => (port.tailnet ?? (port.protocol === "udp" ? "unchanged" : "serve")) === "unchanged");
+                    const moveToTailnet = publicPorts.filter((port) => port.tailnet === "address");
+                    const primaryPort = servePorts[0] ? (live.state?.values?.ports?.[servePorts[0].id] ?? servePorts[0].host) : live.urls[0]?.host;
                     const served = serves.find((serve) => serve.port === primaryPort);
+                    const names = (ports: ManifestPort[]) => ports.map((port) => port.label).join(", ");
                     // Where this app is reachable from. Tailnet-only is not just a firewall rule:
                     // the container stops listening on the network, so the only way in is through
                     // Tailscale, which authenticates before the app sees anyone. That matters for
@@ -288,7 +298,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                         <span className={`status-pill ${tailnetOnly ? "status-good" : "status-neutral"}`} title={tailnetOnly ? "Only reachable through Tailscale" : "Listening on your home network; the firewall decides who can reach it"}>{tailnetOnly ? "tailnet only" : "home network"}</span>
                         {tailnetOnly
                           ? <button className="text-button" type="button" onClick={() => start({ operationId: "app.exposure.set", title: `Publish ${manifest.name} on your home network`, parameters: { id: manifest.id, mode: "lan" }, preview: <span>Recreates {manifest.name} listening on this server's network address on port {primaryPort}, and stops publishing it on your tailnet. Anything on your home network will be able to reach it — the firewall is then the only thing deciding who can.</span> })}>Publish on home network</button>
-                          : <button className="text-button" type="button" onClick={() => start({ operationId: "app.exposure.set", title: `Make ${manifest.name} reachable only through Tailscale`, parameters: { id: manifest.id, mode: "tailnet" }, preview: <span>Recreates {manifest.name} so it no longer listens on your home network, then publishes it at <code>https://…ts.net:{primaryPort}</code> with a real certificate. Tailscale authenticates every visitor before {manifest.name} sees them; nothing is opened on your router.</span> })}>Reach only through Tailscale</button>}
+                          : <button className="text-button" type="button" onClick={() => start({ operationId: "app.exposure.set", title: `Make ${manifest.name} reachable only through Tailscale`, parameters: { id: manifest.id, mode: "tailnet" }, preview: <span>Recreates {manifest.name} so its web interface no longer listens on your home network, then publishes it at <code>https://…ts.net:{primaryPort}</code> with a real certificate. Tailscale authenticates every visitor before {manifest.name} sees them; nothing is opened on your router.{moveToTailnet.length > 0 && <> {names(moveToTailnet)} {moveToTailnet.length === 1 ? "does not speak HTTP, so it moves to" : "do not speak HTTP, so they move to"} this server's tailnet address — reachable from your tailnet and nowhere else.</>}{stayOnLan.length > 0 && <> {names(stayOnLan)} {stayOnLan.length === 1 ? "stays" : "stay"} on your home network, because that is what {stayOnLan.length === 1 ? "it serves" : "they serve"}.</>}</span> })}>Reach only through Tailscale</button>}
                       </>
                     );
                   })()}

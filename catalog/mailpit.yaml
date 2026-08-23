@@ -20,6 +20,7 @@ ports:
     container: 1025
     host: 1025
     exposure: lan
+    tailnet: address   # SMTP, not HTTP
 volumes:
   - id: data
     label: Mailbox
