@@ -92,6 +92,10 @@ sidecars:
         container: /data
         path: redis-data
         backup: false
+signIn:
+  path: /login
+  usernameEnv: NEXTCLOUD_ADMIN_USER
+  passwordEnv: NEXTCLOUD_ADMIN_PASSWORD
 health:
   kind: running
   stableSeconds: 30

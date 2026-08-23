@@ -57,6 +57,10 @@ env:
   - name: DB_NAME
     default: /data/hc.sqlite
     fixed: true
+signIn:
+  path: /accounts/login/
+  usernameEnv: SUPERUSER_EMAIL
+  passwordEnv: SUPERUSER_PASSWORD
 health:
   kind: running
   stableSeconds: 15

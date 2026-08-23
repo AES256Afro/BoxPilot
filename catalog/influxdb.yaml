@@ -42,6 +42,10 @@ env:
   - name: DOCKER_INFLUXDB_INIT_BUCKET
     label: First bucket
     default: sensors
+signIn:
+  path: /signin
+  usernameEnv: DOCKER_INFLUXDB_INIT_USERNAME
+  passwordEnv: DOCKER_INFLUXDB_INIT_PASSWORD
 health:
   kind: running
   stableSeconds: 15

@@ -49,6 +49,9 @@ env:
     label: Time zone
     type: timezone
     default: Etc/UTC
+signIn:
+  path: /login.html
+  passwordEnv: DUPLICATI__WEBSERVICE_PASSWORD
 health:
   kind: running
   stableSeconds: 15

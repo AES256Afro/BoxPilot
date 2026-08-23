@@ -33,6 +33,10 @@ env:
     label: Time zone
     type: timezone
     default: Etc/UTC
+signIn:
+  path: /
+  usernameEnv: GOTIFY_DEFAULTUSER_NAME
+  passwordEnv: GOTIFY_DEFAULTUSER_PASS
 health:
   kind: running
   stableSeconds: 10

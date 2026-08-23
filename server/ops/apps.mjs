@@ -221,6 +221,12 @@ export function appOperations() {
       },
     }),
     defineOperation({
+      id: "app.password.set", title: "Change an application's sign-in password", risk: "medium", timeoutMs: minutes(15),
+      description: "Sets the password the app's sign-in page asks for and recreates the container so it takes effect. Data is untouched.",
+      parameters: { fields: { id: idField, password: { type: "string", secret: true, validate: (value) => (value.length >= 8 && value.length <= 128 && !/[\r\n]/.test(value) ? null : "must be 8 to 128 characters") } } },
+      run: (parameters, { apps, progress }) => apps.setPassword({ id: parameters.id, password: parameters.password }, { progress }),
+    }),
+    defineOperation({
       id: "app.reconfigure", title: "Change application settings", risk: "medium", timeoutMs: minutes(15),
       description: "Takes a data checkpoint, rewrites ports, settings, and volume paths, and recreates the container; restores the previous configuration on failure.",
       parameters: { fields: { id: idField, values: valuesField, checkpoint: { type: "boolean", optional: true }, devices: devicesField } },

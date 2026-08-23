@@ -48,6 +48,10 @@ env:
     type: password
     secret: true
     generate: true
+signIn:
+  path: /auth/login
+  usernameEnv: SEMAPHORE_ADMIN
+  passwordEnv: SEMAPHORE_ADMIN_PASSWORD
 health:
   kind: running
   stableSeconds: 15

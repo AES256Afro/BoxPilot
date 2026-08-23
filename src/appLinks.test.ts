@@ -39,3 +39,12 @@ describe("building an application URL", () => {
     expect(appUrl({ host: 9443, exposure: "lan" }, { browserHost: "box.tail1234.ts.net", https: true })).toBe("https://box.tail1234.ts.net:9443");
   });
 });
+
+describe("a sign-in page off the root", () => {
+  it("lands on the app's sign-in path, on the LAN and on the tailnet alike", () => {
+    // Pi-hole answers at /admin/; a link to the root is a link to a redirect at best.
+    expect(appUrl({ host: 8084, exposure: "lan", path: "/admin/" }, { lanAddress: "192.168.1.10", browserHost: "192.168.1.10" })).toBe("http://192.168.1.10:8084/admin/");
+    expect(appUrl({ host: 8084, exposure: "lan", path: "/admin/" }, { serves: [{ dnsName: "homebox.example.ts.net", port: 8084 }], browserHost: "homebox.example.ts.net" })).toBe("https://homebox.example.ts.net:8084/admin/");
+    expect(appUrl({ host: 8084, exposure: "lan", path: null }, { browserHost: "192.168.1.10" })).toBe("http://192.168.1.10:8084");
+  });
+});

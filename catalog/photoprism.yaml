@@ -97,6 +97,10 @@ sidecars:
       - id: mysql
         container: /var/lib/mysql
         path: database
+signIn:
+  path: /library/login
+  usernameEnv: PHOTOPRISM_ADMIN_USER
+  passwordEnv: PHOTOPRISM_ADMIN_PASSWORD
 health:
   kind: running
   stableSeconds: 20

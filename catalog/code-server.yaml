@@ -51,6 +51,9 @@ env:
     type: path
     default: /projects
     fixed: true
+signIn:
+  path: /login
+  passwordEnv: PASSWORD
 health:
   kind: running
   stableSeconds: 15

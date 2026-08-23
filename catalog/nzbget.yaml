@@ -45,6 +45,10 @@ env:
     label: Web UI password
     type: password
     generate: true
+signIn:
+  path: /
+  usernameEnv: NZBGET_USER
+  passwordEnv: NZBGET_PASS
 health:
   kind: running
   stableSeconds: 15

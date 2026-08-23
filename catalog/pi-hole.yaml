@@ -39,7 +39,7 @@ env:
     default: Etc/UTC
   - name: FTLCONF_webserver_api_password
     label: Admin password
-    description: Sign-in for the admin UI; shown under Secrets after install.
+    description: The only thing the admin page asks for. Leave it empty to have one generated; you can see or change it from the app's card afterwards.
     type: password
     generate: true
   - name: FTLCONF_dns_upstreams
@@ -58,6 +58,10 @@ env:
   - name: FTLCONF_misc_etc_dnsmasq_d
     default: "false"
     fixed: true
+signIn:
+  path: /admin/
+  passwordEnv: FTLCONF_webserver_api_password
+  note: Pi-hole has no username. Change the password here rather than inside Pi-hole — the container sets it from this value every time it starts, so a change made in Pi-hole's own settings is undone by the next restart.
 sidecars:
   - id: unbound
     image: klutchell/unbound:v1.26.0

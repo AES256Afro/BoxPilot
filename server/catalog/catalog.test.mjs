@@ -27,6 +27,13 @@ describe("manifest schema", () => {
     // a variable, and a name may not appear twice.
     expect(validateManifest({ ...base, env: [{ name: "serverIP", default: "x" }] }).errors).toEqual([]);
     expect(validateManifest({ ...base, env: [{ name: "has-a-dash", default: "x" }] }).errors).toContainEqual(expect.stringContaining("env[0].name"));
+    // signIn ties the card's "Sign in" panel to a real password entry and a real page.
+    const withLogin = { ...base, ports: [{ id: "web", container: 80, host: 8084 }], env: [{ name: "ADMIN_PASSWORD", type: "password", generate: true }, { name: "ADMIN_USER", default: "admin" }] };
+    expect(validateManifest({ ...withLogin, signIn: { path: "/admin/", passwordEnv: "ADMIN_PASSWORD", usernameEnv: "ADMIN_USER" } }).manifest.signIn).toEqual({ path: "/admin/", port: null, username: null, usernameEnv: "ADMIN_USER", passwordEnv: "ADMIN_PASSWORD", note: null });
+    expect(validateManifest({ ...withLogin, signIn: { passwordEnv: "NOPE" } }).errors).toContainEqual(expect.stringContaining("signIn.passwordEnv"));
+    expect(validateManifest({ ...withLogin, signIn: { passwordEnv: "ADMIN_USER" } }).errors).toContainEqual(expect.stringContaining("must name a password entry"));
+    expect(validateManifest({ ...withLogin, signIn: { passwordEnv: "ADMIN_PASSWORD", path: "admin" } }).errors).toContainEqual(expect.stringContaining("signIn.path"));
+    expect(validateManifest({ ...withLogin, signIn: { passwordEnv: "ADMIN_PASSWORD", port: "dns" } }).errors).toContainEqual(expect.stringContaining("signIn.port"));
     expect(validateManifest({ ...base, env: [{ name: "TZ", default: "x" }, { name: "TZ", default: "y" }] }).errors).toContainEqual(expect.stringContaining("env[1].name"));
     expect(validateManifest({ ...base, capabilities: ["NET_ADMIN"] }).errors).toContainEqual(expect.stringContaining("CAP_"));
     expect(validateManifest({ ...base, schemaVersion: 1 }).errors).toContainEqual(expect.stringContaining("schemaVersion"));

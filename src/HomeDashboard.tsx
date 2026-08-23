@@ -55,7 +55,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
       .catch(() => [] as TailnetServe[]);
     fetch("/api/v1/catalog")
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("catalog unavailable"))))
-      .then(async (data: { applications: Array<{ manifest: { id: string; name: string }; live: { installed: boolean; container: { running: boolean; health: string }; updateAvailable?: boolean; urls: Array<{ host: number; exposure: string }> } | null }>; host: { lanAddress: string | null } }) => {
+      .then(async (data: { applications: Array<{ manifest: { id: string; name: string }; live: { installed: boolean; container: { running: boolean; health: string }; updateAvailable?: boolean; urls: Array<{ host: number; exposure: string; path?: string | null }> } | null }>; host: { lanAddress: string | null } }) => {
         const servesSoFar = await servesPromise;
 
         guard(setApps)(data.applications

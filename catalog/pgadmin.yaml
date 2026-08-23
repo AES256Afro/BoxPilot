@@ -33,6 +33,10 @@ env:
   - name: PGADMIN_CONFIG_SERVER_MODE
     default: "True"
     fixed: true
+signIn:
+  path: /login
+  usernameEnv: PGADMIN_DEFAULT_EMAIL
+  passwordEnv: PGADMIN_DEFAULT_PASSWORD
 health:
   kind: running
   stableSeconds: 15

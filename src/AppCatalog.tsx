@@ -15,13 +15,14 @@ export interface Manifest {
   ports: ManifestPort[]; volumes: ManifestVolume[]; env: ManifestEnv[];
   health: { kind: string; stableSeconds: number; timeoutSeconds: number };
   setup?: ManifestSetup | null;
+  signIn?: { path: string | null; port: string | null; username: string | null; usernameEnv: string | null; passwordEnv: string; note: string | null } | null;
   sha256: string;
 }
 interface LiveState {
   id: string; installed: boolean; dataPresent: boolean;
   state: { installedAt: string; updatedAt: string; manifestSha256: string | null; image: { reference: string; id: string | null } | null; values: { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string>; setup?: string[]; exposure?: "lan" | "tailnet" }; pinnedRollback: boolean; uninstalledAt: string | null } | null;
   container: { exists: boolean; running: boolean; status: string; health: string; restarts: number; image: string | null };
-  urls: Array<{ id: string; label: string; host: number; exposure: string }>;
+  urls: Array<{ id: string; label: string; host: number; exposure: string; path?: string | null }>;
   updateAvailable?: boolean;
   installedImage?: string | null;
 }
@@ -90,6 +91,10 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
   const editablePorts = manifest.ports.filter((port) => !port.fixed);
   const editableEnv = manifest.env.filter((entry) => !entry.fixed && !entry.generate);
   const generated = manifest.env.filter((entry) => entry.generate);
+  // A password the app signs you in with is worth choosing yourself; the rest (database
+  // passwords, session secrets) nobody ever types, so those stay generated and out of the way.
+  const choosable = generated.filter((entry) => entry.name === manifest.signIn?.passwordEnv);
+  const generatedQuietly = generated.filter((entry) => !choosable.includes(entry));
   const editableVolumes = manifest.volumes.filter((volume) => volume.configurable);
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onCancel}>
@@ -117,7 +122,12 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
               ))}
             </fieldset>
           )}
-          {generated.length > 0 && <p className="muted">Generated for you: {generated.map((entry) => entry.label).join(", ")} (stored in the app's .env on the server).</p>}
+          {choosable.length > 0 && <fieldset><legend>Sign-in</legend>{choosable.map((entry) => (
+            <label key={entry.name}>{entry.label}<span className="muted"> — leave empty to have one generated for you; you can see or change it from the app's card afterwards.</span>
+              <input type="password" autoComplete="new-password" minLength={8} maxLength={128} value={values.env[entry.name] ?? ""} onChange={(event) => setEnv(entry.name, event.target.value)} aria-label={entry.label} placeholder={mode === "install" ? "Generate one for me" : "Unchanged"} />
+            </label>
+          ))}</fieldset>}
+          {generatedQuietly.length > 0 && <p className="muted">Generated for you: {generatedQuietly.map((entry) => entry.label).join(", ")} (stored in the app's .env on the server).</p>}
           {manifest.volumes.filter((volume) => volume.path).length > 0 && <p className="muted">Data lives under <code>/var/lib/boxpilot-managed/catalog/{manifest.id}/</code> and is kept on uninstall unless you delete it explicitly.</p>}
           <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={onCancel}>Cancel</button><button className="primary-button" type="submit" disabled={checking}>{checking ? "Checking..." : mode === "install" ? "Continue to install" : "Apply settings"}</button></footer>
         </form>
@@ -146,7 +156,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
       setError(requestError instanceof Error ? requestError.message : "Could not read the backup");
     }
   };
-  const [secrets, setSecrets] = useState<{ id: string; name: string; items: Array<{ name: string; label: string; value: string }> | null; needsPassword: boolean; password: string; error: string | null } | null>(null);
+  const [secrets, setSecrets] = useState<{ id: string; name: string; items: Array<{ name: string; label: string; value: string }> | null; needsPassword: boolean; password: string; error: string | null; signIn?: boolean; newPassword?: string } | null>(null);
   const [filter, setFilter] = useState("");
   const [search, setSearch] = useState("");
   const [serves, setServes] = useState<Array<{ dnsName: string; port: number; target: string | null }> | null>(null);
@@ -210,7 +220,15 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
     }
   };
 
-  const revealSecrets = async (manifest: Manifest, password?: string) => {
+  /**
+   * Everything needed to get into an app's own interface, in one place: where the page is, the
+   * username if there is one, the password (revealed with the owner password, like any secret),
+   * and a way to change it. Pi-hole was the prompt — a generated password behind an elevated
+   * view, and a variable name to find in Settings if you wanted your own.
+   */
+  const showSignIn = (manifest: Manifest) => setSecrets({ id: manifest.id, name: manifest.name, items: null, needsPassword: false, password: "", error: null, signIn: true, newPassword: "" });
+
+  const revealSecrets = async (manifest: Manifest, password?: string, signIn = false) => {
     try {
       if (password) {
         const elevate = await fetch("/api/v1/auth/elevate", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ password }) });
@@ -219,12 +237,13 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
       }
       const response = await fetch("/api/v1/operations/app.secrets/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id: manifest.id } }) });
       const body = (await response.json().catch(() => ({}))) as { result?: { secrets: Array<{ name: string; label: string; value: string }> }; error?: string; code?: string };
-      if (response.status === 401 && body.code === "elevation_required") { setSecrets({ id: manifest.id, name: manifest.name, items: null, needsPassword: true, password: "", error: null }); return; }
+      if (response.status === 401 && body.code === "elevation_required") { setSecrets((current) => ({ id: manifest.id, name: manifest.name, items: null, needsPassword: true, password: "", error: null, signIn, newPassword: current?.newPassword ?? "" })); return; }
       if (!response.ok) throw new Error(body.error ?? "Could not read secrets");
-      setSecrets({ id: manifest.id, name: manifest.name, items: body.result?.secrets ?? [], needsPassword: false, password: "", error: null });
+      const items = (body.result?.secrets ?? []).filter((item) => !signIn || item.name === manifest.signIn?.passwordEnv);
+      setSecrets((current) => ({ id: manifest.id, name: manifest.name, items, needsPassword: false, password: "", error: null, signIn, newPassword: current?.newPassword ?? "" }));
     } catch (requestError) {
       const refused = requestError instanceof Error && /owner|Viewers/i.test(requestError.message);
-      setSecrets((current) => ({ id: manifest.id, name: manifest.name, items: null, needsPassword: !refused, password: "", error: requestError instanceof Error ? requestError.message : "Could not read secrets", ...(current ? {} : {}) }));
+      setSecrets((current) => ({ id: manifest.id, name: manifest.name, items: null, needsPassword: !refused, password: "", error: requestError instanceof Error ? requestError.message : "Could not read secrets", signIn, newPassword: current?.newPassword ?? "" }));
     }
   };
 
@@ -321,6 +340,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                 {installed && <button className="text-button" type="button" onClick={() => start({ operationId: "app.backup", title: `Back up ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Stops {manifest.name} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.{manifest.volumes.some((volume) => volume.hostPath) ? <> Your own folders ({manifest.volumes.filter((volume) => volume.hostPath).map((volume) => volume.hostPath).join(", ")}) are <strong>not</strong> included.</> : null}</span> })}>Back up</button>}
                 {installed && manifest.id === "homepage" && <button className="text-button" type="button" onClick={() => start({ operationId: "homepage.sync", title: "Sync Homepage with installed apps", parameters: { host: window.location.hostname }, preview: <span>Writes a <strong>BoxPilot</strong> group into Homepage's <code>services.yaml</code> with every installed app — links via <code>{window.location.hostname}</code>, descriptions, icons, and live container status. Groups you wrote yourself are kept. Repeats by itself after installs and uninstalls.</span> })}>Sync dashboard</button>}
                 {(installed || live?.dataPresent) && <button className="text-button" type="button" onClick={() => void showBackups(manifest)}>Backups</button>}
+                {installed && manifest.signIn && <button className="secondary-button" type="button" onClick={() => showSignIn(manifest)}>Sign in</button>}
                 {installed && manifest.env.some((entry) => entry.secret) && <button className="text-button" type="button" onClick={() => void revealSecrets(manifest)}>Secrets</button>}
                 {installed && <button className="text-button" type="button" onClick={() => start({ operationId: "app.uninstall", title: `Uninstall ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Stops and removes the container. Data under the app directory is kept so you can reinstall later.</span> })}>Uninstall</button>}
                 {live?.dataPresent && <button className="text-button danger-text" type="button" onClick={() => start({ operationId: "app.purge", title: `Delete ${manifest.name} and its data`, parameters: { id: manifest.id }, preview: <span>Removes the container <strong>and deletes everything</strong> under the app's data directory. This cannot be undone.</span> })}>Delete data</button>}
@@ -434,16 +454,44 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
       {secrets && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setSecrets(null)}>
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="secrets-title" onMouseDown={(event) => event.stopPropagation()}>
-            <header className="modal-header"><div><span className="eyebrow">Secrets</span><h2 id="secrets-title">{secrets.name}</h2></div><button className="icon-button" type="button" onClick={() => setSecrets(null)} aria-label="Close dialog">X</button></header>
+            <header className="modal-header"><div><span className="eyebrow">{secrets.signIn ? "Sign in" : "Secrets"}</span><h2 id="secrets-title">{secrets.name}</h2></div><button className="icon-button" type="button" onClick={() => setSecrets(null)} aria-label="Close dialog">X</button></header>
             <div className="modal-copy">
+              {secrets.signIn && (() => {
+                const entry = data?.applications.find((application) => application.manifest.id === secrets.id);
+                const manifest = entry?.manifest; const live = entry?.live;
+                if (!manifest?.signIn || !live) return null;
+                const portId = manifest.signIn.port ?? live.urls[0]?.id;
+                const port = live.urls.find((url) => url.id === portId) ?? live.urls[0];
+                const username = manifest.signIn.username ?? (manifest.signIn.usernameEnv ? live.state?.values?.env?.[manifest.signIn.usernameEnv] ?? manifest.env.find((env) => env.name === manifest.signIn?.usernameEnv)?.default ?? null : null);
+                const passwordLabel = manifest.env.find((env) => env.name === manifest.signIn?.passwordEnv)?.label ?? "Password";
+                const newPassword = secrets.newPassword ?? "";
+                return (
+                  <div className="sign-in-panel">
+                    {port && <p><a className="primary-button" href={openUrl(port, manifest)} target="_blank" rel="noreferrer">Open {manifest.name}'s sign-in page</a></p>}
+                    <dl className="sign-in-details">
+                      <dt>Username</dt>
+                      {username !== null ? <dd><code>{String(username)}</code></dd> : <dd className="muted">none — {manifest.name} asks only for the password</dd>}
+                      <dt>{passwordLabel}</dt>
+                      <dd>{secrets.items && secrets.items.length > 0
+                        ? <input readOnly value={secrets.items[0].value} aria-label={passwordLabel} onFocus={(event) => event.currentTarget.select()} />
+                        : secrets.needsPassword ? <span className="muted">enter your owner password below</span> : <button className="text-button" type="button" onClick={() => void revealSecrets(manifest, undefined, true)}>Reveal</button>}</dd>
+                    </dl>
+                    {manifest.signIn.note && <p className="muted">{manifest.signIn.note}</p>}
+                    <form className="recovery-actions" onSubmit={(event) => { event.preventDefault(); if (newPassword.length < 8) return; start({ operationId: "app.password.set", title: `Change ${manifest.name}'s sign-in password`, parameters: { id: manifest.id, password: newPassword }, preview: <span>Sets a new {passwordLabel.toLowerCase()} and recreates {manifest.name} so it takes effect — a few seconds of downtime, data untouched.</span> }); setSecrets(null); }}>
+                      <input type="password" autoComplete="new-password" minLength={8} maxLength={128} placeholder="New password (8+ characters)" aria-label="New password" value={newPassword} onChange={(event) => setSecrets({ ...secrets, newPassword: event.target.value })} />
+                      <button className="secondary-button" type="submit" disabled={newPassword.length < 8}>Change password</button>
+                    </form>
+                  </div>
+                );
+              })()}
               {secrets.needsPassword ? (
                 <>
-                  <p>Enter your owner password to reveal generated passwords and tokens. This unlocks high-risk actions for 10 minutes and is recorded in the audit log.</p>
+                  <p>Enter your owner password to reveal {secrets.signIn ? "the sign-in password" : "generated passwords and tokens"}. This unlocks high-risk actions for 10 minutes and is recorded in the audit log.</p>
                   <input aria-label="Owner password" type="password" autoComplete="current-password" value={secrets.password} onChange={(event) => setSecrets({ ...secrets, password: event.target.value })} />
                   {secrets.error && <div className="auth-error" role="alert">{secrets.error}</div>}
-                  <footer className="recovery-actions"><button className="primary-button" type="button" disabled={secrets.password.length < 12} onClick={() => { const manifest = data?.applications.find((entry) => entry.manifest.id === secrets.id)?.manifest; if (manifest) void revealSecrets(manifest, secrets.password); }}>Reveal</button></footer>
+                  <footer className="recovery-actions"><button className="primary-button" type="button" disabled={secrets.password.length < 12} onClick={() => { const manifest = data?.applications.find((entry) => entry.manifest.id === secrets.id)?.manifest; if (manifest) void revealSecrets(manifest, secrets.password, secrets.signIn ?? false); }}>Reveal</button></footer>
                 </>
-              ) : (
+              ) : secrets.signIn ? null : (
                 <>
                   {secrets.items && secrets.items.length === 0 && <p>This app has no generated secrets.</p>}
                   {secrets.items?.map((item) => <label key={item.name}>{item.label}<input readOnly value={item.value} aria-label={item.label} onFocus={(event) => event.currentTarget.select()} /></label>)}

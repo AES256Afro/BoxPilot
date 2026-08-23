@@ -68,6 +68,10 @@ sidecars:
         container: /data
         path: redis-data
         backup: false
+signIn:
+  path: /accounts/login/
+  usernameEnv: PAPERLESS_ADMIN_USER
+  passwordEnv: PAPERLESS_ADMIN_PASSWORD
 health:
   kind: running
   stableSeconds: 15
