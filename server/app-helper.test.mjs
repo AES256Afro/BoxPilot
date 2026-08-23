@@ -71,6 +71,21 @@ describe("generic app deployer", () => {
     expect(compose).not.toContain("sda1");
   });
 
+  it("installs without an optional device, and passes it through when the server has one", async () => {
+    // A GPU render node speeds an app up; it is not what the app is for. Tdarr declares one as
+    // optional, so a server with no /dev/dri/renderD* still installs it and transcodes on the CPU.
+    const manifest = "schemaVersion: 2\nid: gpu\nname: Gpu\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\noptionalDevices:\n  - /dev/dri/renderD*\nvolumes:\n  - id: data\n    container: /data\n    path: data\n";
+    const without = await setup({ listDevices: async () => ["card0"] });
+    await writeFile(path.join(without.catalogDirectory, "gpu.yaml"), manifest);
+    await expect(without.apps.install({ id: "gpu" })).resolves.toMatchObject({ id: "gpu" });
+    expect(await readFile(path.join(without.catalogRoot, "gpu", "compose.yaml"), "utf8")).not.toContain("devices");
+
+    const withGpu = await setup({ listDevices: async () => ["card0", "renderD128"] });
+    await writeFile(path.join(withGpu.catalogDirectory, "gpu.yaml"), manifest);
+    await withGpu.apps.install({ id: "gpu" });
+    expect(await readFile(path.join(withGpu.catalogRoot, "gpu", "compose.yaml"), "utf8")).toContain("/dev/dri/renderD128:/dev/dri/renderD128");
+  });
+
   it("hands managed volume folders to the user the manifest runs as", async () => {
     const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
     const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);

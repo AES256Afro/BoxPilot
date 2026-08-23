@@ -55,7 +55,7 @@ function checkKeys(errors, path, value, allowed, required = []) {
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
-  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize"], ["schemaVersion", "id", "name", "category", "description", "image"]);
+  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices"], ["schemaVersion", "id", "name", "category", "description", "image"]);
   if (raw.schemaVersion !== 2) fail(errors, "manifest.schemaVersion", "must be 2");
   // Docker gives a container 64 MB of shared memory. Anything decoding video wants far more, and
   // runs out in ways that look like the app is broken rather than out of a resource.
@@ -218,6 +218,10 @@ export function validateManifest(raw) {
   if (hostReach && raw.risk === "low") fail(errors, "manifest.risk", "must be medium or high: this app reaches the Docker socket, the host network, or kernel capabilities");
   if (raw.sysctls !== undefined && !(Array.isArray(raw.sysctls) && raw.sysctls.length <= 16 && raw.sysctls.every((entry) => typeof entry === "string" && /^net\.[a-z0-9_.]+=[A-Za-z0-9_.-]+$/.test(entry)))) fail(errors, "manifest.sysctls", "entries must be net.* kernel settings like net.ipv4.ip_forward=1");
   if (Array.isArray(raw.devices) && raw.devices.some((device) => !/^\/dev\/[A-Za-z0-9._/?*[\]-]+$/.test(device))) fail(errors, "manifest.devices", "entries must be /dev paths (globs like /dev/sd? are resolved at install time)");
+  // `devices` is what the app is for — a Zigbee stick, a printer — and the install refuses without
+  // one. `optionalDevices` only makes it faster: a GPU render node for transcoding. Passed through
+  // when the server has one, left out when it does not, and never a reason not to install.
+  if (raw.optionalDevices !== undefined && !(Array.isArray(raw.optionalDevices) && raw.optionalDevices.every((device) => typeof device === "string" && /^\/dev\/[A-Za-z0-9._/?*[\]-]+$/.test(device)))) fail(errors, "manifest.optionalDevices", "entries must be /dev paths (globs like /dev/dri/renderD* are resolved at install time)");
 
   if (errors.length) return { manifest: null, errors };
 
@@ -240,6 +244,7 @@ export function validateManifest(raw) {
     health: { kind: raw.health?.kind ?? "running", stableSeconds: raw.health?.stableSeconds ?? 10, timeoutSeconds: raw.health?.timeoutSeconds ?? 180 },
     capabilities: raw.capabilities ?? [],
     devices: raw.devices ?? [],
+    optionalDevices: raw.optionalDevices ?? [],
     extraHosts: raw.extraHosts ?? [],
     command: raw.command ?? null,
     user: raw.user ?? null,
