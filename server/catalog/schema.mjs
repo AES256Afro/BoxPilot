@@ -6,7 +6,10 @@
 
 const idPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const imagePattern = /^[a-z0-9][a-z0-9._/-]*(?::[A-Za-z0-9_.-]{1,128})?(?:@sha256:[a-f0-9]{64})?$/;
-const envNamePattern = /^[A-Z][A-Za-z0-9_]{0,63}$/;
+// Upstream images pick their own names and not all of them shout: Tdarr reads `serverIP` and
+// `internalNode`. The rule is only that a name is a plausible identifier, not that it is upper
+// case, so that a manifest never has to lie about what the image actually looks for.
+const envNamePattern = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 const keyPattern = /^[a-z][a-z0-9-]{0,31}$/;
 const containerPathPattern = /^\/[^\0]*$/;
 const relativePathPattern = /^[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -121,7 +124,7 @@ export function validateManifest(raw) {
     const path = `manifest.env[${index}]`;
     if (!isObject(entry)) return fail(errors, path, "must be a mapping");
     checkKeys(errors, path, entry, ["name", "label", "description", "type", "default", "required", "secret", "generate", "options", "fixed"], ["name"]);
-    if (typeof entry.name !== "string" || !envNamePattern.test(entry.name) || envNames.has(entry.name)) fail(errors, `${path}.name`, "must be a unique environment variable name starting with a capital letter"); else envNames.add(entry.name);
+    if (typeof entry.name !== "string" || !envNamePattern.test(entry.name) || envNames.has(entry.name)) fail(errors, `${path}.name`, "must be a unique environment variable name"); else envNames.add(entry.name);
     if (entry.type !== undefined && !envTypes.includes(entry.type)) fail(errors, `${path}.type`, `must be one of ${envTypes.join(", ")}`);
     for (const flag of ["required", "secret", "generate", "fixed"]) if (entry[flag] !== undefined && typeof entry[flag] !== "boolean") fail(errors, `${path}.${flag}`, "must be boolean");
     if (entry.default !== undefined && !["string", "number", "boolean"].includes(typeof entry.default)) fail(errors, `${path}.default`, "must be a scalar");

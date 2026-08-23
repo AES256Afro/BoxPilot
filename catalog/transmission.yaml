@@ -1,0 +1,63 @@
+schemaVersion: 2
+id: transmission
+name: Transmission
+category: Media automation
+icon: "🌀"
+description: Light, plain torrent client with a web interface. A quieter alternative to qBittorrent when you do not need a VPN tunnel of its own — put it behind one at the router, or use the VPN-wrapped qBittorrent instead.
+website: https://transmissionbt.com
+risk: medium
+image:
+  reference: lscr.io/linuxserver/transmission:version-4.1.3-r0
+  version: 4.1.3
+ports:
+  - id: web
+    label: Web UI
+    container: 9091
+    host: 9092
+    exposure: lan
+  - id: peer-tcp
+    label: Peer connections (TCP)
+    container: 51413
+    host: 51413
+    exposure: lan
+    tailnet: address   # the BitTorrent peer protocol, not HTTP
+  - id: peer-udp
+    label: Peer connections (UDP)
+    container: 51413
+    host: 51413
+    protocol: udp
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration and torrent state
+    container: /config
+    path: config
+  - id: media
+    label: Media folder
+    container: /data
+    hostPath: /srv/media
+    configurable: true
+    backup: false
+    description: Download into /srv/media/torrents so Sonarr and Radarr can hard-link finished files into the library instead of copying them.
+env:
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: USER
+    label: Web UI username
+    description: Leave both this and the password empty to run without a login, which is only sensible if the app is reachable through Tailscale alone.
+  - name: PASS
+    label: Web UI password
+    type: password
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 240
+notes: "Set the download directory to /data/torrents in Settings so finished files land where the *arr apps expect them. The peer port needs forwarding at your router for good speeds; without it Transmission still works, just with fewer connections."

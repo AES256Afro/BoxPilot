@@ -1,0 +1,60 @@
+schemaVersion: 2
+id: slskd
+name: slskd
+category: Media automation
+icon: "🎵"
+description: A Soulseek client with a web interface — search the network for music that is nowhere else, and share back from a folder you choose. Lidarr can use it as a download client.
+website: https://github.com/slskd/slskd
+risk: medium
+image:
+  reference: slskd/slskd:0.26.0
+  version: 0.26.0
+ports:
+  - id: web
+    label: Web UI
+    container: 5030
+    host: 5030
+    exposure: lan
+  - id: peer
+    label: Peer connections
+    container: 50300
+    host: 50300
+    exposure: lan
+    tailnet: address   # the Soulseek peer protocol, not HTTP
+volumes:
+  - id: config
+    label: Configuration
+    container: /app
+    path: app
+  - id: media
+    label: Downloads and shares
+    container: /data
+    hostPath: /srv/media
+    configurable: true
+    backup: false
+    description: slskd downloads into /data/downloads and shares whatever you point it at under /data.
+env:
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: SLSKD_SLSK_USERNAME
+    label: Soulseek username
+    description: Your account on the Soulseek network. Pick anything; it is created on first connect.
+  - name: SLSKD_SLSK_PASSWORD
+    label: Soulseek password
+    type: password
+  - name: SLSKD_SLSK_LISTEN_PORT
+    default: "50300"
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 240
+notes: "The web UI's first login is slskd / slskd — change it under Settings straight away. Soulseek expects you to share back; point the share at a folder of music you already have, and forward the peer port at your router for better search results."

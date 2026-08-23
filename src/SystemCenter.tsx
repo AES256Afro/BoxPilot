@@ -132,6 +132,10 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
 
   const { start, dialog } = useOperation(csrfToken, (job) => {
     if (job.type === "op:system.update" && job.state === "completed" && updateTarget.current) setUpdating(updateTarget.current);
+    // A finished cleanup invalidates its own figures: leaving them up says gigabytes are still
+    // waiting when they have just gone, with the same boxes ticked and the button inviting a
+    // second run that would find nothing.
+    if (job.type === "op:housekeeping.reclaim" && job.state === "completed") void scanHousekeeping();
     void refresh();
   });
 
@@ -267,7 +271,7 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
                 preview: (
                   <span>
                     Removes {[...chosenCleanup].map((id) => housekeeping?.categories.find((category) => category.id === id)?.title.toLowerCase()).filter(Boolean).join(", ")} — about {chosenHumanBytes}.
-                    Images a container uses, the release a failed update would roll back to, and the newest backups of each app are not touched.
+                    Images a container or an installed app needs, the most recent version you could put back by hand, and the newest backups of each app are not touched.
                   </span>
                 ),
               })}

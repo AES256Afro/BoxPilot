@@ -1,0 +1,42 @@
+schemaVersion: 2
+id: pingvin-share
+name: Pingvin Share
+category: Files
+icon: "🐧"
+description: Send someone a big file without putting it on someone else's cloud. Upload, get a link, set when it expires and whether it needs a password — the file lives on this server and disappears on schedule.
+website: https://github.com/stonith404/pingvin-share
+risk: medium
+image:
+  reference: stonith404/pingvin-share:v1.13.0
+  version: 1.13.0
+ports:
+  - id: web
+    label: Web UI
+    container: 3000
+    host: 3022
+    exposure: lan
+volumes:
+  - id: data
+    label: Uploaded files and database
+    container: /opt/app/backend/data
+    path: data
+  - id: images
+    label: Branding images
+    container: /opt/app/frontend/public/img
+    path: images
+    backup: false
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: TRUST_PROXY
+    label: Behind a reverse proxy
+    type: boolean
+    default: "false"
+    description: Turn on if a proxy sits in front, so share links use the outside address rather than this one.
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "The first account you create is the administrator. If the people you are sending to are outside your house, this needs to be reachable from the internet — put it behind a reverse proxy or a Cloudflare Tunnel."

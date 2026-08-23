@@ -1,0 +1,35 @@
+schemaVersion: 2
+id: wizarr
+name: Wizarr
+category: Media
+icon: "✉️"
+description: Invitation links for Jellyfin, Plex and Emby. Send someone a link, they set their own password, and they land on a short guide to installing the app on their TV or phone — instead of you creating accounts by hand and explaining it over the phone.
+website: https://github.com/wizarrrr/wizarr
+risk: medium
+image:
+  reference: ghcr.io/wizarrrr/wizarr:v2026.7.1
+  version: 2026.7.1
+ports:
+  - id: web
+    label: Web UI
+    container: 5690
+    host: 5690
+    exposure: lan
+volumes:
+  - id: config
+    label: Invitations and settings
+    container: /data/database
+    path: database
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: APP_URL
+    label: Address people will open
+    description: The address invitation links point at, for example https://invites.example.com. It has to be one your guests can reach from outside your house.
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Guests need to reach this from the internet for invitations to work, so put it behind a reverse proxy or a Cloudflare Tunnel rather than on the tailnet. First open walks you through connecting your media server."

@@ -1,0 +1,86 @@
+schemaVersion: 2
+id: tdarr
+name: Tdarr
+category: Media automation
+icon: "🎞️"
+description: Transcodes your library in the background to a codec that streams without straining anything — turning a shelf of H.264 files into HEVC or AV1 can halve what they take up. Runs the work on this server, or hands it out to other machines you add as nodes.
+website: https://tdarr.io
+risk: medium
+image:
+  reference: ghcr.io/haveagitgat/tdarr:2.86.01
+  version: 2.86.01
+ports:
+  - id: web
+    label: Web UI
+    container: 8265
+    host: 8265
+    exposure: lan
+  - id: server
+    label: Node connections
+    container: 8266
+    host: 8266
+    exposure: lan
+    tailnet: address   # Tdarr's own node protocol, not HTTP
+volumes:
+  - id: config
+    label: Server configuration
+    container: /app/server
+    path: server
+  - id: configs
+    label: Plugin and flow configuration
+    container: /app/configs
+    path: configs
+  - id: logs
+    label: Logs
+    container: /app/logs
+    path: logs
+    backup: false
+  - id: media
+    label: Media folder
+    container: /media
+    hostPath: /srv/media
+    configurable: true
+    backup: false
+    description: "The library Tdarr scans and rewrites in place. Take a backup before the first run: transcoding replaces files."
+  - id: cache
+    label: Transcode scratch space
+    container: /temp
+    path: cache
+    backup: false
+    description: Working files during a transcode. Put this on an SSD if your library lives on spinning disks.
+env:
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: serverIP
+    label: Server address for nodes
+    default: 0.0.0.0
+    fixed: true
+  - name: serverPort
+    default: "8266"
+    fixed: true
+  - name: webUIPort
+    default: "8265"
+    fixed: true
+  - name: internalNode
+    label: Transcode on this server
+    type: boolean
+    default: "true"
+    description: Turn this off if you only want this machine to coordinate and other machines to do the work.
+  - name: inContainer
+    default: "true"
+    fixed: true
+devices:
+  - /dev/dri/renderD*
+health:
+  kind: running
+  stableSeconds: 20
+  timeoutSeconds: 300
+notes: "Tdarr rewrites files in place. Take a backup of anything irreplaceable before the first library scan, and start with one small folder. If this server has an Intel or AMD GPU it is passed through for hardware transcoding; pick a QSV or VAAPI plugin to use it."

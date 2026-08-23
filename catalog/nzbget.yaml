@@ -1,0 +1,52 @@
+schemaVersion: 2
+id: nzbget
+name: NZBGet
+category: Media automation
+icon: "📥"
+description: Usenet downloader written for small machines — it uses a fraction of the memory SABnzbd does, which matters on a Pi or a mini PC also running a media server.
+website: https://nzbget.com
+risk: low
+image:
+  reference: lscr.io/linuxserver/nzbget:version-v26.2
+  version: "26.2"
+ports:
+  - id: web
+    label: Web UI
+    container: 6789
+    host: 6789
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /config
+    path: config
+  - id: media
+    label: Media folder
+    container: /data
+    hostPath: /srv/media
+    configurable: true
+    backup: false
+    description: Download into /srv/media/usenet so Sonarr and Radarr import from there.
+env:
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: NZBGET_USER
+    label: Web UI username
+    default: nzbget
+  - name: NZBGET_PASS
+    label: Web UI password
+    type: password
+    generate: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 240
+notes: "Add your Usenet provider under Settings → News-Servers. The generated web password is on this app's settings page here; change it in NZBGet if you prefer your own."

@@ -1,0 +1,36 @@
+schemaVersion: 2
+id: overseerr
+name: Overseerr
+category: Media
+icon: "🎫"
+description: Request manager for Plex — the household browses, asks for a film or a series, and Sonarr and Radarr fetch it once you approve. Jellyseerr is the same idea for Jellyfin.
+website: https://overseerr.dev
+risk: medium
+image:
+  reference: sctx/overseerr:1.35.0
+  version: 1.35.0
+ports:
+  - id: web
+    label: Web UI
+    container: 5055
+    host: 5056
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration
+    container: /app/config
+    path: config
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: LOG_LEVEL
+    label: Log level
+    default: info
+    options: ["error", "warn", "info", "debug"]
+health:
+  kind: running
+  stableSeconds: 10
+  timeoutSeconds: 240
+notes: "Sign in with your Plex account on first run; Overseerr imports your libraries and your Plex friends, so the people you already share with can ask for things without a new account."

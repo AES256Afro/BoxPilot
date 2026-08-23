@@ -1,0 +1,28 @@
+# Every catalog manifest pins an exact image tag, and upstreams delete tags. When one goes, the
+# manifest still validates and the app still appears in the catalog — installing it just fails with
+# "manifest unknown", which is a bad way to find out. This asks the registries directly.
+#
+# Kept out of the main CI job on purpose: it is the only check that depends on the network, and a
+# registry having a bad minute should not fail a pull request that never touched the catalog.
+name: Catalog images
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  pull_request:
+    paths: ["catalog/**", "scripts/catalog-check-images.mjs"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  tags-resolve:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Every pinned tag still exists
+        run: node scripts/catalog-check-images.mjs
