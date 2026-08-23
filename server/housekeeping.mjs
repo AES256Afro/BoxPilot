@@ -52,6 +52,11 @@ async function directorySize(target) {
   return total;
 }
 
+/** Every category `inspect` reports and `reclaim` accepts, in the order they are shown. */
+export const categoryIds = Object.freeze([
+  "boxpilot-versions", "docker-unused", "docker-unreferenced-images", "app-backups", "restore-leftovers", "job-logs",
+]);
+
 export const humanBytes = (bytes) => {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const units = ["B", "KiB", "MiB", "GiB", "TiB"];
@@ -295,17 +300,24 @@ export function createHousekeepingService({
   }
 
   /** Clear the chosen categories. Anything not named is left exactly as it was. */
-  async function reclaim({ targets = [] } = {}) {
+  async function reclaim({ targets = [], progress = null } = {}) {
     const chosen = new Set(Array.isArray(targets) ? targets : []);
+    const unknown = [...chosen].filter((id) => !categoryIds.includes(id));
+    if (unknown.length) throw new Error(`Not something this can clear: ${unknown.join(", ")}`);
     const removed = [];
     let freedBytes = 0;
+    // Clearing several gigabytes of small files takes minutes. Without a running commentary the
+    // job looks stuck, and the honest fix is to say what is going rather than to raise a timeout.
+    const say = (message) => progress?.(message, "stdout");
 
     if (chosen.has("boxpilot-versions")) {
       const trees = await previousTrees();
-      for (const entry of trees.remove) {
+      say(`Removing ${trees.remove.length} previous release${trees.remove.length === 1 ? "" : "s"}, keeping ${trees.keep.map((entry) => entry.name).join(" and ") || "none"}.`);
+      for (const [index, entry] of trees.remove.entries()) {
         await rm(entry.path, { recursive: true, force: true });
         freedBytes += entry.bytes;
         removed.push({ category: "boxpilot-versions", what: entry.name, bytes: entry.bytes });
+        say(`  [${index + 1}/${trees.remove.length}] ${entry.name} (${humanBytes(entry.bytes)})`);
       }
     }
 
@@ -316,6 +328,7 @@ export function createHousekeepingService({
       // pinned to a network ID that no longer exists, which not even `compose up` recovers from.
       // Dangling layers and the build cache are the two things nothing can be holding.
       for (const [what, args] of [["orphaned image layers", ["image", "prune", "--force"]], ["build cache", ["builder", "prune", "--force"]]]) {
+        say(`Clearing ${what}...`);
         const result = await docker(args, { timeout: 10 * 60_000 });
         if (!result.ok) throw new Error(`docker ${args.slice(0, 2).join(" ")} failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
         removed.push({ category: "docker-unused", what, reclaimed: result.stdout.match(/Total reclaimed space:\s*(.+)$/m)?.[1] ?? null });
@@ -324,15 +337,20 @@ export function createHousekeepingService({
 
     if (chosen.has("docker-unreferenced-images")) {
       const images = await imageInventory();
-      for (const image of (images ?? []).filter((entry) => !entry.used)) {
+      const unused = (images ?? []).filter((entry) => !entry.used);
+      say(`Removing ${unused.length} image${unused.length === 1 ? "" : "s"} no app uses.`);
+      for (const [index, image] of unused.entries()) {
         // Docker refuses an image a container still holds, which is the guard that matters here.
         const result = await docker(["rmi", image.reference], { timeout: 120_000 });
         if (result.ok) { freedBytes += image.bytes; removed.push({ category: "docker-unreferenced-images", what: image.reference, bytes: image.bytes }); }
+        say(`  [${index + 1}/${unused.length}] ${image.reference}${result.ok ? "" : " — still in use, left alone"}`);
       }
     }
 
     if (chosen.has("app-backups")) {
-      for (const entry of await oldApplicationBackups()) {
+      const stale = await oldApplicationBackups();
+      say(`Removing ${stale.length} backup archive${stale.length === 1 ? "" : "s"} behind the newest ${keepBackupsPerApp} of each app.`);
+      for (const entry of stale) {
         await rm(entry.path, { force: true });
         await rm(entry.meta, { force: true });
         freedBytes += entry.bytes;
@@ -341,7 +359,9 @@ export function createHousekeepingService({
     }
 
     if (chosen.has("restore-leftovers")) {
-      for (const entry of await restoreLeftovers()) {
+      const leftovers = await restoreLeftovers();
+      say(`Removing ${leftovers.length} folder${leftovers.length === 1 ? "" : "s"} an unfinished restore left behind.`);
+      for (const entry of leftovers) {
         await rm(entry.path, { recursive: true, force: true });
         freedBytes += entry.bytes;
         removed.push({ category: "restore-leftovers", what: `${entry.app}/${path.basename(entry.path)}`, bytes: entry.bytes });
@@ -349,13 +369,16 @@ export function createHousekeepingService({
     }
 
     if (chosen.has("job-logs")) {
-      for (const entry of await orphanedJobLogs()) {
+      const logs = await orphanedJobLogs();
+      say(`Removing ${logs.length} log${logs.length === 1 ? "" : "s"} for jobs nothing lists any more.`);
+      for (const entry of logs) {
         await rm(entry.path, { force: true });
         freedBytes += entry.bytes;
         removed.push({ category: "job-logs", what: path.basename(entry.path), bytes: entry.bytes });
       }
     }
 
+    say(`Done — ${humanBytes(freedBytes)} back, plus whatever Docker's own prune returned.`);
     return { reclaimed: true, targets: [...chosen], removed, freedBytes, freedHumanBytes: humanBytes(freedBytes) };
   }
 

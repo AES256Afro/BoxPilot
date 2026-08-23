@@ -135,6 +135,21 @@ describe("reclaiming", () => {
     expect(pruned.some((line) => /system|container|network|volume/.test(line))).toBe(false);
   });
 
+  it("refuses a category it does not know rather than silently doing nothing", async () => {
+    // The parameter arrives from the browser. Ignoring an id it does not recognise would report a
+    // successful cleanup that removed nothing, which is the one answer worse than an error.
+    const { service } = await fixture();
+    await expect(service.reclaim({ targets: ["boxpilot-versions", "everything"] })).rejects.toThrow("everything");
+  });
+
+  it("says what it is removing as it goes", async () => {
+    const { service } = await fixture();
+    const lines = [];
+    await service.reclaim({ targets: ["boxpilot-versions"], progress: (line) => lines.push(line) });
+    expect(lines.join("\n")).toContain("keeping boxpilot.prev.20260822T100000Z and boxpilot.failed.20260822T090000Z");
+    expect(lines.filter((line) => line.startsWith("  [")).length).toBe(4);
+  });
+
   it("removes only the categories named, and leaves live data alone", async () => {
     const { service, installRoot, catalogRoot, applicationBackupRoot } = await fixture();
     const result = await service.reclaim({ targets: ["boxpilot-versions", "restore-leftovers"] });
