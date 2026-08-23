@@ -32,8 +32,16 @@ env:
     label: Behind a reverse proxy
     type: boolean
     default: "false"
+  - name: ENCRYPTION_KEY
+    label: Encryption key
+    description: Encrypts the keys and secrets stored in the database. Generated for you; keep it with the data folder, because nothing in there can be read without it.
+    type: password
+    generate: true
+  - name: ANALYTICS_DISABLED
+    default: "true"
+    fixed: true
 health:
-  kind: running
-  stableSeconds: 15
+  kind: healthcheck
+  stableSeconds: 5
   timeoutSeconds: 300
 notes: "Open the address you set above — not an IP — and the first visit creates the administrator account and registers your passkey. Passkeys are tied to that exact address and to HTTPS, so put this behind a reverse proxy or Tailscale Serve before you register the first one."
