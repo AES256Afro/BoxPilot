@@ -16,11 +16,13 @@ export interface Manifest {
   health: { kind: string; stableSeconds: number; timeoutSeconds: number };
   setup?: ManifestSetup | null;
   signIn?: { path: string | null; port: string | null; username: string | null; usernameEnv: string | null; passwordEnv: string; note: string | null } | null;
+  network?: string;
+  networkModes?: string[];
   sha256: string;
 }
 interface LiveState {
   id: string; installed: boolean; dataPresent: boolean;
-  state: { installedAt: string; updatedAt: string; manifestSha256: string | null; image: { reference: string; id: string | null } | null; values: { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string>; setup?: string[]; exposure?: "lan" | "tailnet" }; pinnedRollback: boolean; uninstalledAt: string | null } | null;
+  state: { installedAt: string; updatedAt: string; manifestSha256: string | null; image: { reference: string; id: string | null } | null; values: { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string>; setup?: string[]; exposure?: "lan" | "tailnet"; networkMode?: string }; pinnedRollback: boolean; uninstalledAt: string | null } | null;
   container: { exists: boolean; running: boolean; status: string; health: string; restarts: number; image: string | null };
   urls: Array<{ id: string; label: string; host: number; exposure: string; path?: string | null }>;
   updateAvailable?: boolean;
@@ -33,7 +35,7 @@ interface CatalogResponse {
   host: { lanAddress: string | null; tailscaleDnsName: string | null };
 }
 
-type Values = { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string>; setup?: string[] };
+type Values = { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string>; setup?: string[]; networkMode?: string };
 
 function initialValues(manifest: Manifest, live: LiveState | null): Values {
   const stored = live?.state?.values;
@@ -43,6 +45,7 @@ function initialValues(manifest: Manifest, live: LiveState | null): Values {
     volumes: Object.fromEntries(manifest.volumes.filter((volume) => volume.configurable).map((volume) => [volume.id, stored?.volumes?.[volume.id] ?? volume.hostPath ?? ""])),
     // Setup choices (blocklists, plugins): what was chosen before, else the manifest's recommendations.
     ...(manifest.setup ? { setup: stored?.setup ?? manifest.setup.choices.filter((choice) => choice.recommended).map((choice) => choice.id) } : {}),
+    ...((manifest.networkModes?.length ?? 0) > 1 ? { networkMode: stored?.networkMode ?? manifest.networkModes?.[0] } : {}),
   };
 }
 
@@ -52,7 +55,7 @@ function compactValues(manifest: Manifest, values: Values): Values {
   const env = Object.fromEntries(Object.entries(values.env).filter(([name, value]) => value !== "" && String(manifest.env.find((entry) => entry.name === name)?.default ?? "") !== value));
   const volumes = Object.fromEntries(Object.entries(values.volumes).filter(([id, path]) => path !== "" && manifest.volumes.find((volume) => volume.id === id)?.hostPath !== path));
   // Setup choices are always sent explicitly: an empty list means "none", not "the defaults".
-  return { ports, env, volumes, ...(manifest.setup ? { setup: values.setup ?? [] } : {}) };
+  return { ports, env, volumes, ...((manifest.networkModes?.length ?? 0) > 1 && values.networkMode ? { networkMode: values.networkMode } : {}), ...(manifest.setup ? { setup: values.setup ?? [] } : {}) };
 }
 
 function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure"; csrfToken: string; onSubmit: (values: Values) => void; onCancel: () => void }) {
@@ -102,6 +105,16 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
         <header className="modal-header"><div><span className="eyebrow">{mode === "install" ? "Install" : "Settings"}</span><h2 id="config-title">{manifest.name}</h2></div><button className="icon-button" type="button" onClick={onCancel} aria-label="Close dialog">X</button></header>
         <form className="modal-copy app-config-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
           {problems.length > 0 && <div className="auth-error" role="alert">{problems.map((problem) => <div key={problem}>{problem}</div>)}</div>}
+          {(manifest.networkModes?.length ?? 0) > 1 && <fieldset><legend>Network</legend>
+            <label>How Pi-hole and friends see your devices
+              <select value={values.networkMode ?? manifest.networkModes?.[0]} onChange={(event) => setValues((current) => ({ ...current, networkMode: event.target.value }))} aria-label="Network mode">
+                {manifest.networkModes?.map((networkMode) => <option key={networkMode} value={networkMode}>{networkMode === "host" ? "Host — sees each device on your network by address and name" : "Bridge — isolated; every device appears as one client"}</option>)}
+              </select>
+              <span className="muted">{(values.networkMode ?? manifest.networkModes?.[0]) === "host"
+                ? "Shares this server's network, so the app sees real client addresses. Its ports become this server's ports (the admin UI moves to port 80), and it cannot use a bundled recursive resolver."
+                : "Runs behind Docker's own network. Safer isolation, but every device reaches it through one address, so per-device rules and client lists do not work."}</span>
+            </label>
+          </fieldset>}
           {editablePorts.length > 0 && <fieldset><legend>Ports</legend>{editablePorts.map((port) => <label key={port.id}>{port.label} <span className="muted">(container {port.container}/{port.protocol}, {port.exposure === "loopback" ? "this server only" : "LAN"})</span><input type="number" min={1} max={65535} value={values.ports[port.id] ?? port.host} onChange={(event) => setPort(port.id, event.target.value)} aria-label={`${port.label} port`} /></label>)}</fieldset>}
           {editableVolumes.length > 0 && <fieldset><legend>Folders</legend>{editableVolumes.map((volume) => <label key={volume.id}>{volume.label}{volume.description && <span className="muted"> — {volume.description}</span>}<input type="text" value={values.volumes[volume.id] ?? ""} onChange={(event) => setVolume(volume.id, event.target.value)} aria-label={`${volume.label} path`} placeholder={volume.hostPath ?? "/srv/..."} /></label>)}</fieldset>}
           {editableEnv.length > 0 && <fieldset><legend>Settings</legend>{editableEnv.map((entry) => (
@@ -294,6 +307,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                   {live.urls.map((port) => <a key={port.id} className="secondary-button" href={openUrl(port, manifest)} target="_blank" rel="noreferrer">Open {port.label}</a>)}
                   {(() => {
                     if (serves === null) return null;
+                    if ((live.state?.values?.networkMode ?? manifest.network) === "host") return null;
                     // Only an app's HTTP ports can go through Tailscale Serve. The rest move to
                     // the tailnet address, or stay on the LAN when the home network depends on
                     // them — DNS on 53, a reverse proxy's 80 and 443, UniFi's inform port. Saying

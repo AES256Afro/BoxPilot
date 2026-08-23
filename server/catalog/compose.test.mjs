@@ -90,3 +90,34 @@ describe("where an app's ports are published", () => {
     expect(compose.services.dash.ports[1]).toBe("192.168.1.10:22000:22000");
   });
 });
+
+describe("host network mode", () => {
+  const withSidecar = {
+    id: "hole", sha256: "x", image: { reference: "pihole:6" }, network: "bridge", networkModes: ["bridge", "host"],
+    ports: [{ id: "web", label: "Admin", container: 80, host: 8084, protocol: "tcp", exposure: "lan" }],
+    volumes: [], env: [], capabilities: [], devices: [], extraHosts: [], sysctls: [],
+    sidecars: [{ id: "unbound", image: "unbound:1", env: {}, volumes: [], capabilities: [], devices: [] }],
+  };
+  const values = { ports: { web: 8084 }, env: {}, volumes: {} };
+
+  it("bridges by default: publishes ports and runs the sidecar", () => {
+    const { compose } = renderCompose(withSidecar, values, { lanAddress: "192.168.1.10" });
+    expect(compose.services.hole.ports).toEqual(["192.168.1.10:8084:80"]);
+    expect(compose.services.hole.network_mode).toBeUndefined();
+    expect(compose.services.unbound).toBeTruthy();
+  });
+
+  it("host mode shares the stack, publishes nothing, and drops the sidecar", () => {
+    const { compose } = renderCompose(withSidecar, { ...values, networkMode: "host" }, { lanAddress: "192.168.1.10" });
+    expect(compose.services.hole.network_mode).toBe("host");
+    expect(compose.services.hole.ports).toBeUndefined();
+    expect(compose.services.unbound).toBeUndefined();      // a sidecar has no network to live on
+    expect(compose.services.hole.depends_on).toBeUndefined();
+  });
+
+  it("ignores a networkMode the manifest does not offer", () => {
+    const fixed = { ...withSidecar, networkModes: ["bridge"] };
+    const { compose } = renderCompose(fixed, { ...values, networkMode: "host" }, { lanAddress: "192.168.1.10" });
+    expect(compose.services.hole.network_mode).toBeUndefined(); // stayed bridged
+  });
+});

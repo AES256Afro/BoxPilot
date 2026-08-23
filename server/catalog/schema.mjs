@@ -25,6 +25,18 @@ export const exposures = Object.freeze(["loopback", "lan"]);
  */
 export const appExposures = Object.freeze(["lan", "tailnet"]);
 /**
+ * How an app attaches to the network, when the owner is allowed to choose.
+ *
+ * "bridge" is the default: the container has its own address behind Docker's NAT, and BoxPilot
+ * publishes the ports it needs. Isolated, but every client that reaches a published port arrives
+ * wearing the bridge gateway's address — so an app like Pi-hole sees the whole house as one
+ * client. "host" drops that NAT: the container shares the host's network stack, sees each device's
+ * real address, and can read MAC addresses and names. The cost is isolation — its ports are the
+ * host's ports — so it is offered only where it earns its keep, and never with a VPN sidecar,
+ * whose whole point is a separate namespace.
+ */
+export const networkModeChoices = Object.freeze(["bridge", "host"]);
+/**
  * What becomes of one port when the owner picks "tailnet" for the whole app.
  *
  * Not every port can go through Tailscale Serve, which terminates HTTPS and proxies HTTP. Binding
@@ -55,7 +67,7 @@ function checkKeys(errors, path, value, allowed, required = []) {
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
-  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn"], ["schemaVersion", "id", "name", "category", "description", "image"]);
+  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes"], ["schemaVersion", "id", "name", "category", "description", "image"]);
   if (raw.schemaVersion !== 2) fail(errors, "manifest.schemaVersion", "must be 2");
   // Docker gives a container 64 MB of shared memory. Anything decoding video wants far more, and
   // runs out in ways that look like the app is broken rather than out of a resource.
@@ -132,6 +144,20 @@ export function validateManifest(raw) {
     if (entry.generate && entry.type !== "password") fail(errors, `${path}.generate`, "only password entries can be generated");
     if (entry.fixed && entry.default === undefined) fail(errors, `${path}.fixed`, "fixed entries need a default");
   });
+
+  // networkModes: the attachment options the owner may pick between (bridge/host). Absent means
+  // the app is fixed to its own `network`. Host mode ignores published ports and skips sidecars,
+  // so a manifest that needs its ports proxied through a sidecar (networkVia) cannot offer it.
+  const baseNetwork = raw.network === "host" ? "host" : "bridge";
+  let networkModes = [baseNetwork];
+  if (raw.networkModes !== undefined) {
+    if (!Array.isArray(raw.networkModes) || raw.networkModes.length === 0) fail(errors, "manifest.networkModes", "must be a non-empty list");
+    else if (!raw.networkModes.every((mode) => networkModeChoices.includes(mode))) fail(errors, "manifest.networkModes", `entries must be one of ${networkModeChoices.join(", ")}`);
+    else if (new Set(raw.networkModes).size !== raw.networkModes.length) fail(errors, "manifest.networkModes", "must not repeat a mode");
+    else if (!raw.networkModes.includes(baseNetwork)) fail(errors, "manifest.networkModes", `must include the manifest's own network (${baseNetwork})`);
+    else if (raw.networkModes.includes("host") && raw.networkVia !== undefined) fail(errors, "manifest.networkModes", "host mode cannot be offered together with networkVia");
+    else networkModes = raw.networkModes;
+  }
 
   // signIn: how to get into the app's own interface, so the card can show it in one place —
   // which page, which username, which password — and offer to change the password without a
@@ -280,6 +306,7 @@ export function validateManifest(raw) {
       choices: raw.setup.choices.map((choice) => ({ id: choice.id, label: choice.label.trim(), description: choice.description ?? null, website: choice.website ?? null, recommended: choice.recommended ?? false, exec: [...choice.exec], service: choice.service ?? null })),
     } : null,
     networkVia: raw.networkVia ?? null,
+    networkModes,
     sysctls: raw.sysctls ?? [],
     shmSize: raw.shmSize ?? null,
     sidecars: sidecars.map((sidecar) => ({
@@ -310,7 +337,7 @@ export function isDeniedHostPath(candidate) {
 export function resolveValues(manifest, raw = {}) {
   const errors = [];
   if (!isObject(raw)) return { values: null, errors: ["values must be an object"] };
-  checkKeys(errors, "values", raw, ["ports", "env", "volumes", "setup"]);
+  checkKeys(errors, "values", raw, ["ports", "env", "volumes", "setup", "exposure", "networkMode"]);
   const ports = {}; const env = {}; const volumes = {};
   const rawPorts = isObject(raw.ports) ? raw.ports : raw.ports === undefined ? {} : (fail(errors, "values.ports", "must be an object"), {});
   for (const key of Object.keys(rawPorts)) if (!manifest.ports.some((port) => port.id === key)) fail(errors, `values.ports.${key}`, "is not a port of this application");
@@ -380,9 +407,14 @@ export function resolveValues(manifest, raw = {}) {
     if (!appExposures.includes(raw.exposure)) fail(errors, "values.exposure", `must be one of ${appExposures.join(", ")}`);
     else exposure = raw.exposure;
   }
+  let networkMode;
+  if (raw.networkMode !== undefined && raw.networkMode !== null) {
+    if (!manifest.networkModes.includes(raw.networkMode)) fail(errors, "values.networkMode", `must be one of ${manifest.networkModes.join(", ")}`);
+    else networkMode = raw.networkMode;
+  }
 
   if (errors.length) return { values: null, errors };
-  return { values: { ports, env, volumes, ...(exposure ? { exposure } : {}), ...(manifest.setup ? { setup } : {}) }, errors: [] };
+  return { values: { ports, env, volumes, ...(exposure ? { exposure } : {}), ...(networkMode ? { networkMode } : {}), ...(manifest.setup ? { setup } : {}) }, errors: [] };
 }
 
 /**
@@ -400,6 +432,7 @@ export function sanitizeStoredValues(manifest, stored = {}) {
     env: Object.fromEntries(Object.entries(env).filter(([name]) => manifest.env.some((entry) => entry.name === name))),
     volumes: Object.fromEntries(Object.entries(volumes).filter(([id]) => manifest.volumes.some((volume) => volume.id === id && volume.configurable))),
     ...(appExposures.includes(raw.exposure) ? { exposure: raw.exposure } : {}),
+    ...(manifest.networkModes.includes(raw.networkMode) ? { networkMode: raw.networkMode } : {}),
     ...(manifest.setup && Array.isArray(raw.setup) ? { setup: raw.setup.filter((id) => manifest.setup.choices.some((choice) => choice.id === id)) } : {}),
   };
 }

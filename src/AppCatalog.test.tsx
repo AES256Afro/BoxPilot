@@ -175,6 +175,26 @@ describe("finding things in a catalog of a hundred-odd apps", () => {
     expect(screen.queryByText("Jellyfin")).toBeNull();
   });
 
+  it("offers a network-mode choice at install and sends it when it differs from the default", async () => {
+    const hole = { ...dockge, id: "pi-hole", name: "Pi-hole", description: "DNS blocker", network: "bridge", networkModes: ["bridge", "host"], ports: [{ id: "web", label: "Admin UI", container: 80, host: 8084, protocol: "tcp", exposure: "lan", fixed: false }], env: [], signIn: null };
+    let staged: string | undefined;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest: hole, live: notInstalled }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      if (url.endsWith("/precheck")) return json({ ok: true, errors: [], conflicts: [] });
+      if (url.endsWith("/operations/app.install/jobs")) { staged = init?.body as string; return json({ job: { id: "j", type: "op:app.install", title: "Install", state: "awaiting_approval", risk: "high", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "high", passwordRequired: true, elevated: false, mode: "tiered", reason: "high" } }, 201); }
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppCatalog csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Install" }));
+    const select = await screen.findByLabelText("Network mode");
+    expect((select as HTMLSelectElement).value).toBe("bridge"); // the first offered mode
+    fireEvent.change(select, { target: { value: "host" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue to install" }));
+    await waitFor(() => expect(JSON.parse(staged ?? "{}").parameters.values.networkMode).toBe("host"));
+  });
+
   it("lets you choose the sign-in password at install, and otherwise generates it", async () => {
     const hole = { ...dockge, id: "pi-hole", name: "Pi-hole", description: "DNS blocker", ports: [{ id: "web", label: "Admin UI", container: 80, host: 8084, protocol: "tcp", exposure: "lan", fixed: false }], env: [{ name: "FTLCONF_webserver_api_password", label: "Admin password", description: null, type: "password", default: null, required: false, secret: true, generate: true, options: null, fixed: false }, { name: "DB_PASSWORD", label: "Database password", description: null, type: "password", default: null, required: false, secret: true, generate: true, options: null, fixed: false }], signIn: { path: "/admin/", port: null, username: null, usernameEnv: null, passwordEnv: "FTLCONF_webserver_api_password", note: null } };
     let staged: string | undefined;
