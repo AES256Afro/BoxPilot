@@ -8,7 +8,7 @@ import { createCatalogService } from "./catalog/index.mjs";
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
 
-async function setup({ healthKind = "running", exitOnUp = false, failUp = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, runCommand = undefined } = {}) {
+async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, runCommand = undefined } = {}) {
   const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
   const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
   await writeFile(path.join(catalogDirectory, "demo.yaml"), `schemaVersion: 2\nid: demo\nname: Demo\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8080\nvolumes:\n  - id: data\n    container: /data\n    path: data\n  - id: docker\n    container: /var/run/docker.sock\n    hostPath: /var/run/docker.sock\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\n  - name: TZ\n    default: Etc/UTC\nhealth:\n  kind: ${healthKind}\n  stableSeconds: 4\n  timeoutSeconds: 30\n`);
@@ -21,6 +21,9 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
     if (args[0] === "inspect") {
       const container = containers.get(args[args.length - 1]);
       if (!container) return { ok: false, stdout: "", stderr: "No such object" };
+      // A crash loop as Docker reports it: Running stays true through restart backoff while the
+      // status reads "restarting" and RestartCount climbs.
+      if (crashLoop && container.running) { container.status = "restarting"; container.restarts += 1; }
       return { ok: true, stdout: JSON.stringify(container), stderr: "" };
     }
     if (args[0] === "logs") return { ok: true, stdout: "line1\npassword=hunter2", stderr: "" };
@@ -236,6 +239,15 @@ describe("generic app deployer", () => {
     const after = JSON.parse(await readFile(statePath, "utf8"));
     expect(after.values.volumes).toEqual({});
     expect(after.values.env.REMOVED_SETTING).toBeUndefined();
+  });
+
+  it("does not call a crash-looping container steady, and says so before the timeout", async () => {
+    // Docker keeps State.Running=true while a container waits to restart, so the steady-for-N-
+    // seconds check counted the backoff as uptime and declared the app up. Pocket ID's first
+    // smoke run on the real host was reported "is up" while its container was restarting.
+    const { apps, catalogRoot } = await setup({ crashLoop: true });
+    await expect(apps.install({ id: "demo" })).rejects.toThrow(/keeps restarting/);
+    await expect(readdir(path.join(catalogRoot, "demo")).catch(() => [])).resolves.toEqual([]);
   });
 
   it("rolls back a failed fresh install and reports the container's last log lines", async () => {

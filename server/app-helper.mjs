@@ -119,7 +119,17 @@ export function createAppHelper({
       const status = await containerStatus(manifest.id);
       last = `${status.status}/${status.health}`;
       if (last !== reported) { progress?.(`container: ${last}`, "stdout"); reported = last; }
-      if (status.running) {
+      // Docker reports State.Running=true while a container sits in restart backoff, so "running"
+      // alone is not running: a crash loop counted as steady for the whole backoff window and the
+      // install declared the app up. Only the "running" status counts, and a second restart is a
+      // loop — waiting out the timeout would only delay the same answer.
+      if (status.running && status.status === "restarting") {
+        stableSince = null;
+        if (status.restarts >= 2) {
+          const logs = await docker(["logs", "--tail", "20", projectNameFor(manifest.id)], { timeout: 10_000 });
+          throw new Error(`Container keeps restarting (${status.restarts} times). Last log lines: ${redact(`${logs.stdout}\n${logs.stderr}`.trim()).slice(-600)}`);
+        }
+      } else if (status.running) {
         if (manifest.health.kind === "healthcheck") {
           if (status.health === "healthy") return status;
           if (status.health === "none") throw new Error("Manifest expects a container healthcheck but the image defines none");
