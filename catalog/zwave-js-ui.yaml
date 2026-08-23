@@ -20,6 +20,7 @@ ports:
     container: 3000
     host: 3007
     exposure: lan
+    tailnet: address   # a websocket Home Assistant dials directly
 volumes:
   - id: store
     label: Configuration and network keys

@@ -21,6 +21,23 @@ export const exposures = Object.freeze(["loopback", "lan"]);
  * matters for the several catalog apps that have no login of their own.
  */
 export const appExposures = Object.freeze(["lan", "tailnet"]);
+/**
+ * What becomes of one port when the owner picks "tailnet" for the whole app.
+ *
+ * Not every port can go through Tailscale Serve, which terminates HTTPS and proxies HTTP. Binding
+ * them all to loopback and serving one of them — which is what this did at first — quietly broke
+ * the other half of every app that speaks more than one protocol: Syncthing stopped syncing,
+ * Forgejo stopped accepting git over SSH, Pi-hole stopped answering the house's DNS, and each of
+ * them still reported success.
+ *
+ *   serve      — an HTTP port. Bound to loopback; Tailscale Serve fronts it over HTTPS and
+ *                authenticates the visitor before the app sees the request.
+ *   address    — speaks something other than HTTP. Bound to this server's tailnet address, so it
+ *                is reachable from the tailnet and nowhere else. Membership is the authentication.
+ *   unchanged  — serves the home network by design (DNS on 53, discovery broadcasts). Keeps its
+ *                LAN binding whatever the app-level choice is, because moving it breaks the house.
+ */
+export const portTailnetModes = Object.freeze(["serve", "address", "unchanged"]);
 export const healthKinds = Object.freeze(["running", "healthcheck"]);
 export const envTypes = Object.freeze(["string", "password", "number", "boolean", "timezone", "path"]);
 export const riskTiers = Object.freeze(["low", "medium", "high"]);
@@ -68,12 +85,14 @@ export function validateManifest(raw) {
   ports.forEach((port, index) => {
     const path = `manifest.ports[${index}]`;
     if (!isObject(port)) return fail(errors, path, "must be a mapping");
-    checkKeys(errors, path, port, ["id", "label", "container", "host", "protocol", "exposure", "fixed"], ["id", "container"]);
+    checkKeys(errors, path, port, ["id", "label", "container", "host", "protocol", "exposure", "fixed", "tailnet"], ["id", "container"]);
     if (typeof port.id !== "string" || !keyPattern.test(port.id) || portIds.has(port.id)) fail(errors, `${path}.id`, "must be a unique short slug"); else portIds.add(port.id);
     if (!Number.isInteger(port.container) || port.container < 1 || port.container > 65535) fail(errors, `${path}.container`, "must be a port number");
     if (port.host !== undefined && (!Number.isInteger(port.host) || port.host < 1 || port.host > 65535)) fail(errors, `${path}.host`, "must be a port number");
     if (port.protocol !== undefined && !["tcp", "udp"].includes(port.protocol)) fail(errors, `${path}.protocol`, "must be tcp or udp");
     if (port.exposure !== undefined && !exposures.includes(port.exposure)) fail(errors, `${path}.exposure`, `must be one of ${exposures.join(", ")}`);
+    if (port.tailnet !== undefined && !portTailnetModes.includes(port.tailnet)) fail(errors, `${path}.tailnet`, `must be one of ${portTailnetModes.join(", ")}`);
+    if (port.tailnet === "serve" && port.protocol === "udp") fail(errors, `${path}.tailnet`, "cannot be serve: Tailscale Serve speaks TCP");
     if (port.fixed !== undefined && typeof port.fixed !== "boolean") fail(errors, `${path}.fixed`, "must be boolean");
     if (port.label !== undefined && typeof port.label !== "string") fail(errors, `${path}.label`, "must be a string");
   });
@@ -210,7 +229,9 @@ export function validateManifest(raw) {
     risk: raw.risk ?? "medium",
     notes: raw.notes ?? null,
     image: { reference: raw.image.reference, version: raw.image.version ?? null, digestPinned: raw.image.reference.includes("@sha256:") },
-    ports: ports.map((port) => ({ id: port.id, label: port.label ?? port.id, container: port.container, host: port.host ?? port.container, protocol: port.protocol ?? "tcp", exposure: port.exposure ?? "lan", fixed: port.fixed ?? false })),
+    // A TCP port is assumed to be the app's web interface unless the manifest says otherwise; a
+    // UDP one never can be, so it keeps its LAN binding rather than vanishing.
+    ports: ports.map((port) => ({ id: port.id, label: port.label ?? port.id, container: port.container, host: port.host ?? port.container, protocol: port.protocol ?? "tcp", exposure: port.exposure ?? "lan", fixed: port.fixed ?? false, tailnet: port.tailnet ?? ((port.protocol ?? "tcp") === "udp" ? "unchanged" : "serve") })),
     volumes: volumes.map((volume) => ({ id: volume.id, label: volume.label ?? volume.id, container: volume.container, path: volume.path ?? null, hostPath: volume.hostPath ?? null, readOnly: volume.readOnly ?? false, backup: volume.backup ?? (volume.path !== undefined), configurable: volume.configurable ?? false, description: volume.description ?? null })),
     env: env.map((entry) => ({ name: entry.name, label: entry.label ?? entry.name, description: entry.description ?? null, type: entry.type ?? "string", default: entry.default ?? null, required: entry.required ?? false, secret: entry.secret ?? entry.type === "password", generate: entry.generate ?? false, options: entry.options ?? null, fixed: entry.fixed ?? false })),
     health: { kind: raw.health?.kind ?? "running", stableSeconds: raw.health?.stableSeconds ?? 10, timeoutSeconds: raw.health?.timeoutSeconds ?? 180 },

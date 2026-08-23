@@ -15,11 +15,13 @@ ports:
     container: 80
     host: 80
     exposure: lan
+    tailnet: unchanged   # the LAN's front door: every site it proxies arrives here
   - id: https
     label: HTTPS
     container: 443
     host: 443
     exposure: lan
+    tailnet: unchanged   # the LAN's front door: every site it proxies arrives here
   - id: admin
     label: Admin UI
     container: 81

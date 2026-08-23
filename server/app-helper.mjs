@@ -242,7 +242,7 @@ export function createAppHelper({
       ? [...new Set(provided.filter((device) => manifest.devices.some((pattern) => deviceMatchesPattern(device, pattern))))]
       : await resolveDevices(manifest.devices, listDevices);
     if (manifest.devices.some((pattern) => /[?*[]/.test(pattern)) && !devices.length) throw new Error(`${manifest.name} needs a device matching ${manifest.devices.join(", ")} and none exists on this server`);
-    const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices });
+    const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices, tailnetAddress: values.exposure === "tailnet" ? await tailnetAddress() : null });
     await writeFile(path.join(directory, ".env.tmp"), rendered.envFile, { mode: 0o600 });
     await rename(path.join(directory, ".env.tmp"), path.join(directory, ".env"));
     await writeFile(path.join(directory, "compose.yaml.tmp"), rendered.composeYaml, { mode: 0o600 });
@@ -522,6 +522,20 @@ export function createAppHelper({
    * kept. `host` is what the browser should use to reach this server; it is remembered so
    * installs and uninstalls can refresh the dashboard without asking again.
    */
+  /**
+   * This server's own tailnet address, for ports that have to move somewhere reachable but cannot
+   * go through Serve. Null when Tailscale is absent or not up, which the caller treats as "leave
+   * the port where it was" rather than as a failure.
+   */
+  let tailnetAddressCache;
+  async function tailnetAddress() {
+    if (tailnetAddressCache !== undefined) return tailnetAddressCache;
+    const result = await runCommand(tailscaleBinary, ["ip", "-4"], { timeout: 15_000 }).catch(() => ({ ok: false, stdout: "" }));
+    const address = result.ok ? (result.stdout.split("\n").map((line) => line.trim()).find((line) => /^\d{1,3}(\.\d{1,3}){3}$/.test(line)) ?? null) : null;
+    tailnetAddressCache = address;
+    return address;
+  }
+
   /** Local ports Tailscale Serve publishes over HTTPS right now; empty when Tailscale is absent. */
   async function servedPorts() {
     const result = await runCommand(tailscaleBinary, ["serve", "status", "--json"], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 }).catch(() => ({ ok: false, stdout: "" }));

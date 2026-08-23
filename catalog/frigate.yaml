@@ -21,11 +21,13 @@ ports:
     container: 8554
     host: 8554
     exposure: lan
+    tailnet: address   # RTSP, not HTTP
   - id: webrtc
     label: WebRTC
     container: 8555
     host: 8555
     exposure: lan
+    tailnet: address   # WebRTC signalling, not HTTP
 volumes:
   - id: config
     label: Configuration and database

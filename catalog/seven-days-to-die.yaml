@@ -21,6 +21,7 @@ ports:
     container: 26900
     host: 26900
     exposure: lan
+    tailnet: address   # the game protocol, not HTTP
   - id: webpanel
     label: Web control panel
     container: 8080

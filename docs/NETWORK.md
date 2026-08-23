@@ -29,6 +29,28 @@ Two switches, each one tick:
 Both need approval in the Tailscale admin console once, and BoxPilot links you straight to it.
 Turning either on writes a sysctl drop-in for IP forwarding.
 
+## Where an installed app is reachable from
+
+Every app in the catalog carries one of two settings, switched from its card on the App catalog
+page.
+
+**Home network** publishes its ports on this server's network address. Anything on your LAN can
+reach them and the firewall is the only thing deciding who does — which matters, because several
+catalog apps have no login of their own.
+
+**Tailnet only** stops the app listening on your home network. What happens to each port depends on
+what the port speaks, because Tailscale Serve terminates HTTPS and proxies HTTP and so can only
+front a web interface:
+
+| The port speaks | Where it goes | Who can reach it |
+| --- | --- | --- |
+| HTTP (the app's web UI) | bound to this server only; Tailscale Serve publishes it as `https://<host>.ts.net:<port>` | anyone Tailscale authenticates, with a real certificate |
+| something else — git over SSH, Syncthing's sync port, RTSP, a game protocol | bound to this server's tailnet address | anything on your tailnet |
+| a service the home network depends on — DNS on 53, a reverse proxy's 80 and 443, UniFi's inform port | left on the LAN address | unchanged |
+
+The confirmation names which ports fall into the last two rows before you commit, so switching
+Pi-hole to tailnet-only moves its admin page and leaves the house's DNS answering.
+
 ## Wake-on-LAN
 
 Each device in the neighbour list has a **Wake** button, which sends a magic packet. The device

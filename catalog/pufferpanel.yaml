@@ -20,6 +20,7 @@ ports:
     container: 5657
     host: 5657
     exposure: lan
+    tailnet: address   # SFTP, not HTTP
 volumes:
   - id: config
     label: Configuration

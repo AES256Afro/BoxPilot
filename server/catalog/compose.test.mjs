@@ -58,4 +58,35 @@ describe("where an app's ports are published", () => {
     const { compose } = renderCompose(loopbackManifest, { ...values, exposure: "lan" }, { lanAddress: "192.168.1.10" });
     expect(compose.services.dash.ports).toEqual(["127.0.0.1:3000:80"]);
   });
+
+  // Tailscale Serve terminates HTTPS and proxies HTTP, so it can only front an app's web ports.
+  // Sending the rest to loopback alongside them is what quietly broke Syncthing's sync, Forgejo's
+  // git-over-SSH and Pi-hole's DNS while the operation still reported success.
+  const mixed = {
+    ...manifest,
+    ports: [
+      { id: "web", label: "Web UI", container: 8384, host: 8384, protocol: "tcp", exposure: "lan", tailnet: "serve" },
+      { id: "sync", label: "Sync", container: 22000, host: 22000, protocol: "tcp", exposure: "lan", tailnet: "address" },
+      { id: "dns", label: "DNS", container: 53, host: 53, protocol: "tcp", exposure: "lan", tailnet: "unchanged" },
+      { id: "quic", label: "Sync (QUIC)", container: 22000, host: 22000, protocol: "udp", exposure: "lan", tailnet: "unchanged" },
+    ],
+  };
+  const mixedValues = { ports: { web: 8384, sync: 22000, dns: 53, quic: 22000 }, env: {}, volumes: {} };
+
+  it("sends each port where its own protocol can still be reached", () => {
+    const { compose, hostPorts } = renderCompose(mixed, { ...mixedValues, exposure: "tailnet" }, { lanAddress: "192.168.1.10", tailnetAddress: "100.64.0.5" });
+    expect(compose.services.dash.ports).toEqual([
+      "127.0.0.1:8384:8384",   // Serve fronts the web UI
+      "100.64.0.5:22000:22000", // reachable from the tailnet, and nowhere else
+      "192.168.1.10:53:53",     // the house still needs to resolve names
+      "192.168.1.10:22000:22000/udp",
+    ]);
+    expect(hostPorts.map((entry) => entry.exposure)).toEqual(["loopback", "tailnet", "lan", "lan"]);
+  });
+
+  it("leaves a port on the LAN rather than nowhere when there is no tailnet address", () => {
+    // Tailscale absent or down. Taking the port away entirely would be worse than not moving it.
+    const { compose } = renderCompose(mixed, { ...mixedValues, exposure: "tailnet" }, { lanAddress: "192.168.1.10", tailnetAddress: null });
+    expect(compose.services.dash.ports[1]).toBe("192.168.1.10:22000:22000");
+  });
 });

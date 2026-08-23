@@ -174,4 +174,37 @@ describe("finding things in a catalog of a hundred-odd apps", () => {
     expect(screen.getByText("Dockge")).toBeTruthy();
     expect(screen.queryByText("Jellyfin")).toBeNull();
   });
+
+  it("says which ports tailnet-only will not move, before you commit to it", async () => {
+    // Tailscale Serve can only front a web interface, so an app that also speaks DNS or a sync
+    // protocol keeps those ports somewhere they still work. Saying so is the whole point: the
+    // first version of this offered "reach only through Tailscale" on Pi-hole and would have
+    // taken the house's DNS down while reporting that it had succeeded.
+    const dns = {
+      ...dockge, id: "pi-hole", name: "Pi-hole", description: "Network-wide ad blocking",
+      ports: [
+        { id: "dns-tcp", label: "DNS (TCP)", container: 53, host: 53, protocol: "tcp", exposure: "lan", fixed: false, tailnet: "unchanged" },
+        { id: "dns-udp", label: "DNS (UDP)", container: 53, host: 53, protocol: "udp", exposure: "lan", fixed: false, tailnet: "unchanged" },
+        { id: "sync", label: "Peer sync", container: 22000, host: 22000, protocol: "tcp", exposure: "lan", fixed: false, tailnet: "address" },
+        { id: "web", label: "Admin UI", container: 80, host: 8084, protocol: "tcp", exposure: "lan", fixed: false },
+      ],
+    };
+    const live = { ...runningLive, id: "pi-hole", state: { ...runningLive.state, values: { ports: { web: 8084, "dns-tcp": 53, "dns-udp": 53, sync: 22000 }, env: {}, volumes: {} } }, urls: [{ id: "dns-tcp", label: "DNS (TCP)", host: 53, exposure: "lan" }, { id: "web", label: "Admin UI", host: 8084, exposure: "lan" }] };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest: dns, live }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      if (url.includes("app.serve.inspect")) return json({ result: { available: true, serves: [] } });
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppCatalog csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Reach only through Tailscale" }));
+
+    const preview = (await screen.findByText(/Recreates Pi-hole/)).textContent ?? "";
+    expect(preview).toContain("DNS (TCP), DNS (UDP) stay on your home network");
+    expect(preview).toContain("Peer sync does not speak HTTP, so it moves to this server's tailnet address");
+    // The published address is the admin UI, not whichever port happened to be listed first.
+    expect(preview).toContain("ts.net:8084");
+    expect(preview).not.toContain("ts.net:53");
+  });
 });
