@@ -170,6 +170,10 @@ export function createAppHelper({
       ports: values.ports,
       env: Object.fromEntries(Object.entries(env).filter(([name]) => !manifest.env.find((entry) => entry.name === name)?.secret)),
       volumes: Object.fromEntries(Object.entries(values.volumes).filter(([id]) => manifest.volumes.find((volume) => volume.id === id)?.configurable)),
+      // Persist the owner's exposure and network-mode choices so the settings form reflects them
+      // and a later reconfigure keeps them rather than silently reverting to the manifest default.
+      ...(values.exposure ? { exposure: values.exposure } : {}),
+      ...(values.networkMode ? { networkMode: values.networkMode } : {}),
       ...(manifest.setup ? { setup: values.setup ?? [] } : {}),
     };
   }
@@ -281,7 +285,10 @@ export function createAppHelper({
       // Only the ports that speak HTTP get an "Open" link. Listing every TCP port offered to open
       // Pi-hole's DNS on 53 and Forgejo's SSH on 2222 in a browser tab, and made the Overview's
       // link for an app whichever port happened to be listed first.
-      urls: state && state.installed ? manifest.ports.filter((port) => port.protocol === "tcp" && (port.tailnet ?? "serve") === "serve").map((port) => ({ id: port.id, label: port.label, host: state.values?.ports?.[port.id] ?? port.host, exposure: port.exposure, path: signInPortId(manifest) === port.id ? manifest.signIn?.path ?? null : null })) : [],
+      urls: state && state.installed ? (() => {
+        const hostNetworked = (state.values?.networkMode ?? manifest.network) === "host";
+        return manifest.ports.filter((port) => port.protocol === "tcp" && (port.tailnet ?? "serve") === "serve").map((port) => ({ id: port.id, label: port.label, host: hostNetworked ? port.container : state.values?.ports?.[port.id] ?? port.host, exposure: port.exposure, path: signInPortId(manifest) === port.id ? manifest.signIn?.path ?? null : null }));
+      })() : [],
       updateAvailable: Boolean(state?.installed && state.image?.reference && state.image.reference !== manifest.image.reference),
       installedImage: state?.image?.reference ?? null,
     };

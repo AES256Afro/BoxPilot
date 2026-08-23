@@ -34,6 +34,16 @@ describe("manifest schema", () => {
     expect(validateManifest({ ...withLogin, signIn: { passwordEnv: "ADMIN_USER" } }).errors).toContainEqual(expect.stringContaining("must name a password entry"));
     expect(validateManifest({ ...withLogin, signIn: { passwordEnv: "ADMIN_PASSWORD", path: "admin" } }).errors).toContainEqual(expect.stringContaining("signIn.path"));
     expect(validateManifest({ ...withLogin, signIn: { passwordEnv: "ADMIN_PASSWORD", port: "dns" } }).errors).toContainEqual(expect.stringContaining("signIn.port"));
+    // networkModes: the attachment options the owner may pick between.
+    expect(validateManifest({ ...base, networkModes: ["bridge", "host"] }).manifest.networkModes).toEqual(["bridge", "host"]);
+    expect(validateManifest({ ...base }).manifest.networkModes).toEqual(["bridge"]); // default: fixed to its own network
+    expect(validateManifest({ ...base, networkModes: ["host"] }).errors).toContainEqual(expect.stringContaining("must include the manifest's own network"));
+    expect(validateManifest({ ...base, networkModes: ["bridge", "bridge"] }).errors).toContainEqual(expect.stringContaining("must not repeat"));
+    expect(validateManifest({ ...base, networkModes: ["bridge", "macvlan"] }).errors).toContainEqual(expect.stringContaining("networkModes"));
+    // resolveValues only accepts a mode the manifest offers.
+    const modal = validateManifest({ ...base, networkModes: ["bridge", "host"] }).manifest;
+    expect(resolveValues(modal, { networkMode: "host" }).values.networkMode).toBe("host");
+    expect(resolveValues(modal, { networkMode: "macvlan" }).errors).toContainEqual(expect.stringContaining("values.networkMode"));
     expect(validateManifest({ ...base, env: [{ name: "TZ", default: "x" }, { name: "TZ", default: "y" }] }).errors).toContainEqual(expect.stringContaining("env[1].name"));
     expect(validateManifest({ ...base, capabilities: ["NET_ADMIN"] }).errors).toContainEqual(expect.stringContaining("CAP_"));
     expect(validateManifest({ ...base, schemaVersion: 1 }).errors).toContainEqual(expect.stringContaining("schemaVersion"));

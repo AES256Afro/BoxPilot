@@ -106,9 +106,14 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   };
   if (manifest.user) service.user = manifest.user;
   if (manifest.command) service.command = manifest.command;
-  if (manifest.network === "host") service.network_mode = "host";
+  // The owner's choice (validated against manifest.networkModes) wins over the manifest default.
+  // Host mode shares the host's stack: no ports to publish, and no sidecars — a sidecar lives on
+  // the project network the app no longer has.
+  const network = (manifest.networkModes ?? [manifest.network]).includes(values.networkMode) ? values.networkMode : manifest.network;
+  const hostNetwork = network === "host";
+  if (hostNetwork) service.network_mode = "host";
   const hostPorts = [];
-  const publishedPorts = manifest.network !== "host" && manifest.ports.length
+  const publishedPorts = !hostNetwork && manifest.network !== "host" && manifest.ports.length
     ? manifest.ports.map((port) => {
       const host = values.ports[port.id];
       const { bind, exposure } = bindingFor(port, values.exposure, { lanAddress, tailnetAddress });
@@ -141,7 +146,7 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   const compose = { name: projectNameFor(manifest.id), services: { [manifest.id]: service } };
   // Sidecars: helper services on the project network, reachable from the app at their id.
   // No published ports; their env may reference ${NAME}, interpolated from the shared .env.
-  for (const sidecar of manifest.sidecars ?? []) {
+  for (const sidecar of hostNetwork ? [] : (manifest.sidecars ?? [])) {
     const sidecarService = {
       container_name: `${projectNameFor(manifest.id)}-${sidecar.id}`,
       image: sidecar.image,
@@ -161,7 +166,7 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
     sidecarService.security_opt = ["no-new-privileges:true"];
     compose.services[sidecar.id] = sidecarService;
   }
-  if ((manifest.sidecars ?? []).length) service.depends_on = manifest.sidecars.map((sidecar) => sidecar.id);
+  if (!hostNetwork && (manifest.sidecars ?? []).length) service.depends_on = manifest.sidecars.map((sidecar) => sidecar.id);
   const secretEntries = manifest.env.filter((entry) => entry.secret && entry.name in env);
   const envFile = secretEntries.map((entry) => envFileLine(entry.name, env[entry.name])).join("\n") + (secretEntries.length ? "\n" : "");
   return { compose, composeYaml: YAML.stringify(compose, { lineWidth: 0 }), envFile, env, hostPorts };
