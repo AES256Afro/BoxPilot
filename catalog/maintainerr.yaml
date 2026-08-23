@@ -1,0 +1,38 @@
+schemaVersion: 2
+id: maintainerr
+name: Maintainerr
+category: Media
+icon: "🧹"
+description: Finds what nobody watches and offers to clear it — build rules like "films added over a year ago that nobody has played", see exactly what matches, and have it removed from Plex and from Radarr together.
+website: https://github.com/jorenn92/Maintainerr
+risk: medium
+image:
+  reference: ghcr.io/jorenn92/maintainerr:2.19.0
+  version: 2.19.0
+ports:
+  - id: web
+    label: Web UI
+    container: 6246
+    host: 6246
+    exposure: lan
+volumes:
+  - id: config
+    label: Rules and history
+    container: /opt/data
+    path: data
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: UID
+    default: "1000"
+    fixed: true
+  - name: GID
+    default: "1000"
+    fixed: true
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Every rule starts in a preview state: it shows you the list it would act on and does nothing until you say so. Connect it to Plex, and to Radarr and Sonarr if you want the files removed as well as the library entries."

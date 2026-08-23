@@ -1,0 +1,50 @@
+schemaVersion: 2
+id: speedtest-tracker
+name: Speedtest Tracker
+category: Monitoring
+icon: "📶"
+description: Runs a speed test on a schedule and keeps the history, so when the line feels slow you have a chart rather than an argument. Useful evidence when you ring the provider.
+website: https://speedtest-tracker.dev
+risk: low
+image:
+  reference: lscr.io/linuxserver/speedtest-tracker:version-v1.15.0
+  version: 1.15.0
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8113
+    exposure: lan
+volumes:
+  - id: config
+    label: History and settings
+    container: /config
+    path: config
+env:
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: APP_KEY
+    label: Application key
+    description: Encrypts stored settings. Generated for you; keep it if you ever move the data folder.
+    type: password
+    generate: true
+  - name: DB_CONNECTION
+    default: sqlite
+    fixed: true
+  - name: SPEEDTEST_SCHEDULE
+    label: How often to test
+    description: A cron expression. "0 * * * *" is hourly, "0 */6 * * *" is four times a day.
+    default: "0 * * * *"
+health:
+  kind: running
+  stableSeconds: 20
+  timeoutSeconds: 300
+notes: "The first login is admin@example.com / password — change both under your profile immediately. Tests use bandwidth while they run, so hourly is plenty on a shared line."

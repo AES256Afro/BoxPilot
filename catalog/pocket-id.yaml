@@ -1,0 +1,39 @@
+schemaVersion: 2
+id: pocket-id
+name: Pocket ID
+category: Security
+icon: "🔑"
+description: One sign-in for everything you host, using passkeys only — no passwords to leak or reset. Apps that speak OIDC (Immich, Nextcloud, Forgejo, Grafana and many more) point at this and your face or fingerprint signs you into all of them.
+website: https://pocket-id.org
+risk: medium
+image:
+  reference: ghcr.io/pocket-id/pocket-id:v2.14.0
+  version: 2.14.0
+ports:
+  - id: web
+    label: Web UI
+    container: 1411
+    host: 1411
+    exposure: lan
+volumes:
+  - id: data
+    label: Accounts, keys and settings
+    container: /app/data
+    path: data
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: APP_URL
+    label: Address apps will be sent to
+    description: The address this is reached at, for example https://id.example.com. Passkeys are bound to it, so changing it later invalidates every key already registered.
+  - name: TRUST_PROXY
+    label: Behind a reverse proxy
+    type: boolean
+    default: "false"
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 300
+notes: "Open the address you set above — not an IP — and the first visit creates the administrator account and registers your passkey. Passkeys are tied to that exact address and to HTTPS, so put this behind a reverse proxy or Tailscale Serve before you register the first one."

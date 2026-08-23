@@ -23,7 +23,11 @@ describe("manifest schema", () => {
     expect(validateManifest({ ...base, image: { reference: "nginx:1.27; rm -rf /" } }).errors).toContainEqual(expect.stringContaining("image.reference"));
     expect(validateManifest({ ...base, volumes: [{ id: "x", container: "/x", path: "data", hostPath: "/srv" }] }).errors).toContainEqual(expect.stringContaining("exactly one of"));
     expect(validateManifest({ ...base, volumes: [{ id: "x", container: "/x", path: "../etc" }] }).errors).toContainEqual(expect.stringContaining("simple relative"));
-    expect(validateManifest({ ...base, env: [{ name: "lower", default: "x" }] }).errors).toContainEqual(expect.stringContaining("env[0].name"));
+    // A lower-case name is fine — Tdarr genuinely reads `serverIP` — but it still has to look like
+    // a variable, and a name may not appear twice.
+    expect(validateManifest({ ...base, env: [{ name: "serverIP", default: "x" }] }).errors).toEqual([]);
+    expect(validateManifest({ ...base, env: [{ name: "has-a-dash", default: "x" }] }).errors).toContainEqual(expect.stringContaining("env[0].name"));
+    expect(validateManifest({ ...base, env: [{ name: "TZ", default: "x" }, { name: "TZ", default: "y" }] }).errors).toContainEqual(expect.stringContaining("env[1].name"));
     expect(validateManifest({ ...base, capabilities: ["NET_ADMIN"] }).errors).toContainEqual(expect.stringContaining("CAP_"));
     expect(validateManifest({ ...base, schemaVersion: 1 }).errors).toContainEqual(expect.stringContaining("schemaVersion"));
   });

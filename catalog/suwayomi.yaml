@@ -1,0 +1,45 @@
+schemaVersion: 2
+id: suwayomi
+name: Suwayomi
+category: Books
+icon: "📗"
+description: Manga server — browse and download from the sources you add, then read in the browser or from Tachiyomi-compatible apps on your phone. Your library stays on this server.
+website: https://github.com/Suwayomi/Suwayomi-Server
+risk: low
+image:
+  reference: ghcr.io/suwayomi/tachidesk:v2.3.2333
+  version: 2.3.2333
+ports:
+  - id: web
+    label: Web UI
+    container: 4567
+    host: 4567
+    exposure: lan
+volumes:
+  - id: config
+    label: Library and settings
+    container: /home/suwayomi/.local/share/Tachidesk
+    path: data
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: BASIC_AUTH_ENABLED
+    label: Ask for a password
+    type: boolean
+    default: "false"
+  - name: BASIC_AUTH_USERNAME
+    label: Username
+  - name: BASIC_AUTH_PASSWORD
+    label: Password
+    type: password
+  - name: AUTO_DOWNLOAD_CHAPTERS
+    label: Download new chapters automatically
+    type: boolean
+    default: "false"
+health:
+  kind: running
+  stableSeconds: 20
+  timeoutSeconds: 300
+notes: "Sources are installed from inside the app under Browse → Extensions; none ship with it. Suwayomi has no login unless you turn one on above, so leave it on the tailnet or set a password."

@@ -1,0 +1,37 @@
+schemaVersion: 2
+id: wallos
+name: Wallos
+category: Finance
+icon: "🧾"
+description: Tracks what your subscriptions actually cost — every streaming service, licence and renewal in one list, with a total per month and a reminder before each one bills. Nothing leaves this server.
+website: https://wallosapp.com
+risk: low
+image:
+  reference: ghcr.io/ellite/wallos:5.4.4
+  version: 5.4.4
+ports:
+  - id: web
+    label: Web UI
+    container: 80
+    host: 8114
+    exposure: lan
+volumes:
+  - id: db
+    label: Database
+    container: /var/www/html/db
+    path: db
+  - id: logos
+    label: Service logos
+    container: /var/www/html/images/uploads/logos
+    path: logos
+    backup: false
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 10
+  timeoutSeconds: 240
+notes: "First open creates your account. Currency conversion needs a free Fixer.io API key, added under Settings; without one everything is tracked in a single currency."

@@ -7,8 +7,8 @@ description: "Follow YouTube channels and playlists and keep the videos on this 
 website: https://github.com/kieraneglin/pinchflat
 risk: low
 image:
-  reference: ghcr.io/kieraneglin/pinchflat:v2025.9.26
-  version: "2025.9.26"
+  reference: ghcr.io/kieraneglin/pinchflat:v2025.6.6
+  version: "2025.6.6"
 ports:
   - id: web
     label: Web UI

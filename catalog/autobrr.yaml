@@ -1,0 +1,38 @@
+schemaVersion: 2
+id: autobrr
+name: autobrr
+category: Media automation
+icon: "⚡"
+description: Watches tracker announce channels and pushes matching releases to your download client the second they appear, instead of waiting for the next RSS poll. Filters on resolution, group, size, and whatever else you care about.
+website: https://autobrr.com
+risk: low
+image:
+  reference: ghcr.io/autobrr/autobrr:v1.84.0
+  version: 1.84.0
+ports:
+  - id: web
+    label: Web UI
+    container: 7474
+    host: 7474
+    exposure: lan
+volumes:
+  - id: config
+    label: Configuration and filters
+    container: /config
+    path: config
+env:
+  - name: PUID
+    default: "1000"
+    fixed: true
+  - name: PGID
+    default: "1000"
+    fixed: true
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+health:
+  kind: running
+  stableSeconds: 10
+  timeoutSeconds: 240
+notes: "First open asks you to create an account — there is no default login. Then add your indexers, point it at qBittorrent or Deluge, and write filters. Sonarr and Radarr can stay in the loop as well."
