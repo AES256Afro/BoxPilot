@@ -19,7 +19,8 @@ const globCharacters = /[?*[]/;
 export function createDeviceResolver({ catalog, listDirectory = (directory) => readdir(directory) }) {
   return async function withResolvedDevices(parameters) {
     const manifest = await catalog.get(parameters?.id).catch(() => null);
-    if (!manifest?.devices?.some((pattern) => globCharacters.test(pattern))) return parameters;
-    return { ...parameters, devices: await resolveDevices(manifest.devices, listDirectory) };
+    const patterns = [...(manifest?.devices ?? []), ...(manifest?.optionalDevices ?? [])];
+    if (!patterns.some((pattern) => globCharacters.test(pattern))) return parameters;
+    return { ...parameters, devices: await resolveDevices(patterns, listDirectory) };
   };
 }

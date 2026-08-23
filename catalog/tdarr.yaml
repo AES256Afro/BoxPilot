@@ -77,10 +77,10 @@ env:
   - name: inContainer
     default: "true"
     fixed: true
-devices:
+optionalDevices:
   - /dev/dri/renderD*
 health:
   kind: running
   stableSeconds: 20
   timeoutSeconds: 300
-notes: "Tdarr rewrites files in place. Take a backup of anything irreplaceable before the first library scan, and start with one small folder. If this server has an Intel or AMD GPU it is passed through for hardware transcoding; pick a QSV or VAAPI plugin to use it."
+notes: "Tdarr rewrites files in place. Take a backup of anything irreplaceable before the first library scan, and start with one small folder. If this server has a GPU render node (/dev/dri/renderD128) it is passed through for hardware transcoding — pick a QSV or VAAPI plugin to use it; without one Tdarr transcodes on the CPU, which works and is just slower."

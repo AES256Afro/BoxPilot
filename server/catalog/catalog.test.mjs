@@ -161,6 +161,12 @@ describe("device globs", () => {
     expect(await resolveDevices(["/dev/sd?", "/dev/nvme?", "/dev/ttyUSB0", "/dev/hd?"], listDirectory)).toEqual(["/dev/sda", "/dev/sdb", "/dev/nvme0", "/dev/ttyUSB0"]);
     expect(await resolveDevices(["/dev/nvme*"], listDirectory)).toEqual(["/dev/nvme0", "/dev/nvme0n1", "/dev/nvme0n1p1"]);
     expect(await resolveDevices(["/dev/*/by-id"], listDirectory)).toEqual([]);
+    // A GPU render node is an accelerator, not what the app is for: it is declared optional, and
+    // a server without one still installs the app.
+    const gpu = validateManifest({ ...base, optionalDevices: ["/dev/dri/renderD*"] });
+    expect(gpu.errors).toEqual([]);
+    expect(gpu.manifest.optionalDevices).toEqual(["/dev/dri/renderD*"]);
+    expect(validateManifest({ ...base, optionalDevices: ["renderD128"] }).errors).toContainEqual(expect.stringContaining("optionalDevices"));
     const { manifest } = validateManifest({ ...base, devices: ["/dev/sd?"] });
     const { compose } = renderCompose(manifest, { ports: {}, env: {}, volumes: {} }, { devices: ["/dev/sda"] });
     expect(compose.services.smart.devices).toEqual(["/dev/sda:/dev/sda"]);

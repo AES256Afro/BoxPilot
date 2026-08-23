@@ -238,10 +238,14 @@ export function createAppHelper({
       if (isDeniedHostPath(real)) throw new Error(`${hostPath} resolves to ${real}, a protected system location; pick a folder under /srv, /mnt, /media, or your home`);
     }
     // The web process resolves device globs against the real /dev (this process may run without one); only paths matching the manifest are accepted.
+    const wanted = [...manifest.devices, ...(manifest.optionalDevices ?? [])];
     const devices = Array.isArray(provided)
-      ? [...new Set(provided.filter((device) => manifest.devices.some((pattern) => deviceMatchesPattern(device, pattern))))]
-      : await resolveDevices(manifest.devices, listDevices);
-    if (manifest.devices.some((pattern) => /[?*[]/.test(pattern)) && !devices.length) throw new Error(`${manifest.name} needs a device matching ${manifest.devices.join(", ")} and none exists on this server`);
+      ? [...new Set(provided.filter((device) => wanted.some((pattern) => deviceMatchesPattern(device, pattern))))]
+      : await resolveDevices(wanted, listDevices);
+    // Only the required list can refuse the install. An optional device — a GPU for transcoding —
+    // is simply absent from the compose file on a server without one.
+    const required = devices.filter((device) => manifest.devices.some((pattern) => deviceMatchesPattern(device, pattern)));
+    if (manifest.devices.some((pattern) => /[?*[]/.test(pattern)) && !required.length) throw new Error(`${manifest.name} needs a device matching ${manifest.devices.join(", ")} and none exists on this server`);
     const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices, tailnetAddress: values.exposure === "tailnet" ? await tailnetAddress() : null });
     await writeFile(path.join(directory, ".env.tmp"), rendered.envFile, { mode: 0o600 });
     await rename(path.join(directory, ".env.tmp"), path.join(directory, ".env"));
