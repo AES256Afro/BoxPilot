@@ -479,7 +479,16 @@ export function createAppHelper({
     if (!actions.includes(verb)) throw new Error("Action must be start, stop, or restart");
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
-    const result = await compose(id, [verb], { timeout: 180_000, progress });
+    let result = await compose(id, [verb], { timeout: 180_000, progress });
+    // A stopped container is pinned to the network it was created on, and anything that prunes
+    // Docker — `docker system prune`, Portainer, a compose UI the owner runs themselves — takes
+    // that network with it, because nothing running is attached. Starting then fails with a
+    // network ID that no longer exists, and plain `up` cannot fix it either: the container has to
+    // be built again. Its data is in volumes and bind mounts, so that costs nothing but a moment.
+    if (!result.ok && verb !== "stop" && /network [0-9a-f]{12,}.*not found|has active endpoints/i.test(result.stderr)) {
+      progress?.(`${manifest.name}'s network was removed while it was stopped; building the container again.`, "stdout");
+      result = await compose(id, ["up", "--detach", "--force-recreate", "--remove-orphans"], { timeout: 15 * 60_000, progress });
+    }
     if (!result.ok) throw new Error(`docker compose ${verb} failed: ${redact(result.stderr).split("\n").slice(-3).join(" ")}`);
     const status = await containerStatus(id);
     return { id, action: verb, running: status.running, status: status.status };

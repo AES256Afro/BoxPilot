@@ -59,9 +59,12 @@ async function fixture() {
   await utimes(oldLog, new Date(now - 120 * 86_400_000), new Date(now - 120 * 86_400_000));
 
   const run = vi.fn(async (_binary, args) => {
+    if (args[0] === "images" && args.includes("dangling=true")) return { ok: true, stdout: "sha9\t300MB\nsha8\t100MB", stderr: "" };
     if (args[0] === "images") return { ok: true, stdout: "jellyfin/jellyfin:10.11.11\tsha1\t1.7GB\njellyfin/jellyfin:10.10.7\tsha2\t1.7GB\nold/removed-app:1.0\tsha3\t500MB", stderr: "" };
     if (args[0] === "ps") return { ok: true, stdout: "jellyfin/jellyfin:10.11.11", stderr: "" };
-    if (args[0] === "system" && args[1] === "df") return { ok: true, stdout: JSON.stringify({ Type: "Images", Size: "5GB", Reclaimable: "2GB" }), stderr: "" };
+    if (args[0] === "system" && args[1] === "df") {
+      return { ok: true, stdout: [JSON.stringify({ Type: "Images", Size: "5GB", Reclaimable: "2GB (40%)" }), JSON.stringify({ Type: "Build Cache", Size: "600MB", Reclaimable: "600MB" })].join("\n"), stderr: "" };
+    }
     return { ok: true, stdout: "Total reclaimed space: 2GB", stderr: "" };
   });
 
@@ -120,6 +123,18 @@ describe("finding what can be reclaimed", () => {
 });
 
 describe("reclaiming", () => {
+  it("prunes only what nothing can be holding, never containers or networks", async () => {
+    // `docker system prune` removes exited containers and the networks nothing running is joined
+    // to. An app stopped from BoxPilot's own interface is both, and after a system prune Docker
+    // refuses to start it again: the container is pinned to a network ID that is gone, which not
+    // even `compose up` recovers from. Verified against Docker 29 on a real host.
+    const { service, run } = await fixture();
+    await service.reclaim({ targets: ["docker-unused"] });
+    const pruned = run.mock.calls.map(([, args]) => args.join(" ")).filter((line) => line.includes("prune"));
+    expect(pruned).toEqual(["image prune --force", "builder prune --force"]);
+    expect(pruned.some((line) => /system|container|network|volume/.test(line))).toBe(false);
+  });
+
   it("removes only the categories named, and leaves live data alone", async () => {
     const { service, installRoot, catalogRoot, applicationBackupRoot } = await fixture();
     const result = await service.reclaim({ targets: ["boxpilot-versions", "restore-leftovers"] });
@@ -135,6 +150,16 @@ describe("reclaiming", () => {
     await expect(stat(path.join(installRoot, "boxpilot.failed.20260822T090000Z"))).resolves.toBeTruthy();
     await expect(stat(path.join(catalogRoot, "jellyfin", "data", "live"))).resolves.toBeTruthy();
     await expect(stat(path.join(applicationBackupRoot, "jellyfin", "20260801T000000Z.tar.gz"))).resolves.toBeTruthy();
+  });
+
+  it("counts orphaned layers and the build cache, and not the images the other category offers", async () => {
+    const { service } = await fixture();
+    const report = await service.inspect();
+    const docker = report.categories.find((category) => category.id === "docker-unused");
+    // 300MB + 100MB dangling, plus a 600MB build cache. Docker's own "Images reclaimable" figure
+    // of 2GB is every image no running container holds — which is what "Images no app uses"
+    // offers separately, so counting it here would promise the same gigabytes twice.
+    expect(docker.bytes).toBe(400 * 1000 ** 2 + 600 * 1000 ** 2);
   });
 
   it("never removes an image a container is using", async () => {
