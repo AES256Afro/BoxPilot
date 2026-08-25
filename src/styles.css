@@ -3468,3 +3468,17 @@ textarea {
 .sign-in-details dd { margin: 0; }
 .sign-in-details input[readonly] { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 .sign-in-panel form input[type="password"] { flex: 1 1 16rem; min-width: 12rem; }
+
+/* Performance page: load at a glance, and the controls next to what is causing it. */
+.performance-center { display: grid; gap: 18px; }
+.meter.meter-warm i { background: linear-gradient(90deg, #d99a2b, #f0c274); }
+.meter.meter-hot i { background: linear-gradient(90deg, #d9542b, #f08a74); }
+.metric > small { display: block; margin-top: 8px; font-size: 11px; }
+.perf-table { width: 100%; border-collapse: collapse; }
+.perf-table th, .perf-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); }
+.perf-table th { color: var(--muted); font-size: 9px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.perf-table tbody tr:last-child td { border-bottom: none; }
+.perf-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.perf-icon { margin-right: 8px; }
+.perf-ai { margin-left: 8px; }
+.perf-controls { display: flex; gap: 12px; flex-wrap: wrap; }

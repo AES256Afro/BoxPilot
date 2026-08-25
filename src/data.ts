@@ -4,6 +4,7 @@ export type ViewName =
   | "catalog"
   | "services"
   | "system"
+  | "performance"
   | "users"
   | "firewall"
   | "storage"
@@ -22,6 +23,7 @@ export const navItems: Array<{ id: ViewName; label: string; short: string }> = [
   { id: "catalog", label: "App catalog", short: "AC" },
   { id: "services", label: "Services", short: "SV" },
   { id: "system", label: "System", short: "SY" },
+  { id: "performance", label: "Performance", short: "PF" },
   { id: "users", label: "Users & SSH", short: "US" },
   { id: "firewall", label: "Firewall", short: "FW" },
   { id: "storage", label: "Storage", short: "SG" },
