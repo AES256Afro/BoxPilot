@@ -209,7 +209,7 @@ const inspections = {
     { id: "open-webui", name: "Open WebUI + Ollama", protectable: true, backups: 1, newestAt: ago(5) },
     { id: "homepage", name: "Homepage", protectable: true, backups: 0, newestAt: null },
   ] },
-  "logs.sources": { sources: [{ id: "system", label: "System journal" }, { id: "boxpilot", label: "BoxPilot" }] },
+  "logs.sources": { groups: [{ id: "boxpilot", label: "BoxPilot" }, { id: "system", label: "System journal" }, { id: "docker", label: "Docker" }], units: [{ unit: "boxpilot.service", description: "BoxPilot", active: "active" }, { unit: "docker.service", description: "Docker Engine", active: "active" }, { unit: "tailscaled.service", description: "Tailscale", active: "active" }], dockerAvailable: true, containers: Object.keys(installed).map((id) => ({ name: `bp-${id}`, state: "running", image: `${id}:latest` })) },
   "vm.cloud.images": { images: [] },
   "vm.stats.inspect": { available: true, domains: {} },
 };
