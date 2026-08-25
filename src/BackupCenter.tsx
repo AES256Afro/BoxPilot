@@ -308,7 +308,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
             ? <p className={mirrorOperations(offBox.inputs).length === 0 ? "auth-error" : "muted"}>{offBox.warning}</p>
             : <p className="muted">Copied off this server {offBoxVerdict(offBox.inputs).ageDays === 0 ? "today" : `${offBoxVerdict(offBox.inputs).ageDays} days ago`}.</p>}
           {mirrorOperations(offBox.inputs).length === 0
-            ? <p className="muted">Set up a destination below — a cloud bucket, another machine over SSH, or a drive that is not this server's system disk. Any one of them is enough.</p>
+            ? <p className="muted">Set up a destination — a cloud bucket or another machine over SSH, below; or a NAS or second drive, by mounting it on the <strong>Storage</strong> page at <code>/mnt/boxpilot-backup</code>, which is the path backups are copied to. Any one of them is enough.</p>
             : offBox.scheduled
               ? <p className="muted">A nightly copy is scheduled.</p>
               : <p className="muted">A destination is set up, but nothing is keeping the copy current. Scheduling it is the difference between a backup plan and a backup.</p>}
