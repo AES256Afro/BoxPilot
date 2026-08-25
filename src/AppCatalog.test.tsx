@@ -38,7 +38,7 @@ describe("App catalog", () => {
     expect(await screen.findByText("Blocklists")).toBeTruthy();
     expect((screen.getByLabelText("OISD big") as HTMLInputElement).checked).toBe(true);
     expect((screen.getByLabelText("HaGeZi Threat Intelligence Feeds") as HTMLInputElement).checked).toBe(false);
-    expect((screen.getByRole("link", { name: "About this list" }) as HTMLAnchorElement).href).toBe("https://oisd.nl/");
+    expect((screen.getByRole("link", { name: "Learn more" }) as HTMLAnchorElement).href).toBe("https://oisd.nl/");
     fireEvent.click(screen.getByLabelText("HaGeZi Threat Intelligence Feeds"));
     fireEvent.click(screen.getByRole("button", { name: "Continue to install" }));
     expect(await screen.findByText("High risk")).toBeTruthy();
@@ -160,7 +160,7 @@ describe("finding things in a catalog of a hundred-odd apps", () => {
   };
 
   it("puts what is already running first, in its own section", async () => {
-    // With 128 apps in the catalog, an installed app buried alphabetically is behind a long scroll.
+    // With well over a hundred apps in the catalog, an installed app buried alphabetically is behind a long scroll.
     mount();
     expect(await screen.findByRole("heading", { name: "On this server" })).toBeTruthy();
     expect(screen.getByText("1 running of 1 installed")).toBeTruthy();

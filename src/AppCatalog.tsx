@@ -130,7 +130,7 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
               {manifest.setup.choices.map((choice) => (
                 <div className="setup-choice" key={choice.id}>
                   <label><input type="checkbox" checked={(values.setup ?? []).includes(choice.id)} onChange={(event) => toggleSetup(choice.id, event.target.checked)} aria-label={choice.label} /> <strong>{choice.label}</strong>{choice.recommended && <span className="status-pill status-good">Recommended</span>}</label>
-                  {(choice.description || choice.website) && <span className="muted">{choice.description}{choice.website && <> <a href={choice.website} target="_blank" rel="noreferrer">About this list</a></>}</span>}
+                  {(choice.description || choice.website) && <span className="muted">{choice.description}{choice.website && <> <a href={choice.website} target="_blank" rel="noreferrer">Learn more</a></>}</span>}
                 </div>
               ))}
             </fieldset>

@@ -1,0 +1,78 @@
+schemaVersion: 2
+id: ollama
+name: Ollama
+category: AI
+icon: "🦙"
+description: Runs open language models on this server and offers them over a simple API, so several apps can share one engine and one set of downloads. Install this on its own if you already have a chat interface, or want Home Assistant and other tools to use a local model.
+website: https://ollama.com
+risk: medium
+image:
+  reference: ollama/ollama:0.32.15
+  version: 0.32.15
+ports:
+  - id: api
+    label: API
+    container: 11434
+    host: 11434
+    exposure: lan
+volumes:
+  - id: models
+    label: Downloaded models
+    container: /root/.ollama
+    path: models
+    backup: false
+    description: Model files, often several GB each. Excluded from backups on purpose — they can always be downloaded again, and including them would make every backup enormous.
+env:
+  - name: OLLAMA_HOST
+    default: 0.0.0.0
+    fixed: true
+  - name: OLLAMA_KEEP_ALIVE
+    label: Keep a model in memory for
+    description: How long an idle model stays loaded. Longer means the next question answers instantly; shorter frees the memory sooner. Use "-1" to keep it loaded for ever.
+    default: 5m
+    options: ["30s", "5m", "30m", "2h", "-1"]
+  - name: OLLAMA_MAX_LOADED_MODELS
+    label: Models loaded at once
+    description: More than one loaded model multiplies the memory in use. Leave at 1 unless this server has memory to spare.
+    type: number
+    default: "1"
+  - name: OLLAMA_NUM_PARALLEL
+    label: Requests handled at once
+    type: number
+    default: "1"
+setup:
+  title: Starter models
+  note: "Models download once into this app's folder and can be removed later with `ollama rm`. Without a GPU everything runs on the CPU: 3-8 B models answer at reading speed on a modern processor, while Qwen3 30B-A3B only does ~3 B of work per word and so reasons far above its speed."
+  choices:
+    - id: hermes3-8b
+      label: Hermes 3 8B
+      description: Nous Research's assistant model, about 4.7 GB. Follows a system prompt closely and is trained for tool calling.
+      website: https://ollama.com/library/hermes3
+      recommended: true
+      exec: [ollama, pull, "hermes3:8b"]
+    - id: qwen3-8b
+      label: Qwen 3 8B
+      description: A strong general model for its size, about 5.2 GB.
+      website: https://ollama.com/library/qwen3
+      exec: [ollama, pull, "qwen3:8b"]
+    - id: qwen3-30b-a3b
+      label: Qwen 3 30B-A3B (best on a CPU)
+      description: About 19 GB and needs roughly 24 GB of memory free. Mixture-of-experts, so it answers at small-model speed while reasoning like a much larger one.
+      website: https://ollama.com/library/qwen3
+      exec: [ollama, pull, "qwen3:30b-a3b"]
+    - id: llama32-3b
+      label: Llama 3.2 3B
+      description: Meta's small model, about 2 GB. The safe choice on a slow or memory-tight server.
+      website: https://ollama.com/library/llama3.2
+      exec: [ollama, pull, "llama3.2:3b"]
+    - id: nomic-embed
+      label: nomic-embed-text (for documents)
+      description: Small embedding model, 270 MB. Needed by anything that answers questions from your own documents.
+      website: https://ollama.com/library/nomic-embed-text
+      recommended: true
+      exec: [ollama, pull, "nomic-embed-text"]
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 600
+notes: "Other apps reach this at http://<this server>:11434 — that is what to enter in AnythingLLM, Open WebUI, or Home Assistant's Ollama integration. There is no login: anything that can reach the port can use the models, so leave it on your home network or the tailnet rather than opening it to the internet. Downloaded models are excluded from backups by design; after a restore, pull them again."
