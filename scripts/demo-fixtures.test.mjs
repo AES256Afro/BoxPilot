@@ -75,6 +75,7 @@ describe("the demo can answer what the interface asks", () => {
       "docker.disk.inspect": ["images", "containers", "volumes"],
       "app.serve.inspect": ["available", "serves"],
       "users.inspect": ["users", "sshd", "sshActive"],
+      "dns.names.inspect": ["available", "platform", "records", "apps"],
     };
     const wrong = [];
     for (const [id, fields] of Object.entries(required)) {
@@ -98,6 +99,7 @@ describe("the demo can answer what the interface asks", () => {
       "app.backup.protection": ["apps", ["id", "name", "protectable", "backups", "newestAt"]],
       "system.performance.inspect": ["apps", ["id", "state", "running", "cpuPercent", "memBytes"]],
       "users.inspect": ["users", ["name", "uid", "shell", "sudo", "keyCount"]],
+      "dns.names.inspect": ["apps", ["id", "name", "port"]],
     };
     const wrong = [];
     for (const [id, [listKey, fields]] of Object.entries(itemFields)) {

@@ -63,7 +63,13 @@ describe("Network Center", () => {
     expect(screen.getByText("One router at the edge, everything else as access points.")).toBeTruthy();
     expect(screen.getAllByText("Router writes locked").length).toBeGreaterThan(0);
     expect(screen.getByText("DNS cutover locked")).toBeTruthy();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    // Assert which requests were made, not how many: a bare count breaks every time a panel is
+    // added to the page, and says nothing about what went wrong when it does.
+    await waitFor(() => {
+      const urls = fetchMock.mock.calls.map(([url]) => url.toString());
+      expect(urls.some((url) => url.endsWith("/network/topology"))).toBe(true);
+      expect(urls.filter((url) => url.endsWith("/network/plans")).length).toBe(1);
+    });
 
     // LAN devices from the neighbour table, each with a one-click Wake-on-LAN.
     expect(screen.getByText("aa:bb:cc:dd:ee:ff")).toBeTruthy();
