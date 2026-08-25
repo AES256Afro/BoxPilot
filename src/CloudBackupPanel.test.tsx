@@ -23,6 +23,18 @@ function setup(inspect: unknown, settings: unknown) {
 }
 
 describe("Cloud backup panel", () => {
+  it("names the fields still missing instead of greying the button out in silence", async () => {
+    // Six fields and a disabled button is a guessing game; the empty one is rarely the one being
+    // looked at. Same trap that stalled a real NAS setup on the Storage page.
+    setup({ rcloneInstalled: true, configured: false, provider: null, providers }, { destination: null, lastSync: null });
+    // Backblaze is the default provider: account and bucket, plus the key, all still empty.
+    const hint = await screen.findByText(/Still needed:/);
+    expect(hint.textContent).toContain("account");
+    expect(hint.textContent).toContain("bucket");
+    expect(hint.textContent).toContain("key");
+    expect(screen.getByRole("button", { name: "Save destination" })).toHaveProperty("disabled", true);
+  });
+
   it("offers rclone installation and stages the destination with its secret once complete", async () => {
     const start = setup({ rcloneInstalled: false, configured: false, provider: null, providers }, { destination: null, lastSync: null });
     fireEvent.click(await screen.findByRole("button", { name: "Install rclone" }));
