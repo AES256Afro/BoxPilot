@@ -210,6 +210,7 @@ const inspections = {
     { id: "open-webui", name: "Open WebUI + Ollama", protectable: true, backups: 1, newestAt: ago(5) },
     { id: "homepage", name: "Homepage", protectable: true, backups: 0, newestAt: null },
   ] },
+  "app.config.inspect": { id: "homepage", name: "Homepage", directory: "/var/lib/boxpilot-managed/catalog/homepage", compose: "name: bp-homepage\nservices:\n  homepage:\n    image: ghcr.io/gethomepage/homepage:v1.5.0\n    restart: unless-stopped\n    ports:\n      - 192.168.1.10:3000:3000\n", env: [{ name: "HOMEPAGE_ALLOWED_HOSTS", value: "*", secret: false }, { name: "PUID", value: "1000", secret: false }, { name: "SECRET", value: "********", secret: true }] },
   "logs.sources": { groups: [{ id: "boxpilot", label: "BoxPilot" }, { id: "system", label: "System journal" }, { id: "docker", label: "Docker" }], units: [{ unit: "boxpilot.service", description: "BoxPilot", active: "active" }, { unit: "docker.service", description: "Docker Engine", active: "active" }, { unit: "tailscaled.service", description: "Tailscale", active: "active" }], dockerAvailable: true, containers: Object.keys(installed).map((id) => ({ name: `bp-${id}`, state: "running", image: `${id}:latest` })) },
   "vm.cloud.images": { images: [] },
   "vm.stats.inspect": { available: true, domains: {} },

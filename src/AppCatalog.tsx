@@ -226,7 +226,10 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
       const response = await fetch("/api/v1/operations/app.config.inspect/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id } }) });
       const body = (await response.json().catch(() => ({}))) as { result?: { id: string; name: string; compose: string | null; env: Array<{ name: string; value: string; secret: boolean }>; directory: string }; error?: string };
       if (!response.ok || !body.result) throw new Error(body.error ?? "Could not read the configuration");
-      setEffectiveConfig(body.result);
+      // Normalised here so the dialog below can read these without checking each one. A partial
+      // answer used to satisfy the guard above and then throw on `env.length` while rendering,
+      // which loses the whole dialog rather than the one section that is missing.
+      setEffectiveConfig({ ...body.result, env: body.result.env ?? [], compose: body.result.compose ?? null, directory: body.result.directory ?? "", name: body.result.name ?? id });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read the configuration");
     }

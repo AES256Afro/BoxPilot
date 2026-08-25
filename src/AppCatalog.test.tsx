@@ -175,6 +175,23 @@ describe("finding things in a catalog of a hundred-odd apps", () => {
     expect(screen.queryByText("Jellyfin")).toBeNull();
   });
 
+  it("still opens the configuration dialog when the answer is missing a section", async () => {
+    // A partial result satisfied the "did we get anything" guard and then threw on env.length
+    // while rendering, losing the whole dialog instead of the one section that was absent.
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest: dockge, live: runningLive }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      if (url.includes("app.serve.inspect")) return json({ result: { available: true, serves: [] } });
+      if (url.includes("app.config.inspect")) return json({ result: { id: "dockge", name: "Dockge" } }); // no env, no compose, no directory
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppCatalog csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Config" }));
+    expect(await screen.findByText("Effective configuration")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Dockge" })).toBeTruthy();
+  });
+
   it("shows a paused app as paused and offers Resume, not Stop-only", async () => {
     // Docker reports a paused container as Running=true — the process exists, it is just frozen.
     // Every check of container.running therefore has to subtract paused, or the card claims the
