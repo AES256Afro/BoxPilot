@@ -77,6 +77,10 @@ const usernamePattern = /^[A-Za-z0-9._-]{1,64}$/;
  */
 export const defaultUsername = "root";
 export const accountFor = (username) => (typeof username === "string" && username.trim() ? username.trim() : defaultUsername);
+/** Whether the owner named an account, as opposed to having root filled in for them. */
+export const accountWasNamed = (username) => typeof username === "string" && Boolean(username.trim()) && username.trim() !== defaultUsername;
+/** The router's word for both "no such account" and "wrong password"; only the stage separates them. */
+const denied = (error) => /access denied/i.test(String(error?.message ?? ""));
 
 export function validateRouter({ kind, host, username, password } = {}) {
   if (!routerKinds.includes(kind)) return "kind must be glinet";
@@ -114,15 +118,36 @@ function rpcClient({ host, fetchJson }) {
   };
 }
 
-/** Authenticate and return a session id. */
+/**
+ * Authenticate and return a session id.
+ *
+ * The router answers "Access denied" to two completely different problems — an account it does not
+ * have, and a password it does not accept — and nothing in the reply tells them apart. The *stage*
+ * does: a denial at `challenge` is the account, a denial at `login` is the password. So each stage
+ * is caught separately and turned into a sentence that says which one it was and what to do about
+ * it. Passing the router's own word through was accurate and useless.
+ */
 export async function routerLogin({ host, username, password }, { run = fixedRun, fetchJson } = {}) {
   const account = accountFor(username);
+  const named = accountWasNamed(username);
   const rpc = rpcClient({ host, fetchJson });
-  const challenge = await rpc("challenge", { username: account });
+
+  const challenge = await rpc("challenge", { username: account }).catch((error) => {
+    if (!denied(error)) throw error;
+    throw new Error(named
+      ? `This router has no account called "${account}". Check the name you sign in to the router's own page with.`
+      : `This router does not sign in as "${defaultUsername}", so it needs to be told which account to use. Choose "This router asks for a username too" and enter the name you sign in to the router's own page with.`);
+  });
   if (!challenge?.salt || !challenge?.nonce) throw new Error("The router did not answer the login challenge as expected");
+
   const hashed = await cryptPassword(run, password, challenge.alg ?? 5, challenge.salt);
   const proof = await md5(run, `${account}:${hashed}:${challenge.nonce}`);
-  const session = await rpc("login", { username: account, hash: proof });
+
+  const session = await rpc("login", { username: account, hash: proof }).catch((error) => {
+    if (!denied(error)) throw error;
+    // The account exists — the challenge for it succeeded a moment ago — so this is the password.
+    throw new Error(`The router did not accept that password for "${account}". This is the password for the router's own admin page, which is often not the same as any other password on this network. Some routers also refuse sign-ins for a few minutes after several wrong attempts.`);
+  });
   if (!session?.sid) throw new Error("The router did not accept that password");
   return session.sid;
 }
