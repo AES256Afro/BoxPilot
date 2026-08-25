@@ -516,7 +516,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                           <td><code>{row.name}</code></td>
                           <td className="num">{row.size}</td>
                           <td className="muted">{row.modified}</td>
-                          <td><button className="text-button danger-text" type="button" onClick={() => { start({ operationId: "app.model.remove", title: `Remove ${row.name}`, parameters: { id: models.id, model: row.name }, confirmText: row.name, preview: <span>Deletes <code>{row.name}</code> and frees {row.size}. It can be downloaded again at any time.</span> }); setModels(null); }}>Remove</button></td>
+                          <td><button className="text-button danger-text" type="button" onClick={() => { start({ operationId: "app.model.remove", title: `Remove ${row.name}`, parameters: { id: models.id, model: row.name }, preview: <span>Deletes <code>{row.name}</code> and frees {row.size}. It can be downloaded again at any time.</span> }); setModels(null); }}>Remove</button></td>
                         </tr>
                       ))}
                     </tbody>
