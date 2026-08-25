@@ -5,9 +5,16 @@ import react from "@vitejs/plugin-react";
 const { version } = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")) as { version: string };
 // Counted from the catalog rather than typed into the copy, which drifted every time the catalog
 // grew: the page claimed 128 apps when there were 161. Rounded down to the ten so it reads as the
-// scale it is ("150+") and cannot be wrong the moment one more manifest lands.
-const manifestCount = readdirSync(new URL("./catalog", import.meta.url)).filter((name) => name.endsWith(".yaml")).length;
-const catalogSize = `${Math.floor(manifestCount / 10) * 10}+`;
+// scale it is ("160+") and cannot be wrong the moment one more manifest lands.
+//
+// A missing catalog is not a build failure. The container build stage copies only what the web
+// bundle needs, and the first version of this crashed it outright — a number on a chip is never
+// worth that, so an absent directory just falls back to the vaguer wording.
+function countManifests() {
+  try { return readdirSync(new URL("./catalog", import.meta.url)).filter((name) => name.endsWith(".yaml")).length; } catch { return 0; }
+}
+const manifestCount = countManifests();
+const catalogSize = manifestCount >= 10 ? `${Math.floor(manifestCount / 10) * 10}+` : "Many";
 
 export default defineConfig({
   define: { __BOXPILOT_VERSION__: JSON.stringify(version), __BOXPILOT_CATALOG_SIZE__: JSON.stringify(catalogSize) },
