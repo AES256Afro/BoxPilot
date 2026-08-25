@@ -85,6 +85,29 @@ describe("the demo can answer what the interface asks", () => {
     expect(wrong, "a fixture whose shape disagrees with the server teaches the tests the wrong thing").toEqual([]);
   });
 
+  it("gives the fields the interface reads inside a list, not only at the top", () => {
+    // Checking top-level keys is not enough: `app.backups.inspect` had its `backups` array, and
+    // the entries in it were missing the field the dialog reads, which threw inside Array.some
+    // and lost the whole dialog. The rows are what the interface actually walks over.
+    const itemFields = {
+      "app.backups.inspect": ["backups", ["artifact", "createdAt", "sizeBytes", "skippedVolumes", "skippedHostPaths"]],
+      "app.backup.files": ["files", ["path", "sizeBytes"]],
+      "host.snapshot.sources": ["sources", ["source", "root", "available", "snapshots"]],
+      "app.models.inspect": ["models", ["name", "size", "bytes"]],
+      "app.backup.protection": ["apps", ["id", "name", "protectable", "backups", "newestAt"]],
+      "system.performance.inspect": ["apps", ["id", "state", "running", "cpuPercent", "memBytes"]],
+    };
+    const wrong = [];
+    for (const [id, [listKey, fields]] of Object.entries(itemFields)) {
+      const list = inspections[id]?.[listKey];
+      if (!Array.isArray(list)) { wrong.push(`${id}.${listKey}: not a list`); continue; }
+      if (list.length === 0) { wrong.push(`${id}.${listKey}: empty, so nothing is exercised`); continue; }
+      const absent = fields.filter((field) => !(field in list[0]));
+      if (absent.length) wrong.push(`${id}.${listKey}[0]: missing ${absent.join(", ")}`);
+    }
+    expect(wrong, "the interface walks these rows; a row missing a field is a crash it cannot see here").toEqual([]);
+  });
+
   it("names a real operation in every fixture, and never answers with nothing", () => {
     const registered = new Set(operationModules.flatMap((build) => build()).map((operation) => operation.id));
     const unknown = Object.keys(inspections).filter((id) => !registered.has(id));
