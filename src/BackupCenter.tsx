@@ -5,6 +5,7 @@ import RestorePanel from "./RestorePanel";
 import { inspectOperation } from "./operations";
 import { readJson } from "./http";
 import { judgeProtection, type AppProtection, type ProtectionVerdict, type ScheduleLike } from "./backupProtection";
+import { offBoxVerdict, offBoxWarning, mirrorOperations, type OffBoxInputs } from "./offBox";
 
 interface BackupRecord { id: string; applicationId: string; destination: string; checksumSha256: string; sizeBytes: number; downtimeMs: number; restoreDrill: { passed?: boolean } | null; createdAt: string }
 interface ControllerProtection { id: string; backupId: string; snapshotId?: string; createdAt: string; protected?: boolean; retained?: boolean }
@@ -33,6 +34,7 @@ function formatBytes(bytes: number): string {
 export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenRepair?: () => void }) {
   const [appProtection, setAppProtection] = useState<{ verdicts: ProtectionVerdict[]; available: boolean } | null>(null);
   const [protecting, setProtecting] = useState<string | null>(null);
+  const [offBox, setOffBox] = useState<{ warning: string | null; inputs: OffBoxInputs; scheduled: boolean } | null>(null);
   const [backups, setBackups] = useState<BackupRecord[]>([]);
   const [protection, setProtection] = useState<ProtectionState | null>(null);
   const [retention, setRetention] = useState<RetentionStatus | null>(null);
@@ -84,7 +86,30 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
         inspectOperation<{ available: boolean; apps: AppProtection[] }>("app.backup.protection"),
         fetch("/api/v1/schedules").then((response) => (response.ok ? response.json() : { schedules: [] })).catch(() => ({ schedules: [] })),
       ]);
-      setAppProtection({ available: result.result.available, verdicts: judgeProtection(result.result.apps, (scheduleList as { schedules: ScheduleLike[] }).schedules ?? []) });
+      const schedules = (scheduleList as { schedules: ScheduleLike[] }).schedules ?? [];
+      setAppProtection({ available: result.result.available, verdicts: judgeProtection(result.result.apps, schedules) });
+
+      const read = async (url: string) => {
+        try {
+          const response = await fetch(url);
+          if (!response.ok) return { configured: false, lastSyncAt: null };
+          const body = (await response.json()) as { destination?: unknown; lastSync?: unknown };
+          const at = body.lastSync;
+          return { configured: Boolean(body.destination), lastSyncAt: typeof at === "string" ? at : (at as { completedAt?: string } | null)?.completedAt ?? null };
+        } catch { return { configured: false, lastSyncAt: null }; }
+      };
+      const [cloud, ssh, machine] = await Promise.all([
+        read("/api/v1/settings/cloud-destination"),
+        read("/api/v1/settings/backup-destination"),
+        inspectOperation<{ sync: { mount: { mounted: boolean }; lastSync: { completedAt: string } | null } }>("host.snapshot.inspect").catch(() => null),
+      ]);
+      const inputs: OffBoxInputs = { cloud, ssh, drive: { configured: machine?.result.sync.mount.mounted ?? false, lastSyncAt: machine?.result.sync.lastSync?.completedAt ?? null } };
+      const wanted = mirrorOperations(inputs);
+      setOffBox({
+        warning: offBoxWarning(offBoxVerdict(inputs)),
+        inputs,
+        scheduled: wanted.length > 0 && wanted.every((operationId) => schedules.some((schedule) => schedule.operationId === operationId && schedule.enabled !== false)),
+      });
     } catch {
       setAppProtection(null);
     }
@@ -116,6 +141,29 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
     setProtecting(failures.length
       ? `Scheduled ${created} of ${targets.length}. ${failures.join("; ")}`
       : `Scheduled nightly backups for ${created} app${created === 1 ? "" : "s"}. The first runs tonight.`);
+    await loadProtection();
+  };
+
+  /** Give every configured destination a nightly copy, after the app backups have been taken. */
+  const mirrorNightly = async (operations: string[]) => {
+    setProtecting("Scheduling the nightly off-box copy…");
+    let created = 0;
+    const failures: string[] = [];
+    for (const [index, operationId] of operations.entries()) {
+      try {
+        const response = await fetch("/api/v1/schedules", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+          // 4am onwards: after the staggered app backups above have finished writing.
+          body: JSON.stringify({ operationId, parameters: {}, frequency: "daily", minute: 15, hour: (4 + index) % 24 }),
+        });
+        if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error ?? "refused");
+        created += 1;
+      } catch (requestError) {
+        failures.push(`${operationId}: ${requestError instanceof Error ? requestError.message : "failed"}`);
+      }
+    }
+    setProtecting(failures.length ? `Scheduled ${created} of ${operations.length}. ${failures.join("; ")}` : `Nightly off-box copy scheduled. The first runs tonight.`);
     await loadProtection();
   };
 
@@ -242,6 +290,30 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
           <span className="muted">Recurring snapshots and syncs can be scheduled on the System page.</span>
         </div>
       </section>
+
+      {offBox && (offBox.warning || !offBox.scheduled) && (
+        <section className="panel">
+          <header className="panel-header">
+            <div>
+              <strong>A copy somewhere other than this server</strong>
+              <span>Backups beside the data they protect survive a bad upgrade, not a failed disk.</span>
+            </div>
+            {mirrorOperations(offBox.inputs).length > 0 && !offBox.scheduled && (
+              <button className="primary-button" type="button" disabled={Boolean(protecting)} onClick={() => void mirrorNightly(mirrorOperations(offBox.inputs))}>
+                Copy off-box nightly
+              </button>
+            )}
+          </header>
+          {offBox.warning
+            ? <p className={mirrorOperations(offBox.inputs).length === 0 ? "auth-error" : "muted"}>{offBox.warning}</p>
+            : <p className="muted">Copied off this server {offBoxVerdict(offBox.inputs).ageDays === 0 ? "today" : `${offBoxVerdict(offBox.inputs).ageDays} days ago`}.</p>}
+          {mirrorOperations(offBox.inputs).length === 0
+            ? <p className="muted">Set up a destination below — a cloud bucket, another machine over SSH, or a drive that is not this server's system disk. Any one of them is enough.</p>
+            : offBox.scheduled
+              ? <p className="muted">A nightly copy is scheduled.</p>
+              : <p className="muted">A destination is set up, but nothing is keeping the copy current. Scheduling it is the difference between a backup plan and a backup.</p>}
+        </section>
+      )}
 
       <section className="panel">
         <header className="panel-header">
