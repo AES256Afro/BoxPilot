@@ -19,6 +19,7 @@ import { adviseFirewall, profiles, protectedRules, riskyPorts, services, buildPl
 import { annotateDevices, parseLsblkTree, sharesFrom, volumeGroupsFrom } from "../server/storage-inventory.mjs";
 import { cloudProviders } from "../server/backup-cloud.mjs";
 import { buildChecklist } from "../server/setup-checklist.mjs";
+import { setupProfiles } from "../server/setup-profiles.mjs";
 import { productVersion } from "../server/version.mjs";
 import { humanBytes } from "../server/housekeeping.mjs";
 
@@ -236,7 +237,20 @@ api.get("/settings/backup-destination", (_request, response) => json(response, {
 api.get("/settings/cloud-destination", (_request, response) => json(response, { destination: { provider: "b2", account: "001a2b3c4d5e", bucket: "homebox-backups", path: "homebox" }, lastSync: { completedAt: ago(26), filesTransferred: 3, bytesTransferred: "58.1 MiB", destination: "boxpilot:homebox-backups/homebox", errors: 0 } }));
 api.get("/settings/notifications", (_request, response) => json(response, { configured: true, kind: "ntfy", url: "http://127.0.0.1:8093", topic: "homebox", hasToken: false }));
 api.get("/settings/approval-mode", (_request, response) => json(response, { mode: "tiered", modes: ["tiered", "always-ask"] }));
-api.get("/setup", (_request, response) => json(response, { firstRun: false, installedApps: Object.keys(installed).length, profiles: [] }));
+// Real profiles from the product, resolved against the demo's installed set, so the first page a
+// new owner sees is actually exercisable here.
+api.get("/setup", async (_request, response) => {
+  const status = (id) => (installed[id] ? "done" : "ready");
+  const profiles = setupProfiles.map((profile) => {
+    const steps = profile.steps.map((step) => ({
+      ...step,
+      status: step.kind === "app" ? status(step.appId) : step.id === "automatic-updates" ? "done" : "ready",
+      detail: step.kind === "app" && installed[step.appId] ? "Already installed" : null,
+    }));
+    return { id: profile.id, name: profile.name, icon: profile.icon, description: profile.description, steps, remaining: steps.filter((step) => step.status === "ready").length, blocked: 0 };
+  });
+  json(response, { firstRun: false, installedApps: Object.keys(installed).length, appsKnown: true, profiles });
+});
 api.get("/setup/checklist", (_request, response) => json(response, buildChecklist({ tailscale: { connected: true, dnsName: host.tailnet }, firewall: firewallReport, firewallProfile, unattended: { enabled: true }, notifications: { configured: true, kind: "ntfy" }, cloudDestination: { provider: "b2" }, installedApps: Object.keys(installed), samba: { configured: true }, nfs: { configured: false }, ups: { configured: true } })));
 api.get("/virtualization/domains", (_request, response) => json(response, { domains: [{ name: "dev-lab", state: "running" }, { name: "win11-test", state: "stopped" }] }));
 api.get("/schedules", (_request, response) => json(response, { schedules: [

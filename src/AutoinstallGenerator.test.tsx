@@ -6,6 +6,15 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 describe("autoinstall generator", () => {
+  it("suggests the release this build is, not one frozen in the source", async () => {
+    // The placeholder read v0.62.5 more than a hundred releases later. It is the one field where
+    // copying the example verbatim installs something ancient on a server being built from scratch.
+    render(<AutoinstallGenerator />);
+    const field = await screen.findByPlaceholderText(/^v\d+\.\d+\.\d+ \(current\)$/);
+    expect(field).toBeTruthy();
+    expect((field as HTMLInputElement).placeholder).toContain(__BOXPILOT_VERSION__);
+  });
+
   it("imports GitHub keys, posts the request without keeping the password, and shows the user-data", async () => {
     let posted: string | undefined;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
