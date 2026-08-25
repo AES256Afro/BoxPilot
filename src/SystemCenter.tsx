@@ -337,7 +337,7 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
         </header>
       </section>
 
-      <SchedulesPanel csrfToken={csrfToken} />
+      <SchedulesPanel csrfToken={csrfToken} serverTimezone={settings?.timezone ?? null} />
     </div>
   );
 }

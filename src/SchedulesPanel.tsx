@@ -19,7 +19,7 @@ function lastResultPill(schedule: Schedule) {
 }
 
 /** Scheduled operations (M6.1): nightly app backups, update refreshes, Docker cleanup. */
-export default function SchedulesPanel({ csrfToken }: { csrfToken: string }) {
+export default function SchedulesPanel({ csrfToken, serverTimezone = null }: { csrfToken: string; serverTimezone?: string | null }) {
   const [schedules, setSchedules] = useState<Schedule[] | null>(null);
   const [installedApps, setInstalledApps] = useState<Array<{ id: string; name: string }>>([]);
   const [error, setError] = useState<string | null>(null);
@@ -106,7 +106,7 @@ export default function SchedulesPanel({ csrfToken }: { csrfToken: string }) {
       {error && <div className="auth-error" role="alert">{error}</div>}
       <div className="table-scroll">
         <table>
-          <thead><tr><th>What</th><th>When</th><th>Next run</th><th>Last run</th><th aria-label="Actions" /></tr></thead>
+          <thead><tr><th>What</th><th>When{serverTimezone ? <span className="muted"> ({serverTimezone})</span> : null}</th><th>Next run <span className="muted">(your time)</span></th><th>Last run</th><th aria-label="Actions" /></tr></thead>
           <tbody>
             {schedules === null ? <tr><td colSpan={5}>Loading schedules...</td></tr> : null}
             {schedules?.length === 0 ? <tr><td colSpan={5}>Nothing scheduled yet.</td></tr> : null}

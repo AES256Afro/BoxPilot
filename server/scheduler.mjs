@@ -62,6 +62,14 @@ export function createSchedulerService({ store, jobs, registry = defaultRegistry
     const cadenceError = validateCadence({ frequency, minute, hour, weekday });
     if (cadenceError) throw new Error(cadenceError);
     const nextDueAt = computeNextRun({ frequency, minute, hour, weekday }, now()).toISOString();
+    // The same person scheduling the same operation on the same target twice is a mistake every
+    // time: two backups a night means two container stops and twice the downtime, and it is easy
+    // to reach by clicking "schedule everything" before the list on screen has caught up. Two
+    // *accounts* each keeping their own copy is left alone — that is theirs to decide.
+    const already = store.listSchedules().find((schedule) => schedule.operationId === operationId
+      && schedule.createdBy === createdBy
+      && JSON.stringify(schedule.parameters ?? {}) === JSON.stringify(parameters ?? {}));
+    if (already) throw new Error(`${operation.title} is already scheduled ${describeCadence(already)}. Delete that one first if you want a different time.`);
     return store.createSchedule({ operationId, parameters, frequency, minute, hour: frequency === "hourly" ? null : hour, weekday: frequency === "weekly" ? weekday : null, createdBy, nextDueAt });
   }
 
