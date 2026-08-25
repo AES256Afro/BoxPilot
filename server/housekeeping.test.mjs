@@ -9,11 +9,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHousekeepingService } from "./housekeeping.mjs";
+import { housekeepingRemoveTrees } from "./tasks/housekeeping.mjs";
 
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
 
-async function fixture() {
+async function fixture({ runUnitFails = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "boxpilot-housekeeping-"));
   directories.push(root);
   const installRoot = path.join(root, "opt");
@@ -68,8 +69,15 @@ async function fixture() {
     return { ok: true, stdout: "Total reclaimed space: 2GB", stderr: "" };
   });
 
+  // The real thing removes /opt trees through the root task runner, because the helper runs with
+  // /opt read-only. The fake runs the actual task so the test covers its checks too.
+  const runUnit = { runTask: async (name, parameters) => {
+    if (runUnitFails) throw new Error("EROFS: read-only file system");
+    if (name !== "housekeeping.remove-trees") throw new Error(`unexpected task ${name}`);
+    return housekeepingRemoveTrees(parameters);
+  } };
   const service = createHousekeepingService({
-    run, installRoot, currentTree: path.join(installRoot, "boxpilot"),
+    run, runUnit, installRoot, currentTree: path.join(installRoot, "boxpilot"),
     catalogRoot, applicationBackupRoot, jobLogDirectory,
     apps: { inspect: async () => ({ applications: [{ id: "jellyfin", installed: true, installedImage: "jellyfin/jellyfin:10.11.11" }] }) },
     now: () => new Date(now),
@@ -147,7 +155,20 @@ describe("reclaiming", () => {
     const lines = [];
     await service.reclaim({ targets: ["boxpilot-versions"], progress: (line) => lines.push(line) });
     expect(lines.join("\n")).toContain("keeping boxpilot.prev.20260822T100000Z and boxpilot.failed.20260822T090000Z");
-    expect(lines.filter((line) => line.startsWith("  [")).length).toBe(4);
+    // The trees go in one task-runner call now, so the commentary is a summary rather than a
+    // line each: the helper cannot write /opt itself.
+    expect(lines.join("\n")).toContain("removed 4 of 4.");
+  });
+
+  it("clears what it can when one category fails, instead of stopping at the first error", async () => {
+    // An /opt permission problem used to abort the whole run, leaving gigabytes of unused images
+    // in place for a reason that had nothing to do with them.
+    const { service } = await fixture({ runUnitFails: true });
+    const result = await service.reclaim({ targets: ["boxpilot-versions", "docker-unused"] });
+    expect(result.reclaimed).toBe(false);
+    expect(result.failures.map((entry) => entry.category)).toEqual(["boxpilot-versions"]);
+    // The Docker half still ran.
+    expect(result.removed.some((entry) => entry.category === "docker-unused")).toBe(true);
   });
 
   it("removes only the categories named, and leaves live data alone", async () => {

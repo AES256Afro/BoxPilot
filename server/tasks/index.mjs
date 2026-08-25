@@ -9,6 +9,7 @@ import { sshPasswordAuthSet, userAdd, userKeysImport, userSudoSet } from "./user
 import { firewallProfileApply, firewallRuleAdd, firewallRuleDelete, firewallSet } from "./firewall.mjs";
 import { storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageUnmount, swapFileSet } from "./storage.mjs";
 import { shareMount, shareUnmount } from "./shares.mjs";
+import { housekeepingRemoveTrees } from "./housekeeping.mjs";
 import { sambaApply, sambaUserRemove, sambaUserSet } from "./samba.mjs";
 import { nfsApply } from "./nfs.mjs";
 import { upsSetup } from "./ups.mjs";
@@ -49,6 +50,7 @@ export const tasks = Object.freeze({
   "storage.lvm-snapshot-create": storageLvmSnapshotCreate,
   "storage.lvm-snapshot-delete": storageLvmSnapshotDelete,
   "storage.lvm-snapshot-rollback": storageLvmSnapshotRollback,
+  "housekeeping.remove-trees": housekeepingRemoveTrees,
   "share.mount": shareMount,
   "share.unmount": shareUnmount,
   "samba.apply": sambaApply,

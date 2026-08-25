@@ -90,6 +90,7 @@ export function createHousekeepingService({
   applicationBackupRoot = path.join(process.env.BOXPILOT_APPLICATION_BACKUP_ROOT ?? "/var/lib/boxpilot-managed/backups", "catalog"),
   jobLogDirectory = process.env.BOXPILOT_JOB_LOG_DIRECTORY ?? "/var/lib/boxpilot/job-logs",
   apps = null,
+  runUnit = null,
   keepBackupsPerApp = 3,
   jobLogMaxAgeDays = 90,
   now = () => new Date(),
@@ -300,6 +301,11 @@ export function createHousekeepingService({
   }
 
   /** Clear the chosen categories. Anything not named is left exactly as it was. */
+  /**
+   * Clear the chosen categories. A category that fails is reported and the rest still run: the
+   * first version stopped at the first error, so an /opt permission problem left eighteen
+   * gigabytes of unused images in place for a reason that had nothing to do with them.
+   */
   async function reclaim({ targets = [], progress = null } = {}) {
     const chosen = new Set(Array.isArray(targets) ? targets : []);
     const unknown = [...chosen].filter((id) => !categoryIds.includes(id));
@@ -308,20 +314,36 @@ export function createHousekeepingService({
     let freedBytes = 0;
     // Clearing several gigabytes of small files takes minutes. Without a running commentary the
     // job looks stuck, and the honest fix is to say what is going rather than to raise a timeout.
-    const say = (message) => progress?.(message, "stdout");
+    const say = (message, stream = "stdout") => progress?.(message, stream);
+    const failures = [];
+    // Each category stands alone. Stopping at the first error meant an /opt permission problem
+    // left eighteen gigabytes of unused images in place for a reason unrelated to them.
+    const attempt = async (label, work) => {
+      try { await work(); }
+      catch (error) { failures.push({ category: label, error: error.message }); say(`${label} could not be cleared: ${error.message}`, "stderr"); }
+    };
 
-    if (chosen.has("boxpilot-versions")) {
+    if (chosen.has("boxpilot-versions")) await attempt("boxpilot-versions", async () => {
       const trees = await previousTrees();
       say(`Removing ${trees.remove.length} previous release${trees.remove.length === 1 ? "" : "s"}, keeping ${trees.keep.map((entry) => entry.name).join(" and ") || "none"}.`);
-      for (const [index, entry] of trees.remove.entries()) {
-        await rm(entry.path, { recursive: true, force: true });
+      // Through the task runner, not from here: this process runs with /opt read-only on purpose,
+      // so that a root helper cannot rewrite the application it is part of. Doing it inline failed
+      // with EROFS every time, on the largest category the page offers.
+      if (!runUnit) throw new Error("Removing previous releases needs the root task runner, which is not available");
+      const result = await runUnit.runTask("housekeeping.remove-trees", {
+        paths: trees.remove.map((entry) => entry.path), installRoot, currentTree,
+      }, { timeoutMs: 20 * 60_000 });
+      const gone = new Set(result?.removed ?? []);
+      for (const entry of trees.remove) {
+        if (!gone.has(path.resolve(entry.path))) continue;
         freedBytes += entry.bytes;
         removed.push({ category: "boxpilot-versions", what: entry.name, bytes: entry.bytes });
-        say(`  [${index + 1}/${trees.remove.length}] ${entry.name} (${humanBytes(entry.bytes)})`);
       }
-    }
+      say(`  removed ${gone.size} of ${trees.remove.length}.`);
+      for (const refusal of result?.refused ?? []) say(`  kept ${path.basename(refusal.path)}: ${refusal.reason}`, "stderr");
+    });
 
-    if (chosen.has("docker-unused")) {
+    if (chosen.has("docker-unused")) await attempt("docker-unused", async () => {
       // Deliberately not `docker system prune`. That also removes exited containers and unused
       // networks, and an app you stopped from this very interface is both: pruning deletes its
       // container and its network, and Docker then refuses to start it again — the container is
@@ -333,9 +355,9 @@ export function createHousekeepingService({
         if (!result.ok) throw new Error(`docker ${args.slice(0, 2).join(" ")} failed: ${result.stderr.split("\n").slice(-2).join(" ")}`);
         removed.push({ category: "docker-unused", what, reclaimed: result.stdout.match(/Total reclaimed space:\s*(.+)$/m)?.[1] ?? null });
       }
-    }
+    });
 
-    if (chosen.has("docker-unreferenced-images")) {
+    if (chosen.has("docker-unreferenced-images")) await attempt("docker-unreferenced-images", async () => {
       const images = await imageInventory();
       const unused = (images ?? []).filter((entry) => !entry.used);
       say(`Removing ${unused.length} image${unused.length === 1 ? "" : "s"} no app uses.`);
@@ -345,9 +367,9 @@ export function createHousekeepingService({
         if (result.ok) { freedBytes += image.bytes; removed.push({ category: "docker-unreferenced-images", what: image.reference, bytes: image.bytes }); }
         say(`  [${index + 1}/${unused.length}] ${image.reference}${result.ok ? "" : " — still in use, left alone"}`);
       }
-    }
+    });
 
-    if (chosen.has("app-backups")) {
+    if (chosen.has("app-backups")) await attempt("app-backups", async () => {
       const stale = await oldApplicationBackups();
       say(`Removing ${stale.length} backup archive${stale.length === 1 ? "" : "s"} behind the newest ${keepBackupsPerApp} of each app.`);
       for (const entry of stale) {
@@ -356,9 +378,9 @@ export function createHousekeepingService({
         freedBytes += entry.bytes;
         removed.push({ category: "app-backups", what: `${entry.app}/${path.basename(entry.path)}`, bytes: entry.bytes });
       }
-    }
+    });
 
-    if (chosen.has("restore-leftovers")) {
+    if (chosen.has("restore-leftovers")) await attempt("restore-leftovers", async () => {
       const leftovers = await restoreLeftovers();
       say(`Removing ${leftovers.length} folder${leftovers.length === 1 ? "" : "s"} an unfinished restore left behind.`);
       for (const entry of leftovers) {
@@ -366,9 +388,9 @@ export function createHousekeepingService({
         freedBytes += entry.bytes;
         removed.push({ category: "restore-leftovers", what: `${entry.app}/${path.basename(entry.path)}`, bytes: entry.bytes });
       }
-    }
+    });
 
-    if (chosen.has("job-logs")) {
+    if (chosen.has("job-logs")) await attempt("job-logs", async () => {
       const logs = await orphanedJobLogs();
       say(`Removing ${logs.length} log${logs.length === 1 ? "" : "s"} for jobs nothing lists any more.`);
       for (const entry of logs) {
@@ -376,10 +398,10 @@ export function createHousekeepingService({
         freedBytes += entry.bytes;
         removed.push({ category: "job-logs", what: path.basename(entry.path), bytes: entry.bytes });
       }
-    }
+    });
 
     say(`Done — ${humanBytes(freedBytes)} back, plus whatever Docker's own prune returned.`);
-    return { reclaimed: true, targets: [...chosen], removed, freedBytes, freedHumanBytes: humanBytes(freedBytes) };
+    return { reclaimed: failures.length === 0, targets: [...chosen], removed, failures, freedBytes, freedHumanBytes: humanBytes(freedBytes) };
   }
 
   return { inspect, reclaim, internals: { previousTrees, imageInventory, danglingLayers, oldApplicationBackups, restoreLeftovers, orphanedJobLogs, humanBytes } };
