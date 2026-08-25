@@ -40,6 +40,19 @@ export async function fixedRun(binary, args = [], { timeout = 30_000, maxBuffer 
  * survived into the job log as `[K` and `[A[A[1G` wrapped around the words. Stripping them here
  * covers every command rather than the one that prompted it.
  */
+/**
+ * Cursor movement and erasure, rewritten as the carriage returns they amount to.
+ *
+ * The redraw sampling below splits on `\r`, which is how most progress bars repaint — but not all
+ * of them. `ollama pull` moves the cursor up and clears each line instead, so once the escape
+ * sequences were stripped there was nothing left to mark where one repaint ended and the next
+ * began, and a minute of spinner frames arrived as a single run-on line. Turning those sequences
+ * into `\r` puts the boundary back and lets the existing sampling do its job.
+ */
+function asRedraws(text) {
+  return String(text ?? "").replace(/\u001B\[[0-9;?]*[ABCDEFGHJKf]/g, "\r");
+}
+
 export function stripTerminalCodes(text) {
   return String(text ?? "")
     .replace(/\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)/g, "")  // OSC ... BEL / ST
@@ -69,7 +82,7 @@ export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, 
       if (clean) { try { onLine(clean, stream); } catch { /* logging must never break the command */ } }
     };
     const consume = (stream, chunk) => {
-      const text = partial[stream] + chunk.toString("utf8");
+      const text = partial[stream] + asRedraws(chunk.toString("utf8"));
       const rows = text.split("\n");
       partial[stream] = rows.pop() ?? "";
       // A completed line is always delivered.
