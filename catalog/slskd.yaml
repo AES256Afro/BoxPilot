@@ -3,7 +3,7 @@ id: slskd
 name: slskd
 category: Media automation
 icon: "🎵"
-description: A Soulseek client with a web interface — search the network for music that is nowhere else, and share back from a folder you choose. Lidarr can use it as a download client.
+description: A Soulseek client with a web interface. Search the network for music that is nowhere else, and share back from a folder you choose. Lidarr can use it as a download client.
 website: https://github.com/slskd/slskd
 risk: medium
 image:
@@ -57,4 +57,4 @@ health:
   kind: running
   stableSeconds: 15
   timeoutSeconds: 240
-notes: "The web UI's first login is slskd / slskd — change it under Settings straight away. Soulseek expects you to share back; point the share at a folder of music you already have, and forward the peer port at your router for better search results."
+notes: "The web UI's first login is slskd / slskd. Change it under Settings straight away. Soulseek expects you to share back; point the share at a folder of music you already have, and forward the peer port at your router for better search results."

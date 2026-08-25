@@ -51,4 +51,4 @@ health:
   kind: running
   stableSeconds: 20
   timeoutSeconds: 300
-notes: "The image is about 7.5 GB, so the first install takes a while and wants the space. It starts with no cameras and prints a generated admin password to its log — open Logs and look for \"Password:\" the first time. Add cameras by editing config/config.yaml under the app's data folder. Recordings grow quickly: point the Recordings volume at a disk with room, and set a retention period in Frigate's settings. Detection runs on the CPU unless you give it a Coral TPU or a GPU, which this manifest does not claim."
+notes: "The image is about 7.5 GB, so the first install takes a while and wants the space. It starts with no cameras and prints a generated admin password to its log. Open Logs and look for \"Password:\" the first time. Add cameras by editing config/config.yaml under the app's data folder. Recordings grow quickly: point the Recordings volume at a disk with room, and set a retention period in Frigate's settings. Detection runs on the CPU unless you give it a Coral TPU or a GPU, which this manifest does not claim."

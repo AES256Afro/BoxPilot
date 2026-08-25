@@ -3,7 +3,7 @@ id: guacamole
 name: Apache Guacamole
 category: Network
 icon: "🥑"
-description: Reach any desktop in your house from a browser tab — RDP to a Windows machine, VNC to a Mac, SSH to a server, with no client to install on whatever device you happen to be holding. This build bundles the database and the connection daemon, so it works on its own.
+description: Reach any desktop in your house from a browser tab. RDP to a Windows machine, VNC to a Mac, SSH to a server, with no client to install on whatever device you happen to be holding. This build bundles the database and the connection daemon, so it works on its own.
 website: https://guacamole.apache.org
 risk: medium
 image:
@@ -38,4 +38,4 @@ health:
   kind: running
   stableSeconds: 30
   timeoutSeconds: 420
-notes: "The first login is guacadmin / guacadmin — change it under Settings → Users before anything else, because this one account can reach every machine you add. Guacamole itself connects out to the machines you configure; nothing needs installing on them beyond the RDP, VNC or SSH server they already run."
+notes: "The first login is guacadmin / guacadmin. Change it under Settings → Users before anything else, because this one account can reach every machine you add. Guacamole itself connects out to the machines you configure; nothing needs installing on them beyond the RDP, VNC or SSH server they already run."

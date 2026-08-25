@@ -3,7 +3,7 @@ id: transmission
 name: Transmission
 category: Media automation
 icon: "🌀"
-description: Light, plain torrent client with a web interface. A quieter alternative to qBittorrent when you do not need a VPN tunnel of its own — put it behind one at the router, or use the VPN-wrapped qBittorrent instead.
+description: Light, plain torrent client with a web interface. A quieter alternative to qBittorrent when you do not need a VPN tunnel of its own. Put it behind one at the router, or use the VPN-wrapped qBittorrent instead.
 website: https://transmissionbt.com
 risk: medium
 image:

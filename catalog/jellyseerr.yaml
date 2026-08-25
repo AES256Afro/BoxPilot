@@ -3,7 +3,7 @@ id: jellyseerr
 name: Jellyseerr
 category: Media
 icon: "🍿"
-description: Request manager for Jellyfin — family members ask for movies and shows, you approve with one click.
+description: Request manager for Jellyfin. Family members ask for movies and shows, you approve with one click.
 website: https://github.com/fallenbagel/jellyseerr
 risk: medium
 image:

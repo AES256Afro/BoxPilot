@@ -51,4 +51,4 @@ health:
   kind: running
   stableSeconds: 20
   timeoutSeconds: 900
-notes: "Players join <this server>:15637 with the join password from Secrets. The first start downloads the server through SteamCMD (several GB) — watch Logs. Enshrouded wants a good deal of memory; give the machine at least 8 GB free before a busy session."
+notes: "Players join <this server>:15637 with the join password from Secrets. The first start downloads the server through SteamCMD (several GB). Watch Logs. Enshrouded wants a good deal of memory; give the machine at least 8 GB free before a busy session."

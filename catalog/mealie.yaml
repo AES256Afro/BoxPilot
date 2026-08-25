@@ -35,4 +35,4 @@ env:
 health:
   kind: running
   stableSeconds: 15
-notes: Default login is changeme@example.com / MyPassword — change it immediately.
+notes: Default login is changeme@example.com / MyPassword. Change it immediately.

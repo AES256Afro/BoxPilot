@@ -3,7 +3,7 @@ id: deluge
 name: Deluge
 category: Media automation
 icon: "💧"
-description: Torrent client built around plugins — label your downloads, run scripts when one finishes, or drive it from a desktop client over its own remote protocol.
+description: Torrent client built around plugins. Label your downloads, run scripts when one finishes, or drive it from a desktop client over its own remote protocol.
 website: https://deluge-torrent.org
 risk: medium
 image:
@@ -59,4 +59,4 @@ health:
   kind: running
   stableSeconds: 15
   timeoutSeconds: 240
-notes: "The web UI's first password is \"deluge\" — change it under Preferences → Interface immediately. The remote-client port is kept on this server only; open it deliberately if you want to drive Deluge from a desktop app."
+notes: "The web UI's first password is \"deluge\". Change it under Preferences → Interface immediately. The remote-client port is kept on this server only; open it deliberately if you want to drive Deluge from a desktop app."

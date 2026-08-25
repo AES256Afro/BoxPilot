@@ -3,7 +3,7 @@ id: emulatorjs
 name: EmulatorJS
 category: Games
 icon: "🕹️"
-description: "Play your retro game collection in a browser — no console, no installs. Scans a folder of ROMs and builds a library anything with a browser can reach."
+description: "Play your retro game collection in a browser, no console, no installs. Scans a folder of ROMs and builds a library anything with a browser can reach."
 website: https://emulatorjs.com
 risk: medium
 image:
@@ -49,4 +49,4 @@ health:
   kind: running
   stableSeconds: 10
   timeoutSeconds: 300
-notes: "Put ROM files into the console folders under the ROMs volume, then open the management UI and press Scan. The management UI is bound to this server only, because it can write to that folder — reach it over Tailscale or an SSH tunnel; the library itself is on the first port. You need to provide your own game files."
+notes: "Put ROM files into the console folders under the ROMs volume, then open the management UI and press Scan. The management UI is bound to this server only, because it can write to that folder. Reach it over Tailscale or an SSH tunnel; the library itself is on the first port. You need to provide your own game files."

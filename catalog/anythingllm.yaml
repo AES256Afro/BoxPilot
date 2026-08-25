@@ -3,7 +3,7 @@ id: anythingllm
 name: AnythingLLM
 category: AI
 icon: "🧠"
-description: Give a local model a memory of your own material. Drop in documents, paste a website address, or point it at a folder, and it answers from what you fed it — with citations back to the source. Organised as workspaces, so work, house, and research stay separate.
+description: Give a local model a memory of your own material. Drop in documents, paste a website address, or point it at a folder, and it answers from what you fed it, with citations back to the source. Organised as workspaces, so work, house, and research stay separate.
 website: https://anythingllm.com
 risk: medium
 image:
@@ -20,7 +20,7 @@ volumes:
     label: Documents, embeddings, workspaces
     container: /app/server/storage
     path: storage
-    description: Everything it has learned — the documents you added, the searchable index built from them, and your workspaces. This is the part worth backing up.
+    description: The documents you added, the searchable index built from them, and your workspaces are everything it has learned. This is the part worth backing up.
 env:
   - name: STORAGE_DIR
     default: /app/server/storage
@@ -40,12 +40,12 @@ env:
     default: "true"
   - name: LLM_PROVIDER
     label: Which model to use
-    description: "\"ollama\" uses a model running on this server — install the Ollama app first, or the Open WebUI + Ollama bundle. Leave as ollama unless you intend to use a paid cloud provider, which you then configure inside the app."
+    description: "\"ollama\" uses a model running on this server. Install the Ollama app first, or the Open WebUI + Ollama bundle. Leave as ollama unless you intend to use a paid cloud provider, which you then configure inside the app."
     default: ollama
     options: [ollama, openai, anthropic, localai, lmstudio]
   - name: OLLAMA_BASE_PATH
     label: Where Ollama is
-    description: The address of the Ollama API. Use this server's own address, for example http://192.168.1.10:11434 — "localhost" will not work from inside the container.
+    description: The address of the Ollama API. Use this server's own address, for example http://192.168.1.10:11434. "localhost" will not work from inside the container.
     default: ""
   - name: EMBEDDING_ENGINE
     default: native
@@ -57,4 +57,4 @@ health:
   kind: running
   stableSeconds: 20
   timeoutSeconds: 600
-notes: "The first account you create is the administrator. Set up in three steps: install Ollama (or Open WebUI + Ollama) and pull a model, put this server's address and port 11434 in \"Where Ollama is\" above, then make a workspace and start adding documents or website addresses to it. Everything is embedded and searched on this server; nothing is sent anywhere. Backups cover the whole storage folder, so your workspaces and everything you have taught it survive a disk failure — and BoxPilot's encrypted cloud copy carries it off the box."
+notes: "The first account you create is the administrator. Set up in three steps: install Ollama (or Open WebUI + Ollama) and pull a model, put this server's address and port 11434 in \"Where Ollama is\" above, then make a workspace and start adding documents or website addresses to it. Everything is embedded and searched on this server; nothing is sent anywhere. Backups cover the whole storage folder, so your workspaces and everything you have taught it survive a disk failure, and BoxPilot's encrypted cloud copy carries it off the box."

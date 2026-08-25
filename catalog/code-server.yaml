@@ -3,7 +3,7 @@ id: code-server
 name: code-server
 category: Developer
 icon: "💻"
-description: VS Code in the browser, running on this server — edit projects here from any device.
+description: VS Code in the browser, running on this server. Edit projects here from any device.
 website: https://github.com/coder/code-server
 risk: medium
 image:
@@ -57,4 +57,4 @@ signIn:
 health:
   kind: running
   stableSeconds: 15
-notes: The login and sudo passwords were generated for you — use the Secrets button on this card to reveal them.
+notes: The login and sudo passwords were generated for you. Use the Secrets button on this card to reveal them.

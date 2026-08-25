@@ -3,7 +3,7 @@ id: wallos
 name: Wallos
 category: Finance
 icon: "🧾"
-description: Tracks what your subscriptions actually cost — every streaming service, licence and renewal in one list, with a total per month and a reminder before each one bills. Nothing leaves this server.
+description: Tracks what your subscriptions actually cost. Every streaming service, licence and renewal in one list, with a total per month and a reminder before each one bills. Nothing leaves this server.
 website: https://wallosapp.com
 risk: low
 image:

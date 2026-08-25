@@ -73,4 +73,4 @@ health:
   kind: running
   stableSeconds: 20
   timeoutSeconds: 900
-notes: "Players join <this server>:16261 with the join password from Secrets. The first start downloads the server through SteamCMD (a few GB) and can take ten minutes or more — watch Logs. The server name must not contain spaces."
+notes: "Players join <this server>:16261 with the join password from Secrets. The first start downloads the server through SteamCMD (a few GB) and can take ten minutes or more. Watch Logs. The server name must not contain spaces."

@@ -68,7 +68,7 @@ export function userOperations() {
     }),
     defineOperation({
       id: "users.keys.import", title: "Import SSH keys", risk: "high", timeoutMs: minutes(3),
-      description: "Adds public keys to the user's authorized_keys — from github.com/<user>.keys or pasted text. Existing keys are kept.",
+      description: "Adds public keys to the user's authorized_keys, from github.com/<user>.keys or pasted text. Existing keys are kept.",
       parameters: { fields: { username: usernameField, githubUser: githubUserField, keys: { type: "string", optional: true, nullable: true, maxLength: 65536 } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("users.keys-import", { username: parameters.username, githubUser: parameters.githubUser ?? null, keys: parameters.keys ?? null }, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),

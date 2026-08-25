@@ -3,7 +3,7 @@ id: paperless-ngx
 name: Paperless-ngx
 category: Files
 icon: "📄"
-description: Scan, index, and archive paper documents — OCR makes every letter and invoice searchable.
+description: Scan, index, and archive paper documents. OCR makes every letter and invoice searchable.
 website: https://docs.paperless-ngx.com
 risk: medium
 image:

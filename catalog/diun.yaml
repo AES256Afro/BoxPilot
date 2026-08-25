@@ -3,7 +3,7 @@ id: diun
 name: Diun
 category: Monitoring
 icon: "🔔"
-description: Watches the images your containers run and tells you when a new version is published. It only notifies — nothing is updated behind your back.
+description: Watches the images your containers run and tells you when a new version is published. It only notifies; nothing is updated behind your back.
 website: https://crazymax.dev/diun
 risk: medium
 image:
@@ -48,4 +48,4 @@ health:
   kind: running
   stableSeconds: 8
   timeoutSeconds: 120
-notes: Diun has no web interface — it writes what it finds to its log, which you can read from this app's Logs button. To have it reach your phone, point a notifier at the ntfy or Gotify you are already running; see the Diun documentation for the environment variable to add under Settings.
+notes: Diun has no web interface. It writes what it finds to its log, which you can read from this app's Logs button. To have it reach your phone, point a notifier at the ntfy or Gotify you are already running; see the Diun documentation for the environment variable to add under Settings.

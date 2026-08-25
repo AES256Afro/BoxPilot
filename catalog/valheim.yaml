@@ -72,4 +72,4 @@ health:
   kind: running
   stableSeconds: 20
   timeoutSeconds: 900
-notes: "Players join <this server>:2456 with the join password from Secrets — the password must be at least five characters and cannot contain the server or world name. The first start downloads the game server (about 2 GB) and building the world takes a few more minutes. This image publishes no version tags, so it is pinned to an exact digest; a future BoxPilot release moves it forward. Its own backups land in the config volume."
+notes: "Players join <this server>:2456 with the join password from Secrets. The password must be at least five characters and cannot contain the server or world name. The first start downloads the game server (about 2 GB) and building the world takes a few more minutes. This image publishes no version tags, so it is pinned to an exact digest; a future BoxPilot release moves it forward. Its own backups land in the config volume."
