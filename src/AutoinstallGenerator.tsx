@@ -84,7 +84,11 @@ export default function AutoinstallGenerator({ csrfToken }: { csrfToken: string 
         </>}
         <label>Disk<select value={layout} onChange={(event) => setLayout(event.target.value as "lvm" | "direct")}><option value="lvm">Whole disk, LVM</option><option value="direct">Whole disk, plain partitions</option></select></label>
         <label>Time zone<input value={timezone} onChange={(event) => setTimezone(event.target.value)} placeholder="Etc/UTC" /></label>
-        <label>BoxPilot release<input value={ref} onChange={(event) => setRef(event.target.value)} placeholder="v0.62.5" /></label>
+        {/* The build's own version, not a number typed here once: the placeholder said v0.62.5 more
+            than a hundred releases later, and it is the one field where copying the example
+            verbatim installs something ancient on a brand-new server. Empty means current, which
+            is what the server already does. */}
+        <label>BoxPilot release<input value={ref} onChange={(event) => setRef(event.target.value)} placeholder={`v${__BOXPILOT_VERSION__} (current)`} /></label>
         <div className="recovery-actions autoinstall-wide"><button className="primary-button" type="submit" disabled={busy}>{busy ? "Generating…" : "Generate autoinstall files"}</button></div>
       </form>
       {error && <div className="auth-error" role="alert">{error}</div>}
