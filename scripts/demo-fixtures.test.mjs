@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { inspections } from "./boxpilot-demo.mjs";
+import { inspections, scenarios, scenarioNames } from "./boxpilot-demo.mjs";
 import { operationModules } from "../server/ops/index.mjs";
 
 /**
@@ -124,5 +124,48 @@ describe("the demo can answer what the interface asks", () => {
       .filter(([, value]) => value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0)
       .map(([id]) => id);
     expect(empty, "an empty fixture is no better than a missing one").toEqual([]);
+  });
+});
+
+/**
+ * The empty and broken worlds have to be the same shape as the lived-in one, or they teach exactly
+ * the wrong lesson: the first hand-written pass at them blanked six pages, and every one of those
+ * was the fixture being wrong rather than the page. A scenario that drops a key is not a harder
+ * test, it is a different server.
+ */
+function shapeComplaints(expected, actual, path = "") {
+  // A field the server genuinely returns as null is a real state, not a missing key.
+  if (actual === null || expected === null) return [];
+  if (Array.isArray(expected)) return Array.isArray(actual) ? [] : [`${path}: expected a list, got ${typeof actual}`];
+  if (expected && typeof expected === "object") {
+    if (!actual || typeof actual !== "object") return [`${path}: expected an object, got ${actual === undefined ? "nothing" : typeof actual}`];
+    const complaints = [];
+    for (const key of Object.keys(expected)) {
+      if (!(key in actual)) complaints.push(`${path}.${key} is missing`);
+      else complaints.push(...shapeComplaints(expected[key], actual[key], `${path}.${key}`));
+    }
+    for (const key of Object.keys(actual)) if (!(key in expected)) complaints.push(`${path}.${key} is not a field the server returns`);
+    return complaints;
+  }
+  return [];
+}
+
+describe("the empty and broken worlds are the same server", () => {
+  it.each(scenarioNames.filter((name) => name !== "default"))("%s keeps every fixture's shape", (name) => {
+    const complaints = [];
+    for (const [id, value] of Object.entries(scenarios[name])) {
+      if (!(id in inspections)) { complaints.push(`${id}: not an operation the demo answers`); continue; }
+      complaints.push(...shapeComplaints(inspections[id], value, id));
+    }
+    expect(complaints, `the ${name} scenario disagrees with the shape the interface is built against`).toEqual([]);
+  });
+
+  it("answers every operation in every scenario, not only the default one", () => {
+    const missing = [];
+    for (const name of scenarioNames) {
+      const table = { ...inspections, ...scenarios[name] };
+      for (const id of Object.keys(inspections)) if (!table[id]) missing.push(`${name}: ${id}`);
+    }
+    expect(missing).toEqual([]);
   });
 });

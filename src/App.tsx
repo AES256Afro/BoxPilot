@@ -1,6 +1,8 @@
+import PageErrorBoundary from "./PageErrorBoundary";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   navItems,
+  viewLabel,
   type ViewName,
 } from "./data";
 import AuthScreen from "./AuthScreen";
@@ -313,7 +315,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
             <ul className="feature-list">{viewFeatures[view].map((feature) => <li key={feature}>{feature}</li>)}</ul>
           </section>
           {bundleError && <div className="auth-error" role="alert">{bundleError}</div>}
-          {pageContent}
+          <PageErrorBoundary pageName={viewLabel(view)} resetKey={view}>{pageContent}</PageErrorBoundary>
         </div>
       </main>
 

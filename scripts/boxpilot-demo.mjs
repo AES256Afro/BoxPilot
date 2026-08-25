@@ -14,6 +14,7 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { loadCatalog } from "../server/catalog/index.mjs";
 import { adviseFirewall, profiles, protectedRules, riskyPorts, services, buildPlan } from "../server/firewall-profiles.mjs";
 import { annotateDevices, parseLsblkTree, sharesFrom, volumeGroupsFrom } from "../server/storage-inventory.mjs";
@@ -389,20 +390,119 @@ api.get("/catalog", async (_request, response) => {
     problems, liveError: null, host: { lanAddress: host.lan, tailscaleDnsName: host.tailnet },
   });
 });
+/**
+ * The demo has always served one world: everything installed, every list populated, every
+ * connection healthy. That is the world least likely to break, and it is the only one anybody ever
+ * looked at — so the states that actually shipped broken were the empty ones and the failed ones.
+ * A form nobody could submit, a Logs page with no groups, a dialog whose list was absent: each
+ * rendered fine here because here it was never empty.
+ *
+ * So there are three worlds now, chosen by `?scenario=` on the page URL and read back off the
+ * Referer header, which means no interface change and one scenario per tab:
+ *
+ *   default  — a lived-in server, as before
+ *   fresh    — the first ten minutes: nothing installed, nothing connected, every list empty
+ *   trouble  — installed but unwell: unreachable, refused, failed, absent
+ *
+ * Each scenario is a shallow patch over the default table, so a fixture only appears here when the
+ * state is genuinely different. `npm run demo:sweep` walks every page in every scenario.
+ */
+export const scenarioNames = ["default", "fresh", "trouble"];
+
+/**
+ * The empty world is derived from the lived-in one rather than written out by hand. Hand-written
+ * fixtures are guesses about the server's shape, and a guess that is wrong teaches every test that
+ * reads it the wrong thing — which is the fault this whole exercise exists to close. Emptying keeps
+ * every key exactly where it was and takes the contents out: lists become empty, numbers zero,
+ * flags false. Strings are left alone because they are labels, ids and enums, and a page that
+ * switches on one should still get something it recognises.
+ */
+export function emptied(value) {
+  if (Array.isArray(value)) return [];
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, emptied(inner)]));
+  if (typeof value === "number") return 0;
+  if (typeof value === "boolean") return false;
+  return value;
+}
+
+/** The words that only appear when there is nothing to show, which emptying cannot invent. */
+const freshWords = {
+  "app.models.inspect": { available: false, reason: "No model runner is installed.", models: [] },
+  "dns.names.inspect": { available: false, reason: "No DNS server BoxPilot can write to is installed. Install Pi-hole from the App catalog.", platform: null, records: [], apps: [] },
+  "router.inspect": { configured: false, reachable: false, host: null, username: null, model: null, firmware: null, reason: "No router is connected yet." },
+  "router.leases": { host: null, leases: [] },
+};
+
+/** Installed but unwell: reachable things that are not reachable, credentials that stopped working. */
+const troubleWords = {
+  "router.inspect": { configured: true, reachable: false, host: "192.168.1.1", username: "root", model: null, firmware: null,
+    reason: 'The router did not accept that password for "root". This is the password for the router\'s own admin page, which is often not the same as any other password on this network.' },
+  "dns.names.inspect": { available: true, reason: null, platform: { id: "pi-hole", label: "Pi-hole", running: false }, records: [] },
+};
+
+const patch = (base, words) => Object.fromEntries(Object.entries(base).map(([id, value]) => [id, words[id] ? { ...value, ...words[id] } : value]));
+
+export const scenarios = {
+  default: {},
+  fresh: patch(Object.fromEntries(Object.entries(inspections).map(([id, value]) => [id, emptied(value)])), freshWords),
+  // Trouble keeps the lived-in data and spoils the connections, which is what actually goes wrong.
+  trouble: patch(inspections, troubleWords),
+};
+
+/** Which world a request belongs to, taken from the page that made it. */
+export function scenarioOf(referer) {
+  const name = (() => { try { return new URL(String(referer ?? "")).searchParams.get("scenario"); } catch { return null; } })();
+  return scenarioNames.includes(name) ? name : "default";
+}
+export const fixturesFor = (name) => ({ ...inspections, ...(scenarios[name] ?? {}) });
+
 api.get("/operations", (_request, response) => json(response, { operations: [], riskTiers: ["low", "medium", "high"] }));
 api.get("/operations/prerequisites", (_request, response) => json(response, { generatedAt: now().toISOString(), checks: [], counts: { ready: 9, repairable: 0, missing: 0, conflict: 0 }, ready: true }));
 api.get("/operations/:id/inspect", (request, response) => {
-  const result = inspections[request.params.id];
+  const result = fixturesFor(scenarioOf(request.get("referer")))[request.params.id];
   if (!result) return response.status(404).json({ error: "Not in the demo", code: "demo_missing" });
   return json(response, { operation: request.params.id, result });
 });
 // Read-only operations answer from the same fixtures the inspect route uses, so anything the UI
 // reads through /run (which is how it passes parameters) behaves here too.
-api.post("/operations/:id/run", (request, response) => json(response, { operation: request.params.id, result: inspections[request.params.id] ?? {} }));
+api.post("/operations/:id/run", (request, response) => json(response, { operation: request.params.id, result: fixturesFor(scenarioOf(request.get("referer")))[request.params.id] ?? {} }));
 api.post("/operations/:id/jobs", (request, response) => response.status(201).json({ job: { id: "demo-job", type: `op:${request.params.id}`, title: request.params.id, state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [], createdAt: now().toISOString() }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "demo: jobs never run here" } }));
 api.all("/{*rest}", (_request, response) => response.status(404).json({ error: "Not part of the demo", code: "demo_missing" }));
 app.use("/api/v1", api);
 app.use(express.static(dist, { index: false }));
-app.get("/{*rest}", (_request, response) => response.sendFile(path.join(dist, "index.html")));
+/**
+ * The page is served with a small bar naming the world it is in, so the empty and broken states are
+ * something you can click to rather than a query parameter you have to know about. It is appended
+ * to the demo's own copy of the page and never reaches a real build.
+ */
+const switcher = (current) => `<style>
+  #demo-worlds { position: fixed; bottom: 0; left: 0; right: 0; z-index: 2147483647; display: flex; gap: .5rem; align-items: center;
+    padding: .4rem .75rem; font: 500 12px/1.5 ui-sans-serif, system-ui, sans-serif; color: #cbd5e1;
+    background: #0b1220ee; border-top: 1px solid #1e293b; backdrop-filter: blur(6px); }
+  #demo-worlds b { color: #94a3b8; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; font-size: 11px; }
+  #demo-worlds a { color: #cbd5e1; text-decoration: none; padding: .2rem .55rem; border-radius: 999px; border: 1px solid #1e293b; }
+  #demo-worlds a[data-current="true"] { background: #34d399; border-color: #34d399; color: #04231a; }
+  #demo-worlds span { color: #64748b; margin-left: auto; }
+</style>
+<div id="demo-worlds"><b>Demo world</b>${scenarioNames.map((name) => {
+  const description = { default: "a lived-in server", fresh: "nothing set up yet", trouble: "installed but unwell" }[name];
+  return `<a href="#" data-world="${name}" data-current="${name === current}" title="${description}">${name}</a>`;
+}).join("")}<span>Fictional data. Nothing here touches a real machine.</span></div>
+<script>
+  document.getElementById("demo-worlds").addEventListener("click", (event) => {
+    const chosen = event.target.closest("[data-world]");
+    if (!chosen) return;
+    event.preventDefault();
+    const url = new URL(window.location.href);
+    chosen.dataset.world === "default" ? url.searchParams.delete("scenario") : url.searchParams.set("scenario", chosen.dataset.world);
+    window.location.assign(url);
+  });
+</script>`;
+
+const indexHtml = await readFile(path.join(dist, "index.html"), "utf8");
+app.get("/{*rest}", (request, response) => {
+  const current = scenarioNames.includes(request.query.scenario) ? request.query.scenario : "default";
+  response.type("html").send(indexHtml.replace("</body>", `${switcher(current)}</body>`));
+});
 // Only when run directly: importing this module for its fixtures must not start a server.
 if (import.meta.main) app.listen(port, "127.0.0.1", () => console.log(`BoxPilot demo (${productVersion}) with fictional data at http://127.0.0.1:${port}`));

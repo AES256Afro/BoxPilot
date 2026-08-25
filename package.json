@@ -22,7 +22,8 @@
     "check:syntax": "find server scripts -name '*.mjs' -not -path '*/node_modules/*' -print0 | xargs -0 -n 1 node --check",
     "demo": "node scripts/boxpilot-demo.mjs",
     "demo:screenshots": "node scripts/demo-screenshots.mjs",
-    "version": "node scripts/sync-version.mjs && git add docker-compose.yml README.md"
+    "version": "node scripts/sync-version.mjs && git add docker-compose.yml README.md",
+    "demo:sweep": "node scripts/demo-sweep.mjs"
   },
   "dependencies": {
     "express": "5.2.1",
