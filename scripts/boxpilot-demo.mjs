@@ -192,7 +192,7 @@ const inspections = {
         { mount: "/mnt/media", fstype: "ext4", totalBytes: 4000 * GiB, usedBytes: 2710 * GiB, availableBytes: 1290 * GiB, usedPercent: 68 },
       ],
       statsAvailable: true,
-      apps: Object.entries(installed).map(([id]) => ({ id, state: "running", running: true, cpuPercent: perApp[id]?.[0] ?? 0.5, memBytes: (perApp[id]?.[1] ?? 64) * 1024 ** 2, containers: 1 })),
+      apps: Object.entries(installed).map(([id]) => ({ id, state: id === "open-webui" ? "paused" : "running", running: true, cpuPercent: id === "open-webui" ? 0 : perApp[id]?.[0] ?? 0.5, memBytes: (perApp[id]?.[1] ?? (id === "open-webui" ? 6100 : 64)) * 1024 ** 2, containers: id === "open-webui" ? 2 : 1 })),
     };
   })(),
   "app.models.inspect": { id: "open-webui", available: true, reason: null, models: [
@@ -252,7 +252,7 @@ api.get("/catalog", async (_request, response) => {
   json(response, {
     applications: manifests.map((manifest) => {
       const port = installed[manifest.id];
-      const live = { id: manifest.id, installed: Boolean(port), dataPresent: Boolean(port), state: port ? { installedAt: ago(19 * 24), updatedAt: ago(50), manifestSha256: manifest.sha256, image: { reference: manifest.image.reference, id: "sha256:demo" }, values: { ports: {}, env: {}, volumes: {}, setup: [] }, pinnedRollback: false, uninstalledAt: null } : null, container: port ? { exists: true, running: true, status: "running", health: manifest.health.kind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:demo" } : { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, urls: port ? manifest.ports.filter((entry) => entry.protocol === "tcp").map((entry) => ({ id: entry.id, label: entry.label, host: entry.host, exposure: entry.exposure })) : [], updateAvailable: manifest.id === "jellyfin", installedImage: port ? manifest.image.reference : null };
+      const live = { id: manifest.id, installed: Boolean(port), dataPresent: Boolean(port), state: port ? { installedAt: ago(19 * 24), updatedAt: ago(50), manifestSha256: manifest.sha256, image: { reference: manifest.image.reference, id: "sha256:demo" }, values: { ports: {}, env: {}, volumes: {}, setup: [] }, pinnedRollback: false, uninstalledAt: null } : null, container: port ? { exists: true, running: true, status: manifest.id === "open-webui" ? "paused" : "running", health: manifest.health.kind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:demo" } : { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, urls: port ? manifest.ports.filter((entry) => entry.protocol === "tcp").map((entry) => ({ id: entry.id, label: entry.label, host: entry.host, exposure: entry.exposure })) : [], updateAvailable: manifest.id === "jellyfin", installedImage: port ? manifest.image.reference : null };
       return { manifest, live };
     }),
     problems, liveError: null, host: { lanAddress: host.lan, tailscaleDnsName: host.tailnet },

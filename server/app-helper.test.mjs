@@ -285,6 +285,23 @@ describe("generic app deployer", () => {
     await expect(apps.listModels({ id: "demo" })).rejects.toThrow("does not manage models");
   });
 
+  it("says what to do when the runner is stopped or paused, instead of relaying Docker's error", async () => {
+    // Docker refuses an exec into a stopped or paused container quickly, but its message names a
+    // container id and tells the owner nothing they can act on.
+    const { apps, containers, catalogDirectory } = await setup();
+    await writeFile(path.join(catalogDirectory, "engine2.yaml"), "schemaVersion: 2\nid: engine2\nname: Engine2\ncategory: AI\ndescription: d\nimage:\n  reference: x/engine2:1\nmodelRunner:\n  kind: ollama\n  service: engine2\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n");
+    await apps.install({ id: "engine2" });
+
+    Object.assign(containers.get("bp-engine2"), { running: true, status: "paused" });
+    await expect(apps.pullModel({ id: "engine2", model: "hermes3:8b" })).rejects.toThrow("is paused — resume it");
+    // Listing reports rather than throws: the panel opens on click and should explain itself.
+    expect(await apps.listModels({ id: "engine2" })).toMatchObject({ available: false, reason: expect.stringContaining("paused") });
+
+    Object.assign(containers.get("bp-engine2"), { running: false, status: "exited" });
+    await expect(apps.removeModel({ id: "engine2", model: "hermes3:8b" })).rejects.toThrow("is not running — start it");
+    expect(await apps.listModels({ id: "engine2" })).toMatchObject({ available: false, reason: expect.stringContaining("not running") });
+  });
+
   it("pauses and resumes a container without stopping it", async () => {
     // Pause freezes the process and keeps its memory, which is what makes it right for a heavy
     // model: no reload on the way back. Stop would free the memory and cost a cold start.

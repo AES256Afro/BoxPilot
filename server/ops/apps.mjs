@@ -241,7 +241,6 @@ export function appOperations() {
     defineOperation({
       id: "app.model.remove", title: "Remove a language model", risk: "medium", timeoutMs: minutes(6),
       description: "Deletes a downloaded model and frees its disk. It can be downloaded again at any time.",
-      confirm: (parameters) => parameters.model,
       parameters: { fields: { id: idField, model: { type: "string", maxLength: 128, pattern: /^[a-z0-9][a-z0-9._/-]{0,96}(:[a-zA-Z0-9._-]{1,32})?$/ } } },
       run: (parameters, { apps, progress }) => apps.removeModel({ id: parameters.id, model: parameters.model }, { progress }),
     }),

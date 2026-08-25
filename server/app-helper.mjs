@@ -967,6 +967,19 @@ export function createAppHelper({
     return manifest.modelRunner.service;
   }
 
+  /**
+   * Models are read and written by running a command inside the container, which Docker refuses
+   * unless it is running. It refuses quickly and with a message naming a container id, so the
+   * check is here purely to say something the owner can act on instead.
+   */
+  async function readyForModels(id, manifest) {
+    const state = await readState(id);
+    if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
+    const status = await containerStatus(id);
+    if (status.status === "paused") throw new Error(`${manifest.name} is paused — resume it before changing its models`);
+    if (!status.running) throw new Error(`${manifest.name} is not running — start it before changing its models`);
+  }
+
   /** `ollama list` as rows. Columns are separated by runs of spaces; SIZE and MODIFIED contain single ones. */
   function parseModelList(stdout) {
     const lines = String(stdout ?? "").split("\n").map((line) => line.trimEnd()).filter((line) => line.trim());
@@ -982,8 +995,13 @@ export function createAppHelper({
 
   async function listModels({ id }) {
     const manifest = await ensureManifest(id);
+    // Listing is a read the panel makes on open, so a stopped app is reported rather than thrown:
+    // "start it first" belongs in the panel, not in an error dialog the owner did not ask for.
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
+    const status = await containerStatus(id);
+    if (status.status === "paused") return { id, available: false, models: [], totalBytes: 0, reason: `${manifest.name} is paused — resume it to see its models` };
+    if (!status.running) return { id, available: false, models: [], totalBytes: 0, reason: `${manifest.name} is not running — start it to see its models` };
     const result = await compose(id, ["exec", "-T", modelService(manifest), "ollama", "list"], { timeout: 60_000 });
     // A runner that is still starting has no answer yet, which is not a failure worth an error page.
     if (!result.ok) return { id, available: false, models: [], totalBytes: 0, reason: redact(result.stderr).split("\n").filter(Boolean).slice(-1)[0] ?? "the model runner is not answering yet" };
@@ -993,8 +1011,7 @@ export function createAppHelper({
 
   async function pullModel({ id, model }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
-    const state = await readState(id);
-    if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
+    await readyForModels(id, manifest);
     progress?.(`Downloading ${model}. Large models are tens of gigabytes; this can take a while.`, "stdout");
     // Two hours: a 20 GB model over a domestic line is comfortably an hour, and the alternative is
     // a download that dies near the end with nothing to show for it.
@@ -1005,8 +1022,7 @@ export function createAppHelper({
 
   async function removeModel({ id, model }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
-    const state = await readState(id);
-    if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
+    await readyForModels(id, manifest);
     const result = await compose(id, ["exec", "-T", modelService(manifest), "ollama", "rm", model], { timeout: 5 * 60_000, progress });
     if (!result.ok) throw new Error(`Could not remove ${model}: ${redact(result.stderr).split("\n").filter(Boolean).slice(-2).join(" ") || "the model runner refused"}`);
     return { id, model, removed: true };
