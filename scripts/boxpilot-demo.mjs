@@ -263,6 +263,12 @@ export const inspections = {
     system: { netplan: true, firewall: true, fstab: true, database: true },
     vms: { domains: ["dev-lab"], disksIncluded: false, diskRepository: "/var/lib/libvirt/images", diskRepositoryReachable: true },
   },
+  "dns.names.inspect": {
+    available: true, reason: null, platform: { id: "pi-hole", label: "Pi-hole", running: true },
+    file: "/var/lib/boxpilot-managed/catalog/pi-hole/etc-pihole/hosts/boxpilot.list",
+    records: [{ address: host.lan, name: "jellyfin.lan" }, { address: host.lan, name: "immich.lan" }],
+    apps: Object.entries(installed).map(([id, port]) => ({ id, name: id, port })),
+  },
   "logs.sources": { groups: [{ id: "boxpilot", label: "BoxPilot" }, { id: "system", label: "System journal" }, { id: "docker", label: "Docker" }], units: [{ unit: "boxpilot.service", description: "BoxPilot", active: "active" }, { unit: "docker.service", description: "Docker Engine", active: "active" }, { unit: "tailscaled.service", description: "Tailscale", active: "active" }], dockerAvailable: true, containers: Object.keys(installed).map((id) => ({ name: `bp-${id}`, state: "running", image: `${id}:latest` })) },
   "vm.cloud.images": { images: [] },
   "vm.stats.inspect": { available: true, domains: {} },
