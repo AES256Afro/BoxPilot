@@ -121,6 +121,12 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
    * their containers at three in the morning together. Each schedule is its own request, so a
    * refusal on one does not cost the others; what succeeded is reported rather than assumed.
    */
+  /** The index-th of `total` nightly slots, spread evenly through 02:00-03:59. */
+  const nightlySlot = (index: number, total: number) => {
+    const offset = Math.round((index * 119) / Math.max(total, 1));
+    return { hour: 2 + Math.floor(offset / 60), minute: offset % 60 };
+  };
+
   const protectEverything = async (targets: ProtectionVerdict[]) => {
     setProtecting("Setting up nightly backups…");
     let created = 0;
@@ -130,7 +136,9 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
         const response = await fetch("/api/v1/schedules", {
           method: "POST",
           headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-          body: JSON.stringify({ operationId: "app.backup", parameters: { id: target.id }, frequency: "daily", minute: (index * 7) % 60, hour: (2 + index) % 24 }),
+          // A fixed 02:00-03:59 window: spacing shrinks as apps are added, so the last backup is always
+          // written before the off-box copy at 04:15 goes looking for it.
+          body: JSON.stringify({ operationId: "app.backup", parameters: { id: target.id }, frequency: "daily", ...nightlySlot(index, targets.length) }),
         });
         if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error ?? "refused");
         created += 1;
