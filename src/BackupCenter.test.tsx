@@ -11,6 +11,31 @@ const backup = {
   restoreDrill: { passed: true }, createdAt: "2026-08-20T03:00:00.000Z",
 };
 
+describe("when the nightly backups are scheduled for", () => {
+  // Spacing them an hour apart put the seventh app at 08:42, hours after the off-box copy at
+  // 04:15 had run — so half the backups sat on the machine for another day.
+  const slot = (index: number, total: number) => {
+    const offset = Math.round((index * 119) / Math.max(total, 1));
+    return { hour: 2 + Math.floor(offset / 60), minute: offset % 60 };
+  };
+  const minutes = (s: { hour: number; minute: number }) => s.hour * 60 + s.minute;
+
+  it("fits every app into the window before the off-box copy, however many there are", () => {
+    for (const total of [1, 3, 7, 14, 30, 60]) {
+      const last = slot(total - 1, total);
+      expect(minutes(last)).toBeLessThan(4 * 60 + 15); // the copy runs at 04:15
+      expect(minutes(slot(0, total))).toBe(2 * 60);    // and the first at 02:00
+    }
+  });
+
+  it("keeps them in order and never doubles up while there is room", () => {
+    const seven = Array.from({ length: 7 }, (_, i) => minutes(slot(i, 7)));
+    expect(seven).toEqual([...seven].sort((a, b) => a - b));
+    expect(new Set(seven).size).toBe(7);
+  });
+});
+
+
 describe("Backup Center", () => {
   it("lists verified database snapshots and stages a one-click backup", async () => {
     let staged: string | undefined;
