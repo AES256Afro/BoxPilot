@@ -32,6 +32,21 @@ export async function fixedRun(binary, args = [], { timeout = 30_000, maxBuffer 
 }
 
 /** Spawn with line-by-line callbacks. Same result shape as fixedRun. */
+/**
+ * Terminal control sequences, removed so a log reads as text.
+ *
+ * Commands that draw progress do not merely overwrite with a carriage return: `ollama pull` and
+ * `docker pull` move the cursor, clear lines and hide the caret with escape sequences, all of which
+ * survived into the job log as `[K` and `[A[A[1G` wrapped around the words. Stripping them here
+ * covers every command rather than the one that prompted it.
+ */
+export function stripTerminalCodes(text) {
+  return String(text ?? "")
+    .replace(/\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)/g, "")  // OSC ... BEL / ST
+    .replace(/\u001B[[\]()#;?]*[0-9;?]*[ -/]*[@-~]/g, "")            // CSI and friends
+    .replace(/\r/g, "");
+}
+
 export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, onLine, tailBytes = 256 * 1024, redrawIntervalMs = 1000, clock = () => Date.now() } = {}) {
   return new Promise((resolve) => {
     let child;
@@ -47,7 +62,7 @@ export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, 
     let settled = false;
     const timer = setTimeout(() => { try { child.kill("SIGTERM"); } catch { /* ignore */ } setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* ignore */ } }, 5000).unref?.(); }, timeout);
     const deliver = (stream, line) => {
-      const clean = line.replace(/\r/g, "").trimEnd();
+      const clean = stripTerminalCodes(line).trimEnd();
       // A blank line is still output: it goes into the tail the caller reads, even though there is
       // nothing worth handing to a log writer.
       tails[stream] = (tails[stream] + clean + "\n").slice(-tailBytes);

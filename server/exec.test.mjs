@@ -4,7 +4,7 @@
  * data, a fixed environment, and a failure that reports instead of throwing.
  */
 import { describe, expect, it, vi } from "vitest";
-import { fixedEnvironment, fixedRun, streamRun } from "./exec.mjs";
+import { fixedEnvironment, fixedRun, streamRun, stripTerminalCodes } from "./exec.mjs";
 
 describe("running a command", () => {
   it("passes arguments as data, never through a shell", async () => {
@@ -111,5 +111,24 @@ describe("a child that never writes a newline", () => {
     const result = await streamRun("/bin/sh", ["-c", "i=0; while [ $i -lt 200 ]; do printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; i=$((i+1)); done"], { onLine: () => {}, tailBytes: 512 });
     expect(result.ok).toBe(true);
     expect(result.stdout.length).toBeLessThanOrEqual(512);
+  });
+});
+
+describe("terminal control codes in progress output", () => {
+  const ESC = String.fromCharCode(27);
+
+  it("strips the cursor moves and clears that progress bars paint with", () => {
+    // Verbatim from `ollama pull` on a real host: it does not merely overwrite with a carriage
+    // return, it moves the cursor and clears lines, and all of it used to reach the job log.
+    expect(stripTerminalCodes(`pulling 797b70c4edf8: 100%  45 MB ${ESC}[K`).trimEnd()).toBe("pulling 797b70c4edf8: 100%  45 MB");
+    expect(stripTerminalCodes(`${ESC}[?25h${ESC}[?2026l${ESC}[?2026h${ESC}[?25l${ESC}[A${ESC}[A${ESC}[1Gpulling manifest ${ESC}[K`).trimEnd()).toBe("pulling manifest");
+    expect(stripTerminalCodes(`${ESC}[32msuccess${ESC}[0m`)).toBe("success");
+    expect(stripTerminalCodes(`title${ESC}]0;window${String.fromCharCode(7)}rest`)).toBe("titlerest");
+  });
+
+  it("leaves ordinary text alone", () => {
+    expect(stripTerminalCodes("plain line with no codes")).toBe("plain line with no codes");
+    expect(stripTerminalCodes("")).toBe("");
+    expect(stripTerminalCodes(null)).toBe("");
   });
 });
