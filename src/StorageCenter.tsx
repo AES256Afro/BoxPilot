@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { readJson } from "./http";
+import { validShareName } from "./shareName";
 import { useOperation } from "./ApproveDialog";
 import SambaPanel from "./SambaPanel";
 import NfsPanel from "./NfsPanel";
@@ -106,12 +107,12 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
   };
 
   const hostValid = /^[A-Za-z0-9]([A-Za-z0-9.-]{0,252}[A-Za-z0-9])?$/.test(host.trim());
-  const shareValid = kind === "nfs" ? /^\/[A-Za-z0-9._+/-]{0,254}$/.test(share.trim()) : /^[A-Za-z0-9_][A-Za-z0-9 ._$-]{0,79}$/.test(share.trim());
+  const shareValid = validShareName(kind, share.trim());
   const toolReady = kind === "smb" ? report?.tools.cifs : report?.tools.nfs;
   const shareFormValid = hostValid && shareValid && nameValid(shareName) && Boolean(toolReady);
   const shareBlocker = !toolReady ? null // the tools hint next to the button already covers this
     : !hostValid ? "Enter the NAS address first."
-    : !shareValid ? (kind === "smb" ? "Pick a share below, or type its name." : "Enter the export path.")
+    : !shareValid ? (kind === "smb" ? "Pick a share below, or type its name — a folder inside one is fine, like alex/Backups." : "Enter the export path.")
     : !nameValid(shareName) ? "Give it a folder name under /mnt (lower case, no spaces)."
     : null;
   const credentialsPath = `/etc/boxpilot/secrets/share-${shareName || "<name>"}.cred`;
