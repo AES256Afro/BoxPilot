@@ -164,12 +164,12 @@ describe("Storage center", () => {
     render(<StorageCenter csrfToken="csrf-token" />);
     fireEvent.change(await screen.findByLabelText("Host"), { target: { value: "192.168.1.50" } });
     expect(screen.getByRole("button", { name: "Mount share" })).toHaveProperty("disabled", true);
-    expect(screen.getByText("Pick a share below, or type its name.")).toBeTruthy();
+    expect(screen.getByText(/Pick a share below, or type its name/)).toBeTruthy();
 
     // Picking a share fills both fields, and the button comes alive.
     fireEvent.click(screen.getByRole("button", { name: "List shares" }));
     fireEvent.click(await screen.findByRole("button", { name: "jamie" }));
-    expect(screen.queryByText("Pick a share below, or type its name.")).toBeNull();
+    expect(screen.queryByText(/Pick a share below, or type its name/)).toBeNull();
     expect(screen.getByRole("button", { name: "Mount share" })).toHaveProperty("disabled", false);
 
     // Clearing the mount name blocks it again, with the reason that applies now.
