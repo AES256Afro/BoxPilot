@@ -3,6 +3,7 @@ import type { ViewName } from "./data";
 import { inspectOperation, type Job } from "./operations";
 import { appUrl, type TailnetServe } from "./appLinks";
 import { judgeProtection, protectionWarning, type AppProtection, type ScheduleLike } from "./backupProtection";
+import { offBoxVerdict, offBoxWarning } from "./offBox";
 
 /**
  * Home dashboard (M8.1): what is on this box and what needs attention, one glance.
@@ -35,6 +36,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [backups, setBackups] = useState<{ lastBackupAt: string | null; lastSyncAt: string | null; syncReady: boolean } | null>(null);
   const [unprotected, setUnprotected] = useState<string | null>(null);
+  const [offBox, setOffBox] = useState<string | null>(null);
   const [setup, setSetup] = useState<{ firstRun: boolean; installedApps: number } | null>(null);
   const [checklist, setChecklist] = useState<Checklist | null>(null);
 
@@ -95,6 +97,34 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
       if (!protection?.result?.available) return;
       guard(setUnprotected)(protectionWarning(judgeProtection(protection.result.apps, scheduleList.schedules ?? [])));
     }).catch(() => {});
+    // Is there a copy anywhere but this disk? Any of the three destinations counts.
+    // A destination that cannot be read is unknown, not absent. Saying "backups are only on this
+    // server" because a request failed would assert something we did not learn, so if none of the
+    // three answers, the dashboard stays quiet rather than inventing an alarm.
+    type DestinationRead = { ok: boolean; destination: unknown; lastSync: unknown };
+    const destination = async (url: string): Promise<DestinationRead> => {
+      try {
+        const response = await fetch(url);
+        if (!response.ok) return { ok: false, destination: null, lastSync: null };
+        const body = (await response.json()) as { destination?: unknown; lastSync?: unknown };
+        return { ok: true, destination: body.destination ?? null, lastSync: body.lastSync ?? null };
+      } catch {
+        return { ok: false, destination: null, lastSync: null };
+      }
+    };
+    Promise.all([
+      destination("/api/v1/settings/cloud-destination"),
+      destination("/api/v1/settings/backup-destination"),
+      inspectOperation<{ sync: { mount: { mounted: boolean }; lastSync: { completedAt: string } | null } }>("host.snapshot.inspect").catch(() => null),
+    ]).then(([cloud, ssh, machine]) => {
+      if (!cloud.ok && !ssh.ok && !machine) return;
+      const at = (value: unknown) => (typeof value === "string" ? value : (value as { completedAt?: string } | null)?.completedAt ?? null);
+      guard(setOffBox)(offBoxWarning(offBoxVerdict({
+        cloud: { configured: Boolean(cloud.destination), lastSyncAt: at(cloud.lastSync) },
+        ssh: { configured: Boolean(ssh.destination), lastSyncAt: at(ssh.lastSync) },
+        drive: { configured: machine?.result.sync.mount.mounted ?? false, lastSyncAt: machine?.result.sync.lastSync?.completedAt ?? null },
+      })));
+    }).catch(() => {});
     Promise.all([
       fetch("/api/v1/backups").then((response) => (response.ok ? response.json() : Promise.reject(new Error("backups unavailable")))),
       inspectOperation<{ sync: { mount: { mounted: boolean }; lastSync: { completedAt: string } | null } }>("host.snapshot.inspect").catch(() => null),
@@ -132,8 +162,9 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
   if (unprotected) attention.push({ label: unprotected, view: "backups" });
   const backupAgeDays = staleDays(backups?.lastBackupAt ?? null);
   if (backups && (backupAgeDays === null || backupAgeDays > 7)) attention.push({ label: backupAgeDays === null ? "No database backup yet" : `Last database backup is ${backupAgeDays} days old`, view: "backups" });
-  const syncAgeDays = staleDays(backups?.lastSyncAt ?? null);
-  if (backups?.syncReady && (syncAgeDays === null || syncAgeDays > 7)) attention.push({ label: syncAgeDays === null ? "Backups have never been mirrored off-box" : `Off-box backup mirror is ${syncAgeDays} days old`, view: "backups" });
+  // Covers all three destinations, and the case of having none — which is the common one, and the
+  // one the old drive-only check stayed quiet about.
+  if (offBox) attention.push({ label: offBox, view: "backups" });
 
   return (
     <div className="home-dashboard">
