@@ -269,6 +269,12 @@ export const inspections = {
     records: [{ address: host.lan, name: "jellyfin.lan" }, { address: host.lan, name: "immich.lan" }],
     apps: Object.entries(installed).map(([id, port]) => ({ id, name: id, port })),
   },
+  "router.inspect": { configured: true, reachable: true, host: "192.168.1.1", username: "root", model: "GL-MT6000", firmware: "4.7.0", reason: null },
+  "router.leases": { host: "192.168.1.1", leases: [
+    { name: "homebox", address: host.lan, mac: "aa:bb:cc:dd:ee:02", online: true, reserved: true },
+    { name: "alex-laptop", address: "192.168.1.26", mac: "aa:bb:cc:dd:ee:01", online: true, reserved: false },
+    { name: "living-room-tv", address: "192.168.1.51", mac: "aa:bb:cc:dd:ee:04", online: false, reserved: false },
+  ] },
   "logs.sources": { groups: [{ id: "boxpilot", label: "BoxPilot" }, { id: "system", label: "System journal" }, { id: "docker", label: "Docker" }], units: [{ unit: "boxpilot.service", description: "BoxPilot", active: "active" }, { unit: "docker.service", description: "Docker Engine", active: "active" }, { unit: "tailscaled.service", description: "Tailscale", active: "active" }], dockerAvailable: true, containers: Object.keys(installed).map((id) => ({ name: `bp-${id}`, state: "running", image: `${id}:latest` })) },
   "vm.cloud.images": { images: [] },
   "vm.stats.inspect": { available: true, domains: {} },

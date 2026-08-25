@@ -3,6 +3,7 @@ import { readJson } from "./http";
 import { useOperation } from "./ApproveDialog";
 import TailscalePanel from "./TailscalePanel";
 import LocalNamesPanel from "./LocalNamesPanel";
+import RouterPanel from "./RouterPanel";
 
 type Topology = {
   generatedAt: string;
@@ -145,6 +146,7 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
       <div className="dashboard-grid">
         <TailscalePanel start={start} tailscale={topology.tailscale} />
         <LocalNamesPanel csrfToken={csrfToken} start={start} lanAddress={topology.eligibleLanAddresses[0]?.address ?? null} />
+        <RouterPanel start={start} gateway={topology.defaultRoutes[0]?.gateway ?? null} />
         <section className="panel">
           <header className="panel-header"><div><strong>Devices on your LAN</strong><span>Neighbours this server has talked to recently (ARP table). Wake sends Wake-on-LAN magic packets; the device must allow it in firmware.</span></div></header>
           {topology.devices && topology.devices.length ? <div className="workload-list">{topology.devices.map((device) => <div className="workload" key={`${device.address}-${device.mac}`}><div><strong>{device.address}</strong><span><code>{device.mac}</code>{device.interface ? ` via ${device.interface}` : ""}</span></div><span className={`status-pill status-${device.state === "REACHABLE" ? "good" : "neutral"}`}>{device.state.toLowerCase()}</span><button className="text-button" type="button" onClick={() => start({ operationId: "network.wake", title: `Wake ${device.address}`, parameters: { mac: device.mac }, preview: <span>Broadcasts Wake-on-LAN magic packets for <code>{device.mac}</code> on this server's network. Nothing is read back — the device either wakes or it does not.</span> })}>Wake</button></div>)}</div> : <p className="empty-state">{topology.collectors.neighbors === false ? "The neighbour table is unavailable." : "No resolved neighbours right now. Devices appear after this server exchanges traffic with them."}</p>}
