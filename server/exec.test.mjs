@@ -126,6 +126,17 @@ describe("terminal control codes in progress output", () => {
     expect(stripTerminalCodes(`title${ESC}]0;window${String.fromCharCode(7)}rest`)).toBe("titlerest");
   });
 
+  it("samples a progress bar that repaints with cursor moves rather than carriage returns", async () => {
+    // `ollama pull` repaints by moving the cursor up and clearing, so stripping the escapes alone
+    // left no boundary between repaints: a minute of spinner frames arrived as one run-on line.
+    const frames = Array.from({ length: 40 }, (_, i) => `${ESC}[1G${ESC}[Kpulling manifest ${i}%${ESC}[K`).join("");
+    const lines = [];
+    const result = await streamRun(process.execPath, ["-e", "process.stdout.write(process.env.PAYLOAD)"], { env: { PAYLOAD: `${frames}\ndone\n` }, onLine: (line) => lines.push(line) });
+    expect(result.ok).toBe(true);
+    // Only the newest repaint survives, as its own tidy line — not forty of them, and not one long one.
+    expect(lines).toEqual(["pulling manifest 39%", "done"]);
+  });
+
   it("leaves ordinary text alone", () => {
     expect(stripTerminalCodes("plain line with no codes")).toBe("plain line with no codes");
     expect(stripTerminalCodes("")).toBe("");
