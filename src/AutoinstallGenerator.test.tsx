@@ -9,7 +9,7 @@ describe("autoinstall generator", () => {
   it("suggests the release this build is, not one frozen in the source", async () => {
     // The placeholder read v0.62.5 more than a hundred releases later. It is the one field where
     // copying the example verbatim installs something ancient on a server being built from scratch.
-    render(<AutoinstallGenerator />);
+    render(<AutoinstallGenerator csrfToken="csrf-token" />);
     const field = await screen.findByPlaceholderText(/^v\d+\.\d+\.\d+ \(current\)$/);
     expect(field).toBeTruthy();
     expect((field as HTMLInputElement).placeholder).toContain(__BOXPILOT_VERSION__);
