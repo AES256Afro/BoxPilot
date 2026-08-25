@@ -22,6 +22,9 @@ function gib(bytes: number | null): string {
   return bytes >= 1024 ** 4 ? `${(bytes / 1024 ** 4).toFixed(1)} TiB` : `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
 }
 const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
+/** Backups sync to this exact mount point; see server/machine-snapshot-helper.mjs. */
+const BACKUP_MOUNT_NAME = "boxpilot-backup";
+
 const nameValid = (name: string) => /^[a-z0-9][a-z0-9-]{0,31}$/.test(name);
 
 export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
@@ -331,6 +334,13 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
           </label>
           <label>Mount as <code>/mnt/…</code>
             <input aria-label="Share mount name" placeholder="nas-media" value={shareName} onChange={(event) => { setNameTouched(true); setShareName(event.target.value.toLowerCase()); }} />
+            {/* The one mount point that means something to the rest of BoxPilot. Backups look for
+                this exact path, so a share mounted anywhere else is a folder and nothing more —
+                which is easy to discover only after setting one up and wondering why the Backups
+                page still says there is nowhere to copy to. */}
+            {shareName === BACKUP_MOUNT_NAME
+              ? <span className="muted">BoxPilot will copy its backups here.</span>
+              : <button className="text-button" type="button" onClick={() => { setNameTouched(true); setShareName(BACKUP_MOUNT_NAME); }}>Use this for BoxPilot's backups</button>}
           </label>
           {kind === "smb" && (
             <>
