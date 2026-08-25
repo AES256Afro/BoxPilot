@@ -154,6 +154,30 @@ describe("Storage center", () => {
     await waitFor(() => expect(JSON.parse(staged["share.mount"] ?? "{}")).toEqual({ parameters: { kind: "smb", host: "mycloud", share: "jamie", name: "nas-jamie", username: "jamie", password: "hunter2 hunter2" } }));
   });
 
+  it("says why Mount share will not respond, instead of sitting there disabled", async () => {
+    // A disabled primary button that explains nothing is a dead end, and placeholders read like
+    // filled-in values — so an empty share name looks exactly like a share name.
+    mockFetch(report, {}, (url) => {
+      if (url === "/api/v1/storage/shares/list") return json({ shares: [{ name: "Public", comment: null }, { name: "jamie", comment: null }] });
+      return null;
+    });
+    render(<StorageCenter csrfToken="csrf-token" />);
+    fireEvent.change(await screen.findByLabelText("Host"), { target: { value: "192.168.1.50" } });
+    expect(screen.getByRole("button", { name: "Mount share" })).toHaveProperty("disabled", true);
+    expect(screen.getByText("Pick a share below, or type its name.")).toBeTruthy();
+
+    // Picking a share fills both fields, and the button comes alive.
+    fireEvent.click(screen.getByRole("button", { name: "List shares" }));
+    fireEvent.click(await screen.findByRole("button", { name: "jamie" }));
+    expect(screen.queryByText("Pick a share below, or type its name.")).toBeNull();
+    expect(screen.getByRole("button", { name: "Mount share" })).toHaveProperty("disabled", false);
+
+    // Clearing the mount name blocks it again, with the reason that applies now.
+    fireEvent.change(screen.getByLabelText("Share mount name"), { target: { value: "" } });
+    expect(screen.getByText("Give it a folder name under /mnt (lower case, no spaces).")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Mount share" })).toHaveProperty("disabled", true);
+  });
+
   it("lists mounted shares and explains the empty scan; offers the missing client tools", async () => {
     const staged: Record<string, string> = {};
     mockFetch({ ...report, tools: { cifs: false, nfs: true, smbclient: false, showmount: true }, shares: [{ name: "nas-media", kind: "smb", source: "//mycloud/Public", mountpoint: "/mnt/nas-media", readOnly: true, automount: true, mounted: false, sizeBytes: null, usedBytes: null, availableBytes: null }] }, staged, (url) => (url === "/api/v1/storage/shares/discover" ? json({ devices: [], scanned: 253, interfaces: [] }) : null));
