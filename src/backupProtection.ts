@@ -19,7 +19,13 @@ export interface AppProtection {
 
 export interface ScheduleLike {
   operationId: string;
-  parameters?: Record<string, unknown> | null;
+  /**
+   * What the schedule acts on. The list endpoint reduces the real parameters to a display subject
+   * (`{ subject: "vaultwarden" }`) rather than passing them through, so reading `.id` here found
+   * nothing and every app was reported as unscheduled while its schedule sat there running. Both
+   * shapes are accepted: the API's, and the raw parameters as they are sent when creating one.
+   */
+  parameters?: { subject?: unknown; id?: unknown } | null;
   enabled?: boolean;
 }
 
@@ -40,7 +46,7 @@ export function scheduledAppIds(schedules: ScheduleLike[]): Set<string> {
   for (const schedule of schedules) {
     if (schedule.operationId !== "app.backup") continue;
     if (schedule.enabled === false) continue; // a paused schedule protects nothing
-    const id = schedule.parameters?.id;
+    const id = schedule.parameters?.subject ?? schedule.parameters?.id;
     if (typeof id === "string") ids.add(id);
   }
   return ids;

@@ -255,7 +255,7 @@ api.get("/setup", async (_request, response) => {
 api.get("/setup/checklist", (_request, response) => json(response, buildChecklist({ tailscale: { connected: true, dnsName: host.tailnet }, firewall: firewallReport, firewallProfile, unattended: { enabled: true }, notifications: { configured: true, kind: "ntfy" }, cloudDestination: { provider: "b2" }, installedApps: Object.keys(installed), samba: { configured: true }, nfs: { configured: false }, ups: { configured: true } })));
 api.get("/virtualization/domains", (_request, response) => json(response, { domains: [{ name: "dev-lab", state: "running" }, { name: "win11-test", state: "stopped" }] }));
 api.get("/schedules", (_request, response) => json(response, { schedules: [
-  { id: "s1", operationId: "app.backup", parameters: { id: "immich" }, frequency: "daily", minute: 0, hour: 3, weekday: null, enabled: true, createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-8), lastRunAt: ago(16) },
+  { id: "s1", operationId: "app.backup", parameters: { subject: "immich" }, frequency: "daily", minute: 0, hour: 3, weekday: null, enabled: true, createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-8), lastRunAt: ago(16) },
   { id: "s2", operationId: "backup.cloud.sync", parameters: {}, frequency: "daily", minute: 30, hour: 4, weekday: null, enabled: true, createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-7), lastRunAt: ago(26) },
   { id: "s3", operationId: "apt.refresh", parameters: {}, frequency: "weekly", minute: 0, hour: 5, weekday: 0, enabled: true, createdBy: "owner-demo", createdAt: ago(400), nextDueAt: ago(-60), lastRunAt: ago(108) },
 ] }));

@@ -30,13 +30,20 @@ describe("deciding which apps are protected", () => {
   });
 
   it("counts only enabled app.backup schedules as protection", () => {
+    // `subject` is what /schedules actually returns: the list endpoint reduces the real parameters
+    // to a display subject. Reading `id` instead reported every app as unscheduled while its
+    // schedule was running, which is exactly what happened on a live server.
     const schedules = [
-      { operationId: "app.backup", parameters: { id: "immich" }, enabled: true },
-      { operationId: "app.backup", parameters: { id: "jellyfin" }, enabled: false }, // paused protects nothing
-      { operationId: "apt.upgrade", parameters: {}, enabled: true },                  // not a backup
-      { operationId: "app.backup", parameters: {}, enabled: true },                   // malformed, no id
+      { operationId: "app.backup", parameters: { subject: "immich" }, enabled: true },
+      { operationId: "app.backup", parameters: { subject: "jellyfin" }, enabled: false }, // paused protects nothing
+      { operationId: "apt.upgrade", parameters: {}, enabled: true },                       // not a backup
+      { operationId: "app.backup", parameters: {}, enabled: true },                        // malformed, no subject
     ];
     expect([...scheduledAppIds(schedules)]).toEqual(["immich"]);
+  });
+
+  it("also accepts the raw parameters used when creating a schedule", () => {
+    expect([...scheduledAppIds([{ operationId: "app.backup", parameters: { id: "vaultwarden" }, enabled: true }])]).toEqual(["vaultwarden"]);
   });
 
   it("separates having a backup from having something that keeps making them", () => {
@@ -44,7 +51,7 @@ describe("deciding which apps are protected", () => {
     // should be able to say which of the two an app has.
     const verdicts = judgeProtection(
       [app({ id: "immich", backups: 1, newestAt: daysAgo(1) })],
-      [{ operationId: "app.backup", parameters: { id: "immich" }, enabled: false }],
+      [{ operationId: "app.backup", parameters: { subject: "immich" }, enabled: false }],
       { now },
     );
     expect(verdicts[0]).toMatchObject({ state: "ok", scheduled: false });
