@@ -14,7 +14,22 @@ import { appendFstabEntry, mountNamePattern, removeManagedEntry } from "./storag
 
 export const shareKinds = Object.freeze(["smb", "nfs"]);
 export const hostPattern = /^[A-Za-z0-9]([A-Za-z0-9.-]{0,252}[A-Za-z0-9])?$/;
-export const smbSharePattern = /^[A-Za-z0-9_][A-Za-z0-9 ._$-]{0,79}$/;
+/**
+ * A share, optionally followed by a folder inside it: `Backups` or `alex/BoxPilot-Backup`.
+ *
+ * The subfolder matters more than it looks. Some NAS boxes will not let you create shares at all —
+ * a WD My Cloud Home offers exactly Public, TimeMachineBackup and one per user, for ever — so
+ * "make a share for backups" is not a thing their owner can do. cifs mounts a path inside a share
+ * happily; refusing to pass one on just meant backups had to live in the root of somebody's
+ * personal files. Each segment is validated on its own, so `..` cannot climb out of the share.
+ */
+export const smbShareSegmentPattern = /^[A-Za-z0-9_][A-Za-z0-9 ._$-]{0,79}$/;
+export const smbSharePattern = /^[A-Za-z0-9_][A-Za-z0-9 ._$/-]{0,255}$/;
+export function validSmbShare(share) {
+  if (typeof share !== "string" || !smbSharePattern.test(share)) return false;
+  const segments = share.split("/");
+  return segments.length <= 8 && segments.every((segment) => smbShareSegmentPattern.test(segment));
+}
 export const nfsExportPattern = /^\/[A-Za-z0-9._+/-]{0,254}$/;
 export const credentialPattern = /^[^\s\r\n=\\]{1,64}$/;
 export const secretsDirectory = "/etc/boxpilot/secrets";
@@ -35,7 +50,7 @@ export function validateShare({ kind, host, share, name, username = null, passwo
   if (!shareKinds.includes(kind)) return "kind must be smb or nfs";
   if (typeof host !== "string" || !hostPattern.test(host)) return "host must be a hostname or IP address";
   if (typeof name !== "string" || !mountNamePattern.test(name)) return "name must be lower-case letters, digits, and hyphens (max 32)";
-  if (kind === "smb" && (typeof share !== "string" || !smbSharePattern.test(share))) return "share name may use letters, digits, spaces, dot, underscore, hyphen";
+  if (kind === "smb" && !validSmbShare(share)) return "share name may use letters, digits, spaces, dot, underscore, hyphen, and / for a folder inside the share";
   if (kind === "nfs" && (typeof share !== "string" || !nfsExportPattern.test(share))) return "export must be an absolute path like /volume1/media";
   if (username !== null && (typeof username !== "string" || !credentialPattern.test(username))) return "username is invalid";
   if (domain !== null && (typeof domain !== "string" || !credentialPattern.test(domain))) return "domain is invalid";

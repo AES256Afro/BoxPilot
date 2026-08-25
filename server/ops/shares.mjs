@@ -1,6 +1,6 @@
 import { defineOperation } from "./registry.mjs";
 import { mountNamePattern } from "../tasks/storage.mjs";
-import { credentialPattern, hostPattern, nfsExportPattern, shareKinds, smbSharePattern } from "../tasks/shares.mjs";
+import { credentialPattern, hostPattern, nfsExportPattern, shareKinds, validSmbShare } from "../tasks/shares.mjs";
 
 const minutes = (value) => value * 60_000;
 
@@ -17,7 +17,7 @@ export function shareOperations() {
       parameters: { fields: {
         kind: { type: "string", enum: [...shareKinds] },
         host: { type: "string", maxLength: 253, pattern: hostPattern },
-        share: { type: "string", maxLength: 255, validate: (value, parameters) => ((parameters.kind === "nfs" ? nfsExportPattern : smbSharePattern).test(value) ? null : parameters.kind === "nfs" ? "must be an absolute export path" : "may use letters, digits, spaces, dot, underscore, hyphen") },
+        share: { type: "string", maxLength: 255, validate: (value, parameters) => ((parameters.kind === "nfs" ? nfsExportPattern.test(value) : validSmbShare(value)) ? null : parameters.kind === "nfs" ? "must be an absolute export path" : "may use letters, digits, spaces, dot, underscore, hyphen, and / for a folder inside the share") },
         name: { type: "string", maxLength: 32, pattern: mountNamePattern },
         username: { type: "string", optional: true, nullable: true, maxLength: 64, pattern: credentialPattern },
         password: { type: "string", optional: true, nullable: true, maxLength: 256, secret: true },

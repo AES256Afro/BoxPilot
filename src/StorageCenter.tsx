@@ -87,7 +87,7 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
     setListed(null);
     setShareError(null);
   };
-  const setShareAndName = (value: string) => { setShare(value); if (!nameTouched) setShareName(slug(kind === "nfs" ? value.split("/").filter(Boolean).at(-1) ?? value : value)); };
+  const setShareAndName = (value: string) => { setShare(value); if (!nameTouched) setShareName(slug(value.split("/").filter(Boolean).at(-1) ?? value)); };
 
   const discover = async () => {
     setDiscovering(true); setShareError(null);
@@ -335,7 +335,7 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
             <input aria-label="Host" placeholder="192.168.1.50 or mycloud" value={host} onChange={(event) => setHost(event.target.value)} />
           </label>
           <label>{kind === "smb" ? "Share name" : "Export path"}
-            <input aria-label={kind === "smb" ? "Share name" : "Export path"} placeholder={kind === "smb" ? "Public" : "/volume1/media"} value={share} onChange={(event) => setShareAndName(event.target.value)} />
+            <input aria-label={kind === "smb" ? "Share name" : "Export path"} placeholder={kind === "smb" ? "Public or Public/Backups" : "/volume1/media"} value={share} onChange={(event) => setShareAndName(event.target.value)} />
           </label>
           <label>Mount as <code>/mnt/…</code>
             <input aria-label="Share mount name" placeholder="nas-media" value={shareName} onChange={(event) => { setNameTouched(true); setShareName(event.target.value.toLowerCase()); }} />
@@ -377,7 +377,7 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
         </form>
 
         <p className="muted share-note">
-          <strong>WD My Cloud Home:</strong> the <code>Public</code> folder works as guest; your private files need <em>Local network access</em> enabled in the My Cloud Home app, which gives you a username and password to enter here.
+          <strong>WD My Cloud Home:</strong> it offers only <code>Public</code>, <code>TimeMachineBackup</code> and one share per user — you cannot add more, so point at a folder inside one, like <code>yourname/Backups</code>. The <code>Public</code> folder works as guest; your private files need <em>Local network access</em> enabled in the My Cloud Home app, which gives you a username and password to enter here.
           <br /><strong>Reach it from anywhere, only over Tailscale:</strong> shares stay private to this server. To browse them from your phone or laptop, install <em>File Browser</em> from the App catalog (it listens on this server only), point it at <code>/mnt</code>, and click <em>Serve on tailnet (HTTPS)</em>. Nothing is exposed on your LAN or the internet.
         </p>
       </section>
