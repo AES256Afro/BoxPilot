@@ -28,7 +28,9 @@ interface Job {
   risk: string;
   error: string | null;
   steps: JobStep[];
-  recovery: { reason?: string; manual?: string };
+  // Optional in truth, not just in principle: a job whose recovery block was missing took the
+  // whole Repair Center down, because the type said it could not happen.
+  recovery?: { reason?: string; manual?: string };
 }
 
 interface ApprovalPolicy { confirmText?: string | null;
@@ -316,7 +318,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
           <span className="eyebrow">{awaitingApproval ? "Approval desk" : "Helper check"}</span>
           <h3>{awaitingApproval ? awaitingApproval.title : "Is the root helper answering?"}</h3>
           <p>{awaitingApproval ? "Check what this job will do, then approve it." : "Asks the helper that does root work to identify itself. It changes nothing on the server."}</p>
-          {awaitingApproval && <p className="job-recovery"><strong>{awaitingApproval.risk} risk:</strong> {awaitingApproval.recovery.reason ?? "Follow the recorded recovery instructions if verification fails."}</p>}
+          {awaitingApproval && <p className="job-recovery"><strong>{awaitingApproval.risk} risk:</strong> {awaitingApproval.recovery?.reason ?? "Follow the recorded recovery instructions if verification fails."}</p>}
           {!awaitingApproval ? (
             <>
               <button className="primary-button" type="button" onClick={() => void runCanary()} disabled={pending}>{pending ? "Verifying..." : "Verify the helper"}</button>
@@ -350,7 +352,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
             <summary><div><strong>{job.title}</strong><span>{job.risk} risk | {job.steps.length} recorded steps</span></div><span className={`status-pill status-${job.state === "completed" ? "good" : job.state === "failed" ? "warning" : "neutral"}`}>{job.state.replaceAll("_", " ")}</span></summary>
             <div className="job-steps">{job.steps.map((step, index) => <div key={`${step.createdAt}-${index}`}><span>{step.state}</span><strong>{step.name}</strong><p>{step.detail}</p></div>)}</div>
             {job.error && <p className="job-error">{job.error}</p>}
-            {job.recovery.manual && <p className="job-recovery"><strong>Recovery:</strong> {job.recovery.manual}</p>}
+            {job.recovery?.manual && <p className="job-recovery"><strong>Recovery:</strong> {job.recovery.manual}</p>}
           </details>
         ))}
       </section>

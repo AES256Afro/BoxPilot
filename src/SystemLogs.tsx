@@ -101,7 +101,7 @@ export default function SystemLogs({ csrfToken = "" }: { csrfToken?: string }) {
         </div>
         <div className="log-toolbar">
           <div className="recovery-actions">
-            <span className="muted">Showing <code>{kind === "group" ? (sources?.groups.find((group) => group.id === target)?.label ?? target) : target}</code></span>
+            <span className="muted">Showing <code>{kind === "group" ? (sources?.groups?.find((group) => group.id === target)?.label ?? target) : target}</code></span>
             <select aria-label="Lines" value={lines} onChange={(event) => setLines(Number.parseInt(event.target.value, 10))}>{[100, 300, 1000, 2000].map((count) => <option key={count} value={count}>{count} lines</option>)}</select>
             <select aria-label="Since" value={since} onChange={(event) => setSince(event.target.value)}><option value="">any time</option><option value="15m">last 15 min</option><option value="1h">last hour</option><option value="6h">last 6 hours</option><option value="1d">last day</option><option value="7d">last 7 days</option></select>
             <input aria-label="Filter" placeholder="Filter text…" value={filter} onChange={(event) => setFilter(event.target.value)} />

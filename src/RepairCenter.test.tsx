@@ -96,6 +96,23 @@ describe("Repair Center", () => {
     expect(button.disabled).toBe(false);
   });
 
+  it("renders a job that arrived without a recovery block", async () => {
+    // The type said recovery was always there; a job without it threw inside a map and took the
+    // whole page down — a blank screen at the moment somebody is trying to repair something.
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+    const job = { id: "job-bare", title: "Mount a network share", type: "op:share.mount", state: "failed", risk: "medium", error: "The share does not exist on that host.", steps: [] };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.includes("prerequisites")) return json({ checks: [] });
+      if (url.includes("action-center") || url.includes("recovery-kit")) return json({ error: "unavailable" }, 503);
+      return json({ jobs: [job] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<RepairCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText("Mount a network share")).toBeTruthy();
+    expect(screen.getByText(/The share does not exist on that host/)).toBeTruthy();
+  });
+
   it("keeps prerequisites and jobs available when recovery-kit collection fails", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
