@@ -148,6 +148,10 @@ describe("schedules and secrets", () => {
     const helper = store.createOwnerAccount({ username: "helper", passwordHash: "x", role: "operator", createdBy: owner.id });
     await scheduler.create({ operationId: "apt.refresh", parameters: {}, frequency: "hourly", minute: 0, createdBy: owner.id });
     await scheduler.create({ operationId: "apt.refresh", parameters: {}, frequency: "hourly", minute: 30, createdBy: helper.id });
+    // Clicking "schedule everything" twice used to make a second copy of every backup: two
+    // container stops a night and twice the downtime, for no benefit.
+    await expect(scheduler.create({ operationId: "apt.refresh", parameters: {}, frequency: "daily", minute: 5, hour: 4, createdBy: owner.id }))
+      .rejects.toThrow("already scheduled");
     expect(scheduler.list()).toHaveLength(2); // the owner sees the whole box
     expect(scheduler.list({ createdBy: helper.id })).toHaveLength(1);
     // Someone else's schedule is not theirs to pause or delete.
