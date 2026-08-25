@@ -40,6 +40,7 @@ export default function CloudBackupPanel({ start, refreshKey }: { start: (operat
   const fields = spec?.fields ?? [];
   const secrets = spec?.secrets ?? [];
   const required = fields.filter((field) => !["endpoint", "region", "path"].includes(field));
+  const missing = [...required, ...secrets].filter((field) => !(values[field] ?? "").trim());
   const complete = required.every((field) => (values[field] ?? "").trim()) && secrets.every((field) => (values[field] ?? "").trim()) && (provider !== "s3" || Boolean((values.endpoint ?? "").trim() || (values.region ?? "").trim()));
   const set = (field: string, value: string) => setValues((current) => ({ ...current, [field]: value }));
   const destinationParameters = () => Object.fromEntries([...fields, ...secrets].map((field) => [field, (values[field] ?? "").trim()]).filter(([, value]) => value));
@@ -83,6 +84,9 @@ export default function CloudBackupPanel({ start, refreshKey }: { start: (operat
             {settings?.destination && <button className="secondary-button" type="button" onClick={test}>Test connection</button>}
             {settings?.destination && <button className="primary-button" type="button" onClick={mirror}>Mirror now</button>}
             {!state.rcloneInstalled && <span className="muted">Install rclone first.</span>}
+            {/* A greyed-out button over a form of six fields is a guessing game, and the one field
+                still empty is rarely the one being looked at. */}
+            {state.rcloneInstalled && !complete && <span className="muted">Still needed: {missing.length ? missing.join(", ") : "an endpoint or a region"}.</span>}
           </div>
           {settings?.destination && (
             <span className="muted share-actions">Saved: <strong>{state.providers[settings.destination.provider]?.label ?? settings.destination.provider}</strong>{settings.destination.bucket ? <> · bucket <code>{settings.destination.bucket}</code></> : null}{settings.destination.path ? <> · folder <code>{settings.destination.path}</code></> : null}{settings.lastSync ? ` — last mirrored ${new Date(settings.lastSync.completedAt).toLocaleString()} (${settings.lastSync.filesTransferred} files${settings.lastSync.errors ? `, ${settings.lastSync.errors} errors` : ""})` : " — never mirrored"}. Schedule it on the System page.</span>
