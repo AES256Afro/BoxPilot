@@ -2,7 +2,7 @@ services:
   boxpilot:
     build: .
     # Keep in sync with package.json "version" (enforced by server/deployment.test.mjs).
-    image: boxpilot:1.17.4
+    image: boxpilot:1.17.5
     container_name: boxpilot
     restart: unless-stopped
     environment:
