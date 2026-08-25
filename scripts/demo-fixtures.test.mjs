@@ -1,0 +1,98 @@
+import { describe, it, expect } from "vitest";
+import { readdir, readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { inspections } from "./boxpilot-demo.mjs";
+import { operationModules } from "../server/ops/index.mjs";
+
+/**
+ * The demo is where every page gets looked at before it reaches a real server, so a page the demo
+ * cannot show is a page nobody reviews. Worse than invisible: an operation with no fixture answers
+ * `{}`, and an empty object is the exact shape that breaks code expecting a field to be there. Three
+ * crashes reached a live server that way — the Logs page, the Repair Center, and the catalog's
+ * configuration dialog — each on a screen that looked fine in the demo because it never rendered.
+ *
+ * So: whatever the interface asks for, the demo has to be able to answer.
+ */
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+async function sourceFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...await sourceFiles(full));
+    else if (/\.tsx?$/.test(entry.name) && !/\.test\./.test(entry.name)) files.push(full);
+  }
+  return files;
+}
+
+/** Operation ids the interface reads from: inspectOperation("x") and POSTs to /operations/x/{run,inspect}. */
+async function operationsTheUiReads() {
+  const ids = new Map(); // id -> the file that asks for it
+  for (const file of await sourceFiles(path.join(root, "src"))) {
+    const text = await readFile(file, "utf8");
+    for (const match of text.matchAll(/inspectOperation<[^>]*>\("([a-z][\w.-]+)"\)/g)) ids.set(match[1], path.basename(file));
+    for (const match of text.matchAll(/inspectOperation\("([a-z][\w.-]+)"\)/g)) ids.set(match[1], path.basename(file));
+    for (const match of text.matchAll(/\/operations\/([a-z][\w.-]+)\/(?:run|inspect)/g)) ids.set(match[1], path.basename(file));
+  }
+  return ids;
+}
+
+describe("the demo can answer what the interface asks", () => {
+  it("has a fixture for every read-only operation a page reads", async () => {
+    const registered = new Map(operationModules.flatMap((build) => build()).map((operation) => [operation.id, operation]));
+    const asked = await operationsTheUiReads();
+    expect(asked.size).toBeGreaterThan(10); // the scan found something to check
+
+    const missing = [];
+    for (const [id, file] of asked) {
+      const operation = registered.get(id);
+      // Only read-only operations answer from the fixture table; the rest stage a job instead.
+      if (!operation?.readOnly) continue;
+      if (!(id in inspections)) missing.push(`${id} (read by ${file})`);
+    }
+    expect(missing, `these answer {} in the demo, which is the shape that breaks a page:\n  ${missing.join("\n  ")}`).toEqual([]);
+  });
+
+  it("gives the fields the interface actually reads", () => {
+    // The check above catches a fixture that is missing. It cannot catch one that is present and
+    // wrong, which has cost twice as much: `logs.sources` answered `{ sources: [...] }` when the
+    // server returns `{ groups, units, containers }`, so the Logs page threw on a real machine
+    // while looking healthy here. Fields are listed as they are relied on.
+    const required = {
+      "logs.sources": ["groups", "units", "containers", "dockerAvailable"],
+      "host.snapshot.sources": ["sources", "mount"],
+      "host.snapshot.describe": ["apps", "system", "artifact"],
+      "app.config.inspect": ["compose", "env", "directory"],
+      "app.models.inspect": ["available", "models"],
+      "app.backup.protection": ["available", "apps"],
+      "app.backups.inspect": ["backups", "directory"],
+      "app.logs": ["lines"],
+      "service.journal": ["lines", "unit"],
+      "app.secrets": ["secrets"],
+      "system.performance.inspect": ["cpu", "memory", "disks", "apps"],
+      "docker.disk.inspect": ["images", "containers", "volumes"],
+      "app.serve.inspect": ["available", "serves"],
+    };
+    const wrong = [];
+    for (const [id, fields] of Object.entries(required)) {
+      const fixture = inspections[id];
+      if (!fixture) { wrong.push(`${id}: no fixture`); continue; }
+      const absent = fields.filter((field) => !(field in fixture));
+      if (absent.length) wrong.push(`${id}: missing ${absent.join(", ")}`);
+    }
+    expect(wrong, "a fixture whose shape disagrees with the server teaches the tests the wrong thing").toEqual([]);
+  });
+
+  it("names a real operation in every fixture, and never answers with nothing", () => {
+    const registered = new Set(operationModules.flatMap((build) => build()).map((operation) => operation.id));
+    const unknown = Object.keys(inspections).filter((id) => !registered.has(id));
+    expect(unknown, "fixtures for operations that no longer exist").toEqual([]);
+
+    const empty = Object.entries(inspections)
+      .filter(([, value]) => value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length === 0)
+      .map(([id]) => id);
+    expect(empty, "an empty fixture is no better than a missing one").toEqual([]);
+  });
+});

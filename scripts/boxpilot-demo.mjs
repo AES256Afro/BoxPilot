@@ -139,7 +139,10 @@ const machineState = {
   sync: { destination: "/mnt/boxpilot-backup/boxpilot-local-mirror", mount: { mounted: true, freeBytes: 1290 * GiB }, lastSync: { completedAt: ago(20), copiedCount: 12 } },
 };
 
-const inspections = {
+// Exported so a test can hold these to the operations the interface actually calls: a page whose
+// operation has no fixture here gets `{}` from the demo, and an empty object is exactly the shape
+// that breaks code expecting a field — which is how three crashes reached a real server.
+export const inspections = {
   "system.settings.inspect": {
     hostname: { static: host.hostname, live: host.hostname }, timezone: "UTC",
     timezones: ["UTC", "Europe/London", "Europe/Berlin", "America/New_York", "America/Chicago", "America/Los_Angeles", "Asia/Tokyo", "Australia/Sydney"],
@@ -211,6 +214,47 @@ const inspections = {
     { id: "homepage", name: "Homepage", protectable: true, backups: 0, newestAt: null },
   ] },
   "app.config.inspect": { id: "homepage", name: "Homepage", directory: "/var/lib/boxpilot-managed/catalog/homepage", compose: "name: bp-homepage\nservices:\n  homepage:\n    image: ghcr.io/gethomepage/homepage:v1.5.0\n    restart: unless-stopped\n    ports:\n      - 192.168.1.10:3000:3000\n", env: [{ name: "HOMEPAGE_ALLOWED_HOSTS", value: "*", secret: false }, { name: "PUID", value: "1000", secret: false }, { name: "SECRET", value: "********", secret: true }] },
+  // Every dialog the interface can open needs an answer here; see scripts/demo-fixtures.test.mjs.
+  "app.logs": { id: "jellyfin", lines: [
+    "[2026-08-25 06:12:04] [INF] Startup complete 00:00:07.2118863",
+    "[2026-08-25 06:12:09] [INF] Loading library db",
+    "[2026-08-25 07:41:22] [INF] Playback start: Blade Runner 2049 (user: alex)",
+    "[2026-08-25 07:41:23] [INF] Direct play, no transcode required",
+  ] },
+  "app.backups.inspect": { id: "jellyfin", directory: "/var/lib/boxpilot-managed/backups/catalog/jellyfin", backups: [
+    { artifact: "20260825T031400Z.tar.gz", createdAt: ago(11), sizeBytes: 84 * 1024 ** 2, checksumSha256: "5cadc3b554cd25b0f7b1c1e2a9d4f6b3c8e0a1d2f3b4c5d6e7f8a9b0c1d2e3f4", contents: ["compose.yaml", ".env", "config"], downtimeMs: 812 },
+    { artifact: "20260824T031400Z.tar.gz", createdAt: ago(35), sizeBytes: 83 * 1024 ** 2, checksumSha256: "21871c8a3ea0e84d9b2f4c6a8e0d2b4f6a8c0e2d4b6f8a0c2e4d6b8f0a2c4e6d", contents: ["compose.yaml", ".env", "config"], downtimeMs: 774 },
+  ] },
+  "app.backup.files": { id: "jellyfin", backup: "20260825T031400Z.tar.gz", truncated: false, files: [
+    { path: "compose.yaml", sizeBytes: 812 }, { path: ".env", sizeBytes: 214 },
+    { path: "config/system.xml", sizeBytes: 4210 }, { path: "config/data/library.db", sizeBytes: 61 * 1024 ** 2 },
+  ] },
+  "app.secrets": { id: "vaultwarden", secrets: [{ name: "ADMIN_TOKEN", label: "Admin page token", value: "demo-token-not-a-real-secret" }] },
+  "service.journal": { unit: "boxpilot.service", lines: [
+    "2026-08-25T06:11:58+0000 homebox systemd[1]: Started BoxPilot.",
+    "2026-08-25T06:12:01+0000 homebox node[812]: BoxPilot listening on 127.0.0.1:8787",
+    "2026-08-25T07:15:44+0000 homebox node[812]: job completed: app.backup (jellyfin)",
+  ] },
+  "logs.read": { lines: ["demo: nothing is read from this machine"], truncated: false },
+  "host.snapshot.sources": {
+    mount: { mounted: true, blocker: null },
+    sources: [
+      { source: "local", root: "/var/lib/boxpilot-managed/machine-snapshots", available: true, snapshots: [
+        { artifact: "machine-snapshot-20260824T141228Z-5cadc3b5.tar.gz", sizeBytes: 41 * 1024 ** 2, createdAt: ago(26), checksumSha256: "5cadc3b554cd25b0f7b1c1e2a9d4f6b3c8e0a1d2f3b4c5d6e7f8a9b0c1d2e3f4", apps: 9 },
+        { artifact: "machine-snapshot-20260817T141228Z-21871c8a.tar.gz", sizeBytes: 39 * 1024 ** 2, createdAt: ago(194), checksumSha256: "21871c8a3ea0e84d9b2f4c6a8e0d2b4f6a8c0e2d4b6f8a0c2e4d6b8f0a2c4e6d", apps: 6 },
+      ] },
+      { source: "mirror", root: "/mnt/boxpilot-backup/boxpilot-local-mirror/machine-snapshots", available: true, snapshots: [
+        { artifact: "machine-snapshot-20260824T141228Z-5cadc3b5.tar.gz", sizeBytes: 41 * 1024 ** 2, createdAt: ago(26), checksumSha256: "5cadc3b554cd25b0f7b1c1e2a9d4f6b3c8e0a1d2f3b4c5d6e7f8a9b0c1d2e3f4", apps: 9 },
+      ] },
+    ],
+  },
+  "host.snapshot.describe": {
+    source: "local", artifact: "machine-snapshot-20260824T141228Z-5cadc3b5.tar.gz", createdAt: ago(26),
+    checksumSha256: "5cadc3b554cd25b0f7b1c1e2a9d4f6b3c8e0a1d2f3b4c5d6e7f8a9b0c1d2e3f4",
+    apps: Object.keys(installed).map((id) => ({ id, installed: true, newestBackup: ago(11), dataAvailable: true, dataLocation: "local" })),
+    system: { netplan: true, firewall: true, fstab: true, database: true },
+    vms: { domains: ["dev-lab"], disksIncluded: false, diskRepository: "/var/lib/libvirt/images", diskRepositoryReachable: true },
+  },
   "logs.sources": { groups: [{ id: "boxpilot", label: "BoxPilot" }, { id: "system", label: "System journal" }, { id: "docker", label: "Docker" }], units: [{ unit: "boxpilot.service", description: "BoxPilot", active: "active" }, { unit: "docker.service", description: "Docker Engine", active: "active" }, { unit: "tailscaled.service", description: "Tailscale", active: "active" }], dockerAvailable: true, containers: Object.keys(installed).map((id) => ({ name: `bp-${id}`, state: "running", image: `${id}:latest` })) },
   "vm.cloud.images": { images: [] },
   "vm.stats.inspect": { available: true, domains: {} },
@@ -291,10 +335,11 @@ api.get("/operations/:id/inspect", (request, response) => {
 });
 // Read-only operations answer from the same fixtures the inspect route uses, so anything the UI
 // reads through /run (which is how it passes parameters) behaves here too.
-api.post("/operations/:id/run", (request, response) => json(response, { operation: request.params.id, result: request.params.id === "logs.read" ? { lines: ["demo: nothing is read from this machine"], truncated: false } : inspections[request.params.id] ?? {} }));
+api.post("/operations/:id/run", (request, response) => json(response, { operation: request.params.id, result: inspections[request.params.id] ?? {} }));
 api.post("/operations/:id/jobs", (request, response) => response.status(201).json({ job: { id: "demo-job", type: `op:${request.params.id}`, title: request.params.id, state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [], createdAt: now().toISOString() }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "demo: jobs never run here" } }));
 api.all("/{*rest}", (_request, response) => response.status(404).json({ error: "Not part of the demo", code: "demo_missing" }));
 app.use("/api/v1", api);
 app.use(express.static(dist, { index: false }));
 app.get("/{*rest}", (_request, response) => response.sendFile(path.join(dist, "index.html")));
-app.listen(port, "127.0.0.1", () => console.log(`BoxPilot demo (${productVersion}) with fictional data at http://127.0.0.1:${port}`));
+// Only when run directly: importing this module for its fixtures must not start a server.
+if (import.meta.main) app.listen(port, "127.0.0.1", () => console.log(`BoxPilot demo (${productVersion}) with fictional data at http://127.0.0.1:${port}`));
