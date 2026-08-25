@@ -76,6 +76,8 @@ describe("the demo can answer what the interface asks", () => {
       "app.serve.inspect": ["available", "serves"],
       "users.inspect": ["users", "sshd", "sshActive"],
       "dns.names.inspect": ["available", "platform", "records", "apps"],
+      "router.inspect": ["configured", "reachable", "host"],
+      "router.leases": ["leases", "host"],
     };
     const wrong = [];
     for (const [id, fields] of Object.entries(required)) {
@@ -100,6 +102,7 @@ describe("the demo can answer what the interface asks", () => {
       "system.performance.inspect": ["apps", ["id", "state", "running", "cpuPercent", "memBytes"]],
       "users.inspect": ["users", ["name", "uid", "shell", "sudo", "keyCount"]],
       "dns.names.inspect": ["apps", ["id", "name", "port"]],
+      "router.leases": ["leases", ["name", "address", "mac", "online", "reserved"]],
     };
     const wrong = [];
     for (const [id, [listKey, fields]] of Object.entries(itemFields)) {
