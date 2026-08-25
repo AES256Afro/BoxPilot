@@ -23,7 +23,8 @@ export function routerOperations() {
       parameters: { fields: {
         kind: { type: "string", validate: (value) => (routerKinds.includes(value) ? null : `must be one of ${routerKinds.join(", ")}`) },
         host: { type: "string", maxLength: 253, pattern: /^[A-Za-z0-9]([A-Za-z0-9.-]{0,252}[A-Za-z0-9])?$/ },
-        username: { type: "string", maxLength: 64, pattern: /^[A-Za-z0-9._-]{1,64}$/ },
+        // These routers have one admin account and do not ask which; root is filled in.
+        username: { type: "string", maxLength: 64, pattern: /^[A-Za-z0-9._-]{1,64}$/, optional: true },
         password: { type: "string", maxLength: 256, pattern: /^[^\r\n]+$/, secret: true },
       } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("router.connect", parameters, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
