@@ -132,6 +132,42 @@ describe("generic app deployer", () => {
     expect(chowns).toEqual([["data", 1883, 1883], ["logs", 1883, 1883]]);
   });
 
+  it("hands managed folders to the user the image itself declares", async () => {
+    // Plenty of images neither declare `user:` nor read PUID — AnythingLLM runs as `anythingllm`,
+    // Wiki.js as `node`. Their managed folders were created root-owned and the app could not write
+    // a byte: an install that reports success and then fails at the first upload.
+    const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
+    const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
+    await writeFile(path.join(catalogDirectory, "named.yaml"), "schemaVersion: 2\nid: named\nname: Named\ncategory: T\ndescription: d\nimage:\n  reference: x/named:1\nvolumes:\n  - id: store\n    container: /store\n    path: store\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n");
+    const chowns = [];
+    const runDocker = vi.fn(async (_binary, args) => {
+      if (args[0] === "inspect") return { ok: true, stdout: JSON.stringify({ running: true, status: "running", health: "none", restarts: 0, image: "sha256:1", startedAt: "x", exitCode: 0 }), stderr: "" };
+      if (args[0] === "image" && args[1] === "inspect") return { ok: true, stdout: "appuser\n", stderr: "" };   // a name, not a number
+      if (args[0] === "run" && args.includes("id")) return { ok: true, stdout: args.includes("-g") ? "2000\n" : "1500\n", stderr: "" };
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    let nowMs = Date.parse("2026-08-25T12:00:00Z");
+    const apps = createAppHelper({ catalogRoot, runDocker, catalog: createCatalogService({ directory: catalogDirectory, ttlMs: 0 }), wait: async (ms) => { nowMs += ms; }, clock: () => new Date(nowMs), chownDirectory: async (target, uid, gid) => { chowns.push([path.basename(target), uid, gid]); } });
+    await apps.install({ id: "named" });
+    expect(chowns).toEqual([["store", 1500, 2000]]); // resolved against the image's own passwd file
+  });
+
+  it("leaves ownership alone when the image runs as root or cannot be asked", async () => {
+    const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
+    const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
+    await writeFile(path.join(catalogDirectory, "rooty.yaml"), "schemaVersion: 2\nid: rooty\nname: Rooty\ncategory: T\ndescription: d\nimage:\n  reference: x/rooty:1\nvolumes:\n  - id: store\n    container: /store\n    path: store\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n");
+    const chowns = [];
+    const runDocker = vi.fn(async (_binary, args) => {
+      if (args[0] === "inspect") return { ok: true, stdout: JSON.stringify({ running: true, status: "running", health: "none", restarts: 0, image: "sha256:1", startedAt: "x", exitCode: 0 }), stderr: "" };
+      if (args[0] === "image" && args[1] === "inspect") return { ok: true, stdout: "\n", stderr: "" }; // no USER: runs as root
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    let nowMs = Date.parse("2026-08-25T12:00:00Z");
+    const apps = createAppHelper({ catalogRoot, runDocker, catalog: createCatalogService({ directory: catalogDirectory, ttlMs: 0 }), wait: async (ms) => { nowMs += ms; }, clock: () => new Date(nowMs), chownDirectory: async (target, uid, gid) => { chowns.push([path.basename(target), uid, gid]); } });
+    await apps.install({ id: "rooty" });
+    expect(chowns).toEqual([]); // nothing guessed
+  });
+
   it("runs the chosen setup commands inside the container after install and settings changes", async () => {
     const { apps, calls, catalogDirectory, catalogRoot } = await setup();
     await writeFile(path.join(catalogDirectory, "lists.yaml"), `schemaVersion: 2\nid: lists\nname: Lists\ncategory: DNS\ndescription: d\nimage:\n  reference: x/lists:1\nhealth:\n  kind: running\n  stableSeconds: 4\n  timeoutSeconds: 30\nsetup:\n  title: Blocklists\n  finalize: [pihole, -g]\n  choices:\n    - id: big\n      label: Big\n      recommended: true\n      exec: [sh, -c, "echo big"]\n    - id: small\n      label: Small\n      exec: [sh, -c, "echo small"]\n`);

@@ -175,6 +175,26 @@ describe("finding things in a catalog of a hundred-odd apps", () => {
     expect(screen.queryByText("Jellyfin")).toBeNull();
   });
 
+  it("shows a paused app as paused and offers Resume, not Stop-only", async () => {
+    // Docker reports a paused container as Running=true — the process exists, it is just frozen.
+    // Every check of container.running therefore has to subtract paused, or the card claims the
+    // app is Running, counts it among the running apps, and offers no way to thaw it.
+    const pausedLive = { ...runningLive, container: { ...runningLive.container, running: true, status: "paused" } };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest: dockge, live: pausedLive }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      if (url.includes("app.serve.inspect")) return json({ result: { available: true, serves: [] } });
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppCatalog csrfToken="csrf-token" />);
+    expect(await screen.findByText("Paused")).toBeTruthy();
+    expect(screen.queryByText("Running")).toBeNull();
+    expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Restart" })).toBeNull(); // restarting a frozen container is not the offer
+    expect(screen.getByText("0 running of 1 installed")).toBeTruthy();
+  });
+
   it("offers a network-mode choice at install and sends it when it differs from the default", async () => {
     const hole = { ...dockge, id: "pi-hole", name: "Pi-hole", description: "DNS blocker", network: "bridge", networkModes: ["bridge", "host"], ports: [{ id: "web", label: "Admin UI", container: 80, host: 8084, protocol: "tcp", exposure: "lan", fixed: false }], env: [], signIn: null };
     let staged: string | undefined;

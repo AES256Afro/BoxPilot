@@ -49,6 +49,24 @@ describe("the performance snapshot", () => {
     expect(second.cpu.perCore).toHaveLength(1);
   });
 
+  it("repeats the last reading rather than reporting 0% when two pollers collide", async () => {
+    // Two browser tabs polling at once interleave their samples, so the window between two reads
+    // can collapse to almost nothing. The tick counters have not moved over that window, which
+    // would compute as 0% — an idle-looking machine that is in fact busy.
+    let call = 0;
+    const samples = [
+      "cpu 100 0 50 800 50 0 0 0\ncpu0 100 0 50 800 50 0 0 0",
+      "cpu 220 0 110 860 60 0 0 0\ncpu0 220 0 110 860 60 0 0 0",
+      "cpu 220 0 110 860 60 0 0 0\ncpu0 220 0 110 860 60 0 0 0", // a colliding read, no ticks elapsed
+    ];
+    const perf = service({ readProc: async (name) => (name === "stat" ? samples[Math.min(call++, samples.length - 1)] : "") });
+    await perf.snapshot();
+    const busy = (await perf.snapshot()).cpu.usagePercent;
+    expect(busy).toBeGreaterThan(60);
+    const collided = (await perf.snapshot()).cpu.usagePercent;
+    expect(collided).toBe(busy); // the previous answer, not a fabricated 0
+  });
+
   it("computes memory and swap from meminfo, not just os totals", async () => {
     const snap = await service().snapshot();
     expect(snap.memory.totalBytes).toBe(32000000 * 1024);
