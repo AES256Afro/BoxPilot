@@ -67,7 +67,7 @@ function checkKeys(errors, path, value, allowed, required = []) {
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
-  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes"], ["schemaVersion", "id", "name", "category", "description", "image"]);
+  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner"], ["schemaVersion", "id", "name", "category", "description", "image"]);
   if (raw.schemaVersion !== 2) fail(errors, "manifest.schemaVersion", "must be 2");
   // Docker gives a container 64 MB of shared memory. Anything decoding video wants far more, and
   // runs out in ways that look like the app is broken rather than out of a resource.
@@ -218,6 +218,21 @@ export function validateManifest(raw) {
     });
   });
   if (sidecars.length && raw.network === "host") fail(errors, "manifest.sidecars", "host-network apps cannot have sidecars (no compose network to reach them on)");
+  // modelRunner: this app runs language models, and BoxPilot can manage them for it — list what is
+  // downloaded, pull another, remove one. `service` names the compose service holding the runner,
+  // which is the app itself for a standalone engine and a sidecar for a bundle.
+  let modelRunner = null;
+  if (raw.modelRunner !== undefined) {
+    if (!isObject(raw.modelRunner)) fail(errors, "manifest.modelRunner", "must be a mapping");
+    else {
+      checkKeys(errors, "manifest.modelRunner", raw.modelRunner, ["kind", "service"], ["kind", "service"]);
+      if (raw.modelRunner.kind !== "ollama") fail(errors, "manifest.modelRunner.kind", "must be ollama");
+      const known = raw.modelRunner.service === raw.id || sidecars.some((sidecar) => isObject(sidecar) && sidecar.id === raw.modelRunner.service);
+      if (!known) fail(errors, "manifest.modelRunner.service", "must be this app or one of its sidecars");
+      if (!errors.some((error) => error.startsWith("manifest.modelRunner"))) modelRunner = { kind: raw.modelRunner.kind, service: raw.modelRunner.service };
+    }
+  }
+
   // networkVia: the app shares a sidecar's network namespace (a VPN container) and its ports are published there.
   if (raw.networkVia !== undefined) {
     if (typeof raw.networkVia !== "string" || !sidecarIds.has(raw.networkVia)) fail(errors, "manifest.networkVia", "must name one of the sidecars");
@@ -307,6 +322,7 @@ export function validateManifest(raw) {
     } : null,
     networkVia: raw.networkVia ?? null,
     networkModes,
+    modelRunner,
     sysctls: raw.sysctls ?? [],
     shmSize: raw.shmSize ?? null,
     sidecars: sidecars.map((sidecar) => ({

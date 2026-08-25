@@ -32,7 +32,7 @@ const digest = (seed) => createHash("sha256").update(`demo:${seed}`).digest("hex
 
 // ---------- the fictional server ----------
 const host = { hostname: "homebox", lan: "192.168.50.20", gateway: "192.168.50.1", tailnet: "homebox.tail0a1b.ts.net", tailscaleIp: "100.101.102.103", owner: "alex" };
-const installed = { jellyfin: 8096, "pi-hole": 8084, immich: 2283, vaultwarden: 8222, "uptime-kuma": 3001, homepage: 3000, nextcloud: 8087, scrutiny: 8086 };
+const installed = { "open-webui": 8088, jellyfin: 8096, "pi-hole": 8084, immich: 2283, vaultwarden: 8222, "uptime-kuma": 3001, homepage: 3000, nextcloud: 8087, scrutiny: 8086 };
 const stats = { jellyfin: { cpuPercent: 3.2, memBytes: 412 * 1024 ** 2, containers: 1 }, "pi-hole": { cpuPercent: 0.4, memBytes: 96 * 1024 ** 2, containers: 2 }, immich: { cpuPercent: 6.1, memBytes: 1.4 * GiB, containers: 4 }, vaultwarden: { cpuPercent: 0.1, memBytes: 48 * 1024 ** 2, containers: 1 }, "uptime-kuma": { cpuPercent: 0.8, memBytes: 120 * 1024 ** 2, containers: 1 }, homepage: { cpuPercent: 0.2, memBytes: 70 * 1024 ** 2, containers: 1 }, nextcloud: { cpuPercent: 1.9, memBytes: 620 * 1024 ** 2, containers: 3 }, scrutiny: { cpuPercent: 0.3, memBytes: 110 * 1024 ** 2, containers: 1 } };
 
 const lsblk = JSON.stringify({ blockdevices: [
@@ -195,6 +195,11 @@ const inspections = {
       apps: Object.entries(installed).map(([id]) => ({ id, state: "running", running: true, cpuPercent: perApp[id]?.[0] ?? 0.5, memBytes: (perApp[id]?.[1] ?? 64) * 1024 ** 2, containers: 1 })),
     };
   })(),
+  "app.models.inspect": { id: "open-webui", available: true, reason: null, models: [
+    { name: "hermes3:8b", id: "1b226e2802db", size: "4.7 GB", modified: "2 days ago", bytes: 4.7e9 },
+    { name: "qwen3:30b-a3b", id: "aabbccddeeff", size: "19 GB", modified: "3 weeks ago", bytes: 19e9 },
+    { name: "nomic-embed-text:latest", id: "0a109f422b47", size: "274 MB", modified: "3 weeks ago", bytes: 274e6 },
+  ] },
   "logs.sources": { sources: [{ id: "system", label: "System journal" }, { id: "boxpilot", label: "BoxPilot" }] },
   "vm.cloud.images": { images: [] },
   "vm.stats.inspect": { available: true, domains: {} },
@@ -260,7 +265,9 @@ api.get("/operations/:id/inspect", (request, response) => {
   if (!result) return response.status(404).json({ error: "Not in the demo", code: "demo_missing" });
   return json(response, { operation: request.params.id, result });
 });
-api.post("/operations/:id/run", (request, response) => json(response, { operation: request.params.id, result: request.params.id === "logs.read" ? { lines: ["demo: nothing is read from this machine"], truncated: false } : {} }));
+// Read-only operations answer from the same fixtures the inspect route uses, so anything the UI
+// reads through /run (which is how it passes parameters) behaves here too.
+api.post("/operations/:id/run", (request, response) => json(response, { operation: request.params.id, result: request.params.id === "logs.read" ? { lines: ["demo: nothing is read from this machine"], truncated: false } : inspections[request.params.id] ?? {} }));
 api.post("/operations/:id/jobs", (request, response) => response.status(201).json({ job: { id: "demo-job", type: `op:${request.params.id}`, title: request.params.id, state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [], createdAt: now().toISOString() }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "demo: jobs never run here" } }));
 api.all("/{*rest}", (_request, response) => response.status(404).json({ error: "Not part of the demo", code: "demo_missing" }));
 app.use("/api/v1", api);

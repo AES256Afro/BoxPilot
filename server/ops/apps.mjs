@@ -227,6 +227,25 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.setPassword({ id: parameters.id, password: parameters.password }, { progress }),
     }),
     defineOperation({
+      id: "app.models.inspect", title: "List an application's models", risk: "low", readOnly: true, timeoutMs: minutes(2),
+      description: "Which language models this app has downloaded, with the disk each one takes.",
+      parameters: { fields: { id: idField } },
+      run: (parameters, { apps }) => apps.listModels({ id: parameters.id }),
+    }),
+    defineOperation({
+      id: "app.model.pull", title: "Download a language model", risk: "medium", timeoutMs: minutes(150),
+      description: "Downloads a model into this app. Large models are tens of gigabytes and can take an hour or more; progress appears in the job log as it goes.",
+      parameters: { fields: { id: idField, model: { type: "string", maxLength: 128, pattern: /^[a-z0-9][a-z0-9._/-]{0,96}(:[a-zA-Z0-9._-]{1,32})?$/ } } },
+      run: (parameters, { apps, progress }) => apps.pullModel({ id: parameters.id, model: parameters.model }, { progress }),
+    }),
+    defineOperation({
+      id: "app.model.remove", title: "Remove a language model", risk: "medium", timeoutMs: minutes(6),
+      description: "Deletes a downloaded model and frees its disk. It can be downloaded again at any time.",
+      confirm: (parameters) => parameters.model,
+      parameters: { fields: { id: idField, model: { type: "string", maxLength: 128, pattern: /^[a-z0-9][a-z0-9._/-]{0,96}(:[a-zA-Z0-9._-]{1,32})?$/ } } },
+      run: (parameters, { apps, progress }) => apps.removeModel({ id: parameters.id, model: parameters.model }, { progress }),
+    }),
+    defineOperation({
       id: "app.reconfigure", title: "Change application settings", risk: "medium", timeoutMs: minutes(15),
       description: "Takes a data checkpoint, rewrites ports, settings, and volume paths, and recreates the container; restores the previous configuration on failure.",
       parameters: { fields: { id: idField, values: valuesField, checkpoint: { type: "boolean", optional: true }, devices: devicesField } },

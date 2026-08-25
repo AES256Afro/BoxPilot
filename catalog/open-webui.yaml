@@ -46,6 +46,9 @@ sidecars:
         container: /root/.ollama
         path: models
         backup: false
+modelRunner:
+  kind: ollama
+  service: ollama
 health:
   kind: running
   stableSeconds: 20

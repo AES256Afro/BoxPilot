@@ -251,6 +251,40 @@ describe("generic app deployer", () => {
     await expect(readdir(path.join(catalogRoot, "demo"))).rejects.toThrow();
   });
 
+  it("lists, downloads and removes models for an app that runs them", async () => {
+    // Downloads live outside install deliberately: a 20 GB model cannot finish inside the install
+    // operation's idle timeout, so it gets its own job, its own budget, and streamed progress.
+    const { apps, calls, catalogDirectory } = await setup();
+    await writeFile(path.join(catalogDirectory, "engine.yaml"), "schemaVersion: 2\nid: engine\nname: Engine\ncategory: AI\ndescription: d\nimage:\n  reference: x/engine:1\nmodelRunner:\n  kind: ollama\n  service: engine\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n");
+    await apps.install({ id: "engine" });
+
+    const models = await apps.listModels({ id: "engine" });
+    expect(models.available).toBe(true);
+    expect(calls.some((call) => /exec -T engine ollama list$/.test(call))).toBe(true);
+
+    const lines = [];
+    await apps.pullModel({ id: "engine", model: "hermes3:8b" }, { progress: (line) => lines.push(line) });
+    expect(calls.some((call) => /exec -T engine ollama pull hermes3:8b$/.test(call))).toBe(true);
+    expect(lines.join(" ")).toMatch(/Downloading hermes3:8b/);
+
+    await apps.removeModel({ id: "engine", model: "hermes3:8b" });
+    expect(calls.some((call) => /exec -T engine ollama rm hermes3:8b$/.test(call))).toBe(true);
+
+    // Parsing `ollama list` is the fragile part — SIZE and MODIFIED both contain single spaces, so
+    // columns split on runs of two or more. Pinned against real output from ollama 0.32.15.
+    const listing = "NAME                 ID              SIZE     MODIFIED\nhermes3:8b           1b226e2802db    4.7 GB   2 days ago\nqwen3:30b-a3b        aabbccddeeff    19 GB    Less than a second ago\n";
+    expect(apps.internals.parseModelList(listing)).toEqual([
+      { name: "hermes3:8b", id: "1b226e2802db", size: "4.7 GB", modified: "2 days ago", bytes: 4_700_000_000 },
+      { name: "qwen3:30b-a3b", id: "aabbccddeeff", size: "19 GB", modified: "Less than a second ago", bytes: 19_000_000_000 },
+    ]);
+  });
+
+  it("refuses model commands for an app that does not run models", async () => {
+    const { apps } = await setup();
+    await apps.install({ id: "demo" });
+    await expect(apps.listModels({ id: "demo" })).rejects.toThrow("does not manage models");
+  });
+
   it("pauses and resumes a container without stopping it", async () => {
     // Pause freezes the process and keeps its memory, which is what makes it right for a heavy
     // model: no reload on the way back. Stop would free the memory and cost a cold start.

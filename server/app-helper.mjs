@@ -48,6 +48,14 @@ function parseEnvFile(text) {
   return env;
 }
 
+/** "4.7 GB" as bytes. Ollama prints powers of 1000, the way the Docker CLI does. */
+function parseModelSize(text) {
+  const match = /^([\d.]+)\s*([KMGT]?B)$/i.exec(String(text ?? "").trim());
+  if (!match) return 0;
+  const scale = { B: 1, KB: 1e3, MB: 1e6, GB: 1e9, TB: 1e12 }[match[2].toUpperCase()] ?? 1;
+  return Math.round(Number(match[1]) * scale);
+}
+
 export function createAppHelper({
   catalogRoot = process.env.BOXPILOT_CATALOG_ROOT ?? "/var/lib/boxpilot-managed/catalog",
   backupRoot = path.join(process.env.BOXPILOT_APPLICATION_BACKUP_ROOT ?? "/var/lib/boxpilot-managed/backups", "catalog"),
@@ -946,6 +954,64 @@ export function createAppHelper({
     return { id, changed: true, hostPorts: result.hostPorts };
   }
 
+  /**
+   * Language models an app has downloaded, and the two things you want to do with them.
+   *
+   * These live outside install on purpose. A large model is tens of gigabytes: pulling one inside
+   * `app.install` meant a silent wait against a socket that gives up after twenty-five idle
+   * minutes, so the download that most needed patience was the one guaranteed to fail. Here it is
+   * an operation of its own, with its own budget and its output streamed as it goes.
+   */
+  function modelService(manifest) {
+    if (!manifest.modelRunner) throw new Error(`${manifest.name} does not manage models`);
+    return manifest.modelRunner.service;
+  }
+
+  /** `ollama list` as rows. Columns are separated by runs of spaces; SIZE and MODIFIED contain single ones. */
+  function parseModelList(stdout) {
+    const lines = String(stdout ?? "").split("\n").map((line) => line.trimEnd()).filter((line) => line.trim());
+    const models = [];
+    for (const line of lines) {
+      const columns = line.trim().split(/\s{2,}/);
+      if (columns.length < 3 || columns[0] === "NAME") continue;
+      const [name, id, size, modified = ""] = columns;
+      models.push({ name, id, size, modified, bytes: parseModelSize(size) });
+    }
+    return models;
+  }
+
+  async function listModels({ id }) {
+    const manifest = await ensureManifest(id);
+    const state = await readState(id);
+    if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
+    const result = await compose(id, ["exec", "-T", modelService(manifest), "ollama", "list"], { timeout: 60_000 });
+    // A runner that is still starting has no answer yet, which is not a failure worth an error page.
+    if (!result.ok) return { id, available: false, models: [], totalBytes: 0, reason: redact(result.stderr).split("\n").filter(Boolean).slice(-1)[0] ?? "the model runner is not answering yet" };
+    const models = parseModelList(result.stdout);
+    return { id, available: true, models, totalBytes: models.reduce((sum, model) => sum + model.bytes, 0), reason: null };
+  }
+
+  async function pullModel({ id, model }, { progress = null } = {}) {
+    const manifest = await ensureManifest(id);
+    const state = await readState(id);
+    if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
+    progress?.(`Downloading ${model}. Large models are tens of gigabytes; this can take a while.`, "stdout");
+    // Two hours: a 20 GB model over a domestic line is comfortably an hour, and the alternative is
+    // a download that dies near the end with nothing to show for it.
+    const result = await compose(id, ["exec", "-T", modelService(manifest), "ollama", "pull", model], { timeout: 120 * 60_000, progress });
+    if (!result.ok) throw new Error(`Could not download ${model}: ${redact(result.stderr).split("\n").filter(Boolean).slice(-2).join(" ") || "the model runner refused"}`);
+    return { id, model, pulled: true, models: parseModelList((await compose(id, ["exec", "-T", modelService(manifest), "ollama", "list"], { timeout: 60_000 })).stdout) };
+  }
+
+  async function removeModel({ id, model }, { progress = null } = {}) {
+    const manifest = await ensureManifest(id);
+    const state = await readState(id);
+    if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
+    const result = await compose(id, ["exec", "-T", modelService(manifest), "ollama", "rm", model], { timeout: 5 * 60_000, progress });
+    if (!result.ok) throw new Error(`Could not remove ${model}: ${redact(result.stderr).split("\n").filter(Boolean).slice(-2).join(" ") || "the model runner refused"}`);
+    return { id, model, removed: true };
+  }
+
   async function secrets({ id }) {
     const manifest = await ensureManifest(id);
     const env = await readEnv(id);
@@ -964,5 +1030,5 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { syncHomepage, inspect, countAppBackups, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, listModels, pullModel, removeModel, countAppBackups, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

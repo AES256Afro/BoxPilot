@@ -18,6 +18,7 @@ export interface Manifest {
   signIn?: { path: string | null; port: string | null; username: string | null; usernameEnv: string | null; passwordEnv: string; note: string | null } | null;
   network?: string;
   networkModes?: string[];
+  modelRunner?: { kind: string; service: string } | null;
   sha256: string;
 }
 interface LiveState {
@@ -163,6 +164,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [error, setError] = useState<string | null>(null);
   const [config, setConfig] = useState<{ manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure" } | null>(null);
   const [logs, setLogs] = useState<{ id: string; lines: string[] } | null>(null);
+  const [models, setModels] = useState<{ id: string; name: string; available: boolean; reason: string | null; rows: Array<{ name: string; id: string; size: string; modified: string; bytes: number }>; wanted: string; loading: boolean } | null>(null);
   const [effectiveConfig, setEffectiveConfig] = useState<{ id: string; name: string; compose: string | null; env: Array<{ name: string; value: string; secret: boolean }>; directory: string } | null>(null);
   const [composeDraft, setComposeDraft] = useState<string | null>(null);
   const [appBackups, setAppBackups] = useState<{ id: string; name: string; backups: Array<{ artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; skippedVolumes?: string[]; image: string | null }> } | null>(null);
@@ -248,6 +250,24 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
    * view, and a variable name to find in Settings if you wanted your own.
    */
   const showSignIn = (manifest: Manifest) => setSecrets({ id: manifest.id, name: manifest.name, items: null, needsPassword: false, password: "", error: null, signIn: true, newPassword: "" });
+
+  /**
+   * What this app has downloaded, and a way to add or remove one. Kept out of install on purpose:
+   * a large model is tens of gigabytes, and pulling one inside the install operation meant a silent
+   * wait that timed out before it finished. Here each download is its own job with its own budget.
+   */
+  const showModels = async (manifest: Manifest) => {
+    setModels({ id: manifest.id, name: manifest.name, available: false, reason: null, rows: [], wanted: "", loading: true });
+    try {
+      const response = await fetch("/api/v1/operations/app.models.inspect/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id: manifest.id } }) });
+      const body = (await response.json().catch(() => ({}))) as { result?: { available: boolean; reason: string | null; totalBytes: number; models: Array<{ name: string; id: string; size: string; modified: string; bytes: number }> }; error?: string };
+      if (!response.ok) throw new Error(body.error ?? "Could not read the model list");
+      const result = body.result ?? { available: false, reason: "no answer", models: [], totalBytes: 0 };
+      setModels((current) => (current?.id === manifest.id ? { ...current, available: result.available, reason: result.reason, rows: result.models ?? [], loading: false } : current));
+    } catch (requestError) {
+      setModels((current) => (current?.id === manifest.id ? { ...current, available: false, reason: requestError instanceof Error ? requestError.message : "Could not read the model list", loading: false } : current));
+    }
+  };
 
   const revealSecrets = async (manifest: Manifest, password?: string, signIn = false) => {
     try {
@@ -361,6 +381,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                   : <button className="primary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Start ${manifest.name}`, parameters: { id: manifest.id, action: "start" } })}>Start</button>)}
                 {installed && <button className="secondary-button" type="button" onClick={() => setConfig({ manifest, live, mode: "reconfigure" })}>Settings</button>}
                 {installed && <button className={live?.updateAvailable ? "primary-button" : "secondary-button"} type="button" onClick={() => start({ operationId: "app.update", title: `Update ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>{live?.updateAvailable ? <>Updates from <code>{live.installedImage}</code> to <code>{manifest.image.reference}</code>. </> : null}Pulls the image and recreates the container. The previous image is restored if the new one fails to become healthy.</span> })}>{live?.updateAvailable ? "Update available" : "Update"}</button>}
+                {installed && manifest.modelRunner && <button className="secondary-button" type="button" onClick={() => void showModels(manifest)}>Models</button>}
                 {installed && <button className="text-button" type="button" onClick={() => void showLogs(manifest.id)}>Logs</button>}
                 {installed && <button className="text-button" type="button" onClick={() => void showEffectiveConfig(manifest.id)}>Config</button>}
                 {installed && <button className="text-button" type="button" onClick={() => start({ operationId: "app.backup", title: `Back up ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Stops {manifest.name} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.{manifest.volumes.some((volume) => volume.hostPath) ? <> Your own folders ({manifest.volumes.filter((volume) => volume.hostPath).map((volume) => volume.hostPath).join(", ")}) are <strong>not</strong> included.</> : null}</span> })}>Back up</button>}
@@ -472,6 +493,41 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                   </footer>
                 </>
               )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {models && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setModels(null)}>
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="models-title" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="modal-header"><div><span className="eyebrow">Models</span><h2 id="models-title">{models.name}</h2></div><button className="icon-button" type="button" onClick={() => setModels(null)} aria-label="Close dialog">X</button></header>
+            <div className="modal-copy">
+              {models.loading && <p className="muted">Asking {models.name} what it has…</p>}
+              {!models.loading && !models.available && <p className="muted">{models.reason ?? "The model runner is not answering yet."} Models can only be listed while the app is running.</p>}
+              {!models.loading && models.available && (models.rows.length === 0
+                ? <p className="muted">Nothing downloaded yet. Add one below — <code>llama3.2:3b</code> is a good first choice at about 2 GB.</p>
+                : <><p className="muted">{models.rows.length} model{models.rows.length === 1 ? "" : "s"} using {(() => { const total = models.rows.reduce((sum, row) => sum + (row.bytes || 0), 0); return total >= 1e9 ? `${(total / 1e9).toFixed(1)} GB` : `${Math.round(total / 1e6)} MB`; })()} of disk.</p>
+                  <table className="perf-table">
+                    <thead><tr><th>Model</th><th className="num">Size</th><th>Added</th><th /></tr></thead>
+                    <tbody>
+                      {models.rows.map((row) => (
+                        <tr key={row.name}>
+                          <td><code>{row.name}</code></td>
+                          <td className="num">{row.size}</td>
+                          <td className="muted">{row.modified}</td>
+                          <td><button className="text-button danger-text" type="button" onClick={() => { start({ operationId: "app.model.remove", title: `Remove ${row.name}`, parameters: { id: models.id, model: row.name }, confirmText: row.name, preview: <span>Deletes <code>{row.name}</code> and frees {row.size}. It can be downloaded again at any time.</span> }); setModels(null); }}>Remove</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table></>)}
+              {!models.loading && models.available && (
+                <form className="recovery-actions" onSubmit={(event) => { event.preventDefault(); const wanted = models.wanted.trim(); if (!wanted) return; start({ operationId: "app.model.pull", title: `Download ${wanted}`, parameters: { id: models.id, model: wanted }, preview: <span>Downloads <code>{wanted}</code> into {models.name}. Large models are tens of gigabytes and can take an hour or more; progress appears in Activity as it goes, and the app keeps working throughout.</span> }); setModels(null); }}>
+                  <input type="text" aria-label="Model to download" placeholder="Model to download, e.g. hermes3:8b" value={models.wanted} onChange={(event) => setModels({ ...models, wanted: event.target.value })} />
+                  <button className="primary-button" type="submit" disabled={!models.wanted.trim()}>Download</button>
+                </form>
+              )}
+              <p className="muted">Names come from <a href="https://ollama.com/library" target="_blank" rel="noreferrer">the Ollama library</a>. Disk is rarely the limit — <strong>memory is</strong>: a model needs roughly its own size free in RAM to answer, so a 19 GB model wants about that much spare. Check the Performance page before pulling a large one. Without a graphics card, 3–8 B models answer at reading speed; <code>qwen3:30b-a3b</code> is the exception worth its size.</p>
             </div>
           </section>
         </div>
