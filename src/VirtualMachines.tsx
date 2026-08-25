@@ -304,7 +304,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
           {!domainList?.connected ? (
             <div className="vm-empty"><strong>libvirt is not connected</strong><p>{domainList?.error ?? "Complete the host setup checklist, then refresh."}</p></div>
           ) : domains.length === 0 ? (
-            <div className="vm-empty"><strong>No virtual machines found</strong><p>The system connection works. Add a managed ISO, then use the guarded creation workflow.</p></div>
+            <div className="vm-empty"><strong>No virtual machines yet</strong><p>Add installation media below — a cloud image or an ISO — then <strong>Plan new VM</strong> to choose its CPUs, memory and disk. BoxPilot shows you the machine it will define before it defines it.</p></div>
           ) : (
             <div className="vm-domain-list">
               {domains.map((domain) => (
@@ -363,7 +363,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
           )}
 
           <div className="vm-control-lock">
-            <div><strong>Durable lifecycle approvals</strong><span>{status.actions.reason}</span></div>
+            <div><strong>What each action asks for</strong><span>Starting, stopping and restarting a VM asks you to confirm, with the exact change shown first. Creating or deleting one asks for your password and the machine\u2019s name typed out.</span></div>
           </div>
         </section>
 
@@ -419,7 +419,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
           <span className={`status-pill status-${protectionDestination?.ready ? "good" : "warning"}`}>{protectionDestination?.ready ? "ready" : "setup required"}</span>
         </div>
         <div className="vm-control-lock">
-          <div><strong>Guarded retention</strong><span>{retentionStatus ? `Keep at least ${retentionStatus.policy?.minimumCopiesPerDomain ?? 3} copies per VM and every copy under ${retentionStatus.policy?.minimumAgeDays ?? 30} days. Only restore-tested, unreferenced snapshots can qualify.` : "The retention policy could not be read just now."}</span></div>
+          <div><strong>Retention</strong><span>{retentionStatus ? `Keep at least ${retentionStatus.policy?.minimumCopiesPerDomain ?? 3} copies per VM and every copy under ${retentionStatus.policy?.minimumAgeDays ?? 30} days. Only restore-tested, unreferenced snapshots can qualify.` : "The retention policy could not be read just now."}</span></div>
           <button type="button" className="secondary-button" onClick={() => startRetention()} disabled={pending !== null || !protectionDestination?.ready || (retentionStatus?.candidates?.length ?? 0) === 0}>Apply retention</button>
         </div>
         {retentionStatus && <div className="vm-plan-warnings"><strong>Retention status</strong><span>{retentionStatus.candidates?.length ?? 0} currently eligible | {retentionStatus.beforeCount ?? 0} repository snapshot(s) | {retentionStatus.retentionRuns?.length ?? 0} completed run(s)</span>{retentionStatus.blockers?.map((blocker) => <span key={blocker}>{blocker}</span>)}<span>Prune is disabled, so retention does not claim reclaimed disk space.</span></div>}
@@ -513,7 +513,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       {snapshotDomain && (
         <div className="vm-planner-backdrop" role="presentation">
           <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-snapshot-title">
-            <header className="vm-planner-header"><div><span className="eyebrow">Guarded offline snapshot</span><h2 id="vm-snapshot-title">Snapshot {snapshotDomain.name}</h2><p>Only stopped, persistent VMs with plain qcow2 disks can use this workflow.</p></div><button type="button" className="modal-close" aria-label="Close snapshot plan" onClick={() => setSnapshotDomain(null)}>X</button></header>
+            <header className="vm-planner-header"><div><span className="eyebrow">Offline snapshot</span><h2 id="vm-snapshot-title">Snapshot {snapshotDomain.name}</h2><p>Only stopped, persistent VMs with plain qcow2 disks can use this workflow.</p></div><button type="button" className="modal-close" aria-label="Close snapshot plan" onClick={() => setSnapshotDomain(null)}>X</button></header>
             <div className="vm-action-review">
               <form onSubmit={(event) => { event.preventDefault(); createSnapshot(); }}>
                 <label className="vm-snapshot-name">Snapshot name<input value={snapshotName} onChange={(event) => setSnapshotName(event.target.value)} pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,62}" maxLength={63} required autoComplete="off" /><span>Use 1-63 letters, numbers, dots, underscores, or hyphens.</span></label>
@@ -527,7 +527,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       {recoveryBackup && (
         <div className="vm-planner-backdrop" role="presentation">
           <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-recovery-title">
-            <header className="vm-planner-header"><div><span className="eyebrow">Guarded VM recovery clone</span><h2 id="vm-recovery-title">Recover {recoveryBackup.domainName}</h2><p>Create a separate persistent VM from the exact protected snapshot. The source and repository remain unchanged.</p></div><button type="button" className="modal-close" aria-label="Close recovery plan" onClick={() => setRecoveryBackup(null)}>X</button></header>
+            <header className="vm-planner-header"><div><span className="eyebrow">Recovery clone</span><h2 id="vm-recovery-title">Recover {recoveryBackup.domainName}</h2><p>Create a separate persistent VM from the exact protected snapshot. The source and repository remain unchanged.</p></div><button type="button" className="modal-close" aria-label="Close recovery plan" onClick={() => setRecoveryBackup(null)}>X</button></header>
             <div className="vm-action-review">
               <form onSubmit={(event) => { event.preventDefault(); startRecovery(); }}>
                 <label className="vm-snapshot-name">New VM name<input value={recoveryName} onChange={(event) => setRecoveryName(event.target.value)} pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,62}" maxLength={63} required autoComplete="off" /><span>The name must be available. The new VM will not replace the source.</span></label>

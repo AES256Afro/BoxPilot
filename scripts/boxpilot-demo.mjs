@@ -286,7 +286,55 @@ if (!existsSync(dist)) { console.error("dist/ is missing: run `npm run build` fi
 const app = express();
 app.use(express.json());
 const api = express.Router();
-const json = (response, body) => response.json(body);
+/**
+ * Every route answers through here, which is the one place a whole world can be swapped.
+ *
+ * The operations were only half of it: the Overview, the catalog and the setup checklist read plain
+ * REST routes, so the "fresh" world was still showing nine installed apps and four of five
+ * essentials done — a fresh server that had clearly been running for weeks. These are the routes
+ * that describe what has happened to a machine, rewritten for a machine to which nothing has.
+ *
+ * Written out rather than derived, unlike the operation fixtures: emptying `/auth/status` signs you
+ * out and emptying `/network/topology` leaves a server with no network at all, neither of which is
+ * a state worth reviewing. Each entry starts from the default body so the shape cannot drift.
+ */
+const freshRest = {
+  "/jobs": () => ({ jobs: [] }),
+  "/backups": () => ({ backups: [] }),
+  "/schedules": () => ({ schedules: [] }),
+  "/network/plans": (body) => body,
+  "/people": (body) => ({ people: body.people.slice(0, 1) }),
+  "/settings/backup-destination": () => ({ destination: null, lastSync: null }),
+  "/settings/cloud-destination": () => ({ destination: null, lastSync: null }),
+  "/settings/notifications": (body) => ({ ...body, configured: false, kind: null, topic: null, hasToken: false }),
+  "/controller-backup-protection": (body) => ({ destination: { ...body.destination, ready: false, encrypted: false, blockers: ["Encrypted copies are not set up yet"] }, protections: [] }),
+  "/controller-backup-retention": (body) => ({ ...body, candidates: [] }),
+  "/storage/samba": (body) => ({ ...body, installed: false, running: false, configured: false, config: { ...body.config, managed: false, shares: [] }, users: [] }),
+  "/storage/nfs": (body) => ({ ...body, installed: false, running: false, configured: false, config: { ...body.config, exports: [] } }),
+  "/storage/shares/discover": (body) => ({ ...body, devices: [] }),
+  "/power/ups/detect": (body) => ({ ...body, devices: [], nutInstalled: false }),
+  "/virtualization/domains": (body) => ({ ...body, connected: false, error: "libvirt is not installed on this server yet", domains: [] }),
+  "/virtualization/status": (body) => ({ ...body, ready: false, checks: body.checks.map((check) => ({ ...check, ok: false, detail: "Not installed on this server yet" })) }),
+  "/firewall/overview": (body) => ({ ...body, report: { ...body.report, installed: true, enabled: false, rules: [] }, current: null, advice: [] }),
+  // The disks are real on a new server; what BoxPilot has done to them is not. So the hardware
+  // stays and the snapshots, mounted shares and cifs/nfs tooling — all of it BoxPilot's doing — go.
+  "/storage/overview": (body) => ({ ...body, snapshots: [], shares: [], tools: { cifs: false, nfs: false, smbclient: false, showmount: false } }),
+  // What the machine is, rather than what has been done to it. A new server has hardware and an
+  // address; it is not on anybody's tailnet and its firewall has never been turned on. Leaving
+  // these alone made the demo contradict itself — the checklist said Tailscale was not set up
+  // while the Network page said "Connected as ...".
+  "/network/topology": (body) => ({ ...body, tailscale: { ...body.tailscale, connected: false, dnsName: null, address: null, resolverPresent: false, overrideState: "none", exitNodeAdvertised: false, advertisedRoutes: [], approvedRoutes: [] }, dnsListeners: [], devices: [] }),
+  "/inventory": (body) => ({ ...body, docker: { ...body.docker, available: false, containers: [], images: [], networks: [], volumes: [], projects: [] } }),
+};
+
+const json = (response, body) => {
+  const scenario = scenarioOf(response.req?.get?.("referer"));
+  const rewrite = scenario === "fresh" ? freshRest[response.req?.path] : null;
+  return response.json(rewrite ? rewrite(body) : body);
+};
+
+/** What the machine has installed, per world: nothing at all on a server nobody has set up yet. */
+const installedFor = (scenario) => (scenario === "fresh" ? {} : installed);
 
 api.get("/health", (_request, response) => json(response, { status: "ok", product: "BoxPilot", version: productVersion, mode: "demo", safeMode: true, hostMutationsEnabled: false, mutationPolicy: "demo", ownerBootstrapRequired: false, timestamp: now().toISOString() }));
 api.get("/auth/status", (_request, response) => json(response, { bootstrapRequired: false, authenticated: true, owner: { id: "owner-demo", username: host.owner, role: "owner" }, csrfToken: "demo", expiresAt: ago(-12), elevatedUntil: null }));
@@ -305,19 +353,26 @@ api.get("/settings/notifications", (_request, response) => json(response, { conf
 api.get("/settings/approval-mode", (_request, response) => json(response, { mode: "tiered", modes: ["tiered", "always-ask"] }));
 // Real profiles from the product, resolved against the demo's installed set, so the first page a
 // new owner sees is actually exercisable here.
-api.get("/setup", async (_request, response) => {
-  const status = (id) => (installed[id] ? "done" : "ready");
+api.get("/setup", async (request, response) => {
+  const present = installedFor(scenarioOf(request.get("referer")));
+  const status = (id) => (present[id] ? "done" : "ready");
   const profiles = setupProfiles.map((profile) => {
     const steps = profile.steps.map((step) => ({
       ...step,
-      status: step.kind === "app" ? status(step.appId) : step.id === "automatic-updates" ? "done" : "ready",
-      detail: step.kind === "app" && installed[step.appId] ? "Already installed" : null,
+      status: step.kind === "app" ? status(step.appId) : step.id === "automatic-updates" && Object.keys(present).length ? "done" : "ready",
+      detail: step.kind === "app" && present[step.appId] ? "Already installed" : null,
     }));
     return { id: profile.id, name: profile.name, icon: profile.icon, description: profile.description, steps, remaining: steps.filter((step) => step.status === "ready").length, blocked: 0 };
   });
-  json(response, { firstRun: false, installedApps: Object.keys(installed).length, appsKnown: true, profiles });
+  json(response, { firstRun: Object.keys(present).length === 0, installedApps: Object.keys(present).length, appsKnown: true, profiles });
 });
-api.get("/setup/checklist", (_request, response) => json(response, buildChecklist({ tailscale: { connected: true, dnsName: host.tailnet }, firewall: firewallReport, firewallProfile, unattended: { enabled: true }, notifications: { configured: true, kind: "ntfy" }, cloudDestination: { provider: "b2" }, installedApps: Object.keys(installed), samba: { configured: true }, nfs: { configured: false }, ups: { configured: true } })));
+api.get("/setup/checklist", (request, response) => {
+  // A brand new server has done none of this; that list is the whole point of the page.
+  const bare = scenarioOf(request.get("referer")) === "fresh";
+  json(response, buildChecklist(bare
+    ? { tailscale: { connected: false }, firewall: { active: false }, firewallProfile: null, unattended: { enabled: false }, notifications: { configured: false }, cloudDestination: null, installedApps: [], samba: { configured: false }, nfs: { configured: false }, ups: { configured: false } }
+    : { tailscale: { connected: true, dnsName: host.tailnet }, firewall: firewallReport, firewallProfile, unattended: { enabled: true }, notifications: { configured: true, kind: "ntfy" }, cloudDestination: { provider: "b2" }, installedApps: Object.keys(installed), samba: { configured: true }, nfs: { configured: false }, ups: { configured: true } }));
+});
 // The whole Virtual Machines page used to answer "not part of the demo", so nobody could look at
 // it before it reached a server. These mirror the real route shapes in server/routes/virtualization.mjs.
 const demoDomain = (name, state, vcpus, memoryGiB, extra = {}) => ({
@@ -342,7 +397,7 @@ api.get("/virtualization/status", (_request, response) => json(response, {
   ],
   tailscale: { installed: true, connected: true, dnsName: host.tailnet, serveUrls: [] },
   setupPlan: { title: "Everything needed is already installed", destructive: false, requiresConsoleApproval: false, commands: [], notes: [] },
-  actions: { enabled: true, reason: "" },
+  actions: { enabled: true },
 }));
 api.get("/virtualization/resources", (_request, response) => json(response, {
   connected: true, errors: [],
@@ -379,11 +434,12 @@ api.get("/storage/shares/discover", (_request, response) => json(response, { dev
 api.get("/storage/samba", (_request, response) => json(response, { installed: true, running: true, configured: true, error: null, config: { managed: true, workgroup: "WORKGROUP", scope: "tailscale", interfaces: ["lo", "tailscale0"], shares: [{ name: "Media", path: "/mnt/media", comment: "Films and series", readOnly: true, guest: true, users: [], forceUser: host.owner }, { name: "Documents", path: "/srv/documents", comment: null, readOnly: false, guest: false, users: [host.owner, "sam"], forceUser: host.owner }] }, users: [host.owner, "sam"], tailscaleDnsName: host.tailnet, tailscaleAddress: host.tailscaleIp, lanAddress: host.lan }));
 api.get("/storage/nfs", (_request, response) => json(response, { installed: true, running: false, configured: false, error: null, config: { managed: false, scope: "tailscale", exports: [] }, tailscaleDnsName: host.tailnet, tailscaleAddress: host.tailscaleIp, lanAddress: host.lan }));
 api.get("/people", (_request, response) => json(response, { people: [{ id: "owner-demo", username: host.owner, role: "owner", createdAt: ago(900) }, { id: "p2", username: "sam", role: "viewer", createdAt: ago(300) }] }));
-api.get("/catalog", async (_request, response) => {
+api.get("/catalog", async (request, response) => {
   const { manifests, problems } = await loadCatalog();
+  const present = installedFor(scenarioOf(request.get("referer")));
   json(response, {
     applications: manifests.map((manifest) => {
-      const port = installed[manifest.id];
+      const port = present[manifest.id];
       const live = { id: manifest.id, installed: Boolean(port), dataPresent: Boolean(port), state: port ? { installedAt: ago(19 * 24), updatedAt: ago(50), manifestSha256: manifest.sha256, image: { reference: manifest.image.reference, id: "sha256:demo" }, values: { ports: {}, env: {}, volumes: {}, setup: [] }, pinnedRollback: false, uninstalledAt: null } : null, container: port ? { exists: true, running: true, status: manifest.id === "open-webui" ? "paused" : "running", health: manifest.health.kind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:demo" } : { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, urls: port ? manifest.ports.filter((entry) => entry.protocol === "tcp").map((entry) => ({ id: entry.id, label: entry.label, host: entry.host, exposure: entry.exposure })) : [], updateAvailable: manifest.id === "jellyfin", installedImage: port ? manifest.image.reference : null };
       return { manifest, live };
     }),
@@ -442,6 +498,7 @@ const troubleWords = {
 
 const patch = (base, words) => Object.fromEntries(Object.entries(base).map(([id, value]) => [id, words[id] ? { ...value, ...words[id] } : value]));
 
+export { app, freshRest };
 export const scenarios = {
   default: {},
   fresh: patch(Object.fromEntries(Object.entries(inspections).map(([id, value]) => [id, emptied(value)])), freshWords),

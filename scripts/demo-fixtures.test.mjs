@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { inspections, scenarios, scenarioNames } from "./boxpilot-demo.mjs";
+import { inspections, scenarios, scenarioNames, freshRest, app } from "./boxpilot-demo.mjs";
 import { operationModules } from "../server/ops/index.mjs";
 
 /**
@@ -167,5 +167,36 @@ describe("the empty and broken worlds are the same server", () => {
       for (const id of Object.keys(inspections)) if (!table[id]) missing.push(`${name}: ${id}`);
     }
     expect(missing).toEqual([]);
+  });
+});
+
+/**
+ * The REST routes needed the same guard the operations have, and for the same reason: rewriting
+ * them by hand for the empty world invented a `firewall` key on `/inventory` that no route returns,
+ * and reshaped `/firewall/overview` into something the page does not read. Neither showed up as a
+ * crash — the page simply carried on reporting a firewall that was switched on.
+ *
+ * This asks the real routes rather than a second copy of what they are believed to return, because
+ * a second copy is the thing that drifts.
+ */
+describe("the empty world's REST routes are the same routes", () => {
+  it("rewrites each one into the shape it already had", async () => {
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((resolve) => server.once("listening", resolve));
+    const { port } = server.address();
+    const body = (route, scenario) => fetch(`http://127.0.0.1:${port}/api/v1${route}`, {
+      headers: { referer: `http://127.0.0.1:${port}/?scenario=${scenario}` },
+    }).then((response) => response.json());
+
+    const complaints = [];
+    try {
+      for (const route of Object.keys(freshRest)) {
+        const [lived, empty] = await Promise.all([body(route, "default"), body(route, "fresh")]);
+        complaints.push(...shapeComplaints(lived, empty, route));
+      }
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+    expect(complaints, "a rewritten route that changes shape is a different server, not an emptier one").toEqual([]);
   });
 });

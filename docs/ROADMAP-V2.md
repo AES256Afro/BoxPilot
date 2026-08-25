@@ -254,7 +254,12 @@ button could not be clicked, a Logs page with no groups, a catalog dialog whose 
 - A page that throws now falls back to an error boundary instead of blanking the window, so the
   navigation survives and there is a way out.
 - `scripts/demo-fixtures.test.mjs` holds the scenarios to the same shape as the default fixtures, so
-  a scenario cannot quietly invent a field or drop one.
+  a scenario cannot quietly invent a field or drop one. The REST routes are held the same way, by
+  starting the demo's own app and asking it — a second copy of what a route is believed to return is
+  the thing that drifts.
+- The fresh world covers the plain REST routes too, not only the operations. Until it did, the
+  Overview showed nine installed apps and four of five essentials done on a server nobody had set
+  up, and the checklist contradicted the pages it linked to.
 
 ## 7. "Wish we could" / would be nice
 
