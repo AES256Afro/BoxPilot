@@ -55,7 +55,7 @@ const hostInspect = createHostInspectHelper();
 const virtualization = createVmHelper();
 const vmProtection = createVmProtectionHelper();
 const machineSnapshot = createMachineSnapshotHelper({ controllerBackups });
-const housekeeping = createHousekeepingService({ apps });
+const housekeeping = createHousekeepingService({ apps, runUnit });
 const performance = createPerformanceService();
 const helperDependencies = { runUnit, apps, housekeeping, performance, vmCloud, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRestoreDrill, vmRecovery, vmRetention, machineSnapshot };
 if (recovery.blocked) {
