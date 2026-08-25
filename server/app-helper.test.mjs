@@ -181,7 +181,7 @@ describe("generic app deployer", () => {
     await expect(apps.install({ id: "demo" })).rejects.toThrow("already installed");
     await expect(apps.action({ id: "demo", action: "stop" })).resolves.toMatchObject({ running: false });
     await expect(apps.action({ id: "demo", action: "start" })).resolves.toMatchObject({ running: true });
-    await expect(apps.action({ id: "demo", action: "explode" })).rejects.toThrow("start, stop, or restart");
+    await expect(apps.action({ id: "demo", action: "explode" })).rejects.toThrow("start, stop, restart, pause, or unpause");
 
     const logs = await apps.logs({ id: "demo", lines: 5 });
     expect(logs.lines.join("\n")).toContain("password=[REDACTED]");
@@ -213,6 +213,20 @@ describe("generic app deployer", () => {
     await apps.install({ id: "demo" });
     await expect(apps.uninstall({ id: "demo", purge: true })).resolves.toMatchObject({ purged: true, dataRemoved: true });
     await expect(readdir(path.join(catalogRoot, "demo"))).rejects.toThrow();
+  });
+
+  it("pauses and resumes a container without stopping it", async () => {
+    // Pause freezes the process and keeps its memory, which is what makes it right for a heavy
+    // model: no reload on the way back. Stop would free the memory and cost a cold start.
+    const { apps, calls } = await setup();
+    await apps.install({ id: "demo" });
+    calls.length = 0;
+    await expect(apps.action({ id: "demo", action: "pause" })).resolves.toMatchObject({ action: "pause" });
+    expect(calls.some((call) => / pause$/.test(call))).toBe(true);
+    expect(calls.some((call) => / (stop|down)\b/.test(call))).toBe(false); // never a stop in disguise
+    calls.length = 0;
+    await expect(apps.action({ id: "demo", action: "unpause" })).resolves.toMatchObject({ action: "unpause" });
+    expect(calls.some((call) => / unpause$/.test(call))).toBe(true);
   });
 
   it("builds the container again when its network was pruned while it was stopped", async () => {

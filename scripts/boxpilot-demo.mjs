@@ -178,6 +178,23 @@ const inspections = {
     const totalBytes = categories.reduce((sum, category) => sum + category.bytes, 0);
     return { generatedAt: now().toISOString(), categories, totalBytes, totalHumanBytes: humanBytes(totalBytes) };
   })(),
+  "system.performance.inspect": (() => {
+    const perApp = { jellyfin: [34.2, 412], immich: [11.8, 1430], "pi-hole": [0.9, 96], nextcloud: [4.1, 620], "uptime-kuma": [1.2, 120], homepage: [0.3, 70], vaultwarden: [0.2, 48], scrutiny: [0.4, 110] };
+    return {
+      generatedAt: now().toISOString(),
+      cpu: { model: "AMD Ryzen 7 7800X3D 8-Core Processor", cores: 16, usagePercent: 27.4, perCore: [41, 18, 12, 63, 9, 22, 7, 15, 33, 11, 8, 19, 6, 24, 13, 10], load1: 2.31, load5: 1.84, load15: 1.42, loadPercent: 14 },
+      memory: { totalBytes: 32 * GiB, usedBytes: 11 * GiB, availableBytes: 21 * GiB, usedPercent: 34 },
+      swap: { totalBytes: 4 * GiB, usedBytes: 0, usedPercent: 0 },
+      uptimeSeconds: 19 * 86400 + 5 * 3600,
+      temps: [{ label: "k10temp: Tctl", celsius: 52.4 }, { label: "nvme: Composite", celsius: 41.9 }],
+      disks: [
+        { mount: "/", fstype: "ext4", totalBytes: 492 * GiB, usedBytes: 60 * GiB, availableBytes: 411 * GiB, usedPercent: 13 },
+        { mount: "/mnt/media", fstype: "ext4", totalBytes: 4000 * GiB, usedBytes: 2710 * GiB, availableBytes: 1290 * GiB, usedPercent: 68 },
+      ],
+      statsAvailable: true,
+      apps: Object.entries(installed).map(([id]) => ({ id, state: "running", running: true, cpuPercent: perApp[id]?.[0] ?? 0.5, memBytes: (perApp[id]?.[1] ?? 64) * 1024 ** 2, containers: 1 })),
+    };
+  })(),
   "logs.sources": { sources: [{ id: "system", label: "System journal" }, { id: "boxpilot", label: "BoxPilot" }] },
   "vm.cloud.images": { images: [] },
   "vm.stats.inspect": { available: true, domains: {} },

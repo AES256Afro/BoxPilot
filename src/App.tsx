@@ -16,6 +16,7 @@ import UpdatesCenter from "./UpdatesCenter";
 import AppCatalog from "./AppCatalog";
 import ServicesCenter from "./ServicesCenter";
 import SystemCenter from "./SystemCenter";
+import PerformanceCenter from "./PerformanceCenter";
 import UsersCenter from "./UsersCenter";
 import FirewallCenter from "./FirewallCenter";
 import StorageCenter from "./StorageCenter";
@@ -52,6 +53,10 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   system: {
     title: "System",
     description: "Hostname, time zone, swap, and maintenance timers for this server.",
+  },
+  performance: {
+    title: "Performance",
+    description: "How hard this server is working, and what is working it. Pause or stop whatever is costing the most, right where you see the cost.",
   },
   users: {
     title: "Users & SSH",
@@ -103,6 +108,7 @@ const viewFeatures: Record<ViewName, string[]> = {
   catalog: ["128 apps in 19 categories", "Install, update, configure, uninstall", "Per-app backups and restores", "Logs and resource use", "HTTPS on your tailnet", "Image tags verified"],
   services: ["systemd units and timers", "Start, stop, restart", "Enable and disable", "Journal", "SSH, Tailscale, and BoxPilot protected"],
   system: ["Hostname", "Time zone and language", "Swap and swappiness", "fstrim", "Docker housekeeping", "UPS monitoring", "Schedules", "BoxPilot self-update"],
+  performance: ["CPU, memory and swap live", "Load average and temperatures", "Disk use per filesystem", "CPU and memory per app", "Pause, resume, stop, restart", "AI services pinned to the top"],
   users: ["Accounts", "sudo membership", "SSH keys from GitHub", "Password-login policy"],
   firewall: ["Profiles", "Service presets", "Suggestions from what is listening", "fail2ban", "SSH, Tailscale, and BoxPilot always reachable"],
   storage: ["Disks and LVM", "Grow the root volume", "Snapshots with rollback", "Mount by UUID", "SMB/NFS shares with LAN discovery", "Samba and NFS servers on your tailnet", "Swap files", "Format empty disks"],
@@ -227,6 +233,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "catalog") return <AppCatalog csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "services") return <ServicesCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "system") return <SystemCenter csrfToken={authStatus.csrfToken ?? ""} />;
+    if (view === "performance") return <PerformanceCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "users") return <UsersCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "firewall") return <FirewallCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "storage") return <StorageCenter csrfToken={authStatus.csrfToken ?? ""} />;

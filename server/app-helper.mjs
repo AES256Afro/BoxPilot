@@ -15,7 +15,7 @@ import { deviceMatchesPattern, renderCompose, projectNameFor, resolveDevices } f
 import { isDeniedHostPath } from "./catalog/schema.mjs";
 import { resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
 
-const actions = Object.freeze(["start", "stop", "restart"]);
+const actions = Object.freeze(["start", "stop", "restart", "pause", "unpause"]);
 const idPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
 export const backupNamePattern = /^\d{8}T\d{6}Z\.tar\.gz$/;
 
@@ -500,7 +500,7 @@ export function createAppHelper({
 
   async function action({ id, action: verb }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
-    if (!actions.includes(verb)) throw new Error("Action must be start, stop, or restart");
+    if (!actions.includes(verb)) throw new Error("Action must be start, stop, restart, pause, or unpause");
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
     let result = await compose(id, [verb], { timeout: 180_000, progress });

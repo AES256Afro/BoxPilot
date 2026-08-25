@@ -22,6 +22,7 @@ import { createVmHelper } from "./vm-helper.mjs";
 import { createVmProtectionHelper } from "./vm-protection-helper.mjs";
 import { createMachineSnapshotHelper } from "./machine-snapshot-helper.mjs";
 import { createHousekeepingService } from "./housekeeping.mjs";
+import { createPerformanceService } from "./performance.mjs";
 
 const socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock";
 const maxRequestBytes = 128 * 1024; // compose edits and key imports declare 64 KiB fields
@@ -55,7 +56,8 @@ const virtualization = createVmHelper();
 const vmProtection = createVmProtectionHelper();
 const machineSnapshot = createMachineSnapshotHelper({ controllerBackups });
 const housekeeping = createHousekeepingService({ apps });
-const helperDependencies = { runUnit, apps, housekeeping, vmCloud, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRestoreDrill, vmRecovery, vmRetention, machineSnapshot };
+const performance = createPerformanceService();
+const helperDependencies = { runUnit, apps, housekeeping, performance, vmCloud, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRestoreDrill, vmRecovery, vmRetention, machineSnapshot };
 if (recovery.blocked) {
   console.error("BoxPilot is serving requests; restore drills stay unavailable until that is resolved.");
 }

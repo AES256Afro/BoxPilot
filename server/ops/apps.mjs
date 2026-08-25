@@ -233,8 +233,9 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.reconfigure({ id: parameters.id, values: parameters.values ?? {}, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true }),
     }),
     defineOperation({
-      id: "app.action", title: "Start, stop, or restart application", risk: "low", timeoutMs: minutes(5),
-      parameters: { fields: { id: idField, action: { type: "string", enum: ["start", "stop", "restart"] } } },
+      id: "app.action", title: "Start, stop, pause, or restart application", risk: "low", timeoutMs: minutes(5),
+      description: "Pause freezes the container (0 CPU, keeps its memory, resumes instantly); stop shuts it down and frees its memory. Start, restart, and unpause bring it back.",
+      parameters: { fields: { id: idField, action: { type: "string", enum: ["start", "stop", "restart", "pause", "unpause"] } } },
       run: (parameters, { apps, progress }) => apps.action(parameters, { progress }),
     }),
   ];
