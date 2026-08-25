@@ -48,7 +48,7 @@ export interface VirtualizationStatus {
     serveUrls: string[];
   };
   setupPlan: SetupPlan;
-  actions: { enabled: boolean; reason: string };
+  actions: { enabled: boolean };
 }
 
 export interface DomainAddress {

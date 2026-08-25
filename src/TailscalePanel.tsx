@@ -23,7 +23,9 @@ export default function TailscalePanel({ start, tailscale }: { start: (operation
   return (
     <section className="panel" id="tailscale">
       <header className="panel-header">
-        <div><strong>Tailscale</strong><span>{tailscale.connected ? <>Connected as <code>{tailscale.dnsName ?? tailscale.address ?? "this server"}</code>{tailscale.address ? <> ({tailscale.address})</> : null}.</> : "Not connected to a tailnet."} Apps get HTTPS on the tailnet with each card's Serve button; the options here give the whole tailnet more.</span></div>
+        <div><strong>Tailscale</strong><span>{tailscale.connected
+          ? <>Connected as <code>{tailscale.dnsName ?? tailscale.address ?? "this server"}</code>{tailscale.address ? <> ({tailscale.address})</> : null}. Apps get HTTPS on the tailnet with each card's Serve button; the options below give the whole tailnet more.</>
+          : <>Not connected to a tailnet. Joining one is how this page, your apps and your shares reach you from your phone and laptop away from home, with nothing opened on your router. The <strong>Set up your server</strong> checklist on the Overview page starts it.</>}</span></div>
         <span className={`status-pill ${tailscale.connected ? "status-good" : "status-neutral"}`}>{tailscale.connected ? "Connected" : "Offline"}</span>
       </header>
       <div className="samba-scope">

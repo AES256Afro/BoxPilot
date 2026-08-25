@@ -159,7 +159,7 @@ describe("Virtual Machines", () => {
     expect(screen.getByText("Requests a guest reboot through libvirt.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
     fireEvent.click(screen.getByRole("button", { name: "Plan snapshot" }));
-    expect(await screen.findByText("Guarded offline snapshot")).toBeTruthy();
+    expect(await screen.findByText("Offline snapshot")).toBeTruthy();
     // Name entry hands off to the shared dialog, which stages op:vm.snapshot.create.
     fireEvent.submit(screen.getByRole("button", { name: "Continue to confirm" }).closest("form") as HTMLFormElement);
     expect(await screen.findByText(/Snapshot snapshot-lab as checkpoint-/)).toBeTruthy();
@@ -181,7 +181,7 @@ describe("Virtual Machines", () => {
     expect(screen.getByText("protected-lab-recovery-old")).toBeTruthy();
     expect(screen.getByText(/Persistent \| network none \| autostart off/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Create recovery clone" }));
-    expect(await screen.findByText("Guarded VM recovery clone")).toBeTruthy();
+    expect(await screen.findByText("Recovery clone")).toBeTruthy();
     expect((screen.getByRole("textbox", { name: /New VM name/ }) as HTMLInputElement).value).toBe("protected-lab-recovery");
     fireEvent.submit(screen.getByRole("button", { name: "Continue to confirm" }).closest("form") as HTMLFormElement);
     expect(await screen.findByText("Recover protected-lab as protected-lab-recovery")).toBeTruthy();

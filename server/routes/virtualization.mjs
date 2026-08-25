@@ -15,7 +15,7 @@ export function createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlann
   router.get("/virtualization/status", async (_request, response) => {
     response.json({
       ...(await libvirt.getStatus()),
-      actions: { enabled: true, reason: "Lifecycle actions use immutable plans, password approval, and the restricted helper" },
+      actions: { enabled: true },
     });
   });
 

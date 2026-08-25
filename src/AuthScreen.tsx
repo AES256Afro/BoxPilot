@@ -72,7 +72,7 @@ export default function AuthScreen({ bootstrapRequired, onAuthenticated }: { boo
   return (
     <main className="auth-shell">
       <section className="auth-card">
-        <div className="auth-brand"><span>B</span><div><strong>BoxPilot</strong><small>Private server control plane</small></div></div>
+        <div className="auth-brand"><span>B</span><div><strong>BoxPilot</strong><small>Ubuntu server setup and management</small></div></div>
         <span className="eyebrow">{bootstrapRequired ? "Server-local owner setup" : "Private administration"}</span>
         <h1>{bootstrapRequired ? "Claim this BoxPilot server" : "Sign in to BoxPilot"}</h1>
         <p>{bootstrapRequired
