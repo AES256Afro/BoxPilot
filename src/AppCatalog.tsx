@@ -240,7 +240,10 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
       const response = await fetch("/api/v1/operations/app.backups.inspect/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id: manifest.id } }) });
       const body = (await response.json().catch(() => ({}))) as { result?: { id: string; backups: Array<{ artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; skippedVolumes?: string[]; image: string | null }> }; error?: string };
       if (!response.ok || !body.result) throw new Error(body.error ?? "Could not list backups");
-      setAppBackups({ id: manifest.id, name: manifest.name, backups: body.result.backups });
+      // Normalised here rather than guarded at each read: the two lines that inspect these arrays
+      // sat beside each other and only one of them checked, which is the shape of every crash this
+      // interface has produced. The server defaults them; a partial answer no longer costs the dialog.
+      setAppBackups({ id: manifest.id, name: manifest.name, backups: (body.result.backups ?? []).map((backup) => ({ ...backup, skippedVolumes: backup.skippedVolumes ?? [], skippedHostPaths: backup.skippedHostPaths ?? [] })) });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not list backups");
     }

@@ -222,8 +222,8 @@ export const inspections = {
     "[2026-08-25 07:41:23] [INF] Direct play, no transcode required",
   ] },
   "app.backups.inspect": { id: "jellyfin", directory: "/var/lib/boxpilot-managed/backups/catalog/jellyfin", backups: [
-    { artifact: "20260825T031400Z.tar.gz", createdAt: ago(11), sizeBytes: 84 * 1024 ** 2, checksumSha256: "5cadc3b554cd25b0f7b1c1e2a9d4f6b3c8e0a1d2f3b4c5d6e7f8a9b0c1d2e3f4", contents: ["compose.yaml", ".env", "config"], downtimeMs: 812 },
-    { artifact: "20260824T031400Z.tar.gz", createdAt: ago(35), sizeBytes: 83 * 1024 ** 2, checksumSha256: "21871c8a3ea0e84d9b2f4c6a8e0d2b4f6a8c0e2d4b6f8a0c2e4d6b8f0a2c4e6d", contents: ["compose.yaml", ".env", "config"], downtimeMs: 774 },
+    { artifact: "20260825T031400Z.tar.gz", createdAt: ago(11), sizeBytes: 84 * 1024 ** 2, checksumSha256: "5cadc3b554cd25b0f7b1c1e2a9d4f6b3c8e0a1d2f3b4c5d6e7f8a9b0c1d2e3f4", contents: ["compose.yaml", ".env", "config"], downtimeMs: 812, skippedVolumes: [], skippedHostPaths: ["/srv/media"], image: "jellyfin/jellyfin:10.10.7" },
+    { artifact: "20260824T031400Z.tar.gz", createdAt: ago(35), sizeBytes: 83 * 1024 ** 2, checksumSha256: "21871c8a3ea0e84d9b2f4c6a8e0d2b4f6a8c0e2d4b6f8a0c2e4d6b8f0a2c4e6d", contents: ["compose.yaml", ".env", "config"], downtimeMs: 774, skippedVolumes: [], skippedHostPaths: ["/srv/media"], image: "jellyfin/jellyfin:10.10.7" },
   ] },
   "app.backup.files": { id: "jellyfin", backup: "20260825T031400Z.tar.gz", truncated: false, files: [
     { path: "compose.yaml", sizeBytes: 812 }, { path: ".env", sizeBytes: 214 },
