@@ -109,6 +109,11 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
   const shareValid = kind === "nfs" ? /^\/[A-Za-z0-9._+/-]{0,254}$/.test(share.trim()) : /^[A-Za-z0-9_][A-Za-z0-9 ._$-]{0,79}$/.test(share.trim());
   const toolReady = kind === "smb" ? report?.tools.cifs : report?.tools.nfs;
   const shareFormValid = hostValid && shareValid && nameValid(shareName) && Boolean(toolReady);
+  const shareBlocker = !toolReady ? null // the tools hint next to the button already covers this
+    : !hostValid ? "Enter the NAS address first."
+    : !shareValid ? (kind === "smb" ? "Pick a share below, or type its name." : "Enter the export path.")
+    : !nameValid(shareName) ? "Give it a folder name under /mnt (lower case, no spaces)."
+    : null;
   const credentialsPath = `/etc/boxpilot/secrets/share-${shareName || "<name>"}.cred`;
   const installTool = (pkg: string) => start({ operationId: "apt.install", title: `Install ${pkg}`, parameters: { packages: [pkg] }, preview: <span><code>apt-get install --no-install-recommends {pkg}</code></span> });
 
@@ -360,11 +365,12 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
             <button className="secondary-button" type="button" disabled={!hostValid || listing} onClick={() => void listShares()}>{listing ? "Asking the NAS..." : "List shares"}</button>
             <button className="primary-button" type="submit" disabled={!shareFormValid}>Mount share</button>
             {!toolReady && report && <span className="muted">Install {kind === "smb" ? "cifs-utils" : "nfs-common"} above first.</span>}
+            {shareBlocker && <span className="muted">{shareBlocker}</span>}
           </div>
           {shareError && <div className="auth-error share-error" role="alert">{shareError}</div>}
           {listed && listed.length > 0 && (
             <div className="share-list">
-              <span className="muted">Shares on {host.trim()}:</span>
+              <span className="muted">Shares on {host.trim()} — click one to use it:</span>
               {listed.map((entry) => <button className="text-button" type="button" key={entry.name} onClick={() => setShareAndName(entry.name)}>{entry.name}{entry.comment ? <span className="muted"> — {entry.comment}</span> : null}</button>)}
             </div>
           )}
