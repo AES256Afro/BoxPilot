@@ -247,6 +247,10 @@ button could not be clicked, a Logs page with no groups, a catalog dialog whose 
   teaches every test that reads it the wrong thing.
 - `npm run demo:sweep` loads every page in every world and reports uncaught exceptions, console
   errors, 5xx responses, dead navigation and blank pages. Its first run found six blank pages.
+- `npm run demo:sweep -- --deep` also opens everything on every page that opens — 438 controls
+  across the three worlds. Dialogs are where several of the shipped crashes actually lived, and a
+  sweep that only loads pages cannot see them: with a crash planted in the settings dialog, the
+  page-level sweep reports nothing and the deep sweep names the button that caused it.
 - A page that throws now falls back to an error boundary instead of blanking the window, so the
   navigation survives and there is a way out.
 - `scripts/demo-fixtures.test.mjs` holds the scenarios to the same shape as the default fixtures, so
