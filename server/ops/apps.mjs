@@ -227,6 +227,11 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.setPassword({ id: parameters.id, password: parameters.password }, { progress }),
     }),
     defineOperation({
+      id: "app.backup.protection", title: "Read which apps have backups", risk: "low", readOnly: true, timeoutMs: minutes(2),
+      description: "For every installed app: whether its data is worth backing up, how many backups exist, and how old the newest one is.",
+      run: (_parameters, { apps }) => apps.backupProtection(),
+    }),
+    defineOperation({
       id: "app.models.inspect", title: "List an application's models", risk: "low", readOnly: true, timeoutMs: minutes(2),
       description: "Which language models this app has downloaded, with the disk each one takes.",
       parameters: { fields: { id: idField } },

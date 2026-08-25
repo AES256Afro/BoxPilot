@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ViewName } from "./data";
 import { inspectOperation, type Job } from "./operations";
 import { appUrl, type TailnetServe } from "./appLinks";
+import { judgeProtection, protectionWarning, type AppProtection, type ScheduleLike } from "./backupProtection";
 
 /**
  * Home dashboard (M8.1): what is on this box and what needs attention, one glance.
@@ -9,7 +10,7 @@ import { appUrl, type TailnetServe } from "./appLinks";
  * breaking the page.
  */
 
-interface AppSummary { id: string; name: string; running: boolean; installed: boolean; health: string; updateAvailable: boolean; url: string | null }
+interface AppSummary { id: string; name: string; running: boolean; paused: boolean; installed: boolean; health: string; updateAvailable: boolean; url: string | null }
 interface Tile { updates: number | null; security: number; rebootRequired: boolean }
 interface ChecklistItem { id: string; title: string; detail: string; done: boolean; known?: boolean; optional: boolean; view: ViewName }
 interface Checklist { items: ChecklistItem[]; done: number; total: number; allEssentialDone: boolean; unknown?: number }
@@ -33,6 +34,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
   const [vms, setVms] = useState<{ total: number; running: number } | null>(null);
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [backups, setBackups] = useState<{ lastBackupAt: string | null; lastSyncAt: string | null; syncReady: boolean } | null>(null);
+  const [unprotected, setUnprotected] = useState<string | null>(null);
   const [setup, setSetup] = useState<{ firstRun: boolean; installedApps: number } | null>(null);
   const [checklist, setChecklist] = useState<Checklist | null>(null);
 
@@ -66,6 +68,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
             installed: true,
             // A paused container still reports running to Docker; it is frozen, not serving.
             running: (entry.live?.container.running ?? false) && entry.live?.container.status !== "paused",
+            paused: entry.live?.container.status === "paused",
             health: entry.live?.container.health ?? "",
             updateAvailable: entry.live?.updateAvailable ?? false,
             url: entry.live?.urls.length ? appUrl(entry.live.urls[0], { lanAddress: data.host.lanAddress, serves: servesSoFar }) : null,
@@ -83,6 +86,15 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("jobs unavailable"))))
       .then((data: { jobs: Job[] }) => guard(setJobs)(data.jobs))
       .catch(() => {});
+    // Whether the *applications* have backups, which is a different question from whether
+    // BoxPilot's own database does — and the one nothing used to ask.
+    Promise.all([
+      inspectOperation<{ available: boolean; apps: AppProtection[] }>("app.backup.protection").catch(() => null),
+      fetch("/api/v1/schedules").then((response) => (response.ok ? response.json() : { schedules: [] })).catch(() => ({ schedules: [] })),
+    ]).then(([protection, scheduleList]: [{ result: { available: boolean; apps: AppProtection[] } } | null, { schedules: ScheduleLike[] }]) => {
+      if (!protection?.result?.available) return;
+      guard(setUnprotected)(protectionWarning(judgeProtection(protection.result.apps, scheduleList.schedules ?? [])));
+    }).catch(() => {});
     Promise.all([
       fetch("/api/v1/backups").then((response) => (response.ok ? response.json() : Promise.reject(new Error("backups unavailable")))),
       inspectOperation<{ sync: { mount: { mounted: boolean }; lastSync: { completedAt: string } | null } }>("host.snapshot.inspect").catch(() => null),
@@ -109,12 +121,15 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
   if ((updates?.updates ?? 0) > 0) attention.push({ label: `${updates?.updates} update${updates?.updates === 1 ? "" : "s"} available${updates?.security ? ` (${updates.security} security)` : ""}`, view: "updates" });
   if ((failedServices ?? 0) > 0) attention.push({ label: `${failedServices} failed service${failedServices === 1 ? "" : "s"}`, view: "services" });
   for (const app of apps ?? []) {
-    if (!app.running) attention.push({ label: `${app.name} is not running`, view: "catalog" });
+    // Paused is a choice, not a fault: say so rather than nagging about something deliberate.
+    if (app.paused) attention.push({ label: `${app.name} is paused`, view: "catalog" });
+    else if (!app.running) attention.push({ label: `${app.name} is not running`, view: "catalog" });
     else if (app.updateAvailable) attention.push({ label: `${app.name} has an update`, view: "catalog" });
   }
   const failedJob = (jobs ?? []).find((job) => job.state === "failed");
   if (failedJob) attention.push({ label: `Job failed: ${failedJob.title}`, view: "overview" });
   const staleDays = (iso: string | null) => (iso ? Math.floor((Date.now() - Date.parse(iso)) / (24 * 60 * 60 * 1000)) : null);
+  if (unprotected) attention.push({ label: unprotected, view: "backups" });
   const backupAgeDays = staleDays(backups?.lastBackupAt ?? null);
   if (backups && (backupAgeDays === null || backupAgeDays > 7)) attention.push({ label: backupAgeDays === null ? "No database backup yet" : `Last database backup is ${backupAgeDays} days old`, view: "backups" });
   const syncAgeDays = staleDays(backups?.lastSyncAt ?? null);

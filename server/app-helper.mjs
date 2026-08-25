@@ -786,6 +786,42 @@ export function createAppHelper({
     return { available: true, counts };
   }
 
+  /**
+   * Which installed apps actually have a backup, and how old the newest one is.
+   *
+   * BoxPilot warned when its own database backup went stale and when nothing had been mirrored
+   * off-box, but never that an *application* had never been backed up at all — so a server could
+   * reach a dozen apps holding passwords, photos and documents with nothing protecting any of
+   * them, and nothing saying so. An app counts as protectable when at least one of its volumes is
+   * marked for backup; the rest (caches, downloaded models) are excluded on purpose and should not
+   * be reported as unprotected.
+   */
+  async function backupProtection() {
+    const { manifests } = await catalog.all();
+    const backupRootPath = path.resolve(backupRoot);
+    const apps = [];
+    let readable = true;
+    for (const manifest of manifests) {
+      const state = await readState(manifest.id);
+      if (!state?.installed) continue;
+      const protectable = manifest.volumes.some((volume) => volume.backup && (volume.path || volume.hostPath));
+      const directory = path.join(backupRootPath, manifest.id);
+      let names = [];
+      try { names = (await readdir(directory)).filter((name) => backupNamePattern.test(name)); }
+      catch (error) { if (error.code !== "ENOENT") readable = false; names = []; }
+      let newestAt = null;
+      for (const name of names.sort().reverse().slice(0, 1)) {
+        const meta = await readFile(path.join(directory, name.replace(/\.tar\.gz$/, ".json")), "utf8").then(JSON.parse).catch(() => null);
+        const artifact = await stat(path.join(directory, name)).catch(() => null);
+        newestAt = meta?.createdAt ?? artifact?.mtime?.toISOString() ?? null;
+      }
+      apps.push({ id: manifest.id, name: manifest.name, protectable, backups: names.length, newestAt });
+    }
+    // A root that cannot be read is unknown, not empty: reporting zero would tell the owner every
+    // app is unprotected and invite them to "fix" something that may be fine.
+    return { available: readable, apps, generatedAt: clock().toISOString() };
+  }
+
   async function listAppBackups({ id }) {
     await ensureManifest(id);
     const backupDirectory = backupDirFor(id);
@@ -1046,5 +1082,5 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { syncHomepage, inspect, listModels, pullModel, removeModel, countAppBackups, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

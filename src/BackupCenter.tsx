@@ -4,6 +4,7 @@ import CloudBackupPanel from "./CloudBackupPanel";
 import RestorePanel from "./RestorePanel";
 import { inspectOperation } from "./operations";
 import { readJson } from "./http";
+import { judgeProtection, type AppProtection, type ProtectionVerdict, type ScheduleLike } from "./backupProtection";
 
 interface BackupRecord { id: string; applicationId: string; destination: string; checksumSha256: string; sizeBytes: number; downtimeMs: number; restoreDrill: { passed?: boolean } | null; createdAt: string }
 interface ControllerProtection { id: string; backupId: string; snapshotId?: string; createdAt: string; protected?: boolean; retained?: boolean }
@@ -30,6 +31,8 @@ function formatBytes(bytes: number): string {
  * protection lives on the Virtual Machines page.
  */
 export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenRepair?: () => void }) {
+  const [appProtection, setAppProtection] = useState<{ verdicts: ProtectionVerdict[]; available: boolean } | null>(null);
+  const [protecting, setProtecting] = useState<string | null>(null);
   const [backups, setBackups] = useState<BackupRecord[]>([]);
   const [protection, setProtection] = useState<ProtectionState | null>(null);
   const [retention, setRetention] = useState<RetentionStatus | null>(null);
@@ -74,6 +77,48 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
   useEffect(() => { void refresh(); }, [refresh]);
 
   const [panelRefresh, setPanelRefresh] = useState(0);
+  /** Which apps have a backup, and which have something that keeps making them. */
+  const loadProtection = useCallback(async () => {
+    try {
+      const [result, scheduleList] = await Promise.all([
+        inspectOperation<{ available: boolean; apps: AppProtection[] }>("app.backup.protection"),
+        fetch("/api/v1/schedules").then((response) => (response.ok ? response.json() : { schedules: [] })).catch(() => ({ schedules: [] })),
+      ]);
+      setAppProtection({ available: result.result.available, verdicts: judgeProtection(result.result.apps, (scheduleList as { schedules: ScheduleLike[] }).schedules ?? []) });
+    } catch {
+      setAppProtection(null);
+    }
+  }, []);
+  useEffect(() => { void loadProtection(); }, [loadProtection]);
+
+  /**
+   * Give every unscheduled app a nightly backup, an hour apart so a dozen of them do not all stop
+   * their containers at three in the morning together. Each schedule is its own request, so a
+   * refusal on one does not cost the others; what succeeded is reported rather than assumed.
+   */
+  const protectEverything = async (targets: ProtectionVerdict[]) => {
+    setProtecting("Setting up nightly backups…");
+    let created = 0;
+    const failures: string[] = [];
+    for (const [index, target] of targets.entries()) {
+      try {
+        const response = await fetch("/api/v1/schedules", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+          body: JSON.stringify({ operationId: "app.backup", parameters: { id: target.id }, frequency: "daily", minute: (index * 7) % 60, hour: (2 + index) % 24 }),
+        });
+        if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error ?? "refused");
+        created += 1;
+      } catch (requestError) {
+        failures.push(`${target.name}: ${requestError instanceof Error ? requestError.message : "failed"}`);
+      }
+    }
+    setProtecting(failures.length
+      ? `Scheduled ${created} of ${targets.length}. ${failures.join("; ")}`
+      : `Scheduled nightly backups for ${created} app${created === 1 ? "" : "s"}. The first runs tonight.`);
+    await loadProtection();
+  };
+
   const { start, dialog } = useOperation(csrfToken, () => { void refresh(); setPanelRefresh((key) => key + 1); });
 
   const protectBackup = (backupId: string) => {
@@ -196,6 +241,49 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
           )}
           <span className="muted">Recurring snapshots and syncs can be scheduled on the System page.</span>
         </div>
+      </section>
+
+      <section className="panel">
+        <header className="panel-header">
+          <div>
+            <strong>What your apps' data is protected by</strong>
+            <span>A backup that exists is not the same as one that keeps being made. Apps whose only data is a cache or re-downloadable models are left out.</span>
+          </div>
+          {appProtection && appProtection.verdicts.some((verdict) => !verdict.scheduled) && (
+            <button className="primary-button" type="button" disabled={Boolean(protecting)}
+              onClick={() => void protectEverything(appProtection.verdicts.filter((verdict) => !verdict.scheduled))}>
+              Back up everything nightly
+            </button>
+          )}
+        </header>
+        {protecting && <p className="muted">{protecting}</p>}
+        {!appProtection ? <p className="muted">Reading…</p>
+          : !appProtection.available ? <p className="muted">The backup folder could not be read, so protection is unknown. Nothing is assumed either way.</p>
+          : appProtection.verdicts.length === 0 ? <p className="muted">No installed app holds data that needs backing up yet.</p>
+          : (
+          <table className="perf-table">
+            <thead><tr><th>App</th><th>Last backup</th><th>Keeps happening</th></tr></thead>
+            <tbody>
+              {[...appProtection.verdicts]
+                .sort((left, right) => Number(left.state === "ok") - Number(right.state === "ok") || left.name.localeCompare(right.name))
+                .map((verdict) => (
+                <tr key={verdict.id}>
+                  <td>{verdict.name}</td>
+                  <td>
+                    {verdict.state === "never"
+                      ? <span className="status-pill status-warning">never</span>
+                      : <span className={`status-pill ${verdict.state === "ok" ? "status-good" : "status-warning"}`}>{verdict.ageDays === 0 ? "today" : `${verdict.ageDays}d ago`}</span>}
+                  </td>
+                  <td>
+                    {verdict.scheduled
+                      ? <span className="muted">nightly</span>
+                      : <button className="text-button" type="button" onClick={() => void protectEverything([verdict])}>Schedule it</button>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </section>
 
       <RestorePanel csrfToken={csrfToken} start={start} />
