@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { routerConnect, routerInspect, routerLeases, routerLogin, validateRouter, credentialsPath, defaultUsername } from "./router.mjs";
 
 /**
@@ -8,11 +10,13 @@ import { routerConnect, routerInspect, routerLeases, routerLogin, validateRouter
  */
 const CHALLENGE = { alg: 5, salt: "3y.arn3Fg9EbDSfF", nonce: "zevUELh85e1WxlJRusb7y6uc31utgsQ3" };
 
-function harness({ loginFails = false } = {}) {
+function harness({ loginFails = false, denyAt = null } = {}) {
   const calls = [];
   const fetchJson = vi.fn(async (_url, body) => {
     calls.push(body);
-    if (body.method === "challenge") return { result: CHALLENGE };
+    // The real router answers "Access denied" to an unknown account and to a wrong password alike.
+    if (body.method === "challenge") return denyAt === "challenge" ? { error: { message: "Access denied", code: -32000 } } : { result: CHALLENGE };
+    if (body.method === "login" && denyAt === "login") return { error: { message: "Access denied", code: -32000 } };
     if (body.method === "login") return loginFails ? { error: { message: "Invalid username or password" } } : { result: { sid: "session-1" } };
     if (body.method === "call" && body.params[1] === "system") return { result: { model: "GL-MT6000", firmware_version: "4.7.0" } };
     if (body.method === "call" && body.params[1] === "clients") {
@@ -57,6 +61,27 @@ describe("signing in to the router", () => {
     expect(calls[0]).toMatchObject({ method: "challenge", params: { username: "root" } });
     expect(calls[1].method).toBe("login");
     expect(calls[1].params.password).toBeUndefined(); // the password itself is never sent
+  });
+
+  it("tells a wrong password apart from an account the router does not have", async () => {
+    // Both come back as "Access denied" with nothing else to go on. Passing that through was
+    // accurate and told the owner nothing; the stage it failed at is the whole signal.
+    const wrongPassword = harness({ denyAt: "login" });
+    await expect(routerLogin({ host: "192.168.8.1", password: "wrong" }, wrongPassword))
+      .rejects.toThrow(/did not accept that password/);
+
+    const noRootAccount = harness({ denyAt: "challenge" });
+    await expect(routerLogin({ host: "192.168.8.1", password: "x" }, noRootAccount))
+      .rejects.toThrow(/needs to be told which account/);
+  });
+
+  it("names the account the owner gave when it is that account the router rejects", async () => {
+    const { fetchJson, run } = harness({ denyAt: "challenge" });
+    await expect(routerLogin({ host: "192.168.8.1", username: "admin", password: "x" }, { run, fetchJson }))
+      .rejects.toThrow(/no account called "admin"/);
+    // and it does not send them off to a control they have already used
+    await expect(routerLogin({ host: "192.168.8.1", username: "admin", password: "x" }, { run, fetchJson }))
+      .rejects.not.toThrow(/asks for a username too/);
   });
 
   it("says the router refused it, rather than something vaguer", async () => {
@@ -138,5 +163,18 @@ describe("reading what the router knows", () => {
   it("refuses to read leases with no router connected", async () => {
     const { fetchJson, run, files } = harness();
     await expect(routerLeases({}, { run, fetchJson, files })).rejects.toThrow("No router is connected");
+  });
+});
+
+describe("the advice the router error gives", () => {
+  it("names a control the interface actually has", async () => {
+    // The message sends the owner to a button by its exact words. If the panel is reworded and this
+    // is not, the instruction becomes a wild goose chase — the failure mode that started all this.
+    const error = await routerLogin({ host: "192.168.8.1", password: "x" }, harness({ denyAt: "challenge" })).catch((thrown) => thrown);
+    const quoted = error.message.match(/"([^"]+)"/g).map((value) => value.slice(1, -1));
+    const control = quoted.find((value) => value.length > 12);
+    const panel = readFileSync(path.resolve(process.cwd(), "src/RouterPanel.tsx"), "utf8");
+    expect(control, "the error should quote a control worth pointing at").toBeTruthy();
+    expect(panel, `the error sends the owner to "${control}", which the panel does not offer`).toContain(control);
   });
 });
