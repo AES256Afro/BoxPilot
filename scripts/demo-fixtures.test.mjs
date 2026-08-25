@@ -77,6 +77,7 @@ describe("the demo can answer what the interface asks", () => {
       "users.inspect": ["users", "sshd", "sshActive"],
       "dns.names.inspect": ["available", "platform", "records", "apps"],
       "router.inspect": ["configured", "reachable", "host"],
+      "host.snapshot.discover": ["locations"],
       "router.leases": ["leases", "host"],
     };
     const wrong = [];
@@ -103,6 +104,7 @@ describe("the demo can answer what the interface asks", () => {
       "users.inspect": ["users", ["name", "uid", "shell", "sudo", "keyCount"]],
       "dns.names.inspect": ["apps", ["id", "name", "port"]],
       "router.leases": ["leases", ["name", "address", "mac", "online", "reserved"]],
+      "host.snapshot.discover": ["locations", ["root", "mount", "snapshots"]],
     };
     const wrong = [];
     for (const [id, [listKey, fields]] of Object.entries(itemFields)) {

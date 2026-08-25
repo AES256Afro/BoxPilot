@@ -21,6 +21,8 @@ async function fixture({ mounted = true } = {}) {
     netplanDirectory: path.join(root, "netplan"),
     ufwDirectory: path.join(root, "ufw"),
     fstabPath: path.join(root, "fstab"),
+    // A drive someone plugged into a rebuilt server: BoxPilot never wrote here.
+    rescueRoot: path.join(root, "rescue"),
   };
   // An installed app with settings, a secret env, and one recorded data backup.
   await mkdir(path.join(paths.catalogRoot, "uptime-kuma"), { recursive: true });
@@ -36,6 +38,7 @@ async function fixture({ mounted = true } = {}) {
   await writeFile(path.join(paths.ufwDirectory, "user.rules"), "### RULES ###\n");
   await writeFile(paths.fstabPath, "# fstab\n");
   await mkdir(paths.mountRoot, { recursive: true });
+  await mkdir(path.join(paths.rescueRoot, "boxpilot-local-mirror", "machine-snapshots"), { recursive: true });
 
   const controllerArtifactDirectory = path.join(paths.controllerBackupRoot, "generated");
   await mkdir(controllerArtifactDirectory, { recursive: true });
@@ -59,6 +62,14 @@ async function fixture({ mounted = true } = {}) {
     if (binary === "/usr/bin/virsh" && args.includes("list")) return { ok: true, stdout: "snapshot-lab\n" };
     if (binary === "/usr/bin/virsh" && args.includes("dumpxml")) return { ok: true, stdout: "<domain><name>snapshot-lab</name></domain>" };
     if (binary === "/usr/bin/findmnt") {
+      // Discovery asks for every real filesystem; the mirror check asks about one mountpoint.
+      if (args.includes("--real")) {
+        return { ok: true, stdout: JSON.stringify({ filesystems: [
+          { target: "/", source: "/dev/mapper/root", fstype: "ext4", children: [{ target: paths.rescueRoot, source: "//nas/backups", fstype: "cifs" }] },
+          { target: "/run/lock", source: "tmpfs", fstype: "tmpfs" },
+          ...(mounted ? [{ target: paths.mountRoot, source: "/dev/sdb1", fstype: "ext4" }] : []),
+        ] }) };
+      }
       if (!mounted) return { ok: false, stdout: "", stderr: "not mounted" };
       return { ok: true, stdout: JSON.stringify({ filesystems: [{ target: paths.mountRoot, source: "/dev/sdb1", fstype: "ext4" }] }) };
     }
@@ -182,5 +193,80 @@ describe("restoring from a machine snapshot", () => {
     const again = await helper.restore({ source: "local", artifact: created.artifact }, { apps });
     expect(again.apps[0]).toMatchObject({ installed: true, alreadyRestored: true, dataRestored: true });
     expect(apps.calls).toEqual({ install: 0, restoreData: 1 });
+  });
+});
+
+/**
+ * Finding a snapshot on a drive nobody told BoxPilot about is the whole of disaster recovery: a
+ * reinstalled server has no snapshots of its own and no destination configured, because the
+ * settings describing the destination were on the disk that died.
+ */
+describe("finding snapshots on a drive that was just plugged in", () => {
+  async function plant(directory, name) {
+    await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, name), "archive-bytes");
+    await writeFile(path.join(directory, `${name}.meta.json`), JSON.stringify({
+      sizeBytes: 13, createdAt: "2026-08-20T02:00:00.000Z", checksumSha256: "a".repeat(64), contents: { apps: [{ id: "jellyfin" }, { id: "pi-hole" }] },
+    }));
+  }
+
+  it("finds one BoxPilot never wrote, and says which drive it is on", async () => {
+    const { helper, paths } = await fixture();
+    const mirror = path.join(paths.rescueRoot, "boxpilot-local-mirror", "machine-snapshots");
+    await plant(mirror, "machine-snapshot-20260820T020000Z-abcdef12.tar.gz");
+
+    const { locations } = await helper.discover();
+    const found = locations.find((location) => location.root === path.resolve(mirror));
+    expect(found, `looked for ${mirror} in ${locations.map((l) => l.root).join(", ")}`).toBeTruthy();
+    expect(found.mount).toMatchObject({ source: "//nas/backups", filesystem: "cifs" });
+    // Enough to choose between two snapshots without opening either.
+    expect(found.snapshots[0]).toMatchObject({ artifact: "machine-snapshot-20260820T020000Z-abcdef12.tar.gz", apps: 2, sizeBytes: 13 });
+  });
+
+  it("says nothing about a drive that has none", async () => {
+    const { helper, paths } = await fixture();
+    const { locations } = await helper.discover();
+    expect(locations.some((location) => location.root.startsWith(path.resolve(paths.rescueRoot)))).toBe(false);
+  });
+
+  it("does not report the local store and the mirror twice", async () => {
+    const { helper, paths } = await fixture();
+    await plant(paths.snapshotRoot, "machine-snapshot-20260819T020000Z-11111111.tar.gz");
+    const { locations } = await helper.discover();
+    expect(locations.map((location) => location.root)).not.toContain(path.resolve(paths.snapshotRoot));
+  });
+
+  it("ignores the pseudo filesystems, which are dozens and hold nothing", async () => {
+    const { helper } = await fixture();
+    const { locations } = await helper.discover();
+    expect(locations.some((location) => location.root.startsWith("/run/lock"))).toBe(false);
+  });
+});
+
+describe("restoring from a discovered drive", () => {
+  it("refuses a path the browser made up", async () => {
+    const { helper } = await fixture();
+    // `root` reaches the server as a string from a page. Only a location this process can find
+    // again for itself is allowed — otherwise a chosen path is a way to read any file on the box.
+    await expect(helper.internals.resolveDiscovered("/etc", "machine-snapshot-20260820T020000Z-abcdef12.tar.gz"))
+      .rejects.toThrow(/no longer mounted|no longer has snapshots/);
+  });
+
+  it("refuses an artifact that is not on the drive it names", async () => {
+    const { helper, paths } = await fixture();
+    const mirror = path.join(paths.rescueRoot, "boxpilot-local-mirror", "machine-snapshots");
+    await mkdir(mirror, { recursive: true });
+    await writeFile(path.join(mirror, "machine-snapshot-20260820T020000Z-abcdef12.tar.gz"), "archive-bytes");
+    await expect(helper.internals.resolveDiscovered(mirror, "machine-snapshot-20260101T000000Z-99999999.tar.gz"))
+      .rejects.toThrow(/not on that drive/);
+  });
+
+  it("resolves one that is really there", async () => {
+    const { helper, paths } = await fixture();
+    const mirror = path.join(paths.rescueRoot, "boxpilot-local-mirror", "machine-snapshots");
+    await mkdir(mirror, { recursive: true });
+    await writeFile(path.join(mirror, "machine-snapshot-20260820T020000Z-abcdef12.tar.gz"), "archive-bytes");
+    const resolved = await helper.internals.resolveDiscovered(mirror, "machine-snapshot-20260820T020000Z-abcdef12.tar.gz");
+    expect(resolved.artifactPath).toBe(path.join(path.resolve(mirror), "machine-snapshot-20260820T020000Z-abcdef12.tar.gz"));
   });
 });

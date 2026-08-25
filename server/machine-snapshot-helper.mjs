@@ -309,6 +309,81 @@ export function createMachineSnapshotHelper({
     return result;
   }
 
+  /**
+   * Machine snapshots on any filesystem this server has mounted, whether BoxPilot put them there or
+   * not.
+   *
+   * This is what makes a rebuild possible. `sources()` knows two places — the local store and the
+   * configured off-box mirror — and a server that has just been reinstalled has neither: no
+   * snapshots of its own, and no destination set up, because the settings that described the
+   * destination were on the disk that died. The snapshot is sitting right there on the drive, and
+   * BoxPilot could not see it. So: mount the drive or the share from the Storage page, and this
+   * finds what is on it.
+   *
+   * The search is deliberately shallow. These live in known places — the mirror's own layout, or
+   * loose in a folder someone copied them to — and walking a multi-terabyte NAS looking for a file
+   * would take longer than rebuilding by hand.
+   */
+  async function discover() {
+    const seen = new Set(Object.values(sourceRoots()).map((root) => path.resolve(root)));
+    const found = [];
+    for (const mount of await mountedFilesystems()) {
+      for (const relative of ["boxpilot-local-mirror/machine-snapshots", "machine-snapshots", "."]) {
+        const root = path.resolve(path.join(mount.target, relative));
+        if (seen.has(root)) continue;
+        seen.add(root);
+        const snapshots = await snapshotsIn(root);
+        if (snapshots.length) found.push({ root, mount: { target: mount.target, source: mount.source, filesystem: mount.fstype }, snapshots });
+      }
+    }
+    return { locations: found };
+  }
+
+  /** Real filesystems only: the pseudo ones hold nothing and there are dozens of them. */
+  async function mountedFilesystems() {
+    const pseudo = new Set(["proc", "sysfs", "devtmpfs", "devpts", "tmpfs", "cgroup", "cgroup2", "securityfs", "pstore", "bpf", "autofs", "hugetlbfs", "mqueue", "debugfs", "tracefs", "fusectl", "configfs", "ramfs", "binfmt_misc", "squashfs", "overlay", "nsfs", "efivarfs"]);
+    const result = await run(findmntBinary, ["--json", "--real", "--output", "TARGET,SOURCE,FSTYPE"], { timeout: 20_000, maxBuffer: 4 * 1024 * 1024 }).catch(() => null);
+    if (!result?.ok) return [];
+    const flatten = (nodes) => (nodes ?? []).flatMap((node) => [node, ...flatten(node.children)]);
+    return flatten(JSON.parse(result.stdout).filesystems)
+      .filter((node) => node.target && !pseudo.has(node.fstype))
+      // A snapshot found under the running install is the local store by another name.
+      .filter((node) => node.target === "/" || !node.target.startsWith("/proc"));
+  }
+
+  /** The snapshots directly in one directory, with whatever their sidecar metadata says. */
+  async function snapshotsIn(root) {
+    const entries = (await readdir(root).catch(() => [])).filter((entry) => snapshotNamePattern.test(entry)).sort().reverse();
+    const snapshots = [];
+    for (const name of entries.slice(0, 50)) {
+      const meta = await readFile(path.join(root, `${name}.meta.json`), "utf8").then(JSON.parse).catch(() => null);
+      const info = await stat(path.join(root, name)).catch(() => null);
+      snapshots.push({
+        artifact: name,
+        sizeBytes: meta?.sizeBytes ?? info?.size ?? null,
+        createdAt: meta?.createdAt ?? info?.mtime?.toISOString() ?? null,
+        checksumSha256: meta?.checksumSha256 ?? null,
+        apps: meta?.contents?.apps?.length ?? null,
+      });
+    }
+    return snapshots;
+  }
+
+  /**
+   * Where an artifact lives. A discovered location arrives as a path from the browser, which is not
+   * a thing to take anyone's word for — so it is only accepted when this process can find it again
+   * itself. The client chooses among what discovery returned; it never names a path of its own.
+   */
+  async function resolveDiscovered(root, artifact) {
+    if (typeof artifact !== "string" || !snapshotNamePattern.test(artifact)) throw new Error("Snapshot name is invalid");
+    const wanted = path.resolve(String(root ?? ""));
+    const { locations } = await discover();
+    const location = locations.find((candidate) => candidate.root === wanted);
+    if (!location) throw new Error("That drive is no longer mounted, or no longer has snapshots on it");
+    if (!location.snapshots.some((snapshot) => snapshot.artifact === artifact)) throw new Error("That snapshot is not on that drive any more");
+    return { root: wanted, artifactPath: path.join(wanted, artifact), metaPath: path.join(wanted, `${artifact}.meta.json`) };
+  }
+
   function resolveArtifact(source, artifact) {
     const root = sourceRoots()[source];
     if (!root) throw new Error("Snapshot source must be local or mirror");
@@ -335,8 +410,13 @@ export function createMachineSnapshotHelper({
   }
 
   /** Manifest summary plus, per app, whether its newest data archive is reachable. */
-  async function describe({ source, artifact }) {
-    const { artifactPath, metaPath } = resolveArtifact(source, artifact);
+  /** Local store, configured mirror, or a drive discovery just found. */
+  async function locate(source, artifact, root) {
+    return source === "discovered" ? resolveDiscovered(root, artifact) : resolveArtifact(source, artifact);
+  }
+
+  async function describe({ source, artifact, root = null }) {
+    const { artifactPath, metaPath } = await locate(source, artifact, root);
     await stat(artifactPath).catch(() => { throw new Error(`Snapshot ${artifact} was not found in the ${source} source`); });
     const meta = await readFile(metaPath, "utf8").then(JSON.parse).catch(() => null);
     const manifest = await readManifestFromArchive(artifactPath);
@@ -361,9 +441,9 @@ export function createMachineSnapshotHelper({
    * generic deployer using the archived settings and secrets, then (optionally) its newest data
    * archive is restored. System files are staged for review, never applied. VM definitions are listed.
    */
-  async function restore({ source, artifact, apps: selected = "all", restoreData = true }, { apps: appHelper, progress = null } = {}) {
+  async function restore({ source, artifact, root = null, apps: selected = "all", restoreData = true }, { apps: appHelper, progress = null } = {}) {
     if (!appHelper) throw new Error("Application deployer is unavailable");
-    const { artifactPath, metaPath } = resolveArtifact(source, artifact);
+    const { artifactPath, metaPath } = await locate(source, artifact, root);
     await stat(artifactPath).catch(() => { throw new Error(`Snapshot ${artifact} was not found in the ${source} source`); });
     const meta = await readFile(metaPath, "utf8").then(JSON.parse).catch(() => null);
     if (!meta?.checksumSha256) throw new Error(`${artifact}.meta.json is missing its checksum, so this archive cannot be verified. Copy the .meta.json file next to the archive and try again. Nothing was changed.`);
@@ -458,5 +538,5 @@ export function createMachineSnapshotHelper({
     }
   }
 
-  return { inspect, create, sync, sources, describe, restore, internals: { locateAppArchive, resolveArtifact } };
+  return { inspect, create, sync, sources, discover, describe, restore, internals: { locateAppArchive, resolveArtifact, resolveDiscovered, snapshotsIn } };
 }
