@@ -4,12 +4,15 @@ import { buildShareEntry, credentialsPath, explainMountError, shareMount, shareU
 const BASE_FSTAB = "# /etc/fstab\nUUID=root-uuid / ext4 defaults 0 1\n";
 
 function fakeFiles(fstab = BASE_FSTAB) {
-  const state = { fstab, written: {}, unlinked: [] };
+  const state = { fstab, written: {}, unlinked: [], made: [], removedDirs: [] };
   return {
     state,
     readFile: vi.fn(async (path) => { if (path === "/etc/fstab") return state.fstab; throw new Error("ENOENT"); }),
     writeFile: vi.fn(async (path, content, options) => { if (path === "/etc/fstab") state.fstab = content; else state.written[path] = { content, options }; }),
-    mkdir: vi.fn(async () => {}),
+    // Node's mkdir with recursive returns the first path it created, or undefined when the
+    // directory already existed. The rollback depends on telling those apart.
+    mkdir: vi.fn(async (path) => { state.made.push(path); return path; }),
+    rmdir: vi.fn(async (path) => { state.removedDirs.push(path); }),
     unlink: vi.fn(async (path) => { state.unlinked.push(path); if (!state.written[path]) throw new Error("ENOENT"); delete state.written[path]; }),
   };
 }
@@ -69,9 +72,20 @@ describe("network share tasks", () => {
   it("rolls back fstab and credentials when the first mount fails, with a readable reason", async () => {
     const files = fakeFiles();
     const run = fakeRun({ mountFails: "mount error(13): Permission denied" });
-    await expect(shareMount({ kind: "smb", host: "mycloud", share: "Private", name: "nas-private", username: "jamie", password: "nope" }, { run, files, exists: toolsPresent })).rejects.toThrow(/refused the credentials.*fstab entry was removed/);
+    await expect(shareMount({ kind: "smb", host: "mycloud", share: "Private", name: "nas-private", username: "jamie", password: "nope" }, { run, files, exists: toolsPresent })).rejects.toThrow(/refused the credentials.*were removed again/);
     expect(files.state.fstab).toBe(BASE_FSTAB);
     expect(files.state.written[credentialsPath("nas-private")]).toBeUndefined();
+    // The empty mountpoint used to survive, so repeated attempts left directories under /mnt that
+    // looked like working mounts. rmdir refuses a non-empty directory, so real data is never at risk.
+    expect(files.state.removedDirs).toContain("/mnt/nas-private");
+  });
+
+  it("leaves a mountpoint alone when it already existed", async () => {
+    const files = fakeFiles();
+    files.mkdir = vi.fn(async () => undefined); // already there: nothing was created, nothing to undo
+    const run = fakeRun({ mountFails: "mount error(13): Permission denied" });
+    await expect(shareMount({ kind: "smb", host: "mycloud", share: "Private", name: "existing", username: "jamie", password: "nope" }, { run, files, exists: toolsPresent })).rejects.toThrow();
+    expect(files.state.removedDirs).toEqual([]);
   });
 
   it("refuses when the client tools are missing, and mounts NFS exports as guest", async () => {

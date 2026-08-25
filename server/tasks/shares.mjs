@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rmdir, unlink, writeFile } from "node:fs/promises";
 import { fixedRun } from "../exec.mjs";
 import { appendFstabEntry, mountNamePattern, removeManagedEntry } from "./storage.mjs";
 
@@ -78,7 +78,7 @@ async function unitFor(run, mountpoint, suffix) {
 }
 
 /** Mount a share permanently at /mnt/<name>. Rolls back fstab and credentials if the first mount fails. */
-export async function shareMount({ kind, host, share, name, username = null, password = null, domain = null, readOnly = false } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, mkdir, unlink }, exists = (file) => access(file).then(() => true, () => false) } = {}) {
+export async function shareMount({ kind, host, share, name, username = null, password = null, domain = null, readOnly = false } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, mkdir, unlink, rmdir }, exists = (file) => access(file).then(() => true, () => false) } = {}) {
   const problem = validateShare({ kind, host, share, name, username, password, domain });
   if (problem) throw new Error(`Invalid share: ${problem}`);
   if (typeof readOnly !== "boolean") throw new Error("readOnly must be true or false");
@@ -97,12 +97,15 @@ export async function shareMount({ kind, host, share, name, username = null, pas
     credentialsStored = true;
     log?.(`Stored credentials for ${username} in ${credentialsPath(name)} (root only)`, "stdout");
   }
-  await files.mkdir(mountpoint, { recursive: true, mode: 0o755 });
+  // `mkdir` with recursive reports the first path it created, or nothing when the directory was
+  // already there. Only a directory this call brought into existence is ours to take away again.
+  const createdMountpoint = await files.mkdir(mountpoint, { recursive: true, mode: 0o755 });
   let previous;
   try {
     previous = await appendFstabEntry({ run, files, log }, `share-${name}`, entry);
   } catch (error) {
     if (credentialsStored) await files.unlink(credentialsPath(name)).catch(() => {});
+    if (createdMountpoint) await files.rmdir(mountpoint).catch(() => {});
     throw error;
   }
   await run(binaries.systemctl, ["daemon-reload"], { timeout: 30_000 });
@@ -112,7 +115,11 @@ export async function shareMount({ kind, host, share, name, username = null, pas
     await files.writeFile(fstabPath, previous);
     await run(binaries.systemctl, ["daemon-reload"], { timeout: 30_000 }).catch(() => {});
     if (credentialsStored) await files.unlink(credentialsPath(name)).catch(() => {});
-    throw new Error(`${explainMountError(kind, `${result.stderr}\n${result.stdout}`)} The fstab entry was removed again.`);
+    // The empty mountpoint used to survive a failed attempt, so three tries left three directories
+    // under /mnt that looked for all the world like working mounts. `rmdir` refuses a directory
+    // with anything in it, so a folder that already held files is never touched.
+    if (createdMountpoint) await files.rmdir(mountpoint).catch(() => {});
+    throw new Error(`${explainMountError(kind, `${result.stderr}\n${result.stdout}`)} The fstab entry and the empty mount folder were removed again.`);
   }
   const check = await run(binaries.findmnt, ["-n", "-b", "-o", "SOURCE,FSTYPE,SIZE,AVAIL", mountpoint], { timeout: 15_000 });
   const [, , sizeText, availText] = check.stdout.trim().split(/\s+/);
