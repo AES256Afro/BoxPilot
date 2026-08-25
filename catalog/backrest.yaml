@@ -3,7 +3,7 @@ id: backrest
 name: Backrest
 category: Backup
 icon: "🗄️"
-description: A web interface for restic backups — schedule them, browse snapshots, and restore single files. The same engine BoxPilot uses for its own encrypted copies.
+description: A web interface for restic backups. Schedule them, browse snapshots, and restore single files. The same engine BoxPilot uses for its own encrypted copies.
 website: https://garethgeorge.github.io/backrest
 risk: medium
 image:
@@ -50,4 +50,4 @@ health:
   kind: running
   stableSeconds: 5
   timeoutSeconds: 90
-notes: Set an admin password on first open. The folder you chose is mounted read-write at /userdata inside Backrest — point repositories and backup plans at that path. Keep each repository's password somewhere other than this server.
+notes: Set an admin password on first open. The folder you chose is mounted read-write at /userdata inside Backrest. Point repositories and backup plans at that path. Keep each repository's password somewhere other than this server.

@@ -3,7 +3,7 @@ id: pingvin-share
 name: Pingvin Share
 category: Files
 icon: "🐧"
-description: Send someone a big file without putting it on someone else's cloud. Upload, get a link, set when it expires and whether it needs a password — the file lives on this server and disappears on schedule.
+description: Send someone a big file without putting it on someone else's cloud. Upload, get a link, set when it expires and whether it needs a password. The file lives on this server and disappears on schedule.
 website: https://github.com/stonith404/pingvin-share
 risk: medium
 image:
@@ -39,4 +39,4 @@ health:
   kind: running
   stableSeconds: 15
   timeoutSeconds: 300
-notes: "The first account you create is the administrator. If the people you are sending to are outside your house, this needs to be reachable from the internet — put it behind a reverse proxy or a Cloudflare Tunnel."
+notes: "The first account you create is the administrator. If the people you are sending to are outside your house, this needs to be reachable from the internet. Put it behind a reverse proxy or a Cloudflare Tunnel."

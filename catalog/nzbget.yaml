@@ -3,7 +3,7 @@ id: nzbget
 name: NZBGet
 category: Media automation
 icon: "📥"
-description: Usenet downloader written for small machines — it uses a fraction of the memory SABnzbd does, which matters on a Pi or a mini PC also running a media server.
+description: Usenet downloader written for small machines. It uses a fraction of the memory SABnzbd does, which matters on a Pi or a mini PC also running a media server.
 website: https://nzbget.com
 risk: low
 image:

@@ -58,4 +58,4 @@ health:
   kind: running
   stableSeconds: 20
   timeoutSeconds: 900
-notes: "Players join <this server>:26900. The first start downloads about 15 GB through SteamCMD, so give it plenty of time and disk — watch Logs. Server settings live in serverconfig.xml under the saves volume; the web control panel is on the port above once the server is up."
+notes: "Players join <this server>:26900. The first start downloads about 15 GB through SteamCMD, so give it plenty of time and disk. Watch Logs. Server settings live in serverconfig.xml under the saves volume; the web control panel is on the port above once the server is up."

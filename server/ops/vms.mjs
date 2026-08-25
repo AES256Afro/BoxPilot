@@ -104,7 +104,7 @@ export function vmOperations() {
     }),
     defineOperation({
       id: "vm.backup.snapshot.forget", title: "Forget an unrecorded snapshot", risk: "high", timeoutMs: 2 * 60 * 60_000,
-      description: "Removes one snapshot the encrypted repository holds and BoxPilot has no record of — normally a backup that was written and then failed its verification. Nothing that has a local record can be removed this way, and nothing is pruned.",
+      description: "Removes one snapshot the encrypted repository holds and BoxPilot has no record of, normally a backup that was written and then failed its verification. Nothing that has a local record can be removed this way, and nothing is pruned.",
       minimumRole: "owner",
       parameters: { fields: { snapshotId: { type: "string", maxLength: 64, pattern: /^[a-f0-9]{64}$/ }, knownSnapshotIds: { type: "array", optional: true } } },
       confirm: (parameters) => String(parameters.snapshotId).slice(0, 8),
@@ -130,7 +130,7 @@ export function vmOperations() {
     }),
     defineOperation({
       id: "vm.action", title: "Start, stop, or restart a VM", risk: "medium", timeoutMs: 5 * 60_000,
-      description: "Start, graceful ACPI shutdown, guest reboot, or autostart toggle. Shutdown waits up to two minutes and never pulls the plug — Force off exists for that.",
+      description: "Start, graceful ACPI shutdown, guest reboot, or autostart toggle. Shutdown waits up to two minutes and never pulls the plug. Force off exists for that.",
       parameters: { fields: { name: nameField, action: { type: "string", enum: ["start", "shutdown", "reboot", "autostart-on", "autostart-off"] } } },
       run: async (parameters, { run, progress, wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) => {
         const { name, action } = parameters;

@@ -35,4 +35,4 @@ health:
   kind: running
   stableSeconds: 10
   timeoutSeconds: 240
-notes: "First open asks you to create an account — there is no default login. Then add your indexers, point it at qBittorrent or Deluge, and write filters. Sonarr and Radarr can stay in the loop as well."
+notes: "First open asks you to create an account. There is no default login. Then add your indexers, point it at qBittorrent or Deluge, and write filters. Sonarr and Radarr can stay in the loop as well."

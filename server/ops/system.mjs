@@ -105,7 +105,7 @@ export function systemOperations() {
     }),
     defineOperation({
       id: "docker.logging.set", title: "Apply Docker log rotation defaults", risk: "medium", timeoutMs: 5 * 60_000,
-      description: "Sets the daemon's default log limit to 3 files of 10 MB — applying to containers created from now on, not existing ones — and turns on live-restore, then restarts dockerd. Running containers restart briefly this one time; with live-restore on, future daemon restarts leave them running.",
+      description: "Sets the daemon's default log limit to 3 files of 10 MB, applying to containers created from now on rather than existing ones, and turns on live-restore, then restarts dockerd. Running containers restart briefly this one time; with live-restore on, future daemon restarts leave them running.",
       run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("docker.logging", {}, { timeoutMs: 4 * 60_000, logPath: jobLog?.path ?? null }),
     }),
     defineOperation({

@@ -3,7 +3,7 @@ id: wizarr
 name: Wizarr
 category: Media
 icon: "✉️"
-description: Invitation links for Jellyfin, Plex and Emby. Send someone a link, they set their own password, and they land on a short guide to installing the app on their TV or phone — instead of you creating accounts by hand and explaining it over the phone.
+description: Invitation links for Jellyfin, Plex and Emby. Send someone a link, they set their own password, and they land on a short guide to installing the app on their TV or phone. Instead of you creating accounts by hand and explaining it over the phone.
 website: https://github.com/wizarrrr/wizarr
 risk: medium
 image:

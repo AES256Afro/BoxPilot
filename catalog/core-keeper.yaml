@@ -41,4 +41,4 @@ health:
   kind: running
   stableSeconds: 20
   timeoutSeconds: 900
-notes: "Core Keeper does not use a port you connect to directly — the server prints a game ID when it is ready, and friends paste that into the game's Join menu. Open Logs and look for the game ID after the first start, which downloads several GB through SteamCMD."
+notes: "Core Keeper does not use a port you connect to directly. The server prints a game ID when it is ready, and friends paste that into the game's Join menu. Open Logs and look for the game ID after the first start, which downloads several GB through SteamCMD."

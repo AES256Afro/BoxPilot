@@ -3,7 +3,7 @@ id: maintainerr
 name: Maintainerr
 category: Media
 icon: "🧹"
-description: Finds what nobody watches and offers to clear it — build rules like "films added over a year ago that nobody has played", see exactly what matches, and have it removed from Plex and from Radarr together.
+description: Finds what nobody watches and offers to clear it. Build rules like "films added over a year ago that nobody has played", see exactly what matches, and have it removed from Plex and from Radarr together.
 website: https://github.com/jorenn92/Maintainerr
 risk: medium
 image:

@@ -3,7 +3,7 @@ id: overseerr
 name: Overseerr
 category: Media
 icon: "🎫"
-description: Request manager for Plex — the household browses, asks for a film or a series, and Sonarr and Radarr fetch it once you approve. Jellyseerr is the same idea for Jellyfin.
+description: Request manager for Plex. The household browses, asks for a film or a series, and Sonarr and Radarr fetch it once you approve. Jellyseerr is the same idea for Jellyfin.
 website: https://overseerr.dev
 risk: medium
 image:

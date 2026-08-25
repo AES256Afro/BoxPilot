@@ -3,7 +3,7 @@ id: n8n
 name: n8n
 category: Developer
 icon: "⚙️"
-description: Workflow automation with hundreds of integrations — the self-hosted alternative to Zapier.
+description: Workflow automation with hundreds of integrations. The self-hosted alternative to Zapier.
 website: https://n8n.io
 risk: medium
 image:

@@ -3,7 +3,7 @@ id: suwayomi
 name: Suwayomi
 category: Books
 icon: "📗"
-description: Manga server — browse and download from the sources you add, then read in the browser or from Tachiyomi-compatible apps on your phone. Your library stays on this server.
+description: Manga server. Browse and download from the sources you add, then read in the browser or from Tachiyomi-compatible apps on your phone. Your library stays on this server.
 website: https://github.com/Suwayomi/Suwayomi-Server
 risk: low
 image:

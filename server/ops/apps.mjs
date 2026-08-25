@@ -74,7 +74,7 @@ export function appOperations() {
     }),
     defineOperation({
       id: "app.serve.set", title: "Publish an app on the tailnet", risk: "medium", timeoutMs: minutes(2),
-      description: "Serves the app's web port over HTTPS on your tailnet with a real certificate (tailnet only — Funnel stays off), or stops serving it.",
+      description: "Serves the app's web port over HTTPS on your tailnet with a real certificate (tailnet only, Funnel stays off), or stops serving it.",
       parameters: { fields: { id: idField, enabled: { type: "boolean" } } },
       run: async (parameters, { run, apps, progress }) => {
         const { applications } = await apps.inspect({ id: parameters.id });
@@ -97,13 +97,13 @@ export function appOperations() {
     }),
     defineOperation({
       id: "app.backup", title: "Back up application data", risk: "medium", timeoutMs: minutes(70),
-      description: "Stops the app briefly, archives its compose project and the volumes BoxPilot manages, restarts it, and keeps the newest copies. Folders you pointed the app at yourself (a photo or media library, for instance) are not included — back those up the way you back up the rest of that disk.",
+      description: "Stops the app briefly, archives its compose project and the volumes BoxPilot manages, restarts it, and keeps the newest copies. Folders you pointed the app at yourself (a photo or media library, for instance) are not included should be backed up the way you back up the rest of that disk.",
       parameters: { fields: { id: idField, keep: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 30 ? null : "must be a whole number between 1 and 30") } } },
       run: (parameters, { apps, progress }) => apps.backup({ id: parameters.id, keep: parameters.keep ?? 5 }, { progress }),
     }),
     defineOperation({
       id: "homepage.sync", title: "Sync Homepage with installed apps", risk: "low", timeoutMs: 60_000,
-      description: "Writes a BoxPilot group into Homepage's services.yaml with every installed app — link, description, icon, live container status — and keeps the groups you wrote yourself. Repeats automatically after installs and uninstalls.",
+      description: "Writes a BoxPilot group into Homepage's services.yaml with every installed app, its link, description, icon and live container status, and keeps the groups you wrote yourself. Repeats automatically after installs and uninstalls.",
       parameters: { fields: { host: { type: "string", optional: true, maxLength: 253, pattern: /^[A-Za-z0-9][A-Za-z0-9.-]{0,252}$/ } } },
       run: (parameters, { apps, progress }) => apps.syncHomepage({ host: parameters.host }, { progress }),
     }),
@@ -142,7 +142,7 @@ export function appOperations() {
     }),
     defineOperation({
       id: "app.compose.edit", title: "Edit application compose file", risk: "high", timeoutMs: minutes(20),
-      description: "Takes a data checkpoint, then replaces the app's compose.yaml verbatim — full control, full responsibility. Validated by docker compose, applied with rollback; the next Settings change or Update regenerates the file from the manifest.",
+      description: "Takes a data checkpoint, then replaces the app's compose.yaml verbatim, giving you full control and full responsibility. Validated by docker compose, applied with rollback; the next Settings change or Update regenerates the file from the manifest.",
       parameters: { fields: { id: idField, compose: { type: "string", maxLength: 65536 }, checkpoint: { type: "boolean", optional: true } } },
       run: (parameters, { apps, progress }) => apps.editCompose({ id: parameters.id, compose: parameters.compose }, { progress, checkpoint: parameters.checkpoint ?? true }),
     }),

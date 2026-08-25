@@ -47,4 +47,4 @@ health:
   kind: running
   stableSeconds: 20
   timeoutSeconds: 300
-notes: "The first login is admin@example.com / password — change both under your profile immediately. Tests use bandwidth while they run, so hourly is plenty on a shared line."
+notes: "The first login is admin@example.com / password. Change both under your profile immediately. Tests use bandwidth while they run, so hourly is plenty on a shared line."

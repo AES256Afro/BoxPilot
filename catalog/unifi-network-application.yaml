@@ -3,7 +3,7 @@ id: unifi-network-application
 name: UniFi Network Application
 category: Network
 icon: "🛜"
-description: The controller for Ubiquiti UniFi access points, switches and gateways — adopt them, configure Wi-Fi, and see what is connected. Runs here instead of on a Cloud Key.
+description: The controller for Ubiquiti UniFi access points, switches and gateways. Adopt them, configure Wi-Fi, and see what is connected. Runs here instead of on a Cloud Key.
 website: https://ui.com
 risk: medium
 image:

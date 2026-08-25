@@ -45,7 +45,7 @@ env:
     generate: true
   - name: FTLCONF_dns_upstreams
     label: Upstream DNS
-    description: Where Pi-hole sends the queries it does not block. Quad9 and Cloudflare are fast public resolvers. "unbound#53" is the bundled recursive resolver, which asks the root servers directly so no third party sees your lookups — it only works in Bridge network mode.
+    description: Where Pi-hole sends the queries it does not block. Quad9 and Cloudflare are fast public resolvers. "unbound#53" is the bundled recursive resolver, which asks the root servers directly so no third party sees your lookups. It only works in Bridge network mode.
     default: 9.9.9.9;149.112.112.112
     options:
       - 9.9.9.9;149.112.112.112
@@ -65,7 +65,7 @@ env:
 signIn:
   path: /admin/
   passwordEnv: FTLCONF_webserver_api_password
-  note: Pi-hole has no username. Change the password here rather than inside Pi-hole — the container sets it from this value every time it starts, so a change made in Pi-hole's own settings is undone by the next restart.
+  note: Pi-hole has no username. Change the password here rather than inside Pi-hole. The container sets it from this value every time it starts, so a change made in Pi-hole's own settings is undone by the next restart.
 sidecars:
   - id: unbound
     image: klutchell/unbound:v1.26.0
@@ -75,7 +75,7 @@ health:
   timeoutSeconds: 300
 setup:
   title: Blocklists
-  note: Pi-hole ships with Steven Black's unified hosts list. The lists below are the ones most people add; each is fetched when gravity updates (every Sunday and right after this install). Unticking a list later does not remove it — manage lists in the admin UI under Lists.
+  note: Pi-hole ships with Steven Black's unified hosts list. The lists below are the ones most people add; each is fetched when gravity updates (every Sunday and right after this install). Unticking a list later does not remove it. Manage lists in the admin UI under Lists.
   finalize: [pihole, -g]
   finalizeLabel: Updating gravity (downloads the lists)
   choices:
@@ -121,4 +121,4 @@ setup:
       description: Blocks phone-home and ad domains used by Samsung, LG, Roku, and other TVs.
       website: https://github.com/Perflyst/PiHoleBlocklist
       exec: [pihole-FTL, sqlite3, /etc/pihole/gravity.db, "INSERT INTO adlist (address, enabled, comment) SELECT 'https://raw.githubusercontent.com/Perflyst/PiHoleBlocklist/master/SmartTV.txt', 1, 'BoxPilot: Smart TV telemetry' WHERE NOT EXISTS (SELECT 1 FROM adlist WHERE address = 'https://raw.githubusercontent.com/Perflyst/PiHoleBlocklist/master/SmartTV.txt')"]
-notes: "Network mode (in Settings): **Bridge** keeps Pi-hole isolated behind Docker, but every device on your network reaches it through one address, so the client list shows a single client — fine for blocking, not for per-device rules. **Host** puts Pi-hole directly on your network so it sees each computer by address and name (turn on Conditional Forwarding to your router for names); its admin UI then answers on port 80 rather than 8084. Runs with Docker's default capabilities (its start script needs to set file capabilities on pihole-FTL). To use Pi-hole as your DHCP server too, add CAP_NET_ADMIN via Config. Finish the setup in two steps: (1) on the Firewall page tick the DNS server service so other devices can reach port 53; (2) in your router's DHCP settings set the DNS server to this machine's LAN address. On Ubuntu Server systemd-resolved holds port 53 by default: set DNSStubListener=no in /etc/systemd/resolved.conf and restart systemd-resolved before installing, or port 53 will already be in use."
+notes: "Network mode (in Settings): **Bridge** keeps Pi-hole isolated behind Docker, but every device on your network reaches it through one address, so the client list shows a single client. Fine for blocking, not for per-device rules. **Host** puts Pi-hole directly on your network so it sees each computer by address and name (turn on Conditional Forwarding to your router for names); its admin UI then answers on port 80 rather than 8084. Runs with Docker's default capabilities (its start script needs to set file capabilities on pihole-FTL). To use Pi-hole as your DHCP server too, add CAP_NET_ADMIN via Config. Finish the setup in two steps: (1) on the Firewall page tick the DNS server service so other devices can reach port 53; (2) in your router's DHCP settings set the DNS server to this machine's LAN address. On Ubuntu Server systemd-resolved holds port 53 by default: set DNSStubListener=no in /etc/systemd/resolved.conf and restart systemd-resolved before installing, or port 53 will already be in use."

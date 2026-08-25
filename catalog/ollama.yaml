@@ -21,7 +21,7 @@ volumes:
     container: /root/.ollama
     path: models
     backup: false
-    description: Model files, often several GB each. Excluded from backups on purpose — they can always be downloaded again, and including them would make every backup enormous.
+    description: Model files, often several GB each. Excluded from backups on purpose. They can always be downloaded again, and including them would make every backup enormous.
 env:
   - name: OLLAMA_HOST
     default: 0.0.0.0
@@ -78,4 +78,4 @@ health:
   kind: running
   stableSeconds: 15
   timeoutSeconds: 600
-notes: "Other apps reach this at http://<this server>:11434 — that is what to enter in AnythingLLM, Open WebUI, or Home Assistant's Ollama integration. There is no login: anything that can reach the port can use the models, so leave it on your home network or the tailnet rather than opening it to the internet. Downloaded models are excluded from backups by design; after a restore, pull them again."
+notes: "Other apps reach this at http://<this server>:11434. That is what to enter in AnythingLLM, Open WebUI, or Home Assistant's Ollama integration. There is no login: anything that can reach the port can use the models, so leave it on your home network or the tailnet rather than opening it to the internet. Downloaded models are excluded from backups by design; after a restore, pull them again."
