@@ -8,6 +8,32 @@ afterEach(() => {
 });
 
 describe("Virtual Machines", () => {
+  it("survives a foundation answer with no conflicts or changes listed", async () => {
+    // `foundation?.conflicts.map(...)` stopped one level too early, so a response without that
+    // array threw and took the entire page blank — the same shape as the Logs and Repair Center
+    // crashes. It stayed hidden because the demo could not render this page at all.
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+    // ready:false and planAvailable:false is the branch that maps over `conflicts`; the other two
+    // branches never touch it, which is why an earlier version of this test passed with the bug in.
+    const bare = { connectionUri: "qemu:///system", connectionReady: true, ready: false, revision: null, planAvailable: false,
+      network: { name: "default", exists: false, active: false, autostart: false, persistent: false, compatible: false, bridge: "virbr0" },
+      pool: { name: "default", exists: false, active: false, autostart: false, persistent: false, compatible: false, targetPath: "/var/lib/libvirt/images" },
+      boundary: { mutationPerformed: false, browserResourceAccepted: false } }; // no conflicts, no changes
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/virtualization/status")) return json({ platform: "linux", architecture: "x86_64", connectionUri: "qemu:///system", ready: true, checks: [], tailscale: { installed: false, connected: false, dnsName: null, serveUrls: [] }, setupPlan: { title: "", destructive: false, requiresConsoleApproval: false, commands: [], notes: [] }, actions: { enabled: true, reason: "" } });
+      if (url.endsWith("/virtualization/domains")) return json({ connected: true, domains: [], error: null });
+      if (url.endsWith("/virtualization/resources")) return json({ connected: true, networks: [], pools: [], errors: [] });
+      if (url.endsWith("/virtualization/console-guidance")) return json({ nativeProxyAvailable: false, cockpit: { installed: false, active: false, enabled: false, port: 9090 }, tailscaleDnsName: null, privateUrl: null, accessNote: "" });
+      if (url.endsWith("/virtualization/foundation")) return json(bare);
+      return json({ error: "unexpected" }, 503);
+    }));
+    render(<VirtualMachines csrfToken="csrf" onOpenRepair={vi.fn()} />);
+    // The page renders rather than going blank, and offers its setup path.
+    expect(await screen.findByText("Setup is blocked")).toBeTruthy();
+    expect(screen.queryByText("Virtualization status is unavailable")).toBeNull();
+  });
+
   it("renders live libvirt readiness and discovered domains", async () => {
     const status = {
       platform: "linux",

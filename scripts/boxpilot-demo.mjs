@@ -168,7 +168,15 @@ export const inspections = {
   "fail2ban.inspect": fail2ban,
   "canary.verify": { ok: true },
   "system.update.status": { running: false, log: [], startedAt: null, finishedAt: null, ok: null },
-  "users.inspect": { users: [{ username: host.owner, uid: 1000, sudo: true, shell: "/bin/bash", keys: 2 }] },
+  "users.inspect": {
+    users: [
+      { name: "root", uid: 0, sudo: true, shell: "/bin/bash", keyCount: 0 },
+      { name: host.owner, uid: 1000, sudo: true, shell: "/bin/bash", keyCount: 2 },
+      { name: "sam", uid: 1001, sudo: false, shell: "/bin/bash", keyCount: 1 },
+    ],
+    sshd: { passwordAuthentication: false, keyboardInteractive: false, pubkeyAuthentication: true, permitRootLogin: "prohibit-password", port: 22 },
+    sshActive: true,
+  },
   "docker.disk.inspect": { images: { count: 22, sizeBytes: 9.4 * GiB, reclaimableBytes: 1.1 * GiB }, containers: { count: 14, sizeBytes: 0.6 * GiB }, volumes: { count: 9, sizeBytes: 3.2 * GiB }, buildCache: { sizeBytes: 0 } },
   "housekeeping.inspect": (() => {
     const categories = [
@@ -297,7 +305,50 @@ api.get("/setup", async (_request, response) => {
   json(response, { firstRun: false, installedApps: Object.keys(installed).length, appsKnown: true, profiles });
 });
 api.get("/setup/checklist", (_request, response) => json(response, buildChecklist({ tailscale: { connected: true, dnsName: host.tailnet }, firewall: firewallReport, firewallProfile, unattended: { enabled: true }, notifications: { configured: true, kind: "ntfy" }, cloudDestination: { provider: "b2" }, installedApps: Object.keys(installed), samba: { configured: true }, nfs: { configured: false }, ups: { configured: true } })));
-api.get("/virtualization/domains", (_request, response) => json(response, { domains: [{ name: "dev-lab", state: "running" }, { name: "win11-test", state: "stopped" }] }));
+// The whole Virtual Machines page used to answer "not part of the demo", so nobody could look at
+// it before it reached a server. These mirror the real route shapes in server/routes/virtualization.mjs.
+const demoDomain = (name, state, vcpus, memoryGiB, extra = {}) => ({
+  name, uuid: `demo-${name}`, state, vcpus, memoryKiB: memoryGiB * 1024 * 1024, persistent: true, autostart: state === "running",
+  managed: true, addresses: state === "running" ? [{ interface: "vnet0", protocol: "ipv4", address: "192.168.122.31" }] : [],
+  disks: [{ type: "file", device: "disk", target: "vda", source: `/var/lib/libvirt/images/${name}.qcow2` }],
+  interfaces: [{ interface: "vnet0", type: "network", source: "default", model: "virtio", mac: "52:54:00:6f:2a:1c" }],
+  snapshotCount: state === "running" ? 2 : 0,
+  snapshots: state === "running" ? [{ name: "before-upgrade", manageable: true, current: true, state: "running", location: "internal", parent: null, createdAt: ago(52) }] : [],
+  ...extra,
+});
+api.get("/virtualization/domains", (_request, response) => json(response, {
+  connected: true, error: null,
+  domains: [demoDomain("dev-lab", "running", 4, 8), demoDomain("win11-test", "shut off", 2, 4)],
+}));
+api.get("/virtualization/status", (_request, response) => json(response, {
+  platform: "linux", architecture: "x86_64", connectionUri: "qemu:///system", ready: true,
+  checks: [
+    { id: "kvm", label: "KVM acceleration", ok: true, detail: "/dev/kvm is present and readable" },
+    { id: "libvirtd", label: "libvirt service", ok: true, detail: "libvirtd.service is active" },
+    { id: "qemu", label: "QEMU", ok: true, detail: "qemu-system-x86_64 8.2.2" },
+  ],
+  tailscale: { installed: true, connected: true, dnsName: host.tailnet, serveUrls: [] },
+  setupPlan: { title: "Everything needed is already installed", destructive: false, requiresConsoleApproval: false, commands: [], notes: [] },
+  actions: { enabled: true, reason: "" },
+}));
+api.get("/virtualization/resources", (_request, response) => json(response, {
+  connected: true, errors: [],
+  networks: [{ name: "default", active: true, autostart: true, persistent: true, bridge: "virbr0" }],
+  pools: [{ name: "default", active: true, autostart: true, persistent: true, type: "dir", targetPath: "/var/lib/libvirt/images", capacity: "800 GiB", allocation: "96 GiB", available: "704 GiB", availableBytes: 704 * GiB }],
+}));
+api.get("/virtualization/console-guidance", (_request, response) => json(response, {
+  nativeProxyAvailable: false,
+  cockpit: { installed: false, active: false, enabled: false, port: 9090 },
+  tailscaleDnsName: host.tailnet, privateUrl: null,
+  accessNote: "Install Cockpit to open a VM console in the browser over your tailnet.",
+}));
+api.get("/virtualization/foundation", (_request, response) => json(response, {
+  connectionUri: "qemu:///system", connectionReady: true, ready: true, revision: "1",
+  network: { name: "default", exists: true, active: true, autostart: true, persistent: true, compatible: true, bridge: "virbr0" },
+  pool: { name: "default", exists: true, active: true, autostart: true, persistent: true, compatible: true, targetPath: "/var/lib/libvirt/images" },
+  conflicts: [], planAvailable: false, changes: [],
+  boundary: { mutationPerformed: false, browserResourceAccepted: false },
+}));
 api.get("/schedules", (_request, response) => json(response, { schedules: [
   { id: "s1", operationId: "app.backup", parameters: { subject: "immich" }, frequency: "daily", minute: 0, hour: 3, weekday: null, enabled: true, createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-8), lastRunAt: ago(16) },
   { id: "s2", operationId: "backup.cloud.sync", parameters: {}, frequency: "daily", minute: 30, hour: 4, weekday: null, enabled: true, createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-7), lastRunAt: ago(26) },

@@ -397,9 +397,9 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
         {foundation?.ready ? (
           <div className="vm-control-lock"><div><strong>VM creation foundation verified</strong><span>Both canonical resources are persistent, active, compatible, and enabled at boot. Other networks and pools remain untouched.</span></div><button type="button" className="secondary-button" onClick={() => void refresh()} disabled={pending !== null}>Refresh</button></div>
         ) : foundation?.planAvailable ? (
-          <div className="vm-control-lock"><div><strong>Guided initialization is available</strong><span>{foundation.changes.join(" | ")}. The job accepts no resource names or paths and rolls back only its own changes.</span></div><button type="button" className="primary-button" onClick={() => initializeFoundation()} disabled={pending !== null}>{pending === "foundation-plan" ? "Inspecting..." : "Review setup plan"}</button></div>
+          <div className="vm-control-lock"><div><strong>Guided initialization is available</strong><span>{(foundation.changes ?? []).join(" | ")}. The job accepts no resource names or paths and rolls back only its own changes.</span></div><button type="button" className="primary-button" onClick={() => initializeFoundation()} disabled={pending !== null}>{pending === "foundation-plan" ? "Inspecting..." : "Review setup plan"}</button></div>
         ) : (
-          <div className="vm-plan-warnings"><strong>Setup is blocked</strong>{foundation?.conflicts.map((conflict) => <span key={conflict}>{conflict}</span>)}<button type="button" className="secondary-button" onClick={onOpenRepair}>Open prerequisite repairs</button></div>
+          <div className="vm-plan-warnings"><strong>Setup is blocked</strong>{(foundation?.conflicts ?? []).map((conflict) => <span key={conflict}>{conflict}</span>)}<button type="button" className="secondary-button" onClick={onOpenRepair}>Open prerequisite repairs</button></div>
         )}
       </section>
 
