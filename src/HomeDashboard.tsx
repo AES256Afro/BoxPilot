@@ -55,7 +55,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
       .catch(() => [] as TailnetServe[]);
     fetch("/api/v1/catalog")
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("catalog unavailable"))))
-      .then(async (data: { applications: Array<{ manifest: { id: string; name: string }; live: { installed: boolean; container: { running: boolean; health: string }; updateAvailable?: boolean; urls: Array<{ host: number; exposure: string; path?: string | null }> } | null }>; host: { lanAddress: string | null } }) => {
+      .then(async (data: { applications: Array<{ manifest: { id: string; name: string }; live: { installed: boolean; container: { running: boolean; status?: string; health: string }; updateAvailable?: boolean; urls: Array<{ host: number; exposure: string; path?: string | null }> } | null }>; host: { lanAddress: string | null } }) => {
         const servesSoFar = await servesPromise;
 
         guard(setApps)(data.applications
@@ -64,7 +64,8 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
             id: entry.manifest.id,
             name: entry.manifest.name,
             installed: true,
-            running: entry.live?.container.running ?? false,
+            // A paused container still reports running to Docker; it is frozen, not serving.
+            running: (entry.live?.container.running ?? false) && entry.live?.container.status !== "paused",
             health: entry.live?.container.health ?? "",
             updateAvailable: entry.live?.updateAvailable ?? false,
             url: entry.live?.urls.length ? appUrl(entry.live.urls[0], { lanAddress: data.host.lanAddress, serves: servesSoFar }) : null,

@@ -216,25 +216,67 @@ export function createAppHelper({
     return uid === null ? null : { uid, gid: number(["PGID", "GID", "USER_GID", "PLEX_GID"]) ?? uid };
   }
 
+  const declaredOwnerCache = new Map();
+  /**
+   * The uid/gid the *image itself* says it runs as, for the many apps that neither declare `user:`
+   * nor read PUID — AnythingLLM runs as `anythingllm`, Wiki.js as `node`, Firefly as `www-data`.
+   * Their managed folders were created root-owned and the app could not write a byte into them: an
+   * install that looks successful and then fails at the first upload.
+   *
+   * A numeric USER is taken at face value; a name has to be resolved against the image's own passwd
+   * file, which means asking the image. Anything that cannot answer (no `id`, a distroless base)
+   * leaves ownership alone rather than guessing, which is the behaviour we had before.
+   */
+  async function imageDeclaredOwner(reference) {
+    if (declaredOwnerCache.has(reference)) return declaredOwnerCache.get(reference);
+    let resolved = null;
+    const inspected = await docker(["image", "inspect", reference, "--format", "{{.Config.User}}"], { timeout: 30_000 });
+    const declared = inspected.ok ? inspected.stdout.trim() : "";
+    if (declared && declared !== "root" && declared !== "0") {
+      const [rawUser, rawGroup] = declared.split(":");
+      const numericUid = Number.parseInt(rawUser, 10);
+      if (Number.isInteger(numericUid) && String(numericUid) === rawUser) {
+        const numericGid = Number.parseInt(rawGroup ?? "", 10);
+        resolved = { uid: numericUid, gid: Number.isInteger(numericGid) ? numericGid : numericUid };
+      } else {
+        const ids = await docker(["run", "--rm", "--entrypoint", "id", reference, "-u"], { timeout: 60_000 }).catch(() => ({ ok: false, stdout: "" }));
+        const groupIds = await docker(["run", "--rm", "--entrypoint", "id", reference, "-g"], { timeout: 60_000 }).catch(() => ({ ok: false, stdout: "" }));
+        const uid = Number.parseInt(ids.ok ? ids.stdout.trim() : "", 10);
+        const gid = Number.parseInt(groupIds.ok ? groupIds.stdout.trim() : "", 10);
+        if (Number.isInteger(uid) && uid !== 0) resolved = { uid, gid: Number.isInteger(gid) ? gid : uid };
+      }
+    }
+    declaredOwnerCache.set(reference, resolved);
+    return resolved;
+  }
+
   async function writeProject(manifest, values, { existingEnv = {}, devices: provided = null } = {}) {
     const directory = dirFor(manifest.id);
     await mkdir(directory, { recursive: true, mode: 0o700 });
     // Images that run as a fixed non-root user (declared with `user:`) must be able to write their
     // managed volumes, which the helper creates as root. Ownership is set on the directory only;
     // existing files are never touched.
-    const owner = manifest.user ? manifest.user.split(":").map((part) => Number.parseInt(part, 10)) : null;
+    // Who the container runs as: what the manifest declares, else what the image declares itself.
+    const managedOwner = effectiveOwner(manifest) ?? await imageDeclaredOwner(manifest.image.reference).catch(() => null);
     for (const volume of manifest.volumes) {
       if (!volume.path) continue;
       const target = path.join(directory, volume.path);
       await mkdir(target, { recursive: true, mode: 0o755 });
-      if (owner && Number.isInteger(owner[0])) await chownDirectory(target, owner[0], Number.isInteger(owner[1]) ? owner[1] : owner[0]).catch(() => {});
+      if (managedOwner) await chownDirectory(target, managedOwner.uid, managedOwner.gid).catch(() => {});
     }
-    for (const sidecar of manifest.sidecars ?? []) for (const volume of sidecar.volumes) await mkdir(path.join(directory, volume.path), { recursive: true, mode: 0o755 });
+    for (const sidecar of manifest.sidecars ?? []) {
+      const sidecarOwner = await imageDeclaredOwner(sidecar.image).catch(() => null);
+      for (const volume of sidecar.volumes) {
+        const target = path.join(directory, volume.path);
+        await mkdir(target, { recursive: true, mode: 0o755 });
+        if (sidecarOwner) await chownDirectory(target, sidecarOwner.uid, sidecarOwner.gid).catch(() => {});
+      }
+    }
     // A folder the app is pointed at may not exist yet. Docker would create it as root:root, and an
     // app that runs as a normal user (PUID, or a declared `user:`) then cannot write its own data —
     // the install looks fine and every download or upload fails. Create it ourselves and hand it over.
     // An existing folder is never touched: it is the owner's library, with their ownership.
-    const runsAs = effectiveOwner(manifest);
+    const runsAs = managedOwner;
     for (const volume of manifest.volumes) {
       const chosen = values.volumes?.[volume.id] ?? volume.hostPath;
       // Only folders meant to hold data: every system mount a manifest declares is on the deny list.

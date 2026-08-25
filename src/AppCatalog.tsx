@@ -50,6 +50,14 @@ function initialValues(manifest: Manifest, live: LiveState | null): Values {
 }
 
 /** Strip values that equal the manifest default so the server applies defaults and future manifest changes flow through. */
+/**
+ * Docker calls a paused container "running" — the process exists, it is simply frozen — so every
+ * check of `container.running` has to subtract paused explicitly, or a paused app looks healthy
+ * and offers Stop but no Resume. Asking here once keeps the places that care in agreement.
+ */
+const isPaused = (live: LiveState | null) => live?.container.status === "paused";
+const isRunning = (live: LiveState | null) => Boolean(live?.container.running) && !isPaused(live);
+
 function compactValues(manifest: Manifest, values: Values): Values {
   const ports = Object.fromEntries(Object.entries(values.ports).filter(([id, host]) => manifest.ports.find((port) => port.id === id)?.host !== host));
   const env = Object.fromEntries(Object.entries(values.env).filter(([name, value]) => value !== "" && String(manifest.env.find((entry) => entry.name === name)?.default ?? "") !== value));
@@ -273,9 +281,9 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   // What is already on this server goes first, running before stopped, so it is never behind a
   // scroll through a hundred-odd things that are not installed.
   const installedVisible = useMemo(() => visible.filter((entry) => entry.live?.installed)
-    .sort((left, right) => Number(right.live?.container.running ?? false) - Number(left.live?.container.running ?? false) || left.manifest.name.localeCompare(right.manifest.name)), [visible]);
+    .sort((left, right) => Number(isRunning(right.live)) - Number(isRunning(left.live)) || left.manifest.name.localeCompare(right.manifest.name)), [visible]);
   const availableVisible = useMemo(() => visible.filter((entry) => !entry.live?.installed), [visible]);
-  const runningCount = installedVisible.filter((entry) => entry.live?.container.running).length;
+  const runningCount = installedVisible.filter((entry) => isRunning(entry.live)).length;
   const installedCount = (data?.applications ?? []).filter((entry) => entry.live?.installed).length;
   const openUrl = (port: { host: number; exposure: string }, manifest: Manifest) =>
     appUrl(port, { lanAddress: data?.host.lanAddress ?? null, serves: serves ?? [], https: manifest.id === "portainer" });
@@ -283,6 +291,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const statusPill = (live: LiveState | null): ReactNode => {
     if (!live) return <span className="status-pill status-neutral">Unknown</span>;
     if (!live.installed) return live.dataPresent ? <span className="status-pill status-neutral">Not installed · data kept</span> : <span className="status-pill status-neutral">Not installed</span>;
+    if (isPaused(live)) return <span className="status-pill status-warning">Paused</span>;
     if (live.container.running) return <span className={`status-pill ${live.container.health === "unhealthy" ? "status-warning" : "status-good"}`}>{live.container.health === "unhealthy" ? "Running · unhealthy" : "Running"}</span>;
     return <span className="status-pill status-warning">Stopped</span>;
   };
@@ -290,7 +299,8 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   /** One application's card. Both sections render the same card, so it lives in one place. */
   const renderCard = ({ manifest, live }: { manifest: Manifest; live: LiveState | null }) => {
           const installed = Boolean(live?.installed);
-          const running = Boolean(live?.container.running);
+          const running = isRunning(live);
+          const paused = isPaused(live);
           return (
             <article key={manifest.id} className="panel app-card">
               <header className="app-card-header">
@@ -344,7 +354,9 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
               ) : null}
               <footer className="recovery-actions">
                 {!installed && <button className="primary-button" type="button" onClick={() => setConfig({ manifest, live, mode: "install" })}>Install</button>}
-                {installed && (running
+                {installed && (paused
+                  ? <><button className="primary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Resume ${manifest.name}`, parameters: { id: manifest.id, action: "unpause" }, preview: <span>Thaws {manifest.name} exactly where it left off.</span> })}>Resume</button><button className="secondary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Stop ${manifest.name}`, parameters: { id: manifest.id, action: "stop" }, preview: <span>Stops {manifest.name} and frees its memory.</span> })}>Stop</button></>
+                  : running
                   ? <><button className="secondary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Restart ${manifest.name}`, parameters: { id: manifest.id, action: "restart" } })}>Restart</button><button className="secondary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Stop ${manifest.name}`, parameters: { id: manifest.id, action: "stop" } })}>Stop</button></>
                   : <button className="primary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Start ${manifest.name}`, parameters: { id: manifest.id, action: "start" } })}>Start</button>)}
                 {installed && <button className="secondary-button" type="button" onClick={() => setConfig({ manifest, live, mode: "reconfigure" })}>Settings</button>}

@@ -50,13 +50,22 @@ export function createPerformanceService({
   uptime = () => os.uptime(),
   now = () => new Date(),
 } = {}) {
-  let previous = null; // last /proc/stat sample, for the utilisation delta
+  let previous = null;     // last /proc/stat sample, for the utilisation delta
+  let lastComputed = null;  // the last usable answer, to repeat rather than invent a bad one
 
-  /** CPU busy-share since the previous call, overall and per core. Null until there are two samples. */
+  /**
+   * CPU busy-share since the previous call, overall and per core. Null until there are two samples.
+   *
+   * The samples are shared by every caller, which matters once two browser tabs poll at once: their
+   * calls interleave and the window between two samples can collapse to almost nothing. Over a
+   * near-zero window the tick counters have not moved, which reads as 0% — a wrong answer that
+   * looks like an idle machine. Below a usable window the previous answer is repeated instead.
+   */
   async function cpuUsage() {
     let current;
-    try { current = parseProcStat(await readProc("stat")); } catch { return { usagePercent: null, perCore: [] }; }
+    try { current = parseProcStat(await readProc("stat")); } catch { return lastComputed ?? { usagePercent: null, perCore: [] }; }
     const last = previous;
+    if (last?.cpu && current.cpu && current.cpu.total - last.cpu.total < 20 && lastComputed) return lastComputed;
     previous = current;
     if (!last || !last.cpu || !current.cpu) return { usagePercent: null, perCore: [] };
     const share = (a, b) => {
@@ -68,7 +77,8 @@ export function createPerformanceService({
     for (let index = 0; current[`cpu${index}`] && last[`cpu${index}`]; index += 1) {
       perCore.push(share(last[`cpu${index}`], current[`cpu${index}`]));
     }
-    return { usagePercent: share(last.cpu, current.cpu), perCore };
+    lastComputed = { usagePercent: share(last.cpu, current.cpu), perCore };
+    return lastComputed;
   }
 
   /** Whatever temperatures the board exposes through hwmon, best-effort. */
