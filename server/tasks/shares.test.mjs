@@ -80,6 +80,21 @@ describe("network share tasks", () => {
     expect(files.state.removedDirs).toContain("/mnt/nas-private");
   });
 
+  it("mounts a folder inside a share, and refuses one that climbs out of it", async () => {
+    // Some NAS boxes cannot create shares at all — a WD My Cloud Home offers Public,
+    // TimeMachineBackup and one per user, permanently — so pointing at a folder inside a share is
+    // the only way to keep backups out of the root of somebody's personal files.
+    const files = fakeFiles();
+    const run = fakeRun();
+    await shareMount({ kind: "smb", host: "mycloud", share: "alex/BoxPilot-Backup", name: "boxpilot-backup", username: "alex", password: "s3cret" }, { run, files, exists: toolsPresent });
+    expect(files.state.fstab).toContain("//mycloud/alex/BoxPilot-Backup /mnt/boxpilot-backup cifs");
+
+    for (const share of ["../etc", "alex/../../etc", "/leading", "trailing/", "a//b", "alex/.."]) {
+      await expect(shareMount({ kind: "smb", host: "mycloud", share, name: "nope" }, { run: fakeRun(), files: fakeFiles(), exists: toolsPresent }))
+        .rejects.toThrow(/share name/);
+    }
+  });
+
   it("leaves a mountpoint alone when it already existed", async () => {
     const files = fakeFiles();
     files.mkdir = vi.fn(async () => undefined); // already there: nothing was created, nothing to undo
