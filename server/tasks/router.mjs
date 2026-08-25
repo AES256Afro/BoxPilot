@@ -69,10 +69,20 @@ export const credentialsPath = "/etc/boxpilot/secrets/router.cred";
 const hostPattern = /^[A-Za-z0-9]([A-Za-z0-9.-]{0,252}[A-Za-z0-9])?$/;
 const usernamePattern = /^[A-Za-z0-9._-]{1,64}$/;
 
+/**
+ * These routers have exactly one administrative account and their own login page does not ask which
+ * — it shows a password box and nothing else. The JSON-RPC underneath still wants a username, so
+ * one is supplied rather than demanded; asking the owner to name an account the router never
+ * mentions is asking them to guess.
+ */
+export const defaultUsername = "root";
+export const accountFor = (username) => (typeof username === "string" && username.trim() ? username.trim() : defaultUsername);
+
 export function validateRouter({ kind, host, username, password } = {}) {
   if (!routerKinds.includes(kind)) return "kind must be glinet";
   if (typeof host !== "string" || !hostPattern.test(host)) return "router address is invalid";
-  if (typeof username !== "string" || !usernamePattern.test(username)) return "username is invalid";
+  // Absent means root. Present means it has to be a username.
+  if (username !== undefined && username !== null && username !== "" && !usernamePattern.test(String(username))) return "username is invalid";
   if (password !== undefined && (typeof password !== "string" || password.length > 256 || /[\r\n]/.test(password))) return "password is invalid";
   return null;
 }
@@ -106,13 +116,14 @@ function rpcClient({ host, fetchJson }) {
 
 /** Authenticate and return a session id. */
 export async function routerLogin({ host, username, password }, { run = fixedRun, fetchJson } = {}) {
+  const account = accountFor(username);
   const rpc = rpcClient({ host, fetchJson });
-  const challenge = await rpc("challenge", { username });
+  const challenge = await rpc("challenge", { username: account });
   if (!challenge?.salt || !challenge?.nonce) throw new Error("The router did not answer the login challenge as expected");
   const hashed = await cryptPassword(run, password, challenge.alg ?? 5, challenge.salt);
-  const proof = await md5(run, `${username}:${hashed}:${challenge.nonce}`);
-  const session = await rpc("login", { username, hash: proof });
-  if (!session?.sid) throw new Error("The router refused the username or password");
+  const proof = await md5(run, `${account}:${hashed}:${challenge.nonce}`);
+  const session = await rpc("login", { username: account, hash: proof });
+  if (!session?.sid) throw new Error("The router did not accept that password");
   return session.sid;
 }
 
@@ -120,21 +131,22 @@ export async function routerLogin({ host, username, password }, { run = fixedRun
  * Store the credential and prove it works before doing so — a saved credential that has never
  * been tried is a setting that looks done and is not.
  */
-export async function routerConnect({ kind = "glinet", host, username, password } = {}, { run = fixedRun, log = null, fetchJson = null, files = defaultFiles } = {}) {
+export async function routerConnect({ kind = "glinet", host, username = defaultUsername, password } = {}, { run = fixedRun, log = null, fetchJson = null, files = defaultFiles } = {}) {
   const problem = validateRouter({ kind, host, username, password });
   if (problem) throw new Error(problem);
   if (typeof password !== "string" || !password) throw new Error("A router password is required");
   // First contact records whatever certificate answers, so a later swap is detectable.
   let fingerprint = null;
   const transport = fetchJson ?? httpsJson({ onFingerprint: (value) => { fingerprint = value; } });
-  const sid = await routerLogin({ host, username, password }, { run, fetchJson: transport });
-  log?.(`Signed in to ${host} as ${username}`, "stdout");
+  const account = accountFor(username);
+  const sid = await routerLogin({ host, username: account, password }, { run, fetchJson: transport });
+  log?.(`Signed in to ${host} as ${account}`, "stdout");
 
   await files.mkdir("/etc/boxpilot/secrets", { recursive: true, mode: 0o700 });
-  await files.writeFile(credentialsPath, `kind=${kind}\nhost=${host}\nusername=${username}\npassword=${password}\nfingerprint=${fingerprint ?? ""}\n`, { mode: 0o600 });
+  await files.writeFile(credentialsPath, `kind=${kind}\nhost=${host}\nusername=${account}\npassword=${password}\nfingerprint=${fingerprint ?? ""}\n`, { mode: 0o600 });
   if (fingerprint) log?.(`Pinned the router's certificate (${fingerprint.slice(0, 16)}…)`, "stdout");
   log?.(`Stored the router credential at ${credentialsPath} (root only)`, "stdout");
-  return { connected: true, kind, host, username, sid: Boolean(sid) };
+  return { connected: true, kind, host, username: account, sid: Boolean(sid) };
 }
 
 /** Read the stored credential. Absent is a normal state, not an error. */

@@ -22,7 +22,10 @@ export default function RouterPanel({ start, gateway }: { start: (operation: Pen
   const [report, setReport] = useState<Report | null>(null);
   const [leases, setLeases] = useState<Lease[] | null>(null);
   const [host, setHost] = useState("");
-  const [username, setUsername] = useState("root");
+  // The router's own login page asks for a password and nothing else, so this one does too. The
+  // account is root; the field is there for a router that genuinely asks for a different one.
+  const [username, setUsername] = useState("");
+  const [namedAccount, setNamedAccount] = useState(false);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -42,7 +45,9 @@ export default function RouterPanel({ start, gateway }: { start: (operation: Pen
   useEffect(() => { if (gateway && !host) setHost(gateway); }, [gateway, host]);
 
   if (!report) return null;
-  const ready = /^[A-Za-z0-9]([A-Za-z0-9.-]{0,252}[A-Za-z0-9])?$/.test(host.trim()) && username.trim() && password.length > 0;
+  // An empty box still means root. Opening the field must not become a new way to be stuck.
+  const namedAccountOk = !username.trim() || /^[A-Za-z0-9._-]{1,64}$/.test(username.trim());
+  const ready = /^[A-Za-z0-9]([A-Za-z0-9.-]{0,252}[A-Za-z0-9])?$/.test(host.trim()) && password.length > 0 && namedAccountOk;
 
   return (
     <section className="panel">
@@ -88,20 +93,24 @@ export default function RouterPanel({ start, gateway }: { start: (operation: Pen
             start({
               operationId: "router.connect",
               title: `Connect to the router at ${host.trim()}`,
-              parameters: { kind: "glinet", host: host.trim(), username: username.trim(), password },
+              parameters: { kind: "glinet", host: host.trim(), ...(namedAccount && username.trim() ? { username: username.trim() } : {}), password },
               preview: <span>Signs in once to check the password, then stores it on this server readable only by root, and records the certificate the router presented so a different one is refused later. Nothing on the router is changed.</span>,
             });
             setPassword("");
           }}>
             <label>Router address<input aria-label="Router address" placeholder="192.168.1.1" value={host} onChange={(event) => setHost(event.target.value)} /></label>
-            <label>Username<input aria-label="Router username" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
-            <label>Password<input aria-label="Router password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+            <label>Router password<input aria-label="Router password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
+            {namedAccount ? (
+              <label>Username<input aria-label="Router username" autoFocus placeholder="root — leave blank unless the router asked for one" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
+            ) : (
+              <button type="button" className="link-button" onClick={() => setNamedAccount(true)}>This router asks for a username too</button>
+            )}
             <div className="recovery-actions share-actions">
               <button className="primary-button" type="submit" disabled={!ready}>Connect</button>
-              {!ready && <span className="muted">{!host.trim() ? "Enter the router's address." : !password ? "Enter the router's admin password." : "Enter a username."}</span>}
+              {!ready && <span className="muted">{!host.trim() ? "Enter the router's address." : !password ? "Enter the router's admin password." : "That username has a character the router will not accept."}</span>}
             </div>
           </form>
-          <p className="muted">This is the password for the router's own admin page. It is stored on this server for root only and sent to nothing but the router.</p>
+          <p className="muted">The same password you use on the router's own admin page. It is stored on this server readable only by root, and sent to nothing but the router.</p>
         </>
       )}
     </section>

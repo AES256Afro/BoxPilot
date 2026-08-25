@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { routerConnect, routerInspect, routerLeases, routerLogin, validateRouter, credentialsPath } from "./router.mjs";
+import { routerConnect, routerInspect, routerLeases, routerLogin, validateRouter, credentialsPath, defaultUsername } from "./router.mjs";
 
 /**
  * The router is reached over a self-signed certificate with a stored password, so the parts worth
@@ -83,10 +83,27 @@ describe("storing the credential", () => {
     expect(files.mkdir).toHaveBeenCalledWith("/etc/boxpilot/secrets", { recursive: true, mode: 0o700 });
   });
 
+  it("signs in without being told a username, because the router never asks for one", async () => {
+    // The router's own login page shows a password box and nothing else. Demanding a username here
+    // meant the Connect button stayed disabled with nothing sensible to type into it.
+    const { fetchJson, run, files, written, calls } = harness();
+    await routerConnect({ kind: "glinet", host: "192.168.8.1", password: "s3cret" }, { run, fetchJson, files });
+    expect(calls[0].params.username).toBe(defaultUsername);
+    expect(written[credentialsPath]).toContain(`username=${defaultUsername}`);
+  });
+
+  it("still uses a username when the router does have one", async () => {
+    const { fetchJson, run, files, written, calls } = harness();
+    await routerConnect({ kind: "glinet", host: "192.168.8.1", username: "admin", password: "s3cret" }, { run, fetchJson, files });
+    expect(calls[0].params.username).toBe("admin");
+    expect(written[credentialsPath]).toContain("username=admin");
+  });
+
   it("refuses an address or a kind it does not understand", () => {
     expect(validateRouter({ kind: "linksys", host: "192.168.8.1", username: "root" })).toMatch(/kind/);
     expect(validateRouter({ kind: "glinet", host: "not a host", username: "root" })).toMatch(/address/);
     expect(validateRouter({ kind: "glinet", host: "192.168.8.1", username: "ro ot" })).toMatch(/username/);
+    expect(validateRouter({ kind: "glinet", host: "192.168.8.1", password: "fine" })).toBeNull();  // no username is the normal case
     expect(validateRouter({ kind: "glinet", host: "192.168.8.1", username: "root", password: "a\nb" })).toMatch(/password/);
     expect(validateRouter({ kind: "glinet", host: "192.168.8.1", username: "root", password: "fine" })).toBeNull();
   });
