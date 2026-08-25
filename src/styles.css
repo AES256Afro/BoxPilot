@@ -3482,3 +3482,6 @@ textarea {
 .perf-icon { margin-right: 8px; }
 .perf-ai { margin-left: 8px; }
 .perf-controls { display: flex; gap: 12px; flex-wrap: wrap; }
+
+/* Model manager: the name field is the point of the form, so let it have the room. */
+.modal-copy form.recovery-actions input[type="text"] { flex: 1 1 20rem; min-width: 12rem; }

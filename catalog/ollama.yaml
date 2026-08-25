@@ -71,6 +71,9 @@ setup:
       website: https://ollama.com/library/nomic-embed-text
       recommended: true
       exec: [ollama, pull, "nomic-embed-text"]
+modelRunner:
+  kind: ollama
+  service: ollama
 health:
   kind: running
   stableSeconds: 15
