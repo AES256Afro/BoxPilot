@@ -233,6 +233,25 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 
 ---
 
+
+### Reviewing the interface before it reaches a server
+
+The demo is where every page is looked at, and for a long time it served one world: everything
+installed, every list populated, every connection healthy. That is the world least likely to break,
+and it was the only one anyone saw — so what shipped broken were the other ones. A router form whose
+button could not be clicked, a Logs page with no groups, a catalog dialog whose list was absent.
+
+- `?scenario=fresh` and `?scenario=trouble` serve an empty and an unwell server, chosen from a bar
+  at the bottom of the demo. The empty world is *derived* from the lived-in one rather than written
+  by hand, because a hand-written fixture is a guess about the server's shape and a wrong guess
+  teaches every test that reads it the wrong thing.
+- `npm run demo:sweep` loads every page in every world and reports uncaught exceptions, console
+  errors, 5xx responses, dead navigation and blank pages. Its first run found six blank pages.
+- A page that throws now falls back to an error boundary instead of blanking the window, so the
+  navigation survives and there is a way out.
+- `scripts/demo-fixtures.test.mjs` holds the scenarios to the same shape as the default fixtures, so
+  a scenario cannot quietly invent a field or drop one.
+
 ## 7. "Wish we could" / would be nice
 
 - **One URL from bare metal**: flash USB → boot → phone shows a QR → open BoxPilot. (M4.3 gets 90% there.)

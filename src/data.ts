@@ -35,3 +35,6 @@ export const navItems: Array<{ id: ViewName; label: string; short: string }> = [
   { id: "logs", label: "Logs", short: "LG" },
   { id: "settings", label: "Settings", short: "ST" },
 ];
+
+/** The name a page is known by in the navigation, for anything that has to talk about a page. */
+export const viewLabel = (view: ViewName): string => navItems.find((item) => item.id === view)?.label ?? String(view);
