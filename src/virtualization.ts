@@ -5,8 +5,20 @@ import { readJson as readJsonBase } from "./http";
  * libvirt is not set up here, so those readers accept it. Media and retention answer 503 with an
  * error object, so they must not — an empty library is not the same as a library that failed to load.
  */
-const readJson = <T,>(response: Response) => readJsonBase<T>(response, { allowStatus: [503] });
-const readStrictJson = <T,>(response: Response) => readJsonBase<T>(response);
+/**
+ * Two readers, because 503 means two different things on these routes.
+ *
+ * `status`, `domains`, `resources` and `foundation` answer 503 *with the real object* — libvirt is
+ * not connected yet, and the object says so. Reading that as data is the point.
+ *
+ * The rest answer 503 with `{ error, code }`. Accepting that as data handed the page an error
+ * envelope wearing the type of a result: every field it wanted was undefined, and because nothing
+ * threw, the page recorded the subsystem as read successfully with nothing in it. A destination
+ * that could not be read then looked exactly like one that was never set up, which is the
+ * distinction this interface is careful about everywhere else.
+ */
+const readNotReadyOrJson = <T,>(response: Response) => readJsonBase<T>(response, { allowStatus: [503] });
+const readJson = <T,>(response: Response) => readJsonBase<T>(response);
 
 export interface VirtualizationCheck {
   id: string;
@@ -294,10 +306,10 @@ export async function fetchVirtualization(): Promise<[VirtualizationStatus, Doma
     fetch("/api/v1/virtualization/console-guidance"),
   ]);
   return Promise.all([
-    readJson<VirtualizationStatus>(statusResponse),
-    readJson<DomainList>(domainsResponse),
-    readJson<LibvirtResources>(resourcesResponse),
-    readJson<ConsoleGuidance>(consoleResponse),
+    readNotReadyOrJson<VirtualizationStatus>(statusResponse),
+    readNotReadyOrJson<DomainList>(domainsResponse),
+    readNotReadyOrJson<LibvirtResources>(resourcesResponse),
+    readNotReadyOrJson<ConsoleGuidance>(consoleResponse),
   ]);
 }
 
@@ -306,7 +318,7 @@ export async function fetchVmPlanningOptions(): Promise<VmPlanningOptions> {
 }
 
 export async function fetchVmMedia(): Promise<VmMediaInventory> {
-  return readStrictJson<VmMediaInventory>(await fetch("/api/v1/virtualization/media"));
+  return readJson<VmMediaInventory>(await fetch("/api/v1/virtualization/media"));
 }
 
 export async function uploadVmMedia(file: File, csrfToken: string): Promise<{ name: string; sizeBytes: number; sha256: string; uploadedAt: string }> {
@@ -324,7 +336,7 @@ export async function uploadVmMedia(file: File, csrfToken: string): Promise<{ na
 }
 
 export async function fetchLibvirtFoundation(): Promise<LibvirtFoundation> {
-  return readJson<LibvirtFoundation>(await fetch("/api/v1/virtualization/foundation"));
+  return readNotReadyOrJson<LibvirtFoundation>(await fetch("/api/v1/virtualization/foundation"));
 }
 
 
@@ -351,7 +363,7 @@ export async function fetchVmProtection(): Promise<{ destination: VmProtectionDe
 }
 
 export async function fetchVmRetention(): Promise<VmRetentionStatus> {
-  return readStrictJson<VmRetentionStatus>(await fetch("/api/v1/virtualization/retention"));
+  return readJson<VmRetentionStatus>(await fetch("/api/v1/virtualization/retention"));
 }
 
 export async function fetchVmRecoveries(): Promise<VmRecoveryRecord[]> {
