@@ -23,14 +23,19 @@ export function hostBackupOperations() {
       run: (_parameters, { machineSnapshot }) => machineSnapshot.sources(),
     }),
     defineOperation({
+      id: "host.snapshot.discover", title: "Find machine snapshots on mounted drives", risk: "low", readOnly: true, timeoutMs: 2 * 60_000,
+      description: "Looks for machine snapshots on every drive and share this server has mounted, including ones BoxPilot did not write. This is how a rebuilt server finds the snapshot of the one it replaces.",
+      run: (_parameters, { machineSnapshot }) => machineSnapshot.discover(),
+    }),
+    defineOperation({
       id: "host.snapshot.describe", title: "Inspect a machine snapshot", risk: "low", readOnly: true, timeoutMs: 10 * 60_000,
-      parameters: { fields: { source: { type: "string", enum: ["local", "mirror"] }, artifact: { type: "string", pattern: /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/ } } },
+      parameters: { fields: { source: { type: "string", enum: ["local", "mirror", "discovered"] }, artifact: { type: "string", pattern: /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/ }, root: { type: "string", maxLength: 4096, optional: true } } },
       run: (parameters, { machineSnapshot }) => machineSnapshot.describe(parameters),
     }),
     defineOperation({
       id: "host.snapshot.restore", title: "Restore from a machine snapshot", risk: "high", confirm: () => "restore", timeoutMs: 6 * 60 * 60_000,
       description: "Reinstalls the selected apps with the settings and secrets in the snapshot, then restores each app's newest data archive (from the local store or the mirror). Network, firewall, fstab, VM definitions, and the database copy are staged for review, never applied automatically.",
-      parameters: { fields: { source: { type: "string", enum: ["local", "mirror"] }, artifact: { type: "string", pattern: /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/ }, apps: { type: "array", optional: true, validate: (value) => (value.every((id) => typeof id === "string" && /^[a-z0-9][a-z0-9-]{1,62}$/.test(id)) ? null : "must list app ids") }, restoreData: { type: "boolean", optional: true } } },
+      parameters: { fields: { source: { type: "string", enum: ["local", "mirror", "discovered"] }, artifact: { type: "string", pattern: /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/ }, root: { type: "string", maxLength: 4096, optional: true }, apps: { type: "array", optional: true, validate: (value) => (value.every((id) => typeof id === "string" && /^[a-z0-9][a-z0-9-]{1,62}$/.test(id)) ? null : "must list app ids") }, restoreData: { type: "boolean", optional: true } } },
       run: (parameters, { machineSnapshot, apps, progress }) => machineSnapshot.restore({ ...parameters, apps: parameters.apps ?? "all", restoreData: parameters.restoreData ?? true }, { apps, progress }),
     }),
     defineOperation({

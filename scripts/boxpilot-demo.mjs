@@ -245,6 +245,10 @@ export const inspections = {
     "2026-08-25T07:15:44+0000 homebox node[812]: job completed: app.backup (jellyfin)",
   ] },
   "logs.read": { lines: ["demo: nothing is read from this machine"], truncated: false },
+  "host.snapshot.discover": { locations: [
+    { root: "/mnt/backup-drive/boxpilot-local-mirror/machine-snapshots", mount: { target: "/mnt/backup-drive", source: "//nas.local/backups", filesystem: "cifs" },
+      snapshots: [{ artifact: "machine-snapshot-20260820T020000Z-9f3c1a77.tar.gz", sizeBytes: 184320, createdAt: ago(30), checksumSha256: "b".repeat(64), apps: 11 }] },
+  ] },
   "host.snapshot.sources": {
     mount: { mounted: true, blocker: null },
     sources: [
