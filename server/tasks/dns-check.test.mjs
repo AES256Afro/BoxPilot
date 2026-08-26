@@ -68,7 +68,11 @@ describe("checking the DNS blocker the way a laptop would", () => {
     });
     expect(report.intercepted).toBe(true);
     expect(report.reason).toMatch(/answering every DNS query itself/);
-    expect(report.reason).toMatch(/override/i);
+    // Naming the control is the difference between advice and a shrug; the owner's router calls it
+    // "Override DNS Settings of All Clients", and other firmware calls it Force DNS or DNS Redirect.
+    expect(report.reason).toMatch(/Override DNS Settings of All Clients/);
+    expect(report.reason).toMatch(/Force DNS|DNS Redirect/);
+    expect(report.reason).toMatch(/devices on your network reach that thing rather than this blocker/);
   });
 
   it("does not blame interception for a blocker that is working", async () => {
