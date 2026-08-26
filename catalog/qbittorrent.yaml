@@ -105,4 +105,4 @@ health:
   kind: running
   stableSeconds: 30
   timeoutSeconds: 300
-notes: "The web UI's first password is printed in the container log (Logs above) on the first start; change it under Tools → Options → Web UI. Check the VPN is up in the log of the vpn container: it prints the public IP it got. Sonarr and Radarr reach qBittorrent at http://<this server>:8095, on the LAN that address works because the tunnel's firewall lets your home and tailnet subnets in."
+notes: "The web UI's first password is printed in the container log (Logs above) on the first start; change it under Tools → Options → Web UI. Check the VPN is up in the log of the vpn container: it prints the public IP it got. Sonarr and Radarr reach qBittorrent at http://<this server>:8095; on the LAN that address works because the tunnel's firewall lets your home and tailnet subnets in."

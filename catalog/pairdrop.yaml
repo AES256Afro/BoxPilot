@@ -36,4 +36,4 @@ health:
   kind: running
   stableSeconds: 5
   timeoutSeconds: 90
-notes: Open it on two devices and they find each other automatically. Devices only see each other when they reach PairDrop from the same address, so use one address for both. The tailnet name if you have made it tailnet-only.
+notes: Open it on two devices and they find each other automatically. Devices only see each other when they reach PairDrop from the same address, so use one address for both, which is the tailnet name if you have made it tailnet-only.
