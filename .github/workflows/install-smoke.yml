@@ -9,6 +9,14 @@ on:
     branches: [main, phase-0]
   workflow_dispatch:
 
+# A release pushes phase-0 and then main with the same tree, so two full installs are queued for
+# one commit. Thirty-six ran in a day once, the pool ran out, and jobs sat unallocated for fifteen
+# minutes before being cancelled — which reads as a failed smoke test and is not one. Only the
+# newest run matters, so older ones are cancelled deliberately rather than starved.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
