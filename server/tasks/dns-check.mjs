@@ -103,7 +103,7 @@ export async function dnsBlockerVerify({ address, timeoutMs = 4000, checkInterce
     reason: !answered
       ? `Nothing answered a DNS query on ${address}. Either port 53 is not open to your network, or the blocker is only listening on this server itself.`
       : intercepted && !control.ok
-      ? "Something between this server and the internet is answering every DNS query itself, including ones sent to addresses that cannot run a resolver. A recursive resolver cannot work through that, which is why lookups fail. Turn off any \"force\" or \"override\" DNS setting on your router, or point this blocker at a normal upstream resolver instead of the bundled recursive one."
+      ? "Something between this server and the internet is answering every DNS query itself, including ones sent to addresses that cannot run a resolver. A recursive resolver cannot work through that, which is why lookups fail, and it also means devices on your network reach that thing rather than this blocker no matter what your router hands out. The setting is usually on the router, named something like \"Override DNS Settings of All Clients\", \"Force DNS\" or \"DNS Redirect\", and routers that run a blocker of their own (AdGuard Home, for instance) often switch it on. Turn it off to use this blocker, or keep the one on the router and leave this one to the apps on this server."
       : !control.ok
       ? "It answered, but could not look up a name that exists. Its upstream resolver is not working, so every device using it would lose the internet."
       : !blocked

@@ -512,7 +512,7 @@ const troubleWords = {
   "dns.blocker.verify": { address: "192.168.1.10", answering: true, resolving: false, blocking: true, intercepted: true,
     control: { domain: "example.com", addresses: [], error: "ESERVFAIL" },
     probe: { domain: "doubleclick.net", addresses: ["0.0.0.0"], error: null },
-    reason: "Something between this server and the internet is answering every DNS query itself, including ones sent to addresses that cannot run a resolver. A recursive resolver cannot work through that, which is why lookups fail. Turn off any \"force\" or \"override\" DNS setting on your router, or point this blocker at a normal upstream resolver instead of the bundled recursive one." },
+    reason: "Something between this server and the internet is answering every DNS query itself, including ones sent to addresses that cannot run a resolver. A recursive resolver cannot work through that, which is why lookups fail, and it also means devices on your network reach that thing rather than this blocker no matter what your router hands out. The setting is usually on the router, named something like \"Override DNS Settings of All Clients\", \"Force DNS\" or \"DNS Redirect\", and routers that run a blocker of their own (AdGuard Home, for instance) often switch it on. Turn it off to use this blocker, or keep the one on the router and leave this one to the apps on this server." },
   // The key exists but the far end has never been vouched for, so a mirror would refuse to run.
   "backup.remote.inspect": { keyReady: true, hostKeysPinned: 0, rsyncInstalled: false },
   "backup.cloud.inspect": { configured: true, provider: "b2" },
