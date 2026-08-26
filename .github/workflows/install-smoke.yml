@@ -14,7 +14,7 @@ on:
 # minutes before being cancelled — which reads as a failed smoke test and is not one. Only the
 # newest run matters, so older ones are cancelled deliberately rather than starved.
 concurrency:
-  group: ${{ github.workflow }}
+  group: ${{ github.workflow }}-${{ github.sha }}
   cancel-in-progress: true
 
 permissions:
