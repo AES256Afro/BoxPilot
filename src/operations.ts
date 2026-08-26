@@ -111,14 +111,81 @@ export function followJobs({ onSnapshot, onJob }: { onSnapshot: (jobs: Job[]) =>
 }
 
 /**
- * Follow a job's live output. Calls `onOutput` with appended text and `onState` once when the job
- * reaches a terminal state. Returns a function that stops following.
+ * Follow a job's live output, by stream if the stream reaches us and by asking repeatedly if not.
+ *
+ * The stream alone was not enough. Server-sent events travel fine over a direct connection and are
+ * held back by proxies that buffer a response until it ends — Tailscale Serve fronts this server on
+ * a tailnet, and reaching BoxPilot that way meant a medium-risk operation sat on "Waiting for
+ * output..." for its whole run and then finished all at once. An operation that looks frozen is one
+ * people cancel half way through, which is the moment you least want them to.
+ *
+ * So both are started. Whichever speaks first wins and the other is ignored, because the stream
+ * appends fragments while asking returns the whole log, and mixing the two would duplicate every
+ * line. Asking waits a moment first, so a working stream is the normal path and polling is the
+ * exception rather than a second request on every job.
  */
-export function followJobOutput(jobId: string, { onOutput, onState }: { onOutput: (text: string) => void; onState: (state: { state: string; error: string | null }) => void }): () => void {
-  if (typeof EventSource === "undefined") return () => {};
-  const source = new EventSource(`/api/v1/jobs/${encodeURIComponent(jobId)}/stream`);
-  source.addEventListener("output", (event) => { try { onOutput((JSON.parse((event as MessageEvent).data) as { text: string }).text); } catch { /* ignore malformed */ } });
-  source.addEventListener("state", (event) => { try { onState(JSON.parse((event as MessageEvent).data) as { state: string; error: string | null }); } catch { /* ignore */ } source.close(); });
-  source.onerror = () => { /* the poller in waitForJob still finishes the job; the stream is best-effort */ };
-  return () => source.close();
+export function followJobOutput(
+  jobId: string,
+  { onOutput, onState, pollAfterMs = 2500, pollEveryMs = 1200, maxPollEveryMs = 6000 }:
+  { onOutput: (text: string, append: boolean) => void; onState: (state: { state: string; error: string | null }) => void; pollAfterMs?: number; pollEveryMs?: number; maxPollEveryMs?: number },
+): () => void {
+  const encoded = encodeURIComponent(jobId);
+  let source: EventSource | null = null;
+  const race: { winner: "stream" | "poll" | null } = { winner: null };
+  // Read through a call: the checker narrows a plain field after the first guard and does not
+  // account for the await in between, which can change it.
+  const streamWon = () => race.winner === "stream";
+  let pollTimer: ReturnType<typeof setTimeout> | null = null;
+  let startTimer: ReturnType<typeof setTimeout> | null = null;
+  let stopped = false;
+
+  const stopPolling = () => { if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; } if (startTimer) { clearTimeout(startTimer); startTimer = null; } };
+
+  const poll = async () => {
+    if (stopped || streamWon()) return;
+    try {
+      const response = await fetch(`/api/v1/jobs/${encoded}/output`);
+      if (!response.ok) return;
+      const body = (await response.json()) as { output?: string; state?: string; error?: string | null };
+      if (stopped || streamWon()) return;
+      if (typeof body.output === "string" && body.output.length > 0) {
+        race.winner = "poll";
+        onOutput(body.output, false);  // the whole log so far, so the dialog replaces rather than appends
+      }
+      if (body.state && ["completed", "failed", "cancelled"].includes(body.state)) {
+        onState({ state: body.state, error: body.error ?? null });
+        stopPolling();
+      }
+    } catch { /* the job poller still finishes the job; output is best-effort */ }
+  };
+
+  if (typeof EventSource !== "undefined") {
+    source = new EventSource(`/api/v1/jobs/${encoded}/stream`);
+    source.addEventListener("output", (event) => {
+      if (race.winner === "poll") return;
+      race.winner = "stream";
+      stopPolling();
+      try { onOutput((JSON.parse((event as MessageEvent).data) as { text: string }).text, true); } catch { /* ignore malformed */ }
+    });
+    source.addEventListener("state", (event) => {
+      try { onState(JSON.parse((event as MessageEvent).data) as { state: string; error: string | null }); } catch { /* ignore */ }
+      source?.close();
+    });
+    source.onerror = () => { /* the poller below and waitForJob both still finish the job */ };
+  }
+
+  // Each ask returns the whole log, so a long operation asking every second would fetch the same
+  // growing file thousands of times. The gap widens towards a ceiling: quick while the owner is
+  // watching the first lines appear, unhurried once an install has been running for a while.
+  const scheduleNextPoll = (delay: number) => {
+    if (stopped || streamWon()) return;
+    pollTimer = setTimeout(async () => {
+      await poll();
+      scheduleNextPoll(Math.min(Math.round(delay * 1.4), maxPollEveryMs));
+    }, delay);
+  };
+  startTimer = setTimeout(() => { void poll(); scheduleNextPoll(pollEveryMs); }, pollAfterMs);
+
+  return () => { stopped = true; stopPolling(); source?.close(); };
 }
+
