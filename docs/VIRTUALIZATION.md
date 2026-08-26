@@ -32,7 +32,7 @@ BoxPilot `0.61.0` can install the fixed Ubuntu KVM, QEMU, libvirt, virt-install,
 - Read every data pack in the repository and confirm exact snapshot identity before recording evidence
 - Restore a protected snapshot into a new persistent recovery domain that remains stopped, non-autostarting, and network-isolated
 
-Deleting a VM, forcing power off, reverting and deleting snapshots, and building cloud-init media all ship — see the Virtual Machines page. Still absent: general XML editing, a web console proxy, online snapshots, overwriting a VM in place, attaching a recovered VM to a network, non-default storage pools, building a network bridge, and Windows 11 guests, which stay locked until TPM 2.0 and Secure Boot checks exist.
+Deleting a VM, forcing power off, reverting and deleting snapshots, and building cloud-init media all ship. See the Virtual Machines page. Still absent: general XML editing, a web console proxy, online snapshots, overwriting a VM in place, attaching a recovered VM to a network, non-default storage pools, building a network bridge, and Windows 11 guests, which stay locked until TPM 2.0 and Secure Boot checks exist.
 
 ## 1. Prepare Ubuntu for virtualization
 

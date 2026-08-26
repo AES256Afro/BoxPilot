@@ -9,7 +9,7 @@ recovery is covered, needs a decision from you, or is not set up at all.
 | Area | Covered when |
 | --- | --- |
 | BoxPilot's database | a verified snapshot exists, ideally copied into the independent encrypted repository |
-| BoxPilot itself | the release and install notes are recorded — you need them to rebuild the server |
+| BoxPilot itself | the release and install notes are recorded. You need them to rebuild the server |
 | Catalog apps | every installed app has a backup recorded |
 | Virtual machines | every VM has a retained encrypted copy |
 | Host prerequisites | the packages BoxPilot depends on are present |
@@ -30,7 +30,7 @@ The kit you download prints these same steps, so the copy you keep off the serve
 
 ## Keep these somewhere else
 
-The kit is a readiness report, not a backup — it deliberately contains no credentials, no database,
+The kit is a readiness report, not a backup. It deliberately contains no credentials, no database,
 no app data, and no keys. Download it (JSON or Markdown) and keep it with the things BoxPilot
 cannot hold for you:
 
@@ -39,7 +39,7 @@ cannot hold for you:
 - your Tailscale account access, and your GitHub account if you sign in with it;
 - your router's configuration, which BoxPilot never touches.
 
-Without the recovery password, an encrypted copy is unreadable — by you as well as by anyone else.
+Without the recovery password, an encrypted copy is unreadable. By you as well as by anyone else.
 
 ## What it does not do
 
