@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from "react";
+import { countOf } from "./data";
 import { useOperation } from "./ApproveDialog";
 import CloudBackupPanel from "./CloudBackupPanel";
 import RestorePanel from "./RestorePanel";
@@ -314,7 +315,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
           </header>
           {offBox.warning
             ? <p className={mirrorOperations(offBox.inputs).length === 0 ? "auth-error" : "muted"}>{offBox.warning}</p>
-            : <p className="muted">Copied off this server {offBoxVerdict(offBox.inputs).ageDays === 0 ? "today" : `${offBoxVerdict(offBox.inputs).ageDays} days ago`}.</p>}
+            : <p className="muted">Copied off this server {offBoxVerdict(offBox.inputs).ageDays === 0 ? "today" : `${countOf(offBoxVerdict(offBox.inputs).ageDays ?? 0, "day")} ago`}.</p>}
           {mirrorOperations(offBox.inputs).length === 0
             ? <p className="muted">Set up a destination: a cloud bucket or another machine over SSH, below; or a NAS or second drive, by mounting it on the <strong>Storage</strong> page at <code>/mnt/boxpilot-backup</code>, which is the path backups are copied to. Any one of them is enough.</p>
             : offBox.scheduled
@@ -388,7 +389,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
         {formError && <div className="auth-error" role="alert">{formError}</div>}
         <div className="recovery-actions">
           {remoteSettings?.destination
-            ? <span className="muted">Destination <code>{remoteSettings.destination.user}@{remoteSettings.destination.host}:{remoteSettings.destination.path}</code>{remoteSettings.lastSync ? `, last mirrored ${new Date(remoteSettings.lastSync.completedAt).toLocaleString()} (${remoteSettings.lastSync.filesTransferred} files)` : ", never mirrored"}.</span>
+            ? <span className="muted">Destination <code>{remoteSettings.destination.user}@{remoteSettings.destination.host}:{remoteSettings.destination.path}</code>{remoteSettings.lastSync ? `, last mirrored ${new Date(remoteSettings.lastSync.completedAt).toLocaleString()} (${countOf(remoteSettings.lastSync.filesTransferred, "file")})` : ", never mirrored"}.</span>
             : <span className="muted">Step 2. Save where the backups should go.</span>}
           {remoteSettings?.destination && remote?.keyReady && <button className="secondary-button" type="button" onClick={() => start({ operationId: "backup.remote.test", title: "Test the off-box destination", parameters: {}, preview: <span>Connects as <code>{remoteSettings.destination!.user}@{remoteSettings.destination!.host}</code>, creates <code>{remoteSettings.destination!.path}</code> if needed, checks it is writable, and pins the destination's host key on first use.</span> })}>Test connection</button>}
           {remoteSettings?.destination && remote?.keyReady && (remote.rsyncInstalled

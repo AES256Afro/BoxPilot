@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { sentenceList, countOf } from "./data";
 import { inspectOperation } from "./operations";
 import CloudVmForm from "./CloudVmForm";
 import { useOperation } from "./ApproveDialog";
@@ -413,13 +414,13 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
 
       <section className="panel vm-resources-panel">
         <header className="panel-header"><div><strong>VM integrity exports</strong><span>Local artifacts, not protected backups</span></div><span className={`status-pill ${protectedBackups.length ? "status-good" : "status-warning"}`}>{protectedBackups.length ? `${protectedBackups.length} protected` : "Protection pending"}</span></header>
-        {unread.length > 0 && <div className="vm-plan-warnings"><strong>Not everything on this page could be read</strong><span>BoxPilot could not read {unread.join(", ")} just now, so what is shown for those is not a complete picture. Refresh in a moment.</span></div>}
+        {unread.length > 0 && <div className="vm-plan-warnings"><strong>Not everything on this page could be read</strong><span>BoxPilot could not read {sentenceList(unread)} just now, so what is shown for those is not a complete picture. Refresh in a moment.</span></div>}
         <div className="vm-control-lock">
           <div><strong>Encrypted independent destination</strong><span>{protectionDestination?.ready ? `Ready with restic ${protectionDestination.resticVersion ?? "detected"} on ${protectionDestination.mount?.sourceType ?? "mounted storage"}` : "Setup is required before local exports can move toward protection"}</span></div>
           <span className={`status-pill status-${protectionDestination?.ready ? "good" : "warning"}`}>{protectionDestination?.ready ? "ready" : "setup required"}</span>
         </div>
         <div className="vm-control-lock">
-          <div><strong>Retention</strong><span>{retentionStatus ? `Keep at least ${retentionStatus.policy?.minimumCopiesPerDomain ?? 3} copies per VM and every copy under ${retentionStatus.policy?.minimumAgeDays ?? 30} days. Only restore-tested, unreferenced snapshots can qualify.` : "The retention policy could not be read just now."}</span></div>
+          <div><strong>Retention</strong><span>{retentionStatus ? `Keep at least ${countOf(retentionStatus.policy?.minimumCopiesPerDomain ?? 3, "copy", "copies")} per VM and every copy under ${countOf(retentionStatus.policy?.minimumAgeDays ?? 30, "day")}. Only restore-tested, unreferenced snapshots can qualify.` : "The retention policy could not be read just now."}</span></div>
           <button type="button" className="secondary-button" onClick={() => startRetention()} disabled={pending !== null || !protectionDestination?.ready || (retentionStatus?.candidates?.length ?? 0) === 0}>Apply retention</button>
         </div>
         {retentionStatus && <div className="vm-plan-warnings"><strong>Retention status</strong><span>{retentionStatus.candidates?.length ?? 0} currently eligible | {retentionStatus.beforeCount ?? 0} repository snapshot(s) | {retentionStatus.retentionRuns?.length ?? 0} completed run(s)</span>{retentionStatus.blockers?.map((blocker) => <span key={blocker}>{blocker}</span>)}<span>Prune is disabled, so retention does not claim reclaimed disk space.</span></div>}
@@ -443,7 +444,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
         {exports.length === 0 ? (
           <div className="vm-empty">
             <strong>{unread.includes("exports") ? "Exports could not be read" : "No VM exports recorded"}</strong>
-            <p>{unread.includes("exports") ? "This list is not empty. BoxPilot could not read it just now. Refresh in a moment." : "Stop a managed persistent VM, then generate a reviewed export plan. Encryption, an independent destination, and an isolated restore boot are still required before BoxPilot will call it protected."}</p>
+            <p>{unread.includes("exports") ? "This does not mean there is nothing here. BoxPilot could not read the list just now. Refresh in a moment." : "Stop a managed persistent VM, then generate a reviewed export plan. Encryption, an independent destination, and an isolated restore boot are still required before BoxPilot will call it protected."}</p>
           </div>
         ) : (
           <div className="vm-resource-grid">

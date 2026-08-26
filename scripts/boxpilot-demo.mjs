@@ -333,7 +333,8 @@ const freshRest = {
 
 const json = (response, body) => {
   const scenario = scenarioOf(response.req?.get?.("referer"));
-  const rewrite = scenario === "fresh" ? freshRest[response.req?.path] : null;
+  const table = scenario === "fresh" ? freshRest : scenario === "trouble" ? troubleRest : null;
+  const rewrite = table ? table[response.req?.path] : null;
   return response.json(rewrite ? rewrite(body) : body);
 };
 
@@ -493,16 +494,56 @@ const freshWords = {
   "router.leases": { host: null, leases: [] },
 };
 
-/** Installed but unwell: reachable things that are not reachable, credentials that stopped working. */
+/**
+ * Installed but unwell. Not an emptier server, a working one where the things that reach outside it
+ * have stopped reaching: a share that will not mount, a credential the far end refuses, a unit that
+ * failed, a disk about to fill. This is where the copy has to say what to do about it, and it is
+ * the state nobody could look at before, because the demo only ever had a healthy server in it.
+ */
 const troubleWords = {
   "router.inspect": { configured: true, reachable: false, host: "192.168.1.1", username: "root", model: null, firmware: null,
     reason: 'The router did not accept that password for "root". This is the password for the router\'s own admin page, which is often not the same as any other password on this network.' },
+  // Pi-hole is installed but its container is stopped, so the names it serves have gone with it.
   "dns.names.inspect": { available: true, reason: null, platform: { id: "pi-hole", label: "Pi-hole", running: false }, records: [] },
+  "app.serve.inspect": { available: false, serves: [] },
+  // The key exists but the far end has never been vouched for, so a mirror would refuse to run.
+  "backup.remote.inspect": { keyReady: true, hostKeysPinned: 0, rsyncInstalled: false },
+  "backup.cloud.inspect": { configured: true, provider: "b2" },
+  "host.snapshot.inspect": { sync: { destination: "/mnt/boxpilot-backup/boxpilot-local-mirror", mount: { mounted: false, freeBytes: 0 }, lastSync: null } },
+  "host.snapshot.sources": { mount: { mounted: false, blocker: "The backup drive is not mounted. Mount it from the Storage page." } },
+  "host.snapshot.discover": { locations: [] },
+  "service.list": { counts: { total: 134, active: 88, failed: 3 }, units: [
+    { unit: "docker.service", description: "Docker Application Container Engine", load: "loaded", active: "active", sub: "running", enabled: "enabled", guarded: null, critical: true },
+    { unit: "smbd.service", description: "Samba SMB Daemon", load: "loaded", active: "failed", sub: "failed", enabled: "enabled", guarded: null, critical: false },
+    { unit: "nut-monitor.service", description: "Network UPS Tools monitor", load: "loaded", active: "failed", sub: "failed", enabled: "enabled", guarded: null, critical: false },
+  ] },
+  // Password sign-in left on with a root login allowed is the shape of a server that gets found.
+  "users.inspect": { sshd: { passwordAuthentication: true, keyboardInteractive: false, pubkeyAuthentication: true, permitRootLogin: "yes", port: 22 } },
+  "logs.sources": { dockerAvailable: false, containers: [] },
+  "canary.verify": { ok: false },
+  "app.models.inspect": { id: "open-webui", available: false, reason: "Open WebUI + Ollama is paused. Resume it to see its models", models: [] },
+  "housekeeping.inspect": { totalBytes: 41 * GiB },
+};
+
+/** The same server, described by the routes that report what it can currently reach. */
+const troubleRest = {
+  "/jobs": (body) => ({ jobs: body.jobs.map((job, index) => (index === 0
+    ? { ...job, state: "failed", error: "rsync: connection unexpectedly closed by nas.local" }
+    : job)) }),
+  // A mirror that keeps failing does not record an error anywhere; it just stops being recent,
+  // which is the thing the interface has to notice on the owner's behalf.
+  "/settings/backup-destination": (body) => ({ ...body, lastSync: { ...body.lastSync, completedAt: ago(24 * 34) } }),
+  "/storage/overview": (body) => ({ ...body, shares: body.shares.map((share) => ({ ...share, mounted: false })) }),
+  "/virtualization/status": (body) => ({ ...body, ready: false, checks: body.checks.map((check, index) => (index === 0
+    ? { ...check, ok: false, detail: "/dev/kvm is not present; this machine has no hardware virtualization, or it is switched off in the BIOS" }
+    : check)) }),
+  "/firewall/overview": (body) => ({ ...body, report: { ...body.report, enabled: false } }),
+  "/storage/samba": (body) => ({ ...body, running: false }),
 };
 
 const patch = (base, words) => Object.fromEntries(Object.entries(base).map(([id, value]) => [id, words[id] ? { ...value, ...words[id] } : value]));
 
-export { app, freshRest };
+export { app, freshRest, troubleRest };
 export const scenarios = {
   default: {},
   fresh: patch(Object.fromEntries(Object.entries(inspections).map(([id, value]) => [id, emptied(value)])), freshWords),

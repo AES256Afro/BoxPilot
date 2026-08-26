@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { countOf } from "./data";
 import type { ViewName } from "./data";
 import { inspectOperation, type Job } from "./operations";
 import { appUrl, type TailnetServe } from "./appLinks";
@@ -161,7 +162,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
   const staleDays = (iso: string | null) => (iso ? Math.floor((Date.now() - Date.parse(iso)) / (24 * 60 * 60 * 1000)) : null);
   if (unprotected) attention.push({ label: unprotected, view: "backups" });
   const backupAgeDays = staleDays(backups?.lastBackupAt ?? null);
-  if (backups && (backupAgeDays === null || backupAgeDays > 7)) attention.push({ label: backupAgeDays === null ? "No database backup yet" : `Last database backup is ${backupAgeDays} days old`, view: "backups" });
+  if (backups && (backupAgeDays === null || backupAgeDays > 7)) attention.push({ label: backupAgeDays === null ? "No database backup yet" : `Last database backup is ${countOf(backupAgeDays, "day")} old`, view: "backups" });
   // Covers all three destinations, and the case of having none — which is the common one, and the
   // one the old drive-only check stayed quiet about.
   if (offBox) attention.push({ label: offBox, view: "backups" });

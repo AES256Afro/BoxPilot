@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { countOf } from "./data";
 import type { PendingOperation } from "./ApproveDialog";
 import { inspectOperation } from "./operations";
 
@@ -89,7 +90,7 @@ export default function CloudBackupPanel({ start, refreshKey }: { start: (operat
             {state.rcloneInstalled && !complete && <span className="muted">Still needed: {missing.length ? missing.join(", ") : "an endpoint or a region"}.</span>}
           </div>
           {settings?.destination && (
-            <span className="muted share-actions">Saved: <strong>{state.providers[settings.destination.provider]?.label ?? settings.destination.provider}</strong>{settings.destination.bucket ? <> · bucket <code>{settings.destination.bucket}</code></> : null}{settings.destination.path ? <> · folder <code>{settings.destination.path}</code></> : null}{settings.lastSync ? `, last mirrored ${new Date(settings.lastSync.completedAt).toLocaleString()} (${settings.lastSync.filesTransferred} files${settings.lastSync.errors ? `, ${settings.lastSync.errors} errors` : ""})` : ". Never mirrored"}. Schedule it on the System page.</span>
+            <span className="muted share-actions">Saved: <strong>{state.providers[settings.destination.provider]?.label ?? settings.destination.provider}</strong>{settings.destination.bucket ? <> · bucket <code>{settings.destination.bucket}</code></> : null}{settings.destination.path ? <> · folder <code>{settings.destination.path}</code></> : null}{settings.lastSync ? `, last mirrored ${new Date(settings.lastSync.completedAt).toLocaleString()} (${countOf(settings.lastSync.filesTransferred, "file")}${settings.lastSync.errors ? `, ${settings.lastSync.errors} errors` : ""})` : ". Never mirrored"}. Schedule it on the System page.</span>
           )}
         </form>
       )}

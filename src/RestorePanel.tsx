@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { countOf } from "./data";
 import type { PendingOperation } from "./ApproveDialog";
 import { inspectOperation } from "./operations";
 
@@ -90,7 +91,7 @@ export default function RestorePanel({ csrfToken, start }: { csrfToken: string; 
         <label>Snapshot
           <select aria-label="Snapshot to restore" value={choice} onChange={(event) => void describe(event.target.value)}>
             <option value="">Choose a snapshot…</option>
-            {options.map((option) => <option key={option.key} value={option.key}>{option.where} · {option.snapshot.createdAt ? new Date(option.snapshot.createdAt).toLocaleString() : option.snapshot.artifact} · {formatBytes(option.snapshot.sizeBytes)}{option.snapshot.apps !== null ? ` · ${option.snapshot.apps} apps` : ""}</option>)}
+            {options.map((option) => <option key={option.key} value={option.key}>{option.where} · {option.snapshot.createdAt ? new Date(option.snapshot.createdAt).toLocaleString() : option.snapshot.artifact} · {formatBytes(option.snapshot.sizeBytes)}{option.snapshot.apps !== null ? ` · ${countOf(option.snapshot.apps, "app")}` : ""}</option>)}
           </select>
         </label>
         {sources && !sources.mount.mounted && options.length === 0 && <span className="muted">{sources.mount.blocker ?? "No snapshots here or on any mounted drive. If you have one on a drive or a network share, mount it from the Storage page and refresh. A rebuilt server finds it that way."}</span>}
