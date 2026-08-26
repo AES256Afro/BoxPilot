@@ -93,3 +93,62 @@ describe("firewall profiles", () => {
     });
   });
 });
+
+describe("a rule left holding a port open for nothing", () => {
+  const base = {
+    report: { installed: true, enabled: true, defaults: { incoming: "deny" }, rules: [] },
+    listeners: [], apps: [], webPort: 8787, webHost: "127.0.0.1",
+  };
+  const orphans = (advice) => advice.filter((entry) => entry.id.startsWith("orphan-"));
+
+  it("names where the app went, which is the case that actually happens", () => {
+    // Switching Pi-hole to host networking moved its admin page from 8084 to 80. The rule for 8084
+    // stayed behind, opening a port nothing answers while the page it was written for went dark.
+    const advice = adviseFirewall({
+      ...base,
+      report: { ...base.report, rules: [{ action: "allow", port: 8084, protocol: "tcp", direction: "in", comment: "Pi-hole" }] },
+      listeners: [{ port: 80, protocol: "tcp", address: "0.0.0.0" }],
+      apps: [{ id: "pi-hole", name: "Pi-hole", ports: [{ port: 80, protocol: "tcp", label: "Admin UI" }] }],
+    });
+    const [found] = orphans(advice);
+    expect(found.title).toBe("Pi-hole no longer uses port 8084");
+    expect(found.detail).toContain("now publishes 80/tcp");
+    expect(found).toMatchObject({ operationId: "firewall.rule.delete", parameters: { action: "allow", port: 8084, protocol: "tcp" } });
+  });
+
+  it("says the plainer thing when no installed app claims the rule", () => {
+    const advice = adviseFirewall({
+      ...base,
+      report: { ...base.report, rules: [{ action: "allow", port: 9999, protocol: "tcp", direction: "in", comment: "something old" }] },
+    });
+    expect(orphans(advice)[0].title).toBe("Nothing is listening on port 9999");
+  });
+
+  it("stays quiet when something is actually listening", () => {
+    const advice = adviseFirewall({
+      ...base,
+      report: { ...base.report, rules: [{ action: "allow", port: 53, protocol: "udp", direction: "in", comment: "DNS" }] },
+      listeners: [{ port: 53, protocol: "udp", address: "0.0.0.0" }],
+    });
+    expect(orphans(advice)).toEqual([]);
+  });
+
+  it("stays quiet for an installed app whose container is merely stopped", () => {
+    // The app still publishes the port; it is not listening because it is not running. Advising the
+    // rule away would quietly close the door on an app the owner intends to start again.
+    const advice = adviseFirewall({
+      ...base,
+      report: { ...base.report, rules: [{ action: "allow", port: 8096, protocol: "tcp", direction: "in", comment: "Jellyfin" }] },
+      apps: [{ id: "jellyfin", name: "Jellyfin", ports: [{ port: 8096, protocol: "tcp", label: "Web UI" }] }],
+    });
+    expect(orphans(advice)).toEqual([]);
+  });
+
+  it("never offers to remove a rule that keeps you able to log in", () => {
+    const advice = adviseFirewall({
+      ...base,
+      report: { ...base.report, rules: [{ action: "allow", port: 22, protocol: "tcp", direction: "in", comment: "SSH" }, { action: "allow", port: 8787, protocol: "tcp", direction: "in", comment: "BoxPilot" }] },
+    });
+    expect(orphans(advice)).toEqual([]);
+  });
+});

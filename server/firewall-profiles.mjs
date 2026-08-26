@@ -235,6 +235,32 @@ export function adviseFirewall({ report, listeners = [], apps = [], current = nu
     }
   }
 
+  // A rule holding a port open for nothing.
+  //
+  // Rules do not follow an app when its ports change. Switching Pi-hole to host networking moved its
+  // admin page from 8084 to 80; the rule for 8084 stayed, allowing a port nothing answers on, while
+  // the page it was written for had become unreachable. Both facts were known here and neither was
+  // said, so it read as a broken app rather than a rule left behind.
+  for (const rule of rules) {
+    if (!["allow", "limit"].includes(rule.action) || rule.direction === "out") continue;
+    if (!Number.isInteger(rule.port) || isProtected(rule, protectedList)) continue;
+    if (listeners.some((entry) => entry.port === rule.port && (rule.protocol === "any" || entry.protocol === rule.protocol))) continue;
+    if (apps.some((app) => (app.ports ?? []).some((port) => port.port === rule.port))) continue;
+
+    // When the rule names an app that is still installed, say where that app went instead.
+    const named = apps.find((app) => typeof rule.comment === "string" && rule.comment.trim().toLowerCase() === app.name.toLowerCase());
+    const movedTo = named ? (named.ports ?? []).map((port) => `${port.port}/${port.protocol}`).join(", ") : "";
+    advice.push({
+      id: `orphan-${rule.port}-${rule.protocol}`, level: "info",
+      title: named ? `${named.name} no longer uses port ${rule.port}` : `Nothing is listening on port ${rule.port}`,
+      detail: named && movedTo
+        ? `This rule opens ${rule.port}/${rule.protocol} for ${named.name}, which now publishes ${movedTo}. Nothing answers on ${rule.port} any more, so the rule holds a port open for nothing. Removing it changes nothing you can reach.`
+        : `A rule allows ${rule.port}/${rule.protocol}, and nothing on this server is listening there. Either whatever used it has gone, or it has not started yet. A rule for a port nothing answers is one more way in for no benefit.`,
+      operationId: "firewall.rule.delete",
+      parameters: { action: rule.action, port: rule.port, protocol: rule.protocol },
+    });
+  }
+
   const tailscaleAllowed = rules.some((rule) => ruleAllows(rule, tailscalePort, "udp")) || rules.some((rule) => rule.interface === "tailscale0");
   if (denyByDefault && !rules.some((rule) => ruleAllows(rule, tailscalePort, "udp"))) {
     advice.push({
