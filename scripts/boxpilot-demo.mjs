@@ -584,7 +584,7 @@ app.use(express.static(dist, { index: false }));
  * something you can click to rather than a query parameter you have to know about. It is appended
  * to the demo's own copy of the page and never reaches a real build.
  */
-const switcher = (current) => `<style>
+export const switcher = (current) => `<style>
   #demo-worlds { position: fixed; bottom: 0; left: 0; right: 0; z-index: 2147483647; display: flex; gap: .5rem; align-items: center;
     padding: .4rem .75rem; font: 500 12px/1.5 ui-sans-serif, system-ui, sans-serif; color: #cbd5e1;
     background: #0b1220ee; border-top: 1px solid #1e293b; backdrop-filter: blur(6px); }
