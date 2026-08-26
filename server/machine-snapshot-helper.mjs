@@ -386,7 +386,7 @@ export function createMachineSnapshotHelper({
 
   function resolveArtifact(source, artifact) {
     const root = sourceRoots()[source];
-    if (!root) throw new Error("Snapshot source must be local or mirror");
+    if (!root) throw new Error("Snapshot source must be local, mirror, or a drive BoxPilot found");
     if (typeof artifact !== "string" || !snapshotNamePattern.test(artifact)) throw new Error("Snapshot name is invalid");
     return { root, artifactPath: path.join(root, artifact), metaPath: path.join(root, `${artifact}.meta.json`) };
   }
