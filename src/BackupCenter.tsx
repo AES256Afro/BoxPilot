@@ -3,6 +3,7 @@ import { countOf } from "./data";
 import { useOperation } from "./ApproveDialog";
 import CloudBackupPanel from "./CloudBackupPanel";
 import RestorePanel from "./RestorePanel";
+import RestoreReviewPanel from "./RestoreReviewPanel";
 import { inspectOperation } from "./operations";
 import { readJson } from "./http";
 import { judgeProtection, type AppProtection, type ProtectionVerdict, type ScheduleLike } from "./backupProtection";
@@ -386,6 +387,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
       </section>
 
       <RestorePanel csrfToken={csrfToken} start={start} />
+      <RestoreReviewPanel start={start} />
       <section className="panel">
         <header className="panel-header">
           <div><strong>Off-box destination over SSH</strong><span>Mirror the backup folders to another machine with rsync over SSH. BoxPilot generates its own key; you authorize the public half on the destination. Nothing is ever deleted there, and no password is stored here.</span></div>

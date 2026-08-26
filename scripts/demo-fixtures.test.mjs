@@ -79,7 +79,8 @@ describe("the demo can answer what the interface asks", () => {
       "router.inspect": ["configured", "reachable", "host"],
       "dns.blocker.verify": ["answering", "resolving", "blocking", "intercepted", "interceptorBlocking", "control", "probe"],
       "dns.blocker.clients": ["available", "platform", "clients", "self"],
-      "host.snapshot.discover": ["locations"],
+      "host.snapshot.discover": ["locations", "unanswered"],
+      "host.snapshot.restores": ["restores"],
       "router.leases": ["leases", "host"],
     };
     const wrong = [];
@@ -115,6 +116,7 @@ describe("the demo can answer what the interface asks", () => {
       "dns.names.inspect": ["apps", ["id", "name", "port"]],
       "router.leases": ["leases", ["name", "address", "mac", "online", "reserved"]],
       "host.snapshot.discover": ["locations", ["root", "mount", "snapshots"]],
+      "host.snapshot.restores": ["restores", ["name", "stagedAt", "files"]],
       "dns.blocker.clients": ["clients", ["address", "queries"]],
       // Nested one level down: the meta records what each app contributed, and the Backups page
       // reads `backups` to say how much of a restore would actually bring data back. The fixture
