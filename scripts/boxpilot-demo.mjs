@@ -133,8 +133,8 @@ const backups = [
 ];
 const machineState = {
   snapshots: [
-    { artifact: "machine-snapshot-20260821T020000Z-a1b2c3d4.tar.gz", sizeBytes: 41 * 1024 ** 2, checksumSha256: digest("d"), createdAt: ago(20), contents: { apps: Object.keys(installed).map((id) => ({ id })), vms: { domains: ["dev-lab"] } } },
-    { artifact: "machine-snapshot-20260814T020000Z-e5f6a7b8.tar.gz", sizeBytes: 39 * 1024 ** 2, checksumSha256: digest("e"), createdAt: ago(188), contents: { apps: Object.keys(installed).slice(0, 6).map((id) => ({ id })), vms: { domains: [] } } },
+    { artifact: "machine-snapshot-20260821T020000Z-a1b2c3d4.tar.gz", sizeBytes: 41 * 1024 ** 2, checksumSha256: digest("d"), createdAt: ago(20), contents: { apps: Object.keys(installed).map((id) => ({ id, installed: true, projectFiles: 3, backups: ({ vaultwarden: 4, immich: 2, jellyfin: 2, homepage: 1 })[id] ?? 0 })), vms: { domains: ["dev-lab"] } } },
+    { artifact: "machine-snapshot-20260814T020000Z-e5f6a7b8.tar.gz", sizeBytes: 39 * 1024 ** 2, checksumSha256: digest("e"), createdAt: ago(188), contents: { apps: Object.keys(installed).slice(0, 6).map((id) => ({ id, installed: true, projectFiles: 3, backups: ({ vaultwarden: 3, jellyfin: 1 })[id] ?? 0 })), vms: { domains: [] } } },
   ],
   keep: 3,
   sync: { destination: "/mnt/boxpilot-backup/boxpilot-local-mirror", mount: { mounted: true, freeBytes: 1290 * GiB }, lastSync: { completedAt: ago(20), copiedCount: 12 } },

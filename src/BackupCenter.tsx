@@ -12,7 +12,22 @@ interface BackupRecord { id: string; applicationId: string; destination: string;
 interface ControllerProtection { id: string; backupId: string; snapshotId?: string; createdAt: string; protected?: boolean; retained?: boolean }
 interface ProtectionState { destination: { ready?: boolean; encrypted?: boolean; repositoryId?: string | null; blockers?: string[] } | null; protections: ControllerProtection[] }
 interface RetentionStatus { policy?: { minimumCopies?: number; minimumAgeDays?: number }; candidates?: unknown[]; beforeCount?: number }
-interface MachineSnapshot { artifact: string; sizeBytes: number | null; checksumSha256: string | null; createdAt: string | null; contents: { apps?: unknown[]; vms?: { domains?: string[] } } | null }
+/**
+ * How many apps in a snapshot have a data backup to restore from.
+ *
+ * A machine snapshot holds settings and secrets, not the data itself, so "12 apps" reads as twelve
+ * apps protected when it can mean twelve apps that would come back empty. The count the archive
+ * already records is the honest number to show beside it.
+ */
+export function withData(snapshot: MachineSnapshot): number | null {
+  const apps = snapshot.contents?.apps;
+  if (!Array.isArray(apps) || apps.length === 0) return null;
+  if (apps.some((app) => typeof app.backups !== "number")) return null;  // an older snapshot did not record it
+  return apps.filter((app) => (app.backups ?? 0) > 0).length;
+}
+
+interface SnapshotApp { id: string; installed?: boolean; projectFiles?: number; backups?: number }
+interface MachineSnapshot { artifact: string; sizeBytes: number | null; checksumSha256: string | null; createdAt: string | null; contents: { apps?: SnapshotApp[]; vms?: { domains?: string[] } } | null }
 interface RemoteMirrorState { keyReady: boolean; publicKey: string | null; fingerprint: string | null; hostKeysPinned: number; rsyncInstalled: boolean }
 interface RemoteDestination { host: string; port: number; user: string; path: string }
 interface RemoteSettings { destination: RemoteDestination | null; lastSync: { completedAt: string; filesTransferred: number; bytesTransferred: number; destination: string } | null }
@@ -243,8 +258,8 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
           <table>
             <thead><tr><th>Created</th><th>Size</th><th>Drill</th><th>Independent copy</th><th aria-label="Actions" /></tr></thead>
             <tbody>
-              {loading && backups.length === 0 ? <tr><td colSpan={5}>Loading backups...</td></tr> : null}
-              {!loading && backups.length === 0 ? <tr><td colSpan={5}>No database backups yet. One click above creates and verifies the first.</td></tr> : null}
+              {loading && backups.length === 0 ? <tr><td colSpan={6}>Loading backups...</td></tr> : null}
+              {!loading && backups.length === 0 ? <tr><td colSpan={6}>No database backups yet. One click above creates and verifies the first.</td></tr> : null}
               {backups.map((backup) => (
                 <tr key={backup.id}>
                   <td>{new Date(backup.createdAt).toLocaleString()}</td>
@@ -267,19 +282,22 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
 
       <section className="panel">
         <header className="panel-header">
-          <div><strong>Machine snapshot</strong><span>One archive to redeploy this box: the database, every app's settings and secrets, network and firewall config, and each VM's definition. App data stays in per-app backups.</span></div>
+          <div><strong>Machine snapshot</strong><span>One archive to redeploy this box: the database, every app's settings and secrets, network and firewall config, and each VM's definition. The data itself stays in the per-app backups, so an app with no backup comes back installed and empty. "With their data" below is how many would come back whole.</span></div>
           <button className="primary-button" type="button" disabled={loading} onClick={() => start({ operationId: "host.snapshot.create", title: "Create a machine snapshot", parameters: {}, preview: <span>Takes a fresh verified database backup and bundles it with every installed app's compose project (settings and secrets), netplan, firewall rules, fstab, and VM definitions. The archive contains secrets. Keep copies only on encrypted or physically controlled media. The newest {machine?.keep ?? 3} snapshots are kept.</span> })}>Create machine snapshot</button>
         </header>
         <div className="table-scroll">
           <table>
-            <thead><tr><th>Created</th><th>Size</th><th>Apps</th><th>VMs</th><th>SHA-256</th></tr></thead>
+            <thead><tr><th>Created</th><th>Size</th><th>Apps</th><th>With their data</th><th>VMs</th><th>SHA-256</th></tr></thead>
             <tbody>
-              {(machine?.snapshots ?? []).length === 0 ? <tr><td colSpan={5}>{machine ? "No machine snapshots yet. One click above creates the first." : "Machine snapshot state is unavailable."}</td></tr> : null}
+              {(machine?.snapshots ?? []).length === 0 ? <tr><td colSpan={6}>{machine ? "No machine snapshots yet. One click above creates the first." : "Machine snapshot state is unavailable."}</td></tr> : null}
               {(machine?.snapshots ?? []).map((snapshot) => (
                 <tr key={snapshot.artifact}>
                   <td>{snapshot.createdAt ? new Date(snapshot.createdAt).toLocaleString() : snapshot.artifact}</td>
                   <td>{snapshot.sizeBytes ? formatBytes(snapshot.sizeBytes) : "—"}</td>
                   <td>{snapshot.contents?.apps?.length ?? "—"}</td>
+                  <td>{withData(snapshot) === null ? "—" : withData(snapshot) === (snapshot.contents?.apps?.length ?? 0)
+                    ? <span className="status-pill status-good">all {withData(snapshot)}</span>
+                    : <span className="status-pill status-warning">{withData(snapshot)} of {snapshot.contents?.apps?.length ?? 0}</span>}</td>
                   <td>{snapshot.contents?.vms?.domains?.length ?? "—"}</td>
                   <td>{snapshot.checksumSha256 ? <code>{snapshot.checksumSha256.slice(0, 16)}...</code> : "—"}</td>
                 </tr>

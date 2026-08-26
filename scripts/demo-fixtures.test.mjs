@@ -90,6 +90,14 @@ describe("the demo can answer what the interface asks", () => {
     expect(wrong, "a fixture whose shape disagrees with the server teaches the tests the wrong thing").toEqual([]);
   });
 
+  it("keeps the shape of what a snapshot says it contains", () => {
+    const apps = inspections["host.snapshot.inspect"].snapshots.flatMap((snapshot) => snapshot.contents?.apps ?? []);
+    expect(apps.length).toBeGreaterThan(0);
+    for (const field of ["id", "installed", "projectFiles", "backups"]) {
+      expect(apps.every((app) => field in app), `a snapshot's app entry is missing ${field}, which the real meta records`).toBe(true);
+    }
+  });
+
   it("gives the fields the interface reads inside a list, not only at the top", () => {
     // Checking top-level keys is not enough: `app.backups.inspect` had its `backups` array, and
     // the entries in it were missing the field the dialog reads, which threw inside Array.some
@@ -105,6 +113,10 @@ describe("the demo can answer what the interface asks", () => {
       "dns.names.inspect": ["apps", ["id", "name", "port"]],
       "router.leases": ["leases", ["name", "address", "mac", "online", "reserved"]],
       "host.snapshot.discover": ["locations", ["root", "mount", "snapshots"]],
+      // Nested one level down: the meta records what each app contributed, and the Backups page
+      // reads `backups` to say how much of a restore would actually bring data back. The fixture
+      // carried only `{ id }` for a long time, so that number could not be shown at all.
+      "host.snapshot.inspect": ["snapshots", ["artifact", "sizeBytes", "createdAt", "contents"]],
     };
     const wrong = [];
     for (const [id, [listKey, fields]] of Object.entries(itemFields)) {
