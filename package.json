@@ -1,6 +1,6 @@
 {
   "name": "boxpilot",
-  "version": "1.28.0",
+  "version": "1.28.1",
   "private": true,
   "description": "Point-and-click setup and management for an Ubuntu home server.",
   "type": "module",
