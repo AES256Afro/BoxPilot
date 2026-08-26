@@ -5,10 +5,11 @@ on:
     branches: [main, phase-0]
   pull_request:
 
-# Same reason as the install smoke test: a release pushes two branches with one tree, and the
-# newest run is the only one whose answer is wanted.
+# Same reason as the install smoke test: a release pushes two branches with one tree. Keyed by
+# SHA so only the duplicate pair collapses — a different commit's run is a different answer and
+# must never be cancelled by this one.
 concurrency:
-  group: ${{ github.workflow }}
+  group: ${{ github.workflow }}-${{ github.sha }}
   cancel-in-progress: true
 
 permissions:
