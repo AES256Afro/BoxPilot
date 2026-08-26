@@ -28,6 +28,12 @@ export function localDnsOperations() {
       run: (_parameters, { localDns, progress }) => localDns.clear({ progress }),
     }),
     defineOperation({
+      id: "dns.blocker.clients", title: "See which devices use the DNS blocker", risk: "low", readOnly: true, timeoutMs: 60_000,
+      description: "Reads the blocker's own query log and reports which devices on your network have asked it anything. A blocker can be healthy, answering and blocking, and used by nobody, because the router is handing out a different address; this is the only thing that tells those apart. Nothing is changed.",
+      parameters: { fields: { selfAddress: { type: "string", maxLength: 45, optional: true, pattern: /^\d{1,3}(\.\d{1,3}){3}$/ } } },
+      run: (parameters, { localDns }) => localDns.clients({ selfAddress: parameters.selfAddress ?? null }),
+    }),
+    defineOperation({
       id: "dns.blocker.verify", title: "Check the DNS blocker is being used", risk: "low", readOnly: true, timeoutMs: 60_000,
       description: "Sends two ordinary DNS queries to this server's LAN address, the way a laptop on your network would, and reports whether anything answered, whether it can still resolve names, and whether it refused a domain its blocklists should cover. Nothing is changed.",
       parameters: { fields: { address: { type: "string", maxLength: 45, pattern: /^\d{1,3}(\.\d{1,3}){3}$/ } } },

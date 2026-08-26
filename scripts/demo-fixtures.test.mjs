@@ -78,6 +78,7 @@ describe("the demo can answer what the interface asks", () => {
       "dns.names.inspect": ["available", "platform", "records", "apps"],
       "router.inspect": ["configured", "reachable", "host"],
       "dns.blocker.verify": ["answering", "resolving", "blocking", "intercepted", "interceptorBlocking", "control", "probe"],
+      "dns.blocker.clients": ["available", "platform", "clients", "self"],
       "host.snapshot.discover": ["locations"],
       "router.leases": ["leases", "host"],
     };
@@ -114,6 +115,7 @@ describe("the demo can answer what the interface asks", () => {
       "dns.names.inspect": ["apps", ["id", "name", "port"]],
       "router.leases": ["leases", ["name", "address", "mac", "online", "reserved"]],
       "host.snapshot.discover": ["locations", ["root", "mount", "snapshots"]],
+      "dns.blocker.clients": ["clients", ["address", "queries"]],
       // Nested one level down: the meta records what each app contributed, and the Backups page
       // reads `backups` to say how much of a restore would actually bring data back. The fixture
       // carried only `{ id }` for a long time, so that number could not be shown at all.

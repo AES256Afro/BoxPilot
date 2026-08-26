@@ -274,6 +274,8 @@ export const inspections = {
     records: [{ address: host.lan, name: "jellyfin.lan" }, { address: host.lan, name: "immich.lan" }],
     apps: Object.entries(installed).map(([id, port]) => ({ id, name: id, port })),
   },
+  "dns.blocker.clients": { available: true, reason: null, platform: { id: "pi-hole", label: "Pi-hole", running: true },
+    clients: [{ address: "192.168.50.31", queries: 812 }, { address: "192.168.50.44", queries: 240 }, { address: "192.168.50.52", queries: 96 }], self: 14 },
   "dns.blocker.verify": { address: host.lan, answering: true, resolving: true, blocking: true, intercepted: false, interceptorBlocking: null,
     control: { domain: "example.com", addresses: ["93.184.216.34"], error: null },
     probe: { domain: "doubleclick.net", addresses: ["0.0.0.0"], error: null }, reason: null },
@@ -508,6 +510,7 @@ const troubleWords = {
     reason: 'The router did not accept that password for "root". This is the password for the router\'s own admin page, which is often not the same as any other password on this network.' },
   // Pi-hole is installed but its container is stopped, so the names it serves have gone with it.
   "dns.names.inspect": { available: true, reason: null, platform: { id: "pi-hole", label: "Pi-hole", running: false }, records: [] },
+  "dns.blocker.clients": { available: true, reason: null, platform: { id: "pi-hole", label: "Pi-hole", running: true }, clients: [], self: 9 },
   "app.serve.inspect": { available: false, serves: [] },
   "dns.blocker.verify": { address: "192.168.1.10", answering: true, resolving: false, blocking: true, intercepted: true, interceptorBlocking: false,
     control: { domain: "example.com", addresses: [], error: "ESERVFAIL" },
