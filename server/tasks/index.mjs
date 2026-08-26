@@ -11,6 +11,7 @@ import { storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSn
 import { shareMount, shareUnmount } from "./shares.mjs";
 import { housekeepingRemoveTrees } from "./housekeeping.mjs";
 import { routerConnect, routerInspect, routerLeases } from "./router.mjs";
+import { dnsBlockerVerify } from "./dns-check.mjs";
 import { sambaApply, sambaUserRemove, sambaUserSet } from "./samba.mjs";
 import { nfsApply } from "./nfs.mjs";
 import { upsSetup } from "./ups.mjs";
@@ -54,6 +55,7 @@ export const tasks = Object.freeze({
   "housekeeping.remove-trees": housekeepingRemoveTrees,
   "router.connect": routerConnect,
   "router.inspect": routerInspect,
+  "dns.blocker.verify": (parameters) => dnsBlockerVerify(parameters),
   "router.leases": routerLeases,
   "share.mount": shareMount,
   "share.unmount": shareUnmount,

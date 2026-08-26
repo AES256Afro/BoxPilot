@@ -27,5 +27,11 @@ export function localDnsOperations() {
       description: "Deletes the file of names BoxPilot wrote. Records you added yourself live elsewhere and stay.",
       run: (_parameters, { localDns, progress }) => localDns.clear({ progress }),
     }),
+    defineOperation({
+      id: "dns.blocker.verify", title: "Check the DNS blocker is being used", risk: "low", readOnly: true, timeoutMs: 60_000,
+      description: "Sends two ordinary DNS queries to this server's LAN address, the way a laptop on your network would, and reports whether anything answered, whether it can still resolve names, and whether it refused a domain its blocklists should cover. Nothing is changed.",
+      parameters: { fields: { address: { type: "string", maxLength: 45, pattern: /^\d{1,3}(\.\d{1,3}){3}$/ } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("dns.blocker.verify", parameters, { timeoutMs: 45_000, logPath: jobLog?.path ?? null }),
+    }),
   ];
 }

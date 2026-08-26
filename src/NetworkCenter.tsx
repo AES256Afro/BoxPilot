@@ -4,6 +4,7 @@ import { useOperation } from "./ApproveDialog";
 import TailscalePanel from "./TailscalePanel";
 import LocalNamesPanel from "./LocalNamesPanel";
 import RouterPanel from "./RouterPanel";
+import DnsCheckPanel from "./DnsCheckPanel";
 
 type Topology = {
   generatedAt: string;
@@ -146,6 +147,7 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
       <div className="dashboard-grid">
         <TailscalePanel start={start} tailscale={topology.tailscale} />
         <LocalNamesPanel csrfToken={csrfToken} start={start} lanAddress={topology.eligibleLanAddresses[0]?.address ?? null} />
+        <DnsCheckPanel csrfToken={csrfToken} lanAddress={topology.eligibleLanAddresses[0]?.address ?? null} />
         <RouterPanel start={start} gateway={topology.defaultRoutes[0]?.gateway ?? null} />
         <section className="panel">
           <header className="panel-header"><div><strong>Devices on your LAN</strong><span>Neighbours this server has talked to recently (ARP table). Wake sends Wake-on-LAN magic packets; the device must allow it in firmware.</span></div></header>
