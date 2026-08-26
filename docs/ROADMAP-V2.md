@@ -311,3 +311,62 @@ button could not be clicked, a Logs page with no groups, a catalog dialog whose 
 4. **Day 11–14**: M3.1–M3.2. Manifest files + generic compose deployer; Uptime Kuma and Pi-hole with zero app-specific code; add Jellyfin as the proof (<100 lines YAML).
 
 After that, M4.1 (installer) and M4.2 (wizard) make it something you can hand to a fresh box.
+
+## M13 — Flows: automating the machine and what it talks to
+
+**Where this starts from.** BoxPilot is already most of an automation engine and nobody has called it
+one. There are 146 registered operations, 100 of them with typed, validated parameters; a job state
+machine that stages, approves, applies, verifies and rolls back; a scheduler that already runs any
+low or medium operation hourly, daily or weekly under its creator's authority; secret parameters
+that never reach the database; and an audit trail. The registry *is* an action library. What is
+missing is everything between one action and the next: triggers other than the clock, values passing
+from one step to another, a branch, and a way to reach anything outside this machine.
+
+**What this is not.** Power Automate and Okta Workflows are, in the main, hundreds of maintained SaaS
+connectors and an enterprise identity model. That is not reachable for this project and not worth
+chasing; n8n is already in the catalog and does it better. The thing neither of them can do is
+`apt upgrade`, take an LVM snapshot, stop a container, restore a verified backup, or change a
+firewall profile — with an approval, an audit entry, and a rollback. Flows should own the machine and
+its network, use a generic HTTP step for everything else, and hand SaaS breadth to n8n.
+
+- **M13.1** **The governing decision, before any code** (an ADR). What may run without a human? Risk
+  tiers answer that for a single operation and not for a chain: five low-risk steps can compose into
+  a high-risk effect, and a trigger someone else can fire is not the same as a button the owner
+  pressed. Proposal to argue out: a flow carries the highest risk tier of any step in it; anything
+  above `low` needs an approval the first time a given trigger fires it, and a standing consent
+  after that which is revocable and visible; `high` never runs unattended at all.
+- **M13.2** **A flow is an ordered list of operations.** Definition in SQLite, executed through the
+  existing job machinery so approvals, audit, output and rollback come free. No branching, no data
+  passing. Small, because almost none of it is new.
+- **M13.3** **Values between steps.** A step's result is readable by later steps
+  (`{{ steps.snapshot.artifact }}`). Needs a tiny expression reader with no `eval` and no reach
+  outside the flow's own values, which is the whole security surface of this milestone.
+- **M13.4** **Branching and failure policy.** `if` on a step's result, per-step continue-or-stop, and
+  a final `always` step so "tell me what happened" runs whether or not the flow worked.
+- **M13.5** **Triggers beyond the clock.** The signals already exist and are not wired to anything:
+  a health alert firing, a job failing, an app becoming unhealthy, a disk crossing a threshold, a
+  backup completing, an unrecognised device appearing on the LAN.
+- **M13.6** **Inbound webhooks.** A signed URL that starts a flow, with a per-trigger token, a rate
+  limit, and a hard rule that a request from outside can never approve its own risk tier.
+- **M13.7** **Reaching outward: an HTTP step and a credential store.** The generic connector that
+  makes "manage systems in or out of the server" true. Credentials follow the `secret: true`
+  pattern that already keeps share and router passwords out of the database.
+- **M13.8** **Durability.** Retries with backoff, per-step timeouts, and a flow that survives BoxPilot
+  restarting mid-run — the job rows persist today, a half-finished flow does not.
+- **M13.9** **Remote targets.** Run a step on another machine over SSH or the tailnet, so one flow can
+  drive several boxes. This is where "manage other systems" stops meaning "call their API".
+- **M13.10** **The editor.** Deliberately late. Building a canvas before the data model has settled
+  is how these projects acquire a UI they cannot change.
+- **M13.11** **A flow library.** Shareable definitions the way the app catalog ships manifests:
+  "snapshot, update, verify, tell me on ntfy" as one importable thing rather than everyone
+  rebuilding it.
+- **M13.12** **Model steps.** A step that asks the local model runner — Ollama is already in the
+  catalog — to summarise, classify or choose between options, with the answer constrained to a
+  schema. Useful for "read this log and tell me whether it matters". A model may never select the
+  operation to run or approve anything; it produces a value, and the flow decides.
+
+**Order that actually works.** M13.1 first and genuinely argued, then 2 → 3 → 4 as one arc, because
+each is nearly useless alone. 5 and 6 are what turn it from a macro recorder into automation. 7 is
+the biggest single jump in reach for the least new machinery. 8 before anyone depends on it. 10 only
+once 2–4 have stopped changing shape.
+
