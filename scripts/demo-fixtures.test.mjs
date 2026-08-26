@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { inspections, scenarios, scenarioNames, freshRest, app } from "./boxpilot-demo.mjs";
+import { inspections, scenarios, scenarioNames, freshRest, troubleRest, app } from "./boxpilot-demo.mjs";
 import { operationModules } from "../server/ops/index.mjs";
 
 /**
@@ -181,7 +181,7 @@ describe("the empty and broken worlds are the same server", () => {
  * This asks the real routes rather than a second copy of what they are believed to return, because
  * a second copy is the thing that drifts.
  */
-describe("the empty world's REST routes are the same routes", () => {
+describe("the rewritten REST routes are the same routes", () => {
   it("rewrites each one into the shape it already had", async () => {
     const server = app.listen(0, "127.0.0.1");
     await new Promise((resolve) => server.once("listening", resolve));
@@ -192,9 +192,11 @@ describe("the empty world's REST routes are the same routes", () => {
 
     const complaints = [];
     try {
-      for (const route of Object.keys(freshRest)) {
-        const [lived, empty] = await Promise.all([body(route, "default"), body(route, "fresh")]);
-        complaints.push(...shapeComplaints(lived, empty, route));
+      for (const [scenario, table] of [["fresh", freshRest], ["trouble", troubleRest]]) {
+        for (const route of Object.keys(table)) {
+          const [lived, rewritten] = await Promise.all([body(route, "default"), body(route, scenario)]);
+          complaints.push(...shapeComplaints(lived, rewritten, `${scenario} ${route}`));
+        }
       }
     } finally {
       await new Promise((resolve) => server.close(resolve));

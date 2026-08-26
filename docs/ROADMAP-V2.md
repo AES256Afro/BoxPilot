@@ -253,6 +253,12 @@ button could not be clicked, a Logs page with no groups, a catalog dialog whose 
   page-level sweep reports nothing and the deep sweep names the button that caused it.
 - A page that throws now falls back to an error boundary instead of blanking the window, so the
   navigation survives and there is a way out.
+- The `trouble` world covers what actually goes wrong: a share that will not mount, a credential the
+  far end refuses, failed units, a DNS container that is stopped, password sign-in left on, Docker
+  unreachable, KVM absent. It was two overrides and a healthy server before that, which is why
+  sweeping it found nothing. Reading it found the copy bugs no test would: "Copied off this server
+  1 days ago", a list rendered "exports, recoveries, retention", and a panel claiming "this list is
+  not empty" about a list it had just failed to read.
 - `scripts/demo-fixtures.test.mjs` holds the scenarios to the same shape as the default fixtures, so
   a scenario cannot quietly invent a field or drop one. The REST routes are held the same way, by
   starting the demo's own app and asking it — a second copy of what a route is believed to return is
