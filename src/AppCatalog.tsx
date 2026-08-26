@@ -158,6 +158,22 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
   );
 }
 
+/**
+ * How long the app was stopped while a backup was taken.
+ *
+ * Every backup record has carried this and none of them showed it. Backing an app up takes it
+ * offline, and whether that matters depends entirely on the app and on how long: a fifth of a
+ * second is nothing, ten seconds of a DNS server is every device on the network waiting. Worth
+ * knowing before scheduling it to happen every night.
+ */
+export function offlineFor(downtimeMs: number | null): string {
+  if (downtimeMs === null || downtimeMs === undefined) return "—";
+  if (downtimeMs < 1000) return "under a second";
+  const seconds = downtimeMs / 1000;
+  if (seconds < 90) return `${seconds < 10 ? seconds.toFixed(1) : Math.round(seconds)} seconds`;
+  return `${Math.round(seconds / 60)} minutes`;
+}
+
 export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [data, setData] = useState<CatalogResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -445,12 +461,13 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
               {appBackups.backups.length > 0 && (
                 <div className="table-scroll">
                   <table>
-                    <thead><tr><th>Created</th><th>Size</th><th aria-label="Actions" /></tr></thead>
+                    <thead><tr><th>Created</th><th>Size</th><th>Offline for</th><th aria-label="Actions" /></tr></thead>
                     <tbody>
                       {appBackups.backups.map((backup) => (
                         <tr key={backup.artifact}>
                           <td>{backup.createdAt ? new Date(backup.createdAt).toLocaleString() : backup.artifact}</td>
                           <td>{backup.sizeBytes !== null ? `${(backup.sizeBytes / 1024 / 1024).toFixed(1)} MiB` : "—"}</td>
+                          <td>{offlineFor(backup.downtimeMs)}</td>
                           <td>
                             <div className="recovery-actions">
                               <button className="text-button" type="button" onClick={() => { const target = appBackups; setAppBackups(null); start({ operationId: "app.backup.restore", title: `Restore ${target.name} from ${backup.createdAt ? new Date(backup.createdAt).toLocaleString() : backup.artifact}`, parameters: { id: target.id, backup: backup.artifact }, preview: <span>Saves the current state as a safety copy first, then replaces {target.name}'s data and configuration with this backup and starts it.</span> }); }}>Restore</button>

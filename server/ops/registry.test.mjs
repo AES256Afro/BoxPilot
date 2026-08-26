@@ -75,3 +75,27 @@ describe("default registry and legacy allowlists stay consistent", () => {
     }
   });
 });
+
+describe("what the approval dialog has to show", () => {
+  it("gives a description for every operation that asks to be approved", async () => {
+    // A read-only operation answers straight away; anything else stages a job and the owner is
+    // shown a dialog with the title, the risk, and this. Five medium-risk operations reached that
+    // dialog with nothing under the title at all, including one that deletes a backup.
+    const { operationModules } = await import("./index.mjs");
+    const bare = operationModules.flatMap((build) => build())
+      .filter((operation) => !operation.readOnly && !operation.description)
+      .map((operation) => `${operation.id} (${operation.risk})`);
+    expect(bare, "these ask the owner to approve something the dialog cannot explain").toEqual([]);
+  });
+
+  it("describes what happens, not what the product will not do", async () => {
+    // ADR-001: say what the action does. The boundary language the old control plane used had a
+    // habit of coming back through descriptions.
+    const { operationModules } = await import("./index.mjs");
+    const retired = /\b(safety-first|control plane|sanitized|durable lifecycle|guarded (creation|retention|offline|VM))\b/i;
+    const offenders = operationModules.flatMap((build) => build())
+      .filter((operation) => retired.test(operation.description ?? ""))
+      .map((operation) => operation.id);
+    expect(offenders).toEqual([]);
+  });
+});

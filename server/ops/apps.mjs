@@ -97,7 +97,7 @@ export function appOperations() {
     }),
     defineOperation({
       id: "app.backup", title: "Back up application data", risk: "medium", timeoutMs: minutes(70),
-      description: "Stops the app briefly, archives its compose project and the volumes BoxPilot manages, restarts it, and keeps the newest copies. Folders you pointed the app at yourself (a photo or media library, for instance) are not included should be backed up the way you back up the rest of that disk.",
+      description: "Stops the app briefly, archives its compose project and the volumes BoxPilot manages, restarts it, and keeps the newest copies. Folders you pointed the app at yourself (a photo or media library, for instance) are not included; back those up the way you back up the rest of that disk.",
       parameters: { fields: { id: idField, keep: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 30 ? null : "must be a whole number between 1 and 30") } } },
       run: (parameters, { apps, progress }) => apps.backup({ id: parameters.id, keep: parameters.keep ?? 5 }, { progress }),
     }),
@@ -136,7 +136,8 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.restoreAppBackupPath({ id: parameters.id, backup: parameters.backup, path: parameters.path }, { progress }),
     }),
     defineOperation({
-      id: "app.backup.delete", title: "Delete an application backup", risk: "medium", timeoutMs: 60_000,
+      id: "app.backup.delete", title: "Delete an application backup", risk: "medium",
+      description: "Removes one archive and its record. The app and its live data are untouched, and any copy already mirrored off this server stays where it is.", timeoutMs: 60_000,
       parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
       run: (parameters, { apps }) => apps.deleteAppBackup(parameters),
     }),
