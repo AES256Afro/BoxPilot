@@ -22,7 +22,11 @@ export const managedHostsFile = "boxpilot.list";
  * write are listed: the file lives in a managed volume, so this is an ordinary file write.
  */
 export const dnsPlatforms = Object.freeze({
-  "pi-hole": { label: "Pi-hole", volume: "etc-pihole", hostsDirectory: "hosts", reload: ["pihole", "reloaddns"] },
+  "pi-hole": {
+    label: "Pi-hole", volume: "etc-pihole", hostsDirectory: "hosts", reload: ["pihole", "reloaddns"],
+    // Where it writes the queries it answered, and how a client address appears in that line.
+    queryLog: "/var/log/pihole/pihole.log", clientPattern: /\bfrom ([0-9]{1,3}(?:\.[0-9]{1,3}){3})\b/g,
+  },
 });
 
 /** Domains that are safe to claim on a home network. */
@@ -129,6 +133,41 @@ export function createLocalDnsService({
     return { applied: true, domain, address, reloaded, records: wanted.map((app) => ({ name: app.name, address, port: app.port })) };
   }
 
+  /**
+   * Which devices are actually asking this blocker anything.
+   *
+   * A blocker can be installed, healthy, answering and blocking, and still be used by nobody —
+   * because the router is handing out its own address, or somebody else's, instead. Everything the
+   * blocker can tell you about itself looks identical in both cases, which is a long evening for
+   * whoever is trying to work out why nothing is being blocked.
+   *
+   * The one signal that separates them is who has asked it. Loopback and this server's own address
+   * are set aside: BoxPilot's own checks come from there, so counting them would report a blocker
+   * as busy on the strength of its own health checks.
+   */
+  async function clients({ selfAddress = null, lines = 4000 } = {}) {
+    const spec = await platform();
+    if (!spec) return { available: false, reason: "No DNS server BoxPilot can read is installed.", platform: null, clients: [], self: 0 };
+    if (!runDocker || !spec.running) {
+      return { available: false, reason: `${spec.label} is not running, so there is nothing to read.`, platform: { id: spec.id, label: spec.label, running: spec.running }, clients: [], self: 0 };
+    }
+    const result = await runDocker(dockerBinary, ["exec", `bp-${spec.id}`, "tail", "-n", String(lines), spec.queryLog], { timeout: 60_000, maxBuffer: 8 * 1024 * 1024 }).catch(() => null);
+    if (!result?.ok) {
+      // Unreadable is not the same as unused, and saying "nobody is using it" on the strength of a
+      // failed read is the kind of invented alarm this codebase has shipped before.
+      return { available: false, reason: `Could not read ${spec.label}'s query log.`, platform: { id: spec.id, label: spec.label, running: true }, clients: [], self: 0 };
+    }
+    const counts = new Map();
+    let self = 0;
+    for (const match of String(result.stdout).matchAll(spec.clientPattern)) {
+      const address = match[1];
+      if (address === "127.0.0.1" || address === selfAddress) { self += 1; continue; }
+      counts.set(address, (counts.get(address) ?? 0) + 1);
+    }
+    const found = [...counts.entries()].map(([address, queries]) => ({ address, queries })).sort((a, b) => b.queries - a.queries);
+    return { available: true, reason: null, platform: { id: spec.id, label: spec.label, running: true }, clients: found, self };
+  }
+
   /** Take BoxPilot's names out of DNS again, leaving anything hand-written alone. */
   async function clear({ progress = null } = {}) {
     const spec = await platform();
@@ -139,5 +178,5 @@ export function createLocalDnsService({
     return { cleared: true };
   }
 
-  return { inspect, apply, clear, internals: { platform, nameable, fileFor } };
+  return { inspect, apply, clear, clients, internals: { platform, nameable, fileFor } };
 }
