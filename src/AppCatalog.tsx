@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useOperation } from "./ApproveDialog";
 import { inspectOperation } from "./operations";
-import { appUrl } from "./appLinks";
+import { appUrl, appAddresses } from "./appLinks";
 
 /** Types mirror server/catalog/schema.mjs (normalized manifest) and server/app-helper.mjs (live state). */
 interface ManifestPort { id: string; label: string; container: number; host: number; protocol: "tcp" | "udp"; exposure: "lan" | "loopback"; fixed: boolean; tailnet?: "serve" | "address" | "unchanged" }
@@ -357,6 +357,29 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
               {installed && live && (live.urls.length > 0 || (manifest.ports ?? []).some((port) => port.exposure !== "loopback")) ? (
                 <div className="recovery-actions">
                   {live.urls.map((port) => <a key={port.id} className="secondary-button" href={openUrl(port, manifest)} target="_blank" rel="noreferrer">Open {port.label}</a>)}
+                  {live.urls.length > 0 && (
+                    <details className="app-addresses">
+                      <summary>Other ways to reach it</summary>
+                      {live.urls.map((port) => (
+                        <div key={port.id}>
+                          {live.urls.length > 1 && <span className="eyebrow">{port.label}</span>}
+                          <ul>
+                            {appAddresses(port, {
+                              lanAddress: data?.host.lanAddress ?? null,
+                              tailnetDnsName: data?.host.tailscaleDnsName ?? null,
+                              serves: serves ?? [],
+                              https: manifest.id === "portainer",
+                            }).map((address) => (
+                              <li key={address.url}>
+                                <a href={address.url} target="_blank" rel="noreferrer"><code>{address.url}</code></a>
+                                <span className="muted"> {address.label}{address.reachedThisPageBy ? " · you are on this one now" : ""}{address.caveat ? ` · ${address.caveat}` : ""}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </details>
+                  )}
                   {(() => {
                     if (serves === null) return null;
                     if ((live.state?.values?.networkMode ?? manifest.network) === "host") return null;

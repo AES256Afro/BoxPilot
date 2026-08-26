@@ -3485,3 +3485,11 @@ textarea {
 
 /* Model manager: the name field is the point of the form, so let it have the room. */
 .modal-copy form.recovery-actions input[type="text"] { flex: 1 1 20rem; min-width: 12rem; }
+
+/* Every way to reach an app, kept out of the way until asked for. */
+.app-addresses { margin-top: 0.35rem; width: 100%; }
+.app-addresses > summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; }
+.app-addresses ul { list-style: none; margin: 0.4rem 0 0; padding: 0; display: grid; gap: 0.3rem; }
+.app-addresses li { font-size: 0.85rem; line-height: 1.4; }
+.app-addresses li code { word-break: break-all; }
+.app-addresses .eyebrow { display: block; margin-top: 0.5rem; }
