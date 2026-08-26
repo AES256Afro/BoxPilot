@@ -274,6 +274,9 @@ export const inspections = {
     records: [{ address: host.lan, name: "jellyfin.lan" }, { address: host.lan, name: "immich.lan" }],
     apps: Object.entries(installed).map(([id, port]) => ({ id, name: id, port })),
   },
+  "dns.blocker.verify": { address: host.lan, answering: true, resolving: true, blocking: true, intercepted: false,
+    control: { domain: "example.com", addresses: ["93.184.216.34"], error: null },
+    probe: { domain: "doubleclick.net", addresses: ["0.0.0.0"], error: null }, reason: null },
   "router.inspect": { configured: true, reachable: true, host: "192.168.1.1", username: "root", model: "GL-MT6000", firmware: "4.7.0", reason: null },
   "router.leases": { host: "192.168.1.1", leases: [
     { name: "homebox", address: host.lan, mac: "aa:bb:cc:dd:ee:02", online: true, reserved: true },
@@ -506,6 +509,10 @@ const troubleWords = {
   // Pi-hole is installed but its container is stopped, so the names it serves have gone with it.
   "dns.names.inspect": { available: true, reason: null, platform: { id: "pi-hole", label: "Pi-hole", running: false }, records: [] },
   "app.serve.inspect": { available: false, serves: [] },
+  "dns.blocker.verify": { address: "192.168.1.10", answering: true, resolving: false, blocking: true, intercepted: true,
+    control: { domain: "example.com", addresses: [], error: "ESERVFAIL" },
+    probe: { domain: "doubleclick.net", addresses: ["0.0.0.0"], error: null },
+    reason: "Something between this server and the internet is answering every DNS query itself, including ones sent to addresses that cannot run a resolver. A recursive resolver cannot work through that, which is why lookups fail. Turn off any \"force\" or \"override\" DNS setting on your router, or point this blocker at a normal upstream resolver instead of the bundled recursive one." },
   // The key exists but the far end has never been vouched for, so a mirror would refuse to run.
   "backup.remote.inspect": { keyReady: true, hostKeysPinned: 0, rsyncInstalled: false },
   "backup.cloud.inspect": { configured: true, provider: "b2" },
