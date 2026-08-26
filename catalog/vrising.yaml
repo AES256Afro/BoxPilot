@@ -57,4 +57,4 @@ health:
   kind: running
   stableSeconds: 20
   timeoutSeconds: 900
-notes: "Players join <this server>:9876 with the join password from Secrets. The first start downloads the server through SteamCMD (several GB) and runs it under Wine, so give it time, watch Logs."
+notes: "Players join <this server>:9876 with the join password from Secrets. The first start downloads the server through SteamCMD (several GB) and runs it under Wine, so give it time; watch Logs."
