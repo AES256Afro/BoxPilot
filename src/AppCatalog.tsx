@@ -117,7 +117,7 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
           {(manifest.networkModes?.length ?? 0) > 1 && <fieldset><legend>Network</legend>
             <label>How Pi-hole and friends see your devices
               <select value={values.networkMode ?? manifest.networkModes?.[0]} onChange={(event) => setValues((current) => ({ ...current, networkMode: event.target.value }))} aria-label="Network mode">
-                {manifest.networkModes?.map((networkMode) => <option key={networkMode} value={networkMode}>{networkMode === "host" ? "Host — sees each device on your network by address and name" : "Bridge — isolated; every device appears as one client"}</option>)}
+                {manifest.networkModes?.map((networkMode) => <option key={networkMode} value={networkMode}>{networkMode === "host" ? "Host: sees each device on your network by address and name" : "Bridge: isolated, every device appears as one client"}</option>)}
               </select>
               <span className="muted">{(values.networkMode ?? manifest.networkModes?.[0]) === "host"
                 ? "Shares this server's network, so the app sees real client addresses. Its ports become this server's ports (the admin UI moves to port 80), and it cannot use a bundled recursive resolver."
@@ -125,9 +125,9 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
             </label>
           </fieldset>}
           {editablePorts.length > 0 && <fieldset><legend>Ports</legend>{editablePorts.map((port) => <label key={port.id}>{port.label} <span className="muted">(container {port.container}/{port.protocol}, {port.exposure === "loopback" ? "this server only" : "LAN"})</span><input type="number" min={1} max={65535} value={values.ports[port.id] ?? port.host} onChange={(event) => setPort(port.id, event.target.value)} aria-label={`${port.label} port`} /></label>)}</fieldset>}
-          {editableVolumes.length > 0 && <fieldset><legend>Folders</legend>{editableVolumes.map((volume) => <label key={volume.id}>{volume.label}{volume.description && <span className="muted"> — {volume.description}</span>}<input type="text" value={values.volumes[volume.id] ?? ""} onChange={(event) => setVolume(volume.id, event.target.value)} aria-label={`${volume.label} path`} placeholder={volume.hostPath ?? "/srv/..."} /></label>)}</fieldset>}
+          {editableVolumes.length > 0 && <fieldset><legend>Folders</legend>{editableVolumes.map((volume) => <label key={volume.id}>{volume.label}{volume.description && <span className="muted">, {volume.description}</span>}<input type="text" value={values.volumes[volume.id] ?? ""} onChange={(event) => setVolume(volume.id, event.target.value)} aria-label={`${volume.label} path`} placeholder={volume.hostPath ?? "/srv/..."} /></label>)}</fieldset>}
           {editableEnv.length > 0 && <fieldset><legend>Settings</legend>{editableEnv.map((entry) => (
-            <label key={entry.name}>{entry.label}{entry.required && " *"}{entry.description && <span className="muted"> — {entry.description}</span>}
+            <label key={entry.name}>{entry.label}{entry.required && " *"}{entry.description && <span className="muted">, {entry.description}</span>}
               {entry.options ? <select value={values.env[entry.name] ?? ""} onChange={(event) => setEnv(entry.name, event.target.value)} aria-label={entry.label}>{entry.options.map((option) => <option key={option} value={option}>{option}</option>)}</select>
                 : entry.type === "boolean" ? <select value={values.env[entry.name] || "false"} onChange={(event) => setEnv(entry.name, event.target.value)} aria-label={entry.label}><option value="true">Yes</option><option value="false">No</option></select>
                 : <input type={entry.type === "password" ? "password" : entry.type === "number" ? "number" : "text"} value={values.env[entry.name] ?? ""} onChange={(event) => setEnv(entry.name, event.target.value)} aria-label={entry.label} required={entry.required} />}
@@ -145,7 +145,7 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
             </fieldset>
           )}
           {choosable.length > 0 && <fieldset><legend>Sign-in</legend>{choosable.map((entry) => (
-            <label key={entry.name}>{entry.label}<span className="muted"> — leave empty to have one generated for you; you can see or change it from the app's card afterwards.</span>
+            <label key={entry.name}>{entry.label}<span className="muted">, leave empty to have one generated for you; you can see or change it from the app's card afterwards.</span>
               <input type="password" autoComplete="new-password" minLength={8} maxLength={128} value={values.env[entry.name] ?? ""} onChange={(event) => setEnv(entry.name, event.target.value)} aria-label={entry.label} placeholder={mode === "install" ? "Generate one for me" : "Unchanged"} />
             </label>
           ))}</fieldset>}
@@ -369,10 +369,10 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                         {served && <a className="secondary-button" href={`https://${served.dnsName}:${served.port}`} target="_blank" rel="noreferrer">Open on tailnet 🔒</a>}
                         <span className={`status-pill ${tailnetOnly ? "status-good" : "status-neutral"}`} title={tailnetOnly ? "Only reachable through Tailscale" : "Listening on your home network; the firewall decides who can reach it"}>{tailnetOnly ? "tailnet only" : "home network"}</span>
                         {tailnetOnly
-                          ? <button className="text-button" type="button" onClick={() => start({ operationId: "app.exposure.set", title: `Publish ${manifest.name} on your home network`, parameters: { id: manifest.id, mode: "lan" }, preview: <span>Recreates {manifest.name} listening on this server's network address{primaryPort ? <> on port {primaryPort}</> : null}{servePorts.length > 0 ? ", and stops publishing it on your tailnet" : ""}. Anything on your home network will be able to reach it — the firewall is then the only thing deciding who can.</span> })}>Publish on home network</button>
+                          ? <button className="text-button" type="button" onClick={() => start({ operationId: "app.exposure.set", title: `Publish ${manifest.name} on your home network`, parameters: { id: manifest.id, mode: "lan" }, preview: <span>Recreates {manifest.name} listening on this server's network address{primaryPort ? <> on port {primaryPort}</> : null}{servePorts.length > 0 ? ", and stops publishing it on your tailnet" : ""}. Anything on your home network will be able to reach it. The firewall is then the only thing deciding who can.</span> })}>Publish on home network</button>
                           : <button className="text-button" type="button" onClick={() => start({ operationId: "app.exposure.set", title: `Make ${manifest.name} reachable only through Tailscale`, parameters: { id: manifest.id, mode: "tailnet" }, preview: <span>{servePorts.length > 0
                             ? <>Recreates {manifest.name} so its web interface no longer listens on your home network, then publishes it at <code>https://…ts.net:{primaryPort}</code> with a real certificate. Tailscale authenticates every visitor before {manifest.name} sees them; nothing is opened on your router.</>
-                            : <>Recreates {manifest.name} so it no longer listens on your home network. It has no web interface to publish through Tailscale Serve, so nothing gets a certificate; being on your tailnet is what lets a machine reach it.</>}{moveToTailnet.length > 0 && <> {names(moveToTailnet)} {moveToTailnet.length === 1 ? "does not speak HTTP, so it moves to" : "do not speak HTTP, so they move to"} this server's tailnet address — reachable from your tailnet and nowhere else.</>}{stayOnLan.length > 0 && <> {names(stayOnLan)} {stayOnLan.length === 1 ? "stays" : "stay"} on your home network, because that is what {stayOnLan.length === 1 ? "it serves" : "they serve"}.</>}</span> })}>Reach only through Tailscale</button>}
+                            : <>Recreates {manifest.name} so it no longer listens on your home network. It has no web interface to publish through Tailscale Serve, so nothing gets a certificate; being on your tailnet is what lets a machine reach it.</>}{moveToTailnet.length > 0 && <> {names(moveToTailnet)} {moveToTailnet.length === 1 ? "does not speak HTTP, so it moves to" : "do not speak HTTP, so they move to"} this server's tailnet address, reachable from your tailnet and nowhere else.</>}{stayOnLan.length > 0 && <> {names(stayOnLan)} {stayOnLan.length === 1 ? "stays" : "stay"} on your home network, because that is what {stayOnLan.length === 1 ? "it serves" : "they serve"}.</>}</span> })}>Reach only through Tailscale</button>}
                       </>
                     );
                   })()}
@@ -391,7 +391,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                 {installed && <button className="text-button" type="button" onClick={() => void showLogs(manifest.id)}>Logs</button>}
                 {installed && <button className="text-button" type="button" onClick={() => void showEffectiveConfig(manifest.id)}>Config</button>}
                 {installed && <button className="text-button" type="button" onClick={() => start({ operationId: "app.backup", title: `Back up ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Stops {manifest.name} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.{manifest.volumes.some((volume) => volume.hostPath) ? <> Your own folders ({manifest.volumes.filter((volume) => volume.hostPath).map((volume) => volume.hostPath).join(", ")}) are <strong>not</strong> included.</> : null}</span> })}>Back up</button>}
-                {installed && manifest.id === "homepage" && <button className="text-button" type="button" onClick={() => start({ operationId: "homepage.sync", title: "Sync Homepage with installed apps", parameters: { host: window.location.hostname }, preview: <span>Writes a <strong>BoxPilot</strong> group into Homepage's <code>services.yaml</code> with every installed app — links via <code>{window.location.hostname}</code>, descriptions, icons, and live container status. Groups you wrote yourself are kept. Repeats by itself after installs and uninstalls.</span> })}>Sync dashboard</button>}
+                {installed && manifest.id === "homepage" && <button className="text-button" type="button" onClick={() => start({ operationId: "homepage.sync", title: "Sync Homepage with installed apps", parameters: { host: window.location.hostname }, preview: <span>Writes a <strong>BoxPilot</strong> group into Homepage's <code>services.yaml</code> with every installed app, links via <code>{window.location.hostname}</code>, descriptions, icons, and live container status. Groups you wrote yourself are kept. Repeats by itself after installs and uninstalls.</span> })}>Sync dashboard</button>}
                 {(installed || live?.dataPresent) && <button className="text-button" type="button" onClick={() => void showBackups(manifest)}>Backups</button>}
                 {installed && manifest.signIn && <button className="secondary-button" type="button" onClick={() => showSignIn(manifest)}>Sign in</button>}
                 {installed && manifest.env.some((entry) => entry.secret) && <button className="text-button" type="button" onClick={() => void revealSecrets(manifest)}>Secrets</button>}
@@ -491,7 +491,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                 </>
               ) : (
                 <>
-                  <p className="muted">Full control, full responsibility: docker compose validates the file and BoxPilot rolls back if the app does not come up — but the next Settings change or Update regenerates it from the manifest.</p>
+                  <p className="muted">Full control, full responsibility: docker compose validates the file and BoxPilot rolls back if the app does not come up, but the next Settings change or Update regenerates it from the manifest.</p>
                   <textarea aria-label="Compose file" className="compose-editor" spellCheck="false" rows={16} value={composeDraft} onChange={(event) => setComposeDraft(event.target.value)} />
                   <footer className="recovery-actions">
                     <button className="secondary-button" type="button" onClick={() => setComposeDraft(null)}>Cancel</button>
@@ -512,7 +512,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
               {models.loading && <p className="muted">Asking {models.name} what it has…</p>}
               {!models.loading && !models.available && <p className="muted">{models.reason ?? "The model runner is not answering yet."} Models can only be listed while the app is running.</p>}
               {!models.loading && models.available && (models.rows.length === 0
-                ? <p className="muted">Nothing downloaded yet. Add one below — <code>llama3.2:3b</code> is a good first choice at about 2 GB.</p>
+                ? <p className="muted">Nothing downloaded yet. Add one below. <code>llama3.2:3b</code> is a good first choice at about 2 GB.</p>
                 : <><p className="muted">{models.rows.length} model{models.rows.length === 1 ? "" : "s"} using {(() => { const total = models.rows.reduce((sum, row) => sum + (row.bytes || 0), 0); return total >= 1e9 ? `${(total / 1e9).toFixed(1)} GB` : `${Math.round(total / 1e6)} MB`; })()} of disk.</p>
                   <table className="perf-table">
                     <thead><tr><th>Model</th><th className="num">Size</th><th>Added</th><th /></tr></thead>
@@ -533,7 +533,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                   <button className="primary-button" type="submit" disabled={!models.wanted.trim()}>Download</button>
                 </form>
               )}
-              <p className="muted">Names come from <a href="https://ollama.com/library" target="_blank" rel="noreferrer">the Ollama library</a>. Disk is rarely the limit — <strong>memory is</strong>: a model needs roughly its own size free in RAM to answer, so a 19 GB model wants about that much spare. Check the Performance page before pulling a large one. Without a graphics card, 3–8 B models answer at reading speed; <code>qwen3:30b-a3b</code> is the exception worth its size.</p>
+              <p className="muted">Names come from <a href="https://ollama.com/library" target="_blank" rel="noreferrer">the Ollama library</a>. Disk is rarely the limit; <strong>memory is</strong>: a model needs roughly its own size free in RAM to answer, so a 19 GB model wants about that much spare. Check the Performance page before pulling a large one. Without a graphics card, 3–8 B models answer at reading speed; <code>qwen3:30b-a3b</code> is the exception worth its size.</p>
             </div>
           </section>
         </div>
@@ -558,14 +558,14 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                     {port && <p><a className="primary-button" href={openUrl(port, manifest)} target="_blank" rel="noreferrer">Open {manifest.name}'s sign-in page</a></p>}
                     <dl className="sign-in-details">
                       <dt>Username</dt>
-                      {username !== null ? <dd><code>{String(username)}</code></dd> : <dd className="muted">none — {manifest.name} asks only for the password</dd>}
+                      {username !== null ? <dd><code>{String(username)}</code></dd> : <dd className="muted">none; {manifest.name} asks only for the password</dd>}
                       <dt>{passwordLabel}</dt>
                       <dd>{secrets.items && secrets.items.length > 0
                         ? <input readOnly value={secrets.items[0].value} aria-label={passwordLabel} onFocus={(event) => event.currentTarget.select()} />
                         : secrets.needsPassword ? <span className="muted">enter your owner password below</span> : <button className="text-button" type="button" onClick={() => void revealSecrets(manifest, undefined, true)}>Reveal</button>}</dd>
                     </dl>
                     {manifest.signIn.note && <p className="muted">{manifest.signIn.note}</p>}
-                    <form className="recovery-actions" onSubmit={(event) => { event.preventDefault(); if (newPassword.length < 8) return; start({ operationId: "app.password.set", title: `Change ${manifest.name}'s sign-in password`, parameters: { id: manifest.id, password: newPassword }, preview: <span>Sets a new {passwordLabel.toLowerCase()} and recreates {manifest.name} so it takes effect — a few seconds of downtime, data untouched.</span> }); setSecrets(null); }}>
+                    <form className="recovery-actions" onSubmit={(event) => { event.preventDefault(); if (newPassword.length < 8) return; start({ operationId: "app.password.set", title: `Change ${manifest.name}'s sign-in password`, parameters: { id: manifest.id, password: newPassword }, preview: <span>Sets a new {passwordLabel.toLowerCase()} and recreates {manifest.name} so it takes effect: a few seconds of downtime, data untouched.</span> }); setSecrets(null); }}>
                       <input type="password" autoComplete="new-password" minLength={8} maxLength={128} placeholder="New password (8+ characters)" aria-label="New password" value={newPassword} onChange={(event) => setSecrets({ ...secrets, newPassword: event.target.value })} />
                       <button className="secondary-button" type="submit" disabled={newPassword.length < 8}>Change password</button>
                     </form>

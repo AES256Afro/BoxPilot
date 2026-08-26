@@ -92,7 +92,7 @@ export default function SignInSettings({ csrfToken }: { csrfToken: string }) {
           {links?.githubLogins.length ? <div className="recovery-actions" style={{ marginTop: 8 }}>{links.githubLogins.map((login) => <button key={login} className="secondary-button" type="button" disabled={busy || !passwordOk} onClick={() => void unlinkGithub(login)}>Unlink {login}</button>)}</div> : null}
           {links?.githubRelinkNeeded?.length ? (
             <p className="muted" style={{ marginTop: 8 }}>
-              {links.githubRelinkNeeded.join(", ")} {links.githubRelinkNeeded.length === 1 ? "was" : "were"} linked before BoxPilot recorded GitHub's account number. A GitHub name can be released and taken by somebody else, so a name on its own no longer signs anyone in — link {links.githubRelinkNeeded.length === 1 ? "it" : "them"} again to use GitHub sign-in.
+              {links.githubRelinkNeeded.join(", ")} {links.githubRelinkNeeded.length === 1 ? "was" : "were"} linked before BoxPilot recorded GitHub's account number. A GitHub name can be released and taken by somebody else, so a name on its own no longer signs anyone in. Link {links.githubRelinkNeeded.length === 1 ? "it" : "them"} again to use GitHub sign-in.
             </p>
           ) : null}
         </div></div>

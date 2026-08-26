@@ -42,7 +42,7 @@ describe("health alerts", () => {
 
     snapshot = healthy;
     expect(await alerts.check()).toMatchObject({ active: [], sent: ["resolved:storage.root.full"] });
-    expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ title: "BoxPilot: resolved — Root disk is 92% full" }));
+    expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ title: "BoxPilot: resolved. Root disk is 92% full" }));
     expect(settings.get("healthAlertsState")).toEqual({});
     expect(store.recordAudit).toHaveBeenCalledWith("health.alert.resolved", expect.objectContaining({ subjectId: "storage.root.full" }));
   });

@@ -42,7 +42,7 @@ export default function NotificationSettings({ csrfToken }: { csrfToken: string 
       const response = await fetch("/api/v1/settings/notifications/test", { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } });
       const body = (await response.json()) as { error?: string };
       if (!response.ok) throw new Error(body.error ?? "The test notification failed");
-      setMessage("Test sent — check your device.");
+      setMessage("Test sent. Check your device.");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "The test notification failed");
     } finally {
@@ -53,7 +53,7 @@ export default function NotificationSettings({ csrfToken }: { csrfToken: string 
   return (
     <section className="panel settings-panel">
       <header className="panel-header">
-        <div><strong>Notifications</strong><span>Failed jobs push to your phone — ntfy and Gotify are both in the app catalog</span></div>
+        <div><strong>Notifications</strong><span>Failed jobs push to your phone. Ntfy and Gotify are both in the app catalog</span></div>
         <span className={`status-pill ${current?.configured ? "status-good" : "status-neutral"}`}>{current?.configured ? `${current.kind} configured` : "Off"}</span>
       </header>
       <p className="muted">You get a push for: a failed job, a new BoxPilot release, and health changes on this server (root or any mounted disk over 85–90 % full, a disk with SMART problems, the UPS on battery or low, failed system services, a pending reboot, an unhealthy container). Each condition is sent once when it appears and once when it clears; the watcher checks every 15 minutes.</p>

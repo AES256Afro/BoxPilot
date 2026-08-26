@@ -30,7 +30,7 @@ export default function TailscalePanel({ start, tailscale }: { start: (operation
       </header>
       <div className="samba-scope">
         <label><input type="checkbox" checked={exitNode} disabled={!tailscale.connected} onChange={(event) => setExitNode(event.target.checked)} /> <strong>Use this server as an exit node</strong> <span className="muted">route all of a device's internet traffic through your home connection when you are away (hotel Wi-Fi, geo-locked services)</span></label>
-        <label><input type="checkbox" checked={subnetRouter} disabled={!tailscale.connected || lan.length === 0} onChange={(event) => setSubnetRouter(event.target.checked)} /> <strong>Share my home network with my tailnet (subnet router)</strong> <span className="muted">{lan.length ? <>reach every device on <code>{lan.join(", ")}</code> — the NAS, printer, TV — from your devices anywhere, without installing Tailscale on them</> : "no LAN subnet detected"}</span></label>
+        <label><input type="checkbox" checked={subnetRouter} disabled={!tailscale.connected || lan.length === 0} onChange={(event) => setSubnetRouter(event.target.checked)} /> <strong>Share my home network with my tailnet (subnet router)</strong> <span className="muted">{lan.length ? <>reach every device on <code>{lan.join(", ")}</code>. The NAS, printer, TV, from your devices anywhere, without installing Tailscale on them</> : "no LAN subnet detected"}</span></label>
       </div>
       <div className="recovery-actions samba-apply">
         <button className="primary-button" type="button" disabled={!dirty || !tailscale.connected} onClick={() => start({

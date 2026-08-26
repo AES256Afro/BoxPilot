@@ -100,7 +100,7 @@ export default function SambaPanel({ start, folders, refreshKey }: { start: (ope
       {error && <div className="auth-error" role="alert">{error}</div>}
 
       <div className="samba-scope">
-        <label><input type="radio" name="samba-scope" checked={scope === "tailscale"} onChange={() => { setScope("tailscale"); setDirty(true); }} /> <strong>Tailscale only</strong> {hint("recommended — reachable from your devices anywhere, invisible on the LAN")}</label>
+        <label><input type="radio" name="samba-scope" checked={scope === "tailscale"} onChange={() => { setScope("tailscale"); setDirty(true); }} /> <strong>Tailscale only</strong> {hint("recommended, reachable from your devices anywhere, invisible on the LAN")}</label>
         <label><input type="radio" name="samba-scope" checked={scope === "lan"} onChange={() => { setScope("lan"); setDirty(true); }} /> <strong>Tailscale + LAN</strong> {hint("also visible to devices on your home network; tick “Windows file sharing (SMB)” on the Firewall page")}</label>
         <label className="samba-workgroup">Workgroup <input aria-label="Workgroup" value={workgroup} onChange={(event) => { setWorkgroup(event.target.value.toUpperCase()); setDirty(true); }} /></label>
       </div>
@@ -125,7 +125,7 @@ export default function SambaPanel({ start, folders, refreshKey }: { start: (ope
             {draft.length === 0 && <tr><td colSpan={5} className="muted">No shares yet. Add one below, then Apply.</td></tr>}
             {draft.map((share) => (
               <tr key={share.name}>
-                <td><strong>{share.name}</strong>{share.comment && <span className="muted"> — {share.comment}</span>}</td>
+                <td><strong>{share.name}</strong>{share.comment && <span className="muted">, {share.comment}</span>}</td>
                 <td><code>{share.path}</code></td>
                 <td>{share.guest ? "Everyone (no password)" : share.users.length ? share.users.join(", ") : "Any user"}</td>
                 <td>{share.readOnly ? "Read-only" : "Read & write"}</td>
@@ -167,8 +167,8 @@ export default function SambaPanel({ start, folders, refreshKey }: { start: (ope
       {state?.configured && (
         <p className="muted share-note">
           <strong>Connect:</strong> macOS/Linux <code>smb://{connectHost}/{draft[0]?.name ?? "<share>"}</code> · Windows <code>\\{connectHost}\{draft[0]?.name ?? "<share>"}</code>
-          {scope === "tailscale" && <> — works from any device signed into your tailnet, nowhere else.</>}
-          {scope === "lan" && state.lanAddress && <> — on the LAN use <code>{state.lanAddress}</code>; from outside use the Tailscale name.</>}
+          {scope === "tailscale" && <>. Works from any device signed into your tailnet, nowhere else.</>}
+          {scope === "lan" && state.lanAddress && <>, on the LAN use <code>{state.lanAddress}</code>; from outside use the Tailscale name.</>}
           {state.config.shares.some((share) => share.forceUser === null && !share.readOnly) && <> Folders owned by root are read-only for everyone until you change their owner.</>}
         </p>
       )}

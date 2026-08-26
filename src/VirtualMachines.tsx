@@ -175,7 +175,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
 
   const actionPreviews: Record<string, string> = {
     start: "Starts the VM and verifies libvirt reports it running.",
-    shutdown: "Requests a graceful ACPI shutdown and waits up to two minutes. The plug is never pulled — Force off exists for that.",
+    shutdown: "Requests a graceful ACPI shutdown and waits up to two minutes. The plug is never pulled. Force off exists for that.",
     reboot: "Requests a guest reboot through libvirt.",
     "autostart-on": "The VM will start automatically when this server boots.",
     "autostart-off": "The VM will no longer start automatically when this server boots.",
@@ -200,7 +200,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       operationId: "vm.snapshot.create",
       title: `Snapshot ${domain.name} as ${snapshotName}`,
       parameters: { name: domain.name, snapshotName },
-      preview: <span>Creates an offline internal snapshot of the stopped VM. Only plain qcow2 disks qualify — checked before anything runs — and a snapshot is not an independent backup.</span>,
+      preview: <span>Creates an offline internal snapshot of the stopped VM. Only plain qcow2 disks qualify. Checked before anything runs, and a snapshot is not an independent backup.</span>,
     });
   };
 
@@ -230,7 +230,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       operationId: "vm.backup.retention.apply",
       title: "Apply VM backup retention",
       parameters: {},
-      preview: <span>Forgets only the currently eligible old snapshots — restore-tested, unreferenced, over the age floor, and never below {retentionStatus?.policy?.minimumCopiesPerDomain ?? 3} copies per VM — then verifies the repository. Prune never runs, so no space is reclaimed.</span>,
+      preview: <span>Forgets only the currently eligible old snapshots. Restore-tested, unreferenced, over the age floor, and never below {retentionStatus?.policy?.minimumCopiesPerDomain ?? 3} copies per VM. Then verifies the repository. Prune never runs, so no space is reclaimed.</span>,
     });
   };
 
@@ -258,7 +258,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       operationId: "vm.recovery.create",
       title: `Recover ${backup.domainName} as ${targetDomainName}`,
       parameters: { backupId: backup.id, targetDomainName },
-      preview: <span>Restores the protected snapshot into a new persistent VM named <code>{targetDomainName}</code> — stopped, no network, autostart off. The source VM, backup, and repository are unchanged.</span>,
+      preview: <span>Restores the protected snapshot into a new persistent VM named <code>{targetDomainName}</code>. Stopped, no network, autostart off. The source VM, backup, and repository are unchanged.</span>,
     });
   };
 
@@ -304,7 +304,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
           {!domainList?.connected ? (
             <div className="vm-empty"><strong>libvirt is not connected</strong><p>{domainList?.error ?? "Complete the host setup checklist, then refresh."}</p></div>
           ) : domains.length === 0 ? (
-            <div className="vm-empty"><strong>No virtual machines yet</strong><p>Add installation media below — a cloud image or an ISO — then <strong>Plan new VM</strong> to choose its CPUs, memory and disk. BoxPilot shows you the machine it will define before it defines it.</p></div>
+            <div className="vm-empty"><strong>No virtual machines yet</strong><p>Add installation media below. A cloud image or an ISO. Then <strong>Plan new VM</strong> to choose its CPUs, memory and disk. BoxPilot shows you the machine it will define before it defines it.</p></div>
           ) : (
             <div className="vm-domain-list">
               {domains.map((domain) => (
@@ -433,7 +433,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
                   title: `Forget snapshot ${snapshotId.slice(0, 8)}`,
                   parameters: { snapshotId },
                   confirmText: snapshotId.slice(0, 8),
-                  preview: <span>Removes snapshot <code>{snapshotId.slice(0, 12)}</code> from the encrypted repository. It has no local backup record, so nothing BoxPilot knows about is lost — but if it is in fact a copy you want, this cannot be undone. Nothing is pruned.</span>,
+                  preview: <span>Removes snapshot <code>{snapshotId.slice(0, 12)}</code> from the encrypted repository. It has no local backup record, so nothing BoxPilot knows about is lost, but if it is in fact a copy you want, this cannot be undone. Nothing is pruned.</span>,
                 })}>Forget {snapshotId.slice(0, 8)}</button>
               ))}
             </div>
@@ -443,7 +443,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
         {exports.length === 0 ? (
           <div className="vm-empty">
             <strong>{unread.includes("exports") ? "Exports could not be read" : "No VM exports recorded"}</strong>
-            <p>{unread.includes("exports") ? "This list is not empty — BoxPilot could not read it just now. Refresh in a moment." : "Stop a managed persistent VM, then generate a reviewed export plan. Encryption, an independent destination, and an isolated restore boot are still required before BoxPilot will call it protected."}</p>
+            <p>{unread.includes("exports") ? "This list is not empty. BoxPilot could not read it just now. Refresh in a moment." : "Stop a managed persistent VM, then generate a reviewed export plan. Encryption, an independent destination, and an isolated restore boot are still required before BoxPilot will call it protected."}</p>
           </div>
         ) : (
           <div className="vm-resource-grid">
@@ -509,7 +509,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       </div>
 
       {message && <p className="vm-message" aria-live="polite">{message}</p>}
-      {plannerOpen && <VmPlanner csrfToken={csrfToken} onClose={() => setPlannerOpen(false)} onStage={(input) => { setPlannerOpen(false); startOperation({ operationId: "vm.create", title: `Create VM ${input.name}`, parameters: { ...input }, preview: <span>Creates <code>{input.name}</code> exactly as planned through the restricted helper — {input.vcpus} vCPU, {formatMemory(input.memoryMiB * 1024)} RAM, {input.diskGiB} GiB disk from <code>{input.isoFile}</code> — revalidated against the live host first. Failure rolls back the new domain and its storage.</span> }); }} />}
+      {plannerOpen && <VmPlanner csrfToken={csrfToken} onClose={() => setPlannerOpen(false)} onStage={(input) => { setPlannerOpen(false); startOperation({ operationId: "vm.create", title: `Create VM ${input.name}`, parameters: { ...input }, preview: <span>Creates <code>{input.name}</code> exactly as planned through the restricted helper, {input.vcpus} vCPU, {formatMemory(input.memoryMiB * 1024)} RAM, {input.diskGiB} GiB disk from <code>{input.isoFile}</code>. Revalidated against the live host first. Failure rolls back the new domain and its storage.</span> }); }} />}
       {snapshotDomain && (
         <div className="vm-planner-backdrop" role="presentation">
           <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-snapshot-title">

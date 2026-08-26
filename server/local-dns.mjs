@@ -39,7 +39,7 @@ export function nameFor(appId, domain) {
  */
 export function renderHostsFile(records, { generatedAt }) {
   const lines = [
-    "# Managed by BoxPilot — this whole file is rewritten when apps change.",
+    "# Managed by BoxPilot. This whole file is rewritten when apps change.",
     "# Records you add yourself belong in custom.list, which BoxPilot never touches.",
     `# Last written ${generatedAt}`,
     "",

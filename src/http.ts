@@ -16,12 +16,12 @@ export interface ReadJsonOptions {
 export async function readJson<T>(response: Response, { allowStatus = [] }: ReadJsonOptions = {}): Promise<T> {
   const body = (await response.json().catch(() => null)) as (T & { error?: string; errors?: string[] }) | null;
   if (response.ok || allowStatus.includes(response.status)) {
-    if (body === null) throw new Error("BoxPilot sent a reply the page could not read. It may be restarting — try again in a moment.");
+    if (body === null) throw new Error("BoxPilot sent a reply the page could not read. It may be restarting. Try again in a moment.");
     return body;
   }
   if (body?.error) throw new Error(body.error);
   if (body?.errors?.length) throw new Error(body.errors.join(" | "));
   if (response.status === 401) throw new Error("Your session has expired. Sign in again.");
-  if (response.status === 502 || response.status === 503 || response.status === 504) throw new Error("BoxPilot is not answering. It may be restarting — try again in a moment.");
+  if (response.status === 502 || response.status === 503 || response.status === 504) throw new Error("BoxPilot is not answering. It may be restarting. Try again in a moment.");
   throw new Error(`Request failed (${response.status})`);
 }

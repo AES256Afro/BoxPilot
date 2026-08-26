@@ -108,7 +108,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
           <button className="icon-button" type="button" onClick={dismiss} aria-label="Close dialog" disabled={busy}>X</button>
         </header>
         <div className="modal-copy">
-          {policy && <p><span className={`status-pill ${tierTone[tier]}`}>{tierLabel[tier]}</span>{policy.elevated && tier === "high" ? <span className="good-text"> Session elevated — no password needed right now.</span> : null}</p>}
+          {policy && <p><span className={`status-pill ${tierTone[tier]}`}>{tierLabel[tier]}</span>{policy.elevated && tier === "high" ? <span className="good-text"> Session elevated, no password needed right now.</span> : null}</p>}
           {preview && <div className="notice">{preview}</div>}
           {phase === "staging" && <p>Preparing...</p>}
           {phase === "ready" && confirmRequired && (

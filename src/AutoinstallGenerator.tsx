@@ -65,7 +65,7 @@ export default function AutoinstallGenerator({ csrfToken }: { csrfToken: string 
     const url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
     const anchor = document.createElement("a"); anchor.href = url; anchor.download = name; anchor.click(); URL.revokeObjectURL(url);
   };
-  const copy = async (name: string, text: string) => { try { await navigator.clipboard.writeText(text); setCopied(name); window.setTimeout(() => setCopied(null), 1500); } catch { setError("Clipboard unavailable — use Download."); } };
+  const copy = async (name: string, text: string) => { try { await navigator.clipboard.writeText(text); setCopied(name); window.setTimeout(() => setCopied(null), 1500); } catch { setError("Clipboard unavailable. Use Download."); } };
 
   return (
     <section className="panel">

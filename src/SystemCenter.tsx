@@ -171,7 +171,7 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
             {releaseError ? `Release check unavailable: ${releaseError}`
               : checkingRelease && !release ? "Checking GitHub for releases…"
               : !release ? "The release check has not run yet."
-              : release.latest ? `Latest release ${release.latest.tag}${release.latest.publishedAt ? ` (${new Date(release.latest.publishedAt).toLocaleDateString()})` : ""} — ${release.updateAvailable ? "newer than the installed version" : "you are up to date"}.`
+              : release.latest ? `Latest release ${release.latest.tag}${release.latest.publishedAt ? ` (${new Date(release.latest.publishedAt).toLocaleDateString()})` : ""}, ${release.updateAvailable ? "newer than the installed version" : "you are up to date"}.`
               : release.error ? `Release check unavailable: ${release.error}` : "No releases have been published yet."}
           </span>
           {release?.latest && <a href={release.latest.url} target="_blank" rel="noreferrer">Release notes</a>}
@@ -179,12 +179,12 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
         </div>
         {updating && (
           <div className={updateOutcome === "timeout" ? "auth-error" : "surface-notice"} role="status">
-            {updateOutcome === "live" ? `BoxPilot ${updating} is live — reloading.` : updateOutcome === "timeout" ? "The update is taking longer than ten minutes. Check the update log below; a failed health check restores the previous version automatically." : `Updating to ${updating}… BoxPilot restarts when the build finishes. This page reconnects by itself.`}
+            {updateOutcome === "live" ? `BoxPilot ${updating} is live. Reloading.` : updateOutcome === "timeout" ? "The update is taking longer than ten minutes. Check the update log below; a failed health check restores the previous version automatically." : `Updating to ${updating}… BoxPilot restarts when the build finishes. This page reconnects by itself.`}
           </div>
         )}
         {updateStatus && updateStatus.log.length > 0 && (
           <details className="vm-domain-details">
-            <summary>Last update log{updateStatus.outcome ? ` — ${updateStatus.outcome}` : ""}</summary>
+            <summary>Last update log{updateStatus.outcome ? `, ${updateStatus.outcome}` : ""}</summary>
             <pre className="app-logs">{updateStatus.log.join("\n")}</pre>
           </details>
         )}
@@ -256,7 +256,7 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
         <header className="panel-header">
           <div>
             <strong>Housekeeping</strong>
-            <span>{housekeeping ? `${housekeeping.totalHumanBytes} can be reclaimed. Pick what to clear — nothing else is touched.` : "What is taking up room that nothing needs any more."}</span>
+            <span>{housekeeping ? `${housekeeping.totalHumanBytes} can be reclaimed. Pick what to clear; nothing else is touched.` : "What is taking up room that nothing needs any more."}</span>
           </div>
           <div className="recovery-actions">
             <button className="text-button" type="button" disabled={scanning} onClick={() => void scanHousekeeping()}>{scanning ? "Looking…" : "Rescan"}</button>
@@ -270,7 +270,7 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
                 parameters: { targets: [...chosenCleanup] },
                 preview: (
                   <span>
-                    Removes {[...chosenCleanup].map((id) => housekeeping?.categories.find((category) => category.id === id)?.title.toLowerCase()).filter(Boolean).join(", ")} — about {chosenHumanBytes}.
+                    Removes {[...chosenCleanup].map((id) => housekeeping?.categories.find((category) => category.id === id)?.title.toLowerCase()).filter(Boolean).join(", ")}, about {chosenHumanBytes}.
                     Images a container or an installed app needs, the most recent version you could put back by hand, and the newest backups of each app are not touched.
                   </span>
                 ),
@@ -321,8 +321,8 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
           </div>
           {dockerDisk.logging && !dockerDisk.logging.configured && (
             <div className="recovery-actions">
-              <span className="muted">Container logs are unlimited right now — a chatty container can fill the disk.</span>
-              <button className="secondary-button" type="button" disabled={loading} onClick={() => start({ operationId: "docker.logging.set", title: "Apply Docker log rotation defaults", parameters: {}, preview: <span>Sets the daemon default to 3 × 10 MB per container — for containers created from now on, not existing ones — and turns on live-restore, then restarts dockerd. Running containers restart briefly this one time; future daemon restarts leave them running.</span> })}>Apply log rotation defaults</button>
+              <span className="muted">Container logs are unlimited right now. A chatty container can fill the disk.</span>
+              <button className="secondary-button" type="button" disabled={loading} onClick={() => start({ operationId: "docker.logging.set", title: "Apply Docker log rotation defaults", parameters: {}, preview: <span>Sets the daemon default to 3 × 10 MB per container, for containers created from now on, not existing ones, and turns on live-restore, then restarts dockerd. Running containers restart briefly this one time; future daemon restarts leave them running.</span> })}>Apply log rotation defaults</button>
             </div>
           )}
           {dockerDisk.logging?.configured && <p className="muted">Log rotation: {dockerDisk.logging.maxSize} per file{dockerDisk.logging.liveRestore ? " · live-restore on" : ""}. Applies to containers created after it was set.</p>}

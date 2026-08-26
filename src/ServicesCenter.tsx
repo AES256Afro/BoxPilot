@@ -55,7 +55,7 @@ export default function ServicesCenter({ csrfToken }: { csrfToken: string }) {
 
   const act = (unit: Unit, action: "start" | "stop" | "restart" | "reload" | "enable" | "disable") => start({
     operationId: "service.action", title: `${action[0].toUpperCase()}${action.slice(1)} ${unit.unit}`, parameters: { unit: unit.unit, action },
-    preview: <span><code>systemctl {action} {unit.unit}</code>{unit.description ? ` — ${unit.description}` : ""}</span>,
+    preview: <span><code>systemctl {action} {unit.unit}</code>{unit.description ? `, ${unit.description}` : ""}</span>,
   });
 
   const statePill = (unit: Unit) => {

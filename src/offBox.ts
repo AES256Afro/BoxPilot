@@ -65,7 +65,7 @@ export function offBoxVerdict(
 
 /** One sentence for the Overview, or null when a recent copy exists somewhere else. */
 export function offBoxWarning(verdict: OffBoxVerdict): string | null {
-  if (verdict.state === "none") return "Backups are only on this server — a disk failure would take them with it";
+  if (verdict.state === "none") return "Backups are only on this server. A disk failure would take them with it";
   if (verdict.state === "never") return "Backups have never been copied off this server";
   if (verdict.state === "stale") return `The off-box copy of your backups is ${verdict.ageDays} days old`;
   return null;

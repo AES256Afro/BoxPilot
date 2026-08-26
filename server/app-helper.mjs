@@ -652,7 +652,7 @@ export function createAppHelper({
       const loopback = port?.exposure === "loopback";
       const publishedOnTailnet = loopback && tailnetHost && served.has(Number(hostPort));
       const href = port ? (loopback ? (publishedOnTailnet ? `https://${linkHost}:${hostPort}` : null) : `http://${linkHost}:${hostPort}`) : null;
-      const description = loopback && !publishedOnTailnet ? `${manifest.description} (on the server itself, at 127.0.0.1:${hostPort} — publish it with Serve to reach it from elsewhere)` : manifest.description;
+      const description = loopback && !publishedOnTailnet ? `${manifest.description} (on the server itself at 127.0.0.1:${hostPort}; publish it with Serve to reach it from elsewhere)` : manifest.description;
       entries.push({ [manifest.name]: { ...(href ? { href } : {}), description, icon: `${manifest.id}.png`, server: "boxpilot", container: projectNameFor(manifest.id) } });
     }
     await mkdir(configDirectory, { recursive: true });
@@ -1012,8 +1012,8 @@ export function createAppHelper({
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
     const status = await containerStatus(id);
-    if (status.status === "paused") throw new Error(`${manifest.name} is paused — resume it before changing its models`);
-    if (!status.running) throw new Error(`${manifest.name} is not running — start it before changing its models`);
+    if (status.status === "paused") throw new Error(`${manifest.name} is paused. Resume it before changing its models`);
+    if (!status.running) throw new Error(`${manifest.name} is not running. Start it before changing its models`);
   }
 
   /** `ollama list` as rows. Columns are separated by runs of spaces; SIZE and MODIFIED contain single ones. */
@@ -1036,8 +1036,8 @@ export function createAppHelper({
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
     const status = await containerStatus(id);
-    if (status.status === "paused") return { id, available: false, models: [], totalBytes: 0, reason: `${manifest.name} is paused — resume it to see its models` };
-    if (!status.running) return { id, available: false, models: [], totalBytes: 0, reason: `${manifest.name} is not running — start it to see its models` };
+    if (status.status === "paused") return { id, available: false, models: [], totalBytes: 0, reason: `${manifest.name} is paused. Resume it to see its models` };
+    if (!status.running) return { id, available: false, models: [], totalBytes: 0, reason: `${manifest.name} is not running. Start it to see its models` };
     const result = await compose(id, ["exec", "-T", modelService(manifest), "ollama", "list"], { timeout: 60_000 });
     // A runner that is still starting has no answer yet, which is not a failure worth an error page.
     if (!result.ok) return { id, available: false, models: [], totalBytes: 0, reason: redact(result.stderr).split("\n").filter(Boolean).slice(-1)[0] ?? "the model runner is not answering yet" };

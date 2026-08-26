@@ -9,7 +9,7 @@ describe("whether a copy exists off this server", () => {
   it("says backups are only on this server when nothing is set up", () => {
     // The case BoxPilot used to be silent about, and the one most servers are actually in.
     expect(offBoxVerdict({}, { now }).state).toBe("none");
-    expect(warn({})).toBe("Backups are only on this server — a disk failure would take them with it");
+    expect(warn({})).toBe("Backups are only on this server. A disk failure would take them with it");
   });
 
   it("distinguishes a destination that exists from one anything has reached", () => {

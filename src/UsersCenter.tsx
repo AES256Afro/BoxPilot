@@ -100,7 +100,7 @@ export default function UsersCenter({ csrfToken }: { csrfToken: string }) {
                           operationId: "users.sudo.set",
                           title: user.sudo ? `Remove sudo from ${user.name}` : `Grant sudo to ${user.name}`,
                           parameters: { username: user.name, sudo: !user.sudo },
-                          preview: user.sudo ? <span>Removes {user.name} from the sudo group. The last sudo user cannot be removed.</span> : <span>Adds {user.name} to the sudo group — full administrator rights.</span>,
+                          preview: user.sudo ? <span>Removes {user.name} from the sudo group. The last sudo user cannot be removed.</span> : <span>Adds {user.name} to the sudo group, full administrator rights.</span>,
                         })}>{user.sudo ? "Remove sudo" : "Grant sudo"}</button>
                       )}
                     </div>

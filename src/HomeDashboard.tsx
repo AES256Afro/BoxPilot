@@ -171,7 +171,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
       {setup?.firstRun && (
         <section className="panel">
           <header className="panel-header">
-            <div><strong>Set up this server</strong><span>Nothing is installed yet. Pick what this box should be — home server, DNS appliance, hypervisor, dev box, or just the essentials — and BoxPilot installs the rest in order.</span></div>
+            <div><strong>Set up this server</strong><span>Nothing is installed yet. Pick what this box should be: home server, DNS appliance, hypervisor, dev box, or just the essentials, and BoxPilot installs the rest in order.</span></div>
             <button className="primary-button" type="button" onClick={() => onNavigate("setup")}>Choose a profile</button>
           </header>
         </section>
