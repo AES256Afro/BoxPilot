@@ -17,6 +17,8 @@ const failing = (code) => Object.assign(new Error(code), { code });
 const quiet = async () => { throw failing("ETIMEOUT"); };
 /** Something answers them, which is what a network intercepting DNS looks like. */
 const interceptor = async () => ["104.20.23.154"];
+/** An interceptor that blocks ads itself, which is a blocker on the router rather than a fault. */
+const blockingInterceptor = async (_server, domain) => (domain === probeDomain ? ["0.0.0.0"] : ["104.20.23.154"]);
 
 describe("checking the DNS blocker the way a laptop would", () => {
   it("is happy when it answers, resolves, and refuses what it should", async () => {
@@ -58,6 +60,21 @@ describe("checking the DNS blocker the way a laptop would", () => {
     expect(notBlocking.reason).toMatch(/lists may not have loaded/);
   });
 
+  it("reads a blocking interceptor as an arrangement, not a fault", async () => {
+    // A blocker on the router answers everything and blocks ads. Nothing here is broken; this
+    // blocker is simply idle. Reporting that as a failure sends the owner to fix a working network.
+    const report = await dnsBlockerVerify({ address: "192.168.1.10" }, {
+      resolveVia: blockingInterceptor,
+      resolve: answers({ [controlDomain]: failing("ESERVFAIL"), [probeDomain]: ["0.0.0.0"] }),
+    });
+    expect(report).toMatchObject({ intercepted: true, interceptorBlocking: true });
+    expect(report.reason).toMatch(/handled somewhere else/);
+    expect(report.reason).toMatch(/blocks ads too/);
+    expect(report.reason).not.toMatch(/Turn it off/);
+    // The one real cost is worth naming, because it is the feature that quietly stops working.
+    expect(report.reason).toMatch(/Local names/);
+  });
+
   it("notices when something is answering for addresses that cannot run a resolver", async () => {
     // The real fault on a live network: the blocker answers and blocks, but every recursive lookup
     // fails, because something upstream replies to everything and the reply does not validate.
@@ -66,7 +83,7 @@ describe("checking the DNS blocker the way a laptop would", () => {
       resolveVia: interceptor,
       resolve: answers({ [controlDomain]: failing("ESERVFAIL"), [probeDomain]: ["0.0.0.0"] }),
     });
-    expect(report.intercepted).toBe(true);
+    expect(report).toMatchObject({ intercepted: true, interceptorBlocking: false });
     expect(report.reason).toMatch(/answering every DNS query itself/);
     // Naming the control is the difference between advice and a shrug; the owner's router calls it
     // "Override DNS Settings of All Clients", and other firmware calls it Force DNS or DNS Redirect.

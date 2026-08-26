@@ -274,7 +274,7 @@ export const inspections = {
     records: [{ address: host.lan, name: "jellyfin.lan" }, { address: host.lan, name: "immich.lan" }],
     apps: Object.entries(installed).map(([id, port]) => ({ id, name: id, port })),
   },
-  "dns.blocker.verify": { address: host.lan, answering: true, resolving: true, blocking: true, intercepted: false,
+  "dns.blocker.verify": { address: host.lan, answering: true, resolving: true, blocking: true, intercepted: false, interceptorBlocking: null,
     control: { domain: "example.com", addresses: ["93.184.216.34"], error: null },
     probe: { domain: "doubleclick.net", addresses: ["0.0.0.0"], error: null }, reason: null },
   "router.inspect": { configured: true, reachable: true, host: "192.168.1.1", username: "root", model: "GL-MT6000", firmware: "4.7.0", reason: null },
@@ -509,7 +509,7 @@ const troubleWords = {
   // Pi-hole is installed but its container is stopped, so the names it serves have gone with it.
   "dns.names.inspect": { available: true, reason: null, platform: { id: "pi-hole", label: "Pi-hole", running: false }, records: [] },
   "app.serve.inspect": { available: false, serves: [] },
-  "dns.blocker.verify": { address: "192.168.1.10", answering: true, resolving: false, blocking: true, intercepted: true,
+  "dns.blocker.verify": { address: "192.168.1.10", answering: true, resolving: false, blocking: true, intercepted: true, interceptorBlocking: false,
     control: { domain: "example.com", addresses: [], error: "ESERVFAIL" },
     probe: { domain: "doubleclick.net", addresses: ["0.0.0.0"], error: null },
     reason: "Something between this server and the internet is answering every DNS query itself, including ones sent to addresses that cannot run a resolver. A recursive resolver cannot work through that, which is why lookups fail, and it also means devices on your network reach that thing rather than this blocker no matter what your router hands out. The setting is usually on the router, named something like \"Override DNS Settings of All Clients\", \"Force DNS\" or \"DNS Redirect\", and routers that run a blocker of their own (AdGuard Home, for instance) often switch it on. Turn it off to use this blocker, or keep the one on the router and leave this one to the apps on this server." },

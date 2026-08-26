@@ -15,6 +15,7 @@ interface Report {
   resolving: boolean;
   blocking: boolean;
   intercepted: boolean | null;
+  interceptorBlocking: boolean | null;
   control: { domain: string; addresses: string[]; error: string | null };
   probe: { domain: string; addresses: string[]; error: string | null };
   reason: string | null;
@@ -67,12 +68,18 @@ export default function DnsCheckPanel({ csrfToken, lanAddress }: { csrfToken: st
             <div>{verdict(report.resolving, "resolving", "cannot resolve")} <span className="muted">it looked up <code>{report.control.domain}</code>{report.control.error ? <> and got <code>{report.control.error}</code></> : null}</span></div>
             <div>{verdict(report.blocking, "blocking", "not blocking")} <span className="muted">it refused <code>{report.probe.domain}</code>, which every mainstream blocklist carries</span></div>
             {report.intercepted && (
-              <div><span className="status-pill status-warning">DNS is being intercepted</span> <span className="muted">something upstream answers queries sent to addresses that cannot run a resolver</span></div>
+              <div>
+                {report.interceptorBlocking
+                  ? <><span className="status-pill status-neutral">DNS is handled elsewhere</span> <span className="muted">something upstream answers every query and blocks ads itself, so this blocker is idle</span></>
+                  : <><span className="status-pill status-warning">DNS is being intercepted</span> <span className="muted">something upstream answers queries sent to addresses that cannot run a resolver</span></>}
+              </div>
             )}
           </div>
-          {report.reason
-            ? <p className="auth-error" role="alert">{report.reason}</p>
-            : <p className="muted">Answering, resolving and blocking. Devices pointed at <code>{report.address}</code> will use it.</p>}
+          {!report.reason
+            ? <p className="muted">Answering, resolving and blocking. Devices pointed at <code>{report.address}</code> will use it.</p>
+            : report.intercepted && report.interceptorBlocking
+            ? <p className="muted">{report.reason}</p>
+            : <p className="auth-error" role="alert">{report.reason}</p>}
         </>
       )}
     </section>
