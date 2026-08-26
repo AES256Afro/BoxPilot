@@ -3493,3 +3493,8 @@ textarea {
 .app-addresses li { font-size: 0.85rem; line-height: 1.4; }
 .app-addresses li code { word-break: break-all; }
 .app-addresses .eyebrow { display: block; margin-top: 0.5rem; }
+
+/* Tailnet addresses that no longer reach anything. */
+.stranded-serves { list-style: none; margin: 0.6rem 0 0; padding: 0; display: grid; gap: 0.5rem; }
+.stranded-serves li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; font-size: 0.9rem; }
+.stranded-serves li code { word-break: break-all; }
