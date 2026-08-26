@@ -11,6 +11,25 @@ import { findPortConflicts, listListeners } from "../ports.mjs";
 import { resolveValues } from "../catalog/schema.mjs";
 import { hashPassword, renderAutoinstall, validateAutoinstallInput } from "../autoinstall.mjs";
 
+/**
+ * The ports an installed app is already holding, as `port/protocol`, so reconfiguring it does not
+ * report the app conflicting with itself.
+ *
+ * This used to read `own.urls`, which is not the app's ports: `urls` is the list of links worth
+ * offering to open in a browser, so it keeps only TCP ports that Tailscale Serve can front. Pi-hole's
+ * 53/tcp and 53/udp are left out of it on purpose, which meant Pi-hole was told its own DNS ports
+ * were already in use, by itself, and could not be reconfigured at all. The stored values are the
+ * real inventory, and the protocol has to come from the manifest rather than be assumed to be TCP.
+ */
+export function portsHeldByApp(manifest, own) {
+  if (!own?.installed) return new Set();
+  const stored = own.state?.values?.ports ?? {};
+  return new Set((manifest.ports ?? [])
+    .map((port) => ({ host: stored[port.id] ?? port.host, protocol: port.protocol }))
+    .filter((port) => Number.isInteger(port.host))
+    .map((port) => `${port.host}/${port.protocol}`));
+}
+
 export function createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth }) {
   const router = Router();
 
@@ -41,9 +60,9 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       const listeners = await listListeners();
       const live = await helper.request("app.inspect", {}, { timeoutMs: 15_000 }).catch(() => null);
       const own = live?.applications?.find((entry) => entry.id === manifest.id);
-      // When reconfiguring a running app, its own current ports are not conflicts.
-      const ownPorts = new Set((own?.urls ?? []).map((url) => `${url.host}/tcp`));
-      conflicts = findPortConflicts(requested, listeners).filter((conflict) => !(own?.installed && ownPorts.has(`${conflict.port}/${conflict.protocol}`)));
+      // The ports this app is already holding are not conflicts with itself.
+      const ownPorts = portsHeldByApp(manifest, own);
+      conflicts = findPortConflicts(requested, listeners).filter((conflict) => !ownPorts.has(`${conflict.port}/${conflict.protocol}`));
     } catch { /* conflicts are advisory */ }
     return response.json({ ok: conflicts.length === 0, errors: [], conflicts: conflicts.map((conflict) => ({ ...conflict, label: requested.find((port) => port.id === conflict.id)?.label ?? conflict.id })) });
   });
