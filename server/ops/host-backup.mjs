@@ -13,7 +13,7 @@ export function hostBackupOperations() {
     }),
     defineOperation({
       id: "host.snapshot.create", title: "Create a machine snapshot", risk: "medium", timeoutMs: 30 * 60_000,
-      description: "One root-only archive to redeploy this box: a fresh verified controller database backup, every installed app's compose project with its settings and secrets, app-backup references, netplan/ufw/fstab, and each VM's definition. App data volumes stay in their own backups. Contains secrets so keep copies only on encrypted or physically controlled media.",
+      description: "One root-only archive to redeploy this box: a fresh verified controller database backup, every installed app's compose project with its settings and secrets, app-backup references, netplan/ufw/fstab, and each VM's definition. App data volumes stay in their own backups. Contains secrets, so keep copies only on encrypted or physically controlled media.",
       parameters: { exact: false, fields: { snapshotId: { type: "string", optional: true } } },
       run: ({ snapshotId }, { machineSnapshot }) => machineSnapshot.create({ snapshotId: snapshotId ?? randomUUID() }),
     }),
