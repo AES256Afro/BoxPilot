@@ -54,7 +54,7 @@ describe("machine snapshot restore", () => {
     const described = await helper.describe({ source: "local", artifact });
     expect(described).toMatchObject({ createdAt: "2026-08-21T02:00:00.000Z", apps: [{ id: "demo", installed: true, newestBackup: "20260821T010000Z.tar.gz", dataAvailable: true, dataLocation: "mirror" }], vms: { domains: ["dev-1"] } });
     await expect(helper.describe({ source: "local", artifact: "machine-snapshot-20260821T020000Z-00000000.tar.gz" })).rejects.toThrow("not found");
-    await expect(helper.describe({ source: "usb", artifact })).rejects.toThrow("local or mirror");
+    await expect(helper.describe({ source: "usb", artifact })).rejects.toThrow("local, mirror, or a drive BoxPilot found");
 
     const installed = new Map();
     const apps = {
@@ -84,5 +84,61 @@ describe("machine snapshot restore", () => {
     await writeFile(path.join(snapshotRoot, `${artifact}.meta.json`), JSON.stringify({ checksumSha256: "0".repeat(64) }));
     const helper = createMachineSnapshotHelper({ snapshotRoot, catalogRoot: path.join(root, "catalog"), applicationBackupRoot: path.join(root, "b"), mountRoot: path.join(root, "m"), controllerBackups: {}, requireIndependentDevice: false });
     await expect(helper.restore({ source: "local", artifact }, { apps: { internals: { readState: async () => null }, install: vi.fn(), restoreAppBackup: vi.fn() } })).rejects.toThrow("checksum");
+  });
+
+  it("restores from a drive it merely found, which is the case a rebuilt server is in", async () => {
+    // A server that has just been reinstalled has no snapshots of its own and no mirror configured,
+    // because what described the mirror was on the disk that died. All it has is a drive somebody
+    // mounted. This is that path end to end, not just the lookup.
+    const root = await mkdtemp(path.join(os.tmpdir(), "boxpilot-restore-")); directories.push(root);
+    const drive = path.join(root, "drive", "boxpilot-local-mirror", "machine-snapshots");
+    await mkdir(drive, { recursive: true });
+    const built = await buildSnapshot(root);
+    for (const name of await readdir(built)) await writeFile(path.join(drive, name), await readFile(path.join(built, name)));
+    await rm(built, { recursive: true, force: true });
+
+    const catalogRoot = path.join(root, "catalog");
+    const run = vi.fn(async (binary, args, options) => {
+      if (binary === "/usr/bin/findmnt" && args.includes("--real")) {
+        return { ok: true, stdout: JSON.stringify({ filesystems: [{ target: path.join(root, "drive"), source: "/dev/sdb1", fstype: "exfat" }] }) };
+      }
+      if (binary === "/usr/bin/findmnt") return { ok: false, stdout: "", stderr: "not mounted" };
+      return fixedRun(binary, args, options);
+    });
+    const helper = createMachineSnapshotHelper({
+      snapshotRoot: path.join(root, "empty-snapshots"), catalogRoot,
+      applicationBackupRoot: path.join(root, "backups"), controllerBackupRoot: path.join(root, "controller"),
+      mountRoot: path.join(root, "not-mounted"), findmntBinary: "/usr/bin/findmnt", run,
+    });
+
+    const { locations } = await helper.discover();
+    expect(locations).toHaveLength(1);
+    expect(locations[0].mount).toMatchObject({ source: "/dev/sdb1", filesystem: "exfat" });
+
+    const described = await helper.describe({ source: "discovered", root: locations[0].root, artifact });
+    expect(described.apps.map((app) => app.id)).toEqual(["demo"]);
+
+    const installed = new Map();
+    const apps = {
+      internals: { readState: async (id) => installed.get(id) ?? null },
+      install: vi.fn(async ({ id, values }) => { installed.set(id, { installed: true, values }); return { installed: true }; }),
+      restoreAppBackup: vi.fn(async () => ({ restored: true })),
+    };
+    const result = await helper.restore({ source: "discovered", root: locations[0].root, artifact, apps: "all", restoreData: false }, { apps });
+    expect(result).toMatchObject({ restored: 1, failed: 0 });
+    // The secrets have to land before the app is installed, or it comes up with generated ones.
+    expect(await readFile(path.join(catalogRoot, "demo", ".env"), "utf8")).toBe("ADMIN_PASSWORD=keep-me\n");
+  });
+
+  it("will not restore from a path nobody found", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "boxpilot-restore-")); directories.push(root);
+    const snapshotRoot = await buildSnapshot(root);
+    const helper = createMachineSnapshotHelper({
+      snapshotRoot, catalogRoot: path.join(root, "catalog"), applicationBackupRoot: path.join(root, "b"),
+      mountRoot: path.join(root, "m"), run: async () => ({ ok: false, stdout: "", stderr: "no mounts" }),
+    });
+    // The browser picks from what discovery returned; a path of its own choosing is not a source.
+    await expect(helper.restore({ source: "discovered", root: snapshotRoot, artifact }, { apps: { internals: { readState: async () => null }, install: vi.fn(), restoreAppBackup: vi.fn() } }))
+      .rejects.toThrow(/no longer mounted|no longer has snapshots/);
   });
 });
