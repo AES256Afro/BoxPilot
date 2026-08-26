@@ -5,7 +5,7 @@
  * can never reach into another setting, and that a password survives storage exactly as typed.
  */
 import { describe, expect, it } from "vitest";
-import { envFileLine, renderCompose } from "./compose.mjs";
+import { envFileLine, renderCompose, securityOptFor } from "./compose.mjs";
 
 describe("values the owner typed", () => {
   const manifest = {
@@ -119,5 +119,30 @@ describe("host network mode", () => {
     const fixed = { ...withSidecar, networkModes: ["bridge"] };
     const { compose } = renderCompose(fixed, { ...values, networkMode: "host" }, { lanAddress: "192.168.1.10" });
     expect(compose.services.hole.network_mode).toBeUndefined(); // stayed bridged
+  });
+});
+
+describe("no-new-privileges and the ports an app cannot otherwise bind", () => {
+  const piHole = { ports: [{ id: "dns", host: 53, protocol: "tcp" }, { id: "web", host: 8084, protocol: "tcp" }] };
+  const jellyfin = { ports: [{ id: "web", host: 8096, protocol: "tcp" }] };
+
+  it("keeps the flag everywhere it does not break the app", () => {
+    expect(securityOptFor(piHole, false)).toEqual(["no-new-privileges:true"]);
+    expect(securityOptFor(jellyfin, true)).toEqual(["no-new-privileges:true"]);
+    expect(securityOptFor(jellyfin, false)).toEqual(["no-new-privileges:true"]);
+    expect(securityOptFor({ ports: [] }, true)).toEqual(["no-new-privileges:true"]);
+  });
+
+  it("drops it only for a privileged port on the host's own network namespace", () => {
+    // Pi-hole binds 53 as a non-root user using a file capability, which no-new-privileges refuses
+    // to honour. In host mode that leaves a DNS server listening on nothing. In bridge mode it
+    // never arises, because Docker allows any user to bind low ports inside a container's own
+    // namespace, so the flag stays on there.
+    expect(securityOptFor(piHole, true)).toEqual([]);
+  });
+
+  it("ignores a port that was never given a number", () => {
+    expect(securityOptFor({ ports: [{ id: "x", host: null, protocol: "tcp" }] }, true)).toEqual(["no-new-privileges:true"]);
+    expect(securityOptFor({ ports: [{ id: "x", host: 0, protocol: "tcp" }] }, true)).toEqual(["no-new-privileges:true"]);
   });
 });

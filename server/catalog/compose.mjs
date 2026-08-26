@@ -93,6 +93,27 @@ function bindingFor(port, appExposure, { lanAddress, tailnetAddress }) {
   return { bind: lanAddress, exposure: port.exposure };
 }
 
+/**
+ * `no-new-privileges` for everything, except where it makes the app impossible to run.
+ *
+ * An image that binds a privileged port as a non-root user does it with a file capability, which is
+ * precisely what `no-new-privileges` refuses to honour. On Docker's own network namespace this
+ * never comes up, because Docker sets `ip_unprivileged_port_start=0` inside it and any user may
+ * bind port 53. Sharing the host's namespace is different: there the capability is required, it is
+ * blocked, and the app starts and then binds nothing.
+ *
+ * Pi-hole in host mode is the case this exists for. It came up as a webserver that would not start
+ * and a DNS server listening on nothing, with "Permission denied" against ports 53, 80 and 123 in
+ * its log and `cap_net_bind_service` sitting unused on the binary.
+ *
+ * So the exemption is as narrow as the problem: host networking, and a port the app cannot bind
+ * without help. Everything else keeps the flag, and an app in bridge mode is unaffected either way.
+ */
+export function securityOptFor(manifest, hostNetwork) {
+  const needsPrivilegedBind = hostNetwork && (manifest.ports ?? []).some((port) => Number(port.host) > 0 && Number(port.host) < 1024);
+  return needsPrivilegedBind ? [] : ["no-new-privileges:true"];
+}
+
 export function renderCompose(manifest, values, { existingEnv = {}, lanAddress = "0.0.0.0", tailnetAddress = null, devices = manifest.devices } = {}) {
   const env = { ...values.env };
   for (const entry of manifest.env) {
@@ -142,7 +163,7 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   if (manifest.extraHosts.length) service.extra_hosts = [...manifest.extraHosts];
   if ((manifest.sysctls ?? []).length) service.sysctls = Object.fromEntries(manifest.sysctls.map((entry) => entry.split("=")));
   if (manifest.shmSize) service.shm_size = manifest.shmSize;
-  service.security_opt = ["no-new-privileges:true"];
+  service.security_opt = securityOptFor(manifest, hostNetwork);
   const compose = { name: projectNameFor(manifest.id), services: { [manifest.id]: service } };
   // Sidecars: helper services on the project network, reachable from the app at their id.
   // No published ports; their env may reference ${NAME}, interpolated from the shared .env.
