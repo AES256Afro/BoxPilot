@@ -99,7 +99,7 @@ describe("machine snapshot restore", () => {
 
     const catalogRoot = path.join(root, "catalog");
     const run = vi.fn(async (binary, args, options) => {
-      if (binary === "/usr/bin/findmnt" && args.includes("--real")) {
+      if (binary === "/usr/bin/findmnt" && !args.includes("--mountpoint")) {
         return { ok: true, stdout: JSON.stringify({ filesystems: [{ target: path.join(root, "drive"), source: "/dev/sdb1", fstype: "exfat" }] }) };
       }
       if (binary === "/usr/bin/findmnt") return { ok: false, stdout: "", stderr: "not mounted" };
@@ -140,5 +140,39 @@ describe("machine snapshot restore", () => {
     // The browser picks from what discovery returned; a path of its own choosing is not a source.
     await expect(helper.restore({ source: "discovered", root: snapshotRoot, artifact }, { apps: { internals: { readState: async () => null }, install: vi.fn(), restoreAppBackup: vi.fn() } }))
       .rejects.toThrow(/no longer mounted|no longer has snapshots/);
+  });
+
+  it("makes what a restore staged reviewable, and discardable once reviewed", async () => {
+    // The restore deliberately stages system config instead of applying it. That was a fiction
+    // until now: the staged copies sat in a root-only directory nothing displayed, so "review"
+    // meant knowing the path and having a root shell. This is the reader and the cleanup.
+    const root = await mkdtemp(path.join(os.tmpdir(), "boxpilot-restore-")); directories.push(root);
+    const snapshotRoot = await buildSnapshot(root);
+    const helper = createMachineSnapshotHelper({ snapshotRoot, catalogRoot: path.join(root, "catalog"), applicationBackupRoot: path.join(root, "b"), mountRoot: path.join(root, "m"), controllerBackups: {}, requireIndependentDevice: false, now: () => new Date("2026-08-21T03:00:00.000Z") });
+    const apps = { internals: { readState: async () => null }, install: vi.fn(async () => ({ installed: true })), restoreAppBackup: vi.fn(async () => ({ restored: true })) };
+    await helper.restore({ source: "local", artifact, apps: [], restoreData: false }, { apps });
+
+    const { restores } = await helper.listRestores();
+    expect(restores).toHaveLength(1);
+    expect(restores[0].name).toBe("20260821T030000Z");
+    const fstab = restores[0].files.find((file) => file.path === "system/fstab");
+    // The content is right there, which is the whole point: reviewable in a browser, not a shell.
+    expect(fstab).toMatchObject({ area: "system", content: "# fstab\n" });
+    expect(restores[0].files.some((file) => file.path === "vms/dev-1.xml")).toBe(true);
+
+    await helper.discardRestore({ name: "20260821T030000Z" });
+    expect((await helper.listRestores()).restores).toEqual([]);
+  });
+
+  it("refuses to discard anything that is not a restore review directory", async () => {
+    // This is the one deletion in the snapshot tree that takes a name from the browser.
+    const root = await mkdtemp(path.join(os.tmpdir(), "boxpilot-restore-")); directories.push(root);
+    const snapshotRoot = await buildSnapshot(root);
+    const helper = createMachineSnapshotHelper({ snapshotRoot, catalogRoot: path.join(root, "c"), applicationBackupRoot: path.join(root, "b"), mountRoot: path.join(root, "m"), controllerBackups: {}, requireIndependentDevice: false, now: () => new Date("2026-08-21T03:00:00.000Z") });
+    await expect(helper.discardRestore({ name: "../../" + path.basename(snapshotRoot) })).rejects.toThrow(/not a restore review/);
+    await expect(helper.discardRestore({ name: ".." })).rejects.toThrow(/not a restore review/);
+    await expect(helper.discardRestore({ name: "20990101T000000Z" })).rejects.toThrow(/no longer there/);
+    // and the snapshots themselves are still where they were
+    expect((await helper.sources()).sources.find((entry) => entry.source === "local").snapshots).toHaveLength(1);
   });
 });

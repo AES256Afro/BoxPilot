@@ -39,6 +39,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
   const [unprotected, setUnprotected] = useState<string | null>(null);
   const [offBox, setOffBox] = useState<string | null>(null);
   const [setup, setSetup] = useState<{ firstRun: boolean; installedApps: number } | null>(null);
+  const [rebuild, setRebuild] = useState<{ count: number; source: string } | null>(null);
   const [checklist, setChecklist] = useState<Checklist | null>(null);
 
   useEffect(() => {
@@ -147,6 +148,28 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    // A rebuild is a fresh box with a drive full of snapshots already mounted. Only a first-run
+    // server goes looking: an established one restoring a single app is not rebuilding.
+    if (!setup?.firstRun) { setRebuild(null); return; }
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const look = (attempt: number) => {
+      inspectOperation<{ locations: Array<{ mount: { source: string }; snapshots: unknown[] }>; unanswered?: unknown[] }>("host.snapshot.discover")
+        .then(({ result }) => {
+          if (cancelled) return;
+          const count = result.locations.reduce((total, location) => total + location.snapshots.length, 0);
+          if (count > 0) { setRebuild({ count, source: result.locations[0].mount.source }); return; }
+          // A mounted drive that failed to answer is usually a network hiccup, not an empty drive;
+          // one quiet retry covers the moment that hid a rebuild's snapshots on a live network.
+          if ((result.unanswered ?? []).length > 0 && attempt === 0) retryTimer = setTimeout(() => look(1), 4000);
+        })
+        .catch(() => {}); // no drive, no answer, no card: a fresh box with nothing mounted is just fresh
+    };
+    look(0);
+    return () => { cancelled = true; if (retryTimer) clearTimeout(retryTimer); };
+  }, [setup?.firstRun]);
+
   const attention: Array<{ label: string; view: ViewName }> = [];
   if (updates?.rebootRequired) attention.push({ label: "A reboot is pending", view: "updates" });
   if ((updates?.updates ?? 0) > 0) attention.push({ label: `${updates?.updates} update${updates?.updates === 1 ? "" : "s"} available${updates?.security ? ` (${updates.security} security)` : ""}`, view: "updates" });
@@ -169,10 +192,21 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
 
   return (
     <div className="home-dashboard">
+      {setup?.firstRun && rebuild && (
+        <section className="panel">
+          <header className="panel-header">
+            <div>
+              <strong>Rebuilding this server?</strong>
+              <span>Found {rebuild.count === 1 ? "a machine snapshot" : `${rebuild.count} machine snapshots`} on <code>{rebuild.source}</code>. A snapshot reinstalls your apps with their settings and secrets, then restores their data. It is usually the fastest way back.</span>
+            </div>
+            <button className="primary-button" type="button" onClick={() => onNavigate("backups")}>Restore from a snapshot</button>
+          </header>
+        </section>
+      )}
       {setup?.firstRun && (
         <section className="panel">
           <header className="panel-header">
-            <div><strong>Set up this server</strong><span>Nothing is installed yet. Pick what this box should be: home server, DNS appliance, hypervisor, dev box, or just the essentials, and BoxPilot installs the rest in order.</span></div>
+            <div><strong>{rebuild ? "Or set it up fresh" : "Set up this server"}</strong><span>Nothing is installed yet. Pick what this box should be: home server, DNS appliance, hypervisor, dev box, or just the essentials, and BoxPilot installs the rest in order.</span></div>
             <button className="primary-button" type="button" onClick={() => onNavigate("setup")}>Choose a profile</button>
           </header>
         </section>

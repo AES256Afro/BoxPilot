@@ -33,6 +33,17 @@ export function hostBackupOperations() {
       run: (parameters, { machineSnapshot }) => machineSnapshot.describe(parameters),
     }),
     defineOperation({
+      id: "host.snapshot.restores", title: "List what restores left for review", risk: "low", readOnly: true, timeoutMs: 60_000,
+      description: "The network, firewall, fstab, and VM definitions a restore staged rather than applied, with their contents, so they can actually be reviewed.",
+      run: (_parameters, { machineSnapshot }) => machineSnapshot.listRestores(),
+    }),
+    defineOperation({
+      id: "host.snapshot.restores.discard", title: "Discard a restore's review files", risk: "medium", timeoutMs: 60_000,
+      description: "Removes the staged copies one restore left for review. The restored apps and their data are untouched; this deletes only the review copies of system configuration, VM definitions, and the database backup.",
+      parameters: { fields: { name: { type: "string", maxLength: 20, pattern: /^\d{8}T\d{6}Z$/ } } },
+      run: (parameters, { machineSnapshot }) => machineSnapshot.discardRestore(parameters),
+    }),
+    defineOperation({
       id: "host.snapshot.restore", title: "Restore from a machine snapshot", risk: "high", confirm: () => "restore", timeoutMs: 6 * 60 * 60_000,
       description: "Reinstalls the selected apps with the settings and secrets in the snapshot, then restores each app's newest data archive (from the local store or the mirror). Network, firewall, fstab, VM definitions, and the database copy are staged for review, never applied automatically.",
       parameters: { fields: { source: { type: "string", enum: ["local", "mirror", "discovered"] }, artifact: { type: "string", pattern: /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/ }, root: { type: "string", maxLength: 4096, optional: true }, apps: { type: "array", optional: true, validate: (value) => (value.every((id) => typeof id === "string" && /^[a-z0-9][a-z0-9-]{1,62}$/.test(id)) ? null : "must list app ids") }, restoreData: { type: "boolean", optional: true } } },

@@ -6,7 +6,7 @@ import { inspectOperation } from "./operations";
 interface SnapshotEntry { artifact: string; sizeBytes: number | null; createdAt: string | null; checksumSha256: string | null; apps: number | null }
 interface Sources { sources: Array<{ source: "local" | "mirror"; root: string; available: boolean; snapshots: SnapshotEntry[] }>; mount: { mounted: boolean; blocker: string | null } }
 /** Snapshots on drives BoxPilot did not write to — how a rebuilt server finds the old one's. */
-interface Discovered { locations: Array<{ root: string; mount: { target: string; source: string; filesystem: string }; snapshots: SnapshotEntry[] }> }
+interface Discovered { locations: Array<{ root: string; mount: { target: string; source: string; filesystem: string }; snapshots: SnapshotEntry[] }>; unanswered?: Array<{ target: string; source: string; error: string }> }
 interface Option { key: string; source: "local" | "mirror" | "discovered"; root: string | null; where: string; snapshot: SnapshotEntry }
 interface Described { source: string; artifact: string; createdAt: string | null; apps: Array<{ id: string; installed: boolean; newestBackup: string | null; dataAvailable: boolean; dataLocation: string | null }>; system: { netplanFiles?: number; ufwFiles?: number; fstab?: boolean } | null; vms: { domains: string[]; disksIncluded?: boolean; diskRepositoryReachable?: boolean } | null }
 
@@ -96,6 +96,9 @@ export default function RestorePanel({ csrfToken, start }: { csrfToken: string; 
         </label>
         {sources && !sources.mount.mounted && options.length === 0 && <span className="muted">{sources.mount.blocker ?? "No snapshots here or on any mounted drive. If you have one on a drive or a network share, mount it from the Storage page and refresh. A rebuilt server finds it that way."}</span>}
         {discovered && discovered.locations.length > 0 && <span className="muted">Also found {discovered.locations.reduce((total, location) => total + location.snapshots.length, 0)} snapshot(s) on {discovered.locations.map((location) => location.mount.source).join(", ")}, which this server did not write.</span>}
+        {(discovered?.unanswered ?? []).map((drive) => (
+          <span key={drive.target} className="muted">The drive at <code>{drive.source}</code> is mounted but did not answer when read ({drive.error}). That is usually a network hiccup rather than an empty drive; Refresh to try it again.</span>
+        ))}
         {loading && <span className="muted">Reading the snapshot…</span>}
         {described && (
           <>

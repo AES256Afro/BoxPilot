@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,6 +23,8 @@ async function fixture({ mounted = true } = {}) {
     fstabPath: path.join(root, "fstab"),
     // A drive someone plugged into a rebuilt server: BoxPilot never wrote here.
     rescueRoot: path.join(root, "rescue"),
+    // A share on x-systemd.automount that has gone idle: only the autofs door remains in the table.
+    idleShareRoot: path.join(root, "idle-share"),
   };
   // An installed app with settings, a secret env, and one recorded data backup.
   await mkdir(path.join(paths.catalogRoot, "uptime-kuma"), { recursive: true });
@@ -39,6 +41,7 @@ async function fixture({ mounted = true } = {}) {
   await writeFile(paths.fstabPath, "# fstab\n");
   await mkdir(paths.mountRoot, { recursive: true });
   await mkdir(path.join(paths.rescueRoot, "boxpilot-local-mirror", "machine-snapshots"), { recursive: true });
+  await mkdir(path.join(paths.idleShareRoot, "machine-snapshots"), { recursive: true });
 
   const controllerArtifactDirectory = path.join(paths.controllerBackupRoot, "generated");
   await mkdir(controllerArtifactDirectory, { recursive: true });
@@ -62,11 +65,12 @@ async function fixture({ mounted = true } = {}) {
     if (binary === "/usr/bin/virsh" && args.includes("list")) return { ok: true, stdout: "snapshot-lab\n" };
     if (binary === "/usr/bin/virsh" && args.includes("dumpxml")) return { ok: true, stdout: "<domain><name>snapshot-lab</name></domain>" };
     if (binary === "/usr/bin/findmnt") {
-      // Discovery asks for every real filesystem; the mirror check asks about one mountpoint.
-      if (args.includes("--real")) {
+      // Discovery reads the whole table (autofs included); the mirror check asks about one mountpoint.
+      if (!args.includes("--mountpoint")) {
         return { ok: true, stdout: JSON.stringify({ filesystems: [
           { target: "/", source: "/dev/mapper/root", fstype: "ext4", children: [{ target: paths.rescueRoot, source: "//nas/backups", fstype: "cifs" }] },
           { target: "/run/lock", source: "tmpfs", fstype: "tmpfs" },
+          { target: paths.idleShareRoot, source: "systemd-1", fstype: "autofs" },
           ...(mounted ? [{ target: paths.mountRoot, source: "/dev/sdb1", fstype: "ext4" }] : []),
         ] }) };
       }
@@ -234,6 +238,45 @@ describe("finding snapshots on a drive that was just plugged in", () => {
     await plant(paths.snapshotRoot, "machine-snapshot-20260819T020000Z-11111111.tar.gz");
     const { locations } = await helper.discover();
     expect(locations.map((location) => location.root)).not.toContain(path.resolve(paths.snapshotRoot));
+  });
+
+  it("probes an idle automounted share, which is a door and not a pseudo filesystem", async () => {
+    // BoxPilot's own share mounting uses x-systemd.automount, so an idle share is not in the
+    // mount table: an autofs entry stands where it was, and reading the path brings it back.
+    // Discovery used findmnt --real, which hides autofs, so it could not see the drives the
+    // product itself mounts. Three snapshots on a live NAS reported as none, from idleness alone.
+    const { helper, paths } = await fixture();
+    await plant(path.join(paths.idleShareRoot, "machine-snapshots"), "machine-snapshot-20260819T010000Z-0ddba11a.tar.gz");
+    const { locations } = await helper.discover();
+    const found = locations.find((location) => location.mount.target === paths.idleShareRoot);
+    expect(found, `expected the autofs mount among ${locations.map((l) => l.mount.target).join(", ")}`).toBeTruthy();
+    expect(found.mount.filesystem).toBe("autofs");
+    // "systemd-1" is what the kernel calls the door; the owner knows the drive by its path.
+    expect(found.mount.source).toBe(paths.idleShareRoot);
+    expect(found.snapshots[0].artifact).toBe("machine-snapshot-20260819T010000Z-0ddba11a.tar.gz");
+  });
+
+  it("tells a drive that did not answer apart from a drive with nothing on it", async () => {
+    // A soft network mount mid-hiccup errors the read; the first version reported that as "no
+    // snapshots found", which is an invented all-clear delivered to someone mid-rebuild. Seen
+    // live: the same CIFS mount answered three snapshots on one read and an error on the one before.
+    const { helper, paths } = await fixture();
+    const mirror = path.join(paths.rescueRoot, "boxpilot-local-mirror", "machine-snapshots");
+    await mkdir(mirror, { recursive: true });
+    await chmod(mirror, 0o000);
+    try {
+      const { locations, unanswered } = await helper.discover();
+      expect(locations.some((location) => location.root.startsWith(path.resolve(paths.rescueRoot)))).toBe(false);
+      expect(unanswered).toEqual([expect.objectContaining({ source: "//nas/backups", error: "EACCES" })]);
+    } finally {
+      await chmod(mirror, 0o755);
+    }
+  });
+
+  it("does not cry unanswered over a drive that merely lacks the folders", async () => {
+    const { helper } = await fixture();
+    const { unanswered } = await helper.discover();
+    expect(unanswered).toEqual([]);
   });
 
   it("ignores the pseudo filesystems, which are dozens and hold nothing", async () => {

@@ -245,10 +245,20 @@ export const inspections = {
     "2026-08-25T07:15:44+0000 homebox node[812]: job completed: app.backup (jellyfin)",
   ] },
   "logs.read": { lines: ["demo: nothing is read from this machine"], truncated: false },
+  "host.snapshot.restores": { restores: [{
+    name: "20260825T140000Z", stagedAt: "/var/lib/boxpilot/snapshots/restored/20260825T140000Z",
+    files: [
+      { path: "system/netplan/00-installer-config.yaml", area: "system", sizeBytes: 312, content: "network:\n  version: 2\n  ethernets:\n    eno1:\n      dhcp4: false\n      addresses: [192.168.50.20/24]\n      routes:\n        - to: default\n          via: 192.168.50.1\n" },
+      { path: "system/ufw/user.rules", area: "system", sizeBytes: 1840, content: "### RULES ###\n-A ufw-user-input -p tcp --dport 22 -j ACCEPT\n-A ufw-user-input -p tcp --dport 8096 -j ACCEPT\n" },
+      { path: "system/fstab", area: "system", sizeBytes: 640, content: "UUID=1a2b3c4d / ext4 defaults 0 1\n//nas.local/backups /mnt/backup cifs credentials=/etc/cifs.cred,nofail 0 0\n" },
+      { path: "vms/dev-lab.xml", area: "vms", sizeBytes: 2410, content: "<domain type=\"kvm\">\n  <name>dev-lab</name>\n  <vcpu>4</vcpu>\n  <memory unit=\"GiB\">8</memory>\n</domain>\n" },
+      { path: "controller/boxpilot.sqlite3", area: "controller", sizeBytes: 845824, content: null },
+    ],
+  }] },
   "host.snapshot.discover": { locations: [
     { root: "/mnt/backup-drive/boxpilot-local-mirror/machine-snapshots", mount: { target: "/mnt/backup-drive", source: "//nas.local/backups", filesystem: "cifs" },
       snapshots: [{ artifact: "machine-snapshot-20260820T020000Z-9f3c1a77.tar.gz", sizeBytes: 184320, createdAt: ago(30), checksumSha256: "b".repeat(64), apps: 11 }] },
-  ] },
+  ], unanswered: [] },
   "host.snapshot.sources": {
     mount: { mounted: true, blocker: null },
     sources: [
@@ -493,6 +503,12 @@ export function emptied(value) {
 
 /** The words that only appear when there is nothing to show, which emptying cannot invent. */
 const freshWords = {
+  // The rebuild persona: a fresh box with the old server's backup drive already mounted. This is
+  // what makes the Overview's "Rebuilding this server?" card reviewable.
+  "host.snapshot.discover": { locations: [
+    { root: "/mnt/backup-drive/boxpilot-local-mirror/machine-snapshots", mount: { target: "/mnt/backup-drive", source: "//nas.local/backups", filesystem: "cifs" },
+      snapshots: [{ artifact: "machine-snapshot-20260820T020000Z-9f3c1a77.tar.gz", sizeBytes: 184320, createdAt: ago(30), checksumSha256: "b".repeat(64), apps: 11 }] },
+  ] },
   "app.models.inspect": { available: false, reason: "No model runner is installed.", models: [] },
   "dns.names.inspect": { available: false, reason: "No DNS server BoxPilot can write to is installed. Install Pi-hole from the App catalog.", platform: null, records: [], apps: [] },
   "router.inspect": { configured: false, reachable: false, host: null, username: null, model: null, firmware: null, reason: "No router is connected yet." },
@@ -521,7 +537,7 @@ const troubleWords = {
   "backup.cloud.inspect": { configured: true, provider: "b2" },
   "host.snapshot.inspect": { sync: { destination: "/mnt/boxpilot-backup/boxpilot-local-mirror", mount: { mounted: false, freeBytes: 0 }, lastSync: null } },
   "host.snapshot.sources": { mount: { mounted: false, blocker: "The backup drive is not mounted. Mount it from the Storage page." } },
-  "host.snapshot.discover": { locations: [] },
+  "host.snapshot.discover": { locations: [], unanswered: [{ target: "/mnt/backup-drive", source: "//nas.local/backups", error: "EIO" }] },
   "service.list": { counts: { total: 134, active: 88, failed: 3 }, units: [
     { unit: "docker.service", description: "Docker Application Container Engine", load: "loaded", active: "active", sub: "running", enabled: "enabled", guarded: null, critical: true },
     { unit: "smbd.service", description: "Samba SMB Daemon", load: "loaded", active: "failed", sub: "failed", enabled: "enabled", guarded: null, critical: false },

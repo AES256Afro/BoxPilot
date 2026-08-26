@@ -327,22 +327,44 @@ export function createMachineSnapshotHelper({
   async function discover() {
     const seen = new Set(Object.values(sourceRoots()).map((root) => path.resolve(root)));
     const found = [];
+    // Drives that are mounted and did not answer when read. Reported apart from "no snapshots",
+    // because a soft network mount mid-hiccup looks exactly like an empty drive otherwise, and an
+    // owner mid-rebuild deserves "the drive did not answer, try again" over an invented all-clear.
+    const unanswered = [];
     for (const mount of await mountedFilesystems()) {
+      let failed = null;
       for (const relative of ["boxpilot-local-mirror/machine-snapshots", "machine-snapshots", "."]) {
         const root = path.resolve(path.join(mount.target, relative));
         if (seen.has(root)) continue;
         seen.add(root);
-        const snapshots = await snapshotsIn(root);
-        if (snapshots.length) found.push({ root, mount: { target: mount.target, source: mount.source, filesystem: mount.fstype }, snapshots });
+        const { snapshots, unreadable } = await snapshotsIn(root);
+        if (unreadable) failed = unreadable;
+        // An idle automount's source is "systemd-1", which means nothing to a person; the
+        // mountpoint is the name the owner knows the drive by, so it stands in as the source.
+        const source = mount.fstype === "autofs" ? mount.target : mount.source;
+        if (snapshots.length) found.push({ root, mount: { target: mount.target, source, filesystem: mount.fstype }, snapshots });
+      }
+      if (failed && !found.some((location) => location.mount.target === mount.target)) {
+        unanswered.push({ target: mount.target, source: mount.source, error: failed });
       }
     }
-    return { locations: found };
+    return { locations: found, unanswered };
   }
 
-  /** Real filesystems only: the pseudo ones hold nothing and there are dozens of them. */
+  /**
+   * Filesystems worth probing: the real ones, plus autofs — which is not a filesystem but a door.
+   *
+   * BoxPilot's own share mounting writes fstab entries with `x-systemd.automount`, so a network
+   * share that has been idle is not in the mount table at all: only an autofs entry stands where
+   * it was, and the share reappears the moment something reads the path. `findmnt --real` hides
+   * autofs entirely, which meant discovery could not see the very drives this product mounts —
+   * a backup share that had been idle for a few minutes reported "no snapshots anywhere" with
+   * three snapshots on it. So the full table is read and filtered here, where autofs is kept:
+   * probing the door is exactly what opens it.
+   */
   async function mountedFilesystems() {
-    const pseudo = new Set(["proc", "sysfs", "devtmpfs", "devpts", "tmpfs", "cgroup", "cgroup2", "securityfs", "pstore", "bpf", "autofs", "hugetlbfs", "mqueue", "debugfs", "tracefs", "fusectl", "configfs", "ramfs", "binfmt_misc", "squashfs", "overlay", "nsfs", "efivarfs"]);
-    const result = await run(findmntBinary, ["--json", "--real", "--output", "TARGET,SOURCE,FSTYPE"], { timeout: 20_000, maxBuffer: 4 * 1024 * 1024 }).catch(() => null);
+    const pseudo = new Set(["proc", "sysfs", "devtmpfs", "devpts", "tmpfs", "cgroup", "cgroup2", "securityfs", "pstore", "bpf", "hugetlbfs", "mqueue", "debugfs", "tracefs", "fusectl", "configfs", "ramfs", "binfmt_misc", "squashfs", "overlay", "nsfs", "efivarfs", "rpc_pipefs"]);
+    const result = await run(findmntBinary, ["--json", "--output", "TARGET,SOURCE,FSTYPE"], { timeout: 20_000, maxBuffer: 4 * 1024 * 1024 }).catch(() => null);
     if (!result?.ok) return [];
     const flatten = (nodes) => (nodes ?? []).flatMap((node) => [node, ...flatten(node.children)]);
     return flatten(JSON.parse(result.stdout).filesystems)
@@ -351,9 +373,26 @@ export function createMachineSnapshotHelper({
       .filter((node) => node.target === "/" || !node.target.startsWith("/proc"));
   }
 
-  /** The snapshots directly in one directory, with whatever their sidecar metadata says. */
+  /**
+   * The snapshots directly in one directory, with whatever their sidecar metadata says.
+   *
+   * A directory that does not exist and a drive that failed to answer are opposite findings, and
+   * the first version of this collapsed them: every readdir error became an empty list. Discovery
+   * probes candidate paths that mostly do not exist, so absence stays quiet — but a mounted drive
+   * answering EIO is a drive with the snapshots on it and a network hiccup in front of them, and
+   * reporting "nothing there" for that is an invented all-clear. Seen live: the same CIFS mount
+   * listed three snapshots on one read and errored the read before it, and discovery said zero.
+   */
   async function snapshotsIn(root) {
-    const entries = (await readdir(root).catch(() => [])).filter((entry) => snapshotNamePattern.test(entry)).sort().reverse();
+    let names = null;
+    let unreadable = null;
+    try {
+      names = await readdir(root);
+    } catch (error) {
+      if (!["ENOENT", "ENOTDIR"].includes(error?.code)) unreadable = String(error?.code ?? error?.message ?? error);
+      names = [];
+    }
+    const entries = names.filter((entry) => snapshotNamePattern.test(entry)).sort().reverse();
     const snapshots = [];
     for (const name of entries.slice(0, 50)) {
       const meta = await readFile(path.join(root, `${name}.meta.json`), "utf8").then(JSON.parse).catch(() => null);
@@ -366,7 +405,7 @@ export function createMachineSnapshotHelper({
         apps: meta?.contents?.apps?.length ?? null,
       });
     }
-    return snapshots;
+    return { snapshots, unreadable };
   }
 
   /**
@@ -538,5 +577,59 @@ export function createMachineSnapshotHelper({
     }
   }
 
-  return { inspect, create, sync, sources, discover, describe, restore, internals: { locateAppArchive, resolveArtifact, resolveDiscovered, snapshotsIn } };
+  /** Review directories are named by when the restore ran; nothing else may be discarded. */
+  const reviewNamePattern = /^\d{8}T\d{6}Z$/;
+  /** Files small enough and textual enough to show in a browser; the rest are listed, not inlined. */
+  const inlineLimit = 48 * 1024;
+
+  /**
+   * What past restores left for review, newest first.
+   *
+   * A restore deliberately does not touch the network, the firewall, fstab, or VM definitions —
+   * a wrong write to any of them takes the machine off the network it was just rescued onto. It
+   * stages them instead. But staging them into a root-only directory that nothing ever displayed
+   * made "staged for review" a fiction: the owner cannot review a directory they cannot see and
+   * would need root to read. This is the reader that makes the review real.
+   */
+  async function listRestores() {
+    const root = path.join(resolvedSnapshotRoot, "restored");
+    const names = (await readdir(root).catch(() => [])).filter((name) => reviewNamePattern.test(name)).sort().reverse();
+    const restores = [];
+    for (const name of names) {
+      const base = path.join(root, name);
+      const files = [];
+      for (const relative of await walkFiles(base)) {
+        const full = path.join(base, relative);
+        const info = await stat(full).catch(() => null);
+        if (!info?.isFile()) continue;
+        const area = relative.split(path.sep)[0];
+        let content = null;
+        if (info.size <= inlineLimit) {
+          const text = await readFile(full, "utf8").catch(() => null);
+          // A database copy or anything else binary is listed, never inlined.
+          if (text !== null && !text.includes("\u0000")) content = text;
+        }
+        files.push({ path: relative.split(path.sep).join("/"), area, sizeBytes: info.size, content });
+      }
+      restores.push({ name, stagedAt: base, files });
+    }
+    return { restores };
+  }
+
+  /**
+   * Remove one review directory, once the owner is done with it. Only a direct child of the
+   * review root with a restore's timestamp name is accepted: this is the only deletion in the
+   * snapshot tree that takes a name from the browser, and it must not be able to name anything else.
+   */
+  async function discardRestore({ name } = {}) {
+    if (typeof name !== "string" || !reviewNamePattern.test(name)) throw new Error("That is not a restore review directory");
+    const target = path.join(resolvedSnapshotRoot, "restored", name);
+    if (!(await stat(target).then((info) => info.isDirectory()).catch(() => false))) {
+      throw new Error("That restore review directory is no longer there");
+    }
+    await rm(target, { recursive: true, force: true });
+    return { discarded: true, name };
+  }
+
+  return { inspect, create, sync, sources, discover, describe, restore, listRestores, discardRestore, internals: { locateAppArchive, resolveArtifact, resolveDiscovered, snapshotsIn } };
 }
