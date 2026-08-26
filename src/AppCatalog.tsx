@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { strandedServes } from "./strandedServes";
 import { useOperation } from "./ApproveDialog";
 import { inspectOperation } from "./operations";
 import { appUrl, appAddresses } from "./appLinks";
@@ -443,9 +444,38 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
           );
   };
 
+  // Tailnet addresses pointing at ports no installed app publishes. Publishing records the port an
+  // app had at the time and nothing moves that record; "stop publishing" withdraws the port the app
+  // has now, so once a port changes the old address is stranded and unreachable from here.
+  const stranded = strandedServes(serves ?? [], (data?.applications ?? []).map((entry) => entry.live).filter((live): live is NonNullable<typeof live> => Boolean(live?.installed)));
+
   return (
     <div className="app-catalog">
       {dialog}
+      {stranded.length > 0 && (
+        <section className="panel">
+          <header className="panel-header">
+            <div>
+              <strong>{stranded.length === 1 ? "A tailnet address leads nowhere" : `${stranded.length} tailnet addresses lead nowhere`}</strong>
+              <span>These are published on your tailnet but forward to ports nothing on this server answers on, which is what an app's port changing leaves behind. Withdrawing one changes nothing you can currently reach.</span>
+            </div>
+          </header>
+          <ul className="stranded-serves">
+            {stranded.map((serve) => (
+              <li key={`${serve.dnsName}:${serve.port}`}>
+                <code>https://{serve.dnsName}:{serve.port}</code>
+                <span className="muted"> forwards to <code>{serve.target ?? `port ${serve.port}`}</code></span>
+                <button className="text-button" type="button" onClick={() => start({
+                  operationId: "app.serve.withdraw",
+                  title: `Stop publishing port ${serve.port} on the tailnet`,
+                  parameters: { port: serve.port },
+                  preview: <span>Runs <code>tailscale serve --https={serve.port} off</code>. Nothing else about your tailnet or any app changes.</span>,
+                })}>Stop publishing</button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {config && <ConfigForm manifest={config.manifest} live={config.live} mode={config.mode} csrfToken={csrfToken} onCancel={() => setConfig(null)} onSubmit={(values) => {
         const { manifest, mode } = config;
         setConfig(null);

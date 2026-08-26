@@ -161,7 +161,7 @@ export const inspections = {
   "apt.unattended.inspect": { installed: true, enabled: true, config: { updatePackageLists: "1", unattendedUpgrade: "1" } },
   "packages.curated.inspect": { packages: ["htop", "btop", "tmux", "git", "curl", "jq", "ncdu", "smartmontools", "restic", "nfs-common", "cifs-utils", "samba", "nut", "fail2ban", "rclone", "needrestart"].map((name) => ({ name, installed: ["htop", "git", "curl", "jq", "smartmontools", "cifs-utils", "samba", "nut", "fail2ban", "rclone"].includes(name), version: null })) },
   "service.list": { counts: { total: 134, active: 92, failed: 0 }, units: [] },
-  "app.serve.inspect": { available: true, serves: [{ dnsName: host.tailnet, port: 2283, target: "http://127.0.0.1:2283" }, { dnsName: host.tailnet, port: 8222, target: "http://127.0.0.1:8222" }] },
+  "app.serve.inspect": { available: true, serves: [{ dnsName: host.tailnet, port: 2283, target: "http://127.0.0.1:2283" }, { dnsName: host.tailnet, port: 8222, target: "http://127.0.0.1:8222" }, { dnsName: host.tailnet, port: 9001, target: "http://127.0.0.1:9001" }] },
   "app.stats.inspect": { available: true, stats },
   "host.snapshot.inspect": machineState,
   "backup.remote.inspect": { keyReady: true, publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleExampleExampleExampleExampleExampleExam boxpilot-backup-mirror", fingerprint: "SHA256:ExampleFingerprintExampleFingerprintExample0", hostKeysPinned: 1, rsyncInstalled: true },

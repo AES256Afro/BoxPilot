@@ -73,6 +73,16 @@ export function appOperations() {
       },
     }),
     defineOperation({
+      id: "app.serve.withdraw", title: "Stop publishing a tailnet address", risk: "medium", timeoutMs: minutes(2),
+      description: "Withdraws one tailnet HTTPS address. Meant for an address left behind when an app's port changed: publishing records the port an app had at the time, and stopping publishes the port it has now, so the old entry cannot otherwise be reached. Nothing about the app itself changes.",
+      parameters: { fields: { port: { type: "number", validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 65535 ? null : "must be a port between 1 and 65535") } } },
+      run: async (parameters, { run }) => {
+        const result = await run(tailscaleBinary(), ["serve", "--yes", `--https=${parameters.port}`, "off"], { timeout: 60_000 });
+        if (!result.ok) throw new Error(`Could not stop publishing port ${parameters.port}: ${result.stderr.split("\n").slice(-2).join(" ")}`);
+        return { withdrawn: true, port: parameters.port };
+      },
+    }),
+    defineOperation({
       id: "app.serve.set", title: "Publish an app on the tailnet", risk: "medium", timeoutMs: minutes(2),
       description: "Serves the app's web port over HTTPS on your tailnet with a real certificate (tailnet only, Funnel stays off), or stops serving it.",
       parameters: { fields: { id: idField, enabled: { type: "boolean" } } },
