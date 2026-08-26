@@ -73,6 +73,7 @@ export async function dnsBlockerVerify({ address, timeoutMs = 4000, checkInterce
   // being answered by something in the middle, and no recursive resolver here can work.
   const ask = resolveVia ?? (async (server, domain) => resolverFor(server, timeoutMs).resolve4(domain));
   let intercepted = null;
+  let interceptorBlocking = null;
   if (checkInterception) {
     // An answer here is proof; silence is not, because an unroutable address is exactly the sort of
     // query that gets dropped rather than refused. So each address is asked twice before it is
@@ -86,6 +87,16 @@ export async function dnsBlockerVerify({ address, timeoutMs = 4000, checkInterce
     };
     const replies = await Promise.all(impossibleResolvers.map(answered));
     intercepted = replies.some(Boolean);
+    // Whatever is answering may be a blocker itself, which is the difference between "your DNS is
+    // hijacked and broken" and "your blocking simply lives on the router". Those want opposite
+    // responses from the owner, so they are not reported as the same thing.
+    if (intercepted) {
+      const refused = await ask(impossibleResolvers[0], probeDomain).then(
+        (addresses) => addresses.length > 0 && addresses.every((entry) => blockedAnswers.has(entry)),
+        (error) => ["ENOTFOUND", "ENODATA"].includes(String(error?.code ?? "")),
+      );
+      interceptorBlocking = refused;
+    }
   }
 
   // NXDOMAIN or an all-zeroes answer both mean refused; a real address means it went through.
@@ -100,8 +111,11 @@ export async function dnsBlockerVerify({ address, timeoutMs = 4000, checkInterce
     control: { domain: controlDomain, addresses: control.addresses, error: control.error },
     probe: { domain: probeDomain, addresses: probe.addresses, error: probe.error },
     intercepted,
+    interceptorBlocking,
     reason: !answered
       ? `Nothing answered a DNS query on ${address}. Either port 53 is not open to your network, or the blocker is only listening on this server itself.`
+      : intercepted && interceptorBlocking
+      ? "Your network's DNS is being handled somewhere else, and whatever is handling it blocks ads too, which usually means a blocker running on the router. Nothing on your network reaches this one, so it is installed and idle. That is a perfectly good arrangement, and DNS on an always-on router survives this server rebooting. Local names for your apps are the one thing it costs you, because those are served from here."
       : intercepted && !control.ok
       ? "Something between this server and the internet is answering every DNS query itself, including ones sent to addresses that cannot run a resolver. A recursive resolver cannot work through that, which is why lookups fail, and it also means devices on your network reach that thing rather than this blocker no matter what your router hands out. The setting is usually on the router, named something like \"Override DNS Settings of All Clients\", \"Force DNS\" or \"DNS Redirect\", and routers that run a blocker of their own (AdGuard Home, for instance) often switch it on. Turn it off to use this blocker, or keep the one on the router and leave this one to the apps on this server."
       : !control.ok

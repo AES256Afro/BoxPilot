@@ -77,7 +77,7 @@ describe("the demo can answer what the interface asks", () => {
       "users.inspect": ["users", "sshd", "sshActive"],
       "dns.names.inspect": ["available", "platform", "records", "apps"],
       "router.inspect": ["configured", "reachable", "host"],
-      "dns.blocker.verify": ["answering", "resolving", "blocking", "intercepted", "control", "probe"],
+      "dns.blocker.verify": ["answering", "resolving", "blocking", "intercepted", "interceptorBlocking", "control", "probe"],
       "host.snapshot.discover": ["locations"],
       "router.leases": ["leases", "host"],
     };
