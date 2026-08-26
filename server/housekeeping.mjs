@@ -253,7 +253,7 @@ export function createHousekeepingService({
       {
         id: "docker-unreferenced-images",
         title: "Images no app uses",
-        summary: "Complete images that no container references and no installed app needs — left by apps you removed, versions replaced by updates, or a trial run. Installing one of these again downloads it again.",
+        summary: "Complete images that no container references and no installed app needs. Left by apps you removed, versions replaced by updates, or a trial run. Installing one of these again downloads it again.",
         items: unusedImages.length,
         bytes: unusedImages.reduce((sum, image) => sum + image.bytes, 0),
         detail: unusedImages.slice(0, 40).map((image) => `${image.reference} (${humanBytes(image.bytes)})`),
@@ -283,7 +283,7 @@ export function createHousekeepingService({
       {
         id: "job-logs",
         title: "Logs for jobs no longer listed",
-        summary: `Output from jobs older than ${jobLogMaxAgeDays} days, which is longer than the history keeps them — nothing lists those jobs any more.`,
+        summary: `Output from jobs older than ${jobLogMaxAgeDays} days, which is longer than the history keeps them; nothing lists those jobs any more.`,
         items: logs.length,
         bytes: logs.reduce((sum, entry) => sum + entry.bytes, 0),
         detail: [],
@@ -365,7 +365,7 @@ export function createHousekeepingService({
         // Docker refuses an image a container still holds, which is the guard that matters here.
         const result = await docker(["rmi", image.reference], { timeout: 120_000 });
         if (result.ok) { freedBytes += image.bytes; removed.push({ category: "docker-unreferenced-images", what: image.reference, bytes: image.bytes }); }
-        say(`  [${index + 1}/${unused.length}] ${image.reference}${result.ok ? "" : " — still in use, left alone"}`);
+        say(`  [${index + 1}/${unused.length}] ${image.reference}${result.ok ? "" : ". Still in use, left alone"}`);
       }
     });
 
@@ -400,7 +400,7 @@ export function createHousekeepingService({
       }
     });
 
-    say(`Done — ${humanBytes(freedBytes)} back, plus whatever Docker's own prune returned.`);
+    say(`Done. ${humanBytes(freedBytes)} back, plus whatever Docker's own prune returned.`);
     return { reclaimed: failures.length === 0, targets: [...chosen], removed, failures, freedBytes, freedHumanBytes: humanBytes(freedBytes) };
   }
 

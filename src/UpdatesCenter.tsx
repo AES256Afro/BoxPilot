@@ -112,7 +112,7 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
 
       {report?.servicesNeedingRestart && report.servicesNeedingRestart.length > 0 && (
         <section className="panel">
-          <header className="panel-header"><div><strong>Services running old libraries</strong><span>These kept the pre-upgrade code in memory. Restart them when convenient — or reboot to refresh everything.</span></div></header>
+          <header className="panel-header"><div><strong>Services running old libraries</strong><span>These kept the pre-upgrade code in memory. Restart them when convenient, or reboot to refresh everything.</span></div></header>
           <div className="recovery-actions">
             {report.servicesNeedingRestart.map((unit) => (
               <button key={unit} className="secondary-button" type="button" onClick={() => start({ operationId: "service.action", title: `Restart ${unit}`, parameters: { unit, action: "restart" }, preview: <span><code>systemctl restart {unit}</code></span> })}>Restart {unit}</button>

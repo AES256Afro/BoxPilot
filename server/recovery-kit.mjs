@@ -128,7 +128,7 @@ export function createRecoveryKitService({ store, prerequisites, helper, libvirt
       recoveryOrder: [
         { order: 1, title: "Get the server back", instruction: "Install Ubuntu Server, then install BoxPilot at the release this kit names. Use a keyboard and monitor, or another machine on the LAN; do not change your router or DNS while you are still finding your feet." },
         { order: 2, title: "Get back in privately", instruction: "Bring up Tailscale and sign in to BoxPilot. Keep it on the tailnet rather than opening anything on your router." },
-        { order: 3, title: "Restore BoxPilot's own database", instruction: "Restore the recorded controller snapshot from the encrypted repository — you will need the repository password you kept elsewhere. BoxPilot then knows your accounts, settings and history again." },
+        { order: 3, title: "Restore BoxPilot's own database", instruction: "Restore the recorded controller snapshot from the encrypted repository. You will need the repository password you kept elsewhere. BoxPilot then knows your accounts, settings and history again." },
         { order: 4, title: "Restore the machine snapshot", instruction: "This reinstalls your apps with the settings and secrets they had. Network, firewall, fstab and VM definitions are unpacked beside the snapshot for you to look at and apply yourself." },
         { order: 5, title: "Restore each app's data", instruction: "Restore every app from its newest backup archive, which is checked against its recorded checksum before anything is replaced." },
         { order: 6, title: "Restore virtual machines", instruction: "Restore protected snapshots into stopped clones with no network, and decide about networking once you have looked inside." },

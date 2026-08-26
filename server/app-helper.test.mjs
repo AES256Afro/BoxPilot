@@ -293,12 +293,12 @@ describe("generic app deployer", () => {
     await apps.install({ id: "engine2" });
 
     Object.assign(containers.get("bp-engine2"), { running: true, status: "paused" });
-    await expect(apps.pullModel({ id: "engine2", model: "hermes3:8b" })).rejects.toThrow("is paused — resume it");
+    await expect(apps.pullModel({ id: "engine2", model: "hermes3:8b" })).rejects.toThrow("is paused. Resume it");
     // Listing reports rather than throws: the panel opens on click and should explain itself.
     expect(await apps.listModels({ id: "engine2" })).toMatchObject({ available: false, reason: expect.stringContaining("paused") });
 
     Object.assign(containers.get("bp-engine2"), { running: false, status: "exited" });
-    await expect(apps.removeModel({ id: "engine2", model: "hermes3:8b" })).rejects.toThrow("is not running — start it");
+    await expect(apps.removeModel({ id: "engine2", model: "hermes3:8b" })).rejects.toThrow("is not running. Start it");
     expect(await apps.listModels({ id: "engine2" })).toMatchObject({ available: false, reason: expect.stringContaining("not running") });
   });
 
@@ -547,7 +547,7 @@ describe("dashboard links for an app bound to the server itself", () => {
     let services = await readFile(servicesPath, "utf8");
     expect(services).not.toContain("href: http://127.0.0.1"); // the reader's own machine, not the server
     expect(services).not.toContain("href: http://192.168.1.10:8085"); // not reachable on the LAN either
-    expect(services).toContain("on the server itself, at 127.0.0.1:8085");
+    expect(services).toContain("on the server itself at 127.0.0.1:8085");
 
     // Published on the tailnet and read from the tailnet: the HTTPS address is the right link.
     published = true;

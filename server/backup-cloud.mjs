@@ -7,9 +7,9 @@ export const cloudProviders = Object.freeze({
   b2: { label: "Backblaze B2", fields: ["account", "bucket", "path"], secrets: ["key"], help: "Create an application key in Backblaze (Account → App Keys). Account = the key ID, key = the application key." },
   s3: { label: "S3-compatible (AWS, Wasabi, MinIO, Cloudflare R2)", fields: ["endpoint", "region", "bucket", "path", "accessKeyId"], secrets: ["secretAccessKey"], help: "For AWS leave the endpoint empty and set the region. For Wasabi, R2, MinIO, or another S3 service, set their endpoint URL." },
   webdav: { label: "WebDAV (Nextcloud, Hetzner Storage Box, ...)", fields: ["url", "user", "path"], secrets: ["password"], help: "The WebDAV URL of your account, for example https://cloud.example.com/remote.php/dav/files/USERNAME/." },
-  drive: { label: "Google Drive", fields: ["path"], secrets: ["token"], help: "On any computer with rclone, run: rclone authorize \"drive\" — sign in, then paste the token it prints (starts with {\"access_token\")." },
-  onedrive: { label: "Microsoft OneDrive", fields: ["path"], secrets: ["token"], help: "On any computer with rclone, run: rclone authorize \"onedrive\" — sign in, then paste the token it prints." },
-  dropbox: { label: "Dropbox", fields: ["path"], secrets: ["token"], help: "On any computer with rclone, run: rclone authorize \"dropbox\" — sign in, then paste the token it prints." },
+  drive: { label: "Google Drive", fields: ["path"], secrets: ["token"], help: "On any computer with rclone, run: rclone authorize \"drive\". Sign in, then paste the token it prints (starts with {\"access_token\")." },
+  onedrive: { label: "Microsoft OneDrive", fields: ["path"], secrets: ["token"], help: "On any computer with rclone, run: rclone authorize \"onedrive\". Sign in, then paste the token it prints." },
+  dropbox: { label: "Dropbox", fields: ["path"], secrets: ["token"], help: "On any computer with rclone, run: rclone authorize \"dropbox\". Sign in, then paste the token it prints." },
 });
 export const cloudProviderIds = Object.freeze(Object.keys(cloudProviders));
 

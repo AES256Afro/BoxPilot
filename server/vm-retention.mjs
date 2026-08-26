@@ -72,7 +72,7 @@ export function createVmRetentionService({ store, helper, now = () => new Date()
     // to clear it, so say what it is and what to do rather than reporting a bare count.
     if (unknownSnapshots.length) {
       const ids = unknownSnapshots.slice(0, 3).map((snapshot) => snapshot.id.slice(0, 8)).join(", ");
-      blockers.push(`${unknownSnapshots.length} snapshot(s) in the repository (${ids}${unknownSnapshots.length > 3 ? ", …" : ""}) have no local record — usually a backup that was written and then failed its check. Retention will not remove what it cannot account for: run "Forget an unrecorded snapshot" from the Virtual Machines page, or remove them with restic yourself.`);
+      blockers.push(`${unknownSnapshots.length} snapshot(s) in the repository (${ids}${unknownSnapshots.length > 3 ? ", …" : ""}) have no local record, usually a backup that was written and then failed its check. Retention will not remove what it cannot account for: run "Forget an unrecorded snapshot" from the Virtual Machines page, or remove them with restic yourself.`);
     }
     if (missingSnapshots.length) blockers.push(`${missingSnapshots.length} active local backup record(s) are missing from the repository`);
     const selection = selectRetentionCandidates({ backups: active, recoveries, activeConsumers: activeSnapshotConsumers, now: now() });

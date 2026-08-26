@@ -34,7 +34,7 @@ export async function open({ port = 8799, startDemo = true, width = 1440, height
   // so a freshly started one loses the race silently and everything you then read is about code you
   // are not looking at. That cost a round of chasing a crash that had already been fixed.
   if (startDemo && await reachable(port)) {
-    throw new Error(`Something is already serving http://127.0.0.1:${port} — probably a demo left running.\nStop it first, or the sweep reports on whatever that is:\n  pkill -f boxpilot-demo.mjs`);
+    throw new Error(`Something is already serving http://127.0.0.1:${port}. Probably a demo left running.\nStop it first, or the sweep reports on whatever that is:\n  pkill -f boxpilot-demo.mjs`);
   }
   const demo = startDemo ? spawn(process.execPath, [path.join(import.meta.dirname, "boxpilot-demo.mjs")], { stdio: "ignore" }) : null;
   if (demo) {

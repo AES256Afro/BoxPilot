@@ -42,7 +42,7 @@ export default function PerformanceCenter({ csrfToken }: { csrfToken: string }) 
       setPerf(result);
       setError(null);
     } catch {
-      setError("Could not read performance right now — retrying.");
+      setError("Could not read performance right now, retrying.");
     }
   }, []);
 
@@ -125,7 +125,7 @@ export default function PerformanceCenter({ csrfToken }: { csrfToken: string }) 
                     <td className="num">{running || paused ? gib(app.memBytes) : "—"}</td>
                     <td className="perf-controls">
                       {running && <>
-                        <button className="text-button" type="button" onClick={() => act(app.id, "pause", `Pause ${name}`, `Freezes ${name} — it stops using the CPU but keeps its memory, and resumes instantly. Nothing is lost.`)}>Pause</button>
+                        <button className="text-button" type="button" onClick={() => act(app.id, "pause", `Pause ${name}`, `Freezes ${name}. It stops using the CPU but keeps its memory, and resumes instantly. Nothing is lost.`)}>Pause</button>
                         <button className="text-button" type="button" onClick={() => act(app.id, "restart", `Restart ${name}`, `Restarts ${name}.`)}>Restart</button>
                         <button className="text-button danger-text" type="button" onClick={() => act(app.id, "stop", `Stop ${name}`, `Stops ${name} and frees its memory. Its data is kept; starting it again is a cold start.`)}>Stop</button>
                       </>}

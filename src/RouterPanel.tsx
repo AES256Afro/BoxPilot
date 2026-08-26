@@ -64,7 +64,7 @@ export default function RouterPanel({ start, gateway }: { start: (operation: Pen
         <>
           <p className="muted">
             Connected to <code>{report.host}</code> as <code>{report.username}</code>
-            {report.model ? <> — {report.model}{report.firmware ? ` on ${report.firmware}` : ""}</> : null}.
+            {report.model ? <>, {report.model}{report.firmware ? ` on ${report.firmware}` : ""}</> : null}.
           </p>
           {leases === null ? <p className="muted">Reading the device list…</p> : leases.length === 0 ? <p className="muted">The router reported no devices.</p> : (
             <table className="perf-table">
@@ -101,7 +101,7 @@ export default function RouterPanel({ start, gateway }: { start: (operation: Pen
             <label>Router address<input aria-label="Router address" placeholder="192.168.1.1" value={host} onChange={(event) => setHost(event.target.value)} /></label>
             <label>Router password<input aria-label="Router password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} /></label>
             {namedAccount ? (
-              <label>Username<input aria-label="Router username" autoFocus placeholder="root — leave blank unless the router asked for one" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
+              <label>Username<input aria-label="Router username" autoFocus placeholder="root, leave blank unless the router asked for one" value={username} onChange={(event) => setUsername(event.target.value)} /></label>
             ) : (
               <button type="button" className="link-button" onClick={() => setNamedAccount(true)}>This router asks for a username too</button>
             )}

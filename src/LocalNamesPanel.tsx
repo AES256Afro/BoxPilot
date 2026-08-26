@@ -89,7 +89,7 @@ export default function LocalNamesPanel({ csrfToken, start, lanAddress }: { csrf
             </table>
           )}
           <p className="muted">
-            A name points at this server, so the port is still needed — <code>jellyfin.{domain}:8096</code>. Put a reverse proxy in front if you want the name on its own.
+            A name points at this server, so the port is still needed: <code>jellyfin.{domain}:8096</code>. Put a reverse proxy in front if you want the name on its own.
             Only devices using this server for DNS see them; that is the router setting on the Network page above.
           </p>
         </>

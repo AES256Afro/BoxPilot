@@ -112,7 +112,7 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
   const shareFormValid = hostValid && shareValid && nameValid(shareName) && Boolean(toolReady);
   const shareBlocker = !toolReady ? null // the tools hint next to the button already covers this
     : !hostValid ? "Enter the NAS address first."
-    : !shareValid ? (kind === "smb" ? "Pick a share below, or type its name — a folder inside one is fine, like alex/Backups." : "Enter the export path.")
+    : !shareValid ? (kind === "smb" ? "Pick a share below, or type its name. A folder inside one is fine, like alex/Backups." : "Enter the export path.")
     : !nameValid(shareName) ? "Give it a folder name under /mnt (lower case, no spaces)."
     : null;
   const credentialsPath = `/etc/boxpilot/secrets/share-${shareName || "<name>"}.cred`;
@@ -371,14 +371,14 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
           {shareError && <div className="auth-error share-error" role="alert">{shareError}</div>}
           {listed && listed.length > 0 && (
             <div className="share-list">
-              <span className="muted">Shares on {host.trim()} — click one to use it:</span>
-              {listed.map((entry) => <button className="text-button" type="button" key={entry.name} onClick={() => setShareAndName(entry.name)}>{entry.name}{entry.comment ? <span className="muted"> — {entry.comment}</span> : null}</button>)}
+              <span className="muted">Shares on {host.trim()}. Click one to use it:</span>
+              {listed.map((entry) => <button className="text-button" type="button" key={entry.name} onClick={() => setShareAndName(entry.name)}>{entry.name}{entry.comment ? <span className="muted">, {entry.comment}</span> : null}</button>)}
             </div>
           )}
         </form>
 
         <p className="muted share-note">
-          <strong>WD My Cloud Home:</strong> it offers only <code>Public</code>, <code>TimeMachineBackup</code> and one share per user — you cannot add more, so point at a folder inside one, like <code>yourname/Backups</code>. The <code>Public</code> folder works as guest; your private files need <em>Local network access</em> enabled in the My Cloud Home app, which gives you a username and password to enter here.
+          <strong>WD My Cloud Home:</strong> it offers only <code>Public</code>, <code>TimeMachineBackup</code> and one share per user. You cannot add more, so point at a folder inside one, like <code>yourname/Backups</code>. The <code>Public</code> folder works as guest; your private files need <em>Local network access</em> enabled in the My Cloud Home app, which gives you a username and password to enter here.
           <br /><strong>Reach it from anywhere, only over Tailscale:</strong> shares stay private to this server. To browse them from your phone or laptop, install <em>File Browser</em> from the App catalog (it listens on this server only), point it at <code>/mnt</code>, and click <em>Serve on tailnet (HTTPS)</em>. Nothing is exposed on your LAN or the internet.
         </p>
       </section>

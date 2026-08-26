@@ -54,7 +54,7 @@ describe("System center", () => {
     expect(await screen.findByText("High risk")).toBeTruthy();
     expect(screen.getByLabelText("Typed confirmation")).toBeTruthy();
     expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { tag: "v0.62.0" } });
-    expect(screen.getByText(/Last update log — live/)).toBeTruthy();
+    expect(screen.getByText(/Last update log, live/)).toBeTruthy();
   });
 
   it("offers to enable the trim timer when it is disabled", async () => {

@@ -37,7 +37,7 @@ export default class PageErrorBoundary extends Component<Props, State> {
         <header className="panel-header">
           <div>
             <strong>The {this.props.pageName} page could not be shown</strong>
-            <span>Something this page read back was not the shape it expected. The rest of BoxPilot is unaffected — the other pages still work, and nothing on this server has changed.</span>
+            <span>Something this page read back was not the shape it expected. The rest of BoxPilot is unaffected. The other pages still work, and nothing on this server has changed.</span>
           </div>
         </header>
         <p className="muted">This is a fault in BoxPilot rather than something you did. It is worth reporting with a support bundle, which includes the detail below.</p>

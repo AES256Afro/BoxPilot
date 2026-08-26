@@ -92,7 +92,7 @@ export default function FirewallCenter({ csrfToken }: { csrfToken: string }) {
         preview: (
           <div className="plan-preview">
             <p>Runs these ufw commands in order. The firewall ends up <strong>on</strong>; SSH, Tailscale, and BoxPilot stay reachable throughout. If any required step fails, nothing is turned on.</p>
-            <ol>{plan.steps.map((step, index) => <li key={index}><code>ufw {step.args.join(" ")}</code><span className="muted"> — {step.label}</span></li>)}</ol>
+            <ol>{plan.steps.map((step, index) => <li key={index}><code>ufw {step.args.join(" ")}</code><span className="muted">, {step.label}</span></li>)}</ol>
           </div>
         ),
       });
@@ -197,7 +197,7 @@ export default function FirewallCenter({ csrfToken }: { csrfToken: string }) {
             {overview?.services.map((service) => (
               <label key={service.id}>
                 <input type="checkbox" checked={!selectedProfile?.lockServices && chosen.includes(service.id)} disabled={Boolean(selectedProfile?.lockServices)} onChange={(event) => toggleService(service.id, event.target.checked)} aria-label={service.name} />
-                <span><strong>{service.name}</strong> <span className="muted">{service.ports.map((entry) => spec(entry.port, entry.protocol)).join(", ")} — {service.hint}</span></span>
+                <span><strong>{service.name}</strong> <span className="muted">{service.ports.map((entry) => spec(entry.port, entry.protocol)).join(", ")}, {service.hint}</span></span>
               </label>
             ))}
           </div>
@@ -210,7 +210,7 @@ export default function FirewallCenter({ csrfToken }: { csrfToken: string }) {
         <div className="profile-options">
           <strong>Always kept open</strong>
           <ul className="protected-list">
-            {protectedRules.map((entry) => <li key={`${entry.port}/${entry.protocol}`}><code>{spec(entry.port, entry.protocol)}</code> {entry.label} — {entry.reason}{entry.allow ? "" : " (no LAN rule needed; it just cannot be denied)"}</li>)}
+            {protectedRules.map((entry) => <li key={`${entry.port}/${entry.protocol}`}><code>{spec(entry.port, entry.protocol)}</code> {entry.label}, {entry.reason}{entry.allow ? "" : " (no LAN rule needed; it just cannot be denied)"}</li>)}
           </ul>
           <p className="muted">These cannot be denied or deleted from BoxPilot, so a profile or a typo can never lock you out.</p>
         </div>
@@ -272,7 +272,7 @@ export default function FirewallCenter({ csrfToken }: { csrfToken: string }) {
             operationId: "firewall.rule.add",
             title: `${action === "allow" ? "Allow" : action === "deny" ? "Deny" : "Rate-limit"} port ${portValue}`,
             parameters: { action, port: portValue, protocol, ...(comment.trim() ? { comment: comment.trim() } : {}) },
-            preview: <span><code>ufw {action} {spec(portValue, protocol)}</code>{action === "limit" ? <> — allows up to 6 new connections per 30 seconds per address, then drops the rest.</> : null}</span>,
+            preview: <span><code>ufw {action} {spec(portValue, protocol)}</code>{action === "limit" ? <>. Allows up to 6 new connections per 30 seconds per address, then drops the rest.</> : null}</span>,
           })}>Add rule</button>
         </div>
         {protectedHit && <p className="muted" role="note">Port {spec(protectedHit.port, protectedHit.protocol)} is {protectedHit.label} and stays open: {protectedHit.reason}</p>}

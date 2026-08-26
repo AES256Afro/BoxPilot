@@ -36,7 +36,7 @@ async function openEverything(driver, scenario, view) {
     const problems = driver.problems();
     const caught = await driver.evaluate(`document.querySelector("[data-page-error]")?.getAttribute("data-page-error") ?? null`);
     if (caught) problems.push({ kind: "caught", text: `the ${caught} page fell back to the error boundary` });
-    for (const problem of problems) found.push({ ...problem, text: `after clicking "${label}" — ${problem.text}` });
+    for (const problem of problems) found.push({ ...problem, text: `after clicking "${label}", ${problem.text}` });
     // Put the page back the way it was: close any dialog, and return if the click navigated.
     await driver.evaluate(`(() => { const close = document.querySelector('[aria-label="Close dialog"], .modal [aria-label="Close"]'); if (close) close.click(); })()`);
     await driver.evaluate(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);

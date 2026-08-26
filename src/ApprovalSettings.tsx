@@ -33,7 +33,7 @@ export default function ApprovalSettings({ csrfToken }: { csrfToken: string }) {
     <section className="panel settings-panel">
       <header className="panel-header"><div><strong>Approvals</strong><span>How much BoxPilot asks before it changes the host</span></div>{mode && <span className="status-pill status-neutral">{mode === "tiered" ? "Tiered" : "Always ask"}</span>}</header>
       <div className="approval-settings">
-        <label className="approval-option"><input type="radio" name="approval-mode" value="tiered" checked={choice === "tiered"} onChange={() => setChoice("tiered")} /><div><strong>Tiered (recommended)</strong><span>Low risk runs with one click, medium risk asks you to confirm, high risk asks for your password — and a password unlocks high-risk approvals for 10 minutes.</span></div></label>
+        <label className="approval-option"><input type="radio" name="approval-mode" value="tiered" checked={choice === "tiered"} onChange={() => setChoice("tiered")} /><div><strong>Tiered (recommended)</strong><span>Low risk runs with one click, medium risk asks you to confirm, high risk asks for your password, and a password unlocks high-risk approvals for 10 minutes.</span></div></label>
         <label className="approval-option"><input type="radio" name="approval-mode" value="always-password" checked={choice === "always-password"} onChange={() => setChoice("always-password")} /><div><strong>Always ask for the password</strong><span>Every change, including restarts and refreshes, re-enters the owner password. No elevated window.</span></div></label>
         {choice !== mode && (
           <div className="recovery-actions">

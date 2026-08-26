@@ -100,7 +100,7 @@ export function createHealthAlerts({ inventory, notifications, store, intervalMs
       if (availability[key.split(":")[0]] === false) { nextState[key] = entry; continue; }
       if (!target) continue;
       try {
-        await notifications.send({ title: `BoxPilot: resolved — ${entry.title ?? key}`, message: `This condition cleared at ${now().toLocaleString()}.`, priority: "default" });
+        await notifications.send({ title: `BoxPilot: resolved. ${entry.title ?? key}`, message: `This condition cleared at ${now().toLocaleString()}.`, priority: "default" });
         sent.push(`resolved:${key}`);
         store.recordAudit("health.alert.resolved", { actorId: null, subjectId: key, details: { since: entry.since, at: now().toISOString() } });
       } catch (error) {

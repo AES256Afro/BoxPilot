@@ -93,7 +93,7 @@ export default function RestorePanel({ csrfToken, start }: { csrfToken: string; 
             {options.map((option) => <option key={option.key} value={option.key}>{option.where} · {option.snapshot.createdAt ? new Date(option.snapshot.createdAt).toLocaleString() : option.snapshot.artifact} · {formatBytes(option.snapshot.sizeBytes)}{option.snapshot.apps !== null ? ` · ${option.snapshot.apps} apps` : ""}</option>)}
           </select>
         </label>
-        {sources && !sources.mount.mounted && options.length === 0 && <span className="muted">{sources.mount.blocker ?? "No snapshots here or on any mounted drive. If you have one on a drive or a network share, mount it from the Storage page and refresh — a rebuilt server finds it that way."}</span>}
+        {sources && !sources.mount.mounted && options.length === 0 && <span className="muted">{sources.mount.blocker ?? "No snapshots here or on any mounted drive. If you have one on a drive or a network share, mount it from the Storage page and refresh. A rebuilt server finds it that way."}</span>}
         {discovered && discovered.locations.length > 0 && <span className="muted">Also found {discovered.locations.reduce((total, location) => total + location.snapshots.length, 0)} snapshot(s) on {discovered.locations.map((location) => location.mount.source).join(", ")}, which this server did not write.</span>}
         {loading && <span className="muted">Reading the snapshot…</span>}
         {described && (
@@ -115,9 +115,9 @@ export default function RestorePanel({ csrfToken, start }: { csrfToken: string; 
               </table>
             </div>
             <label className="cloud-vm-check"><input type="checkbox" checked={restoreData} onChange={(event) => setRestoreData(event.target.checked)} /> Restore each app's newest data archive after installing it</label>
-            <p className="muted">Network, firewall, fstab, VM definitions{described.vms?.domains?.length ? ` (${described.vms.domains.join(", ")})` : ""}, and the database copy are staged under the snapshot folder for you to review — they are never applied automatically.</p>
+            <p className="muted">Network, firewall, fstab, VM definitions{described.vms?.domains?.length ? ` (${described.vms.domains.join(", ")})` : ""}, and the database copy are staged under the snapshot folder for you to review. They are never applied automatically.</p>
             {described.vms?.domains?.length ? (
-              <p className="muted">A snapshot holds VM definitions, not their disks. Those come from the encrypted VM repository, which is {described.vms.diskRepositoryReachable ? "reachable now" : "not reachable right now — mount the backup drive before restoring a VM"}.</p>
+              <p className="muted">A snapshot holds VM definitions, not their disks. Those come from the encrypted VM repository, which is {described.vms.diskRepositoryReachable ? "reachable now" : "not reachable right now. Mount the backup drive before restoring a VM"}.</p>
             ) : null}
             <footer className="recovery-actions">
               <button className="primary-button" type="button" disabled={!chosen || selected.size === 0} onClick={() => chosen && start({ operationId: "host.snapshot.restore", title: `Restore ${selected.size} app${selected.size === 1 ? "" : "s"} from snapshot`, parameters: { source: chosen.source, artifact: chosen.snapshot.artifact, ...(chosen.root ? { root: chosen.root } : {}), apps: [...selected], restoreData }, preview: <span>Reinstalls {[...selected].join(", ")} from <code>{chosen.snapshot.artifact}</code>{chosen.root ? <> on <code>{chosen.where}</code></> : null}{restoreData ? " and restores each one's newest data archive (a safety copy of any existing data is taken first)" : " without touching data"}. Apps already installed on this box are skipped.</span> })}>Restore selected</button>
