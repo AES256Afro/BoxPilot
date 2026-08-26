@@ -31,7 +31,7 @@ async function userEntry(run, username) {
 
 async function defaultFetchKeys(githubUser) {
   const response = await fetch(`https://github.com/${githubUser}.keys`, { signal: AbortSignal.timeout(15_000), redirect: "follow" });
-  if (!response.ok) throw new Error(`GitHub returned ${response.status} for ${githubUser}.keys — check the username`);
+  if (!response.ok) throw new Error(`GitHub returned ${response.status} for ${githubUser}.keys. Check the username`);
   return response.text();
 }
 
@@ -67,7 +67,7 @@ export async function userAdd({ username, githubUser = null } = {}, { run = fixe
   let importedKeys = null;
   if (githubUser) {
     const keys = validKeyLines(await fetchKeys(githubUser));
-    if (keys.length === 0) throw new Error(`No public keys found at github.com/${githubUser}.keys — the account was still created`);
+    if (keys.length === 0) throw new Error(`No public keys found at github.com/${githubUser}.keys. The account was still created`);
     importedKeys = await appendAuthorizedKeys(run, log, files, entry, keys);
   }
   return { username, uid: entry.uid, home: entry.home, passwordLoginDisabled: true, importedKeys };

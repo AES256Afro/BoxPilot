@@ -15,7 +15,7 @@ Browser  ──HTTPS over Tailscale (or plain HTTP on the LAN)──┐
                                       · SQLite: accounts, sessions, jobs, approvals, audit, settings
                                       · read-only host collectors: systemd, interfaces, routes,
                                         resolvers, listening ports, lsblk, Docker, Tailscale
-                                      · the operation registry — the list of everything BoxPilot can do
+                                      · the operation registry, the list of everything BoxPilot can do
                                             │
                                             │ one request per job, over a Unix socket (0660 root:boxpilot)
                                             v
@@ -35,7 +35,7 @@ Browser  ──HTTPS over Tailscale (or plain HTTP on the LAN)──┐
 
 The web service is the only process the browser talks to. It cannot change the host by itself: it
 has no root, and the helper refuses anything that is not a registered operation with valid
-parameters. The helper is sandboxed so tightly that it cannot reach the network or real devices —
+parameters. The helper is sandboxed so tightly that it cannot reach the network or real devices;
 work that needs either is handed to a one-shot unit whose task table is fixed at build time.
 
 ## Operations, jobs, approval
@@ -49,12 +49,12 @@ one carries:
 | `risk` | `low` runs on one click, `medium` shows a preview to confirm, `high` asks for the owner password |
 | `readOnly` | inspections; they answer immediately instead of becoming a job |
 | `minimumRole` | `owner` for anything that sends data off the box |
-| `confirm(parameters)` | text the approver must type — the disk path, the app id, the VM name |
+| `confirm(parameters)` | text the approver must type. The disk path, the app id, the VM name |
 | `parameters` | field types, patterns, limits; `secret: true` fields never reach the database |
 
 A change becomes a **job**: staged with its parameters pinned, approved, then run. The job records
 its steps, its output, and an audit entry; the Activity drawer follows it live. Approval is the
-single gate — the same checks apply whether the request came from the UI, a schedule, or the API.
+single gate, the same checks apply whether the request came from the UI, a schedule, or the API.
 
 Secrets given to a job (a share password, a cloud key) stay in memory. The database holds
 `"[secret]"` in their place, so a backup of BoxPilot's own database never carries them.
@@ -63,7 +63,7 @@ Secrets given to a job (a share password, a cloud key) stay in memory. The datab
 
 A catalog app is a YAML manifest plus a Compose template ([`catalog/`](../catalog)). Install,
 update, reconfigure, back up, restore and uninstall are generic: no app has its own code path.
-Manifests are validated strictly — unknown keys are errors, image tags are pinned, and an app that
+Manifests are validated strictly. Unknown keys are errors, image tags are pinned, and an app that
 reaches the Docker socket, the host network, or kernel capabilities cannot be marked low risk.
 
 Each app lives in `/var/lib/boxpilot-managed/catalog/<id>/` with its own `.env`, Compose file and
@@ -78,7 +78,7 @@ two operations on the same app never overlap.
 
 ## Identity and roles
 
-Sign in with a local password, a **Tailscale** identity, or **GitHub** (device flow — no client
+Sign in with a local password, a **Tailscale** identity, or **GitHub** (device flow, no client
 secret, no callback URL). Identities are linked per account: a login signs in as the account that
 linked it. The first Tailscale sign-in in a browser also asks for the password once, because
 anything able to reach the loopback port could otherwise claim a tailnet address.
@@ -106,10 +106,10 @@ required on every change. Repeated wrong passwords throttle that account.
 
 *System → BoxPilot updates* checks GitHub for a newer release. The update downloads the reviewed
 commit (not the tag, which can move), builds it, swaps `/opt/boxpilot`, restarts both services and
-health-checks the result — rolling back to the previous tree if the new version does not answer.
+health-checks the result, rolling back to the previous tree if the new version does not answer.
 
 ## Reading further
 
-- [ADR-001](DECISIONS.md) — why risk tiers replaced password-for-everything
-- [Roadmap](ROADMAP-V2.md) — what exists and what is next
+- [ADR-001](DECISIONS.md). Why risk tiers replaced password-for-everything
+- [Roadmap](ROADMAP-V2.md). What exists and what is next
 - [Backups](BACKUPS.md) · [Recovery kit](RECOVERY.md) · [Virtual machines](VIRTUALIZATION.md)

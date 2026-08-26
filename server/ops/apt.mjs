@@ -3,7 +3,7 @@ import { defineOperation } from "./registry.mjs";
 import { validPackageList } from "../tasks/apt.mjs";
 
 /** Common server tools offered on the Updates & packages page (M2.2). */
-let needrestartCache = null; // { at, value } — needrestart walks every process, so reuse a recent answer
+let needrestartCache = null; // { at, value }; needrestart walks every process, so reuse a recent answer
 /** Package work changes what needs restarting: the next inspection must ask again. */
 export function clearNeedrestartCache() { needrestartCache = null; }
 /** Run a package task, then forget what needed restarting before it. */

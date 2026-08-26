@@ -212,7 +212,7 @@ export function appOperations() {
         }
         // A tailnet-only app that is not published has no way in at all, so that failure has to be
         // loud. Turning publishing off when it was never on is not a failure.
-        if (failures.length && tailnet) throw new Error(`The app is now reachable only on this server, but publishing it on the tailnet failed — ${failures.join("; ")}`);
+        if (failures.length && tailnet) throw new Error(`The app is now reachable only on this server, but publishing it on the tailnet failed: ${failures.join("; ")}`);
 
         const status = await run(tailscaleBinary(), ["serve", "status", "--json"], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 });
         const serves = status.ok ? parseServeStatus(status.stdout) : [];
