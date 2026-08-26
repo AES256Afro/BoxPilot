@@ -77,7 +77,11 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
       setPhase("running");
       setOutput("");
       stopFollowing.current?.();
-      stopFollowing.current = followJobOutput(job.id, { onOutput: (text) => setOutput((current) => current + text), onState: () => {} });
+      stopFollowing.current = followJobOutput(job.id, {
+        // The stream sends fragments to append; asking returns the whole log, which replaces.
+        onOutput: (text, append) => setOutput((current) => (append ? current + text : text)),
+        onState: () => {},
+      });
       const finished = await waitForJob(job.id);
       stopFollowing.current?.(); stopFollowing.current = null;
       setJob(finished);
