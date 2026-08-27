@@ -118,6 +118,30 @@ describe("generic app deployer", () => {
     expect(applications.find((entry) => entry.id === "hole").urls).toEqual([{ id: "web", label: "web", host: 8084, exposure: "lan", path: "/admin/" }]);
   });
 
+  it("creates the folder layout a manifest promises inside a data volume, only where missing", async () => {
+    // Sonarr's first act is to look for /data/tv; qBittorrent's is to write /data/torrents.
+    // The manifest promises the layout, the install delivers it, and folders that already
+    // exist stay exactly as the owner had them, ownership included.
+    const chowned = [];
+    const { apps, catalogDirectory } = await setup({ chownDirectory: async (target, uid, gid) => { chowned.push([target, uid, gid]); } });
+    const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-media-")); directories.push(mediaRoot);
+    await mkdir(path.join(mediaRoot, "torrents"));   // the owner already has this one
+    await writeFile(path.join(catalogDirectory, "arr.yaml"), [
+      "schemaVersion: 2", "id: arr", "name: Arr", "category: T", "description: d",
+      "image:", "  reference: nginx:1.27",
+      "ports:", "  - id: web", "    container: 8989", "    host: 8989",
+      "env:", "  - name: PUID", "    default: \"1000\"", "    fixed: true", "  - name: PGID", "    default: \"1000\"", "    fixed: true",
+      "volumes:", "  - id: media", "    container: /data", "    hostPath: /srv/media", "    configurable: true", "    backup: false",
+      "    subdirectories:", "      - torrents", "      - tv",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n");
+    await apps.install({ id: "arr", values: { volumes: { media: mediaRoot } } });
+    expect(await stat(path.join(mediaRoot, "tv")).then((entry) => entry.isDirectory())).toBe(true);
+    // Only the folder that was missing got created and handed over; the existing one was left alone.
+    expect(chowned.filter(([target]) => target === path.join(mediaRoot, "tv"))).toHaveLength(1);
+    expect(chowned.filter(([target]) => target === path.join(mediaRoot, "torrents"))).toHaveLength(0);
+  });
+
   it("a sidecar in a crash loop fails the health wait and shows on the card", async () => {
     // qBittorrent "ran" for an hour while its VPN container crash-looped: the deploy that broke
     // it passed the health check (which watched only the app container) and the card said

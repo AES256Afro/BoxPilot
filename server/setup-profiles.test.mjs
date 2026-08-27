@@ -49,6 +49,24 @@ describe("first-run setup profiles", () => {
     expect(hypervisor.blocked).toBe(1);
   });
 
+  it("never auto-installs an app whose defaults cannot work, and says why", async () => {
+    // qBittorrent installed with default values means a VPN with nobody's key: the tunnel
+    // crash-loops and the install fails. The step is part of the profile, explained, not staged.
+    const bare = { "app.inspect": { applications: [{ id: "qbittorrent", installed: false }, { id: "prowlarr", installed: false }, { id: "sonarr", installed: false }, { id: "radarr", installed: false }, { id: "jellyfin", installed: false }, { id: "jellyseerr", installed: false }] }, "prerequisite.docker.inspect": { installed: true }, "prerequisite.restic.inspect": null, "prerequisite.smartmontools.inspect": null, "prerequisite.virtualization.inspect": null, "apt.unattended.inspect": { enabled: true }, "virtualization.foundation.inspect": null };
+    const setup = createSetupService({ helper: helperWith(bare), scheduler: { list: () => [] } });
+    const { profiles } = await setup.describe();
+    const media = profiles.find((profile) => profile.id === "media-automation");
+    const qbt = media.steps.find((step) => step.id === "app-qbittorrent");
+    expect(qbt.status).toBe("blocked");
+    expect(qbt.job).toBeNull();
+    expect(qbt.detail).toMatch(/needs your VPN provider and key.*App catalog card/);
+    // The rest of the stack installs normally, and an installed qBittorrent counts as done.
+    expect(media.steps.find((step) => step.id === "app-sonarr").status).toBe("ready");
+    const after = createSetupService({ helper: helperWith({ ...bare, "app.inspect": { applications: [{ id: "qbittorrent", installed: true }] } }), scheduler: { list: () => [] } });
+    const resolved = (await after.describe()).profiles.find((profile) => profile.id === "media-automation");
+    expect(resolved.steps.find((step) => step.id === "app-qbittorrent").status).toBe("done");
+  });
+
   it("marks a box with no apps and no schedules as first run and tolerates missing collectors", async () => {
     const helper = helperWith({ "app.inspect": { applications: [] }, "prerequisite.docker.inspect": new Error("helper offline"), "prerequisite.restic.inspect": null, "prerequisite.smartmontools.inspect": null, "prerequisite.virtualization.inspect": null, "apt.unattended.inspect": null, "virtualization.foundation.inspect": null });
     const setup = createSetupService({ helper, scheduler: { list: () => [] } });

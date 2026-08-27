@@ -31,6 +31,8 @@ volumes:
     configurable: true
     backup: false
     description: Download into /srv/media/torrents so Sonarr and Radarr can hard-link finished files into the library.
+    subdirectories:
+      - torrents
 env:
   - name: PUID
     default: "1000"

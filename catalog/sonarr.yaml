@@ -27,6 +27,9 @@ volumes:
     configurable: true
     backup: false
     description: The same folder qBittorrent uses, mounted at the same place inside (/data). That is what lets imports be instant hard-links on one filesystem instead of copies; downloads sit in /data/torrents and the library in /data/tv.
+    subdirectories:
+      - torrents
+      - tv
 env:
   - name: PUID
     default: "1000"
