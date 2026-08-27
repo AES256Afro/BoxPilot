@@ -110,6 +110,31 @@ describe("generic app deployer", () => {
     expect(applications.find((entry) => entry.id === "hole").urls).toEqual([{ id: "web", label: "web", host: 8084, exposure: "lan", path: "/admin/" }]);
   });
 
+  it("changing one setting leaves every other choice standing, secrets included", async () => {
+    // The exposure toggle used to hand reconfigure only { exposure }, and everything else fell
+    // back to catalog defaults: the owner's VPN provider reset to mullvad, their WireGuard key
+    // blanked (the tunnel then crash-looped on "private key is not set"), their media folder
+    // reverted. Found live. What a request does not name must stay as it is.
+    const { apps, catalogDirectory, catalogRoot } = await setup();
+    await writeFile(path.join(catalogDirectory, "tun.yaml"), [
+      "schemaVersion: 2", "id: tun", "name: Tun", "category: T", "description: d",
+      "image:", "  reference: nginx:1.27",
+      "ports:", "  - id: web", "    container: 8080", "    host: 8095",
+      "volumes:", "  - id: media", "    container: /data", "    hostPath: /srv/media", "    configurable: true", "    backup: false",
+      "env:", "  - name: PROVIDER", "    default: mullvad", "  - name: WG_KEY", "    type: password",
+    ].join("\n") + "\n");
+    await apps.install({ id: "tun", values: { ports: { web: 9001 }, env: { PROVIDER: "protonvpn", WG_KEY: "the-private-key" }, volumes: { media: "/mnt/media" } } });
+
+    await apps.reconfigure({ id: "tun", values: { exposure: "tailnet" } }, { checkpoint: false });
+
+    const envFile = await readFile(path.join(catalogRoot, "tun", ".env"), "utf8");
+    expect(envFile).toContain("WG_KEY='the-private-key'");             // the secret survives untyped
+    const compose = await readFile(path.join(catalogRoot, "tun", "compose.yaml"), "utf8");
+    expect(compose).toContain("PROVIDER: protonvpn");                  // not reset to mullvad
+    expect(compose).toContain("/mnt/media:/data");                     // the owner's folder, not the default
+    expect(compose).toContain(":9001:8080");                           // the owner's port, not the default
+  });
+
   it("offers an Open link only for ports a browser can open", async () => {
     // Every TCP port used to get one, so Forgejo's card offered to open git-over-SSH in a tab and
     // Pi-hole's first link — the one the Overview uses — was DNS on port 53.

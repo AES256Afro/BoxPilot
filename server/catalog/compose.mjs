@@ -117,7 +117,11 @@ export function securityOptFor(manifest, hostNetwork) {
 export function renderCompose(manifest, values, { existingEnv = {}, lanAddress = "0.0.0.0", tailnetAddress = null, devices = manifest.devices } = {}) {
   const env = { ...values.env };
   for (const entry of manifest.env) {
-    if (entry.generate && !env[entry.name]) env[entry.name] = existingEnv[entry.name] || generateSecret();
+    // A secret the request does not re-enter keeps its stored value. Secrets never live in the
+    // saved settings (only in .env), so without this a reconfigure that changed anything else
+    // silently blanked them: a WireGuard key gone because a port toggle was clicked.
+    if ((entry.generate || entry.secret) && !env[entry.name] && existingEnv[entry.name]) env[entry.name] = existingEnv[entry.name];
+    if (entry.generate && !env[entry.name]) env[entry.name] = generateSecret();
   }
   const service = {
     container_name: projectNameFor(manifest.id),
