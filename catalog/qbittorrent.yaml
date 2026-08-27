@@ -101,6 +101,9 @@ sidecars:
       # Gluetun's firewall drops inbound connections it was not told about, which locked the
       # web UI to the box itself: reachable from bigbox, a timeout from every other machine.
       FIREWALL_INPUT_PORTS: ${PORT_WEB}
+      # Written where the mounted volume is, so the log stops carrying a permission-denied ERROR
+      # about caching the public IP under /tmp.
+      PUBLICIP_FILE: /gluetun/ip
       HEALTH_VPN_DURATION_INITIAL: 30s
     volumes:
       - id: gluetun

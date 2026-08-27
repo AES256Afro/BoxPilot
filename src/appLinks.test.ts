@@ -89,6 +89,12 @@ describe("every way to reach an app, not one guess", () => {
     expect(found.filter((address) => address.kind === "tailnet")).toHaveLength(0);
   });
 
+  it("does not offer a LAN address for a port that moved to the tailnet", () => {
+    // "Reach only through Tailscale" binds the tailnet address; the LAN form is a dead link.
+    const found = appAddresses({ host: 8115, exposure: "tailnet", path: null }, options);
+    expect(found.map((address) => address.url)).toEqual(["http://homebox:8115"]);
+  });
+
   it("does not offer a LAN address for a port bound to loopback", () => {
     // This is the lie worth avoiding: the app is running, the link looks fine, nothing connects.
     const found = appAddresses({ host: 8084, exposure: "loopback", path: "/admin/" }, options);
