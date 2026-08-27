@@ -3,12 +3,12 @@ id: sonarr
 name: Sonarr
 category: Media automation
 icon: "📺"
-description: "Finds, downloads, and organises TV series automatically. Tell it which shows you follow; it grabs new episodes through your download client and renames them for Jellyfin or Plex."
+description: Automates TV. Tell it the shows you follow and it finds new episodes through your indexers (Prowlarr), hands them to your download client (qBittorrent), renames the finished files, and sorts them into your library where Jellyfin picks them up.
 website: https://sonarr.tv
-risk: low
+risk: medium
 image:
-  reference: lscr.io/linuxserver/sonarr:4.0.19.2979-ls321
-  version: 4.0.19.2979
+  reference: lscr.io/linuxserver/sonarr:4.0.19.2979-ls322
+  version: 4.0.19
 ports:
   - id: web
     label: Web UI
@@ -17,7 +17,7 @@ ports:
     exposure: lan
 volumes:
   - id: config
-    label: Configuration and database
+    label: Configuration
     container: /config
     path: config
   - id: media
@@ -26,7 +26,7 @@ volumes:
     hostPath: /srv/media
     configurable: true
     backup: false
-    description: Shared media root for the whole stack; subfolders for tv, movies, music, torrents, and usenet keep imports as instant hard-links.
+    description: The same folder qBittorrent uses, mounted at the same place inside (/data). That is what lets imports be instant hard-links on one filesystem instead of copies; downloads sit in /data/torrents and the library in /data/tv.
 env:
   - name: PUID
     default: "1000"
@@ -40,6 +40,6 @@ env:
     default: Etc/UTC
 health:
   kind: running
-  stableSeconds: 15
-  timeoutSeconds: 300
-notes: "Setup order: Prowlarr first (indexers), then a download client (qBittorrent or SABnzbd), then here under Settings → Download clients and Media management. Keep everything under the same /srv/media folder (for example /srv/media/tv and /srv/media/torrents) so finished downloads are hard-linked instead of copied."
+  stableSeconds: 10
+  timeoutSeconds: 180
+notes: "Point the root folder at /data/tv and the download client at qBittorrent on http://<this server>:8095 (category tv-sonarr). Indexers arrive through Prowlarr, which pushes them here by itself. On a network-share media folder Sonarr copies instead of hard-linking, which is fine, just slower."

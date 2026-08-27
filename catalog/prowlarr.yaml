@@ -3,12 +3,12 @@ id: prowlarr
 name: Prowlarr
 category: Media automation
 icon: "🧭"
-description: "Indexer manager for the *arr apps. Add your torrent and Usenet indexers once here and Sonarr, Radarr, and Lidarr pick them up automatically."
+description: One place for your torrent indexers. Add each site once, and Prowlarr keeps Sonarr and Radarr fed with all of them, tests them on a schedule, and takes the per-app indexer bookkeeping away entirely.
 website: https://prowlarr.com
-risk: low
+risk: medium
 image:
-  reference: lscr.io/linuxserver/prowlarr:2.5.2.5491-ls156
-  version: 2.5.2.5491
+  reference: lscr.io/linuxserver/prowlarr:2.5.2.5491-ls157
+  version: 2.5.2
 ports:
   - id: web
     label: Web UI
@@ -17,7 +17,7 @@ ports:
     exposure: lan
 volumes:
   - id: config
-    label: Configuration and database
+    label: Configuration
     container: /config
     path: config
 env:
@@ -33,6 +33,6 @@ env:
     default: Etc/UTC
 health:
   kind: running
-  stableSeconds: 15
-  timeoutSeconds: 300
-notes: "Add indexers here, then under Settings → Apps add Sonarr, Radarr, and Lidarr with their addresses (http://<this server>:8989 and so on) and API keys; Prowlarr syncs the indexers to them."
+  stableSeconds: 10
+  timeoutSeconds: 180
+notes: "Add Sonarr and Radarr under Settings, Apps, each with its address (http://<this server>:8989 and :7878) and API key (their Settings, General); Prowlarr then pushes every indexer to both and keeps them in sync. Prowlarr itself holds no media, so there is no media folder here."

@@ -2,13 +2,13 @@ schemaVersion: 2
 id: radarr
 name: Radarr
 category: Media automation
-icon: "🎞️"
-description: "The same for films: keep a wanted list, and Radarr fetches them in the quality you chose and files them for your media server."
+icon: "🎬"
+description: Automates movies. Add a film once and it finds a release through your indexers (Prowlarr), hands it to your download client (qBittorrent), renames the finished file, and files it into your library where Jellyfin picks it up.
 website: https://radarr.video
-risk: low
+risk: medium
 image:
-  reference: lscr.io/linuxserver/radarr:6.3.0.10514-ls313
-  version: 6.3.0.10514
+  reference: lscr.io/linuxserver/radarr:6.3.0.10514-ls314
+  version: 6.3.0
 ports:
   - id: web
     label: Web UI
@@ -17,7 +17,7 @@ ports:
     exposure: lan
 volumes:
   - id: config
-    label: Configuration and database
+    label: Configuration
     container: /config
     path: config
   - id: media
@@ -26,7 +26,7 @@ volumes:
     hostPath: /srv/media
     configurable: true
     backup: false
-    description: Shared media root for the whole stack; subfolders for tv, movies, music, torrents, and usenet keep imports as instant hard-links.
+    description: The same folder qBittorrent uses, mounted at the same place inside (/data). That is what lets imports be instant hard-links on one filesystem instead of copies; downloads sit in /data/torrents and the library in /data/movies.
 env:
   - name: PUID
     default: "1000"
@@ -40,6 +40,6 @@ env:
     default: Etc/UTC
 health:
   kind: running
-  stableSeconds: 15
-  timeoutSeconds: 300
-notes: "Setup order: Prowlarr first (indexers), then a download client, then here under Settings → Download clients. Use /srv/media/movies inside the shared media folder so imports are instant hard-links."
+  stableSeconds: 10
+  timeoutSeconds: 180
+notes: "Point the root folder at /data/movies and the download client at qBittorrent on http://<this server>:8095 (category movies-radarr). Indexers arrive through Prowlarr, which pushes them here by itself. On a network-share media folder Radarr copies instead of hard-linking, which is fine, just slower."
