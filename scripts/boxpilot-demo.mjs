@@ -378,7 +378,12 @@ api.get("/inventory", (_request, response) => json(response, inventory()));
 api.get("/network/topology", (_request, response) => json(response, topology()));
 api.get("/network/plans", (_request, response) => json(response, { plans: [] }));
 api.get("/jobs", (_request, response) => json(response, { jobs }));
-api.get("/jobs/:id", (request, response) => json(response, { job: jobs.find((job) => job.id === request.params.id) ?? jobs[0] }));
+api.get("/jobs/:id", (request, response) => {
+  // 404 like the product: falling back to the first job meant an unknown id quietly opened
+  // somebody else's terminal, and the pruned-job message never showed anywhere.
+  const job = jobs.find((entry) => entry.id === request.params.id);
+  return job ? json(response, { job }) : response.status(404).json({ error: "Job not found" });
+});
 api.get("/jobs/:id/output", (request, response) => json(response, { output: jobOutputs[request.params.id] ?? "" }));
 api.get("/backups", (_request, response) => json(response, { backups }));
 api.get("/controller-backup-protection", (_request, response) => json(response, { destination: { ready: true, encrypted: true, repositoryId: "restic-controller", blockers: [] }, protections: [{ id: "p1", backupId: backups[0].id, createdAt: ago(2) }] }));
@@ -495,7 +500,7 @@ api.get("/catalog", async (request, response) => {
   json(response, {
     applications: manifests.map((manifest) => {
       const port = present[manifest.id];
-      const live = { id: manifest.id, installed: Boolean(port), dataPresent: Boolean(port), state: port ? { installedAt: ago(19 * 24), updatedAt: ago(50), manifestSha256: manifest.sha256, image: { reference: manifest.image.reference, id: "sha256:demo" }, values: { ports: {}, env: {}, volumes: {}, setup: [] }, pinnedRollback: false, uninstalledAt: null } : null, container: port ? { exists: true, running: true, status: manifest.id === "open-webui" ? "paused" : "running", health: manifest.health.kind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:demo" } : { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, urls: port ? manifest.ports.filter((entry) => entry.protocol === "tcp").map((entry) => ({ id: entry.id, label: entry.label, host: entry.host, exposure: entry.exposure })) : [], updateAvailable: manifest.id === "jellyfin", installedImage: port ? manifest.image.reference : null };
+      const live = { id: manifest.id, installed: Boolean(port), dataPresent: Boolean(port), state: port ? { installedAt: ago(19 * 24), updatedAt: ago(50), manifestSha256: manifest.sha256, image: { reference: manifest.image.reference, id: "sha256:demo" }, values: { ports: {}, env: {}, volumes: {}, setup: [] }, pinnedRollback: false, uninstalledAt: null } : null, container: port ? { exists: true, running: true, status: manifest.id === "open-webui" ? "paused" : "running", health: manifest.health.kind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:demo" } : { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, sidecars: port ? (manifest.sidecars ?? []).map((entry) => ({ id: entry.id, running: true, status: "running", restarts: 0 })) : [], urls: port ? manifest.ports.filter((entry) => entry.protocol === "tcp").map((entry) => ({ id: entry.id, label: entry.label, host: entry.host, exposure: entry.exposure })) : [], updateAvailable: manifest.id === "jellyfin", installedImage: port ? manifest.image.reference : null };
       return { manifest, live };
     }),
     problems, liveError: null, host: { lanAddress: host.lan, tailscaleDnsName: host.tailnet },
@@ -603,6 +608,11 @@ const troubleRest = {
     ? { ...flow, lastResult: "stopped at step 3 (Install package updates): apt-get upgrade failed: E: Could not get lock /var/lib/dpkg/lock-frontend" }
     : flow)) }),
   // The failed flow's third step, opened from "What the last run did", must agree with the story.
+  // Installed but unwell includes an app whose helper container is looping: the card must say
+  // so instead of a green Running. Immich's database sidecar plays the patient.
+  "/catalog": (body) => ({ ...body, applications: body.applications.map((entry) => (entry.manifest.id === "immich" && entry.live?.installed && (entry.live.sidecars ?? []).length
+    ? { ...entry, live: { ...entry.live, sidecars: entry.live.sidecars.map((sidecar, index) => (index === 0 ? { ...sidecar, running: true, status: "restarting", restarts: 4 } : sidecar)) } }
+    : entry)) }),
   "/jobs/j3": (body) => ({ ...body, job: { ...body.job, state: "failed", error: "apt-get upgrade failed: E: Could not get lock /var/lib/dpkg/lock-frontend" } }),
   "/jobs/j3/output": (body) => ({ ...body, output: "Reading package lists...\nE: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 41283 (unattended-upgr)\nE: Unable to acquire the dpkg frontend lock\n" }),
   "/storage/samba": (body) => ({ ...body, running: false }),

@@ -26,6 +26,7 @@ interface LiveState {
   id: string; installed: boolean; dataPresent: boolean;
   state: { installedAt: string; updatedAt: string; manifestSha256: string | null; image: { reference: string; id: string | null } | null; values: { ports: Record<string, number>; env: Record<string, string>; volumes: Record<string, string>; setup?: string[]; exposure?: "lan" | "tailnet"; networkMode?: string }; pinnedRollback: boolean; uninstalledAt: string | null } | null;
   container: { exists: boolean; running: boolean; status: string; health: string; restarts: number; image: string | null };
+  sidecars?: Array<{ id: string; running: boolean; status: string; restarts: number }>;
   urls: Array<{ id: string; label: string; host: number; exposure: string; path?: string | null }>;
   updateAvailable?: boolean;
   installedImage?: string | null;
@@ -335,6 +336,10 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
     if (!live) return <span className="status-pill status-neutral">Unknown</span>;
     if (!live.installed) return live.dataPresent ? <span className="status-pill status-neutral">Not installed · data kept</span> : <span className="status-pill status-neutral">Not installed</span>;
     if (isPaused(live)) return <span className="status-pill status-warning">Paused</span>;
+    // A helper container down or restarting is the app being broken, however alive the main
+    // container looks: a VPN sidecar in a crash loop once showed here as a green "Running".
+    const troubled = (live.sidecars ?? []).find((sidecar) => !sidecar.running || sidecar.status === "restarting");
+    if (live.container.running && troubled) return <span className="status-pill status-warning">{`Running · ${troubled.id} ${troubled.status === "restarting" ? "is restarting" : "is down"}`}</span>;
     if (live.container.running) return <span className={`status-pill ${live.container.health === "unhealthy" ? "status-warning" : "status-good"}`}>{live.container.health === "unhealthy" ? "Running · unhealthy" : "Running"}</span>;
     return <span className="status-pill status-warning">Stopped</span>;
   };
