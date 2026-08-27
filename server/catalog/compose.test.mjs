@@ -91,6 +91,34 @@ describe("where an app's ports are published", () => {
   });
 });
 
+describe("a port the app must know it listens on", () => {
+  // qBittorrent refuses every request whose Host header carries a port other than its own
+  // (a plain-text 401), and gluetun's firewall drops inbound connections it was not told about.
+  // Both need the owner's chosen port, not the manifest's default.
+  const tunneled = {
+    id: "qbt", sha256: "x", image: { reference: "qbittorrent:5" }, network: "bridge", networkVia: "vpn",
+    ports: [{ id: "web", label: "Web UI", container: 8080, host: 8095, protocol: "tcp", exposure: "lan", containerFollowsHost: true }],
+    volumes: [], capabilities: [], devices: [], extraHosts: [], sysctls: [],
+    env: [{ name: "WEBUI_PORT", default: "${PORT_WEB}", fixed: true }],
+    sidecars: [{ id: "vpn", image: "gluetun:3", env: { FIREWALL_INPUT_PORTS: "${PORT_WEB}" }, volumes: [], capabilities: [], devices: [] }],
+  };
+
+  it("maps host to host, and hands the chosen port to app and sidecar env", () => {
+    const values = { ports: { web: 9001 }, env: { WEBUI_PORT: "${PORT_WEB}" }, volumes: {} };
+    const { compose } = renderCompose(tunneled, values, { lanAddress: "192.168.1.10" });
+    expect(compose.services.vpn.ports).toEqual(["192.168.1.10:9001:9001"]);   // not :8080
+    expect(compose.services.qbt.network_mode).toBe("service:vpn");
+    expect(compose.services.qbt.environment.WEBUI_PORT).toBe("9001");
+    expect(compose.services.vpn.environment.FIREWALL_INPUT_PORTS).toBe("9001");
+  });
+
+  it("without the flag the container port stays what the manifest says", () => {
+    const plain = { ...tunneled, ports: [{ ...tunneled.ports[0], containerFollowsHost: undefined }] };
+    const { compose } = renderCompose(plain, { ports: { web: 9001 }, env: {}, volumes: {} }, { lanAddress: "192.168.1.10" });
+    expect(compose.services.vpn.ports).toEqual(["192.168.1.10:9001:8080"]);
+  });
+});
+
 describe("host network mode", () => {
   const withSidecar = {
     id: "hole", sha256: "x", image: { reference: "pihole:6" }, network: "bridge", networkModes: ["bridge", "host"],
