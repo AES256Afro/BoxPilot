@@ -410,16 +410,21 @@ container, an app validating the port in the Host header, a browser HSTS preload
 ts.net, an exposure mode that had moved the binding. Every one of those checks was mechanical.
 BoxPilot should run them, not the owner.
 
-- **M15.1** `app.reachability.inspect`: for one app, walk the path a browser walks and report per
+- ✅ **M15.1** (v1.38.0) `app.reachability.inspect`: for one app, walk the path a browser walks and report per
   address, with evidence: container and sidecar state, which addresses the port actually binds,
   whether the host firewall admits it, whether Serve holds it, and which name forms a browser will
   refuse outright (plain http on the ts.net name, self-signed https on it) with the reason named.
   Verdicts per address: works from the LAN, works over Tailscale, cannot work in a browser and why.
-- **M15.2** A "Can't reach it?" action on every app card that runs the op and renders the verdicts,
-  with the terminal log of the probe one click away like every other action.
-- **M15.3** Active probes where the server can make them (loopback, its own LAN address), so the
-  report says "answered in 40ms" rather than "should work". Evidence over inference, the
-  restore-drill philosophy applied to networking.
+- ✅ **M15.2** (v1.38.0) A "Can't reach it?" action on every app card that runs the op and renders the verdicts.
+  Shipped with M15.1 and most of M15.3 in one arc: `server/reachability.mjs` plans probes from the
+  helper's own records (effective per-port exposure via `bindingFor`, Serve entries, the host's LAN
+  and tailnet addresses) and words the verdicts; `server/tasks/reachability.mjs` opens real
+  connections from a task (the helper's PrivateNetwork cannot), reporting answered-with-status,
+  refused, silently-dropped, and self-signed-certificate apart; the ts.net HSTS preload rule is
+  explained rather than probed. The report says probes ran from the server itself.
+- ◐ **M15.3** Active probes shipped with M15.1 (loopback, LAN, tailnet address, Serve HTTPS with
+  certificate verdict). Remaining: probing from somewhere other than the server itself, which is
+  what would catch a LAN firewall between the owner's device and the box.
 
 ## M16 — Managing the network's other boxes: OPNsense first
 
