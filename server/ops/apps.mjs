@@ -48,7 +48,7 @@ export function appOperations() {
     defineOperation({ id: "app.updates.inspect", title: "Check application updates", risk: "low", readOnly: true, description: "Compares installed applications with the current catalog.", run: (_p, { apps }) => apps.checkUpdates() }),
     defineOperation({
       id: "app.logs", title: "Read application logs", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
-      parameters: { fields: { id: idField, lines: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 1000 ? null : "must be 1-1000") } } },
+      parameters: { fields: { id: idField, lines: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 1000 ? null : "must be 1-1000") }, container: { type: "string", optional: true, pattern: /^[a-z0-9][a-z0-9-]{0,62}$/ } } },
       run: (parameters, { apps }) => apps.logs(parameters),
     }),
     defineOperation({
@@ -63,6 +63,12 @@ export function appOperations() {
         if (!stats.ok) return { available: false, stats: {} };
         return { available: true, stats: aggregateAppStats(parseDockerStats(stats.stdout), applications.map((application) => application.id)) };
       },
+    }),
+    defineOperation({
+      id: "app.vpn.inspect", title: "Read where a tunneled app's traffic leaves", risk: "low", readOnly: true, timeoutMs: 30_000,
+      description: "For an app that runs through a VPN tunnel: whether the tunnel container is up, and the public IP and place its own log says the traffic leaves from. Nothing is changed.",
+      parameters: { fields: { id: idField } },
+      run: (parameters, { apps }) => apps.vpnStatus({ id: parameters.id }),
     }),
     defineOperation({
       id: "app.reachability.inspect", title: "Check how an app can be reached", risk: "low", readOnly: true, timeoutMs: 60_000,

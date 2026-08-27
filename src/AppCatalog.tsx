@@ -19,6 +19,8 @@ export interface Manifest {
   signIn?: { path: string | null; port: string | null; username: string | null; usernameEnv: string | null; passwordEnv: string; note: string | null } | null;
   network?: string;
   networkModes?: string[];
+  networkVia?: string | null;
+  sidecars?: Array<{ id: string }>;
   modelRunner?: { kind: string; service: string } | null;
   sha256: string;
 }
@@ -181,7 +183,8 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [config, setConfig] = useState<{ manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure" } | null>(null);
-  const [logs, setLogs] = useState<{ id: string; lines: string[] } | null>(null);
+  const [logs, setLogs] = useState<{ id: string; container: string | null; lines: string[] } | null>(null);
+  const [tunnels, setTunnels] = useState<Record<string, { running: boolean; exit: { ip: string; location: string | null } | null }>>({});
   const [reachability, setReachability] = useState<{ id: string; checking: boolean; headline: string | null; addresses: Array<{ kind: string; url: string; portLabel: string | null; outcome: string; verdict: string | null; note: string | null }> } | null>(null);
   const [models, setModels] = useState<{ id: string; name: string; available: boolean; reason: string | null; rows: Array<{ name: string; id: string; size: string; modified: string; bytes: number }>; wanted: string; loading: boolean } | null>(null);
   const [effectiveConfig, setEffectiveConfig] = useState<{ id: string; name: string; compose: string | null; env: Array<{ name: string; value: string; secret: boolean }>; directory: string } | null>(null);
@@ -212,6 +215,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
       if (!response.ok) throw new Error(body.error ?? "Could not load the catalog");
       setData(body);
       setError(null);
+      void loadTunnels(body.applications ?? []);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not load the catalog");
     } finally {
@@ -229,12 +233,25 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
 
   const { start, dialog } = useOperation(csrfToken, () => { void refresh(); });
 
-  const showLogs = async (id: string) => {
+  // For the few apps that run through a VPN tunnel, ask where the traffic actually leaves. The
+  // answer comes from the tunnel's own log, so it costs one op call per tunneled app, not per card.
+  const loadTunnels = useCallback(async (entries: Array<{ manifest: Manifest; live: LiveState | null }>) => {
+    const tunneled = entries.filter((entry) => entry.manifest.networkVia && entry.live?.installed);
+    for (const entry of tunneled) {
+      try {
+        const response = await fetch("/api/v1/operations/app.vpn.inspect/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id: entry.manifest.id } }) });
+        const body = (await response.json().catch(() => ({}))) as { result?: { tunneled: boolean; running?: boolean; exit?: { ip: string; location: string | null } | null } };
+        if (response.ok && body.result?.tunneled) setTunnels((current) => ({ ...current, [entry.manifest.id]: { running: body.result?.running ?? false, exit: body.result?.exit ?? null } }));
+      } catch { /* the pill already covers a broken tunnel; the exit line is a bonus */ }
+    }
+  }, [csrfToken]);
+
+  const showLogs = async (id: string, container?: string) => {
     try {
-      const response = await fetch("/api/v1/operations/app.logs/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id, lines: 200 } }) });
+      const response = await fetch("/api/v1/operations/app.logs/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id, lines: 200, ...(container ? { container } : {}) } }) });
       const body = (await response.json().catch(() => ({}))) as { result?: { lines: string[] }; error?: string };
       if (!response.ok) throw new Error(body.error ?? "Could not read logs");
-      setLogs({ id, lines: body.result?.lines ?? [] });
+      setLogs({ id, container: container ?? null, lines: body.result?.lines ?? [] });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read logs");
     }
@@ -371,6 +388,9 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                 {statusPill(live)}
               </header>
               <p>{manifest.description}</p>
+              {installed && manifest.networkVia && tunnels[manifest.id]?.exit && tunnels[manifest.id].running && (
+                <p className="muted app-stats">VPN exit: {tunnels[manifest.id].exit?.location ?? "unknown place"} · {tunnels[manifest.id].exit?.ip}</p>
+              )}
               {installed && stats?.[manifest.id] && (
                 <p className="muted app-stats">CPU {stats[manifest.id].cpuPercent.toFixed(1)}% · {(stats[manifest.id].memBytes / 1024 / 1024).toFixed(0)} MiB{stats[manifest.id].containers > 1 ? ` · ${stats[manifest.id].containers} containers` : ""}</p>
               )}
@@ -504,7 +524,18 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
       {logs && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setLogs(null)}>
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="logs-title" onMouseDown={(event) => event.stopPropagation()}>
-            <header className="modal-header"><div><span className="eyebrow">Logs</span><h2 id="logs-title">{logs.id}</h2></div><button className="icon-button" type="button" onClick={() => setLogs(null)} aria-label="Close dialog">X</button></header>
+            <header className="modal-header"><div><span className="eyebrow">Logs</span><h2 id="logs-title">{logs.id}{logs.container ? ` · ${logs.container}` : ""}</h2></div><button className="icon-button" type="button" onClick={() => setLogs(null)} aria-label="Close dialog">X</button></header>
+            {(() => {
+              const owner = data?.applications.find((entry) => entry.manifest.id === logs.id)?.manifest;
+              const helpers = owner?.sidecars ?? [];
+              if (!helpers.length) return null;
+              return (
+                <div className="recovery-actions">
+                  <button className="text-button" type="button" disabled={logs.container === null} onClick={() => void showLogs(logs.id)}>{logs.id}</button>
+                  {helpers.map((sidecar) => <button key={sidecar.id} className="text-button" type="button" disabled={logs.container === sidecar.id} onClick={() => void showLogs(logs.id, sidecar.id)}>{sidecar.id}</button>)}
+                </div>
+              );
+            })()}
             <pre className="app-logs">{logs.lines.join("\n") || "(no output)"}</pre>
           </section>
         </div>
