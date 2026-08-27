@@ -344,9 +344,17 @@ its network, use a generic HTTP step for everything else, and hand SaaS breadth 
   terminals ("What the last run did", or watched live, with progress persisted step by step so a crash
   mid-run leaves a true record), and every schedule row grew a "View log" for its last run. The Activity
   drawer uses the same component, which also fixed its poll path duplicating lines behind Tailscale Serve.
-- **M13.3** **Values between steps.** A step's result is readable by later steps
+- ✅ **M13.3** (v1.36.0) **Values between steps.** A step's result is readable by later steps
   (`{{ steps.snapshot.artifact }}`). Needs a tiny expression reader with no `eval` and no reach
-  outside the flow's own values, which is the whole security surface of this milestone.
+  outside the flow's own values, which is the whole security surface of this milestone. Shipped:
+  `server/flow-values.mjs` is the entire language: `steps.<name>.<path>` lookups over the named
+  earlier steps' recorded job results, nothing else. No prototype chain (own properties only,
+  `__proto__`/`constructor`/`prototype` refused by name), a lone placeholder keeps the value's own
+  type, a spliced one must be a primitive. Steps gained an optional lowercase name; references may
+  only look backwards, checked at save. A field fed by a reference sits out save-time validation
+  (treated as optional), and the resolved parameters pass through the registry's full validation
+  again when the job is staged, which is the gate that matters. The builder does not write
+  references yet; that arrives with the parameter editor.
 - **M13.4** **Branching and failure policy.** `if` on a step's result, per-step continue-or-stop, and
   a final `always` step so "tell me what happened" runs whether or not the flow worked.
 - **M13.5** **Triggers beyond the clock.** The signals already exist and are not wired to anything:
