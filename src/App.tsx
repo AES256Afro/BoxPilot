@@ -29,6 +29,8 @@ import NotificationSettings from "./NotificationSettings";
 import SignInSettings from "./SignInSettings";
 import PeopleSettings from "./PeopleSettings";
 import PasswordSettings from "./PasswordSettings";
+import ThemeSettings from "./ThemeSettings";
+import { useTheme } from "./useTheme";
 import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
 import VirtualMachines from "./VirtualMachines";
 
@@ -104,7 +106,7 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   },
   settings: {
     title: "Settings",
-    description: "Access, alerts, sign-in, and approval mode.",
+    description: "Access, alerts, sign-in, approval mode, and theme.",
   },
 };
 
@@ -126,7 +128,7 @@ const viewFeatures: Record<ViewName, string[]> = {
   backups: ["Database backups with restore drills", "Encrypted independent copies", "Retention", "Machine snapshots", "Mirrors to a drive, SSH host, or cloud", "Restore from a snapshot"],
   github: ["Release and commit metadata", "Asset digests", "No token needed"],
   logs: ["Any unit, container, or journal group", "Tail and follow", "Filter", "Download", "Support bundle"],
-  settings: ["Approval mode", "Alerts: ntfy, Gotify, webhook", "GitHub sign-in", "Tailscale sign-in", "People", "Password"],
+  settings: ["Approval mode", "Alerts: ntfy, Gotify, webhook", "GitHub sign-in", "Tailscale sign-in", "People", "Password", "Theme"],
 };
 
 
@@ -168,6 +170,7 @@ function Settings({ csrfToken, role = "owner" }: { csrfToken: string; role?: str
       {role === "owner" && <NotificationSettings csrfToken={csrfToken} />}
       <PasswordSettings csrfToken={csrfToken} />
       {role === "owner" && <PeopleSettings csrfToken={csrfToken} />}
+      <ThemeSettings />
     </div>
   );
 }
@@ -280,7 +283,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><span>B</span><div>BoxPilot<small>Home server setup</small></div></div>
+        <div className="brand"><span>B</span><div>BoxPilot<small>v{__BOXPILOT_VERSION__}</small></div></div>
         <nav aria-label="Product areas">
           {navItems.map((item) => (
             <button
@@ -303,7 +306,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
       <main>
         <header className="topbar">
           <div className="hostline">
-            <div><strong>BoxPilot</strong><span>Ubuntu server setup and management</span></div>
+            <div><strong>BoxPilot</strong><span>Server administration</span></div>
           </div>
           <div className="topbar-right"><ActivityDrawer />{authStatus.owner?.role && authStatus.owner.role !== "owner" ? <span className="status-pill status-neutral" title="Your role on this server">{authStatus.owner.role}</span> : null}{elevated ? <button className="text-button" type="button" title="High-risk approvals skip the password until this time. Click to lock now." onClick={() => void dropElevation(authStatus.csrfToken ?? "").then(refreshAuth).catch(() => refreshAuth())}>Elevated until {elevatedLabel} · Lock</button> : <StatusPill tone="neutral">Tiered approvals</StatusPill>}<span className="signed-in-user">{authStatus.owner?.username}</span><button className="text-button" type="button" onClick={() => void logoutOwner(authStatus.csrfToken ?? "").then(onSignedOut).catch(onSignedOut)}>Sign out</button></div>
         </header>
@@ -332,6 +335,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
 }
 
 function App() {
+  useTheme(); // applies data-theme from localStorage
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
 
