@@ -412,10 +412,14 @@ install instead of an afternoon.
   `subdirectories`: the manifest promises the folder layout (`torrents/`, `tv/`, `movies/`) and the
   install delivers it inside the data volume, creating only what is missing and never touching or
   re-owning anything the owner already has.
-- **M14.3** Connection helper: the *arrs need each other's addresses and API keys, and today that
-  is copy-paste between six browser tabs. A panel per app that lists what wants connecting to it,
-  the address to use (the in-project name, since they share a compose network), and where the API
-  key lives. Read-and-show first; writing another app's config is a later, separate decision.
+- ✅ **M14.3** (v1.43.0) Connection helper: manifests declare what an app connects to (Sonarr
+  names qBittorrent as its download client, Prowlarr names the *arrs it feeds), and every
+  installed card grew a Wiring section showing both directions with real addresses: this server's
+  LAN address plus the target's actually-chosen port, since each catalog app is its own compose
+  project and container names do not resolve across them (the original sketch's "in-project name"
+  was wrong). Where the target is missing it says install it first; where an API key is needed it
+  says where that key lives. Read-and-show only; writing another app's config stays a separate
+  decision.
 
 ## M15 — The reachability doctor
 
