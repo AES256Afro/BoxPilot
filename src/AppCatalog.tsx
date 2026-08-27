@@ -12,6 +12,7 @@ interface ManifestSetup { title: string; note: string | null; finalize: string[]
 interface ManifestEnv { name: string; label: string; description: string | null; type: "string" | "password" | "number" | "boolean" | "timezone" | "path"; default: string | number | boolean | null; required: boolean; secret: boolean; generate: boolean; options: string[] | null; fixed: boolean }
 export interface Manifest {
   id: string; name: string; category: string; description: string; website: string | null; icon: string | null; risk: "low" | "medium" | "high"; notes: string | null;
+  connections?: Array<{ app: string; role: string; where: string; note: string | null }>;
   image: { reference: string; version: string | null; digestPinned: boolean };
   ports: ManifestPort[]; volumes: ManifestVolume[]; env: ManifestEnv[];
   health: { kind: string; stableSeconds: number; timeoutSeconds: number };
@@ -420,6 +421,44 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                       ))}
                     </details>
                   )}
+                  {(() => {
+                    // The wiring between apps, in both directions, with real addresses. An app
+                    // reaches another through this server's LAN address and the target's chosen
+                    // port; each catalog app is its own compose project, so container names do
+                    // not resolve across them.
+                    const lan = data?.host.lanAddress ?? null;
+                    const portOf = (entry: { manifest: Manifest; live: LiveState | null }) => entry.live?.urls?.[0]?.host ?? entry.manifest.ports?.[0]?.host ?? null;
+                    const addressOf = (entry: { manifest: Manifest; live: LiveState | null }) => { const port = portOf(entry); return lan && port ? `http://${lan}:${port}` : null; };
+                    const outgoing = (manifest.connections ?? []).map((connection) => ({ connection, target: data?.applications.find((entry) => entry.manifest.id === connection.app) ?? null }));
+                    const incoming = (data?.applications ?? []).filter((entry) => entry.live?.installed && (entry.manifest.connections ?? []).some((connection) => connection.app === manifest.id));
+                    if (!outgoing.length && !incoming.length) return null;
+                    return (
+                      <details className="app-addresses">
+                        <summary>Wiring</summary>
+                        <ul>
+                          {outgoing.map(({ connection, target }) => (
+                            <li key={`out-${connection.app}`}>
+                              <strong>{target?.manifest.name ?? connection.app}</strong> as its {connection.role}: in {manifest.name} under {connection.where}.
+                              {target?.live?.installed
+                                ? (addressOf(target) ? <> Address: <code>{addressOf(target)}</code>.</> : null)
+                                : <span className="muted"> Install {target?.manifest.name ?? connection.app} first.</span>}
+                              {connection.note && <span className="muted"> {connection.note}</span>}
+                            </li>
+                          ))}
+                          {incoming.map((entry) => {
+                            const connection = (entry.manifest.connections ?? []).find((candidate) => candidate.app === manifest.id);
+                            if (!connection) return null;
+                            return (
+                              <li key={`in-${entry.manifest.id}`}>
+                                <strong>{entry.manifest.name}</strong> connects here as its {connection.role}, set up in {entry.manifest.name} under {connection.where}.
+                                {lan && portOf({ manifest, live }) ? <> This app's address there: <code>{`http://${lan}:${portOf({ manifest, live })}`}</code>.</> : null}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </details>
+                    );
+                  })()}
                   {(() => {
                     if (serves === null) return null;
                     if ((live.state?.values?.networkMode ?? manifest.network) === "host") return null;

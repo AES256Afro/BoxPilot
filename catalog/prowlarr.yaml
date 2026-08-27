@@ -31,6 +31,15 @@ env:
     label: Time zone
     type: timezone
     default: Etc/UTC
+connections:
+  - app: sonarr
+    role: app to keep fed with indexers
+    where: Settings, Apps, add Sonarr
+    note: Sonarr's API key is in Sonarr under Settings, General.
+  - app: radarr
+    role: app to keep fed with indexers
+    where: Settings, Apps, add Radarr
+    note: Radarr's API key is in Radarr under Settings, General.
 health:
   kind: running
   stableSeconds: 10
