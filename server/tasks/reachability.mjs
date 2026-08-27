@@ -14,14 +14,18 @@ import https from "node:https";
 
 const probeLimit = 12;
 
-function probeOne(url, timeoutMs) {
+function probeOne(url, timeoutMs, sourceAddress = null) {
   return new Promise((resolve) => {
     let target;
     try { target = new URL(url); } catch { return resolve({ outcome: "error", error: "not a valid address" }); }
     if (!["http:", "https:"].includes(target.protocol)) return resolve({ outcome: "error", error: "only http and https are probed" });
     const started = Date.now();
     const transport = target.protocol === "https:" ? https : http;
-    const request = transport.request(target, { method: "GET", timeout: timeoutMs, rejectUnauthorized: false }, (response) => {
+    // Binding the source to the host's own LAN address makes the kernel present this connection
+    // the way a device on the network would arrive, instead of via the bridge address that
+    // container firewalls quietly whitelist. The difference between those two vantages is
+    // exactly how a tunnel's inbound firewall hid from every on-host check.
+    const request = transport.request(target, { method: "GET", timeout: timeoutMs, rejectUnauthorized: false, ...(sourceAddress ? { localAddress: sourceAddress } : {}) }, (response) => {
       const socket = response.socket;
       const tls = target.protocol === "https:" ? (socket.authorized ? "verified" : "unverified") : null;
       response.resume();
@@ -42,7 +46,7 @@ export async function probeAddresses({ probes } = {}, { timeoutMs = 4000 } = {})
   if (probes.length > probeLimit) throw new Error(`At most ${probeLimit} addresses are probed at once`);
   const results = await Promise.all(probes.map(async (probe) => {
     if (!probe || typeof probe.id !== "string" || typeof probe.url !== "string") return { id: String(probe?.id ?? "?"), outcome: "error", error: "malformed probe" };
-    return { id: probe.id, url: probe.url, ...(await probeOne(probe.url, timeoutMs)) };
+    return { id: probe.id, url: probe.url, ...(await probeOne(probe.url, timeoutMs, typeof probe.sourceAddress === "string" ? probe.sourceAddress : null)) };
   }));
   return { results };
 }

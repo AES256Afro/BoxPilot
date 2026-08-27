@@ -4395,5 +4395,5 @@ textarea {
 .reach-list p { margin: 0.15rem 0 0; font-size: 0.9rem; }
 .reach-mark { font-weight: 700; }
 .reach-answered .reach-mark { color: var(--good, #3fb27f); }
-.reach-refused .reach-mark, .reach-timeout .reach-mark, .reach-error .reach-mark { color: var(--danger, #e06c6c); }
+.reach-refused .reach-mark, .reach-timeout .reach-mark, .reach-error .reach-mark, .reach-blocked-outside .reach-mark { color: var(--danger, #e06c6c); }
 .reach-not-probed .reach-mark { color: var(--text-muted); }
