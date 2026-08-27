@@ -104,6 +104,19 @@ describe("App catalog", () => {
     expect(screen.getAllByText("http://192.168.1.10:8096").length).toBeGreaterThanOrEqual(2);
   });
 
+  it("shows where a tunneled app's traffic leaves, from the tunnel's own log", async () => {
+    const tunneled = { ...manifest, id: "qbt", name: "qBittorrent", networkVia: "vpn", sidecars: [{ id: "vpn" }] };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest: tunneled, live: { id: "qbt", installed: true, dataPresent: true, state: { installedAt: "x", updatedAt: "x", manifestSha256: "abc", image: { reference: "q:5", id: "sha256:1" }, values: { ports: {}, env: {}, volumes: {} }, pinnedRollback: false, uninstalledAt: null }, container: { exists: true, running: true, status: "running", health: "none", restarts: 0, image: "sha256:1" }, sidecars: [{ id: "vpn", running: true, status: "running", restarts: 0 }], urls: [] } }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      if (url === "/api/v1/operations/app.vpn.inspect/run") return json({ operation: "app.vpn.inspect", result: { id: "qbt", tunneled: true, sidecarId: "vpn", running: true, status: "running", exit: { ip: "212.92.104.227", location: "Netherlands, North Brabant, Breda", at: "x" } } });
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppCatalog csrfToken="csrf-token" />);
+    expect(await screen.findByText("VPN exit: Netherlands, North Brabant, Breda · 212.92.104.227")).toBeTruthy();
+  });
+
   it("says a helper container is broken instead of a green Running", async () => {
     // A VPN sidecar crash-looped for an hour behind a green "Running" pill; the app container
     // being up is not the app working when the container it routes through is down.

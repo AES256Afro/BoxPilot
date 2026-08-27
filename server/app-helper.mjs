@@ -11,6 +11,7 @@ import YAML from "yaml";
 import { fixedRun } from "./exec.mjs";
 import { parseServeStatus } from "./tailscale-serve.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
+import { parseExit } from "./vpn-exit.mjs";
 import { bindingFor, deviceMatchesPattern, renderCompose, projectNameFor, resolveDevices } from "./catalog/compose.mjs";
 import { isDeniedHostPath } from "./catalog/schema.mjs";
 import { resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
@@ -615,13 +616,35 @@ export function createAppHelper({
     return { id, action: verb, running: status.running, status: status.status };
   }
 
-  async function logs({ id, lines = 200 }) {
-    await ensureManifest(id);
+  async function logs({ id, lines = 200, container = null }) {
+    const manifest = await ensureManifest(id);
+    // The tunnel's log is where the public IP and every connection problem lives, and the notes
+    // kept telling the owner to read it while the Logs button could only show the app container.
+    let name = projectNameFor(id);
+    if (container) {
+      if (!(manifest.sidecars ?? []).some((sidecar) => sidecar.id === container)) throw new Error(`${manifest.name} has no helper container named ${container}`);
+      name = projectNameFor(`${id}-${container}`);
+    }
     const tail = Math.min(Math.max(Number.parseInt(lines, 10) || 200, 1), 1000);
-    const result = await docker(["logs", "--tail", String(tail), "--timestamps", projectNameFor(id)], { timeout: 30_000 });
+    const result = await docker(["logs", "--tail", String(tail), "--timestamps", name], { timeout: 30_000 });
     if (!result.ok && !result.stdout) throw new Error(`docker logs failed: ${redact(result.stderr).split("\n").slice(-2).join(" ")}`);
     const entries = `${result.stdout}\n${result.stderr}`.split("\n").filter(Boolean).map(redact).slice(-tail);
-    return { id, lines: entries };
+    return { id, container: container ?? null, lines: entries };
+  }
+
+  /**
+   * Where a tunneled app's traffic leaves, read from the tunnel container's own log: the public
+   * IP gluetun verified and the place it belongs to, next to whether the tunnel is even running.
+   */
+  async function vpnStatus({ id }) {
+    const manifest = await ensureManifest(id);
+    if (!manifest.networkVia) return { id, tunneled: false };
+    const state = await readState(id);
+    if (!state?.installed) return { id, tunneled: true, running: false, exit: null };
+    const status = await containerStatus(`${id}-${manifest.networkVia}`);
+    const result = await docker(["logs", "--tail", "300", "--timestamps", projectNameFor(`${id}-${manifest.networkVia}`)], { timeout: 30_000 });
+    const exit = parseExit(`${result.stdout}\n${result.stderr}`);
+    return { id, tunneled: true, sidecarId: manifest.networkVia, running: status.running && status.status === "running", status: status.status, exit };
   }
 
   /** Effective compose.yaml and .env for an installed app. Secret values are masked here; app.secrets (elevated) reveals them. */
@@ -1172,5 +1195,5 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { syncHomepage, inspect, reachabilityFacts, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, reachabilityFacts, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }
