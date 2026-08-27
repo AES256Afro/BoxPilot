@@ -37,6 +37,11 @@ export function referencesIn(parameters) {
   return references;
 }
 
+/** True when a string is exactly one reference and nothing else, keeping the value's own type. */
+export function isSinglePlaceholder(value) {
+  return typeof value === "string" && new RegExp(`^${placeholderSource}$`).test(value.trim());
+}
+
 /** True when any parameter value carries a placeholder, so save-time validation can defer it. */
 export function holdsPlaceholder(value) {
   return typeof value === "string"

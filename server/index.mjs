@@ -175,12 +175,14 @@ const jobs = createJobService(state, helper, {
 state.deleteExpiredSessions();
 const interruptedJobs = state.recoverInterruptedJobs();
 const scheduler = createSchedulerService({ store: state, jobs });
-const flows = createFlowService({ store: state, jobs });
+const notifications = createNotificationService({ store: state });
+notifications.start();
+// A flow failure that never produced a job has no failed-job push to carry the news; the flow
+// sends its own. Failed step jobs stay covered by the ordinary failed-job notifications.
+const flows = createFlowService({ store: state, jobs, notify: (message) => { notifications.send({ title: "Automation", message, priority: "high" }).catch(() => {}); } });
 flows.start();
 scheduler.start();
 const setup = createSetupService({ helper, scheduler });
-const notifications = createNotificationService({ store: state });
-notifications.start();
 createUpdateNotifier({ releaseUpdates, notifications, store: state }).start();
 createHealthAlerts({ inventory, notifications, store: state }).start();
 
