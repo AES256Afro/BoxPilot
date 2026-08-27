@@ -383,4 +383,76 @@ its network, use a generic HTTP step for everything else, and hand SaaS breadth 
 each is nearly useless alone. 5 and 6 are what turn it from a macro recorder into automation. 7 is
 the biggest single jump in reach for the least new machinery. 8 before anyone depends on it. 10 only
 once 2–4 have stopped changing shape.
+## M14 — Media automation, end to end
 
+The owner's first real automation wish was "click a magnet link on my PC and it downloads on the
+server". Getting there surfaced six product bugs and required a guide, an extension, and a CSRF
+concession. The finished pipeline works; this arc makes the next person's version of it a stack
+install instead of an afternoon.
+
+- **M14.1** The *arr manifests: Sonarr, Radarr, and Prowlarr as catalog entries (Jellyseerr is
+  already in). All three mount the same media volume as qBittorrent at the same container path, so
+  imports are hard-links on one filesystem instead of copies, and the manifests say so instead of
+  leaving the layout to be discovered. Bazarr later if asked for.
+- **M14.2** A *Media automation* stack profile: qBittorrent (through the VPN), Prowlarr, Sonarr,
+  Radarr, and Jellyfin in one approved run, sharing one media volume with the folder layout
+  (`torrents/`, `tv/`, `movies/`) created up front. The stack machinery is M3.7; this is its
+  second real stack.
+- **M14.3** Connection helper: the *arrs need each other's addresses and API keys, and today that
+  is copy-paste between six browser tabs. A panel per app that lists what wants connecting to it,
+  the address to use (the in-project name, since they share a compose network), and where the API
+  key lives. Read-and-show first; writing another app's config is a later, separate decision.
+
+## M15 — The reachability doctor
+
+"Unable to reach the panel" took six rounds of live diagnosis: an inbound firewall inside a VPN
+container, an app validating the port in the Host header, a browser HSTS preload covering all of
+ts.net, an exposure mode that had moved the binding. Every one of those checks was mechanical.
+BoxPilot should run them, not the owner.
+
+- **M15.1** `app.reachability.inspect`: for one app, walk the path a browser walks and report per
+  address, with evidence: container and sidecar state, which addresses the port actually binds,
+  whether the host firewall admits it, whether Serve holds it, and which name forms a browser will
+  refuse outright (plain http on the ts.net name, self-signed https on it) with the reason named.
+  Verdicts per address: works from the LAN, works over Tailscale, cannot work in a browser and why.
+- **M15.2** A "Can't reach it?" action on every app card that runs the op and renders the verdicts,
+  with the terminal log of the probe one click away like every other action.
+- **M15.3** Active probes where the server can make them (loopback, its own LAN address), so the
+  report says "answered in 40ms" rather than "should work". Evidence over inference, the
+  restore-drill philosophy applied to networking.
+
+## M16 — Managing the network's other boxes: OPNsense first
+
+The GL.iNet integration proved the shape: connect once, read a lot, mutate carefully through the
+registry. OPNsense is the natural second router because its REST API is first-party and stable;
+pfSense CE needs a community package and follows once the shape is proven.
+
+- **M16.1** `opnsense.connect` (owner-only, key/secret in `secret: true` fields, verified against
+  the API before storing) and read-only panels: interfaces, firewall rules, aliases, DHCP leases.
+- **M16.2** Careful mutations as medium-risk registry ops with previews: toggle a named rule, add
+  or remove a host in an alias. Nothing structural; the firewall's own UI keeps that.
+- **M16.3** pfSense via its REST package, with the requirement stated plainly on the connect panel.
+- **M16.4** Flow steps for M16.2's ops, so an automation can open a port for the hours a service
+  needs it and close it after (pairs with M13.4's failure policy: the close step must run).
+
+## M17 — The tunnel as a first-class citizen
+
+BoxPilot can put an app behind a VPN, but everything it knows about the tunnel afterwards came
+from reading container logs by hand. The tunnel is infrastructure; treat it like the backups.
+
+- **M17.1** `app.vpn.inspect`: exit IP, country, and tunnel state read from the VPN sidecar
+  (gluetun keeps a control endpoint on its project network), shown on the card: "Exit: Netherlands"
+  next to Running. The card that said Running while the tunnel was down (fixed for state in
+  v1.37.0) also says where traffic actually leaves.
+- **M17.2** Seeding port forwarding for providers that support it (Proton via NAT-PMP): one toggle
+  in the qBittorrent manifest that turns on gluetun's port forwarding and hands the forwarded port
+  to qBittorrent, instead of a wiki walk.
+- **M17.3** Kill-switch drill: a one-click test that forces the tunnel down inside the sidecar,
+  verifies nothing leaves for a few seconds, and brings it back, recording the result the way a
+  restore drill does. The claim "if the VPN drops, downloads stop instead of leaking" becomes a
+  recorded fact per install rather than a sentence in a description.
+
+**Order across the new arcs.** M15.1 and M15.2 first: the pain is freshest, every check is already
+understood, and it pays off on every app forever. Then M14 as one arc, which finishes the mission
+the owner actually started; M17.1 and M17.2 ride along since the media stack is where the tunnel
+lives. M16 when the owner says the word about a second firewall box; nothing else depends on it.
