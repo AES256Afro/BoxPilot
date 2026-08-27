@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BoxPilot — Control</title>
+<style>
+  :root {
+    --bg: #0c0d10;
+    --bg-panel: #111216;
+    --bg-raised: #16181d;
+    --border: #24262d;
+    --border-bright: #2e313a;
+    --fg: #aeb4c2;
+    --fg-bright: #d8dce6;
+    --fg-dim: #4b4f5a;
+    --cyan: #00d4aa;
+    --cyan-dim: #006b54;
+    --cyan-bg: #001f18;
+    --amber: #e5a000;
+    --amber-dim: #735000;
+    --amber-bg: #1f1800;
+    --red: #e05050;
+    --red-bg: #1f0a0a;
+    --font: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--fg); font-family:var(--font); font-size:13px; }
+  .shell { display:grid; grid-template-columns: 210px 1fr; height:100vh; }
+
+  /* Sidebar */
+  .sidebar {
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border);
+    display:flex; flex-direction:column;
+  }
+  .brand {
+    display:flex; align-items:center; gap:10px;
+    padding:18px 16px 20px;
+    border-bottom:1px solid var(--border);
+  }
+  .brand-icon {
+    width:30px; height:30px;
+    background: var(--cyan-bg);
+    border: 1px solid var(--cyan-dim);
+    display:grid; place-items:center;
+    color: var(--cyan);
+    font-family:var(--font-mono); font-size:11px; font-weight:700;
+    letter-spacing:0.04em;
+  }
+  .brand-text { font-weight:700; font-size:13px; color:var(--fg-bright); letter-spacing:0.03em; }
+  .brand-text small { display:block; font-size:9px; color:var(--fg-dim); font-weight:500; margin-top:2px; letter-spacing:0.05em; }
+
+  nav { flex:1; overflow-y:auto; padding:12px 10px; }
+  .nav-group { margin-bottom:14px; }
+  .nav-label {
+    padding:0 8px 6px; color:var(--fg-dim); font-size:9px;
+    text-transform:uppercase; letter-spacing:0.1em; font-weight:600;
+  }
+  .nav-group a {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:7px 10px; margin-bottom:1px;
+    color:var(--fg-dim); text-decoration:none; font-size:12px;
+    border-left: 3px solid transparent;
+  }
+  .nav-group a:hover { color:var(--fg); background:var(--bg-raised); }
+  .nav-group a.active {
+    color:var(--fg-bright); background:var(--bg-raised);
+    border-left-color: var(--cyan);
+  }
+  .nav-group a .id {
+    font-family:var(--font-mono); font-size:9px; color:var(--fg-dim);
+  }
+
+  .side-footer {
+    padding:14px 16px; border-top:1px solid var(--border);
+    font-size:10px; color:var(--fg-dim);
+  }
+  .side-footer .row { display:flex; justify-content:space-between; margin-bottom:4px; }
+  .side-footer .row:last-child { margin-bottom:0; }
+  .led { display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:6px; }
+  .led.on { background:var(--cyan); box-shadow:0 0 4px var(--cyan-dim); }
+
+  /* Main */
+  main { min-width:0; overflow-y:auto; }
+  .topbar {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:0 24px; height:52px;
+    border-bottom:1px solid var(--border);
+    background:var(--bg-panel);
+  }
+  .topbar-left { display:flex; align-items:center; gap:18px; }
+  .topbar-left h1 { margin:0; font-size:14px; font-weight:700; color:var(--fg-bright); letter-spacing:0.02em; }
+  .topbar-left .meta { color:var(--fg-dim); font-size:11px; font-family:var(--font-mono); }
+  .topbar-right { display:flex; align-items:center; gap:18px; font-size:11px; }
+  .topbar-right .pill {
+    padding:3px 10px; border:1px solid var(--border-bright);
+    font-size:10px; color:var(--fg-dim);
+  }
+
+  .content { padding:24px; max-width:1280px; }
+
+  /* Section header */
+  .section-hd {
+    display:flex; align-items:baseline; gap:12px;
+    margin-bottom:16px; padding-bottom:8px;
+    border-bottom:1px solid var(--border);
+  }
+  .section-hd h2 { margin:0; font-size:13px; font-weight:700; color:var(--fg-bright); text-transform:uppercase; letter-spacing:0.06em; }
+  .section-hd span { color:var(--fg-dim); font-size:11px; }
+
+  /* Metrics */
+  .metric-grid {
+    display:grid; grid-template-columns: repeat(4, 1fr); gap:12px;
+    margin-bottom:24px;
+  }
+  .metric {
+    background: var(--bg-panel);
+    border:1px solid var(--border);
+    padding:16px;
+    position:relative;
+  }
+  .metric::before {
+    content:""; position:absolute; top:0; left:0; right:0; height:2px;
+    background: var(--cyan-dim);
+  }
+  .metric.warn::before { background: var(--amber-dim); }
+  .metric .eyebrow {
+    font-size:9px; text-transform:uppercase; letter-spacing:0.08em;
+    color:var(--fg-dim); margin-bottom:10px;
+  }
+  .metric .value {
+    font-family:var(--font-mono); font-size:22px; font-weight:500;
+    color:var(--fg-bright); letter-spacing:-0.02em;
+  }
+  .metric .note { font-size:11px; color:var(--fg-dim); margin-top:6px; }
+
+  /* Panels */
+  .panel {
+    background: var(--bg-panel);
+    border:1px solid var(--border);
+    margin-bottom:20px;
+  }
+  .panel-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 16px;
+    background: var(--bg-raised);
+    border-bottom:1px solid var(--border);
+  }
+  .panel-header strong { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--fg-bright); }
+  .panel-header .badge {
+    font-family:var(--font-mono); font-size:10px; color:var(--cyan);
+    border:1px solid var(--cyan-dim); padding:2px 8px; background:var(--cyan-bg);
+  }
+  .panel-body { padding:0; }
+
+  /* Checklist */
+  .checklist { padding:8px 0; }
+  .check-row {
+    display:grid; grid-template-columns: 28px 1fr auto;
+    align-items:center; gap:12px;
+    padding:10px 16px; border-bottom:1px solid var(--border);
+  }
+  .check-row:last-child { border-bottom:0; }
+  .check-box {
+    width:16px; height:16px; border:1px solid var(--border-bright);
+    display:grid; place-items:center;
+  }
+  .check-box.done { border-color:var(--cyan-dim); background:var(--cyan-bg); }
+  .check-box.done::after { content:""; width:6px; height:6px; background:var(--cyan); }
+  .check-row .title { font-size:12px; font-weight:600; color:var(--fg-bright); display:block; margin-bottom:2px; }
+  .check-row .detail { font-size:11px; color:var(--fg-dim); }
+  .check-row .action {
+    font-size:10px; color:var(--cyan); text-decoration:none;
+    border:1px solid var(--cyan-dim); padding:4px 10px; background:var(--cyan-bg);
+  }
+  .check-row .action:hover { background: var(--cyan-dim); color:var(--bg); }
+
+  /* Table */
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th, td { padding:11px 16px; text-align:left; border-bottom:1px solid var(--border); }
+  th {
+    background: var(--bg-raised); color:var(--fg-dim);
+    font-size:9px; text-transform:uppercase; letter-spacing:0.08em; font-weight:600;
+  }
+  tbody tr:last-child td { border-bottom:0; }
+  .tag {
+    display:inline-flex; align-items:center; gap:6px;
+    padding:3px 10px; border:1px solid var(--border-bright);
+    font-size:10px; color:var(--fg-dim);
+  }
+  .tag::before { content:""; width:5px; height:5px; border-radius:50%; background:var(--fg-dim); }
+  .tag.ok { border-color:var(--cyan-dim); color:var(--cyan); background:var(--cyan-bg); }
+  .tag.ok::before { background:var(--cyan); box-shadow:0 0 4px var(--cyan-dim); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">BP</div>
+      <div class="brand-text">
+        BOXPILOT
+        <small>SYS-01 // V1.36.2</small>
+      </div>
+    </div>
+    <nav>
+      <div class="nav-group">
+        <div class="nav-label">Operations</div>
+        <a class="active" href="#"><span>overview</span><span class="id">SYS.01</span></a>
+        <a href="#"><span>updates</span><span class="id">PKG.01</span></a>
+        <a href="#"><span>catalog</span><span class="id">APP.01</span></a>
+        <a href="#"><span>services</span><span class="id">SVC.01</span></a>
+        <a href="#"><span>automations</span><span class="id">JOB.01</span></a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label">Infrastructure</div>
+        <a href="#"><span>system</span><span class="id">CFG.01</span></a>
+        <a href="#"><span>performance</span><span class="id">MON.01</span></a>
+        <a href="#"><span>users</span><span class="id">ACL.01</span></a>
+        <a href="#"><span>firewall</span><span class="id">SEC.01</span></a>
+        <a href="#"><span>storage</span><span class="id">DSK.01</span></a>
+        <a href="#"><span>network</span><span class="id">NET.01</span></a>
+        <a href="#"><span>vms</span><span class="id">VMM.01</span></a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label">Recovery</div>
+        <a href="#"><span>backups</span><span class="id">BKP.01</span></a>
+        <a href="#"><span>repair</span><span class="id">FIX.01</span></a>
+        <a href="#"><span>logs</span><span class="id">LOG.01</span></a>
+      </div>
+    </nav>
+    <div class="side-footer">
+      <div class="row"><span>helper</span><span><span class="led on"></span>active</span></div>
+      <div class="row"><span>tailnet</span><span>homebox</span></div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div class="topbar-left">
+        <h1>server overview</h1>
+        <span class="meta">homebox · 14d 06h 12m · 192.168.1.42</span>
+      </div>
+      <div class="topbar-right">
+        <span class="pill">operator: alex</span>
+        <span style="color:var(--fg-dim); font-size:10px;">[sign out]</span>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="section-hd">
+        <h2>telemetry</h2>
+        <span>live</span>
+      </div>
+      <div class="metric-grid">
+        <div class="metric">
+          <div class="eyebrow">updates pending</div>
+          <div class="value">04</div>
+          <div class="note">01 security</div>
+        </div>
+        <div class="metric">
+          <div class="eyebrow">services</div>
+          <div class="value" style="color:var(--cyan)">HEALTHY</div>
+          <div class="note">00 failed units</div>
+        </div>
+        <div class="metric">
+          <div class="eyebrow">apps</div>
+          <div class="value">08/09</div>
+          <div class="note">running / installed</div>
+        </div>
+        <div class="metric">
+          <div class="eyebrow">vms</div>
+          <div class="value">01/02</div>
+          <div class="note">running / defined</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <strong>setup checklist</strong>
+          <span class="badge">4/5</span>
+        </div>
+        <div class="panel-body">
+          <div class="checklist">
+            <div class="check-row">
+              <div class="check-box done"></div>
+              <div>
+                <span class="title">reach from anywhere</span>
+                <span class="detail">tailnet: homebox.tail0a1b.ts.net</span>
+              </div>
+            </div>
+            <div class="check-row">
+              <div class="check-box done"></div>
+              <div>
+                <span class="title">firewall profile</span>
+                <span class="detail">home-server applied 2026-08-25</span>
+              </div>
+            </div>
+            <div class="check-row">
+              <div class="check-box done"></div>
+              <div>
+                <span class="title">security updates automatic</span>
+                <span class="detail">nightly install enabled</span>
+              </div>
+            </div>
+            <div class="check-row">
+              <div class="check-box done"></div>
+              <div>
+                <span class="title">alerts configured</span>
+                <span class="detail">destination: ntfy</span>
+              </div>
+            </div>
+            <div class="check-row">
+              <div class="check-box"></div>
+              <div>
+                <span class="title">offsite backup mirror</span>
+                <span class="detail">configured, no sync yet</span>
+              </div>
+              <a href="#" class="action">SYNC</a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <strong>installed applications</strong>
+          <span class="badge">RUNNING: 8</span>
+        </div>
+        <div class="panel-body">
+          <table>
+            <thead>
+              <tr><th>name</th><th>status</th><th>ports</th><th>backup</th><th>network mode</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>traefik</td><td><span class="tag ok">running</span></td><td>80, 443</td><td>—</td><td>host</td></tr>
+              <tr><td>immich</td><td><span class="tag ok">running</span></td><td>2283</td><td>daily</td><td>bridge</td></tr>
+              <tr><td>jellyfin</td><td><span class="tag ok">running</span></td><td>8096</td><td>daily</td><td>bridge</td></tr>
+              <tr><td>home-assistant</td><td><span class="tag ok">running</span></td><td>8123</td><td>daily</td><td>host</td></tr>
+              <tr><td>pihole</td><td><span class="tag ok">running</span></td><td>53, 80</td><td>daily</td><td>host</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>
