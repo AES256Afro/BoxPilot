@@ -3507,3 +3507,17 @@ textarea {
 .restore-review-area details { border: 1px solid var(--line); border-radius: 8px; padding: 0.35rem 0.6rem; }
 .restore-review-area summary { cursor: pointer; font-size: 0.88rem; }
 .restore-review-area pre { margin: 0.5rem 0 0.2rem; max-height: 18rem; overflow: auto; }
+
+/* Automations: the shelf, the list, and the small builder. */
+.automations { display: grid; gap: 1rem; }
+.shelf-grid { display: grid; gap: 0.8rem; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.shelf-item { border: 1px solid var(--line); border-radius: 10px; padding: 0.9rem 1rem; display: grid; gap: 0.4rem; align-content: start; }
+.shelf-item p { margin: 0; }
+.shelf-steps { font-size: 0.85rem; }
+.flow-list { display: grid; gap: 0.9rem; }
+.flow-row { border-top: 1px solid var(--line-soft); padding-top: 0.8rem; display: grid; gap: 0.35rem; }
+.flow-row-main { display: flex; align-items: center; gap: 0.6rem; }
+.flow-row p { margin: 0; }
+.flow-builder { display: grid; gap: 0.7rem; border: 1px dashed var(--line); border-radius: 10px; padding: 0.9rem 1rem; margin-bottom: 0.9rem; }
+.flow-draft-steps { margin: 0; padding-left: 1.2rem; display: grid; gap: 0.3rem; }
+.flow-draft-steps li { display: flex; justify-content: space-between; gap: 0.6rem; }

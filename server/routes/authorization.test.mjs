@@ -92,7 +92,13 @@ beforeAll(async () => {
   app.use("/api/v1/people", auth.requireRole("owner"));
   app.use("/api/v1", createPeopleRouter({ state, auth }));
   app.use("/api/v1", createOperationsRouter({ state, helper, jobs, prerequisites: { inspect: async () => ({}) }, recoveryKit: { inspect: async () => ({}) }, actionCenter: { inspect: async () => ({}) }, auth }));
-  app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, jobLogReader: { read: async () => "" }, auth }));
+  app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, flows: {
+    list: () => [], stepPalette: () => [],
+    create: async ({ createdBy }) => ({ id: "flow-test", createdBy }),
+    update: async () => ({ id: "flow-test" }),
+    remove: () => {},
+    run: async (_id, _actor, { role }) => { if (["viewer", "disabled"].includes(role)) throw new Error("Viewers cannot run flows"); return { completed: true }; },
+  }, jobLogReader: { read: async () => "" }, auth }));
   app.use("/api/v1", createSettingsRouter({ state, notifications, auth }));
   const stub = { inspect: async () => ({}) };
   app.use("/api/v1", createHostRouter({ state, helper, catalogService: { all: async () => ({ manifests: [], problems: [] }), get: async () => null }, inventory: stub, network: stub, controllerProtection: stub, controllerRetention: stub, githubProvenance: stub, releaseUpdates: stub, setup: stub, supportBundle: { inspect: async () => ({ logs: ["a journal line"] }) }, audit: stub, auth }));
@@ -126,6 +132,19 @@ describe("role boundaries", () => {
     expect((await api("PUT", "/api/v1/SETTINGS/approval-mode", { session: operator, body: { approvalMode: "always-password", password } })).status).toBe(403);
     expect((await api("POST", "/api/v1/People", { session: operator, body: { username: "sneak", password: "sneaky password", role: "owner" } })).status).toBe(403);
     expect((await api("PUT", "/api/v1/settings/approval-mode", { session: owner, body: { approvalMode: "tiered", password } })).status).toBe(200);
+  });
+
+  it("lets viewers read flows and refuses them everything that runs or changes one", async () => {
+    // ADR-002: running a flow is running its operations, so the viewer line holds for the chain
+    // exactly as it holds for each link.
+    const viewer = await signIn("viewer");
+    expect((await api("GET", "/api/v1/flows", { session: viewer })).status).toBe(200);
+    expect((await api("POST", "/api/v1/flows", { session: viewer, body: { name: "x", steps: [] } })).status).toBe(403);
+    expect((await api("POST", "/api/v1/flows/flow-test/run", { session: viewer })).status).toBe(403);
+    expect((await api("DELETE", "/api/v1/flows/flow-test", { session: viewer })).status).toBe(403);
+    // and a session without its CSRF token cannot mutate
+    const owner = await signIn("owner");
+    expect((await api("POST", "/api/v1/flows/flow-test/run", { session: { cookie: owner.cookie, csrfToken: "" } })).status).toBe(403);
   });
 
   it("refuses viewers everything that changes the box, including elevation and secret reads", async () => {

@@ -4,7 +4,7 @@
  */
 import { Router } from "express";
 
-export function createJobsRouter({ state, jobs, scheduler, jobLogReader, auth }) {
+export function createJobsRouter({ state, jobs, scheduler, flows = null, jobLogReader, auth }) {
   const router = Router();
 
   /** Everyone sees their own jobs; the owner sees the whole box. */
@@ -99,6 +99,51 @@ export function createJobsRouter({ state, jobs, scheduler, jobLogReader, auth })
     const policy = jobs.describeApproval(request.params.id, request.boxpilotSession);
     if (!policy) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
     return response.json({ jobId: request.params.id, ...policy });
+  });
+
+  // Flows (ADR-002): ordered lists of registered operations, each step an ordinary job. The
+  // routes mirror schedules: reading needs a session, changing needs CSRF, and running is barred
+  // to viewers by the service itself.
+  router.get("/flows", (_request, response) => {
+    if (!flows) return response.status(503).json({ error: "Flows are not available", code: "flows_unavailable" });
+    response.json({ flows: flows.list(), palette: flows.stepPalette() });
+  });
+
+  router.post("/flows", auth.requireCsrf, async (request, response) => {
+    try {
+      const flow = await flows.create({ name: request.body?.name, steps: request.body?.steps, createdBy: request.boxpilotSession.owner.id });
+      response.status(201).json({ flow });
+    } catch (error) {
+      response.status(400).json({ error: error.message, code: "flow_rejected" });
+    }
+  });
+
+  router.put("/flows/:id", auth.requireCsrf, async (request, response) => {
+    try {
+      const flow = await flows.update(request.params.id, { name: request.body?.name, steps: request.body?.steps }, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
+      response.json({ flow });
+    } catch (error) {
+      response.status(error.message.includes("not found") ? 404 : 400).json({ error: error.message, code: "flow_update_failed" });
+    }
+  });
+
+  router.delete("/flows/:id", auth.requireCsrf, (request, response) => {
+    try {
+      flows.remove(request.params.id, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
+      response.status(204).end();
+    } catch (error) {
+      response.status(error.message.includes("not found") ? 404 : 400).json({ error: error.message, code: "flow_delete_failed" });
+    }
+  });
+
+  router.post("/flows/:id/run", auth.requireCsrf, async (request, response) => {
+    try {
+      const result = await flows.run(request.params.id, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
+      response.json({ run: result });
+    } catch (error) {
+      const status = error.message.includes("not found") ? 404 : /Viewers|always ask/.test(error.message) ? 403 : 409;
+      response.status(status).json({ error: error.message, code: "flow_run_failed" });
+    }
   });
 
   // Scheduled operations: low/medium registered ops on an hourly/daily/weekly cadence,
