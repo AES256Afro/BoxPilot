@@ -10,7 +10,7 @@ import { JobLogView } from "./JobLogView";
  * step palette: every operation that needs no form, which is what keeps a v1 builder honest
  * instead of half a parameter editor.
  */
-interface FlowStep { operationId: string; parameters?: Record<string, unknown> }
+interface FlowStep { operationId: string; parameters?: Record<string, unknown>; name?: string }
 interface Flow {
   id: string; name: string; steps: FlowStep[]; createdBy: string;
   risk: "low" | "medium" | "high"; running: boolean;
@@ -236,7 +236,7 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
                       ? <p className="muted">The first step is being staged…</p>
                       : flow.lastJobIds.map((jobId, index) => (
                         <div key={jobId} className="flow-run-step">
-                          <span className="eyebrow">Step {index + 1}{flow.steps[index] ? ` · ${titleFor(flow.steps[index].operationId)}` : ""}</span>
+                          <span className="eyebrow">Step {index + 1}{flow.steps[index] ? ` · ${titleFor(flow.steps[index].operationId)}${flow.steps[index].name ? ` (${flow.steps[index].name})` : ""}` : ""}</span>
                           <JobLogView jobId={jobId} title={flow.steps[index] ? titleFor(flow.steps[index].operationId) : `step ${index + 1}`} />
                         </div>
                       ))}

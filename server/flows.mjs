@@ -9,8 +9,9 @@
  * nothing attempts an automatic unwind — a half-done flow the owner can read beats a rollback
  * that guesses.
  */
-import { registry as defaultRegistry } from "./ops/index.mjs";
+import { registry as defaultRegistry, validateParameters } from "./ops/index.mjs";
 import { computeNextRun, validateCadence } from "./scheduler.mjs";
+import { holdsPlaceholder, referencesIn, resolveValues, stepNamePattern } from "./flow-values.mjs";
 
 const nameLimit = 80;
 const stepLimit = 10;
@@ -31,6 +32,7 @@ export function flowRisk(steps, registry = defaultRegistry) {
 export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
   if (typeof name !== "string" || !name.trim() || name.trim().length > nameLimit) return `name must be 1 to ${nameLimit} characters`;
   if (!Array.isArray(steps) || steps.length < 1 || steps.length > stepLimit) return `steps must list 1 to ${stepLimit} operations`;
+  const namesSoFar = new Set();
   for (const [index, step] of steps.entries()) {
     const label = `step ${index + 1}`;
     if (!step || typeof step.operationId !== "string") return `${label} must name an operation`;
@@ -39,8 +41,32 @@ export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
     if (operation.risk === "high") return `${label}: ${operation.title} is high risk and cannot be part of a flow (ADR-002)`;
     const parameters = step.parameters ?? {};
     if (typeof parameters !== "object" || Array.isArray(parameters)) return `${label}: parameters must be an object`;
-    const problem = registry.validate?.(step.operationId, parameters);
-    if (problem) return `${label}: ${problem}`;
+    if (step.name !== undefined && step.name !== null) {
+      if (typeof step.name !== "string" || !stepNamePattern.test(step.name)) return `${label}: a step name is lowercase letters, digits and dashes, 24 characters at most`;
+      if (namesSoFar.has(step.name)) return `${label}: another step is already named ${step.name}`;
+    }
+    // A reference can only look backwards: the step it reads must be named and already run.
+    for (const reference of referencesIn(parameters)) {
+      if (!namesSoFar.has(reference.step)) return `${label} reads steps.${reference.step}, which is not the name of an earlier step`;
+    }
+    if (typeof step.name === "string") namesSoFar.add(step.name);
+    // A value read from an earlier step does not exist yet, so its field sits out save-time
+    // validation: the field is treated as optional and its value withheld, everything else checked
+    // as usual. The resolved parameters go through the registry again when the job is staged.
+    const placeholderFields = Object.keys(parameters).filter((key) => holdsPlaceholder(parameters[key]));
+    if (placeholderFields.length === 0) {
+      const problem = registry.validate?.(step.operationId, parameters);
+      if (problem) return `${label}: ${problem}`;
+    } else {
+      const spec = operation.parameters ?? { fields: {} };
+      for (const key of placeholderFields) {
+        if (spec.exact !== false && !Object.hasOwn(spec.fields ?? {}, key)) return `${label}: ${operation.title} does not accept parameter "${key}"`;
+      }
+      const relaxed = { ...spec, fields: Object.fromEntries(Object.entries(spec.fields ?? {}).map(([key, field]) => [key, placeholderFields.includes(key) ? { ...field, optional: true } : field])) };
+      const checkable = Object.fromEntries(Object.entries(parameters).filter(([key]) => !placeholderFields.includes(key)));
+      const problem = validateParameters(relaxed, checkable, operation.title);
+      if (problem) return `${label}: ${problem}`;
+    }
   }
   return null;
 }
@@ -64,10 +90,15 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
     };
   }
 
+  /** Only what a step means persists: its operation, its parameters, and (if given) its name. */
+  function normalizeSteps(steps) {
+    return steps.map((step) => ({ operationId: step.operationId, parameters: step.parameters ?? {}, ...(typeof step.name === "string" ? { name: step.name } : {}) }));
+  }
+
   async function create({ name, steps, createdBy, cadence = null }) {
     const problem = validateFlow({ name, steps }, registry);
     if (problem) throw new Error(problem);
-    return store.createFlow({ name: name.trim(), steps, createdBy, ...cadenceFields(cadence) });
+    return store.createFlow({ name: name.trim(), steps: normalizeSteps(steps), createdBy, ...cadenceFields(cadence) });
   }
 
   function list() {
@@ -79,7 +110,7 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
     assertMayManage(flow, actorId, role);
     const problem = validateFlow({ name: name ?? flow.name, steps: steps ?? flow.steps }, registry);
     if (problem) throw new Error(problem);
-    const changes = { name: name?.trim(), steps, enabled };
+    const changes = { name: name?.trim(), steps: steps ? normalizeSteps(steps) : undefined, enabled };
     if (cadence !== undefined) Object.assign(changes, cadenceFields(cadence));
     // Re-enabling a scheduled flow computes the next due time afresh, so a flow paused for a
     // month does not fire the moment it is switched back on to make up for missed Sundays.
@@ -123,12 +154,16 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
 
     running.add(id);
     const jobIds = [];
+    const namedResults = {};
     try {
       for (const [index, step] of flow.steps.entries()) {
         const operation = registry.get(step.operationId);
         let job = null;
         try {
-          job = await jobs.createOperationJob(step.operationId, step.parameters ?? {}, actorId, { role });
+          // References to earlier steps become the values those steps recorded, here at the last
+          // moment before staging, so the job is created and validated with real parameters.
+          const parameters = resolveValues(step.parameters ?? {}, namedResults);
+          job = await jobs.createOperationJob(step.operationId, parameters, actorId, { role });
           jobIds.push(job.id);
           // Progress lands as it happens, not at the end: the page can show which step is running
           // and its live output, and a crash mid-run leaves an honest record of where it stopped.
@@ -158,6 +193,7 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
           store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, jobId: job.id } });
           throw new Error(`${flow.name} ${summary}. Earlier steps ran and stand; each one's job record says what it did.`);
         }
+        if (typeof step.name === "string") namedResults[step.name] = finished.result ?? {};
       }
       store.markFlowRun(id, { result: "completed", jobIds });
       store.recordAudit("flow.completed", { actorId, subjectId: id, details: { steps: flow.steps.length } });
