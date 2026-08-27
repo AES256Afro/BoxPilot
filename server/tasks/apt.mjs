@@ -5,9 +5,56 @@
  */
 import { access, writeFile } from "node:fs/promises";
 import { fixedRun } from "../exec.mjs";
+import { parseNeedrestart } from "../ops/apt.mjs";
 
 export const packageNamePattern = /^[a-z0-9][a-z0-9+.-]{0,99}$/;
 const aptGet = "/usr/bin/apt-get";
+const needrestartBinary = "/usr/sbin/needrestart";
+const systemctl = "/usr/bin/systemctl";
+const systemdRun = "/usr/bin/systemd-run";
+/**
+ * apt runs with needrestart's hook suspended (NEEDRESTART_SUSPEND is its documented off switch).
+ *
+ * Ubuntu server ships needrestart in automatic mode: after an upgrade it restarts every service
+ * whose libraries changed, and BoxPilot's own services are such services whenever libc or openssl
+ * moves. So the upgrade job killed the web process that was waiting on it, startup recovery marked
+ * the job failed, and the owner was shown a failed upgrade that had in fact succeeded — every
+ * time an upgrade mattered. Seen live at 11:12:32 on a real machine: the task logged "completed"
+ * one second after the service waiting for it was stopped.
+ *
+ * Suspending the hook does not mean skipping the restarts. The task takes them over after apt is
+ * done: everything else immediately, BoxPilot itself on a short detached timer, so its restart
+ * lands after the job's result has been recorded instead of in the middle of it.
+ */
+const aptEnvironment = { NEEDRESTART_SUSPEND: "1", DEBIAN_FRONTEND: "noninteractive" };
+
+/** Restart what the upgrade left stale: everything now, BoxPilot itself after the job has landed. */
+async function restartStaleServices(run, log = null) {
+  const present = await run(needrestartBinary, ["--help"], { timeout: 15_000 }).then((result) => result.ok, () => false);
+  if (!present) return { servicesNeedingRestart: null, servicesRestarted: [], selfRestartScheduled: false };
+  const scan = await run(needrestartBinary, ["-b"], { timeout: 120_000, maxBuffer: 2 * 1024 * 1024 });
+  if (!scan.ok) return { servicesNeedingRestart: null, servicesRestarted: [], selfRestartScheduled: false };
+  const listed = parseNeedrestart(scan.stdout);
+  const own = listed.filter((unit) => /^boxpilot(-helper)?\.service$/.test(unit));
+  const others = listed.filter((unit) => !own.includes(unit));
+  const restarted = [];
+  for (const unit of others) {
+    const result = await run(systemctl, ["restart", unit], { timeout: 120_000 });
+    if (result.ok) { restarted.push(unit); log?.(`Restarted ${unit}, which was running pre-upgrade libraries`, "stdout"); }
+    else log?.(`Could not restart ${unit}: ${result.stderr.split("\n").slice(-1)[0]}`, "stderr");
+  }
+  let selfRestartScheduled = false;
+  if (own.length) {
+    // Detached on purpose: this restart must land after the job has recorded its result, and the
+    // transient timer survives everything between here and there.
+    const schedule = await run(systemdRun, ["--on-active=30", "--unit=boxpilot-restart-after-upgrade", "--description=Restart BoxPilot to pick up upgraded libraries (scheduled by the upgrade job it would otherwise have interrupted)", systemctl, "restart", ...own], { timeout: 30_000 });
+    selfRestartScheduled = schedule.ok;
+    log?.(schedule.ok
+      ? "BoxPilot itself is running pre-upgrade libraries; it restarts in 30 seconds, after this job has finished recording."
+      : `BoxPilot needs a restart to pick up upgraded libraries, and scheduling one failed: ${schedule.stderr.split("\n").slice(-1)[0]}. Restart it from the System page.`, schedule.ok ? "stdout" : "stderr");
+  }
+  return { servicesNeedingRestart: listed, servicesRestarted: restarted, selfRestartScheduled };
+}
 const dpkgQuery = "/usr/bin/dpkg-query";
 const rebootRequiredPath = "/run/reboot-required";
 
@@ -57,7 +104,7 @@ export async function repairPackageState({ run: baseRun = fixedRun, log = null }
   const run = withLog(baseRun, log);
   // Budget: the apt.upgrade task allows 180 min; these inner limits sum to less so a stuck step fails inside the job instead of outliving it.
   const configure = await run("/usr/bin/dpkg", ["--configure", "-a"], { timeout: 20 * 60_000, maxBuffer: 8 * 1024 * 1024 });
-  const fixBroken = await run(aptGet, ["install", "--fix-broken", "--yes"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+  const fixBroken = await run(aptGet, ["install", "--fix-broken", "--yes"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
   return {
     ok: configure.ok && fixBroken.ok,
     configured: configure.ok,
@@ -70,7 +117,7 @@ export async function repairPackageState({ run: baseRun = fixedRun, log = null }
 /** `apt-get update`. */
 export async function aptUpdate(_parameters = {}, { run: baseRun = fixedRun, log = null } = {}) {
   const run = withLog(baseRun, log);
-  const result = await run(aptGet, ["update"], { timeout: 10 * 60_000 });
+  const result = await run(aptGet, ["update"], { timeout: 10 * 60_000, env: aptEnvironment });
   if (!result.ok) throw new Error(`apt-get update failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   return { updated: true, rebootRequired: await rebootRequired() };
 }
@@ -83,10 +130,11 @@ export async function aptUpgrade({ packages = null, refreshFirst = true } = {}, 
   if (refreshFirst) await aptUpdate({}, { run });
   const before = packages ? await installedVersions(run, packages) : {};
   const args = packages ? ["install", "--yes", "--only-upgrade", ...packages] : ["upgrade", "--yes", "--with-new-pkgs"];
-  const result = await run(aptGet, args, { timeout: 110 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+  const result = await run(aptGet, args, { timeout: 110 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
   if (!result.ok) throw new Error(`apt-get ${args[0]} failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   const after = packages ? await installedVersions(run, packages) : {};
-  return { upgraded: true, scope: packages ? "selected" : "all", packages: packages ?? [], before, after, summary: summarizeAptOutput(result.stdout), packageStateRepaired: repair.ok, rebootRequired: await rebootRequired() };
+  const staleness = await restartStaleServices(run, log);
+  return { upgraded: true, scope: packages ? "selected" : "all", packages: packages ?? [], before, after, summary: summarizeAptOutput(result.stdout), packageStateRepaired: repair.ok, rebootRequired: await rebootRequired(), ...staleness };
 }
 
 /** Install packages without recommends. */
@@ -96,12 +144,13 @@ export async function aptInstall({ packages, refreshFirst = true } = {}, { run: 
   await repairPackageState({ run });
   if (refreshFirst) await aptUpdate({}, { run });
   const before = await installedVersions(run, packages);
-  const result = await run(aptGet, ["install", "--yes", "--no-install-recommends", ...packages], { timeout: 60 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+  const result = await run(aptGet, ["install", "--yes", "--no-install-recommends", ...packages], { timeout: 60 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
   if (!result.ok) throw new Error(`apt-get install failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   const after = await installedVersions(run, packages);
   const missing = packages.filter((name) => !after[name]);
   if (missing.length) throw new Error(`apt-get reported success but ${missing.join(", ")} is not installed`);
-  return { installed: true, packages, before, after, summary: summarizeAptOutput(result.stdout), rebootRequired: await rebootRequired() };
+  const staleness = await restartStaleServices(run, log);
+  return { installed: true, packages, before, after, summary: summarizeAptOutput(result.stdout), rebootRequired: await rebootRequired(), ...staleness };
 }
 
 /** Remove (or purge) packages, then autoremove what they pulled in. */
@@ -110,7 +159,7 @@ export async function aptRemove({ packages, purge = false, autoremove = true } =
   const problem = validPackageList(packages); if (problem) throw new Error(`packages ${problem}`);
   await repairPackageState({ run });
   const before = await installedVersions(run, packages);
-  const result = await run(aptGet, [purge ? "purge" : "remove", "--yes", ...(autoremove ? ["--auto-remove"] : []), ...packages], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+  const result = await run(aptGet, [purge ? "purge" : "remove", "--yes", ...(autoremove ? ["--auto-remove"] : []), ...packages], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
   if (!result.ok) throw new Error(`apt-get ${purge ? "purge" : "remove"} failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   const after = await installedVersions(run, packages);
   const remaining = packages.filter((name) => after[name]);
@@ -121,7 +170,7 @@ export async function aptRemove({ packages, purge = false, autoremove = true } =
 /** `apt-get autoremove --purge`. */
 export async function aptAutoremove(_parameters = {}, { run: baseRun = fixedRun, log = null } = {}) {
   const run = withLog(baseRun, log);
-  const result = await run(aptGet, ["autoremove", "--yes", "--purge"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+  const result = await run(aptGet, ["autoremove", "--yes", "--purge"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
   if (!result.ok) throw new Error(`apt-get autoremove failed: ${result.stderr.split("\n").slice(-3).join(" ")}`);
   return { autoremoved: true, summary: summarizeAptOutput(result.stdout), rebootRequired: await rebootRequired() };
 }
@@ -135,7 +184,7 @@ export async function aptUnattendedSet({ enabled } = {}, { run: baseRun = fixedR
   let installedNow = false;
   if (enabled && !(await exists("/usr/bin/unattended-upgrade"))) {
     await repairPackageState({ run });
-    const install = await run(aptGet, ["install", "--yes", "--no-install-recommends", "unattended-upgrades"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+    const install = await run(aptGet, ["install", "--yes", "--no-install-recommends", "unattended-upgrades"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024 , env: aptEnvironment });
     if (!install.ok) throw new Error(`Could not install unattended-upgrades: ${install.stderr.split("\n").slice(-3).join(" ")}`);
     installedNow = true;
   }
