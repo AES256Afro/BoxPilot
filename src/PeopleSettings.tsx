@@ -44,7 +44,21 @@ export default function PeopleSettings({ csrfToken }: { csrfToken: string }) {
     }
   };
 
-  const askPassword = () => window.prompt("Your owner password:") ?? "";
+  /**
+   * Changing someone's role or disabling them needs the owner's password. That used to come from
+   * window.prompt, which shows the password in clear text in a native dialog and freezes every
+   * script on the page while it is open. The same masked field the rest of the product uses,
+   * inline, instead.
+   */
+  const [pending, setPending] = useState<{ id: string; username: string; kind: "role" | "disable"; role?: string; password: string } | null>(null);
+
+  const confirmPending = async () => {
+    if (!pending || !pending.password) return;
+    const done = pending.kind === "role"
+      ? await call("PUT", `/api/v1/people/${pending.id}`, { role: pending.role, password: pending.password })
+      : await call("DELETE", `/api/v1/people/${pending.id}`, { password: pending.password });
+    if (done) setPending(null);
+  };
 
   return (
     <section className="panel">
@@ -59,19 +73,27 @@ export default function PeopleSettings({ csrfToken }: { csrfToken: string }) {
                 <td>{person.username}</td>
                 <td>
                   {person.role === "disabled" ? <span className="status-pill status-neutral">disabled</span> : (
-                    <select aria-label={`Role for ${person.username}`} value={person.role} onChange={(event) => { const password = askPassword(); if (password) void call("PUT", `/api/v1/people/${person.id}`, { role: event.target.value, password }); }}>
+                    <select aria-label={`Role for ${person.username}`} value={pending?.id === person.id && pending.kind === "role" ? pending.role : person.role} onChange={(event) => setPending({ id: person.id, username: person.username, kind: "role", role: event.target.value, password: "" })}>
                       <option value="owner">owner</option><option value="operator">operator</option><option value="viewer">viewer</option>
                     </select>
                   )}
                 </td>
                 <td>{new Date(person.createdAt).toLocaleDateString()}</td>
-                <td>{person.role !== "disabled" && <button className="text-button danger-text" type="button" disabled={busy} onClick={() => { const password = askPassword(); if (password) void call("DELETE", `/api/v1/people/${person.id}`, { password }); }}>Disable</button>}</td>
+                <td>{person.role !== "disabled" && <button className="text-button danger-text" type="button" disabled={busy} onClick={() => setPending({ id: person.id, username: person.username, kind: "disable", password: "" })}>Disable</button>}</td>
               </tr>
             ))}
             {people && people.length === 0 && <tr><td colSpan={4}>No accounts.</td></tr>}
           </tbody>
         </table>
       </div>
+      {pending && (
+        <form className="recovery-actions" onSubmit={(event) => { event.preventDefault(); void confirmPending(); }}>
+          <span>{pending.kind === "role" ? <>Make <strong>{pending.username}</strong> {pending.role === "owner" ? "an owner" : `a ${pending.role}`}?</> : <>Disable <strong>{pending.username}</strong>? They keep their history and can be re-enabled.</>}</span>
+          <input aria-label="Your password, to confirm this change" type="password" placeholder="your password" autoComplete="current-password" value={pending.password} onChange={(event) => setPending({ ...pending, password: event.target.value })} autoFocus />
+          <button className="secondary-button" type="submit" disabled={busy || !pending.password}>{pending.kind === "role" ? `Make ${pending.username} ${pending.role === "owner" ? "an owner" : `a ${pending.role}`}` : `Disable ${pending.username}`}</button>
+          <button className="text-button" type="button" onClick={() => setPending(null)}>Cancel</button>
+        </form>
+      )}
       <form className="recovery-actions" onSubmit={(event) => { event.preventDefault(); void call("POST", "/api/v1/people", form).then((ok) => { if (ok) setForm({ username: "", newPassword: "", role: "operator", password: "" }); }); }}>
         <input aria-label="New user name" placeholder="user name" value={form.username} onChange={(event) => setForm({ ...form, username: event.target.value })} required pattern="[a-z0-9][a-z0-9._-]{1,31}" />
         <input aria-label="New account password" type="password" placeholder="their password (12+)" autoComplete="new-password" value={form.newPassword} onChange={(event) => setForm({ ...form, newPassword: event.target.value })} minLength={12} required />

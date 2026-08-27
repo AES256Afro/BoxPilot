@@ -68,8 +68,35 @@ export async function open({ port = 8799, startDemo = true, width = 1440, height
     else if (message.method === "Network.responseReceived" && message.params.response.status >= 500) noticed.push({ kind: "http", text: `${message.params.response.status} ${message.params.response.url.replace(/^https?:\/\/[^/]+/, "")}` });
   });
 
-  const send = (method, params = {}) => { const id = nextId++; socket.send(JSON.stringify({ id, method, params })); return new Promise((resolve, reject) => pending.set(id, { resolve, reject })); };
+  // A dead browser must be a loud failure, not a silent one: when the socket closes, every
+  // pending request rejects. Without this, Chrome crashing mid-sweep left the promises unresolved
+  // and the sweep simply stopped producing output forever, twice, at two different pages.
+  const failAll = (reason) => { for (const [, promise] of pending) promise.reject(new Error(reason)); pending.clear(); };
+  socket.addEventListener("close", () => failAll("The browser connection closed mid-request"));
+  socket.addEventListener("error", () => failAll("The browser connection errored"));
+  browser.on("exit", (code) => failAll(`Chrome exited (${code ?? "signal"}) while requests were pending`));
+  // Every request carries a deadline that names itself. A request that never resolves froze the
+  // sweep three times with a live browser and no output; a named timeout turns "it stopped" into
+  // "Runtime.evaluate on the setup page took more than 30 seconds", which is debuggable.
+  const send = (method, params = {}) => {
+    const id = nextId++;
+    socket.send(JSON.stringify({ id, method, params }));
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { pending.delete(id); reject(new Error(`${method} did not answer within 30s`)); }, 30_000);
+      pending.set(id, { resolve: (value) => { clearTimeout(timer); resolve(value); }, reject: (error) => { clearTimeout(timer); reject(error); } });
+    });
+  };
   await send("Page.enable"); await send("Runtime.enable"); await send("Network.enable");
+  // A native dialog (prompt, confirm, alert) freezes the renderer and with it every evaluate —
+  // one window.prompt froze three whole sweeps before anything named it. Dismiss them on sight
+  // and report them, because a page that opens one is a finding, not a stop.
+  socket.addEventListener("message", (event) => {
+    const message = JSON.parse(event.data);
+    if (message.method === "Page.javascriptDialogOpening") {
+      noticed.push({ kind: "dialog", text: `the page opened a native ${message.params.type} ("${String(message.params.message).slice(0, 80)}"), which freezes every script while open` });
+      send("Page.handleJavaScriptDialog", { accept: false }).catch(() => {});
+    }
+  });
 
   const evaluate = async (expression) => (await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true })).result?.value;
   const go = async (view, { scenario = "default", settle = 1700 } = {}) => {
