@@ -444,9 +444,13 @@ BoxPilot should run them, not the owner.
   connections from a task (the helper's PrivateNetwork cannot), reporting answered-with-status,
   refused, silently-dropped, and self-signed-certificate apart; the ts.net HSTS preload rule is
   explained rather than probed. The report says probes ran from the server itself.
-- ◐ **M15.3** Active probes shipped with M15.1 (loopback, LAN, tailnet address, Serve HTTPS with
-  certificate verdict). Remaining: probing from somewhere other than the server itself, which is
-  what would catch a LAN firewall between the owner's device and the box.
+- ◐ **M15.3** Active probes shipped with M15.1; v1.46.0 added the outside vantage: each LAN
+  address is probed twice, once normally (the kernel picks the docker-bridge source that container
+  firewalls quietly whitelist) and once with the connection's source bound to the LAN address, the
+  way a real device arrives. Agreement stays silent; disagreement is the finding, worded as what
+  it is: a firewall inside the app admitting local checks and blocking real devices. This is the
+  exact signature the gluetun inbound firewall hid behind for a day. Still remaining: probing from
+  a genuinely different machine, which would catch blocks between the owner's device and this box.
 
 ## M16 — Managing the network's other boxes: OPNsense first
 
