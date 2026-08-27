@@ -90,3 +90,77 @@ describe("root system tasks", () => {
     await expect(aptUnattendedSet({ enabled: "yes" }, { run, files })).rejects.toThrow("true or false");
   });
 });
+
+describe("taking over needrestart's job without inheriting its timing", () => {
+  // Ubuntu's needrestart auto-restarts services running pre-upgrade libraries, BoxPilot included,
+  // which killed the web service in the middle of the very upgrade job it was waiting on and the
+  // successful upgrade was recorded as failed. The tasks suspend the hook and do the restarts
+  // themselves: everything else immediately, BoxPilot on a detached timer that fires after the
+  // job's result has landed.
+  const sweepRun = ({ listed = "", scanOk = true, scheduleOk = true } = {}) => {
+    const calls = [];
+    const run = vi.fn(async (binary, args, options = {}) => {
+      calls.push({ binary, args, options });
+      if (binary === "/usr/bin/dpkg") return { ok: true, stdout: "", stderr: "" };
+      if (binary === "/usr/bin/apt-get") return { ok: true, stdout: "1 upgraded, 0 newly installed, 0 to remove and 0 not upgraded.", stderr: "" };
+      if (binary === "/usr/sbin/needrestart" && args[0] === "--help") return { ok: true, stdout: "", stderr: "" };
+      if (binary === "/usr/sbin/needrestart") return scanOk ? { ok: true, stdout: listed, stderr: "" } : { ok: false, stdout: "", stderr: "boom" };
+      if (binary === "/usr/bin/systemctl") return { ok: true, stdout: "", stderr: "" };
+      if (binary === "/usr/bin/systemd-run") return scheduleOk ? { ok: true, stdout: "", stderr: "" } : { ok: false, stdout: "", stderr: "dbus is down" };
+      return { ok: false, stdout: "", stderr: "unknown binary" };
+    });
+    return { run, calls };
+  };
+
+  it("suspends the needrestart hook on every apt invocation", async () => {
+    const { run, calls } = sweepRun();
+    await aptUpgrade({ packages: null, refreshFirst: true }, { run });
+    const aptCalls = calls.filter((call) => call.binary === "/usr/bin/apt-get");
+    expect(aptCalls.length).toBeGreaterThan(1);
+    for (const call of aptCalls) expect(call.options.env).toMatchObject({ NEEDRESTART_SUSPEND: "1" });
+  });
+
+  it("restarts stale services itself, except BoxPilot, which gets a detached timer", async () => {
+    const { run, calls } = sweepRun({ listed: "NEEDRESTART-SVC: cron.service\nNEEDRESTART-SVC: boxpilot.service\nNEEDRESTART-SVC: dbus.service\nNEEDRESTART-SVC: boxpilot-helper.service\n" });
+    const log = vi.fn();
+    const result = await aptUpgrade({ packages: null, refreshFirst: false }, { run, log });
+
+    const restarts = calls.filter((call) => call.binary === "/usr/bin/systemctl" && call.args[0] === "restart");
+    expect(restarts.map((call) => call.args[1]).sort()).toEqual(["cron.service", "dbus.service"]);
+    // The whole point: BoxPilot's own units are never restarted in-line, where the restart would
+    // kill the process waiting on this task and orphan the job.
+    expect(restarts.some((call) => call.args.some((arg) => /^boxpilot/.test(arg)))).toBe(false);
+
+    const scheduled = calls.find((call) => call.binary === "/usr/bin/systemd-run");
+    expect(scheduled.args).toContain("--on-active=30");
+    expect(scheduled.args).toEqual(expect.arrayContaining(["boxpilot.service", "boxpilot-helper.service"]));
+    expect(result).toMatchObject({
+      servicesNeedingRestart: ["boxpilot-helper.service", "boxpilot.service", "cron.service", "dbus.service"],
+      servicesRestarted: ["cron.service", "dbus.service"],
+      selfRestartScheduled: true,
+    });
+    expect(log.mock.calls.some(([line]) => /restarts in 30 seconds/.test(line))).toBe(true);
+  });
+
+  it("restarts nothing on a failed scan, rather than guessing", async () => {
+    const { run, calls } = sweepRun({ scanOk: false });
+    const result = await aptUpgrade({ packages: null, refreshFirst: false }, { run });
+    expect(calls.filter((call) => call.binary === "/usr/bin/systemctl")).toEqual([]);
+    expect(result).toMatchObject({ servicesNeedingRestart: null, servicesRestarted: [], selfRestartScheduled: false });
+  });
+
+  it("says where to restart by hand when the timer cannot be scheduled", async () => {
+    const { run } = sweepRun({ listed: "NEEDRESTART-SVC: boxpilot.service\n", scheduleOk: false });
+    const log = vi.fn();
+    const result = await aptUpgrade({ packages: null, refreshFirst: false }, { run, log });
+    expect(result.selfRestartScheduled).toBe(false);
+    expect(log.mock.calls.some(([line]) => /System page/.test(line))).toBe(true);
+  });
+
+  it("skips the sweep quietly where needrestart is not installed", async () => {
+    const versions = { htop: "3.0" };
+    const run = fakeRun(versions); // answers "unknown binary" for needrestart
+    const result = await aptUpgrade({ packages: ["htop"], refreshFirst: false }, { run });
+    expect(result).toMatchObject({ servicesNeedingRestart: null, servicesRestarted: [], selfRestartScheduled: false });
+  });
+});
