@@ -36,7 +36,7 @@ function fakeStore() {
   };
 }
 
-function fakeJobs(store, { failAt = null, neverFinish = null, results = {} } = {}) {
+function fakeJobs(store, { failAt = null, neverFinish = null, alwaysFail = false, results = {} } = {}) {
   let counter = 0;
   return {
     calls: [],
@@ -54,7 +54,7 @@ function fakeJobs(store, { failAt = null, neverFinish = null, results = {} } = {
       // steps finish on their own unless told otherwise; the runner polls for the outcome
       if (neverFinish !== call) {
         setTimeout(() => {
-          job.state = failAt === call ? "failed" : "completed";
+          job.state = (alwaysFail ? call >= failAt : failAt === call) ? "failed" : "completed";
           if (job.state === "failed") job.error = "the step went wrong";
           else job.result = results[call] ?? null;
         }, 5);
@@ -319,6 +319,41 @@ describe("running a flow", () => {
     const b = await service.create({ name: "b", steps: [goodSteps[0]], createdBy: "o", triggerFlowId: a.id });
     await expect(service.update(a.id, { triggerFlowId: b.id }, "o", { role: "owner" })).rejects.toThrow(/loop/);
     await expect(service.update(a.id, { triggerFlowId: a.id }, "o", { role: "owner" })).rejects.toThrow(/loop/);
+  });
+
+  it("a transient step failure is retried, and the record says which attempt counted", async () => {
+    const store = fakeStore();
+    const jobs = fakeJobs(store, { failAt: 1 });                       // first job fails, second succeeds
+    const service = createFlowService({ store, jobs, pollMs: 2, retryDelayMs: 2 });
+    const flow = await service.create({ name: "stubborn", steps: [{ ...goodSteps[0], retry: 1 }], createdBy: "owner-1" });
+    const outcome = await service.run(flow.id, "owner-1", { role: "owner" });
+    expect(outcome.completed).toBe(true);
+    expect(jobs.calls).toHaveLength(2);                                // one retry, no more
+    const saved = store.getFlow(flow.id);
+    expect(saved.lastResult).toMatch(/completed with problems: step 1 .*succeeded on attempt 2 of 2/);
+    expect(saved.lastJobIds).toEqual(["job-2"]);                       // the attempt that counted holds the slot
+  });
+
+  it("retries run out honestly, and cancellations are never retried", async () => {
+    const store = fakeStore();
+    const jobs = fakeJobs(store, { failAt: 1, alwaysFail: true });
+    const service = createFlowService({ store, jobs, pollMs: 2, retryDelayMs: 2 });
+    const flow = await service.create({ name: "doomed", steps: [{ ...goodSteps[0], retry: 2 }], createdBy: "owner-1" });
+    await expect(service.run(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/after 3 attempts/);
+    expect(jobs.calls).toHaveLength(3);
+  });
+
+  it("rewrites a record stranded by a restart to what is actually known", () => {
+    const store = fakeStore();
+    const notified = [];
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, notify: (message) => notified.push(message) });
+    store.flows.set("flow-9", { id: "flow-9", name: "Update night", steps: [goodSteps[0]], createdBy: "owner-1", enabled: true, lastResult: "running step 2 of 3 (Install package updates)", lastJobIds: ["job-1", "job-2"], nextDueAt: null, triggerFlowId: null });
+    store.flows.set("flow-10", { id: "flow-10", name: "Fine", steps: [goodSteps[0]], createdBy: "owner-1", enabled: true, lastResult: "completed", lastJobIds: ["job-3"], nextDueAt: null, triggerFlowId: null });
+    expect(service.recover()).toBe(1);
+    expect(store.flows.get("flow-9").lastResult).toMatch(/interrupted by a BoxPilot restart while running step 2 of 3.*later steps did not run/);
+    expect(store.flows.get("flow-9").lastJobIds).toEqual(["job-1", "job-2"]);   // what ran is kept
+    expect(store.flows.get("flow-10").lastResult).toBe("completed");
+    expect(notified).toHaveLength(1);
   });
 
   it("only the creator or an owner may change or remove a flow", async () => {

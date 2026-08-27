@@ -46,6 +46,7 @@ export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
       if (namesSoFar.has(step.name)) return `${label}: another step is already named ${step.name}`;
     }
     if (step.onFailure !== undefined && !["stop", "continue"].includes(step.onFailure)) return `${label}: onFailure is either stop or continue`;
+    if (step.retry !== undefined && (!Number.isInteger(step.retry) || step.retry < 0 || step.retry > 3)) return `${label}: retry is 0 to 3 extra attempts`;
     if (step.when !== undefined) {
       if (!step.when || typeof step.when !== "object" || Array.isArray(step.when) || typeof step.when.value !== "string") return `${label}: a condition names the value it reads, as when.value`;
       const reads = referencesIn({ value: step.when.value });
@@ -79,7 +80,7 @@ export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
   return null;
 }
 
-export function createFlowService({ store, jobs, registry = defaultRegistry, pollMs = 1000, maxStepMs = null, now = () => new Date(), notify = null }) {
+export function createFlowService({ store, jobs, registry = defaultRegistry, pollMs = 1000, maxStepMs = null, retryDelayMs = 30_000, now = () => new Date(), notify = null }) {
   const running = new Set(); // flow ids mid-run; a flow must not lap itself
 
   function assertMayManage(flow, actorId, role) {
@@ -107,6 +108,7 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
       operationId: step.operationId, parameters: step.parameters ?? {},
       ...(typeof step.name === "string" ? { name: step.name } : {}),
       ...(step.onFailure !== undefined ? { onFailure: step.onFailure } : {}),
+      ...(step.retry !== undefined ? { retry: step.retry } : {}),
       ...(step.when !== undefined ? { when: { value: step.when.value, ...(step.when.equals !== undefined ? { equals: step.when.equals } : {}) } } : {}),
     }));
   }
@@ -220,49 +222,64 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
           const met = step.when.equals !== undefined ? read === step.when.equals : Boolean(read);
           if (!met) { jobIds.push(null); skippedByCondition += 1; continue; }
         }
-        let job = null;
-        try {
-          // References to earlier steps become the values those steps recorded, here at the last
-          // moment before staging, so the job is created and validated with real parameters.
-          const parameters = resolveValues(step.parameters ?? {}, namedResults);
-          job = await jobs.createOperationJob(step.operationId, parameters, actorId, { role });
-          jobIds.push(job.id);
-          // Progress lands as it happens, not at the end: the page can show which step is running
-          // and its live output, and a crash mid-run leaves an honest record of where it stopped.
-          store.markFlowRun(id, { result: `running step ${index + 1} of ${flow.steps.length} (${title})`, jobIds });
-          await jobs.approveAndStart(job.id, actorId, {});
-        } catch (error) {
-          if (job && typeof jobs.cancelJob === "function") {
-            try { jobs.cancelJob(job.id, actorId, { role, reason: `Flow step could not start: ${error.message}`.slice(0, 200) }); } catch { /* already terminal */ }
+        // A step may carry up to three extra attempts for transient failures (an apt lock, a
+        // busy mirror). Each attempt is its own recorded job; the run's slot keeps the attempt
+        // that counted. Only a job that ran and failed is retried: staging refusals are
+        // deterministic, a cancellation was somebody's decision, and a lost-sight step may
+        // still be running.
+        const attemptsAllowed = 1 + (step.retry ?? 0);
+        let finished = null;
+        for (let attempt = 1; attempt <= attemptsAllowed; attempt += 1) {
+          let job = null;
+          try {
+            // References to earlier steps become the values those steps recorded, here at the last
+            // moment before staging, so the job is created and validated with real parameters.
+            const parameters = resolveValues(step.parameters ?? {}, namedResults);
+            job = await jobs.createOperationJob(step.operationId, parameters, actorId, { role });
+            if (attempt === 1) jobIds.push(job.id); else jobIds[index] = job.id;
+            // Progress lands as it happens, not at the end: the page can show which step is running
+            // and its live output, and a crash mid-run leaves an honest record of where it stopped.
+            store.markFlowRun(id, { result: `running step ${index + 1} of ${flow.steps.length} (${title})${attempt > 1 ? `, attempt ${attempt} of ${attemptsAllowed}` : ""}`, jobIds });
+            await jobs.approveAndStart(job.id, actorId, {});
+          } catch (error) {
+            if (job && typeof jobs.cancelJob === "function") {
+              try { jobs.cancelJob(job.id, actorId, { role, reason: `Flow step could not start: ${error.message}`.slice(0, 200) }); } catch { /* already terminal */ }
+            }
+            if (job === null && attempt === 1) jobIds.push(null);
+            store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, reason: error.message.slice(0, 200) } });
+            if (step.onFailure === "continue") { problems.push(`step ${index + 1} (${title}) could not start: ${error.message}`.slice(0, 200)); break; }
+            const summary = `failed at step ${index + 1} (${title}): ${error.message}`.slice(0, 300);
+            store.markFlowRun(id, { result: summary, jobIds });
+            // No job ran, so no failed-job push carries the news; this is the flow's own to send.
+            notify?.(`${flow.name} ${summary}`);
+            throw new Error(`${flow.name} ${summary}`);
           }
-          if (job === null) jobIds.push(null);
-          store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, reason: error.message.slice(0, 200) } });
-          if (step.onFailure === "continue") { problems.push(`step ${index + 1} (${title}) could not start: ${error.message}`.slice(0, 200)); continue; }
-          const summary = `failed at step ${index + 1} (${title}): ${error.message}`.slice(0, 300);
-          store.markFlowRun(id, { result: summary, jobIds });
-          // No job ran, so no failed-job push carries the news; this is the flow's own to send.
-          notify?.(`${flow.name} ${summary}`);
-          throw new Error(`${flow.name} ${summary}`);
-        }
-        let finished;
-        try {
-          finished = await awaitJob(job.id, maxStepMs ?? ((operation?.timeoutMs ?? 180_000) + 60_000));
-        } catch (error) {
-          // Losing sight of a step is not the same as the step failing: the job may well still be
-          // running, so the next step must not start whatever this step's failure policy says.
-          const summary = `lost sight of step ${index + 1} (${title}): ${error.message}`.slice(0, 300);
-          store.markFlowRun(id, { result: summary, jobIds });
-          store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, jobId: job.id, reason: error.message.slice(0, 200) } });
-          notify?.(`${flow.name} ${summary}`);
-          throw new Error(`${flow.name} ${summary}`);
-        }
-        if (finished.state !== "completed") {
-          store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, jobId: job.id } });
-          if (step.onFailure === "continue") { problems.push(`step ${index + 1} (${title}) ${finished.state === "failed" ? "failed" : finished.state}`.slice(0, 200)); continue; }
-          const summary = `stopped at step ${index + 1} (${title}): ${finished.error ?? finished.state}`.slice(0, 300);
+          try {
+            finished = await awaitJob(job.id, maxStepMs ?? ((operation?.timeoutMs ?? 180_000) + 60_000));
+          } catch (error) {
+            // Losing sight of a step is not the same as the step failing: the job may well still be
+            // running, so the next step must not start whatever this step's failure policy says.
+            const summary = `lost sight of step ${index + 1} (${title}): ${error.message}`.slice(0, 300);
+            store.markFlowRun(id, { result: summary, jobIds });
+            store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, jobId: job.id, reason: error.message.slice(0, 200) } });
+            notify?.(`${flow.name} ${summary}`);
+            throw new Error(`${flow.name} ${summary}`);
+          }
+          if (finished.state === "completed") {
+            if (attempt > 1) problems.push(`step ${index + 1} (${title}) succeeded on attempt ${attempt} of ${attemptsAllowed}`);
+            break;
+          }
+          store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, jobId: job.id, attempt } });
+          if (finished.state === "failed" && attempt < attemptsAllowed) {
+            await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+            continue;
+          }
+          if (step.onFailure === "continue") { problems.push(`step ${index + 1} (${title}) ${finished.state === "failed" ? "failed" : finished.state}${attemptsAllowed > 1 ? ` after ${attempt} attempts` : ""}`.slice(0, 200)); break; }
+          const summary = `stopped at step ${index + 1} (${title})${attemptsAllowed > 1 ? ` after ${attempt} attempts` : ""}: ${finished.error ?? finished.state}`.slice(0, 300);
           store.markFlowRun(id, { result: summary, jobIds });
           throw new Error(`${flow.name} ${summary}. Earlier steps ran and stand; each one's job record says what it did.`);
         }
+        if (finished?.state !== "completed") continue;
         if (typeof step.name === "string") namedResults[step.name] = finished.result ?? {};
       }
       const result = problems.length
@@ -341,7 +358,28 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
     }
   }
 
+  /**
+   * A run lives in this process, so a BoxPilot restart mid-run (a self-update, the upgrade's own
+   * deferred service restart, a crash) leaves the record claiming "running step N" forever while
+   * the flow looks idle. Startup rewrites those records to what is actually known. The step's own
+   * job was already marked by the interrupted-jobs recovery, and may well have finished on its
+   * own; the record says to check it rather than guessing.
+   */
+  function recover() {
+    let recovered = 0;
+    for (const flow of store.listFlows()) {
+      if (!flow.lastResult || !flow.lastResult.startsWith("running step")) continue;
+      const summary = `interrupted by a BoxPilot restart while ${flow.lastResult}; the step's job record says how far it got, and later steps did not run`.slice(0, 300);
+      store.markFlowRun(flow.id, { result: summary, jobIds: flow.lastJobIds ?? [] });
+      store.recordAudit("flow.interrupted", { actorId: flow.createdBy, subjectId: flow.id, details: { was: flow.lastResult.slice(0, 200) } });
+      notify?.(`${flow.name} was ${summary}`);
+      recovered += 1;
+    }
+    return recovered;
+  }
+
   function start(intervalMs = 60_000) {
+    recover();
     const timer = setInterval(() => { tick().catch(() => {}); }, intervalMs);
     timer.unref?.();
     return () => clearInterval(timer);
@@ -358,5 +396,5 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
       .map((operation) => ({ operationId: operation.id, title: operation.title, risk: operation.risk, description: operation.description ?? "" }));
   }
 
-  return { create, list, update, remove, run, tick, start, stepPalette };
+  return { create, list, update, remove, run, tick, start, recover, stepPalette };
 }
