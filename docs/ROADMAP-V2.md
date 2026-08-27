@@ -355,8 +355,17 @@ its network, use a generic HTTP step for everything else, and hand SaaS breadth 
   (treated as optional), and the resolved parameters pass through the registry's full validation
   again when the job is staged, which is the gate that matters. The builder does not write
   references yet; that arrives with the parameter editor.
-- **M13.4** **Branching and failure policy.** `if` on a step's result, per-step continue-or-stop, and
-  a final `always` step so "tell me what happened" runs whether or not the flow worked.
+- ✅ **M13.4** (v1.42.0) **Branching and failure policy.** Shipped as three small pieces on the M13.3
+  machinery. A step may carry `onFailure: continue`, and the run records `completed with problems:
+  step N failed` instead of stopping; losing sight of a step always stops, whatever the policy,
+  because the next step must not start while this one may still be running. A step may carry
+  `when: { value: "{{ steps.name.field }}", equals? }`; false skips the step, which holds its
+  place in the run as a null job id (the page says "skipped, its condition was not met"), while a
+  reference that cannot resolve fails loudly so a typo is never a silent skip. And a flow failure
+  that produced no job (a refusal, a step that could not start, a lost-sight stop) sends its own
+  notification, since no failed-job push exists to carry the news; failed step jobs stay covered
+  by the ordinary failed-job notifications. The builder gained a per-step failure-policy select;
+  conditions are API-and-shelf territory until the M13.10 editor.
 - **M13.5** **Triggers beyond the clock.** The signals already exist and are not wired to anything:
   a health alert firing, a job failing, an app becoming unhealthy, a disk crossing a threshold, a
   backup completing, an unrecognised device appearing on the LAN.
