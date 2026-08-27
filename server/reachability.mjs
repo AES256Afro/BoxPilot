@@ -36,6 +36,11 @@ export function planProbes(facts, serves = []) {
       continue;
     }
     if (facts.lanAddress) addresses.push({ portId: port.id, portLabel: port.label, kind: "lan", url: `http://${facts.lanAddress}:${port.host}`, probe: true, note: null });
+    // The same LAN address again, but arriving the way a device on the network arrives: with the
+    // LAN address as the connection's source instead of the docker bridge. A firewall inside the
+    // app (a VPN sidecar's) whitelists the bridge and drops the network, and only the pair of
+    // vantages tells those apart; one such firewall hid from every on-host check for a day.
+    if (facts.lanAddress) addresses.push({ portId: port.id, portLabel: port.label, kind: "lan-outside", url: `http://${facts.lanAddress}:${port.host}`, sourceAddress: facts.lanAddress, probe: true, note: null });
     if (facts.tailnetAddress) addresses.push({ portId: port.id, portLabel: port.label, kind: "tailnet", url: `http://${facts.tailnetAddress}:${port.host}`, probe: true, note: shortNameNote(facts) });
   }
   // The form browsers refuse no matter what the server does, explained rather than probed:
@@ -61,6 +66,10 @@ function shortNameNote(facts) {
  */
 export function composeVerdicts(addresses, probeResults, facts) {
   const byId = new Map((probeResults ?? []).map((result) => [result.id, result]));
+  // The outside-vantage companion folds into its LAN row rather than appearing as its own line:
+  // agreement is silence, disagreement is the whole finding.
+  const outsideByPort = new Map(addresses.filter((address) => address.kind === "lan-outside").map((address) => [address.portId, byId.get(address.id) ?? null]));
+  addresses = addresses.filter((address) => address.kind !== "lan-outside");
   const troubled = (facts.sidecars ?? []).find((sidecar) => !sidecar.running || sidecar.status === "restarting");
   const headline = !facts.installed ? "The app is not installed."
     : troubled ? `The ${troubled.id} container is ${troubled.status === "restarting" ? "restarting over and over" : "not running"}; nothing will answer on any address until it runs. Its log says why.`
@@ -72,6 +81,10 @@ export function composeVerdicts(addresses, probeResults, facts) {
     const result = byId.get(address.id);
     if (!result) return { ...address, outcome: "not-probed", verdict: "The probe did not run." };
     if (result.outcome === "answered") {
+      const outside = address.kind === "lan" ? outsideByPort.get(address.portId) : undefined;
+      if (outside && ["timeout", "refused"].includes(outside.outcome)) {
+        return { ...address, outcome: "blocked-outside", status: result.status, ms: result.ms, verdict: "Answers from this machine itself, but a connection arriving from the network is silently dropped. That is a firewall inside the app (a VPN helper's inbound rules, most likely) or on this host, admitting local checks and blocking real devices." };
+      }
       const warning = result.tls === "unverified" ? "; the certificate is self-signed, so a browser shows a warning first" : "";
       return { ...address, outcome: "answered", status: result.status, ms: result.ms, verdict: `Answers (HTTP ${result.status} in ${result.ms}ms${warning}).` };
     }

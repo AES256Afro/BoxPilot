@@ -14,9 +14,12 @@ describe("which addresses the doctor decides to check", () => {
     const plan = planProbes(facts);
     expect(plan.map((address) => [address.kind, address.url])).toEqual([
       ["lan", "http://192.168.1.10:8095"],
+      ["lan-outside", "http://192.168.1.10:8095"],
       ["tailnet", "http://100.64.0.9:8095"],
       ["browser-rule", "http://homebox.tail0a1b.ts.net:<port>"],
     ]);
+    // The outside vantage arrives the way a LAN device does: source bound to the LAN address.
+    expect(plan.find((address) => address.kind === "lan-outside").sourceAddress).toBe("192.168.1.10");
     expect(plan.find((address) => address.kind === "browser-rule").probe).toBe(false);
     expect(plan.find((address) => address.kind === "browser-rule").note).toMatch(/HSTS preload/);
     expect(plan.find((address) => address.kind === "tailnet").note).toMatch(/http:\/\/homebox:<port>/);
@@ -47,14 +50,39 @@ describe("what the verdicts say", () => {
 
   it("reads answered, refused, and dropped apart, in the owner's terms", () => {
     const plan = planProbes(facts);
+    const lan = plan.find((address) => address.kind === "lan");
+    const tailnet = plan.find((address) => address.kind === "tailnet");
     const { headline, addresses } = composeVerdicts(plan, [
-      { id: plan[0].id, outcome: "answered", status: 200, ms: 12 },
-      { id: plan[1].id, outcome: "timeout", ms: 4000 },
+      { id: lan.id, outcome: "answered", status: 200, ms: 12 },
+      { id: tailnet.id, outcome: "timeout", ms: 4000 },
     ], facts);
     expect(headline).toBeNull();
-    expect(addresses[0].verdict).toBe("Answers (HTTP 200 in 12ms).");
-    expect(addresses[1].verdict).toMatch(/silently dropped.*firewall/);
-    expect(addresses[2].outcome).toBe("not-probed");
+    expect(addresses.find((address) => address.kind === "lan").verdict).toBe("Answers (HTTP 200 in 12ms).");
+    expect(addresses.find((address) => address.kind === "tailnet").verdict).toMatch(/silently dropped.*firewall/);
+    expect(addresses.find((address) => address.kind === "browser-rule").outcome).toBe("not-probed");
+  });
+
+  it("catches a firewall that admits local checks and drops the network", () => {
+    // The gluetun case: on-host curl answered while every real device timed out, and no single
+    // vantage could tell. The pair can: LAN answered, LAN-from-outside dropped.
+    const plan = planProbes(facts);
+    const lan = plan.find((address) => address.kind === "lan");
+    const outside = plan.find((address) => address.kind === "lan-outside");
+    const { addresses } = composeVerdicts(plan, [
+      { id: lan.id, outcome: "answered", status: 401, ms: 9 },
+      { id: outside.id, outcome: "timeout", ms: 4000 },
+    ], facts);
+    const merged = addresses.find((address) => address.kind === "lan");
+    expect(merged.outcome).toBe("blocked-outside");
+    expect(merged.verdict).toMatch(/Answers from this machine itself.*silently dropped.*firewall inside the app/);
+    // The companion never appears as its own row.
+    expect(addresses.some((address) => address.kind === "lan-outside")).toBe(false);
+    // Agreement stays quiet: both answering reads as a plain answer.
+    const agreeing = composeVerdicts(plan, [
+      { id: lan.id, outcome: "answered", status: 200, ms: 9 },
+      { id: outside.id, outcome: "answered", status: 200, ms: 11 },
+    ], facts).addresses.find((address) => address.kind === "lan");
+    expect(agreeing.outcome).toBe("answered");
   });
 
   it("says a self-signed certificate means a warning, not a failure", () => {
@@ -78,6 +106,20 @@ describe("the prober, against a real socket", () => {
       expect(results.find((entry) => entry.id === "up")).toMatchObject({ outcome: "answered", status: 401 });
       expect(results.find((entry) => entry.id === "down").outcome).toBe("refused");
       expect(results.find((entry) => entry.id === "junk").outcome).toBe("error");
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it("binds the source address when a probe asks for one", async () => {
+    const seen = [];
+    const server = http.createServer((request, response) => { seen.push(request.socket.remoteAddress); response.end("ok"); });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address();
+    try {
+      await probeAddresses({ probes: [{ id: "bound", url: `http://127.0.0.1:${port}/`, sourceAddress: "127.0.0.1" }] });
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).toMatch(/127\.0\.0\.1/);
     } finally {
       await new Promise((resolve) => server.close(resolve));
     }
