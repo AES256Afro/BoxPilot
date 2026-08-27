@@ -390,10 +390,12 @@ server". Getting there surfaced six product bugs and required a guide, an extens
 concession. The finished pipeline works; this arc makes the next person's version of it a stack
 install instead of an afternoon.
 
-- **M14.1** The *arr manifests: Sonarr, Radarr, and Prowlarr as catalog entries (Jellyseerr is
-  already in). All three mount the same media volume as qBittorrent at the same container path, so
-  imports are hard-links on one filesystem instead of copies, and the manifests say so instead of
-  leaving the layout to be discovered. Bazarr later if asked for.
+- ✅ **M14.1** (v1.39.0) The *arr manifests: Sonarr, Radarr, and Prowlarr as catalog entries
+  (Jellyseerr is already in). Sonarr and Radarr mount the same media volume as qBittorrent at the
+  same container path (/data), so imports are hard-links on one filesystem instead of copies, and
+  the manifests say so instead of leaving the layout to be discovered; each one's notes carry the
+  three wiring facts (root folder, download client address and category, Prowlarr pushes the
+  indexers). Prowlarr holds no media and says that too. Bazarr later if asked for.
 - **M14.2** A *Media automation* stack profile: qBittorrent (through the VPN), Prowlarr, Sonarr,
   Radarr, and Jellyfin in one approved run, sharing one media volume with the folder layout
   (`torrents/`, `tv/`, `movies/`) created up front. The stack machinery is M3.7; this is its
