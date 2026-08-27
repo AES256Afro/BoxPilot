@@ -14,7 +14,7 @@ function fakeStore() {
   return {
     flows, jobs, audits,
     createFlow({ name, steps, createdBy, frequency = null, minute = null, hour = null, weekday = null, nextDueAt = null }) {
-      const flow = { id: `flow-${flows.size + 1}`, name, steps, createdBy, createdAt: "2026-08-26T00:00:00Z", updatedAt: "2026-08-26T00:00:00Z", lastRunAt: null, lastResult: null, lastJobIds: [], frequency, minute, hour, weekday, enabled: true, nextDueAt };
+      const flow = { id: `flow-${flows.size + 1}`, name, steps, createdBy, createdAt: "2026-08-26T00:00:00Z", updatedAt: "2026-08-26T00:00:00Z", lastRunAt: null, lastResult: null, lastJobIds: [], frequency, minute, hour, weekday, enabled: true, nextDueAt, triggerFlowId: arguments[0].triggerFlowId ?? null };
       flows.set(flow.id, flow);
       return flow;
     },
@@ -31,6 +31,7 @@ function fakeStore() {
     getSetting: () => null,
     findOwnerById: (id) => ({ id, username: id, role: id.startsWith("viewer") ? "viewer" : "owner" }),
     listDueFlows(nowIso) { return [...flows.values()].filter((flow) => flow.enabled !== false && flow.nextDueAt && flow.nextDueAt <= nowIso); },
+    listFlowsTriggeredBy(flowId) { return [...flows.values()].filter((flow) => flow.enabled !== false && flow.triggerFlowId === flowId); },
     recordAudit: (event, detail) => audits.push({ event, ...detail }),
   };
 }
@@ -279,6 +280,45 @@ describe("running a flow", () => {
     expect(validateFlow({ name: "x", steps: [{ ...goodSteps[0], name: "a" }, { ...goodSteps[1], when: { value: "before {{ steps.a.x }}" } }] })).toMatch(/exactly one/);
     expect(validateFlow({ name: "x", steps: [{ ...goodSteps[0], name: "a" }, { ...goodSteps[1], when: { value: "{{ steps.a.x }}", equals: { deep: true } } }] })).toMatch(/plain value/);
     expect(validateFlow({ name: "x", steps: [{ ...goodSteps[0], name: "a" }, { ...goodSteps[1], when: { value: "{{ steps.a.x }}", equals: "ok" }, onFailure: "continue" }] })).toBeNull();
+  });
+
+  it("a flow wired after another runs when it completes, under its own creator's authority", async () => {
+    const store = fakeStore();
+    const jobs = fakeJobs(store);
+    const service = createFlowService({ store, jobs, pollMs: 2 });
+    const first = await service.create({ name: "backup", steps: [goodSteps[0]], createdBy: "owner-1" });
+    await service.create({ name: "mirror", steps: [goodSteps[1]], createdBy: "operator-7", triggerFlowId: first.id });
+    await service.run(first.id, "owner-1", { role: "owner" });
+    expect(jobs.calls.map((call) => [call.operationId, call.actorId])).toEqual([
+      ["controller.backup.create", "owner-1"],
+      ["host.snapshot.create", "operator-7"],           // the follower's own authority, not the runner's
+    ]);
+    expect([...store.flows.values()].map((flow) => flow.lastResult)).toEqual(["completed", "completed"]);
+  });
+
+  it("a follower's refusal is recorded and notified on the follower, never on the finished flow", async () => {
+    const store = fakeStore();
+    store.findOwnerById = (id) => ({ id, username: id, role: id.startsWith("viewer") ? "viewer" : "owner" });
+    const notified = [];
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, notify: (message) => notified.push(message) });
+    const first = await service.create({ name: "backup", steps: [goodSteps[0]], createdBy: "owner-1" });
+    await service.create({ name: "mirror", steps: [goodSteps[1]], createdBy: "viewer-9", triggerFlowId: first.id });
+    await service.run(first.id, "owner-1", { role: "owner" });
+    const [parent, follower] = [...store.flows.values()];
+    expect(parent.lastResult).toBe("completed");
+    expect(follower.lastResult).toMatch(/skipped: viewer-9 can no longer approve/);
+    expect(notified).toHaveLength(1);
+    expect(notified[0]).toMatch(/mirror was due to run after another flow/);
+  });
+
+  it("refuses a trigger loop, a missing flow, and triggering itself", async () => {
+    const store = fakeStore();
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2 });
+    await expect(service.create({ name: "orphan", steps: [goodSteps[0]], createdBy: "o", triggerFlowId: "flow-99" })).rejects.toThrow(/does not exist/);
+    const a = await service.create({ name: "a", steps: [goodSteps[0]], createdBy: "o" });
+    const b = await service.create({ name: "b", steps: [goodSteps[0]], createdBy: "o", triggerFlowId: a.id });
+    await expect(service.update(a.id, { triggerFlowId: b.id }, "o", { role: "owner" })).rejects.toThrow(/loop/);
+    await expect(service.update(a.id, { triggerFlowId: a.id }, "o", { role: "owner" })).rejects.toThrow(/loop/);
   });
 
   it("only the creator or an owner may change or remove a flow", async () => {

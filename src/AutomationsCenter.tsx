@@ -16,7 +16,7 @@ interface Flow {
   risk: "low" | "medium" | "high"; running: boolean;
   lastRunAt: string | null; lastResult: string | null; lastJobIds: Array<string | null>;
   frequency: "hourly" | "daily" | "weekly" | null; minute: number | null; hour: number | null; weekday: number | null;
-  enabled: boolean; nextDueAt: string | null;
+  enabled: boolean; nextDueAt: string | null; triggerFlowId: string | null;
 }
 
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -62,6 +62,7 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
+  const [draftAfter, setDraftAfter] = useState("");
   const [draftSteps, setDraftSteps] = useState<Array<{ operationId: string; onFailure: "stop" | "continue" }>>([]);
   const [building, setBuilding] = useState(false);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -142,7 +143,7 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
   const saveDraft = async () => {
     setError(null); setNotice(null);
     try {
-      await post("/api/v1/flows", { name: draftName, steps: draftSteps.map((step) => ({ operationId: step.operationId, parameters: {}, ...(step.onFailure === "continue" ? { onFailure: "continue" as const } : {}) })) });
+      await post("/api/v1/flows", { name: draftName, steps: draftSteps.map((step) => ({ operationId: step.operationId, parameters: {}, ...(step.onFailure === "continue" ? { onFailure: "continue" as const } : {}) })), ...(draftAfter ? { triggerFlowId: draftAfter } : {}) });
       setDraftName(""); setDraftSteps([]); setBuilding(false);
       await refresh();
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not save the automation"); }
@@ -188,6 +189,14 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
         {building && (
           <form className="flow-builder" onSubmit={(event) => { event.preventDefault(); void saveDraft(); }}>
             <label>Name<input aria-label="Automation name" maxLength={80} value={draftName} onChange={(event) => setDraftName(event.target.value)} placeholder="What it does, in your words" /></label>
+            {(flows ?? []).length > 0 && (
+              <label>Runs after (optional)
+                <select aria-label="Runs after" value={draftAfter} onChange={(event) => setDraftAfter(event.target.value)}>
+                  <option value="">Only when scheduled or run by hand</option>
+                  {(flows ?? []).map((other) => <option key={other.id} value={other.id}>after {other.name} completes</option>)}
+                </select>
+              </label>
+            )}
             <label>Add a step
               <select aria-label="Add a step" value="" onChange={(event) => { if (event.target.value) setDraftSteps((current) => [...current, { operationId: event.target.value, onFailure: "stop" }]); }}>
                 <option value="">Pick an operation…</option>
@@ -250,6 +259,9 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
                   <p className="muted">
                     Runs {cadenceLabel(flow)}{flow.enabled && flow.nextDueAt ? `; next ${new Date(flow.nextDueAt).toLocaleString()}` : ""}{flow.enabled ? "" : "; paused"}. Runs under your account, the same as pressing Run.
                   </p>
+                )}
+                {flow.triggerFlowId && (
+                  <p className="muted">Runs after {flows?.find((other) => other.id === flow.triggerFlowId)?.name ?? "another flow"} completes, under its own creator's account.{flow.enabled ? "" : " Paused."}</p>
                 )}
                 <div className="recovery-actions">
                   <button className="primary-button" type="button" disabled={flow.running} onClick={() => void runFlow(flow)}>{flow.running ? "Running…" : "Run now"}</button>
