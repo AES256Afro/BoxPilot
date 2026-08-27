@@ -491,10 +491,14 @@ from reading container logs by hand. The tunnel is infrastructure; treat it like
   and the localhost auth bypass that would sidestep them also opens the panel to the whole tailnet
   through Serve, because Serve proxies every visitor from loopback. If it ever ships, it is a
   config-file edit plus restart, not an auth hole.
-- **M17.3** Kill-switch drill: a one-click test that forces the tunnel down inside the sidecar,
-  verifies nothing leaves for a few seconds, and brings it back, recording the result the way a
-  restore drill does. The claim "if the VPN drops, downloads stop instead of leaking" becomes a
-  recorded fact per install rather than a sentence in a description.
+- ✅ **M17.3** (v1.48.0) Kill-switch drill: `app.vpn.killswitch.drill` (medium, one confirmation)
+  forces the tunnel down through gluetun's control endpoint, probes the internet from inside the
+  app's own namespace (an answer is a leak, silence is the kill switch holding), brings the tunnel
+  back whatever happened in between, waits for the exit address to return, and records the verdict
+  with timings. The mechanics were proven against the live tunnel before the op was written: stop,
+  four-second probe timing out, restore, new exit address. "Prove the kill switch" sits next to
+  the exit line on the card. A drill that cannot restore the tunnel reports that as its failure,
+  never a pass.
 
 **Order across the new arcs.** M15.1 and M15.2 first: the pain is freshest, every check is already
 understood, and it pays off on every app forever. Then M14 as one arc, which finishes the mission
