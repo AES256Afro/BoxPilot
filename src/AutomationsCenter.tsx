@@ -10,11 +10,11 @@ import { JobLogView } from "./JobLogView";
  * step palette: every operation that needs no form, which is what keeps a v1 builder honest
  * instead of half a parameter editor.
  */
-interface FlowStep { operationId: string; parameters?: Record<string, unknown>; name?: string }
+interface FlowStep { operationId: string; parameters?: Record<string, unknown>; name?: string; onFailure?: "stop" | "continue"; when?: { value: string; equals?: unknown } }
 interface Flow {
   id: string; name: string; steps: FlowStep[]; createdBy: string;
   risk: "low" | "medium" | "high"; running: boolean;
-  lastRunAt: string | null; lastResult: string | null; lastJobIds: string[];
+  lastRunAt: string | null; lastResult: string | null; lastJobIds: Array<string | null>;
   frequency: "hourly" | "daily" | "weekly" | null; minute: number | null; hour: number | null; weekday: number | null;
   enabled: boolean; nextDueAt: string | null;
 }
@@ -62,7 +62,7 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
-  const [draftSteps, setDraftSteps] = useState<string[]>([]);
+  const [draftSteps, setDraftSteps] = useState<Array<{ operationId: string; onFailure: "stop" | "continue" }>>([]);
   const [building, setBuilding] = useState(false);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -142,7 +142,7 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
   const saveDraft = async () => {
     setError(null); setNotice(null);
     try {
-      await post("/api/v1/flows", { name: draftName, steps: draftSteps.map((operationId) => ({ operationId, parameters: {} })) });
+      await post("/api/v1/flows", { name: draftName, steps: draftSteps.map((step) => ({ operationId: step.operationId, parameters: {}, ...(step.onFailure === "continue" ? { onFailure: "continue" as const } : {}) })) });
       setDraftName(""); setDraftSteps([]); setBuilding(false);
       await refresh();
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not save the automation"); }
@@ -189,17 +189,21 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
           <form className="flow-builder" onSubmit={(event) => { event.preventDefault(); void saveDraft(); }}>
             <label>Name<input aria-label="Automation name" maxLength={80} value={draftName} onChange={(event) => setDraftName(event.target.value)} placeholder="What it does, in your words" /></label>
             <label>Add a step
-              <select aria-label="Add a step" value="" onChange={(event) => { if (event.target.value) setDraftSteps((current) => [...current, event.target.value]); }}>
+              <select aria-label="Add a step" value="" onChange={(event) => { if (event.target.value) setDraftSteps((current) => [...current, { operationId: event.target.value, onFailure: "stop" }]); }}>
                 <option value="">Pick an operation…</option>
                 {palette.map((step) => <option key={step.operationId} value={step.operationId}>{step.title} ({step.risk})</option>)}
               </select>
             </label>
             {draftSteps.length > 0 && (
               <ol className="flow-draft-steps">
-                {draftSteps.map((operationId, index) => (
-                  <li key={`${operationId}-${index}`}>
-                    {titleFor(operationId)}
+                {draftSteps.map((step, index) => (
+                  <li key={`${step.operationId}-${index}`}>
+                    {titleFor(step.operationId)}
                     <span>
+                      <select aria-label={`If step ${index + 1} fails`} value={step.onFailure} onChange={(event) => setDraftSteps((current) => current.map((entry, at) => (at === index ? { ...entry, onFailure: event.target.value as "stop" | "continue" } : entry)))}>
+                        <option value="stop">if it fails: stop the run</option>
+                        <option value="continue">if it fails: keep going</option>
+                      </select>
                       <button className="text-button" type="button" disabled={index === 0} onClick={() => setDraftSteps((current) => { const next = [...current]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next; })}>Up</button>
                       <button className="text-button" type="button" onClick={() => setDraftSteps((current) => current.filter((_, at) => at !== index))}>Remove</button>
                     </span>
@@ -235,9 +239,9 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
                     {flow.lastJobIds.length === 0
                       ? <p className="muted">The first step is being staged…</p>
                       : flow.lastJobIds.map((jobId, index) => (
-                        <div key={jobId} className="flow-run-step">
-                          <span className="eyebrow">Step {index + 1}{flow.steps[index] ? ` · ${titleFor(flow.steps[index].operationId)}${flow.steps[index].name ? ` (${flow.steps[index].name})` : ""}` : ""}</span>
-                          <JobLogView jobId={jobId} title={flow.steps[index] ? titleFor(flow.steps[index].operationId) : `step ${index + 1}`} />
+                        <div key={jobId ?? `skipped-${index}`} className="flow-run-step">
+                          <span className="eyebrow">Step {index + 1}{flow.steps[index] ? ` · ${titleFor(flow.steps[index].operationId)}${flow.steps[index].name ? ` (${flow.steps[index].name})` : ""}` : ""}{jobId === null ? " · skipped, its condition was not met" : ""}</span>
+                          {jobId !== null && <JobLogView jobId={jobId} title={flow.steps[index] ? titleFor(flow.steps[index].operationId) : `step ${index + 1}`} />}
                         </div>
                       ))}
                   </details>

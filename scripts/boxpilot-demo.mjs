@@ -469,8 +469,8 @@ api.get("/flows", (_request, response) => json(response, {
     { id: "flow-1", name: "Update night", steps: [{ operationId: "host.snapshot.create", parameters: {} }, { operationId: "apt.refresh", parameters: {} }, { operationId: "apt.upgrade", parameters: {} }],
       createdBy: "owner-demo", risk: "medium", running: false, createdAt: ago(200), updatedAt: ago(200), lastRunAt: ago(30), lastResult: "completed", lastJobIds: ["j1", "j2", "j3"],
       frequency: "weekly", minute: 0, hour: 3, weekday: 0, enabled: true, nextDueAt: ago(-96) },
-    { id: "flow-2", name: "Belt and braces", steps: [{ operationId: "controller.backup.create", parameters: {} }, { operationId: "backup.sync", parameters: {} }],
-      createdBy: "owner-demo", risk: "medium", running: false, createdAt: ago(100), updatedAt: ago(100), lastRunAt: null, lastResult: null, lastJobIds: [],
+    { id: "flow-2", name: "Belt and braces", steps: [{ operationId: "controller.backup.create", parameters: {}, name: "backup" }, { operationId: "backup.sync", parameters: {}, when: { value: "{{ steps.backup.changed }}" }, onFailure: "continue" }],
+      createdBy: "owner-demo", risk: "medium", running: false, createdAt: ago(100), updatedAt: ago(100), lastRunAt: ago(5), lastResult: "completed (1 step skipped by condition)", lastJobIds: ["d3", null],
       frequency: null, minute: null, hour: null, weekday: null, enabled: true, nextDueAt: null },
   ],
   palette: [

@@ -211,6 +211,76 @@ describe("running a flow", () => {
     ] })).toMatch(/does not accept parameter "nonsense"/);
   });
 
+  it("a step marked continue records its failure and lets the chain finish", async () => {
+    const store = fakeStore();
+    const jobs = fakeJobs(store, { failAt: 1 });
+    const notified = [];
+    const service = createFlowService({ store, jobs, pollMs: 2, notify: (message) => notified.push(message) });
+    const flow = await service.create({ name: "belt", steps: [{ ...goodSteps[0], onFailure: "continue" }, goodSteps[1]], createdBy: "owner-1" });
+    const outcome = await service.run(flow.id, "owner-1", { role: "owner" });
+    expect(outcome.completed).toBe(true);
+    expect(jobs.calls).toHaveLength(2);                       // the second step still ran
+    expect(store.getFlow(flow.id).lastResult).toMatch(/^completed with problems: step 1 .*failed/);
+    expect(notified).toEqual([]);                             // the failed job's own push carries the news
+  });
+
+  it("a false condition skips the step, which holds its place in the run", async () => {
+    const store = fakeStore();
+    const jobs = fakeJobs(store, { results: { 1: { rebootRequired: false, count: 4 } } });
+    const service = createFlowService({ store, jobs, pollMs: 2 });
+    const flow = await service.create({
+      name: "conditional",
+      steps: [
+        { operationId: "host.snapshot.create", parameters: {}, name: "check" },
+        { operationId: "app.backup", parameters: { id: "immich" }, when: { value: "{{ steps.check.rebootRequired }}" } },
+        { operationId: "controller.backup.create", parameters: {} },
+      ],
+      createdBy: "owner-1",
+    });
+    await service.run(flow.id, "owner-1", { role: "owner" });
+    const saved = store.getFlow(flow.id);
+    expect(saved.lastResult).toBe("completed (1 step skipped by condition)");
+    expect(saved.lastJobIds).toEqual(["job-1", null, "job-2"]);   // the skipped step holds its place
+    expect(jobs.calls.map((call) => call.operationId)).toEqual(["host.snapshot.create", "controller.backup.create"]);
+  });
+
+  it("a condition can compare against a value, and a broken reference fails loudly", async () => {
+    const store = fakeStore();
+    const jobs = fakeJobs(store, { results: { 1: { count: 4 } } });
+    const notified = [];
+    const service = createFlowService({ store, jobs, pollMs: 2, notify: (message) => notified.push(message) });
+    const flow = await service.create({
+      name: "picky",
+      steps: [
+        { operationId: "host.snapshot.create", parameters: {}, name: "check" },
+        { operationId: "controller.backup.create", parameters: {}, when: { value: "{{ steps.check.count }}", equals: 4 } },
+      ],
+      createdBy: "owner-1",
+    });
+    await service.run(flow.id, "owner-1", { role: "owner" });
+    expect(jobs.calls).toHaveLength(2);                       // equals matched, the step ran
+
+    const broken = await service.create({
+      name: "typo",
+      steps: [
+        { operationId: "host.snapshot.create", parameters: {}, name: "check" },
+        { operationId: "controller.backup.create", parameters: {}, when: { value: "{{ steps.check.nothing }}" } },
+      ],
+      createdBy: "owner-1",
+    });
+    await expect(service.run(broken.id, "owner-1", { role: "owner" })).rejects.toThrow(/its condition it reads steps\.check\.nothing/);
+    expect(store.getFlow(broken.id).lastResult).toMatch(/failed at step 2 .*condition/);
+    expect(notified).toHaveLength(1);                         // no job carries this failure; the flow tells
+  });
+
+  it("refuses a condition that reads a later step, a bad onFailure, and a mangled when", () => {
+    expect(validateFlow({ name: "x", steps: [{ ...goodSteps[0], onFailure: "retry" }] })).toMatch(/onFailure is either stop or continue/);
+    expect(validateFlow({ name: "x", steps: [{ ...goodSteps[0], when: { value: "{{ steps.later.x }}" } }, { ...goodSteps[1], name: "later" }] })).toMatch(/not the name of an earlier step/);
+    expect(validateFlow({ name: "x", steps: [{ ...goodSteps[0], name: "a" }, { ...goodSteps[1], when: { value: "before {{ steps.a.x }}" } }] })).toMatch(/exactly one/);
+    expect(validateFlow({ name: "x", steps: [{ ...goodSteps[0], name: "a" }, { ...goodSteps[1], when: { value: "{{ steps.a.x }}", equals: { deep: true } } }] })).toMatch(/plain value/);
+    expect(validateFlow({ name: "x", steps: [{ ...goodSteps[0], name: "a" }, { ...goodSteps[1], when: { value: "{{ steps.a.x }}", equals: "ok" }, onFailure: "continue" }] })).toBeNull();
+  });
+
   it("only the creator or an owner may change or remove a flow", async () => {
     const store = fakeStore();
     const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2 });

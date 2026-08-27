@@ -209,7 +209,8 @@ describe("every job an automation or schedule points at exists", () => {
     try {
       const { flows } = await body("/flows");
       const { schedules } = await body("/schedules");
-      const ids = [...flows.flatMap((flow) => flow.lastJobIds), ...schedules.map((schedule) => schedule.lastJobId).filter(Boolean)];
+      // A null entry is a step whose condition was not met: it holds its place and has no job.
+      const ids = [...flows.flatMap((flow) => flow.lastJobIds.filter((entry) => entry !== null)), ...schedules.map((schedule) => schedule.lastJobId).filter(Boolean)];
       expect(ids.length).toBeGreaterThan(0);
       for (const id of ids) {
         const { job } = await body(`/jobs/${id}`);
