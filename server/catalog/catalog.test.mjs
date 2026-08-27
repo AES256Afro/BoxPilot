@@ -111,6 +111,27 @@ describe("manifest schema", () => {
   });
 });
 
+describe("the qBittorrent tunnel, end to end through the real manifest", () => {
+  // The unit test for containerFollowsHost passed while the product shipped broken: it handed
+  // renderCompose a hand-built manifest, and the schema normalizer was silently dropping the new
+  // field from real ones. Docker forwarded 8095 to 8080 while the app listened on 8095: refused
+  // from everywhere, found live on the owner's install. This walks the same path a deploy walks.
+  it("maps the chosen port to itself and hands it to the app and the firewall", async () => {
+    const { manifests } = await loadCatalog();
+    const manifest = manifests.find((entry) => entry.id === "qbittorrent");
+    const { values, errors } = resolveValues(manifest, {
+      ports: { web: 9001 },
+      env: { VPN_SERVICE_PROVIDER: "protonvpn", VPN_TYPE: "wireguard", WIREGUARD_PRIVATE_KEY: "k", WIREGUARD_ADDRESSES: "10.2.0.2/32", TZ: "America/Chicago" },
+      volumes: { media: "/mnt/media" },
+    });
+    expect(errors).toEqual([]);
+    const { compose } = renderCompose(manifest, values, { lanAddress: "0.0.0.0" });
+    expect(compose.services.vpn.ports).toEqual(["0.0.0.0:9001:9001"]);
+    expect(compose.services.qbittorrent.environment.WEBUI_PORT).toBe("9001");
+    expect(compose.services.vpn.environment.FIREWALL_INPUT_PORTS).toBe("9001");
+  });
+});
+
 describe("catalog loader", () => {
   it("loads valid manifests, reports invalid ones, and enforces id = file name", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-catalog-")); directories.push(directory);
