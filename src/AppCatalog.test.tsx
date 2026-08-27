@@ -114,7 +114,9 @@ describe("App catalog", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<AppCatalog csrfToken="csrf-token" />);
-    expect(await screen.findByText("VPN exit: Netherlands, North Brabant, Breda · 212.92.104.227")).toBeTruthy();
+    // The line now also carries the kill-switch drill button, so match the prefix.
+    expect(await screen.findByText(/VPN exit: Netherlands, North Brabant, Breda · 212\.92\.104\.227/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Prove the kill switch" })).toBeTruthy();
   });
 
   it("shows the wiring between apps with real addresses, in both directions", async () => {

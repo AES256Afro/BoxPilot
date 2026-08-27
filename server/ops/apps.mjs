@@ -209,6 +209,12 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.uninstall({ id: parameters.id, purge: true }, { progress }),
     }),
     defineOperation({
+      id: "app.vpn.killswitch.drill", title: "Prove the kill switch", risk: "medium", timeoutMs: minutes(5),
+      description: "Forces the VPN tunnel down for a few seconds, checks that nothing can reach the internet while it is down, then brings it back and confirms the exit address returned. Downloads pause for the duration and resume by themselves. The result is recorded, so 'if the VPN drops, nothing leaks' is a tested fact rather than a sentence.",
+      parameters: { fields: { id: idField } },
+      run: (parameters, { apps, progress }) => apps.vpnKillSwitchDrill({ id: parameters.id }, { progress }),
+    }),
+    defineOperation({
       id: "app.update", title: "Update application", risk: "medium", timeoutMs: minutes(40),
       description: "Takes a data checkpoint, pulls the catalog's current image, and recreates the container; restores the previous image if it fails to become healthy.",
       parameters: { fields: { id: idField, checkpoint: { type: "boolean", optional: true }, devices: devicesField } },
