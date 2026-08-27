@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BoxPilot — Raw</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-elevated: #161b22;
+    --border: #30363d;
+    --border-subtle: #21262d;
+    --fg: #c9d1d9;
+    --fg-muted: #8b949e;
+    --fg-faint: #484f58;
+    --accent: #58a6ff;
+    --accent-bg: #121d2f;
+    --success: #3fb950;
+    --success-bg: #0f2d1c;
+    --warn: #d29922;
+    --danger: #f85149;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--fg); font-family:var(--font); font-size:13.5px; line-height:1.5; }
+  .shell { display:grid; grid-template-columns: 230px 1fr; height:100vh; }
+
+  /* Sidebar */
+  .sidebar {
+    border-right:1px solid var(--border);
+    display:flex; flex-direction:column;
+    background: var(--bg);
+  }
+  .brand {
+    display:flex; align-items:center; gap:10px;
+    padding:16px; padding-bottom:20px;
+    border-bottom:1px solid var(--border);
+  }
+  .brand-icon {
+    width:32px; height:32px;
+    background: var(--accent-bg);
+    color: var(--accent);
+    display:grid; place-items:center;
+    font-family:var(--font-mono); font-size:12px; font-weight:700;
+    border-radius: 6px;
+  }
+  .brand-text { font-weight:600; font-size:14px; letter-spacing:-0.01em; }
+  .brand-text small { display:block; font-size:11px; color:var(--fg-muted); font-weight:400; margin-top:1px; }
+
+  nav { flex:1; overflow-y:auto; padding:12px 8px; }
+  nav a {
+    display:flex; align-items:center; gap:10px;
+    padding:6px 10px; margin-bottom:1px;
+    color:var(--fg-muted); text-decoration:none; font-size:13px;
+    border-radius: 6px;
+  }
+  nav a:hover { background:var(--bg-elevated); color:var(--fg); }
+  nav a.active { background:var(--accent-bg); color:var(--accent); font-weight:500; }
+  nav a svg, nav a .icon { width:16px; height:16px; opacity:0.7; }
+  nav a.active svg, nav a.active .icon { opacity:1; }
+
+  .side-footer {
+    padding:14px 16px; border-top:1px solid var(--border);
+    font-size:12px; color:var(--fg-muted);
+  }
+  .side-footer .row { display:flex; justify-content:space-between; margin-bottom:3px; }
+
+  /* Main */
+  main { min-width:0; overflow-y:auto; }
+  .topbar {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 24px; border-bottom:1px solid var(--border);
+    background:var(--bg);
+    position:sticky; top:0; z-index:10;
+  }
+  .topbar-left h1 { margin:0; font-size:20px; font-weight:400; letter-spacing:-0.02em; }
+  .topbar-left .sub { color:var(--fg-muted); font-size:12px; margin-top:2px; }
+  .topbar-right { display:flex; align-items:center; gap:14px; font-size:12px; color:var(--fg-muted); }
+  .topbar-right a { color:var(--fg-muted); text-decoration:none; }
+  .topbar-right a:hover { color:var(--accent); }
+
+  .content { padding:24px; max-width:1280px; }
+
+  /* Flash / banner */
+  .flash {
+    padding:10px 14px; margin-bottom:20px;
+    border:1px solid var(--border); border-radius:6px;
+    background: var(--bg-elevated);
+    font-size:12px; color:var(--fg-muted);
+  }
+  .flash strong { color:var(--fg); font-weight:500; }
+
+  /* Metrics */
+  .metric-grid {
+    display:grid; grid-template-columns: repeat(4, 1fr); gap:16px;
+    margin-bottom:24px;
+  }
+  .metric {
+    padding:16px;
+    border:1px solid var(--border); border-radius:6px;
+    background: var(--bg-elevated);
+  }
+  .metric .eyebrow { font-size:11px; color:var(--fg-muted); margin-bottom:8px; }
+  .metric .value { font-size:24px; font-weight:400; color:var(--fg); letter-spacing:-0.02em; }
+  .metric .note { font-size:12px; color:var(--fg-muted); margin-top:6px; }
+
+  /* Panels */
+  .panel {
+    border:1px solid var(--border); border-radius:6px;
+    background: var(--bg-elevated);
+    margin-bottom:24px;
+  }
+  .panel-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 16px;
+    border-bottom:1px solid var(--border-subtle);
+    background: var(--bg);
+    border-radius: 6px 6px 0 0;
+  }
+  .panel-header h3 { margin:0; font-size:14px; font-weight:600; }
+  .panel-header .meta { font-size:12px; color:var(--fg-muted); }
+  .panel-body { padding:16px; }
+
+  /* Checklist */
+  .check-row {
+    display:flex; align-items:flex-start; gap:12px;
+    padding:10px 0; border-bottom:1px solid var(--border-subtle);
+  }
+  .check-row:last-child { border-bottom:0; padding-bottom:0; }
+  .check-row:first-child { padding-top:0; }
+  .check-box {
+    width:16px; height:16px; margin-top:2px;
+    border:1px solid var(--border); border-radius:4px;
+    display:grid; place-items:center; flex-shrink:0;
+  }
+  .check-box.done { background:var(--success-bg); border-color:var(--success); }
+  .check-box.done::after {
+    content:""; width:5px; height:8px;
+    border-right:2px solid var(--success); border-bottom:2px solid var(--success);
+    transform: rotate(45deg) translate(-1px, -1px);
+  }
+  .check-content { flex:1; min-width:0; }
+  .check-content strong { font-size:13px; font-weight:500; }
+  .check-content span { display:block; font-size:12px; color:var(--fg-muted); margin-top:1px; }
+  .check-action { font-size:12px; color:var(--accent); text-decoration:none; white-space:nowrap; }
+  .check-action:hover { text-decoration:underline; }
+
+  /* Table */
+  table { width:100%; border-collapse:separate; border-spacing:0; font-size:13px; }
+  th, td { padding:10px 16px; text-align:left; border-bottom:1px solid var(--border-subtle); }
+  th {
+    font-size:11px; font-weight:500; color:var(--fg-muted);
+    background: var(--bg); position:sticky; top:0;
+  }
+  tbody tr:hover td { background: var(--bg); }
+  tbody tr:last-child td { border-bottom:0; }
+  .tag {
+    display:inline-block; padding:3px 10px;
+    border:1px solid var(--border); border-radius: 12px;
+    font-size:11px; color:var(--fg-muted);
+  }
+  .tag.ok { color:var(--success); background:var(--success-bg); border-color: rgba(63,185,80,0.3); }
+
+  /* Compact lists */
+  .compact-list { margin:0; padding:0; list-style:none; }
+  .compact-list li {
+    padding:8px 16px; border-bottom:1px solid var(--border-subtle);
+    display:flex; justify-content:space-between; align-items:center;
+  }
+  .compact-list li:last-child { border-bottom:0; }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">bp</div>
+      <div class="brand-text">
+        BoxPilot
+        <small>1.36.2</small>
+      </div>
+    </div>
+    <nav>
+      <a class="active" href="#">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 0 0 3.5 5.8V8H1.5Zm6.5 6.5a6.5 6.5 0 0 0 6.5-6.5H8v6.5ZM14.5 8a6.5 6.5 0 0 0-3.5-5.8V8h3.5ZM8 1.5V8h6.5A6.5 6.5 0 0 0 8 1.5ZM8 8V1.5A6.5 6.5 0 0 0 1.5 8H8Z"/></svg>
+        Overview
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm4.879-2.773 4.264 6.986a.75.75 0 0 0 1.3-.742l-4.264-6.986a.75.75 0 0 0-1.3.742Z"/></svg>
+        Updates
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.5 2.5 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.5 2.5 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h5.5a.25.25 0 0 1 .25.25v.5a.25.25 0 0 1-.25.25h-5.5a.25.25 0 0 1-.25-.25Z"/></svg>
+        Catalog
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v3.585a.746.746 0 0 1-.391.695 7.4 7.4 0 0 1-.679.326V3.5a.25.25 0 0 0-.25-.25H2.75a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h6.125a7.411 7.411 0 0 1-.29 1.5H2.75A1.75 1.75 0 0 1 1 13.75V8.625a7.38 7.38 0 0 1-1 .684V1.75ZM5 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4Zm5.5 4.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5ZM14 15.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0Zm-5.5-3a.5.5 0 0 0-.5.5v2a.5.5 0 0 0 1 0v-2a.5.5 0 0 0-.5-.5Zm0 5.5a.5.5 0 1 0 0-1 .5.5 0 0 0 0 1Z"/></svg>
+        Services
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M6.75 0h2.5C10.216 0 11 .784 11 1.75v12.5A1.75 1.75 0 0 1 9.25 16h-2.5A1.75 1.75 0 0 1 5 14.25V1.75C5 .784 5.784 0 6.75 0ZM1.5 4a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5A.75.75 0 0 1 1.5 4Zm0 4a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5A.75.75 0 0 1 1.5 8Zm0 4a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75ZM11.75 3.25a.75.75 0 0 0 0 1.5h2.5a.75.75 0 0 0 0-1.5h-2.5Zm0 4a.75.75 0 0 0 0 1.5h2.5a.75.75 0 0 0 0-1.5h-2.5Zm0 4a.75.75 0 0 0 0 1.5h2.5a.75.75 0 0 0 0-1.5h-2.5Z"/></svg>
+        Automations
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 16A8 8 0 1 1 8 0a8 8 0 0 1 0 16Zm.25-11.25h1.5v6h-1.5v-6Zm0 8h1.5v1.5h-1.5V12.75Z"/></svg>
+        System
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M3.75 0h8.5C13.216 0 14 .784 14 1.75v12.5A1.75 1.75 0 0 1 12.25 16h-8.5A1.75 1.75 0 0 1 2 14.25V1.75C2 .784 2.784 0 3.75 0ZM3.5 1.75v12.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V1.75a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25ZM8 13a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"/></svg>
+        Performance
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M4.243 4.757a3.757 3.757 0 1 1 7.072 0 .75.75 0 0 1-1.374-.55 2.257 2.257 0 1 0-4.324 0 .75.75 0 0 1-1.374.55ZM8 .5a7.25 7.25 0 0 0-7.25 7.25c0 1.83.68 3.501 1.803 4.775A7.23 7.23 0 0 0 8 15.5a7.23 7.23 0 0 0 5.447-2.975A7.233 7.233 0 0 0 15.25 7.75 7.25 7.25 0 0 0 8 .5Zm0 1.5a5.75 5.75 0 0 1 5.75 5.75c0 1.455-.54 2.78-1.43 3.79a5.725 5.725 0 0 1-8.64 0A5.726 5.726 0 0 1 2.25 7.75 5.75 5.75 0 0 1 8 2Z"/></svg>
+        Users
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM2.5 8a5.5 5.5 0 0 0 4.25 5.354v-2.73H6.208V8h.542V6.792a1.917 1.917 0 0 1 1.896-1.896h1.167v1.396h-.833a.458.458 0 0 0-.458.458V8h1.333l-.208 1.625H8.542v2.73A5.501 5.501 0 0 0 13.5 8 5.5 5.5 0 0 0 2.5 8Z"/></svg>
+        Firewall
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M7.75 0a.75.75 0 0 1 .75.75V2h3.634c.414 0 .814.147 1.13.415l2.07 1.723a.75.75 0 1 1-.96 1.153l-2.07-1.722a.42.42 0 0 0-.27-.096H8.5v3.25h4.25a.75.75 0 0 1 .75.75v6.5a.75.75 0 0 1-.75.75H8.5v1.25a.75.75 0 0 1-1.5 0V13H2.75a.75.75 0 0 1-.75-.75v-6.5A.75.75 0 0 1 2.75 5.5H7V2.25A.75.75 0 0 1 7.75 1.5Z"/></svg>
+        Storage
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm3.073-2.468a.75.75 0 0 1 1.058-.062l2.37 2.108 2.37-2.108a.75.75 0 0 1 .996 1.12L8.809 8.5l2.558 2.438a.75.75 0 1 1-1.034 1.084L7.75 9.566l-2.583 2.456a.75.75 0 1 1-1.034-1.084L6.691 8.5 4.133 6.124a.75.75 0 0 1-.06-1.059Z"/></svg>
+        Network
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.5A2.5 2.5 0 0 1 3.5 0h5A2.5 2.5 0 0 1 11 2.5V4h1.5A2.5 2.5 0 0 1 15 6.5v7a2.5 2.5 0 0 1-2.5 2.5h-9A2.5 2.5 0 0 1 1 13.5ZM3.5 1.5a1 1 0 0 0-1 1V4h7V2.5a1 1 0 0 0-1-1ZM11 5.5H1v8a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1Z"/></svg>
+        VMs
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M7.75 2a.75.75 0 0 1 .75.75V4h3.634c.414 0 .814.147 1.13.415l2.07 1.723a.75.75 0 1 1-.96 1.153l-2.07-1.722a.42.42 0 0 0-.27-.096H8.5v3.25h4.25a.75.75 0 0 1 .75.75v6.5a.75.75 0 0 1-.75.75H8.5v1.25a.75.75 0 0 1-1.5 0V13H2.75a.75.75 0 0 1-.75-.75v-6.5A.75.75 0 0 1 2.75 5.5H7V2.25A.75.75 0 0 1 7.75 1.5Z"/></svg>
+        Backups
+      </a>
+      <a href="#">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M4.75 0a.75.75 0 0 1 .75.75V2h5V.75a.75.75 0 0 1 1.5 0V2h1.25c.966 0 1.75.784 1.75 1.75v1.5A1.75 1.75 0 0 1 13.25 7H2.75A1.75 1.75 0 0 1 1 5.25v-1.5C1 2.784 1.784 2 2.75 2H4V.75A.75.75 0 0 1 4.75 0ZM2.5 5.25v1.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-1.5a.25.25 0 0 0-.25-.25H2.75a.25.25 0 0 0-.25.25ZM1 8.75A.75.75 0 0 1 1.75 8h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 8.75Zm0 3a.75.75 0 0 1 .75-.75h12.5a.75.75 0 0 1 0 1.5H1.75a.75.75 0 0 1-.75-.75Z"/></svg>
+        Logs
+      </a>
+    </nav>
+    <div class="side-footer">
+      <div class="row"><span>tailnet</span><span style="color:var(--success)">connected</span></div>
+      <div class="row"><span>helper</span><span>active</span></div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div class="topbar-left">
+        <h1>Server overview</h1>
+      </div>
+      <div class="topbar-right">
+        <span>homebox · 14d 06h 12m</span>
+        <a href="#">alex</a>
+        <a href="#">sign out</a>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="flash">
+        <strong>1 offsite mirror</strong> is configured but has not synced yet. <a href="#" style="color:var(--accent)">Run sync</a>
+      </div>
+
+      <div class="metric-grid">
+        <div class="metric">
+          <div class="eyebrow">Updates pending</div>
+          <div class="value">4</div>
+          <div class="note">1 security</div>
+        </div>
+        <div class="metric">
+          <div class="eyebrow">Services</div>
+          <div class="value" style="color:var(--success)">Healthy</div>
+          <div class="note">0 failed units</div>
+        </div>
+        <div class="metric">
+          <div class="eyebrow">Apps</div>
+          <div class="value">8/9</div>
+          <div class="note">running / installed</div>
+        </div>
+        <div class="metric">
+          <div class="eyebrow">VMs</div>
+          <div class="value">1/2</div>
+          <div class="note">running / defined</div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Setup checklist</h3>
+          <span class="meta">4 of 5 complete</span>
+        </div>
+        <div class="panel-body">
+          <div class="check-row">
+            <div class="check-box done"></div>
+            <div class="check-content">
+              <strong>Reach from anywhere</strong>
+              <span>tailnet: homebox.tail0a1b.ts.net</span>
+            </div>
+          </div>
+          <div class="check-row">
+            <div class="check-box done"></div>
+            <div class="check-content">
+              <strong>Firewall profile</strong>
+              <span>home-server applied 2026-08-25</span>
+            </div>
+          </div>
+          <div class="check-row">
+            <div class="check-box done"></div>
+            <div class="check-content">
+              <strong>Security updates automatic</strong>
+              <span>nightly install enabled</span>
+            </div>
+          </div>
+          <div class="check-row">
+            <div class="check-box done"></div>
+            <div class="check-content">
+              <strong>Alerts configured</strong>
+              <span>destination: ntfy</span>
+            </div>
+          </div>
+          <div class="check-row">
+            <div class="check-box"></div>
+            <div class="check-content">
+              <strong>Offsite backup mirror</strong>
+              <span>configured, no sync yet</span>
+            </div>
+            <a href="#" class="check-action">Sync</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Installed apps</h3>
+          <span class="meta">8 running</span>
+        </div>
+        <div class="panel-body" style="padding:0;">
+          <table>
+            <thead>
+              <tr><th>Name</th><th>Status</th><th>Ports</th><th>Backup</th><th>Network</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>traefik</td><td><span class="tag ok">running</span></td><td>80, 443</td><td>—</td><td>host</td></tr>
+              <tr><td>immich</td><td><span class="tag ok">running</span></td><td>2283</td><td>daily</td><td>bridge</td></tr>
+              <tr><td>jellyfin</td><td><span class="tag ok">running</span></td><td>8096</td><td>daily</td><td>bridge</td></tr>
+              <tr><td>home-assistant</td><td><span class="tag ok">running</span></td><td>8123</td><td>daily</td><td>host</td></tr>
+              <tr><td>pihole</td><td><span class="tag ok">running</span></td><td>53, 80</td><td>daily</td><td>host</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>

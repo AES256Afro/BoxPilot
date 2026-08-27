@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BoxPilot — Terminal</title>
+<style>
+  :root {
+    --bg: #0a0a0a;
+    --bg-panel: #0f0f0f;
+    --bg-hover: #141414;
+    --border: #1e1e1e;
+    --border-bright: #2a2a2a;
+    --fg: #c7c7c7;
+    --fg-dim: #555;
+    --accent: #ffb000;
+    --accent-dim: #8a5c00;
+    --accent-bg: #1a1400;
+    --good: #33ff33;
+    --good-dim: #1a801a;
+    --good-bg: #051a05;
+    --warn: #ffaa00;
+    --danger: #ff3333;
+    --font: "SF Mono", "Cascadia Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; background:var(--bg); color:var(--fg); font-family:var(--font); font-size:13px; line-height:1.45; }
+  .shell { display:grid; grid-template-columns: 220px 1fr; height:100vh; }
+
+  /* Sidebar */
+  .sidebar {
+    border-right:1px solid var(--border);
+    display:flex; flex-direction:column; padding:20px 0;
+    background: var(--bg-panel);
+  }
+  .brand {
+    display:flex; align-items:center; gap:10px;
+    padding:0 18px 24px; margin-bottom:8px;
+    border-bottom:1px solid var(--border);
+  }
+  .brand-icon {
+    width:28px; height:28px; border:1px solid var(--accent-dim);
+    display:grid; place-items:center; color:var(--accent);
+    font-weight:700; font-size:12px;
+  }
+  .brand-text { font-weight:700; letter-spacing:0.04em; color:var(--fg); }
+  .brand-text small { display:block; color:var(--fg-dim); font-size:10px; font-weight:400; margin-top:1px; }
+
+  nav { flex:1; overflow-y:auto; padding:0 10px; }
+  nav a {
+    display:flex; align-items:center; gap:10px;
+    padding:7px 10px; margin-bottom:2px;
+    color:var(--fg-dim); text-decoration:none; font-size:12px;
+    border-left:2px solid transparent;
+  }
+  nav a:hover { color:var(--fg); background:var(--bg-hover); }
+  nav a.active { color:var(--accent); border-left-color:var(--accent); background:var(--accent-bg); }
+  nav a .key { color:var(--fg-dim); font-size:10px; margin-left:auto; }
+
+  .status-block {
+    margin:12px 14px 0; padding:10px 12px;
+    border:1px solid var(--border); background:var(--bg);
+  }
+  .status-block .label { color:var(--fg-dim); font-size:10px; }
+  .status-block .value { color:var(--good); font-size:11px; margin-top:3px; }
+
+  /* Main */
+  main { min-width:0; overflow-y:auto; }
+  .topbar {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:14px 24px; border-bottom:1px solid var(--border);
+    background:var(--bg-panel);
+  }
+  .topbar-left { display:flex; align-items:center; gap:16px; }
+  .topbar-left h1 { margin:0; font-size:15px; font-weight:700; letter-spacing:0.02em; }
+  .topbar-left .sub { color:var(--fg-dim); font-size:11px; }
+  .topbar-right { display:flex; align-items:center; gap:12px; font-size:11px; color:var(--fg-dim); }
+  .topbar-right .dot { width:7px; height:7px; background:var(--good); display:inline-block; }
+
+  .content { padding:24px; max-width:1200px; }
+
+  /* Metrics */
+  .metric-grid {
+    display:grid; grid-template-columns: repeat(4, 1fr); gap:1px;
+    border:1px solid var(--border); margin-bottom:24px;
+    background:var(--border);
+  }
+  .metric {
+    background:var(--bg-panel); padding:16px;
+    display:grid; gap:6px;
+  }
+  .metric .eyebrow { color:var(--fg-dim); font-size:10px; text-transform:uppercase; letter-spacing:0.06em; }
+  .metric .value { font-size:20px; font-weight:700; color:var(--fg); }
+  .metric .note { color:var(--fg-dim); font-size:11px; }
+
+  /* Panels */
+  .panel {
+    border:1px solid var(--border); margin-bottom:24px;
+  }
+  .panel-header {
+    display:flex; align-items:center; justify-content:space-between;
+    padding:10px 16px; border-bottom:1px solid var(--border);
+    background:var(--bg-panel);
+  }
+  .panel-header strong { font-size:12px; letter-spacing:0.02em; }
+  .panel-header span { color:var(--fg-dim); font-size:10px; }
+  .panel-body { padding:16px; }
+
+  /* Checklist */
+  .check-row {
+    display:grid; grid-template-columns: 24px 1fr auto;
+    align-items:start; gap:12px;
+    padding:12px 0; border-bottom:1px solid var(--border);
+  }
+  .check-row:last-child { border-bottom:0; padding-bottom:0; }
+  .check-row:first-child { padding-top:0; }
+  .check-box {
+    width:14px; height:14px; border:1px solid var(--border-bright);
+    display:grid; place-items:center; margin-top:2px;
+  }
+  .check-box.done { border-color:var(--good-dim); background:var(--good-bg); color:var(--good); }
+  .check-row strong { font-size:12px; display:block; margin-bottom:2px; }
+  .check-row span { color:var(--fg-dim); font-size:11px; }
+  .check-row .action { color:var(--accent); font-size:11px; text-decoration:none; }
+  .check-row .action:hover { text-decoration:underline; }
+
+  /* Table */
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th, td { padding:10px 12px; text-align:left; border-bottom:1px solid var(--border); }
+  th { color:var(--fg-dim); font-size:10px; text-transform:uppercase; letter-spacing:0.06em; font-weight:400; }
+  tbody tr:last-child td { border-bottom:0; }
+  .tag {
+    display:inline-block; padding:2px 8px; border:1px solid var(--border-bright);
+    font-size:10px; color:var(--fg-dim);
+  }
+  .tag.ok { border-color:var(--good-dim); color:var(--good); background:var(--good-bg); }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-icon">&gt;_</div>
+      <div class="brand-text">
+        BOXPILOT
+        <small>v1.36.2</small>
+      </div>
+    </div>
+    <nav>
+      <a class="active" href="#"><span>#</span> overview</a>
+      <a href="#"><span>$</span> updates</a>
+      <a href="#"><span>%</span> catalog</a>
+      <a href="#"><span>&amp;</span> services</a>
+      <a href="#"><span>@</span> automations</a>
+      <a href="#"><span>~</span> system</a>
+      <a href="#"><span>*</span> performance</a>
+      <a href="#"><span>+</span> users</a>
+      <a href="#"><span>!</span> firewall</a>
+      <a href="#"><span>/</span> storage</a>
+      <a href="#"><span>?</span> network</a>
+      <a href="#"><span>=</span> vms</a>
+      <a href="#"><span>^</span> backups</a>
+      <a href="#"><span>-</span> repair</a>
+      <a href="#"><span>:</span> logs</a>
+    </nav>
+    <div class="status-block">
+      <div class="label">tailnet</div>
+      <div class="value">connected</div>
+    </div>
+  </aside>
+
+  <main>
+    <div class="topbar">
+      <div class="topbar-left">
+        <h1>server overview</h1>
+        <span class="sub">hostname: homebox · uptime: 14d 06:12</span>
+      </div>
+      <div class="topbar-right">
+        <span><span class="dot"></span> helper active</span>
+        <span>alex</span>
+        <span style="color:var(--fg-dim)">[logout]</span>
+      </div>
+    </div>
+
+    <div class="content">
+      <div class="metric-grid">
+        <div class="metric">
+          <span class="eyebrow">updates pending</span>
+          <span class="value">4</span>
+          <span class="note">1 security</span>
+        </div>
+        <div class="metric">
+          <span class="eyebrow">services</span>
+          <span class="value" style="color:var(--good)">healthy</span>
+          <span class="note">0 failed units</span>
+        </div>
+        <div class="metric">
+          <span class="eyebrow">apps</span>
+          <span class="value">8/9</span>
+          <span class="note">running / installed</span>
+        </div>
+        <div class="metric">
+          <span class="eyebrow">vms</span>
+          <span class="value">1/2</span>
+          <span class="note">running / defined</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <strong>setup checklist</strong>
+          <span>4/5 complete</span>
+        </div>
+        <div class="panel-body">
+          <div class="check-row">
+            <div class="check-box done">&#10003;</div>
+            <div>
+              <strong>reach from anywhere</strong>
+              <span>tailnet: homebox.tail0a1b.ts.net</span>
+            </div>
+          </div>
+          <div class="check-row">
+            <div class="check-box done">&#10003;</div>
+            <div>
+              <strong>firewall profile</strong>
+              <span>home-server applied 8/25/2026</span>
+            </div>
+          </div>
+          <div class="check-row">
+            <div class="check-box done">&#10003;</div>
+            <div>
+              <strong>security updates automatic</strong>
+              <span>nightly install enabled</span>
+            </div>
+          </div>
+          <div class="check-row">
+            <div class="check-box done">&#10003;</div>
+            <div>
+              <strong>alerts configured</strong>
+              <span>destination: ntfy</span>
+            </div>
+          </div>
+          <div class="check-row">
+            <div class="check-box"></div>
+            <div>
+              <strong>offsite backup mirror</strong>
+              <span>configured, no sync yet</span>
+            </div>
+            <a href="#" class="action">sync &rarr;</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <strong>installed apps</strong>
+          <span>8 running</span>
+        </div>
+        <div class="panel-body" style="padding:0;">
+          <table>
+            <thead>
+              <tr><th>name</th><th>status</th><th>ports</th><th>backup</th><th>network</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>traefik</td><td><span class="tag ok">running</span></td><td>80, 443</td><td>—</td><td>host</td></tr>
+              <tr><td>immich</td><td><span class="tag ok">running</span></td><td>2283</td><td>daily</td><td>bridge</td></tr>
+              <tr><td>jellyfin</td><td><span class="tag ok">running</span></td><td>8096</td><td>daily</td><td>bridge</td></tr>
+              <tr><td>home-assistant</td><td><span class="tag ok">running</span></td><td>8123</td><td>daily</td><td>host</td></tr>
+              <tr><td>pihole</td><td><span class="tag ok">running</span></td><td>53, 80</td><td>daily</td><td>host</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+</body>
+</html>
