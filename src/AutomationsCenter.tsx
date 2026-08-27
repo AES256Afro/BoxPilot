@@ -240,7 +240,7 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
                 </div>
                 <p className="muted">{flow.steps.map((step) => titleFor(step.operationId)).join(" → ")} · {riskCopy[flow.risk]}</p>
                 {flow.lastResult && (
-                  <p className={flow.lastResult === "completed" || flow.lastResult.startsWith("running step") ? "muted" : "auth-error"}>
+                  <p className={flow.lastResult === "completed" || flow.lastResult.startsWith("completed (") || flow.lastResult.startsWith("running step") ? "muted" : "auth-error"}>
                     Last run{flow.lastRunAt ? ` ${new Date(flow.lastRunAt).toLocaleString()}` : ""}: {flow.lastResult}
                   </p>
                 )}

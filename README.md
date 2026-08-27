@@ -49,6 +49,12 @@ Photos and files (Immich, PhotoPrism, Nextcloud, Syncthing), media (Jellyfin, Pl
 
 Each app is a YAML manifest plus a compose template; install, update, reconfigure, back up, and restore are generic.
 
+### Automations
+
+![Automations](docs/screenshots/automations.jpg)
+
+Chains of the operations you already trust, run in order as recorded jobs: a ready-made shelf (Update night, Belt and braces) that stays editable, and a builder over every operation that needs no settings. Flows run on a schedule or after another flow completes, steps can retry transient failures, carry a keep-going-on-failure policy, or read an earlier step's result as a condition, and every run shows a terminal per step. A run that a restart interrupts says so instead of claiming to still be running.
+
 ### Firewall
 
 ![Firewall](docs/screenshots/firewall.jpg)

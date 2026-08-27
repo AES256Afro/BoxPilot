@@ -25,8 +25,8 @@ const settleMs = 2500;
 
 /** page file name → view id (see src/data.ts navItems) */
 const pages = [
-  ["overview", "overview"], ["catalog", "catalog"], ["firewall", "firewall"], ["storage", "storage"],
-  ["backups", "backups"], ["network", "network"], ["updates", "updates"], ["system", "system"],
+  ["overview", "overview"], ["catalog", "catalog"], ["automations", "automations"], ["firewall", "firewall"],
+  ["storage", "storage"], ["backups", "backups"], ["network", "network"], ["updates", "updates"], ["system", "system"],
 ];
 
 function findChrome() {
