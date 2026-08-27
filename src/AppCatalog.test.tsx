@@ -117,6 +117,32 @@ describe("App catalog", () => {
     expect(await screen.findByText("VPN exit: Netherlands, North Brabant, Breda · 212.92.104.227")).toBeTruthy();
   });
 
+  it("shows the wiring between apps with real addresses, in both directions", async () => {
+    const sonarr = { ...manifest, id: "sonarr", name: "Sonarr", ports: [{ id: "web", label: "Web UI", container: 8989, host: 8989, protocol: "tcp" as const, exposure: "lan" as const, fixed: false }], connections: [
+      { app: "jellyfin", role: "library server", where: "Settings, Connect", note: null },
+      { app: "prowlarr", role: "indexer source", where: "nothing to do here", note: null },
+    ] };
+    const live = (id: string, port: number) => ({ id, installed: true, dataPresent: true, state: { installedAt: "x", updatedAt: "x", manifestSha256: "abc", image: { reference: "r", id: "sha256:1" }, values: { ports: {}, env: {}, volumes: {} }, pinnedRollback: false, uninstalledAt: null }, container: { exists: true, running: true, status: "running", health: "none", restarts: 0, image: "sha256:1" }, urls: [{ id: "web", label: "Web UI", host: port, exposure: "lan" }] });
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [
+        { manifest: sonarr, live: live("sonarr", 8989) },
+        { manifest: { ...manifest, id: "jellyfin", name: "Jellyfin" }, live: live("jellyfin", 8096) },
+        { manifest: { ...manifest, id: "prowlarr", name: "Prowlarr" }, live: null },
+      ], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppCatalog csrfToken="csrf-token" />);
+    const summaries = await screen.findAllByText("Wiring");
+    fireEvent.click(summaries[0]);
+    // Outgoing: the installed target gets a real address, the missing one an instruction.
+    expect(screen.getAllByText("http://192.168.1.10:8096").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/Install prowlarr first|Install Prowlarr first/)).toBeTruthy();
+    // Incoming, on Jellyfin's card: Sonarr announces itself with this app's address.
+    expect(screen.getAllByText("http://192.168.1.10:8989").length).toBeGreaterThanOrEqual(1);
+  });
+
   it("says a helper container is broken instead of a green Running", async () => {
     // A VPN sidecar crash-looped for an hour behind a green "Running" pill; the app container
     // being up is not the app working when the container it routes through is down.

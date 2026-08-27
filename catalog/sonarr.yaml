@@ -41,6 +41,14 @@ env:
     label: Time zone
     type: timezone
     default: Etc/UTC
+connections:
+  - app: qbittorrent
+    role: download client
+    where: Settings, Download Clients, add qBittorrent
+    note: Use the category tv-sonarr so its downloads stay apart. qBittorrent's password is the one you set in its own web UI.
+  - app: prowlarr
+    role: indexer source
+    where: nothing to do here; Prowlarr pushes indexers in by itself once Sonarr is added there
 health:
   kind: running
   stableSeconds: 10

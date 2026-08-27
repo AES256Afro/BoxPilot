@@ -67,7 +67,7 @@ function checkKeys(errors, path, value, allowed, required = []) {
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
-  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner"], ["schemaVersion", "id", "name", "category", "description", "image"]);
+  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner", "connections"], ["schemaVersion", "id", "name", "category", "description", "image"]);
   if (raw.schemaVersion !== 2) fail(errors, "manifest.schemaVersion", "must be 2");
   // Docker gives a container 64 MB of shared memory. Anything decoding video wants far more, and
   // runs out in ways that look like the app is broken rather than out of a resource.
@@ -97,6 +97,21 @@ export function validateManifest(raw) {
   // ports
   const ports = Array.isArray(raw.ports) ? raw.ports : raw.ports === undefined ? [] : (fail(errors, "manifest.ports", "must be a list"), []);
   const portIds = new Set();
+  // What this app connects TO, declared by the consumer: Sonarr names qBittorrent as its
+  // download client, Prowlarr names Sonarr and Radarr. The card turns these into wiring lines
+  // with real addresses, in both directions, instead of six tabs of copy-paste archaeology.
+  const connections = raw.connections === undefined ? [] : raw.connections;
+  if (!Array.isArray(connections) || connections.length > 8) fail(errors, "manifest.connections", "must list up to 8 connections");
+  else connections.forEach((connection, index) => {
+    const path = `manifest.connections[${index}]`;
+    if (!isObject(connection)) return fail(errors, path, "must be a mapping");
+    checkKeys(errors, path, connection, ["app", "role", "where", "note"], ["app", "role", "where"]);
+    if (typeof connection.app !== "string" || !/^[a-z0-9][a-z0-9-]{1,62}$/.test(connection.app)) fail(errors, `${path}.app`, "must name a catalog app");
+    if (typeof connection.role !== "string" || !connection.role.length || connection.role.length > 60) fail(errors, `${path}.role`, "must be a short phrase");
+    if (typeof connection.where !== "string" || !connection.where.length || connection.where.length > 160) fail(errors, `${path}.where`, "must say where in this app's own settings");
+    if (connection.note !== undefined && (typeof connection.note !== "string" || connection.note.length > 300)) fail(errors, `${path}.note`, "must be a sentence");
+  });
+
   ports.forEach((port, index) => {
     const path = `manifest.ports[${index}]`;
     if (!isObject(port)) return fail(errors, path, "must be a mapping");
@@ -308,6 +323,7 @@ export function validateManifest(raw) {
     icon: raw.icon ?? null,
     risk: raw.risk ?? "medium",
     notes: raw.notes ?? null,
+    connections: (Array.isArray(raw.connections) ? raw.connections : []).map((connection) => ({ app: connection.app, role: connection.role, where: connection.where, note: connection.note ?? null })),
     image: { reference: raw.image.reference, version: raw.image.version ?? null, digestPinned: raw.image.reference.includes("@sha256:") },
     // A TCP port is assumed to be the app's web interface unless the manifest says otherwise; a
     // UDP one never can be, so it keeps its LAN binding rather than vanishing.
