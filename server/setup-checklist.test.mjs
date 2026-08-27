@@ -46,3 +46,14 @@ describe("setup checklist", () => {
     expect(list.total).toBe(4);
   });
 });
+
+describe("the notifications item speaks to what is actually installed", () => {
+  it("tells an owner with ntfy running to connect it, not to install it again", () => {
+    const { items } = buildChecklist({ notifications: { configured: false }, installedApps: ["ntfy", "jellyfin"] });
+    const item = items.find((entry) => entry.id === "notifications");
+    expect(item.done).toBe(false);
+    expect(item.detail).toMatch(/ntfy is already running.*connect BoxPilot to it/);
+    const bare = buildChecklist({ notifications: { configured: false }, installedApps: [] }).items.find((entry) => entry.id === "notifications");
+    expect(bare.detail).toMatch(/Install ntfy or Gotify/);
+  });
+});
