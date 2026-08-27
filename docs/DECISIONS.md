@@ -74,6 +74,12 @@ an effect no single step has.
 - No new branch in the approval chain, no new execution path: flows drive `createOperationJob`
   and `approveAndStart`, the same doors the scheduler uses. The `flows` table is feature-level
   storage like `schedules`, not the per-workflow tables ADR-001 retired.
+- **Addendum (v1.34.0): the clock is admitted.** A cadence on a flow is not a new consent
+  question; it is the contract schedules have carried since M6.1, extended to a chain that already
+  obeys the scheduler's own limits. The creator consents by writing the cadence, the consent is
+  visible on the Automations page, disabling the flow revokes it, a creator who loses the operator
+  role stops being obeyed, and always-ask approval mode blocks scheduled flows exactly as it
+  blocks schedules. What stays deferred is any trigger a third party can fire.
 - Triggers (a webhook, a health alert, a device appearing) are deferred until the consent
   question is answered properly: who approved the run a trigger fires at 3am, and how is that
   consent shown and revoked. That is a decision, not a feature, and it gets its own ADR.
