@@ -396,10 +396,13 @@ install instead of an afternoon.
   the manifests say so instead of leaving the layout to be discovered; each one's notes carry the
   three wiring facts (root folder, download client address and category, Prowlarr pushes the
   indexers). Prowlarr holds no media and says that too. Bazarr later if asked for.
-- **M14.2** A *Media automation* stack profile: qBittorrent (through the VPN), Prowlarr, Sonarr,
-  Radarr, and Jellyfin in one approved run, sharing one media volume with the folder layout
-  (`torrents/`, `tv/`, `movies/`) created up front. The stack machinery is M3.7; this is its
-  second real stack.
+- ✅ **M14.2** (v1.41.0) A *Media automation* stack profile: Prowlarr, Sonarr, Radarr, Jellyfin,
+  and Jellyseerr in one approved run. qBittorrent is part of the profile but never auto-installed:
+  its defaults cannot work (a VPN with nobody's key would crash-loop and fail the install), so the
+  step explains itself and points at the app card, done once it is installed. Volumes gained
+  `subdirectories`: the manifest promises the folder layout (`torrents/`, `tv/`, `movies/`) and the
+  install delivers it inside the data volume, creating only what is missing and never touching or
+  re-owning anything the owner already has.
 - **M14.3** Connection helper: the *arrs need each other's addresses and API keys, and today that
   is copy-paste between six browser tabs. A panel per app that lists what wants connecting to it,
   the address to use (the in-project name, since they share a compose network), and where the API
