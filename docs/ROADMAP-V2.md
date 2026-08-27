@@ -447,10 +447,12 @@ pfSense CE needs a community package and follows once the shape is proven.
 BoxPilot can put an app behind a VPN, but everything it knows about the tunnel afterwards came
 from reading container logs by hand. The tunnel is infrastructure; treat it like the backups.
 
-- **M17.1** `app.vpn.inspect`: exit IP, country, and tunnel state read from the VPN sidecar
-  (gluetun keeps a control endpoint on its project network), shown on the card: "Exit: Netherlands"
-  next to Running. The card that said Running while the tunnel was down (fixed for state in
-  v1.37.0) also says where traffic actually leaves.
+- ✅ **M17.1** (v1.40.0) `app.vpn.inspect`: exit IP, place, and tunnel state, read from the tunnel
+  container's own log rather than its control endpoint: the log line is what gluetun itself
+  verified, and reading it needs no network and no control-server credentials the helper does not
+  have. Shown on the card as "VPN exit: Netherlands · 212.92.x.x". Shipped with it: app.logs (and
+  the Logs dialog) can finally read a helper container's log, which the qBittorrent notes had been
+  telling the owner to do while the button could only show the app container.
 - **M17.2** Seeding port forwarding for providers that support it (Proton via NAT-PMP): one toggle
   in the qBittorrent manifest that turns on gluetun's port forwarding and hands the forwarded port
   to qBittorrent, instead of a wiki walk.
