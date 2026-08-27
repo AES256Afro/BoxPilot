@@ -38,3 +38,42 @@ The owner's goal for the product is the opposite: open the app on a fresh Ubuntu
 - Existing guarded workflows keep working during the transition; they are ported to the registry and re-tiered rather than rewritten from scratch.
 - `README.md` was rewritten around the new goal; `docs/ROADMAP-V2.md` is the authoritative plan, and the pre-pivot roadmap moved to `docs/legacy/ROADMAP.md`.
 - Anyone (human or agent) adding a feature should add a registry entry or a catalog manifest, not a new named systemd unit, a new per-workflow SQLite ledger, or a new paragraph of boundary prose.
+
+## ADR-002: Flows compose registered operations; a chain answers for its riskiest step
+
+**Status: accepted (v1.33.0). Scope deliberately v1: manual runs only; triggers and standing consent are M13.5 and get their own decision.**
+
+### Context
+
+BoxPilot already has 146 registered operations with typed parameters, a job machine that stages,
+approves, applies, verifies and records, and a scheduler that runs low and medium operations
+unattended under their creator's stored authority. What it lacks is everything between one
+operation and the next: run these three in order, stop if one fails. Risk tiers answer what a
+single operation may do and say nothing about a chain, and five low-risk steps can compose into
+an effect no single step has.
+
+### Decision
+
+- A flow is an ordered list of registered operations with fixed parameters, stored like schedules
+  are stored. It contains nothing that is not already a registry entry.
+- Each step runs as an ordinary job: created, approved, executed and recorded exactly as if the
+  owner had pressed the buttons in order. The audit trail shows the steps, not a blur.
+- A flow answers for its riskiest step: its displayed risk is the highest tier it contains.
+- High-risk operations cannot be put in a flow at all, the same line the scheduler draws. Not
+  "high needs approval mid-flow": a chain that stops to ask defeats the point, and one that does
+  not is an unattended high operation.
+- A flow runs under the authority of the signed-in person who starts it, and only an operator or
+  owner may start one. Always-ask approval mode blocks flow runs the same way it blocks
+  scheduled runs, and for the same reason: it is a standing instruction to be asked every time.
+- A step that fails stops the flow. What ran stays run, each step's job record says what
+  happened, and nothing attempts an automatic unwind: a half-done flow the owner can read beats
+  a rollback that guesses.
+
+### Consequences
+
+- No new branch in the approval chain, no new execution path: flows drive `createOperationJob`
+  and `approveAndStart`, the same doors the scheduler uses. The `flows` table is feature-level
+  storage like `schedules`, not the per-workflow tables ADR-001 retired.
+- Triggers (a webhook, a health alert, a device appearing) are deferred until the consent
+  question is answered properly: who approved the run a trigger fires at 3am, and how is that
+  consent shown and revoked. That is a decision, not a feature, and it gets its own ADR.
