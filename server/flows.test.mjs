@@ -35,7 +35,7 @@ function fakeStore() {
   };
 }
 
-function fakeJobs(store, { failAt = null, neverFinish = null } = {}) {
+function fakeJobs(store, { failAt = null, neverFinish = null, results = {} } = {}) {
   let counter = 0;
   return {
     calls: [],
@@ -43,15 +43,20 @@ function fakeJobs(store, { failAt = null, neverFinish = null } = {}) {
       counter += 1;
       const job = { id: `job-${counter}`, operationId, parameters, actorId, role, state: "awaiting_approval" };
       store.jobs.set(job.id, job);
-      this.calls.push({ operationId, actorId, role });
+      this.calls.push({ operationId, parameters, actorId, role });
       return job;
     },
     async approveAndStart(jobId) {
       const job = store.jobs.get(jobId);
       job.state = "applying";
+      const call = this.calls.length;
       // steps finish on their own unless told otherwise; the runner polls for the outcome
-      if (neverFinish !== this.calls.length) {
-        setTimeout(() => { job.state = failAt === this.calls.length ? "failed" : "completed"; if (job.state === "failed") job.error = "the step went wrong"; }, 5);
+      if (neverFinish !== call) {
+        setTimeout(() => {
+          job.state = failAt === call ? "failed" : "completed";
+          if (job.state === "failed") job.error = "the step went wrong";
+          else job.result = results[call] ?? null;
+        }, 5);
       }
     },
     cancelJob: vi.fn(),
@@ -151,6 +156,59 @@ describe("running a flow", () => {
     // Each progress record already carries the job ids created so far, so the page can show
     // the earlier steps' terminals while a later step is still running.
     expect(store.getFlow(flow.id).lastJobIds).toHaveLength(2);
+  });
+
+  it("hands a named step's result to the steps after it", async () => {
+    const store = fakeStore();
+    const jobs = fakeJobs(store, { results: { 1: { app: "immich", sizeBytes: 4096 } } });
+    const service = createFlowService({ store, jobs, pollMs: 2 });
+    const flow = await service.create({
+      name: "chained",
+      steps: [
+        { operationId: "host.snapshot.create", parameters: {}, name: "snapshot" },
+        { operationId: "app.backup", parameters: { id: "{{ steps.snapshot.app }}", keep: 3 } },
+      ],
+      createdBy: "owner-1",
+    });
+    await service.run(flow.id, "owner-1", { role: "owner" });
+    expect(jobs.calls[1].parameters).toEqual({ id: "immich", keep: 3 });
+    expect(store.getFlow(flow.id).lastResult).toBe("completed");
+  });
+
+  it("stops the chain, with the reference named, when a result lacks what a step reads", async () => {
+    const store = fakeStore();
+    const jobs = fakeJobs(store, { results: { 1: { somethingElse: true } } });
+    const service = createFlowService({ store, jobs, pollMs: 2 });
+    const flow = await service.create({
+      name: "chained",
+      steps: [
+        { operationId: "host.snapshot.create", parameters: {}, name: "snapshot" },
+        { operationId: "app.backup", parameters: { id: "{{ steps.snapshot.artifact }}" } },
+      ],
+      createdBy: "owner-1",
+    });
+    await expect(service.run(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/steps\.snapshot\.artifact, which that step's recorded result does not contain/);
+    expect(store.getFlow(flow.id).lastResult).toMatch(/failed at step 2 .*does not contain/);
+    // the first step ran and stands; only the reference's own step was refused
+    expect(jobs.calls).toHaveLength(1);
+  });
+
+  it("refuses names and references that could not mean anything at save time", async () => {
+    expect(validateFlow({ name: "x", steps: [{ ...goodSteps[0], name: "Bad Name" }] })).toMatch(/lowercase letters, digits and dashes/);
+    expect(validateFlow({ name: "x", steps: [{ ...goodSteps[0], name: "twin" }, { ...goodSteps[1], name: "twin" }] })).toMatch(/already named twin/);
+    expect(validateFlow({ name: "x", steps: [
+      { operationId: "app.backup", parameters: { id: "{{ steps.later.value }}" } },
+      { ...goodSteps[0], name: "later" },
+    ] })).toMatch(/step 1 reads steps\.later, which is not the name of an earlier step/);
+    // a required field fed by a reference sits out save-time validation; the rest is still checked
+    expect(validateFlow({ name: "x", steps: [
+      { ...goodSteps[0], name: "backup" },
+      { operationId: "app.backup", parameters: { id: "{{ steps.backup.checksum }}" } },
+    ] })).toBeNull();
+    expect(validateFlow({ name: "x", steps: [
+      { ...goodSteps[0], name: "backup" },
+      { operationId: "app.backup", parameters: { id: "immich", nonsense: "{{ steps.backup.checksum }}" } },
+    ] })).toMatch(/does not accept parameter "nonsense"/);
   });
 
   it("only the creator or an owner may change or remove a flow", async () => {
