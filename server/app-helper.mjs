@@ -11,7 +11,7 @@ import YAML from "yaml";
 import { fixedRun } from "./exec.mjs";
 import { parseServeStatus } from "./tailscale-serve.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
-import { parseExit } from "./vpn-exit.mjs";
+import { parseExit, parseForwardedPort } from "./vpn-exit.mjs";
 import { bindingFor, deviceMatchesPattern, renderCompose, projectNameFor, resolveDevices } from "./catalog/compose.mjs";
 import { isDeniedHostPath } from "./catalog/schema.mjs";
 import { resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
@@ -659,7 +659,8 @@ export function createAppHelper({
     const status = await containerStatus(`${id}-${manifest.networkVia}`);
     const result = await docker(["logs", "--tail", "300", "--timestamps", projectNameFor(`${id}-${manifest.networkVia}`)], { timeout: 30_000 });
     const exit = parseExit(`${result.stdout}\n${result.stderr}`);
-    return { id, tunneled: true, sidecarId: manifest.networkVia, running: status.running && status.status === "running", status: status.status, exit };
+    const forwardedPort = parseForwardedPort(`${result.stdout}\n${result.stderr}`);
+    return { id, tunneled: true, sidecarId: manifest.networkVia, running: status.running && status.status === "running", status: status.status, exit, forwardedPort };
   }
 
   /** Effective compose.yaml and .env for an installed app. Secret values are masked here; app.secrets (elevated) reveals them. */

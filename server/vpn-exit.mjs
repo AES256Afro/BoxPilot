@@ -21,3 +21,20 @@ export function parseExit(logText) {
   }
   return found;
 }
+
+/**
+ * The port the VPN provider forwards back into the tunnel (M17.2), from the same log. Gluetun
+ * prints it whenever port forwarding obtains or renews a port. Null when forwarding is off or has
+ * not succeeded; the newest mention wins, because Proton may hand out a different port after a
+ * reconnect.
+ */
+const portLine = /\[port forwarding] port forwarded is (?<port>\d{1,5})/;
+
+export function parseForwardedPort(logText) {
+  let found = null;
+  for (const raw of String(logText ?? "").split("\n")) {
+    const match = portLine.exec(raw);
+    if (match) found = Number.parseInt(match.groups.port, 10);
+  }
+  return found;
+}

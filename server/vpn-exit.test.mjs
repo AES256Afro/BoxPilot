@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseExit } from "./vpn-exit.mjs";
+import { parseExit, parseForwardedPort } from "./vpn-exit.mjs";
 
 describe("reading the tunnel exit from gluetun's own log", () => {
   const log = [
@@ -21,5 +21,18 @@ describe("reading the tunnel exit from gluetun's own log", () => {
   it("answers null before the tunnel has reported anything", () => {
     expect(parseExit("2026-08-27T13:32:55Z INFO starting")).toBeNull();
     expect(parseExit("")).toBeNull();
+  });
+});
+
+describe("the forwarded port, from the same log", () => {
+  it("reads the newest port and reports null when forwarding is off or unproven", () => {
+    const log = [
+      "2026-08-27T13:33:05Z INFO [ip getter] Public IP address is 212.92.104.227 (Netherlands)",
+      "2026-08-27T13:33:20Z INFO [port forwarding] port forwarded is 41956",
+      "2026-08-27T18:01:00Z INFO [port forwarding] port forwarded is 52001",
+    ].join("\n");
+    expect(parseForwardedPort(log)).toBe(52001);          // a reconnect can change it; newest wins
+    expect(parseForwardedPort("nothing about ports")).toBeNull();
+    expect(parseForwardedPort("")).toBeNull();
   });
 });
