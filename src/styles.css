@@ -865,42 +865,9 @@ tbody tr:last-child td {
   margin-top: 0;
 }
 
-.flow-list {
-  display: grid;
-  gap: 13px;
-  margin-top: 18px;
-}
+/* (an older flow-list/flow-row block lived here; nothing used it, and its 27px grid
+   silently captured the Automations page's rows of the same name) */
 
-.flow-row {
-  display: grid;
-  grid-template-columns: 27px minmax(0, 1fr);
-  gap: 11px;
-}
-
-.flow-row > span {
-  display: grid;
-  width: 27px;
-  height: 27px;
-  place-items: center;
-  border: 1px solid #34495c;
-  border-radius: 8px;
-  color: #afbdcb;
-  background: #172535;
-  font-size: 9px;
-  font-weight: 700;
-}
-
-.flow-row strong {
-  display: block;
-  font-size: 10px;
-}
-
-.flow-row p {
-  margin: 3px 0 0;
-  color: var(--muted);
-  font-size: 9px;
-  line-height: 1.5;
-}
 
 .source-panel dl,
 .settings-panel dl {
@@ -3521,3 +3488,9 @@ textarea {
 .flow-builder { display: grid; gap: 0.7rem; border: 1px dashed var(--line); border-radius: 10px; padding: 0.9rem 1rem; margin-bottom: 0.9rem; }
 .flow-draft-steps { margin: 0; padding-left: 1.2rem; display: grid; gap: 0.3rem; }
 .flow-draft-steps li { display: flex; justify-content: space-between; gap: 0.6rem; }
+
+/* One run of an automation, step by step, with each step's own terminal. */
+.flow-run-detail { margin-top: 0.2rem; }
+.flow-run-detail > summary { cursor: pointer; color: var(--muted); font-size: 0.88rem; }
+.flow-run-step { display: grid; gap: 0.3rem; margin: 0.6rem 0 0; }
+.flow-run-step .eyebrow { margin: 0; }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { JobLogView } from "./JobLogView";
 
 /**
  * Automations (M13.2, ADR-002): ordered lists of registered operations, run as ordinary jobs.
@@ -224,9 +225,22 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
                 </div>
                 <p className="muted">{flow.steps.map((step) => titleFor(step.operationId)).join(" → ")} · {riskCopy[flow.risk]}</p>
                 {flow.lastResult && (
-                  <p className={flow.lastResult === "completed" ? "muted" : "auth-error"}>
+                  <p className={flow.lastResult === "completed" || flow.lastResult.startsWith("running step") ? "muted" : "auth-error"}>
                     Last run{flow.lastRunAt ? ` ${new Date(flow.lastRunAt).toLocaleString()}` : ""}: {flow.lastResult}
                   </p>
+                )}
+                {(flow.running || flow.lastJobIds.length > 0) && (
+                  <details className="flow-run-detail">
+                    <summary>{flow.running ? "Watch this run" : "What the last run did"}</summary>
+                    {flow.lastJobIds.length === 0
+                      ? <p className="muted">The first step is being staged…</p>
+                      : flow.lastJobIds.map((jobId, index) => (
+                        <div key={jobId} className="flow-run-step">
+                          <span className="eyebrow">Step {index + 1}{flow.steps[index] ? ` · ${titleFor(flow.steps[index].operationId)}` : ""}</span>
+                          <JobLogView jobId={jobId} title={flow.steps[index] ? titleFor(flow.steps[index].operationId) : `step ${index + 1}`} />
+                        </div>
+                      ))}
+                  </details>
                 )}
                 {flow.frequency && (
                   <p className="muted">

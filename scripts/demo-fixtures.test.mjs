@@ -198,6 +198,31 @@ describe("the empty and broken worlds are the same server", () => {
  * This asks the real routes rather than a second copy of what they are believed to return, because
  * a second copy is the thing that drifts.
  */
+describe("every job an automation or schedule points at exists", () => {
+  // /jobs/:id falls back to the first job rather than 404ing, which kept the demo alive but also
+  // meant a flow's step could quietly open somebody else's terminal. The ids must all be real.
+  it("resolves each flow step and schedule log to its own job, with output to show", async () => {
+    const server = app.listen(0, "127.0.0.1");
+    await new Promise((resolve) => server.once("listening", resolve));
+    const { port } = server.address();
+    const body = (route) => fetch(`http://127.0.0.1:${port}/api/v1${route}`).then((response) => response.json());
+    try {
+      const { flows } = await body("/flows");
+      const { schedules } = await body("/schedules");
+      const ids = [...flows.flatMap((flow) => flow.lastJobIds), ...schedules.map((schedule) => schedule.lastJobId).filter(Boolean)];
+      expect(ids.length).toBeGreaterThan(0);
+      for (const id of ids) {
+        const { job } = await body(`/jobs/${id}`);
+        expect(job.id, `job ${id} fell back to another job's record`).toBe(id);
+        const { output } = await body(`/jobs/${id}/output`);
+        expect(output.length, `job ${id} has no transcript to show`).toBeGreaterThan(0);
+      }
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});
+
 describe("the rewritten REST routes are the same routes", () => {
   it("rewrites each one into the shape it already had", async () => {
     const server = app.listen(0, "127.0.0.1");
