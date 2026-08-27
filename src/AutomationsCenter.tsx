@@ -1,0 +1,219 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+
+/**
+ * Automations (M13.2, ADR-002): ordered lists of registered operations, run as ordinary jobs.
+ *
+ * Two tiers on purpose. The shelf offers flows that already know what a home server gets wrong,
+ * installed with one click and then editable like anything built by hand — a template that goes
+ * read-only the moment it is touched teaches nothing. The builder underneath composes from the
+ * step palette: every operation that needs no form, which is what keeps a v1 builder honest
+ * instead of half a parameter editor.
+ */
+interface FlowStep { operationId: string; parameters?: Record<string, unknown> }
+interface Flow {
+  id: string; name: string; steps: FlowStep[]; createdBy: string;
+  risk: "low" | "medium" | "high"; running: boolean;
+  lastRunAt: string | null; lastResult: string | null; lastJobIds: string[];
+}
+interface PaletteStep { operationId: string; title: string; risk: string; description: string }
+
+/** The shelf: flows worth having before anyone builds one. Names double as install-state keys. */
+const shelf: Array<{ name: string; description: string; steps: FlowStep[] }> = [
+  {
+    name: "Update night",
+    description: "Take a machine snapshot, refresh the package lists, then install every update. The upgrade restarts services running old libraries by itself, BoxPilot included, after this flow's result is safely recorded.",
+    steps: [
+      { operationId: "host.snapshot.create", parameters: {} },
+      { operationId: "apt.refresh", parameters: {} },
+      { operationId: "apt.upgrade", parameters: {} },
+    ],
+  },
+  {
+    name: "Belt and braces",
+    description: "Back up the BoxPilot database with a restore drill, then mirror every local backup to the independent destination. The pair that makes a dead disk an errand instead of a loss.",
+    steps: [
+      { operationId: "controller.backup.create", parameters: {} },
+      { operationId: "backup.sync", parameters: {} },
+    ],
+  },
+];
+
+const riskCopy: Record<string, string> = {
+  low: "runs with one click",
+  medium: "each step runs as its own recorded job",
+  high: "high",
+};
+
+export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) {
+  const [flows, setFlows] = useState<Flow[] | null>(null);
+  const [palette, setPalette] = useState<PaletteStep[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [draftName, setDraftName] = useState("");
+  const [draftSteps, setDraftSteps] = useState<string[]>([]);
+  const [building, setBuilding] = useState(false);
+  const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const response = await fetch("/api/v1/flows");
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error ?? "Could not read automations");
+      const body = (await response.json()) as { flows: Flow[]; palette: PaletteStep[] };
+      setFlows(body.flows);
+      setPalette(body.palette);
+      setError(null);
+      return body.flows;
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not read automations");
+      return null;
+    }
+  }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  // A run can outlive its own HTTP response (a proxy may give up on a long request long before
+  // apt does), so the list is the source of truth while anything is running.
+  useEffect(() => {
+    const anyRunning = (flows ?? []).some((flow) => flow.running);
+    if (anyRunning && !pollTimer.current) pollTimer.current = setInterval(() => void refresh(), 3000);
+    if (!anyRunning && pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null; }
+    return () => { if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null; } };
+  }, [flows, refresh]);
+
+  const titleFor = (operationId: string) => palette.find((step) => step.operationId === operationId)?.title ?? operationId;
+
+  const post = async (url: string, body?: unknown, method = "POST") => {
+    const response = await fetch(url, {
+      method,
+      headers: { ...(body === undefined ? {} : { "Content-Type": "application/json" }), "X-BoxPilot-CSRF": csrfToken },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+    if (!response.ok && response.status !== 204) {
+      throw new Error(((await response.json().catch(() => ({}))) as { error?: string }).error ?? "The request was refused");
+    }
+  };
+
+  const installFromShelf = async (item: (typeof shelf)[number]) => {
+    setError(null); setNotice(null);
+    try {
+      await post("/api/v1/flows", { name: item.name, steps: item.steps });
+      setNotice(`${item.name} is on your list below. Open it any time; it is yours to edit.`);
+      await refresh();
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not add the automation"); }
+  };
+
+  const runFlow = async (flow: Flow) => {
+    setError(null); setNotice(`${flow.name} is running; each step appears in the Activity drawer as its own job.`);
+    setFlows((current) => (current ?? []).map((entry) => (entry.id === flow.id ? { ...entry, running: true } : entry)));
+    post(`/api/v1/flows/${encodeURIComponent(flow.id)}/run`)
+      .catch((requestError) => setError(requestError instanceof Error ? requestError.message : "The run was refused"))
+      .finally(() => void refresh());
+  };
+
+  const removeFlow = async (flow: Flow) => {
+    setError(null); setNotice(null);
+    try { await post(`/api/v1/flows/${encodeURIComponent(flow.id)}`, undefined, "DELETE"); await refresh(); }
+    catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not remove it"); }
+  };
+
+  const saveDraft = async () => {
+    setError(null); setNotice(null);
+    try {
+      await post("/api/v1/flows", { name: draftName, steps: draftSteps.map((operationId) => ({ operationId, parameters: {} })) });
+      setDraftName(""); setDraftSteps([]); setBuilding(false);
+      await refresh();
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not save the automation"); }
+  };
+
+  const installed = new Set((flows ?? []).map((flow) => flow.name));
+
+  return (
+    <div className="automations">
+      {error && <div className="auth-error" role="alert">{error}</div>}
+      {notice && !error && <p className="muted">{notice}</p>}
+
+      <section className="panel">
+        <header className="panel-header">
+          <div>
+            <strong>Ready to use</strong>
+            <span>Automations that already know what a home server gets wrong. Add one and it is yours: same editor, same steps, nothing locked.</span>
+          </div>
+        </header>
+        <div className="shelf-grid">
+          {shelf.map((item) => (
+            <article key={item.name} className="shelf-item">
+              <strong>{item.name}</strong>
+              <p className="muted">{item.description}</p>
+              <p className="muted shelf-steps">{item.steps.map((step) => titleFor(step.operationId)).join(" → ")}</p>
+              {installed.has(item.name)
+                ? <span className="status-pill status-good">on your list</span>
+                : <button className="secondary-button" type="button" onClick={() => void installFromShelf(item)}>Add</button>}
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="panel">
+        <header className="panel-header">
+          <div>
+            <strong>Your automations</strong>
+            <span>Each one runs its steps in order as ordinary jobs, under your account, with every step recorded. A step that fails stops the run; what already ran stands.</span>
+          </div>
+          <button className="secondary-button" type="button" onClick={() => setBuilding((current) => !current)}>{building ? "Close the builder" : "Build your own"}</button>
+        </header>
+
+        {building && (
+          <form className="flow-builder" onSubmit={(event) => { event.preventDefault(); void saveDraft(); }}>
+            <label>Name<input aria-label="Automation name" maxLength={80} value={draftName} onChange={(event) => setDraftName(event.target.value)} placeholder="What it does, in your words" /></label>
+            <label>Add a step
+              <select aria-label="Add a step" value="" onChange={(event) => { if (event.target.value) setDraftSteps((current) => [...current, event.target.value]); }}>
+                <option value="">Pick an operation…</option>
+                {palette.map((step) => <option key={step.operationId} value={step.operationId}>{step.title} ({step.risk})</option>)}
+              </select>
+            </label>
+            {draftSteps.length > 0 && (
+              <ol className="flow-draft-steps">
+                {draftSteps.map((operationId, index) => (
+                  <li key={`${operationId}-${index}`}>
+                    {titleFor(operationId)}
+                    <span>
+                      <button className="text-button" type="button" disabled={index === 0} onClick={() => setDraftSteps((current) => { const next = [...current]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next; })}>Up</button>
+                      <button className="text-button" type="button" onClick={() => setDraftSteps((current) => current.filter((_, at) => at !== index))}>Remove</button>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            )}
+            <div className="recovery-actions">
+              <button className="primary-button" type="submit" disabled={!draftName.trim() || draftSteps.length === 0}>Save</button>
+              <span className="muted">These steps need no settings; operations that do are coming with the flow editor.</span>
+            </div>
+          </form>
+        )}
+
+        {flows === null ? <p className="muted">Reading…</p> : flows.length === 0 ? <p className="muted">Nothing yet. Add one from the shelf above, or build your own.</p> : (
+          <div className="flow-list">
+            {flows.map((flow) => (
+              <article key={flow.id} className="flow-row">
+                <div className="flow-row-main">
+                  <strong>{flow.name}</strong>
+                  <span className={`status-pill ${flow.risk === "low" ? "status-good" : "status-warning"}`}>{flow.risk} risk</span>
+                  {flow.running && <span className="status-pill status-neutral">running</span>}
+                </div>
+                <p className="muted">{flow.steps.map((step) => titleFor(step.operationId)).join(" → ")} · {riskCopy[flow.risk]}</p>
+                {flow.lastResult && (
+                  <p className={flow.lastResult === "completed" ? "muted" : "auth-error"}>
+                    Last run{flow.lastRunAt ? ` ${new Date(flow.lastRunAt).toLocaleString()}` : ""}: {flow.lastResult}
+                  </p>
+                )}
+                <div className="recovery-actions">
+                  <button className="primary-button" type="button" disabled={flow.running} onClick={() => void runFlow(flow)}>{flow.running ? "Running…" : "Run now"}</button>
+                  <button className="text-button" type="button" disabled={flow.running} onClick={() => void removeFlow(flow)}>Remove</button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}

@@ -16,6 +16,7 @@ import RepairCenter from "./RepairCenter";
 import SystemLogs from "./SystemLogs";
 import UpdatesCenter from "./UpdatesCenter";
 import AppCatalog from "./AppCatalog";
+import AutomationsCenter from "./AutomationsCenter";
 import ServicesCenter from "./ServicesCenter";
 import SystemCenter from "./SystemCenter";
 import PerformanceCenter from "./PerformanceCenter";
@@ -51,6 +52,10 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   services: {
     title: "Services",
     description: "See what systemd is running, start or stop it, and read its journal.",
+  },
+  automations: {
+    title: "Automations",
+    description: "Chains of the operations you already trust, run in order as recorded jobs. Add one from the shelf or build your own.",
   },
   system: {
     title: "System",
@@ -104,6 +109,7 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
 };
 
 const viewFeatures: Record<ViewName, string[]> = {
+  automations: ["Ready-made flows", "Build your own", "Steps run as recorded jobs", "A failed step stops the run"],
   setup: ["Setup profiles", "Checks what is already in place", "Installs the rest in order", "Autoinstall files for a new server"],
   overview: ["Updates and failed services", "Apps and VMs running", "Backup health", "Setup checklist", "Needs attention", "Installed apps"],
   updates: ["APT updates, all or selected", "Automatic security updates", "Restart hints", "Common tools with one click", "Snapshot before upgrading", "Install and remove packages"],
@@ -235,6 +241,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "catalog") return <AppCatalog csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "services") return <ServicesCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "system") return <SystemCenter csrfToken={authStatus.csrfToken ?? ""} />;
+    if (view === "automations") return <AutomationsCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "performance") return <PerformanceCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "users") return <UsersCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "firewall") return <FirewallCenter csrfToken={authStatus.csrfToken ?? ""} />;

@@ -322,6 +322,7 @@ const freshRest = {
   "/backups": () => ({ backups: [] }),
   "/schedules": () => ({ schedules: [] }),
   "/network/plans": (body) => body,
+  "/flows": (body) => ({ ...body, flows: [] }),
   "/people": (body) => ({ people: body.people.slice(0, 1) }),
   "/settings/backup-destination": () => ({ destination: null, lastSync: null }),
   "/settings/cloud-destination": () => ({ destination: null, lastSync: null }),
@@ -436,6 +437,23 @@ api.get("/virtualization/foundation", (_request, response) => json(response, {
   pool: { name: "default", exists: true, active: true, autostart: true, persistent: true, compatible: true, targetPath: "/var/lib/libvirt/images" },
   conflicts: [], planAvailable: false, changes: [],
   boundary: { mutationPerformed: false, browserResourceAccepted: false },
+}));
+api.get("/flows", (_request, response) => json(response, {
+  flows: [
+    { id: "flow-1", name: "Update night", steps: [{ operationId: "host.snapshot.create", parameters: {} }, { operationId: "apt.refresh", parameters: {} }, { operationId: "apt.upgrade", parameters: {} }],
+      createdBy: "owner-demo", risk: "medium", running: false, createdAt: ago(200), updatedAt: ago(200), lastRunAt: ago(30), lastResult: "completed", lastJobIds: ["j1", "j2", "j3"] },
+    { id: "flow-2", name: "Belt and braces", steps: [{ operationId: "controller.backup.create", parameters: {} }, { operationId: "backup.sync", parameters: {} }],
+      createdBy: "owner-demo", risk: "medium", running: false, createdAt: ago(100), updatedAt: ago(100), lastRunAt: null, lastResult: null, lastJobIds: [] },
+  ],
+  palette: [
+    { operationId: "host.snapshot.create", title: "Create a machine snapshot", risk: "medium", description: "" },
+    { operationId: "apt.refresh", title: "Refresh package lists", risk: "low", description: "" },
+    { operationId: "apt.upgrade", title: "Install package updates", risk: "medium", description: "" },
+    { operationId: "controller.backup.create", title: "Back up the BoxPilot database", risk: "low", description: "" },
+    { operationId: "backup.sync", title: "Mirror local backups to the independent destination", risk: "medium", description: "" },
+    { operationId: "docker.prune", title: "Clean up Docker disk space", risk: "medium", description: "" },
+    { operationId: "homepage.sync", title: "Sync Homepage with installed apps", risk: "low", description: "" },
+  ],
 }));
 api.get("/schedules", (_request, response) => json(response, { schedules: [
   { id: "s1", operationId: "app.backup", parameters: { subject: "immich" }, frequency: "daily", minute: 0, hour: 3, weekday: null, enabled: true, createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-8), lastRunAt: ago(16) },
@@ -564,6 +582,9 @@ const troubleRest = {
     ? { ...check, ok: false, detail: "/dev/kvm is not present; this machine has no hardware virtualization, or it is switched off in the BIOS" }
     : check)) }),
   "/firewall/overview": (body) => ({ ...body, report: { ...body.report, enabled: false } }),
+  "/flows": (body) => ({ ...body, flows: body.flows.map((flow, index) => (index === 0
+    ? { ...flow, lastResult: "stopped at step 3 (Install package updates): apt-get upgrade failed: E: Could not get lock /var/lib/dpkg/lock-frontend" }
+    : flow)) }),
   "/storage/samba": (body) => ({ ...body, running: false }),
 };
 

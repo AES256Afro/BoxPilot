@@ -258,6 +258,17 @@ export function createStateStore({
       forgotten_at TEXT NOT NULL,
       PRIMARY KEY (run_id, backup_id)
     );
+    CREATE TABLE IF NOT EXISTS flows (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      steps_json TEXT NOT NULL,
+      created_by TEXT NOT NULL REFERENCES owners(id),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      last_run_at TEXT,
+      last_result TEXT,
+      last_job_ids_json TEXT
+    );
     CREATE TABLE IF NOT EXISTS schedules (
       id TEXT PRIMARY KEY,
       operation_id TEXT NOT NULL,
@@ -806,6 +817,55 @@ export function createStateStore({
     return getSchedule(id);
   }
 
+  /** Flows: an ordered list of registered operations (ADR-002). Feature storage like schedules. */
+  function normalizeFlow(row) {
+    if (!row) return null;
+    return {
+      id: row.id, name: row.name, steps: JSON.parse(row.steps_json),
+      createdBy: row.created_by, createdAt: row.created_at, updatedAt: row.updated_at,
+      lastRunAt: row.last_run_at, lastResult: row.last_result,
+      lastJobIds: row.last_job_ids_json ? JSON.parse(row.last_job_ids_json) : [],
+    };
+  }
+
+  function createFlow({ name, steps, createdBy }) {
+    const id = randomUUID();
+    const at = timestamp();
+    database.prepare("INSERT INTO flows (id, name, steps_json, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(id, name, json(steps), createdBy, at, at);
+    recordAudit("flow.created", { actorId: createdBy, subjectId: id, details: { name, steps: steps.map((step) => step.operationId) } });
+    return getFlow(id);
+  }
+
+  function getFlow(id) {
+    return normalizeFlow(database.prepare("SELECT * FROM flows WHERE id = ?").get(id));
+  }
+
+  function listFlows() {
+    return database.prepare("SELECT * FROM flows ORDER BY created_at").all().map(normalizeFlow);
+  }
+
+  function updateFlow(id, { name, steps }, { actorId = null } = {}) {
+    const current = getFlow(id);
+    if (!current) throw new Error("Flow not found");
+    database.prepare("UPDATE flows SET name = ?, steps_json = ?, updated_at = ? WHERE id = ?")
+      .run(name ?? current.name, json(steps ?? current.steps), timestamp(), id);
+    recordAudit("flow.updated", { actorId, subjectId: id, details: { name: name ?? current.name } });
+    return getFlow(id);
+  }
+
+  function markFlowRun(id, { result, jobIds = [] }) {
+    database.prepare("UPDATE flows SET last_run_at = ?, last_result = ?, last_job_ids_json = ? WHERE id = ?")
+      .run(timestamp(), result, json(jobIds), id);
+    return getFlow(id);
+  }
+
+  function deleteFlow(id, { actorId = null } = {}) {
+    const changes = Number(database.prepare("DELETE FROM flows WHERE id = ?").run(id).changes);
+    if (!changes) throw new Error("Flow not found");
+    recordAudit("flow.deleted", { actorId, subjectId: id });
+  }
+
   function deleteSchedule(id, { actorId = null } = {}) {
     const changes = Number(database.prepare("DELETE FROM schedules WHERE id = ?").run(id).changes);
     if (!changes) throw new Error("Schedule not found");
@@ -1271,6 +1331,12 @@ export function createStateStore({
     forgetTrustedDevices,
     pruneHistory,
     listActiveJobs,
+    createFlow,
+    getFlow,
+    listFlows,
+    updateFlow,
+    markFlowRun,
+    deleteFlow,
     createSchedule,
     getSchedule,
     listSchedules,
