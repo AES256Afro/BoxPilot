@@ -111,7 +111,7 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, jobLogR
 
   router.post("/flows", auth.requireCsrf, async (request, response) => {
     try {
-      const flow = await flows.create({ name: request.body?.name, steps: request.body?.steps, createdBy: request.boxpilotSession.owner.id });
+      const flow = await flows.create({ name: request.body?.name, steps: request.body?.steps, cadence: request.body?.cadence ?? null, createdBy: request.boxpilotSession.owner.id });
       response.status(201).json({ flow });
     } catch (error) {
       response.status(400).json({ error: error.message, code: "flow_rejected" });
@@ -120,7 +120,7 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, jobLogR
 
   router.put("/flows/:id", auth.requireCsrf, async (request, response) => {
     try {
-      const flow = await flows.update(request.params.id, { name: request.body?.name, steps: request.body?.steps }, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
+      const flow = await flows.update(request.params.id, { name: request.body?.name, steps: request.body?.steps, cadence: request.body?.cadence, enabled: request.body?.enabled }, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
       response.json({ flow });
     } catch (error) {
       response.status(error.message.includes("not found") ? 404 : 400).json({ error: error.message, code: "flow_update_failed" });

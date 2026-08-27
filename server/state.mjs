@@ -267,7 +267,13 @@ export function createStateStore({
       updated_at TEXT NOT NULL,
       last_run_at TEXT,
       last_result TEXT,
-      last_job_ids_json TEXT
+      last_job_ids_json TEXT,
+      frequency TEXT,
+      minute INTEGER,
+      hour INTEGER,
+      weekday INTEGER,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      next_due_at TEXT
     );
     CREATE TABLE IF NOT EXISTS schedules (
       id TEXT PRIMARY KEY,
@@ -343,6 +349,11 @@ export function createStateStore({
   if (!ownerColumns.includes("role")) database.exec("ALTER TABLE owners ADD COLUMN role TEXT NOT NULL DEFAULT 'owner'");
   const sessionColumns = database.prepare("PRAGMA table_info(sessions)").all().map((column) => column.name);
   if (!sessionColumns.includes("elevated_until")) database.exec("ALTER TABLE sessions ADD COLUMN elevated_until TEXT");
+  // v1.33.0 shipped flows without a cadence; a flow on a clock needs one (ADR-002 addendum).
+  const flowColumns = database.prepare("PRAGMA table_info(flows)").all().map((column) => column.name);
+  for (const [column, definition] of [["frequency", "TEXT"], ["minute", "INTEGER"], ["hour", "INTEGER"], ["weekday", "INTEGER"], ["enabled", "INTEGER NOT NULL DEFAULT 1"], ["next_due_at", "TEXT"]]) {
+    if (!flowColumns.includes(column)) database.exec(`ALTER TABLE flows ADD COLUMN ${column} ${definition}`);
+  }
   const approvalColumns = database.prepare("PRAGMA table_info(approvals)").all().map((column) => column.name);
   if (!approvalColumns.includes("method")) database.exec("ALTER TABLE approvals ADD COLUMN method TEXT NOT NULL DEFAULT 'password'");
   if (!approvalColumns.includes("tier")) database.exec("ALTER TABLE approvals ADD COLUMN tier TEXT");
@@ -825,14 +836,16 @@ export function createStateStore({
       createdBy: row.created_by, createdAt: row.created_at, updatedAt: row.updated_at,
       lastRunAt: row.last_run_at, lastResult: row.last_result,
       lastJobIds: row.last_job_ids_json ? JSON.parse(row.last_job_ids_json) : [],
+      frequency: row.frequency, minute: row.minute, hour: row.hour, weekday: row.weekday,
+      enabled: row.enabled === 1 || row.enabled === undefined, nextDueAt: row.next_due_at,
     };
   }
 
-  function createFlow({ name, steps, createdBy }) {
+  function createFlow({ name, steps, createdBy, frequency = null, minute = null, hour = null, weekday = null, nextDueAt = null }) {
     const id = randomUUID();
     const at = timestamp();
-    database.prepare("INSERT INTO flows (id, name, steps_json, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(id, name, json(steps), createdBy, at, at);
+    database.prepare("INSERT INTO flows (id, name, steps_json, created_by, created_at, updated_at, frequency, minute, hour, weekday, next_due_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, name, json(steps), createdBy, at, at, frequency, minute, hour, weekday, nextDueAt);
     recordAudit("flow.created", { actorId: createdBy, subjectId: id, details: { name, steps: steps.map((step) => step.operationId) } });
     return getFlow(id);
   }
@@ -845,19 +858,36 @@ export function createStateStore({
     return database.prepare("SELECT * FROM flows ORDER BY created_at").all().map(normalizeFlow);
   }
 
-  function updateFlow(id, { name, steps }, { actorId = null } = {}) {
+  function updateFlow(id, { name, steps, frequency, minute, hour, weekday, enabled, nextDueAt }, { actorId = null } = {}) {
     const current = getFlow(id);
     if (!current) throw new Error("Flow not found");
-    database.prepare("UPDATE flows SET name = ?, steps_json = ?, updated_at = ? WHERE id = ?")
-      .run(name ?? current.name, json(steps ?? current.steps), timestamp(), id);
+    database.prepare("UPDATE flows SET name = ?, steps_json = ?, updated_at = ?, frequency = ?, minute = ?, hour = ?, weekday = ?, enabled = ?, next_due_at = ? WHERE id = ?")
+      .run(
+        name ?? current.name, json(steps ?? current.steps), timestamp(),
+        frequency === undefined ? current.frequency : frequency,
+        minute === undefined ? current.minute : minute,
+        hour === undefined ? current.hour : hour,
+        weekday === undefined ? current.weekday : weekday,
+        (enabled === undefined ? current.enabled : enabled) ? 1 : 0,
+        nextDueAt === undefined ? current.nextDueAt : nextDueAt,
+        id);
     recordAudit("flow.updated", { actorId, subjectId: id, details: { name: name ?? current.name } });
     return getFlow(id);
   }
 
-  function markFlowRun(id, { result, jobIds = [] }) {
-    database.prepare("UPDATE flows SET last_run_at = ?, last_result = ?, last_job_ids_json = ? WHERE id = ?")
-      .run(timestamp(), result, json(jobIds), id);
+  function markFlowRun(id, { result, jobIds = [], nextDueAt }) {
+    if (nextDueAt === undefined) {
+      database.prepare("UPDATE flows SET last_run_at = ?, last_result = ?, last_job_ids_json = ? WHERE id = ?")
+        .run(timestamp(), result, json(jobIds), id);
+    } else {
+      database.prepare("UPDATE flows SET last_run_at = ?, last_result = ?, last_job_ids_json = ?, next_due_at = ? WHERE id = ?")
+        .run(timestamp(), result, json(jobIds), nextDueAt, id);
+    }
     return getFlow(id);
+  }
+
+  function listDueFlows(nowIso) {
+    return database.prepare("SELECT * FROM flows WHERE enabled = 1 AND next_due_at IS NOT NULL AND next_due_at <= ? ORDER BY next_due_at").all(nowIso).map(normalizeFlow);
   }
 
   function deleteFlow(id, { actorId = null } = {}) {
@@ -1336,6 +1366,7 @@ export function createStateStore({
     listFlows,
     updateFlow,
     markFlowRun,
+    listDueFlows,
     deleteFlow,
     createSchedule,
     getSchedule,

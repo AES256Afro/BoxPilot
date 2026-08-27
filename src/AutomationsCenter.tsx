@@ -14,7 +14,18 @@ interface Flow {
   id: string; name: string; steps: FlowStep[]; createdBy: string;
   risk: "low" | "medium" | "high"; running: boolean;
   lastRunAt: string | null; lastResult: string | null; lastJobIds: string[];
+  frequency: "hourly" | "daily" | "weekly" | null; minute: number | null; hour: number | null; weekday: number | null;
+  enabled: boolean; nextDueAt: string | null;
 }
+
+const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const two = (value: number) => String(value).padStart(2, "0");
+const cadenceLabel = (flow: Flow): string | null => {
+  if (!flow.frequency) return null;
+  if (flow.frequency === "hourly") return `every hour at :${two(flow.minute ?? 0)}`;
+  if (flow.frequency === "daily") return `every day at ${two(flow.hour ?? 3)}:${two(flow.minute ?? 0)}`;
+  return `every ${weekdays[flow.weekday ?? 0]} at ${two(flow.hour ?? 3)}:${two(flow.minute ?? 0)}`;
+};
 interface PaletteStep { operationId: string; title: string; risk: string; description: string }
 
 /** The shelf: flows worth having before anyone builds one. Names double as install-state keys. */
@@ -107,6 +118,18 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
     post(`/api/v1/flows/${encodeURIComponent(flow.id)}/run`)
       .catch((requestError) => setError(requestError instanceof Error ? requestError.message : "The run was refused"))
       .finally(() => void refresh());
+  };
+
+  const reschedule = async (flow: Flow, cadence: { frequency: string; minute: number; hour?: number; weekday?: number } | null) => {
+    setError(null); setNotice(null);
+    try { await post(`/api/v1/flows/${encodeURIComponent(flow.id)}`, { cadence }, "PUT"); await refresh(); }
+    catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not change the schedule"); }
+  };
+
+  const setEnabled = async (flow: Flow, enabled: boolean) => {
+    setError(null); setNotice(null);
+    try { await post(`/api/v1/flows/${encodeURIComponent(flow.id)}`, { enabled }, "PUT"); await refresh(); }
+    catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not change the schedule"); }
   };
 
   const removeFlow = async (flow: Flow) => {
@@ -205,8 +228,22 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
                     Last run{flow.lastRunAt ? ` ${new Date(flow.lastRunAt).toLocaleString()}` : ""}: {flow.lastResult}
                   </p>
                 )}
+                {flow.frequency && (
+                  <p className="muted">
+                    Runs {cadenceLabel(flow)}{flow.enabled && flow.nextDueAt ? `; next ${new Date(flow.nextDueAt).toLocaleString()}` : ""}{flow.enabled ? "" : "; paused"}. Runs under your account, the same as pressing Run.
+                  </p>
+                )}
                 <div className="recovery-actions">
                   <button className="primary-button" type="button" disabled={flow.running} onClick={() => void runFlow(flow)}>{flow.running ? "Running…" : "Run now"}</button>
+                  {!flow.frequency && (
+                    <button className="secondary-button" type="button" disabled={flow.running} onClick={() => void reschedule(flow, { frequency: "weekly", minute: 0, hour: 3, weekday: 0 })}>Run it every Sunday at 03:00</button>
+                  )}
+                  {flow.frequency && (
+                    <button className="secondary-button" type="button" disabled={flow.running} onClick={() => void setEnabled(flow, !flow.enabled)}>{flow.enabled ? "Pause the schedule" : "Resume the schedule"}</button>
+                  )}
+                  {flow.frequency && (
+                    <button className="text-button" type="button" disabled={flow.running} onClick={() => void reschedule(flow, null)}>Stop scheduling it</button>
+                  )}
                   <button className="text-button" type="button" disabled={flow.running} onClick={() => void removeFlow(flow)}>Remove</button>
                 </div>
               </article>

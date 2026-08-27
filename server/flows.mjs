@@ -10,6 +10,7 @@
  * that guesses.
  */
 import { registry as defaultRegistry } from "./ops/index.mjs";
+import { computeNextRun, validateCadence } from "./scheduler.mjs";
 
 const nameLimit = 80;
 const stepLimit = 10;
@@ -44,7 +45,7 @@ export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
   return null;
 }
 
-export function createFlowService({ store, jobs, registry = defaultRegistry, pollMs = 1000, maxStepMs = null }) {
+export function createFlowService({ store, jobs, registry = defaultRegistry, pollMs = 1000, maxStepMs = null, now = () => new Date() }) {
   const running = new Set(); // flow ids mid-run; a flow must not lap itself
 
   function assertMayManage(flow, actorId, role) {
@@ -52,22 +53,40 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
     if (flow.createdBy !== actorId && role !== "owner") throw new Error("Only the flow's creator or an owner can change it");
   }
 
-  async function create({ name, steps, createdBy }) {
+  /** A cadence is optional; present, it must be a schedule the scheduler itself would accept. */
+  function cadenceFields(cadence) {
+    if (!cadence || !cadence.frequency) return { frequency: null, minute: null, hour: null, weekday: null, nextDueAt: null };
+    const problem = validateCadence(cadence);
+    if (problem) throw new Error(problem);
+    return {
+      frequency: cadence.frequency, minute: cadence.minute, hour: cadence.hour ?? null, weekday: cadence.weekday ?? null,
+      nextDueAt: computeNextRun(cadence, now()).toISOString(),
+    };
+  }
+
+  async function create({ name, steps, createdBy, cadence = null }) {
     const problem = validateFlow({ name, steps }, registry);
     if (problem) throw new Error(problem);
-    return store.createFlow({ name: name.trim(), steps, createdBy });
+    return store.createFlow({ name: name.trim(), steps, createdBy, ...cadenceFields(cadence) });
   }
 
   function list() {
     return store.listFlows().map((flow) => ({ ...flow, risk: flowRisk(flow.steps, registry), running: running.has(flow.id) }));
   }
 
-  async function update(id, { name, steps }, actorId, { role = "owner" } = {}) {
+  async function update(id, { name, steps, cadence, enabled }, actorId, { role = "owner" } = {}) {
     const flow = store.getFlow(id);
     assertMayManage(flow, actorId, role);
     const problem = validateFlow({ name: name ?? flow.name, steps: steps ?? flow.steps }, registry);
     if (problem) throw new Error(problem);
-    return store.updateFlow(id, { name: name?.trim(), steps }, { actorId });
+    const changes = { name: name?.trim(), steps, enabled };
+    if (cadence !== undefined) Object.assign(changes, cadenceFields(cadence));
+    // Re-enabling a scheduled flow computes the next due time afresh, so a flow paused for a
+    // month does not fire the moment it is switched back on to make up for missed Sundays.
+    if (enabled === true && flow.frequency && cadence === undefined) {
+      changes.nextDueAt = computeNextRun(flow, now()).toISOString();
+    }
+    return store.updateFlow(id, changes, { actorId });
   }
 
   function remove(id, actorId, { role = "owner" } = {}) {
@@ -137,6 +156,49 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
   }
 
   /**
+   * Run flows whose clock has come due, each under its creator's stored authority. The clock is
+   * the one trigger ADR-002 admits without a new consent story, because it is the contract the
+   * scheduler already carries: the creator consented by writing the cadence, the consent is
+   * visible on the page, and disabling the flow revokes it. Everything else about unattended
+   * running is inherited too, including refusing to run under always-ask approval mode.
+   */
+  let ticking = false;
+  async function tick() {
+    if (ticking) return 0;
+    ticking = true;
+    try {
+      const due = store.listDueFlows(now().toISOString());
+      for (const flow of due) {
+        // Advance the clock before running, so a slow flow cannot fire twice.
+        const nextDueAt = computeNextRun(flow, now()).toISOString();
+        if (running.has(flow.id)) { store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy }); continue; }
+        const creator = store.findOwnerById?.(flow.createdBy) ?? null;
+        try {
+          if (creator && ["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
+          store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy });
+          await run(flow.id, flow.createdBy, { role: creator?.role ?? "owner" });
+          store.recordAudit("flow.scheduled-run", { actorId: flow.createdBy, subjectId: flow.id, details: { nextDueAt } });
+        } catch (error) {
+          // run() already recorded the failure on the flow; a refusal before it started needs recording here.
+          if (!/stopped at step|failed at step/.test(error.message)) {
+            store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
+            store.recordAudit("flow.skipped", { actorId: flow.createdBy, subjectId: flow.id, details: { reason: error.message.slice(0, 200) } });
+          }
+        }
+      }
+      return due.length;
+    } finally {
+      ticking = false;
+    }
+  }
+
+  function start(intervalMs = 60_000) {
+    const timer = setInterval(() => { tick().catch(() => {}); }, intervalMs);
+    timer.unref?.();
+    return () => clearInterval(timer);
+  }
+
+  /**
    * Steps a flow can be built from without a parameter form: registered low and medium operations
    * every field of which is optional. The palette maintains itself as the registry grows.
    */
@@ -147,5 +209,5 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
       .map((operation) => ({ operationId: operation.id, title: operation.title, risk: operation.risk, description: operation.description ?? "" }));
   }
 
-  return { create, list, update, remove, run, stepPalette };
+  return { create, list, update, remove, run, tick, start, stepPalette };
 }
