@@ -100,7 +100,7 @@ export function validateManifest(raw) {
   ports.forEach((port, index) => {
     const path = `manifest.ports[${index}]`;
     if (!isObject(port)) return fail(errors, path, "must be a mapping");
-    checkKeys(errors, path, port, ["id", "label", "container", "host", "protocol", "exposure", "fixed", "tailnet"], ["id", "container"]);
+    checkKeys(errors, path, port, ["id", "label", "container", "host", "protocol", "exposure", "fixed", "tailnet", "containerFollowsHost"], ["id", "container"]);
     if (typeof port.id !== "string" || !keyPattern.test(port.id) || portIds.has(port.id)) fail(errors, `${path}.id`, "must be a unique short slug"); else portIds.add(port.id);
     if (!Number.isInteger(port.container) || port.container < 1 || port.container > 65535) fail(errors, `${path}.container`, "must be a port number");
     if (port.host !== undefined && (!Number.isInteger(port.host) || port.host < 1 || port.host > 65535)) fail(errors, `${path}.host`, "must be a port number");
@@ -109,6 +109,10 @@ export function validateManifest(raw) {
     if (port.tailnet !== undefined && !portTailnetModes.includes(port.tailnet)) fail(errors, `${path}.tailnet`, `must be one of ${portTailnetModes.join(", ")}`);
     if (port.tailnet === "serve" && port.protocol === "udp") fail(errors, `${path}.tailnet`, "cannot be serve: Tailscale Serve speaks TCP");
     if (port.fixed !== undefined && typeof port.fixed !== "boolean") fail(errors, `${path}.fixed`, "must be boolean");
+    // Some apps validate the browser's Host header against their own listening port (qBittorrent),
+    // so a remapped port gets every request refused. This makes the container listen on whatever
+    // host port the owner picked; `container` remains the app's default for the form's first offer.
+    if (port.containerFollowsHost !== undefined && typeof port.containerFollowsHost !== "boolean") fail(errors, `${path}.containerFollowsHost`, "must be boolean");
     if (port.label !== undefined && typeof port.label !== "string") fail(errors, `${path}.label`, "must be a string");
   });
 

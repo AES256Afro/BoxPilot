@@ -16,6 +16,9 @@ ports:
     container: 8080
     host: 8095
     exposure: lan
+    # qBittorrent refuses requests whose Host header carries a different port than its own
+    # (a plain-text 401 for every page), so the app must listen on the port the owner picked.
+    containerFollowsHost: true
 volumes:
   - id: config
     label: Configuration
@@ -36,7 +39,7 @@ env:
     default: "1000"
     fixed: true
   - name: WEBUI_PORT
-    default: "8080"
+    default: ${PORT_WEB}
     fixed: true
   - name: TZ
     label: Time zone
@@ -95,6 +98,9 @@ sidecars:
       SERVER_COUNTRIES: ${SERVER_COUNTRIES}
       TZ: ${TZ}
       FIREWALL_OUTBOUND_SUBNETS: 192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,100.64.0.0/10
+      # Gluetun's firewall drops inbound connections it was not told about, which locked the
+      # web UI to the box itself: reachable from bigbox, a timeout from every other machine.
+      FIREWALL_INPUT_PORTS: ${PORT_WEB}
       HEALTH_VPN_DURATION_INITIAL: 30s
     volumes:
       - id: gluetun
@@ -105,4 +111,4 @@ health:
   kind: running
   stableSeconds: 30
   timeoutSeconds: 300
-notes: "The web UI's first password is printed in the container log (Logs above) on the first start; change it under Tools → Options → Web UI. Check the VPN is up in the log of the vpn container: it prints the public IP it got. Sonarr and Radarr reach qBittorrent at http://<this server>:8095; on the LAN that address works because the tunnel's firewall lets your home and tailnet subnets in."
+notes: "The web UI's first password is printed in the container log (Logs above) on each start until you set your own; change it under Tools → Options → Web UI. Check the VPN is up in the log of the vpn container: it prints the public IP it got. Sonarr and Radarr reach qBittorrent at http://<this server> on the web port; the tunnel's firewall admits that one port from your network and nothing else."

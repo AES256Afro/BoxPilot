@@ -5,7 +5,7 @@ import { inspectOperation } from "./operations";
 import { appUrl, appAddresses } from "./appLinks";
 
 /** Types mirror server/catalog/schema.mjs (normalized manifest) and server/app-helper.mjs (live state). */
-interface ManifestPort { id: string; label: string; container: number; host: number; protocol: "tcp" | "udp"; exposure: "lan" | "loopback"; fixed: boolean; tailnet?: "serve" | "address" | "unchanged" }
+interface ManifestPort { id: string; label: string; container: number; host: number; protocol: "tcp" | "udp"; exposure: "lan" | "loopback"; fixed: boolean; tailnet?: "serve" | "address" | "unchanged"; containerFollowsHost?: boolean }
 interface ManifestVolume { id: string; label: string; container: string; path: string | null; hostPath: string | null; readOnly: boolean; backup: boolean; configurable: boolean; description: string | null }
 interface SetupChoice { id: string; label: string; description: string | null; website: string | null; recommended: boolean; exec: string[] }
 interface ManifestSetup { title: string; note: string | null; finalize: string[] | null; finalizeLabel: string | null; choices: SetupChoice[] }
@@ -125,7 +125,7 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
                 : "Runs behind Docker's own network. Safer isolation, but every device reaches it through one address, so per-device rules and client lists do not work."}</span>
             </label>
           </fieldset>}
-          {editablePorts.length > 0 && <fieldset><legend>Ports</legend>{editablePorts.map((port) => <label key={port.id}>{port.label} <span className="muted">(container {port.container}/{port.protocol}, {port.exposure === "loopback" ? "this server only" : "LAN"})</span><input type="number" min={1} max={65535} value={values.ports[port.id] ?? port.host} onChange={(event) => setPort(port.id, event.target.value)} aria-label={`${port.label} port`} /></label>)}</fieldset>}
+          {editablePorts.length > 0 && <fieldset><legend>Ports</legend>{editablePorts.map((port) => <label key={port.id}>{port.label} <span className="muted">({port.containerFollowsHost ? "the app listens here" : `container ${port.container}/${port.protocol}`}, {port.exposure === "loopback" ? "this server only" : "LAN"})</span><input type="number" min={1} max={65535} value={values.ports[port.id] ?? port.host} onChange={(event) => setPort(port.id, event.target.value)} aria-label={`${port.label} port`} /></label>)}</fieldset>}
           {editableVolumes.length > 0 && <fieldset><legend>Folders</legend>{editableVolumes.map((volume) => <label key={volume.id}>{volume.label}{volume.description && <span className="muted">{volume.description}</span>}<input type="text" value={values.volumes[volume.id] ?? ""} onChange={(event) => setVolume(volume.id, event.target.value)} aria-label={`${volume.label} path`} placeholder={volume.hostPath ?? "/srv/..."} /></label>)}</fieldset>}
           {editableEnv.length > 0 && <fieldset><legend>Settings</legend>{editableEnv.map((entry) => (
             <label key={entry.name}>{entry.label}{entry.required && " *"}{entry.description && <span className="muted">{entry.description}</span>}

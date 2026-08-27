@@ -139,9 +139,14 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
       const host = values.ports[port.id];
       const { bind, exposure } = bindingFor(port, values.exposure, { lanAddress, tailnetAddress });
       hostPorts.push({ id: port.id, host, protocol: port.protocol, exposure, tailnet: port.tailnet ?? "serve" });
-      return `${bind}:${host}:${port.container}${port.protocol === "udp" ? "/udp" : ""}`;
+      return `${bind}:${host}:${port.containerFollowsHost ? host : port.container}${port.protocol === "udp" ? "/udp" : ""}`;
     })
     : [];
+  // Every chosen host port is available to env values as ${PORT_<ID>}, so an app whose process
+  // must know its own published port (qBittorrent's Host-header check, gluetun's inbound firewall)
+  // can follow the owner's choice instead of hardcoding the default.
+  const portVariables = Object.fromEntries(hostPorts.map((port) => [`PORT_${port.id.toUpperCase().replace(/-/g, "_")}`, String(port.host)]));
+  const withPortVariables = (value) => String(value).replace(/\$\{(PORT_[A-Z0-9_]+)\}/g, (match, name) => portVariables[name] ?? match);
   // With networkVia the app lives inside the sidecar's network namespace (a VPN container), so
   // the ports are published on the sidecar and the app has no network of its own.
   if (manifest.networkVia) service.network_mode = `service:${manifest.networkVia}`;
@@ -155,7 +160,7 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   const environment = {};
   for (const entry of manifest.env) {
     if (!(entry.name in env)) continue;
-    environment[entry.name] = entry.secret ? `\${${entry.name}}` : composeLiteral(env[entry.name]);
+    environment[entry.name] = entry.secret ? `\${${entry.name}}` : composeLiteral(withPortVariables(env[entry.name]));
   }
   if (Object.keys(environment).length) service.environment = environment;
   if (manifest.capabilities.length) { service.cap_drop = ["ALL"]; service.cap_add = [...manifest.capabilities]; }
@@ -178,7 +183,7 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
     // Sidecar env may reference the app's settings as ${NAME}: secrets stay references (resolved
     // from .env at compose time); plain settings are substituted here since they never reach .env.
     const secretNames = new Set(manifest.env.filter((entry) => entry.secret).map((entry) => entry.name));
-    const substitute = (value) => String(value).replace(/\$\{([A-Z][A-Za-z0-9_]*)\}/g, (match, name) => (secretNames.has(name) ? match : name in env ? composeLiteral(env[name]) : ""));
+    const substitute = (value) => String(value).replace(/\$\{([A-Z][A-Za-z0-9_]*)\}/g, (match, name) => (secretNames.has(name) ? match : name in portVariables ? portVariables[name] : name in env ? composeLiteral(withPortVariables(env[name])) : ""));
     if (Object.keys(sidecar.env ?? {}).length) sidecarService.environment = Object.fromEntries(Object.entries(sidecar.env).map(([name, value]) => [name, substitute(value)]));
     if (sidecar.volumes.length) sidecarService.volumes = sidecar.volumes.map((volume) => `./${volume.path}:${volume.container}`);
     if ((sidecar.capabilities ?? []).length) { sidecarService.cap_drop = ["ALL"]; sidecarService.cap_add = [...sidecar.capabilities]; }
