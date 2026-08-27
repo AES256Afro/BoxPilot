@@ -663,6 +663,73 @@ export function createAppHelper({
     return { id, tunneled: true, sidecarId: manifest.networkVia, running: status.running && status.status === "running", status: status.status, exit, forwardedPort };
   }
 
+  /**
+   * The kill-switch drill (M17.3): force the tunnel down for a few seconds, prove nothing leaks,
+   * bring it back, and record the whole thing. The claim "if the VPN drops, downloads stop
+   * instead of leaking" becomes a recorded fact for this install, the way a restore drill makes
+   * "backups work" a fact. Every command runs inside the app's own network namespace via docker
+   * exec, which is also why the helper's own network isolation is no obstacle.
+   *
+   * The restore is attempted no matter what went wrong in between: a drill that leaves the
+   * tunnel down has failed at its one job.
+   */
+  async function vpnKillSwitchDrill({ id }, { progress = null } = {}) {
+    const manifest = await ensureManifest(id);
+    if (!manifest.networkVia) throw new Error(`${manifest.name} does not run through a VPN tunnel`);
+    const state = await readState(id);
+    if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
+    const name = projectNameFor(id);
+    const inTunnel = (args, timeout = 10_000) => docker(["exec", name, ...args], { timeout });
+    const control = async (method, path, body = null) => {
+      const args = ["curl", "-m", "5", "-sS", ...(method === "PUT" ? ["-X", "PUT", "-d", body] : []), `http://127.0.0.1:8000${path}`];
+      const result = await inTunnel(args);
+      if (!result.ok) throw new Error(`The tunnel's control endpoint did not answer (${redact(result.stderr).slice(-120)})`);
+      try { return JSON.parse(result.stdout); } catch { throw new Error("The tunnel's control endpoint answered with something unreadable"); }
+    };
+
+    const hasCurl = await inTunnel(["curl", "--version"], 10_000);
+    if (!hasCurl.ok) throw new Error(`${manifest.name}'s image carries no curl, which the drill needs to speak to the tunnel from inside`);
+    const status = await control("GET", "/v1/vpn/status");
+    if (status.status !== "running") throw new Error(`The tunnel is not running (${status.status ?? "unknown"}); there is nothing to drill`);
+    const before = await control("GET", "/v1/publicip/ip").catch(() => null);
+    progress?.(`Tunnel up${before?.public_ip ? `, exiting at ${before.public_ip} (${before.country ?? "?"})` : ""}. Forcing it down...`, "stdout");
+
+    const stoppedAt = clock().getTime();
+    await control("PUT", "/v1/vpn/status", '{"status":"stopped"}');
+    let leaked = false;
+    let restored = false;
+    try {
+      await wait(2000);
+      // The one question: with the tunnel down, can anything get out? A firewall that holds
+      // answers with silence; an answer from the internet is a leak.
+      const probe = await inTunnel(["curl", "-m", "4", "-sS", "-o", "/dev/null", "-w", "%{http_code}", "https://1.1.1.1/"], 12_000);
+      leaked = probe.ok && /^[1-5]\d\d$/.test(probe.stdout.trim());
+      progress?.(leaked ? "LEAK: the internet answered while the tunnel was down." : "Nothing left while the tunnel was down; the kill switch held.", leaked ? "stderr" : "stdout");
+    } finally {
+      await control("PUT", "/v1/vpn/status", '{"status":"running"}').catch(() => {});
+      for (let attempt = 0; attempt < 15; attempt += 1) {
+        const back = await control("GET", "/v1/vpn/status").catch(() => null);
+        if (back?.status === "running") { restored = true; break; }
+        await wait(2000);
+      }
+    }
+    const downForMs = clock().getTime() - stoppedAt;
+    if (!restored) throw new Error("The tunnel did not come back after the drill; restart the app. The drill result was not recorded as a pass.");
+    let after = null;
+    for (let attempt = 0; attempt < 10 && !after?.public_ip; attempt += 1) {
+      await wait(2000);
+      after = await control("GET", "/v1/publicip/ip").catch(() => null);
+    }
+    progress?.(`Tunnel restored${after?.public_ip ? `, exiting at ${after.public_ip} (${after.country ?? "?"})` : ""}.`, "stdout");
+    return {
+      id, held: !leaked, leaked, restored, downForMs,
+      exitBefore: before?.public_ip ?? null, exitAfter: after?.public_ip ?? null,
+      verdict: leaked
+        ? "LEAKED: something reached the internet while the tunnel was down. Do not rely on this tunnel; check the app's network settings."
+        : `The kill switch held: nothing left this app while the tunnel was down for ${(downForMs / 1000).toFixed(1)}s, and the tunnel came back on its own.`,
+    };
+  }
+
   /** Effective compose.yaml and .env for an installed app. Secret values are masked here; app.secrets (elevated) reveals them. */
   async function config({ id }) {
     const manifest = await ensureManifest(id);
@@ -1211,5 +1278,5 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { syncHomepage, inspect, reachabilityFacts, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, reachabilityFacts, vpnKillSwitchDrill, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

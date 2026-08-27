@@ -8,7 +8,7 @@ import { createCatalogService } from "./catalog/index.mjs";
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
 
-async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, runCommand = undefined } = {}) {
+async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, runCommand = undefined, execTable = { vpn: "running", leaks: false, noCurl: false } } = {}) {
   const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
   const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
   await writeFile(path.join(catalogDirectory, "demo.yaml"), `schemaVersion: 2\nid: demo\nname: Demo\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8080\nvolumes:\n  - id: data\n    container: /data\n    path: data\n  - id: docker\n    container: /var/run/docker.sock\n    hostPath: /var/run/docker.sock\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\n  - name: TZ\n    default: Etc/UTC\nhealth:\n  kind: ${healthKind}\n  stableSeconds: 4\n  timeoutSeconds: 30\n`);
@@ -35,6 +35,19 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
       return { ok: true, stdout: lines.join("\n"), stderr: "" };
     }
     if (args[0] === "logs") return { ok: true, stdout: "line1\npassword=hunter2", stderr: "" };
+    if (args[0] === "exec") {
+      // The kill-switch drill speaks to gluetun's control endpoint and probes the internet from
+      // inside the app's namespace; the table scripts both, keyed by URL substring.
+      const url = args[args.length - 1];
+      const method = args.includes("-X") ? args[args.indexOf("-X") + 1] : "GET";
+      const body = args.includes("-d") ? args[args.indexOf("-d") + 1] : null;
+      if (url === "--version") return { ok: !execTable.noCurl, stdout: "curl 8", stderr: execTable.noCurl ? "no such file" : "" };
+      if (url.includes("/v1/vpn/status") && method === "PUT") { execTable.vpn = JSON.parse(body).status; return { ok: true, stdout: JSON.stringify({ outcome: execTable.vpn }), stderr: "" }; }
+      if (url.includes("/v1/vpn/status")) return { ok: true, stdout: JSON.stringify({ status: execTable.vpn }), stderr: "" };
+      if (url.includes("/v1/publicip/ip")) return { ok: true, stdout: JSON.stringify(execTable.vpn === "running" ? { public_ip: "212.92.104.227", country: "Netherlands" } : {}), stderr: "" };
+      if (url.includes("1.1.1.1")) return execTable.leaks || execTable.vpn === "running" ? { ok: true, stdout: "204", stderr: "" } : { ok: false, stdout: "000", stderr: "curl: (28) timed out" };
+      return { ok: false, stdout: "", stderr: `unexpected exec ${url}` };
+    }
     if (args[0] === "compose") {
       const name = args[args.indexOf("--project-name") + 1];
       const verb = args.find((arg, index) => index > 0 && ["up", "down", "pull", "start", "stop", "restart"].includes(arg));
@@ -167,6 +180,36 @@ describe("generic app deployer", () => {
 
     containers.set("bp-tun2-vpn", { running: true, status: "running", health: "none", restarts: 0, image: "sha256:vpn", startedAt: "x", exitCode: 0 });
     await expect(apps.reconfigure({ id: "tun2", values: {} }, { checkpoint: false })).resolves.toMatchObject({ reconfigured: true });
+  });
+
+  it("the kill-switch drill holds, restores, and reports; a leak is named and still restored", async () => {
+    const tunnelManifest = [
+      "schemaVersion: 2", "id: qbt", "name: Qbt", "category: T", "description: d",
+      "image:", "  reference: qbt:5", "networkVia: vpn",
+      "ports:", "  - id: web", "    container: 8080", "    host: 8095",
+      "env: []", "volumes: []",
+      "sidecars:", "  - id: vpn", "    image: gluetun:3",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n";
+
+    const held = await setup();
+    await writeFile(path.join((held).catalogDirectory, "qbt.yaml"), tunnelManifest);
+    await held.apps.install({ id: "qbt", values: {} });
+    const result = await held.apps.vpnKillSwitchDrill({ id: "qbt" });
+    expect(result).toMatchObject({ held: true, leaked: false, restored: true, exitBefore: "212.92.104.227" });
+    expect(result.verdict).toMatch(/kill switch held.*came back on its own/);
+
+    const leaky = await setup({ execTable: { vpn: "running", leaks: true, noCurl: false } });
+    await writeFile(path.join(leaky.catalogDirectory, "qbt.yaml"), tunnelManifest);
+    await leaky.apps.install({ id: "qbt", values: {} });
+    const bad = await leaky.apps.vpnKillSwitchDrill({ id: "qbt" });
+    expect(bad).toMatchObject({ held: false, leaked: true, restored: true });
+    expect(bad.verdict).toMatch(/LEAKED.*Do not rely on this tunnel/);
+
+    const plain = await setup();
+    await writeFile(path.join(plain.catalogDirectory, "plain.yaml"), tunnelManifest.replace("id: qbt", "id: plain").replace("networkVia: vpn\n", ""));
+    await plain.apps.install({ id: "plain", values: {} });
+    await expect(plain.apps.vpnKillSwitchDrill({ id: "plain" })).rejects.toThrow(/does not run through a VPN tunnel/);
   });
 
   it("changing one setting leaves every other choice standing, secrets included", async () => {
