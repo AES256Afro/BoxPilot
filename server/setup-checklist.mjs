@@ -35,7 +35,12 @@ export function buildChecklist(evidence = {}) {
     {
       id: "notifications", title: "Get alerts on your phone", view: "settings", optional: false,
       known: notifications !== null, done: Boolean(notifications?.configured),
-      detail: notifications?.configured ? `Alerts go to ${notifications.kind}.` : "Install ntfy or Gotify from the catalog (or use any webhook) and BoxPilot tells you about failed jobs, full disks, SMART warnings, and power cuts.",
+      // "Install ntfy" is the wrong instruction for an owner who already has: the missing half is
+      // connecting BoxPilot to it, and the old copy sent them back to the catalog to reinstall.
+      detail: notifications?.configured ? `Alerts go to ${notifications.kind}.`
+        : installedApps.includes("ntfy") ? "ntfy is already running on this server; connect BoxPilot to it under Settings, Notifications, and alerts about failed jobs, full disks, SMART warnings, and power cuts start flowing."
+        : installedApps.includes("gotify") ? "Gotify is already running on this server; connect BoxPilot to it under Settings, Notifications, and alerts about failed jobs, full disks, SMART warnings, and power cuts start flowing."
+        : "Install ntfy or Gotify from the catalog (or use any webhook) and BoxPilot tells you about failed jobs, full disks, SMART warnings, and power cuts.",
     },
     {
       id: "backups", title: "Keep a copy of your backups off this box", view: "backups", optional: false,
