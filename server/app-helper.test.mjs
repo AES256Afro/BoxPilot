@@ -19,12 +19,20 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
     calls.push(args.join(" "));
     if (args[0] === "version") return { ok: true, stdout: "28.0.0", stderr: "" };
     if (args[0] === "inspect") {
-      const container = containers.get(args[args.length - 1]);
-      if (!container) return { ok: false, stdout: "", stderr: "No such object" };
-      // A crash loop as Docker reports it: Running stays true through restart backoff while the
-      // status reads "restarting" and RestartCount climbs.
-      if (crashLoop && container.running) { container.status = "restarting"; container.restarts += 1; }
-      return { ok: true, stdout: JSON.stringify(container), stderr: "" };
+      // Like the real CLI: any number of names, one line each, found ones printed even when
+      // others are missing. The name is included only when the format asks for it.
+      const wantsName = String(args[2] ?? "").includes('"name"');
+      const lines = [];
+      for (const name of args.slice(3)) {
+        const container = containers.get(name);
+        if (!container) continue;
+        // A crash loop as Docker reports it: Running stays true through restart backoff while the
+        // status reads "restarting" and RestartCount climbs.
+        if (crashLoop && container.running) { container.status = "restarting"; container.restarts += 1; }
+        lines.push(JSON.stringify(wantsName ? { name: `/${name}`, ...container } : container));
+      }
+      if (!lines.length) return { ok: false, stdout: "", stderr: "No such object" };
+      return { ok: true, stdout: lines.join("\n"), stderr: "" };
     }
     if (args[0] === "logs") return { ok: true, stdout: "line1\npassword=hunter2", stderr: "" };
     if (args[0] === "compose") {
@@ -108,6 +116,33 @@ describe("generic app deployer", () => {
     // The sign-in link carries the page.
     const { applications } = await apps.inspect({});
     expect(applications.find((entry) => entry.id === "hole").urls).toEqual([{ id: "web", label: "web", host: 8084, exposure: "lan", path: "/admin/" }]);
+  });
+
+  it("a sidecar in a crash loop fails the health wait and shows on the card", async () => {
+    // qBittorrent "ran" for an hour while its VPN container crash-looped: the deploy that broke
+    // it passed the health check (which watched only the app container) and the card said
+    // Running. A sidecar that exists and is restarting or exited is the app being broken.
+    const { apps, catalogDirectory, containers } = await setup();
+    await writeFile(path.join(catalogDirectory, "tun2.yaml"), [
+      "schemaVersion: 2", "id: tun2", "name: Tun2", "category: T", "description: d",
+      "image:", "  reference: nginx:1.27",
+      "ports:", "  - id: web", "    container: 8080", "    host: 8095",
+      "env: []", "volumes: []",
+      "sidecars:", "  - id: vpn", "    image: gluetun:3",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n");
+    await apps.install({ id: "tun2", values: {} });
+
+    containers.set("bp-tun2-vpn", { running: true, status: "restarting", health: "none", restarts: 5, image: "sha256:vpn", startedAt: "x", exitCode: 1 });
+    const { applications } = await apps.inspect({ id: "tun2" });
+    expect(applications[0].sidecars).toEqual([{ id: "vpn", running: true, status: "restarting", restarts: 5 }]);
+    await expect(apps.reconfigure({ id: "tun2", values: {} }, { checkpoint: false })).rejects.toThrow(/vpn container keeps restarting \(5 times\)/);
+
+    containers.set("bp-tun2-vpn", { running: false, status: "exited", health: "none", restarts: 0, image: "sha256:vpn", startedAt: "x", exitCode: 1 });
+    await expect(apps.reconfigure({ id: "tun2", values: {} }, { checkpoint: false })).rejects.toThrow(/vpn container exited/);
+
+    containers.set("bp-tun2-vpn", { running: true, status: "running", health: "none", restarts: 0, image: "sha256:vpn", startedAt: "x", exitCode: 0 });
+    await expect(apps.reconfigure({ id: "tun2", values: {} }, { checkpoint: false })).resolves.toMatchObject({ reconfigured: true });
   });
 
   it("changing one setting leaves every other choice standing, secrets included", async () => {

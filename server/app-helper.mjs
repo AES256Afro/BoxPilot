@@ -127,6 +127,28 @@ export function createAppHelper({
       const status = await containerStatus(manifest.id);
       last = `${status.status}/${status.health}`;
       if (last !== reported) { progress?.(`container: ${last}`, "stdout"); reported = last; }
+      // A sidecar is part of the app: qBittorrent "ran" for an hour while its VPN container
+      // crash-looped, the deploy that broke it passed this check, and the card said Running.
+      // A sidecar in a crash loop or exited fails the wait; one that is merely not yet up
+      // resets the steady clock. Absent is not judged: the fake in tests and a mid-create
+      // moment both look absent, and compose up already vouched the container was created.
+      let sidecarsSettled = true;
+      for (const sidecar of manifest.sidecars ?? []) {
+        const helper = await containerStatus(`${manifest.id}-${sidecar.id}`);
+        if (!helper.exists) continue;
+        if (helper.running && helper.status === "restarting" && helper.restarts >= 2) {
+          const logs = await docker(["logs", "--tail", "20", projectNameFor(`${manifest.id}-${sidecar.id}`)], { timeout: 10_000 });
+          throw new Error(`The ${sidecar.id} container keeps restarting (${helper.restarts} times). Last log lines: ${redact(`${logs.stdout}\n${logs.stderr}`.trim()).slice(-600)}`);
+        }
+        if (["exited", "dead"].includes(helper.status)) {
+          const logs = await docker(["logs", "--tail", "20", projectNameFor(`${manifest.id}-${sidecar.id}`)], { timeout: 10_000 });
+          throw new Error(`The ${sidecar.id} container exited. Last log lines: ${redact(`${logs.stdout}\n${logs.stderr}`.trim()).slice(-600)}`);
+        }
+        if (!helper.running || helper.status === "restarting") sidecarsSettled = false;
+      }
+      // An unsettled sidecar blocks success below but never blocks noticing the app container
+      // itself exiting or looping; both problems are watched every poll.
+      if (!sidecarsSettled) stableSince = null;
       // Docker reports State.Running=true while a container sits in restart backoff, so "running"
       // alone is not running: a crash loop counted as steady for the whole backoff window and the
       // install declared the app up. Only the "running" status counts, and a second restart is a
@@ -139,13 +161,13 @@ export function createAppHelper({
         }
       } else if (status.running) {
         if (manifest.health.kind === "healthcheck") {
-          if (status.health === "healthy") return status;
+          if (status.health === "healthy" && sidecarsSettled) return status;
           if (status.health === "none") throw new Error("Manifest expects a container healthcheck but the image defines none");
         } else {
           if (lastRestarts !== null && status.restarts > lastRestarts) { stableSince = null; }
           lastRestarts = status.restarts;
-          stableSince ??= clock().getTime();
-          if (clock().getTime() - stableSince >= manifest.health.stableSeconds * 1000) return status;
+          if (sidecarsSettled) stableSince ??= clock().getTime();
+          if (stableSince !== null && clock().getTime() - stableSince >= manifest.health.stableSeconds * 1000) return status;
         }
       } else {
         stableSince = null;
@@ -322,11 +344,23 @@ export function createAppHelper({
    * One application's public shape. `known` lets a caller that has already established there is no
    * project directory skip both the state read and the container lookup.
    */
-  async function describe(manifest, status = null, known = undefined) {
+  async function describe(manifest, status = null, known = undefined, batch = null) {
     const state = known ? known.state : await readState(manifest.id);
     if (!status && !known) status = await containerStatus(manifest.id);
     if (!status) status = { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null, startedAt: null };
+    // The vpn container restarting IS the app being broken; saying "Running" because the app
+    // container is up hid exactly that. Only sidecars that exist are reported.
+    let sidecars = [];
+    if ((manifest.sidecars ?? []).length && state?.installed) {
+      const wanted = manifest.sidecars.map((sidecar) => `${manifest.id}-${sidecar.id}`);
+      const looked = batch ?? await containerStatuses(wanted);
+      sidecars = manifest.sidecars
+        .map((sidecar) => ({ id: sidecar.id, ...(looked.get(`${manifest.id}-${sidecar.id}`) ?? { exists: false }) }))
+        .filter((entry) => entry.exists)
+        .map((entry) => ({ id: entry.id, running: entry.running, status: entry.status, restarts: entry.restarts ?? 0 }));
+    }
     return {
+      sidecars,
       id: manifest.id,
       installed: Boolean(state && state.installed),
       dataPresent: Boolean(state),
@@ -370,9 +404,9 @@ export function createAppHelper({
     // any number of names, so ask about the recently-touched ids too.
     const known = present === null ? null : new Set([...present, ...recentlyTouched]);
     const candidates = known === null ? selected : selected.filter((manifest) => known.has(manifest.id));
-    const statuses = await containerStatuses(candidates.map((manifest) => manifest.id));
+    const statuses = await containerStatuses(candidates.flatMap((manifest) => [manifest.id, ...(manifest.sidecars ?? []).map((sidecar) => `${manifest.id}-${sidecar.id}`)]));
     const described = await Promise.all(selected.map((manifest) => (known === null || known.has(manifest.id)
-      ? describe(manifest, statuses.get(manifest.id))
+      ? describe(manifest, statuses.get(manifest.id), undefined, statuses)
       : describe(manifest, undefined, { state: null }))));
     const readProblems = present === null ? [...problems, { file: root, errors: ["The application directory could not be read, so installed state is unknown"] }] : problems;
     return { applications: described, problems: readProblems, catalogRoot: root };

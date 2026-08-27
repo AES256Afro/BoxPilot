@@ -81,6 +81,20 @@ describe("App catalog", () => {
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
   });
 
+  it("says a helper container is broken instead of a green Running", async () => {
+    // A VPN sidecar crash-looped for an hour behind a green "Running" pill; the app container
+    // being up is not the app working when the container it routes through is down.
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest, live: { id: "jellyfin", installed: true, dataPresent: true, state: { installedAt: "x", updatedAt: "x", manifestSha256: "abc", image: { reference: "jellyfin/jellyfin:10.10.7", id: "sha256:1" }, values: { ports: { web: 8096 }, env: {}, volumes: {} }, pinnedRollback: false, uninstalledAt: null }, container: { exists: true, running: true, status: "running", health: "healthy", restarts: 0, image: "sha256:1" }, sidecars: [{ id: "vpn", running: true, status: "restarting", restarts: 5 }], urls: [{ id: "web", label: "Web UI", host: 8096, exposure: "lan" }] } }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppCatalog csrfToken="csrf-token" />);
+    expect(await screen.findByText("Running · vpn is restarting")).toBeTruthy();
+    expect(screen.queryByText(/^Running$/)).toBeNull();
+  });
+
   it("browses a backup's files and stages a single-file restore", async () => {
     const staged: string[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
