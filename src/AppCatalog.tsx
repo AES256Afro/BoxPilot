@@ -182,6 +182,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [error, setError] = useState<string | null>(null);
   const [config, setConfig] = useState<{ manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure" } | null>(null);
   const [logs, setLogs] = useState<{ id: string; lines: string[] } | null>(null);
+  const [reachability, setReachability] = useState<{ id: string; checking: boolean; headline: string | null; addresses: Array<{ kind: string; url: string; portLabel: string | null; outcome: string; verdict: string | null; note: string | null }> } | null>(null);
   const [models, setModels] = useState<{ id: string; name: string; available: boolean; reason: string | null; rows: Array<{ name: string; id: string; size: string; modified: string; bytes: number }>; wanted: string; loading: boolean } | null>(null);
   const [effectiveConfig, setEffectiveConfig] = useState<{ id: string; name: string; compose: string | null; env: Array<{ name: string; value: string; secret: boolean }>; directory: string } | null>(null);
   const [composeDraft, setComposeDraft] = useState<string | null>(null);
@@ -236,6 +237,19 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
       setLogs({ id, lines: body.result?.lines ?? [] });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read logs");
+    }
+  };
+
+  const checkReachability = async (id: string) => {
+    setReachability({ id, checking: true, headline: null, addresses: [] });
+    try {
+      const response = await fetch("/api/v1/operations/app.reachability.inspect/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id } }) });
+      const body = (await response.json().catch(() => ({}))) as { result?: { headline: string | null; addresses: Array<{ kind: string; url: string; portLabel: string | null; outcome: string; verdict: string | null; note: string | null }> }; error?: string };
+      if (!response.ok || !body.result) throw new Error(body.error ?? "The check could not run");
+      setReachability({ id, checking: false, headline: body.result.headline ?? null, addresses: body.result.addresses ?? [] });
+    } catch (requestError) {
+      setReachability(null);
+      setError(requestError instanceof Error ? requestError.message : "The check could not run");
     }
   };
 
@@ -434,6 +448,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                 {installed && <button className={live?.updateAvailable ? "primary-button" : "secondary-button"} type="button" onClick={() => start({ operationId: "app.update", title: `Update ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>{live?.updateAvailable ? <>Updates from <code>{live.installedImage}</code> to <code>{manifest.image.reference}</code>. </> : null}Pulls the image and recreates the container. The previous image is restored if the new one fails to become healthy.</span> })}>{live?.updateAvailable ? "Update available" : "Update"}</button>}
                 {installed && manifest.modelRunner && <button className="secondary-button" type="button" onClick={() => void showModels(manifest)}>Models</button>}
                 {installed && <button className="text-button" type="button" onClick={() => void showLogs(manifest.id)}>Logs</button>}
+                {installed && <button className="text-button" type="button" onClick={() => void checkReachability(manifest.id)}>Can't reach it?</button>}
                 {installed && <button className="text-button" type="button" onClick={() => void showEffectiveConfig(manifest.id)}>Config</button>}
                 {installed && <button className="text-button" type="button" onClick={() => start({ operationId: "app.backup", title: `Back up ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Stops {manifest.name} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.{manifest.volumes.some((volume) => volume.hostPath) ? <> Your own folders ({manifest.volumes.filter((volume) => volume.hostPath).map((volume) => volume.hostPath).join(", ")}) are <strong>not</strong> included.</> : null}</span> })}>Back up</button>}
                 {installed && manifest.id === "homepage" && <button className="text-button" type="button" onClick={() => start({ operationId: "homepage.sync", title: "Sync Homepage with installed apps", parameters: { host: window.location.hostname }, preview: <span>Writes a <strong>BoxPilot</strong> group into Homepage's <code>services.yaml</code> with every installed app, links via <code>{window.location.hostname}</code>, descriptions, icons, and live container status. Groups you wrote yourself are kept. Repeats by itself after installs and uninstalls.</span> })}>Sync dashboard</button>}
@@ -491,6 +506,33 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="logs-title" onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Logs</span><h2 id="logs-title">{logs.id}</h2></div><button className="icon-button" type="button" onClick={() => setLogs(null)} aria-label="Close dialog">X</button></header>
             <pre className="app-logs">{logs.lines.join("\n") || "(no output)"}</pre>
+          </section>
+        </div>
+      )}
+
+      {reachability && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setReachability(null)}>
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="reach-title" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="modal-header"><div><span className="eyebrow">Reachability</span><h2 id="reach-title">{reachability.id}</h2></div><button className="icon-button" type="button" onClick={() => setReachability(null)} aria-label="Close dialog">X</button></header>
+            {reachability.checking ? <p className="muted">Asking each address, from the server itself...</p> : (
+              <div className="reach-report">
+                {reachability.headline && <div className="auth-error" role="alert">{reachability.headline}</div>}
+                {!reachability.headline && reachability.addresses.length === 0 && <p className="muted">This app has no web addresses to check.</p>}
+                <ul className="reach-list">
+                  {reachability.addresses.map((address) => (
+                    <li key={address.url} className={`reach-${address.outcome}`}>
+                      <span className="reach-mark" aria-hidden="true">{address.outcome === "answered" ? "✓" : address.outcome === "not-probed" ? "·" : "✕"}</span>
+                      <div>
+                        <code>{address.url}</code>{address.portLabel ? <span className="muted"> · {address.portLabel}</span> : null}
+                        {address.verdict && <p>{address.verdict}</p>}
+                        {address.note && address.outcome !== "not-probed" && <p className="muted">{address.note}</p>}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                <p className="muted">Checked from the server itself; a device on your network can still be blocked by something between it and the server.</p>
+              </div>
+            )}
           </section>
         </div>
       )}

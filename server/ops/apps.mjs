@@ -1,5 +1,6 @@
 import { defineOperation } from "./registry.mjs";
 import { parseServeStatus } from "../tailscale-serve.mjs";
+import { composeVerdicts, planProbes } from "../reachability.mjs";
 
 export { parseServeStatus };
 
@@ -61,6 +62,20 @@ export function appOperations() {
         ]);
         if (!stats.ok) return { available: false, stats: {} };
         return { available: true, stats: aggregateAppStats(parseDockerStats(stats.stdout), applications.map((application) => application.id)) };
+      },
+    }),
+    defineOperation({
+      id: "app.reachability.inspect", title: "Check how an app can be reached", risk: "low", readOnly: true, timeoutMs: 60_000,
+      description: "Walks the path a browser walks: is the app and every helper container running, which addresses hold its ports after the exposure choice, does each one actually answer, and which address forms a browser refuses outright. Probes run from the server itself. Nothing is changed.",
+      parameters: { fields: { id: idField } },
+      run: async (parameters, { apps, runUnit, jobLog }) => {
+        const facts = await apps.reachabilityFacts({ id: parameters.id });
+        const plan = planProbes(facts, facts.serves);
+        const wanted = plan.filter((address) => address.probe).map((address) => ({ id: address.id, url: address.url }));
+        const probed = wanted.length
+          ? await runUnit.runTask("app.reachability.probe", { probes: wanted }, { timeoutMs: 45_000, logPath: jobLog?.path ?? null })
+          : { results: [] };
+        return composeVerdicts(plan, probed.results ?? [], facts);
       },
     }),
     defineOperation({

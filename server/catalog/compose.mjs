@@ -84,7 +84,7 @@ export async function resolveDevices(patterns, listDirectory) {
  * by design stays where it is. Without a tailnet address to move to there is nothing better than
  * the LAN binding, and taking the port away entirely would be worse than leaving it.
  */
-function bindingFor(port, appExposure, { lanAddress, tailnetAddress }) {
+export function bindingFor(port, appExposure, { lanAddress, tailnetAddress }) {
   if (port.exposure === "loopback") return { bind: "127.0.0.1", exposure: "loopback" };
   if (appExposure !== "tailnet") return { bind: lanAddress, exposure: port.exposure };
   const mode = port.tailnet ?? "serve";

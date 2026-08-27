@@ -197,7 +197,7 @@ COLOR_MAP = {
 }
 
 # Sort by length descending so longer matches win
- replacements = sorted(COLOR_MAP.items(), key=lambda x: len(x[0]), reverse=True)
+replacements = sorted(COLOR_MAP.items(), key=lambda x: len(x[0]), reverse=True)
 
 for old, new in replacements:
     css = css.replace(old, new)
