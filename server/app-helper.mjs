@@ -486,7 +486,20 @@ export function createAppHelper({
     const manifest = await ensureManifest(id);
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
-    const { values, errors } = resolveValues(manifest, rawValues);
+    // What is not being changed stays as it is. A caller that only flips one thing (the exposure
+    // toggle) used to reset everything else to catalog defaults: the owner's VPN provider, their
+    // folders, their ports, all silently gone. The stored values are the baseline; the request
+    // overrides only what it names.
+    const stored = state.values ?? {};
+    const merged = {
+      ports: { ...stored.ports, ...rawValues.ports },
+      env: { ...stored.env, ...rawValues.env },
+      volumes: { ...stored.volumes, ...rawValues.volumes },
+      setup: rawValues.setup ?? stored.setup,
+      exposure: rawValues.exposure ?? stored.exposure,
+      networkMode: rawValues.networkMode ?? stored.networkMode,
+    };
+    const { values, errors } = resolveValues(manifest, merged);
     if (errors.length) throw new Error(`Invalid settings: ${errors.join("; ")}`);
     const saved = takeCheckpoint ? await checkpoint({ id, reason: "settings change" }, { progress }) : null;
     const previousCompose = await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => null);
