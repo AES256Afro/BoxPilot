@@ -176,6 +176,7 @@ state.deleteExpiredSessions();
 const interruptedJobs = state.recoverInterruptedJobs();
 const scheduler = createSchedulerService({ store: state, jobs });
 const flows = createFlowService({ store: state, jobs });
+flows.start();
 scheduler.start();
 const setup = createSetupService({ helper, scheduler });
 const notifications = createNotificationService({ store: state });

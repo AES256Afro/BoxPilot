@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createFlowService, flowRisk, validateFlow } from "./flows.mjs";
+import { computeNextRun } from "./scheduler.mjs";
 
 /**
  * Flows are ADR-002: chains of registered operations, each step an ordinary job, the chain
@@ -12,22 +13,24 @@ function fakeStore() {
   const audits = [];
   return {
     flows, jobs, audits,
-    createFlow({ name, steps, createdBy }) {
-      const flow = { id: `flow-${flows.size + 1}`, name, steps, createdBy, createdAt: "2026-08-26T00:00:00Z", updatedAt: "2026-08-26T00:00:00Z", lastRunAt: null, lastResult: null, lastJobIds: [] };
+    createFlow({ name, steps, createdBy, frequency = null, minute = null, hour = null, weekday = null, nextDueAt = null }) {
+      const flow = { id: `flow-${flows.size + 1}`, name, steps, createdBy, createdAt: "2026-08-26T00:00:00Z", updatedAt: "2026-08-26T00:00:00Z", lastRunAt: null, lastResult: null, lastJobIds: [], frequency, minute, hour, weekday, enabled: true, nextDueAt };
       flows.set(flow.id, flow);
       return flow;
     },
     getFlow: (id) => flows.get(id) ?? null,
     listFlows: () => [...flows.values()],
-    updateFlow(id, { name, steps }) {
+    updateFlow(id, changes) {
       const flow = flows.get(id);
-      Object.assign(flow, { name: name ?? flow.name, steps: steps ?? flow.steps });
+      for (const [key, value] of Object.entries(changes)) if (value !== undefined) flow[key] = value;
       return flow;
     },
     markFlowRun(id, { result, jobIds }) { Object.assign(flows.get(id), { lastResult: result, lastJobIds: jobIds, lastRunAt: "now" }); },
     deleteFlow(id) { if (!flows.delete(id)) throw new Error("Flow not found"); },
     getJob: (id) => jobs.get(id) ?? null,
     getSetting: () => null,
+    findOwnerById: (id) => ({ id, username: id, role: id.startsWith("viewer") ? "viewer" : "owner" }),
+    listDueFlows(nowIso) { return [...flows.values()].filter((flow) => flow.enabled !== false && flow.nextDueAt && flow.nextDueAt <= nowIso); },
     recordAudit: (event, detail) => audits.push({ event, ...detail }),
   };
 }
@@ -159,5 +162,67 @@ describe("the step palette", () => {
     expect(ids).not.toContain("app.backup"); // requires an app id
     expect(ids).not.toContain("app.inspect"); // read-only
     expect(palette.every((step) => step.title && step.risk)).toBe(true);
+  });
+});
+
+describe("a flow on the clock", () => {
+  const at = (iso) => () => new Date(iso);
+
+  it("stores a schedule the scheduler itself would accept, with the next firing computed", async () => {
+    const store = fakeStore();
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, now: at("2026-08-26T10:00:00.000Z") });
+    const flow = await service.create({ name: "Update night", steps: goodSteps, createdBy: "owner-1", cadence: { frequency: "weekly", minute: 0, hour: 3, weekday: 0 } });
+    expect(flow.frequency).toBe("weekly");
+    // Cadences are local wall-clock times, which is what an owner means by "3am"; the scheduler's
+    // own tests own computeNextRun's arithmetic, so this only pins that flows store its answer.
+    const expected = computeNextRun({ frequency: "weekly", minute: 0, hour: 3, weekday: 0 }, new Date("2026-08-26T10:00:00.000Z"));
+    expect(flow.nextDueAt).toBe(expected.toISOString());
+    expect(new Date(flow.nextDueAt).getDay()).toBe(0);
+    expect(new Date(flow.nextDueAt) > new Date("2026-08-26T10:00:00.000Z")).toBe(true);
+    await expect(service.create({ name: "x", steps: goodSteps, createdBy: "owner-1", cadence: { frequency: "sometimes", minute: 0 } })).rejects.toThrow();
+  });
+
+  it("runs a due flow under its creator's authority and advances the clock first", async () => {
+    const store = fakeStore();
+    const jobs = fakeJobs(store);
+    const service = createFlowService({ store, jobs, pollMs: 2, now: at("2026-08-30T03:00:30.000Z") });
+    const flow = await service.create({ name: "Update night", steps: [goodSteps[0]], createdBy: "owner-1", cadence: { frequency: "weekly", minute: 0, hour: 3, weekday: 0 } });
+    store.flows.get(flow.id).nextDueAt = "2026-08-30T03:00:00.000Z";
+
+    const fired = await service.tick();
+    expect(fired).toBe(1);
+    expect(jobs.calls[0]).toMatchObject({ operationId: "controller.backup.create", actorId: "owner-1", role: "owner" });
+    expect(store.getFlow(flow.id).lastResult).toBe("completed");
+    // advanced beyond the firing time, so a slow run cannot fire again next tick
+    expect(store.getFlow(flow.id).nextDueAt > "2026-08-30T03:00:30.000Z").toBe(true);
+    expect(store.audits.some((audit) => audit.event === "flow.scheduled-run")).toBe(true);
+  });
+
+  it("skips rather than runs when the creator can no longer approve jobs", async () => {
+    const store = fakeStore();
+    const jobs = fakeJobs(store);
+    const service = createFlowService({ store, jobs, pollMs: 2, now: at("2026-08-30T03:01:00.000Z") });
+    const flow = await service.create({ name: "x", steps: [goodSteps[0]], createdBy: "viewer-9", cadence: { frequency: "daily", minute: 0, hour: 3 } });
+    store.flows.get(flow.id).nextDueAt = "2026-08-30T03:00:00.000Z";
+
+    await service.tick();
+    expect(jobs.calls).toEqual([]);
+    expect(store.getFlow(flow.id).lastResult).toMatch(/skipped: viewer-9 can no longer approve/);
+    expect(store.audits.some((audit) => audit.event === "flow.skipped")).toBe(true);
+  });
+
+  it("does not fire a disabled flow, and re-enabling reckons the clock afresh", async () => {
+    const store = fakeStore();
+    const jobs = fakeJobs(store);
+    const service = createFlowService({ store, jobs, pollMs: 2, now: at("2026-09-15T10:00:00.000Z") });
+    const flow = await service.create({ name: "x", steps: [goodSteps[0]], createdBy: "owner-1", cadence: { frequency: "weekly", minute: 0, hour: 3, weekday: 0 } });
+    store.flows.get(flow.id).nextDueAt = "2026-08-30T03:00:00.000Z"; // a month overdue
+    await service.update(flow.id, { enabled: false }, "owner-1", { role: "owner" });
+    expect(await service.tick()).toBe(0);
+
+    await service.update(flow.id, { enabled: true }, "owner-1", { role: "owner" });
+    // the missed Sundays are not made up; the next firing is in the future
+    expect(store.getFlow(flow.id).nextDueAt > "2026-09-15T10:00:00.000Z").toBe(true);
+    expect(await service.tick()).toBe(0);
   });
 });

@@ -430,3 +430,40 @@ describe("the bootstrap token", () => {
     expect(store.bootstrapTokenUsable(token)).toBe(false);
   });
 });
+
+describe("flows storage", () => {
+  it("gives a v1.33.0 flows table its cadence columns without losing the flows in it", async () => {
+    // v1.33.0 shipped flows without a clock; a live server already has that table. Reopening the
+    // database must add the columns the way owners once gained `role`, and the flow that was
+    // there must come back enabled with no cadence rather than mangled.
+    const { DatabaseSync } = await import("node:sqlite");
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-state-flows-"));
+    const databasePath = path.join(directory, "boxpilot.sqlite3");
+    const old = new DatabaseSync(databasePath);
+    old.exec(`
+      CREATE TABLE owners (id TEXT PRIMARY KEY, username TEXT, password_hash TEXT, created_at TEXT);
+      CREATE TABLE flows (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, steps_json TEXT NOT NULL,
+        created_by TEXT NOT NULL REFERENCES owners(id),
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        last_run_at TEXT, last_result TEXT, last_job_ids_json TEXT
+      );
+      INSERT INTO owners (id, username, password_hash, created_at) VALUES ('o1', 'alex', 'x', '2026-08-26T00:00:00Z');
+      INSERT INTO flows (id, name, steps_json, created_by, created_at, updated_at)
+        VALUES ('f1', 'Update night', '[{"operationId":"apt.upgrade","parameters":{}}]', 'o1', '2026-08-26T00:00:00Z', '2026-08-26T00:00:00Z');
+    `);
+    old.close();
+
+    const store = createStateStore({ databasePath, stateDirectory: directory });
+    const flow = store.getFlow("f1");
+    expect(flow).toMatchObject({ name: "Update night", enabled: true, frequency: null, nextDueAt: null });
+    expect(flow.steps).toEqual([{ operationId: "apt.upgrade", parameters: {} }]);
+    // and the new columns are live, not decorative
+    store.updateFlow("f1", { frequency: "weekly", minute: 0, hour: 3, weekday: 0, nextDueAt: "2026-08-30T03:00:00.000Z" });
+    expect(store.listDueFlows("2026-08-30T03:00:01.000Z").map((entry) => entry.id)).toEqual(["f1"]);
+    expect(store.listDueFlows("2026-08-29T00:00:00.000Z")).toEqual([]);
+    store.updateFlow("f1", { enabled: false });
+    expect(store.listDueFlows("2026-08-30T03:00:01.000Z")).toEqual([]);
+    await rm(directory, { recursive: true, force: true });
+  });
+});
