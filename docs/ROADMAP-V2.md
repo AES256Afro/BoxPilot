@@ -378,8 +378,15 @@ its network, use a generic HTTP step for everything else, and hand SaaS breadth 
 - **M13.7** **Reaching outward: an HTTP step and a credential store.** The generic connector that
   makes "manage systems in or out of the server" true. Credentials follow the `secret: true`
   pattern that already keeps share and router passwords out of the database.
-- **M13.8** **Durability.** Retries with backoff, per-step timeouts, and a flow that survives BoxPilot
-  restarting mid-run — the job rows persist today, a half-finished flow does not.
+- ◐ **M13.8** **Durability.** (v1.47.0) A step may carry up to three retries for transient
+  failures (the shelf's Update night retries apt.upgrade once, for the classic overnight apt
+  lock); each attempt is its own recorded job, the run's slot keeps the attempt that counted, and
+  the record says "succeeded on attempt 2 of 2". Only a job that ran and failed retries: staging
+  refusals are deterministic, a cancellation was a decision, a lost-sight step may still be
+  running. And a record stranded by a BoxPilot restart mid-run ("running step 2 of 3" forever) is
+  rewritten at startup to say it was interrupted, what to check, and that later steps did not run,
+  with a notification. Remaining: resuming an interrupted flow from the step it reached, which
+  needs run state persisted per step rather than inferred.
 - **M13.9** **Remote targets.** Run a step on another machine over SSH or the tailnet, so one flow can
   drive several boxes. This is where "manage other systems" stops meaning "call their API".
 - **M13.10** **The editor.** Deliberately late. Building a canvas before the data model has settled
