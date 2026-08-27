@@ -238,6 +238,11 @@ export const inspections = {
   ] },
   "app.config.inspect": { id: "homepage", name: "Homepage", directory: "/var/lib/boxpilot-managed/catalog/homepage", compose: "name: bp-homepage\nservices:\n  homepage:\n    image: ghcr.io/gethomepage/homepage:v1.5.0\n    restart: unless-stopped\n    ports:\n      - 192.168.1.10:3000:3000\n", env: [{ name: "HOMEPAGE_ALLOWED_HOSTS", value: "*", secret: false }, { name: "PUID", value: "1000", secret: false }, { name: "SECRET", value: "********", secret: true }] },
   // Every dialog the interface can open needs an answer here; see scripts/demo-fixtures.test.mjs.
+  "app.reachability.inspect": { headline: null, probedFrom: "this server", addresses: [
+    { id: "probe-0", portId: "web", portLabel: "Web UI", kind: "lan", url: "http://192.168.1.10:8096", probe: true, note: null, outcome: "answered", status: 200, ms: 14, verdict: "Answers (HTTP 200 in 14ms)." },
+    { id: "probe-1", portId: "web", portLabel: "Web UI", kind: "tailnet", url: "http://100.101.102.103:8096", probe: true, note: "In a browser on your tailnet, use http://homebox:<port> (the short name; the full ts.net name only works for https through Serve).", outcome: "answered", status: 200, ms: 21, verdict: "Answers (HTTP 200 in 21ms)." },
+    { id: "probe-2", portId: null, portLabel: null, kind: "browser-rule", url: "http://homebox.tail0a1b.ts.net:<port>", probe: false, note: "Browsers refuse this form outright: ts.net is on their built-in HSTS preload list, so plain http on the full name is rewritten to https and nothing answers. Use the short name or the Serve address.", outcome: "not-probed", verdict: "Browsers refuse this form outright: ts.net is on their built-in HSTS preload list, so plain http on the full name is rewritten to https and nothing answers. Use the short name or the Serve address." },
+  ] },
   "app.logs": { id: "jellyfin", lines: [
     "[2026-08-25 06:12:04] [INF] Startup complete 00:00:07.2118863",
     "[2026-08-25 06:12:09] [INF] Loading library db",
@@ -607,6 +612,10 @@ const troubleRest = {
   "/flows": (body) => ({ ...body, flows: body.flows.map((flow, index) => (index === 0
     ? { ...flow, lastResult: "stopped at step 3 (Install package updates): apt-get upgrade failed: E: Could not get lock /var/lib/dpkg/lock-frontend" }
     : flow)) }),
+  // In the unwell world the doctor finds what the owner would: the LAN side dropped by a firewall.
+  "/operations/app.reachability.inspect/run": (body) => ({ ...body, result: { ...body.result, addresses: (body.result.addresses ?? []).map((address) => (address.kind === "lan"
+    ? { ...address, outcome: "timeout", status: undefined, ms: 4000, verdict: "The connection was silently dropped, which is what a firewall in the path looks like. The probe ran from the server itself, so the block is on this machine or inside the app's own network." }
+    : address)) } }),
   // The failed flow's third step, opened from "What the last run did", must agree with the story.
   // Installed but unwell includes an app whose helper container is looping: the card must say
   // so instead of a green Running. Immich's database sidecar plays the patient.

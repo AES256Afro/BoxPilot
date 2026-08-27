@@ -11,7 +11,7 @@ import YAML from "yaml";
 import { fixedRun } from "./exec.mjs";
 import { parseServeStatus } from "./tailscale-serve.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
-import { deviceMatchesPattern, renderCompose, projectNameFor, resolveDevices } from "./catalog/compose.mjs";
+import { bindingFor, deviceMatchesPattern, renderCompose, projectNameFor, resolveDevices } from "./catalog/compose.mjs";
 import { isDeniedHostPath } from "./catalog/schema.mjs";
 import { resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
 
@@ -666,6 +666,49 @@ export function createAppHelper({
     return address;
   }
 
+  /** This server's tailnet machine name (bigbox.tail...ts.net), or null without Tailscale. */
+  let tailnetDnsNameCache;
+  async function tailnetDnsName() {
+    if (tailnetDnsNameCache !== undefined) return tailnetDnsNameCache;
+    const result = await runCommand(tailscaleBinary, ["status", "--json"], { timeout: 15_000, maxBuffer: 4 * 1024 * 1024 }).catch(() => ({ ok: false, stdout: "" }));
+    try { tailnetDnsNameCache = result.ok ? (JSON.parse(result.stdout).Self?.DNSName ?? "").replace(/\.$/, "") || null : null; } catch { tailnetDnsNameCache = null; }
+    return tailnetDnsNameCache;
+  }
+
+  /**
+   * What the reachability doctor needs to know before it probes anything: the app's containers,
+   * the addresses its ports actually live on after the exposure choice, and this host's own
+   * names. All of it from this helper's own records and Tailscale's answers, nothing guessed.
+   */
+  async function reachabilityFacts({ id }) {
+    const manifest = await ensureManifest(id);
+    const state = await readState(id);
+    const status = await containerStatus(id);
+    const sidecarNames = (manifest.sidecars ?? []).map((sidecar) => `${id}-${sidecar.id}`);
+    const looked = state?.installed && sidecarNames.length ? await containerStatuses(sidecarNames) : new Map();
+    const sidecars = (manifest.sidecars ?? [])
+      .map((sidecar) => ({ id: sidecar.id, ...(looked.get(`${id}-${sidecar.id}`) ?? { exists: false }) }))
+      .filter((entry) => entry.exists)
+      .map((entry) => ({ id: entry.id, running: entry.running, status: entry.status, restarts: entry.restarts ?? 0 }));
+    const serveResult = await runCommand(tailscaleBinary, ["serve", "status", "--json"], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 }).catch(() => ({ ok: false, stdout: "" }));
+    const serves = serveResult.ok ? parseServeStatus(serveResult.stdout) : [];
+    const tailnet = await tailnetAddress();
+    const hostNetworked = (state?.values?.networkMode ?? manifest.network) === "host";
+    const ports = manifest.ports.filter((port) => port.protocol !== "udp").map((port) => {
+      const host = hostNetworked ? port.container : state?.values?.ports?.[port.id] ?? port.host;
+      const { exposure } = bindingFor(port, state?.values?.exposure ?? "lan", { lanAddress, tailnetAddress: tailnet });
+      return { id: port.id, label: port.label, host, exposure, protocol: port.protocol };
+    });
+    return {
+      installed: Boolean(state?.installed),
+      running: status.running && status.status === "running",
+      sidecars, ports, serves,
+      lanAddress: lanAddress && lanAddress !== "0.0.0.0" ? lanAddress : null,
+      tailnetAddress: tailnet,
+      tailnetDnsName: await tailnetDnsName(),
+    };
+  }
+
   /** Local ports Tailscale Serve publishes over HTTPS right now; empty when Tailscale is absent. */
   async function servedPorts() {
     const result = await runCommand(tailscaleBinary, ["serve", "status", "--json"], { timeout: 15_000, maxBuffer: 2 * 1024 * 1024 }).catch(() => ({ ok: false, stdout: "" }));
@@ -1129,5 +1172,5 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { syncHomepage, inspect, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, reachabilityFacts, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

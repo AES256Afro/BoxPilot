@@ -81,6 +81,29 @@ describe("App catalog", () => {
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
   });
 
+  it("answers \"Can't reach it?\" with a verdict per address, from the doctor's op", async () => {
+    const report = { headline: null, probedFrom: "this server", addresses: [
+      { id: "probe-0", portId: "web", portLabel: "Web UI", kind: "lan", url: "http://192.168.1.10:8096", probe: true, note: null, outcome: "answered", status: 200, ms: 14, verdict: "Answers (HTTP 200 in 14ms)." },
+      { id: "probe-1", portId: "web", portLabel: "Web UI", kind: "tailnet", url: "http://100.64.0.9:8096", probe: true, note: null, outcome: "timeout", ms: 4000, verdict: "The connection was silently dropped, which is what a firewall in the path looks like." },
+    ] };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest, live: { id: "jellyfin", installed: true, dataPresent: true, state: { installedAt: "x", updatedAt: "x", manifestSha256: "abc", image: { reference: "jellyfin/jellyfin:10.10.7", id: "sha256:1" }, values: { ports: { web: 8096 }, env: {}, volumes: {} }, pinnedRollback: false, uninstalledAt: null }, container: { exists: true, running: true, status: "running", health: "healthy", restarts: 0, image: "sha256:1" }, urls: [{ id: "web", label: "Web UI", host: 8096, exposure: "lan" }] } }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      if (url === "/api/v1/operations/app.reachability.inspect/run") {
+        expect(JSON.parse(String(init?.body))).toEqual({ parameters: { id: "jellyfin" } });
+        return json({ operation: "app.reachability.inspect", result: report });
+      }
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppCatalog csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Can't reach it?" }));
+    expect(await screen.findByText("Answers (HTTP 200 in 14ms).")).toBeTruthy();
+    expect(screen.getByText(/silently dropped/)).toBeTruthy();
+    // Once in the card's address list, once in the doctor's report.
+    expect(screen.getAllByText("http://192.168.1.10:8096").length).toBeGreaterThanOrEqual(2);
+  });
+
   it("says a helper container is broken instead of a green Running", async () => {
     // A VPN sidecar crash-looped for an hour behind a green "Running" pill; the app container
     // being up is not the app working when the container it routes through is down.
