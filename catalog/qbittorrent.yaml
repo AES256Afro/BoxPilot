@@ -83,6 +83,13 @@ env:
   - name: SERVER_COUNTRIES
     label: Preferred countries
     description: Comma-separated, for example Netherlands,Switzerland. Leave empty to let the provider choose.
+  - name: VPN_PORT_FORWARDING
+    label: Seeding port forwarding
+    description: Asks the VPN for a port other peers can reach you on, which improves seeding. Proton supports it (paid plans); most other providers here do not. The card shows the port once the tunnel has one; paste it into qBittorrent under Tools, Options, Connection.
+    default: "off"
+    options:
+      - "off"
+      - "on"
 sidecars:
   - id: vpn
     image: qmcgaw/gluetun:v3.41.3
@@ -103,6 +110,7 @@ sidecars:
       # Gluetun's firewall drops inbound connections it was not told about, which locked the
       # web UI to the box itself: reachable from bigbox, a timeout from every other machine.
       FIREWALL_INPUT_PORTS: ${PORT_WEB}
+      VPN_PORT_FORWARDING: ${VPN_PORT_FORWARDING}
       # Written where the mounted volume is, so the log stops carrying a permission-denied ERROR
       # about caching the public IP under /tmp.
       PUBLICIP_FILE: /gluetun/ip

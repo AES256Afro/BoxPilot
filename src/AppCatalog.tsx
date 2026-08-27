@@ -185,7 +185,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [error, setError] = useState<string | null>(null);
   const [config, setConfig] = useState<{ manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure" } | null>(null);
   const [logs, setLogs] = useState<{ id: string; container: string | null; lines: string[] } | null>(null);
-  const [tunnels, setTunnels] = useState<Record<string, { running: boolean; exit: { ip: string; location: string | null } | null }>>({});
+  const [tunnels, setTunnels] = useState<Record<string, { running: boolean; exit: { ip: string; location: string | null } | null; forwardedPort: number | null }>>({});
   const [reachability, setReachability] = useState<{ id: string; checking: boolean; headline: string | null; addresses: Array<{ kind: string; url: string; portLabel: string | null; outcome: string; verdict: string | null; note: string | null }> } | null>(null);
   const [models, setModels] = useState<{ id: string; name: string; available: boolean; reason: string | null; rows: Array<{ name: string; id: string; size: string; modified: string; bytes: number }>; wanted: string; loading: boolean } | null>(null);
   const [effectiveConfig, setEffectiveConfig] = useState<{ id: string; name: string; compose: string | null; env: Array<{ name: string; value: string; secret: boolean }>; directory: string } | null>(null);
@@ -241,8 +241,8 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
     for (const entry of tunneled) {
       try {
         const response = await fetch("/api/v1/operations/app.vpn.inspect/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id: entry.manifest.id } }) });
-        const body = (await response.json().catch(() => ({}))) as { result?: { tunneled: boolean; running?: boolean; exit?: { ip: string; location: string | null } | null } };
-        if (response.ok && body.result?.tunneled) setTunnels((current) => ({ ...current, [entry.manifest.id]: { running: body.result?.running ?? false, exit: body.result?.exit ?? null } }));
+        const body = (await response.json().catch(() => ({}))) as { result?: { tunneled: boolean; running?: boolean; exit?: { ip: string; location: string | null } | null; forwardedPort?: number | null } };
+        if (response.ok && body.result?.tunneled) setTunnels((current) => ({ ...current, [entry.manifest.id]: { running: body.result?.running ?? false, exit: body.result?.exit ?? null, forwardedPort: body.result?.forwardedPort ?? null } }));
       } catch { /* the pill already covers a broken tunnel; the exit line is a bonus */ }
     }
   }, [csrfToken]);
@@ -390,7 +390,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
               </header>
               <p>{manifest.description}</p>
               {installed && manifest.networkVia && tunnels[manifest.id]?.exit && tunnels[manifest.id].running && (
-                <p className="muted app-stats">VPN exit: {tunnels[manifest.id].exit?.location ?? "unknown place"} · {tunnels[manifest.id].exit?.ip}</p>
+                <p className="muted app-stats">VPN exit: {tunnels[manifest.id].exit?.location ?? "unknown place"} · {tunnels[manifest.id].exit?.ip}{tunnels[manifest.id].forwardedPort ? ` · forwarded port ${tunnels[manifest.id].forwardedPort} (set it under Tools, Options, Connection)` : ""}</p>
               )}
               {installed && stats?.[manifest.id] && (
                 <p className="muted app-stats">CPU {stats[manifest.id].cpuPercent.toFixed(1)}% · {(stats[manifest.id].memBytes / 1024 / 1024).toFixed(0)} MiB{stats[manifest.id].containers > 1 ? ` · ${stats[manifest.id].containers} containers` : ""}</p>
