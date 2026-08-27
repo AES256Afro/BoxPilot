@@ -10,7 +10,7 @@ import { JobLogView } from "./JobLogView";
  * step palette: every operation that needs no form, which is what keeps a v1 builder honest
  * instead of half a parameter editor.
  */
-interface FlowStep { operationId: string; parameters?: Record<string, unknown>; name?: string; onFailure?: "stop" | "continue"; when?: { value: string; equals?: unknown } }
+interface FlowStep { operationId: string; parameters?: Record<string, unknown>; name?: string; onFailure?: "stop" | "continue"; when?: { value: string; equals?: unknown }; retry?: number }
 interface Flow {
   id: string; name: string; steps: FlowStep[]; createdBy: string;
   risk: "low" | "medium" | "high"; running: boolean;
@@ -37,7 +37,9 @@ const shelf: Array<{ name: string; description: string; steps: FlowStep[] }> = [
     steps: [
       { operationId: "host.snapshot.create", parameters: {} },
       { operationId: "apt.refresh", parameters: {} },
-      { operationId: "apt.upgrade", parameters: {} },
+      // One retry: the classic overnight failure is a transient apt lock held by unattended
+      // upgrades, and thirty seconds later it is gone.
+      { operationId: "apt.upgrade", parameters: {}, retry: 1 },
     ],
   },
   {
