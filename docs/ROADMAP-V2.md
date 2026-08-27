@@ -366,9 +366,13 @@ its network, use a generic HTTP step for everything else, and hand SaaS breadth 
   notification, since no failed-job push exists to carry the news; failed step jobs stay covered
   by the ordinary failed-job notifications. The builder gained a per-step failure-policy select;
   conditions are API-and-shelf territory until the M13.10 editor.
-- **M13.5** **Triggers beyond the clock.** The signals already exist and are not wired to anything:
-  a health alert firing, a job failing, an app becoming unhealthy, a disk crossing a threshold, a
-  backup completing, an unrecognised device appearing on the LAN.
+- ◐ **M13.5** **Triggers beyond the clock.** First admitted trigger shipped (v1.45.0, ADR-002
+  addendum): a flow may run after another flow completes. Every element is already inside the
+  fence: the fact is recorded by BoxPilot itself, the consent is the follower's creator writing
+  the link (visible on the row, revoked by disabling), the follower runs under its own creator's
+  authority with the scheduler's refusals, refusals are recorded and notified, cycles are refused
+  at save, and depth is bounded. Only completion triggers, not failure. Remaining: signals from
+  jobs and thresholds, which start to look like the third-party question below.
 - **M13.6** **Inbound webhooks.** A signed URL that starts a flow, with a per-trigger token, a rate
   limit, and a hard rule that a request from outside can never approve its own risk tier.
 - **M13.7** **Reaching outward: an HTTP step and a credential store.** The generic connector that

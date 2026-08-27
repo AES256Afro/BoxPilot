@@ -80,6 +80,16 @@ an effect no single step has.
   visible on the Automations page, disabling the flow revokes it, a creator who loses the operator
   role stops being obeyed, and always-ask approval mode blocks scheduled flows exactly as it
   blocks schedules. What stays deferred is any trigger a third party can fire.
-- Triggers (a webhook, a health alert, a device appearing) are deferred until the consent
-  question is answered properly: who approved the run a trigger fires at 3am, and how is that
-  consent shown and revoked. That is a decision, not a feature, and it gets its own ADR.
+- **Addendum (v1.45.0): one flow finishing is admitted as a trigger for another.** "Run B after
+  A completes" raises no new consent question, because every element is already inside the fence:
+  the triggering fact is recorded by BoxPilot itself (a flow run completing), not supplied by any
+  third party; the consent is the creator of B writing the link, exactly as a cadence is written;
+  the link is visible on B's row and disabling B revokes it; B runs under B's creator's stored
+  authority with the same refusals as a scheduled run (role lost, always-ask mode, already
+  running), and a refusal is recorded and notified. Only completion triggers, not failure: a
+  failed A already stops and tells; chaining repairs onto failure is a different consent shape.
+  Cycles are refused at save time. Everything third-party stays deferred as below.
+- Triggers a third party can fire (a webhook, a health alert, a device appearing) are deferred
+  until the consent question is answered properly: who approved the run a trigger fires at 3am,
+  and how is that consent shown and revoked. That is a decision, not a feature, and it gets its
+  own ADR.
