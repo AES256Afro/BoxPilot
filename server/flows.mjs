@@ -111,22 +111,46 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
     }));
   }
 
-  async function create({ name, steps, createdBy, cadence = null }) {
+  /**
+   * A flow may run after another completes (ADR-002 addendum, v1.45.0). The link must point at a
+   * real flow, never itself, and never close a loop: A after B after A would run forever on the
+   * strength of one click.
+   */
+  function checkTrigger(triggerFlowId, ownId = null) {
+    if (triggerFlowId === null || triggerFlowId === undefined) return null;
+    let current = triggerFlowId;
+    for (let depth = 0; depth < 20; depth += 1) {
+      if (current === ownId) return "that would make the flow trigger itself in a loop";
+      const flow = store.getFlow(current);
+      if (!flow) return "the flow it should run after does not exist";
+      if (!flow.triggerFlowId) return null;
+      current = flow.triggerFlowId;
+    }
+    return "the chain of flows running after flows is too deep";
+  }
+
+  async function create({ name, steps, createdBy, cadence = null, triggerFlowId = null }) {
     const problem = validateFlow({ name, steps }, registry);
     if (problem) throw new Error(problem);
-    return store.createFlow({ name: name.trim(), steps: normalizeSteps(steps), createdBy, ...cadenceFields(cadence) });
+    const triggerProblem = checkTrigger(triggerFlowId);
+    if (triggerProblem) throw new Error(triggerProblem);
+    return store.createFlow({ name: name.trim(), steps: normalizeSteps(steps), createdBy, triggerFlowId, ...cadenceFields(cadence) });
   }
 
   function list() {
     return store.listFlows().map((flow) => ({ ...flow, risk: flowRisk(flow.steps, registry), running: running.has(flow.id) }));
   }
 
-  async function update(id, { name, steps, cadence, enabled }, actorId, { role = "owner" } = {}) {
+  async function update(id, { name, steps, cadence, enabled, triggerFlowId }, actorId, { role = "owner" } = {}) {
     const flow = store.getFlow(id);
     assertMayManage(flow, actorId, role);
     const problem = validateFlow({ name: name ?? flow.name, steps: steps ?? flow.steps }, registry);
     if (problem) throw new Error(problem);
-    const changes = { name: name?.trim(), steps: steps ? normalizeSteps(steps) : undefined, enabled };
+    if (triggerFlowId !== undefined) {
+      const triggerProblem = checkTrigger(triggerFlowId, id);
+      if (triggerProblem) throw new Error(triggerProblem);
+    }
+    const changes = { name: name?.trim(), steps: steps ? normalizeSteps(steps) : undefined, enabled, triggerFlowId };
     if (cadence !== undefined) Object.assign(changes, cadenceFields(cadence));
     // Re-enabling a scheduled flow computes the next due time afresh, so a flow paused for a
     // month does not fire the moment it is switched back on to make up for missed Sundays.
@@ -157,7 +181,7 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
    * Run a flow now, under the authority of the person who asked. Sequential on purpose: a stopped
    * chain is diagnosable, and step three may depend on step two having actually happened.
    */
-  async function run(id, actorId, { role = "owner" } = {}) {
+  async function run(id, actorId, { role = "owner", chainDepth = 0 } = {}) {
     const flow = store.getFlow(id);
     if (!flow) throw new Error("Flow not found");
     if (["viewer", "disabled"].includes(role)) throw new Error("Viewers cannot run flows");
@@ -246,9 +270,35 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
         : skippedByCondition > 0 ? `completed (${skippedByCondition} step${skippedByCondition === 1 ? "" : "s"} skipped by condition)` : "completed";
       store.markFlowRun(id, { result, jobIds });
       store.recordAudit("flow.completed", { actorId, subjectId: id, details: { steps: flow.steps.length, problems: problems.length } });
+      // Followers run after this flow's own record is final, so their failures are their own.
+      await runFollowers(id, { depth: chainDepth });
       return { completed: true, steps: flow.steps.length, jobIds, problems };
     } finally {
       running.delete(id);
+    }
+  }
+
+  /**
+   * Start the flows wired to run after this one completed, each under its own creator's stored
+   * authority with the same refusals as a scheduled run. A follower failing is its own story,
+   * recorded on the follower; it never rewrites the finished flow's result. Depth is bounded so
+   * a chain someone managed to loop past validation cannot run forever.
+   */
+  async function runFollowers(flowId, { depth = 0 } = {}) {
+    if (depth >= 5) return;
+    for (const follower of store.listFlowsTriggeredBy?.(flowId) ?? []) {
+      if (running.has(follower.id)) continue;
+      const creator = store.findOwnerById?.(follower.createdBy) ?? null;
+      try {
+        if (creator && ["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
+        await run(follower.id, follower.createdBy, { role: creator?.role ?? "owner", chainDepth: depth + 1 });
+      } catch (error) {
+        if (!/stopped at step|failed at step|lost sight of step/.test(error.message)) {
+          store.markFlowRun(follower.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
+          store.recordAudit("flow.skipped", { actorId: follower.createdBy, subjectId: follower.id, details: { reason: error.message.slice(0, 200) } });
+          notify?.(`${follower.name} was due to run after another flow but did not: ${error.message}`.slice(0, 300));
+        }
+      }
     }
   }
 
