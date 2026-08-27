@@ -469,9 +469,13 @@ from reading container logs by hand. The tunnel is infrastructure; treat it like
   have. Shown on the card as "VPN exit: Netherlands · 212.92.x.x". Shipped with it: app.logs (and
   the Logs dialog) can finally read a helper container's log, which the qBittorrent notes had been
   telling the owner to do while the button could only show the app container.
-- **M17.2** Seeding port forwarding for providers that support it (Proton via NAT-PMP): one toggle
-  in the qBittorrent manifest that turns on gluetun's port forwarding and hands the forwarded port
-  to qBittorrent, instead of a wiki walk.
+- ◐ **M17.2** (v1.44.0) Seeding port forwarding, the safe half. One manifest toggle turns on
+  gluetun's port forwarding (Proton via NAT-PMP), and the card shows the forwarded port next to
+  the exit, with where to paste it in qBittorrent. The other half, setting qBittorrent's listening
+  port automatically, is deliberately not done: its API needs credentials BoxPilot does not hold,
+  and the localhost auth bypass that would sidestep them also opens the panel to the whole tailnet
+  through Serve, because Serve proxies every visitor from loopback. If it ever ships, it is a
+  config-file edit plus restart, not an auth hole.
 - **M17.3** Kill-switch drill: a one-click test that forces the tunnel down inside the sidecar,
   verifies nothing leaves for a few seconds, and brings it back, recording the result the way a
   restore drill does. The claim "if the VPN drops, downloads stop instead of leaking" becomes a
