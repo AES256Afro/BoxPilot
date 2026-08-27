@@ -132,7 +132,7 @@ describe("where the Open button sends you", () => {
     // open over the tailnet from somewhere else — and none of them could connect.
     mount("box.tail1234.ts.net");
     expect(await screen.findByText("Running")).toBeTruthy();
-    expect((screen.getByRole("link", { name: "Open Web UI" }) as HTMLAnchorElement).href).toBe("http://box.tail1234.ts.net:8096/");
+    expect((screen.getByRole("link", { name: "Open Web UI" }) as HTMLAnchorElement).href).toBe("http://box:8096/");
   });
 
   it("uses the HTTPS address when the app is published on the tailnet", async () => {
