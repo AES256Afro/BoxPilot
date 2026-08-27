@@ -47,7 +47,17 @@ async function openEverything(driver, scenario, view) {
   return found;
 }
 
-const views = ["overview", "updates", "catalog", "services", "storage", "backups", "network", "firewall", "users", "logs", "performance", "repairs", "system", "virtualization", "github", "setup"];
+/**
+ * The pages come from the navigation itself, read out of src/data.ts, because a hand-kept list
+ * fell behind the first time a page was added: the sweep reported three clean worlds while never
+ * having visited the new Automations page at all. A list that cannot drift beats one that must
+ * be remembered.
+ */
+import { readFileSync } from "node:fs";
+const navSource = readFileSync(new URL("../src/data.ts", import.meta.url), "utf8");
+const views = [...navSource.matchAll(/\{ id: "([a-z-]+)", label: "[^"]+", short: "[A-Z]{2}" \}/g)].map((match) => match[1]);
+views.push("setup");
+if (views.length < 15) { console.error("The nav parse found too few pages; the sweep would be blind."); process.exit(2); }
 
 if (!findChrome()) { console.error(chromeHint); process.exit(2); }
 const deep = process.argv.includes("--deep");
@@ -59,6 +69,7 @@ const failures = [];
 for (const scenario of chosen) {
   process.stdout.write(`\n${scenario}\n`);
   for (const view of views) {
+    try {
     await driver.go(view, { scenario });
     const problems = driver.problems();
     const text = (await driver.evaluate(`(document.querySelector("main")?.innerText ?? "").trim()`)) ?? "";
@@ -76,6 +87,10 @@ for (const scenario of chosen) {
     const unique = [...new Map(problems.map((problem) => [problem.kind + problem.text, problem])).values()];
     process.stdout.write(`  ${unique.length ? "FAIL" : "ok  "}  ${view}\n`);
     for (const problem of unique) { process.stdout.write(`          ${problem.kind}: ${problem.text}\n`); failures.push({ scenario, view, ...problem }); }
+    } catch (error) {
+      process.stdout.write(`  FAIL  ${view}\n          driver: ${error.message}\n`);
+      failures.push({ scenario, view, kind: "driver", text: error.message });
+    }
   }
 }
 driver.close();
