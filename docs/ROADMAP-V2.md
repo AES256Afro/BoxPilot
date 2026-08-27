@@ -338,6 +338,12 @@ its network, use a generic HTTP step for everything else, and hand SaaS breadth 
 - ✅ **M13.2** (v1.33.0) **A flow is an ordered list of operations.** Shipped: `server/flows.mjs` + a `flows` table (feature storage like `schedules`), routes mirroring `/schedules`, and the Automations page with a two-tier shelf (ready-made flows that stay editable) and a builder over the step palette: every registered low/medium operation whose fields are all optional, 18 today, self-maintaining as the registry grows. Each step runs as an ordinary job through `createOperationJob`/`approveAndStart` under the runner's authority; a failed step stops the chain and what ran stands. Original sketch: Definition in SQLite, executed through the
   existing job machinery so approvals, audit, output and rollback come free. No branching, no data
   passing. Small, because almost none of it is new.
+- ✅ (v1.35.0) **The terminal, from wherever the action lives.** One component (`JobLogView`) shows any job's
+  step log and terminal output, live while it runs, recorded once it finishes, an honest note once the
+  history has pruned it. Wired where a run happens away from a dialog: each Automations run opens per-step
+  terminals ("What the last run did", or watched live, with progress persisted step by step so a crash
+  mid-run leaves a true record), and every schedule row grew a "View log" for its last run. The Activity
+  drawer uses the same component, which also fixed its poll path duplicating lines behind Tailscale Serve.
 - **M13.3** **Values between steps.** A step's result is readable by later steps
   (`{{ steps.snapshot.artifact }}`). Needs a tiny expression reader with no `eval` and no reach
   outside the flow's own values, which is the whole security surface of this milestone.
