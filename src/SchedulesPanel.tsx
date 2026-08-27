@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { JobLogView } from "./JobLogView";
 
 interface Schedule {
   id: string; operationId: string; parameters: Record<string, unknown>; frequency: "hourly" | "daily" | "weekly";
@@ -23,6 +24,7 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null }: { c
   const [schedules, setSchedules] = useState<Schedule[] | null>(null);
   const [installedApps, setInstalledApps] = useState<Array<{ id: string; name: string }>>([]);
   const [error, setError] = useState<string | null>(null);
+  const [openLog, setOpenLog] = useState<string | null>(null);
   const [templateKey, setTemplateKey] = useState("");
   const [frequency, setFrequency] = useState<"hourly" | "daily" | "weekly">("daily");
   const [time, setTime] = useState("03:00");
@@ -111,18 +113,30 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null }: { c
             {schedules === null ? <tr><td colSpan={5}>Loading schedules...</td></tr> : null}
             {schedules?.length === 0 ? <tr><td colSpan={5}>Nothing scheduled yet.</td></tr> : null}
             {schedules?.map((schedule) => (
-              <tr key={schedule.id} className={schedule.enabled ? "" : "schedule-disabled"}>
-                <td>{schedule.title}{typeof schedule.parameters.subject === "string" ? <> · <code>{schedule.parameters.subject}</code></> : null}</td>
-                <td>{schedule.cadence}</td>
-                <td>{schedule.enabled ? new Date(schedule.nextDueAt).toLocaleString() : "paused"}</td>
-                <td>{lastResultPill(schedule)}</td>
-                <td>
-                  <div className="recovery-actions">
-                    <button className="text-button" type="button" onClick={() => void toggle(schedule)}>{schedule.enabled ? "Pause" : "Resume"}</button>
-                    <button className="text-button" type="button" onClick={() => void remove(schedule)}>Delete</button>
-                  </div>
-                </td>
-              </tr>
+              <Fragment key={schedule.id}>
+                <tr className={schedule.enabled ? "" : "schedule-disabled"}>
+                  <td>{schedule.title}{typeof schedule.parameters.subject === "string" ? <> · <code>{schedule.parameters.subject}</code></> : null}</td>
+                  <td>{schedule.cadence}</td>
+                  <td>{schedule.enabled ? new Date(schedule.nextDueAt).toLocaleString() : "paused"}</td>
+                  <td>{lastResultPill(schedule)}</td>
+                  <td>
+                    <div className="recovery-actions">
+                      {schedule.lastJobId && (
+                        <button className="text-button" type="button" onClick={() => setOpenLog((current) => (current === schedule.id ? null : schedule.id))}>
+                          {openLog === schedule.id ? "Hide log" : "View log"}
+                        </button>
+                      )}
+                      <button className="text-button" type="button" onClick={() => void toggle(schedule)}>{schedule.enabled ? "Pause" : "Resume"}</button>
+                      <button className="text-button" type="button" onClick={() => void remove(schedule)}>Delete</button>
+                    </div>
+                  </td>
+                </tr>
+                {openLog === schedule.id && schedule.lastJobId && (
+                  <tr className="schedule-log-row">
+                    <td colSpan={5}><JobLogView jobId={schedule.lastJobId} title={schedule.title} /></td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </tbody>
         </table>

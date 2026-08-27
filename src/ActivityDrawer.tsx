@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { JobLogView } from "./JobLogView";
 import { createPortal } from "react-dom";
 import { followJobOutput, followJobs, terminalJobStates, type Job } from "./operations";
 
@@ -43,47 +44,6 @@ function upsert(jobs: Job[], job: Job): Job[] {
     .slice(0, 50);
 }
 
-function JobOutput({ job }: { job: Job }) {
-  const [output, setOutput] = useState("");
-  const outputRef = useRef<HTMLPreElement | null>(null);
-  const finished = terminalJobStates.has(job.state);
-
-  useEffect(() => {
-    if (finished) {
-      let cancelled = false;
-      fetch(`/api/v1/jobs/${encodeURIComponent(job.id)}/output`)
-        .then((response) => (response.ok ? (response.json() as Promise<{ output: string }>) : Promise.reject(new Error("unavailable"))))
-        .then((body) => { if (!cancelled) setOutput(body.output ?? ""); })
-        .catch(() => { if (!cancelled) setOutput(""); });
-      return () => { cancelled = true; };
-    }
-    setOutput("");
-    return followJobOutput(job.id, { onOutput: (text) => setOutput((current) => current + text), onState: () => {} });
-    // Re-follow only when the job or its finished-ness changes, not on every step update.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [job.id, finished]);
-
-  useEffect(() => { if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight; }, [output]);
-
-  return (
-    <div className="activity-detail">
-      {job.steps.length > 0 && (
-        <ul className="activity-steps">
-          {job.steps.map((step, index) => (
-            <li key={`${step.name}-${index}`}><strong>{step.name}</strong> · {step.state} · {step.detail}</li>
-          ))}
-        </ul>
-      )}
-      {job.error && <div className="auth-error" role="alert">{job.error}</div>}
-      {(output || !finished) && (
-        <div className="job-terminal">
-          <div className="job-terminal-bar"><span>{finished ? "Output" : "Live output"}</span></div>
-          <pre ref={outputRef} aria-label={`Output for ${job.title}`}>{output || "Waiting for output..."}</pre>
-        </div>
-      )}
-    </div>
-  );
-}
 
 export function ActivityDrawer() {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -132,7 +92,7 @@ export function ActivityDrawer() {
                       <span className="activity-time">{timeLabel(job.createdAt)}</span>
                     </span>
                   </button>
-                  {expanded?.id === job.id && <JobOutput job={expanded} />}
+                  {expanded?.id === job.id && <JobLogView job={expanded} />}
                 </div>
               ))}
             </div>

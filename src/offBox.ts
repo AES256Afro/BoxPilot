@@ -30,8 +30,14 @@ export interface OffBoxVerdict {
   ageDays: number | null;
   /** Which kinds are set up, for wording that names them. */
   where: Array<"cloud" | "another machine" | "a backup drive">;
-  /** "none" — nowhere to copy to. "never" — set up but nothing sent. "stale"/"ok" — by age. */
-  state: "none" | "never" | "stale" | "ok";
+  /**
+   * "none" — nowhere to copy to. "never" — set up but nothing sent. "behind" — local backups newer
+   * than the copy have been waiting long enough that the sync that should have followed them
+   * clearly did not run. "stale"/"ok" — by age.
+   */
+  state: "none" | "never" | "behind" | "stale" | "ok";
+  /** How many hours the newest unmirrored local backup has been waiting, when state is "behind". */
+  behindHours: number | null;
 }
 
 const KINDS: Array<[keyof OffBoxInputs, OffBoxVerdict["where"][number]]> = [
@@ -42,7 +48,8 @@ const KINDS: Array<[keyof OffBoxInputs, OffBoxVerdict["where"][number]]> = [
 
 export function offBoxVerdict(
   inputs: OffBoxInputs,
-  { now = Date.now(), staleAfterDays = 7 }: { now?: number; staleAfterDays?: number } = {},
+  { now = Date.now(), staleAfterDays = 7, newestLocalBackupAt = null, behindSlackHours = 12 }:
+  { now?: number; staleAfterDays?: number; newestLocalBackupAt?: string | null; behindSlackHours?: number } = {},
 ): OffBoxVerdict {
   const where: OffBoxVerdict["where"] = [];
   let newest: number | null = null;
@@ -56,17 +63,28 @@ export function offBoxVerdict(
     if (Number.isFinite(at) && (newest === null || at > newest)) newest = at;
   }
   const ageDays = newest === null ? null : Math.floor((now - newest) / 86_400_000);
+  // A copy can be recent and still behind: a nightly backup that the nightly sync never followed.
+  // The seven-day age rule alone kept quiet about exactly that for days on a real machine. The
+  // slack covers the ordinary window between a backup and the sync scheduled after it — only a
+  // backup that has waited longer than that with no sync counts as the sync not running.
+  const localAt = newestLocalBackupAt ? Date.parse(newestLocalBackupAt) : Number.NaN;
+  const behind = newest !== null && Number.isFinite(localAt)
+    && localAt > newest
+    && now - localAt > behindSlackHours * 3_600_000;
   const state: OffBoxVerdict["state"] = where.length === 0 ? "none"
     : newest === null ? "never"
+    : behind ? "behind"
     : (ageDays ?? 0) > staleAfterDays ? "stale"
     : "ok";
-  return { configured: where.length > 0, lastSyncAt: newest === null ? null : new Date(newest).toISOString(), ageDays, where, state };
+  const behindHours = state === "behind" ? Math.floor((now - localAt) / 3_600_000) : null;
+  return { configured: where.length > 0, lastSyncAt: newest === null ? null : new Date(newest).toISOString(), ageDays, where, state, behindHours };
 }
 
 /** One sentence for the Overview, or null when a recent copy exists somewhere else. */
 export function offBoxWarning(verdict: OffBoxVerdict): string | null {
   if (verdict.state === "none") return "Backups are only on this server. A disk failure would take them with it";
   if (verdict.state === "never") return "Backups have never been copied off this server";
+  if (verdict.state === "behind") return `Backups newer than the off-box copy have been waiting ${verdict.behindHours} hours; the sync that should have followed them has not run`;
   if (verdict.state === "stale") return `The off-box copy of your backups is ${verdict.ageDays} days old`;
   return null;
 }

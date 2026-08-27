@@ -125,7 +125,21 @@ const jobs = [
   { id: "d2", type: "op:storage.lvm.snapshot.create", title: "Take a snapshot", state: "completed", risk: "medium", error: null, result: null, createdAt: ago(9), steps: [], approvals: [] },
   { id: "d3", type: "op:backup.cloud.sync", title: "Mirror local backups to the cloud destination", state: "completed", risk: "medium", error: null, result: null, createdAt: ago(26), steps: [], approvals: [] },
   { id: "d4", type: "op:app.update", title: "Update application", state: "completed", risk: "medium", error: null, result: null, createdAt: ago(50), steps: [], approvals: [] },
+  // The three jobs the Update night flow's last run left behind, one per step.
+  { id: "j1", type: "op:host.snapshot.create", title: "Create a machine snapshot", state: "completed", risk: "medium", error: null, result: null, createdAt: ago(30), steps: [], approvals: [] },
+  { id: "j2", type: "op:apt.refresh", title: "Refresh package lists", state: "completed", risk: "low", error: null, result: null, createdAt: ago(30), steps: [], approvals: [] },
+  { id: "j3", type: "op:apt.upgrade", title: "Install package updates", state: "completed", risk: "medium", error: null, result: null, createdAt: ago(30), steps: [], approvals: [] },
 ];
+// What each job's terminal would have shown; the demo serves it from /jobs/:id/output like the product.
+const jobOutputs = {
+  j1: "Snapshotting boxpilot state...\nApps: 8 included, project files and backups packed\nWrote machine-snapshot-20260826T030004Z-c9d0e1f2.tar.gz (41.2 MiB)\nChecksum recorded; snapshot verified readable.\n",
+  j2: "Hit:1 http://archive.ubuntu.com/ubuntu noble InRelease\nGet:2 http://archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]\nGet:3 http://security.ubuntu.com/ubuntu noble-security InRelease [126 kB]\nFetched 252 kB in 1s (198 kB/s)\nReading package lists...\n4 packages can be upgraded.\n",
+  j3: "Reading package lists...\nBuilding dependency tree...\nThe following upgrades will be installed:\n  openssl curl libcurl4t64 tailscale\nUnpacking openssl (3.0.13-0ubuntu3.6) over (3.0.13-0ubuntu3.5)...\nSetting up openssl (3.0.13-0ubuntu3.6)...\nProcessing triggers for man-db...\nScanning for services running old libraries...\nRestarted: cron.service\nAll updates installed.\n",
+  d1: "Reading package lists...\nAll packages are up to date.\n",
+  d2: "Creating LVM snapshot boxpilot-pre-change...\n  Logical volume \"boxpilot-pre-change\" created.\nSnapshot ready; changes can be rolled back from the Storage page.\n",
+  d3: "Mirroring local backups to boxpilot:homebox-backups/homebox\nTransferred: 58.1 MiB, 3 files, no errors\n",
+  d4: "Pulling image for the new version...\nRecreating container...\nHealthy after 6s; previous image kept for rollback.\n",
+};
 const backups = [
   { id: "10000000-0000-4000-8000-000000000003", applicationId: "boxpilot-controller", destination: "local-managed", checksumSha256: digest("c"), sizeBytes: 6 * 1024 ** 2, downtimeMs: 0, restoreDrill: { passed: true }, createdAt: ago(3) },
   { id: "10000000-0000-4000-8000-000000000002", applicationId: "boxpilot-controller", destination: "local-managed", checksumSha256: digest("b"), sizeBytes: 6 * 1024 ** 2, downtimeMs: 0, restoreDrill: { passed: true }, createdAt: ago(27) },
@@ -365,6 +379,7 @@ api.get("/network/topology", (_request, response) => json(response, topology()))
 api.get("/network/plans", (_request, response) => json(response, { plans: [] }));
 api.get("/jobs", (_request, response) => json(response, { jobs }));
 api.get("/jobs/:id", (request, response) => json(response, { job: jobs.find((job) => job.id === request.params.id) ?? jobs[0] }));
+api.get("/jobs/:id/output", (request, response) => json(response, { output: jobOutputs[request.params.id] ?? "" }));
 api.get("/backups", (_request, response) => json(response, { backups }));
 api.get("/controller-backup-protection", (_request, response) => json(response, { destination: { ready: true, encrypted: true, repositoryId: "restic-controller", blockers: [] }, protections: [{ id: "p1", backupId: backups[0].id, createdAt: ago(2) }] }));
 api.get("/controller-backup-retention", (_request, response) => json(response, { policy: { minimumCopies: 3, minimumAgeDays: 30 }, candidates: [] }));
@@ -459,8 +474,8 @@ api.get("/flows", (_request, response) => json(response, {
 }));
 api.get("/schedules", (_request, response) => json(response, { schedules: [
   { id: "s1", operationId: "app.backup", parameters: { subject: "immich" }, frequency: "daily", minute: 0, hour: 3, weekday: null, enabled: true, createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-8), lastRunAt: ago(16) },
-  { id: "s2", operationId: "backup.cloud.sync", parameters: {}, frequency: "daily", minute: 30, hour: 4, weekday: null, enabled: true, createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-7), lastRunAt: ago(26) },
-  { id: "s3", operationId: "apt.refresh", parameters: {}, frequency: "weekly", minute: 0, hour: 5, weekday: 0, enabled: true, createdBy: "owner-demo", createdAt: ago(400), nextDueAt: ago(-60), lastRunAt: ago(108) },
+  { id: "s2", operationId: "backup.cloud.sync", parameters: {}, frequency: "daily", minute: 30, hour: 4, weekday: null, enabled: true, createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-7), lastRunAt: ago(26), lastJobId: "d3", lastResult: "started" },
+  { id: "s3", operationId: "apt.refresh", parameters: {}, frequency: "weekly", minute: 0, hour: 5, weekday: 0, enabled: true, createdBy: "owner-demo", createdAt: ago(400), nextDueAt: ago(-60), lastRunAt: ago(108), lastJobId: "j2", lastResult: "started" },
 ] }));
 api.get("/system/update", (_request, response) => json(response, { current: { version: productVersion, tag: `v${productVersion}` }, latest: { tag: `v${productVersion}`, version: productVersion, publishedAt: ago(30), url: "https://github.com/AES256Afro/BoxPilot/releases" }, updateAvailable: false, checkedAt: now().toISOString(), error: null }));
 api.get("/power/ups/detect", (_request, response) => json(response, { devices: [{ vendorId: "051d", productId: "0002", manufacturer: "American Power Conversion", product: "Back-UPS ES 700G", driver: "usbhid-ups", confidence: "vendor-id", sysfs: "1-3" }], nutInstalled: true }));
@@ -587,6 +602,9 @@ const troubleRest = {
   "/flows": (body) => ({ ...body, flows: body.flows.map((flow, index) => (index === 0
     ? { ...flow, lastResult: "stopped at step 3 (Install package updates): apt-get upgrade failed: E: Could not get lock /var/lib/dpkg/lock-frontend" }
     : flow)) }),
+  // The failed flow's third step, opened from "What the last run did", must agree with the story.
+  "/jobs/j3": (body) => ({ ...body, job: { ...body.job, state: "failed", error: "apt-get upgrade failed: E: Could not get lock /var/lib/dpkg/lock-frontend" } }),
+  "/jobs/j3/output": (body) => ({ ...body, output: "Reading package lists...\nE: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 41283 (unattended-upgr)\nE: Unable to acquire the dpkg frontend lock\n" }),
   "/storage/samba": (body) => ({ ...body, running: false }),
 };
 

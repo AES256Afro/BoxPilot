@@ -115,15 +115,17 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
           return { configured: Boolean(body.destination), lastSyncAt: typeof at === "string" ? at : (at as { completedAt?: string } | null)?.completedAt ?? null };
         } catch { return { configured: false, lastSyncAt: null }; }
       };
-      const [cloud, ssh, machine] = await Promise.all([
+      const [cloud, ssh, machine, backupList] = await Promise.all([
         read("/api/v1/settings/cloud-destination"),
         read("/api/v1/settings/backup-destination"),
         inspectOperation<{ sync: { mount: { mounted: boolean }; lastSync: { completedAt: string } | null } }>("host.snapshot.inspect").catch(() => null),
+        requestJson<{ backups: Array<{ createdAt: string }> }>("/api/v1/backups").catch(() => null),
       ]);
       const inputs: OffBoxInputs = { cloud, ssh, drive: { configured: machine?.result.sync.mount.mounted ?? false, lastSyncAt: machine?.result.sync.lastSync?.completedAt ?? null } };
+      const newestLocalBackupAt = (backupList?.backups ?? []).reduce<string | null>((newest, backup) => (newest === null || backup.createdAt > newest ? backup.createdAt : newest), null);
       const wanted = mirrorOperations(inputs);
       setOffBox({
-        warning: offBoxWarning(offBoxVerdict(inputs)),
+        warning: offBoxWarning(offBoxVerdict(inputs, { newestLocalBackupAt })),
         inputs,
         scheduled: wanted.length > 0 && wanted.every((operationId) => schedules.some((schedule) => schedule.operationId === operationId && schedule.enabled !== false)),
       });

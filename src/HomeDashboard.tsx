@@ -118,14 +118,18 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
       destination("/api/v1/settings/cloud-destination"),
       destination("/api/v1/settings/backup-destination"),
       inspectOperation<{ sync: { mount: { mounted: boolean }; lastSync: { completedAt: string } | null } }>("host.snapshot.inspect").catch(() => null),
-    ]).then(([cloud, ssh, machine]) => {
+      fetch("/api/v1/backups").then((response) => (response.ok ? (response.json() as Promise<{ backups: Array<{ createdAt: string }> }>) : null)).catch(() => null),
+    ]).then(([cloud, ssh, machine, backupList]) => {
       if (!cloud.ok && !ssh.ok && !machine) return;
       const at = (value: unknown) => (typeof value === "string" ? value : (value as { completedAt?: string } | null)?.completedAt ?? null);
+      // The newest local backup, so a mirror that has quietly stopped following them is caught
+      // long before it is old enough to count as stale.
+      const newestLocalBackupAt = (backupList?.backups ?? []).reduce<string | null>((newest, backup) => (newest === null || backup.createdAt > newest ? backup.createdAt : newest), null);
       guard(setOffBox)(offBoxWarning(offBoxVerdict({
         cloud: { configured: Boolean(cloud.destination), lastSyncAt: at(cloud.lastSync) },
         ssh: { configured: Boolean(ssh.destination), lastSyncAt: at(ssh.lastSync) },
         drive: { configured: machine?.result.sync.mount.mounted ?? false, lastSyncAt: machine?.result.sync.lastSync?.completedAt ?? null },
-      })));
+      }, { newestLocalBackupAt })));
     }).catch(() => {});
     Promise.all([
       fetch("/api/v1/backups").then((response) => (response.ok ? response.json() : Promise.reject(new Error("backups unavailable")))),

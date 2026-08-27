@@ -130,6 +130,9 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
         try {
           job = await jobs.createOperationJob(step.operationId, step.parameters ?? {}, actorId, { role });
           jobIds.push(job.id);
+          // Progress lands as it happens, not at the end: the page can show which step is running
+          // and its live output, and a crash mid-run leaves an honest record of where it stopped.
+          store.markFlowRun(id, { result: `running step ${index + 1} of ${flow.steps.length} (${operation?.title ?? step.operationId})`, jobIds });
           await jobs.approveAndStart(job.id, actorId, {});
         } catch (error) {
           if (job && typeof jobs.cancelJob === "function") {
@@ -139,7 +142,16 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
           store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, reason: error.message.slice(0, 200) } });
           throw error;
         }
-        const finished = await awaitJob(job.id, maxStepMs ?? ((operation?.timeoutMs ?? 180_000) + 60_000));
+        let finished;
+        try {
+          finished = await awaitJob(job.id, maxStepMs ?? ((operation?.timeoutMs ?? 180_000) + 60_000));
+        } catch (error) {
+          // Losing sight of a step is not the same as the step failing: the job may well still be
+          // running. Record what is actually known instead of leaving "running step N" standing.
+          store.markFlowRun(id, { result: `lost sight of step ${index + 1} (${operation?.title ?? step.operationId}): ${error.message}`.slice(0, 300), jobIds });
+          store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, jobId: job.id, reason: error.message.slice(0, 200) } });
+          throw error;
+        }
         if (finished.state !== "completed") {
           const summary = `stopped at step ${index + 1} (${operation?.title ?? step.operationId}): ${finished.error ?? finished.state}`.slice(0, 300);
           store.markFlowRun(id, { result: summary, jobIds });

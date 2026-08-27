@@ -9,6 +9,15 @@
         "start"
       ],
       "port": 5173
+    },
+    {
+      "name": "demo",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "demo"
+      ],
+      "port": 8799
     }
   ]
 }

@@ -132,8 +132,25 @@ describe("running a flow", () => {
     await new Promise((resolve) => setTimeout(resolve, 5));
     await expect(service.run(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/already running/);
     await expect(first).rejects.toThrow(/time budget/);
-    // and once the stuck run has been declared dead, the flow is runnable again
-    expect(store.getFlow(flow.id).lastResult).toBe(null); // a timeout mid-await records nothing false
+    // and once the stuck run has been declared dead, the record says what is actually known:
+    // not "failed" (the job may still be running), not a stale "running step 1".
+    expect(store.getFlow(flow.id).lastResult).toMatch(/lost sight of step 1 .*time budget/);
+  });
+
+  it("records which step is running as it goes, so a watcher and a crash both see the truth", async () => {
+    const store = fakeStore();
+    const seen = [];
+    const original = store.markFlowRun.bind(store);
+    store.markFlowRun = (id, record) => { seen.push(record.result); original(id, record); };
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2 });
+    const flow = await service.create({ name: "nightly", steps: [goodSteps[0], goodSteps[1]], createdBy: "owner-1" });
+    await service.run(flow.id, "owner-1", { role: "owner" });
+    expect(seen[0]).toMatch(/^running step 1 of 2 /);
+    expect(seen[1]).toMatch(/^running step 2 of 2 /);
+    expect(seen.at(-1)).toBe("completed");
+    // Each progress record already carries the job ids created so far, so the page can show
+    // the earlier steps' terminals while a later step is still running.
+    expect(store.getFlow(flow.id).lastJobIds).toHaveLength(2);
   });
 
   it("only the creator or an owner may change or remove a flow", async () => {
