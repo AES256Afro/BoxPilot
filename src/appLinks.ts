@@ -88,7 +88,9 @@ export function appAddresses(
     // Offering a LAN address for a port bound to loopback is offering a link that cannot connect.
     addresses.push({ kind: "loopback", label: "On this server only", url: `${scheme}://127.0.0.1:${port.host}${path}`, caveat: "bound to the server itself; not reachable from other devices", reachedThisPageBy: browserHost === "127.0.0.1" || browserHost === "localhost" });
   } else {
-    if (lanAddress) addresses.push({ kind: "lan", label: "On your network", url: `${scheme}://${lanAddress}:${port.host}${path}`, caveat: null, reachedThisPageBy: browserHost === lanAddress });
+    // A port moved to the tailnet address does not answer on the LAN; offering that link anyway
+    // is how "unable to reach the panel" happens with the app running fine.
+    if (lanAddress && port.exposure !== "tailnet") addresses.push({ kind: "lan", label: "On your network", url: `${scheme}://${lanAddress}:${port.host}${path}`, caveat: null, reachedThisPageBy: browserHost === lanAddress });
     // Tailscale put all of ts.net on the browsers' built-in HSTS preload list, so a plain http
     // link on the full name can never open: the browser rewrites it to https and nothing answers.
     // A self-signed https on that name is worse, refused with no bypass. The short MagicDNS name
@@ -113,7 +115,7 @@ export function appAddresses(
   // says nothing about how anything else on the network gets there. Offering it first would put
   // the one address that only works in one place at the top of a list about reaching the app.
   const atTheServer = browserHost === "localhost" || browserHost === "127.0.0.1" || browserHost === "::1" || browserHost === "[::1]";
-  if (port.exposure !== "loopback" && browserHost && !atTheServer && !known.has(fromHere) && !addresses.some((address) => address.reachedThisPageBy)) {
+  if (port.exposure !== "loopback" && port.exposure !== "tailnet" && browserHost && !atTheServer && !known.has(fromHere) && !addresses.some((address) => address.reachedThisPageBy)) {
     addresses.unshift({ kind: "lan", label: "The way you reached this page", url: fromHere, caveat: null, reachedThisPageBy: true });
   }
   return addresses;
