@@ -36,7 +36,9 @@ describe("building an application URL", () => {
 
   it("keeps a loopback-only app on loopback, and honours an app that speaks HTTPS itself", () => {
     expect(appUrl({ host: 8085, exposure: "loopback" }, { browserHost: "box.tail1234.ts.net" })).toBe("http://127.0.0.1:8085");
-    expect(appUrl({ host: 9443, exposure: "lan" }, { browserHost: "box.tail1234.ts.net", https: true })).toBe("https://box.tail1234.ts.net:9443");
+    // Self-signed HTTPS on the preloaded ts.net name is refused with no bypass button; on the
+    // short name the browser shows its ordinary warning and lets the owner through.
+    expect(appUrl({ host: 9443, exposure: "lan" }, { browserHost: "box.tail1234.ts.net", https: true })).toBe("https://box:9443");
   });
 });
 
@@ -53,14 +55,25 @@ describe("every way to reach an app, not one guess", () => {
   const web = { host: 8096, exposure: "lan" as const, path: null };
   const options = { lanAddress: "192.168.8.10", tailnetDnsName: "homebox.tail0a1b.ts.net", browserHost: "192.168.8.10" };
 
-  it("offers the LAN address and the tailnet name, labelled", () => {
+  it("offers the LAN address and the short tailnet name, labelled", () => {
+    // The full …ts.net name is on the browsers' HSTS preload list: a plain http link on it is
+    // rewritten to https and opens nothing, and a self-signed https on it is refused with no
+    // bypass. Every plain port therefore links the short MagicDNS name instead.
     const found = appAddresses(web, options);
     expect(found.map((address) => [address.kind, address.url])).toEqual([
       ["lan", "http://192.168.8.10:8096"],
-      ["tailnet", "http://homebox.tail0a1b.ts.net:8096"],
+      ["tailnet", "http://homebox:8096"],
     ]);
     expect(found[0].caveat).toBeNull();
     expect(found[1].caveat).toMatch(/needs Tailscale/);
+  });
+
+  it("never offers a plain-http link on the full ts.net name, even as the arrival route", () => {
+    // Reached over Serve's HTTPS, the same hostname on an app's plain port is a dead link.
+    const overTailnet = appAddresses(web, { ...options, browserHost: "homebox.tail0a1b.ts.net" });
+    expect(overTailnet.map((address) => address.url)).toEqual(["http://192.168.8.10:8096", "http://homebox:8096"]);
+    expect(overTailnet.find((address) => address.reachedThisPageBy)?.url).toBe("http://homebox:8096");
+    expect(appUrl(web, { ...options, browserHost: "homebox.tail0a1b.ts.net" })).toBe("http://homebox:8096");
   });
 
   it("marks the one that demonstrably works, because this page arrived on it", () => {

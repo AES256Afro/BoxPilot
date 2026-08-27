@@ -42,7 +42,10 @@ export function appUrl(
   const served = serves.find((serve) => serve.port === port.host);
   if (served) return `https://${served.dnsName}:${served.port}${path}`;
   const host = port.exposure === "loopback" ? "127.0.0.1" : hostForAppLinks(lanAddress, browserHost);
-  return `${https ? "https" : "http"}://${host}:${port.host}${path}`;
+  // All of ts.net sits on the browsers' HSTS preload list, so this name only ever opens over
+  // HTTPS through Serve (handled above). For a plain app port, the short MagicDNS name is the
+  // form of the same route a browser will actually follow.
+  return `${https ? "https" : "http"}://${host.endsWith(".ts.net") ? host.split(".")[0] : host}:${port.host}${path}`;
 }
 
 /** One way to reach an app, with enough context to know whether it will work from where you are. */
@@ -86,13 +89,26 @@ export function appAddresses(
     addresses.push({ kind: "loopback", label: "On this server only", url: `${scheme}://127.0.0.1:${port.host}${path}`, caveat: "bound to the server itself; not reachable from other devices", reachedThisPageBy: browserHost === "127.0.0.1" || browserHost === "localhost" });
   } else {
     if (lanAddress) addresses.push({ kind: "lan", label: "On your network", url: `${scheme}://${lanAddress}:${port.host}${path}`, caveat: null, reachedThisPageBy: browserHost === lanAddress });
-    if (tailnetDnsName && !served) addresses.push({ kind: "tailnet", label: "Over Tailscale", url: `${scheme}://${tailnetDnsName}:${port.host}${path}`, caveat: "needs Tailscale running on the device you are using", reachedThisPageBy: browserHost === tailnetDnsName });
+    // Tailscale put all of ts.net on the browsers' built-in HSTS preload list, so a plain http
+    // link on the full name can never open: the browser rewrites it to https and nothing answers.
+    // A self-signed https on that name is worse, refused with no bypass. The short MagicDNS name
+    // is outside the preload and resolves on every tailnet device, so it is the link that works.
+    if (tailnetDnsName && !served) {
+      const shortName = tailnetDnsName.split(".")[0];
+      addresses.push({ kind: "tailnet", label: "Over Tailscale", url: `${scheme}://${shortName}:${port.host}${path}`, caveat: "needs Tailscale running on the device you are using", reachedThisPageBy: browserHost === tailnetDnsName || browserHost === shortName });
+    }
   }
 
   // However this page was reached is, by definition, a route that works; keep it even if it is
   // neither the LAN address nor the tailnet name (a hostname, an mDNS name, a reverse proxy).
+  // Except the full ts.net name: this page arrived on it over HTTPS through Serve, and the HSTS
+  // preload above means the same name on a plain app port opens nothing. The short-name entry
+  // already covers that device.
   const known = new Set(addresses.map((address) => address.url));
   const fromHere = `${scheme}://${browserHost}:${port.host}${path}`;
+  if (browserHost.endsWith(".ts.net")) {
+    return addresses;
+  }
   // Loopback is the exception: reaching BoxPilot on 127.0.0.1 means sitting at the server, which
   // says nothing about how anything else on the network gets there. Offering it first would put
   // the one address that only works in one place at the top of a list about reaching the app.
