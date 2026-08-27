@@ -16,8 +16,12 @@ export type ThemeId = (typeof THEMES)[number]["id"];
 const STORAGE_KEY = "boxpilot-theme";
 
 function getStoredTheme(): ThemeId {
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if (raw && THEMES.some((t) => t.id === raw)) return raw as ThemeId;
+  // localStorage is not guaranteed: some browsers throw on access with site data blocked, and
+  // test environments may not provide it at all. No stored theme is a normal state either way.
+  try {
+    const raw = window.localStorage?.getItem(STORAGE_KEY);
+    if (raw && THEMES.some((t) => t.id === raw)) return raw as ThemeId;
+  } catch { /* fall through to the default */ }
   return "raw";
 }
 
@@ -29,7 +33,7 @@ export function useTheme() {
   }, [theme]);
 
   const setTheme = useCallback((id: ThemeId) => {
-    localStorage.setItem(STORAGE_KEY, id);
+    try { window.localStorage?.setItem(STORAGE_KEY, id); } catch { /* the choice still applies for this visit */ }
     setThemeState(id);
   }, []);
 
