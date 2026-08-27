@@ -329,13 +329,13 @@ chasing; n8n is already in the catalog and does it better. The thing neither of 
 firewall profile — with an approval, an audit entry, and a rollback. Flows should own the machine and
 its network, use a generic HTTP step for everything else, and hand SaaS breadth to n8n.
 
-- **M13.1** **The governing decision, before any code** (an ADR). What may run without a human? Risk
+- ✅ **M13.1** (ADR-002, accepted) **The governing decision, before any code** (an ADR). What may run without a human? Risk
   tiers answer that for a single operation and not for a chain: five low-risk steps can compose into
   a high-risk effect, and a trigger someone else can fire is not the same as a button the owner
   pressed. Proposal to argue out: a flow carries the highest risk tier of any step in it; anything
   above `low` needs an approval the first time a given trigger fires it, and a standing consent
   after that which is revocable and visible; `high` never runs unattended at all.
-- **M13.2** **A flow is an ordered list of operations.** Definition in SQLite, executed through the
+- ✅ **M13.2** (v1.33.0) **A flow is an ordered list of operations.** Shipped: `server/flows.mjs` + a `flows` table (feature storage like `schedules`), routes mirroring `/schedules`, and the Automations page with a two-tier shelf (ready-made flows that stay editable) and a builder over the step palette: every registered low/medium operation whose fields are all optional, 18 today, self-maintaining as the registry grows. Each step runs as an ordinary job through `createOperationJob`/`approveAndStart` under the runner's authority; a failed step stops the chain and what ran stands. Original sketch: Definition in SQLite, executed through the
   existing job machinery so approvals, audit, output and rollback come free. No branching, no data
   passing. Small, because almost none of it is new.
 - **M13.3** **Values between steps.** A step's result is readable by later steps
