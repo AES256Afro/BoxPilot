@@ -316,6 +316,21 @@ export function createAppHelper({
       await mkdir(chosen, { recursive: true, mode: 0o755 }).catch(() => {});
       if (runsAs) await chownDirectory(chosen, runsAs.uid, runsAs.gid).catch(() => {});
     }
+    // The layout the manifest promises inside a data folder (a torrents/ the client writes into,
+    // a tv/ the library reads) exists before the first app goes looking for it. Only missing
+    // folders are created and handed to the app's user; anything already there is the owner's
+    // library and stays untouched, ownership included.
+    for (const volume of manifest.volumes) {
+      const base = volume.path ? path.join(directory, volume.path) : values.volumes?.[volume.id] ?? volume.hostPath;
+      if (!base || (volume.subdirectories ?? []).length === 0) continue;
+      if (!volume.path && isDeniedHostPath(base)) continue;
+      for (const name of volume.subdirectories) {
+        const target = path.join(base, name);
+        if (await stat(target).then(() => true, () => false)) continue;
+        await mkdir(target, { recursive: true, mode: 0o755 }).catch(() => {});
+        if (runsAs) await chownDirectory(target, runsAs.uid, runsAs.gid).catch(() => {});
+      }
+    }
     for (const volume of manifest.volumes) {
       const hostPath = values.volumes?.[volume.id];
       // Only paths the owner changed are checked: the manifest's own mounts (e.g. the Docker socket, which

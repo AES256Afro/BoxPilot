@@ -122,7 +122,14 @@ export function validateManifest(raw) {
   volumes.forEach((volume, index) => {
     const path = `manifest.volumes[${index}]`;
     if (!isObject(volume)) return fail(errors, path, "must be a mapping");
-    checkKeys(errors, path, volume, ["id", "label", "container", "path", "hostPath", "readOnly", "backup", "configurable", "description"], ["id", "container"]);
+    checkKeys(errors, path, volume, ["id", "label", "container", "path", "hostPath", "readOnly", "backup", "configurable", "description", "subdirectories"], ["id", "container"]);
+    // The folder layout an app expects (torrents/, tv/) can be promised by the manifest and
+    // created at install time, instead of every app failing its first write differently.
+    if (volume.subdirectories !== undefined) {
+      if (!Array.isArray(volume.subdirectories) || volume.subdirectories.length > 8 || !volume.subdirectories.every((name) => typeof name === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(name))) {
+        fail(errors, `${path}.subdirectories`, "must list up to 8 plain folder names");
+      }
+    }
     if (typeof volume.id !== "string" || !keyPattern.test(volume.id) || volumeIds.has(volume.id)) fail(errors, `${path}.id`, "must be a unique short slug"); else volumeIds.add(volume.id);
     if (typeof volume.container !== "string" || !containerPathPattern.test(volume.container)) fail(errors, `${path}.container`, "must be an absolute container path");
     const managed = volume.path !== undefined; const external = volume.hostPath !== undefined;
@@ -305,7 +312,7 @@ export function validateManifest(raw) {
     // A TCP port is assumed to be the app's web interface unless the manifest says otherwise; a
     // UDP one never can be, so it keeps its LAN binding rather than vanishing.
     ports: ports.map((port) => ({ id: port.id, label: port.label ?? port.id, container: port.container, host: port.host ?? port.container, protocol: port.protocol ?? "tcp", exposure: port.exposure ?? "lan", fixed: port.fixed ?? false, tailnet: port.tailnet ?? ((port.protocol ?? "tcp") === "udp" ? "unchanged" : "serve"), containerFollowsHost: port.containerFollowsHost ?? false })),
-    volumes: volumes.map((volume) => ({ id: volume.id, label: volume.label ?? volume.id, container: volume.container, path: volume.path ?? null, hostPath: volume.hostPath ?? null, readOnly: volume.readOnly ?? false, backup: volume.backup ?? (volume.path !== undefined), configurable: volume.configurable ?? false, description: volume.description ?? null })),
+    volumes: volumes.map((volume) => ({ id: volume.id, label: volume.label ?? volume.id, container: volume.container, path: volume.path ?? null, hostPath: volume.hostPath ?? null, readOnly: volume.readOnly ?? false, backup: volume.backup ?? (volume.path !== undefined), configurable: volume.configurable ?? false, description: volume.description ?? null, subdirectories: volume.subdirectories ?? [] })),
     env: env.map((entry) => ({ name: entry.name, label: entry.label ?? entry.name, description: entry.description ?? null, type: entry.type ?? "string", default: entry.default ?? null, required: entry.required ?? false, secret: entry.secret ?? entry.type === "password", generate: entry.generate ?? false, options: entry.options ?? null, fixed: entry.fixed ?? false })),
     health: { kind: raw.health?.kind ?? "running", stableSeconds: raw.health?.stableSeconds ?? 10, timeoutSeconds: raw.health?.timeoutSeconds ?? 180 },
     capabilities: raw.capabilities ?? [],

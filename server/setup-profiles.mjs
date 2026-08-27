@@ -12,6 +12,9 @@ const prerequisite = (name, title) => ({ id: `prerequisite-${name}`, kind: "prer
 const app = (id, title) => ({ id: `app-${id}`, kind: "app", appId: id, title: `Install ${title}` });
 const schedule = (id, title, definition) => ({ id: `schedule-${id}`, kind: "schedule", title, schedule: definition });
 const unattended = { id: "automatic-updates", kind: "unattended", title: "Turn on automatic security updates" };
+// An app whose defaults cannot work (qBittorrent installs against a VPN that needs the owner's
+// own key) is part of the profile but never auto-installed: the step explains itself instead.
+const configuredApp = (id, title, needs) => ({ id: `app-${id}`, kind: "app-configured", appId: id, title: `Install ${title}`, needs });
 const foundation = { id: "vm-foundation", kind: "foundation", title: "Initialize the libvirt default network and storage pool" };
 
 export const setupProfiles = Object.freeze([
@@ -39,6 +42,14 @@ export const setupProfiles = Object.freeze([
     id: "media-server", name: "Media server", icon: "🎬",
     description: "Movies, shows, music, and audiobooks with request management and a dashboard.",
     steps: [prerequisite("docker", "Install Docker Engine"), unattended, app("jellyfin", "Jellyfin"), app("jellyseerr", "Jellyseerr"), app("navidrome", "Navidrome"), app("audiobookshelf", "Audiobookshelf"), app("homepage", "Homepage"), schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot)],
+  },
+  {
+    id: "media-automation", name: "Media automation", icon: "🧲",
+    description: "Magnet links from any device land in the library: qBittorrent through a VPN, Prowlarr feeding Sonarr and Radarr, Jellyfin playing the result.",
+    steps: [prerequisite("docker", "Install Docker Engine"), unattended,
+      configuredApp("qbittorrent", "qBittorrent (through a VPN)", "It needs your VPN provider and key, so install it from its App catalog card; everything else here works before or after."),
+      app("prowlarr", "Prowlarr"), app("sonarr", "Sonarr"), app("radarr", "Radarr"), app("jellyfin", "Jellyfin"), app("jellyseerr", "Jellyseerr"),
+      schedule("database-backup", "Back up the BoxPilot database every night", dailyDatabaseBackup), schedule("machine-snapshot", "Take a machine snapshot every week", weeklySnapshot)],
   },
   {
     id: "smart-home", name: "Smart home", icon: "💡",
@@ -117,6 +128,12 @@ export function createSetupService({ helper, scheduler }) {
       if (!state.foundation) return { ...step, status: "unknown", detail: "libvirt is not reachable yet", job: null };
       if (state.foundation.ready) return { ...step, status: "done", detail: "default network and pool ready", job: null };
       return { ...step, status: state.foundation.planAvailable ? "ready" : "blocked", detail: state.foundation.planAvailable ? "defines and starts the missing defaults" : (state.foundation.conflicts ?? []).join("; ") || "blocked", job: state.foundation.planAvailable ? { operationId: "vm.foundation.initialize", parameters: {} } : null };
+    }
+    if (step.kind === "app-configured") {
+      const live = state.apps?.applications?.find((entry) => entry.id === step.appId);
+      if (!state.apps) return { ...step, status: "unknown", detail: "Catalog state unavailable", job: null };
+      if (!live) return { ...step, status: "blocked", detail: "not in the catalog", job: null };
+      return live.installed ? { ...step, status: "done", detail: "installed", job: null } : { ...step, status: "blocked", detail: step.needs, job: null };
     }
     if (step.kind === "app") {
       const live = state.apps?.applications?.find((entry) => entry.id === step.appId);
