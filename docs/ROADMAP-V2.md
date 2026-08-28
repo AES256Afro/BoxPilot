@@ -375,9 +375,16 @@ its network, use a generic HTTP step for everything else, and hand SaaS breadth 
   jobs and thresholds, which start to look like the third-party question below.
 - **M13.6** **Inbound webhooks.** A signed URL that starts a flow, with a per-trigger token, a rate
   limit, and a hard rule that a request from outside can never approve its own risk tier.
-- **M13.7** **Reaching outward: an HTTP step and a credential store.** The generic connector that
-  makes "manage systems in or out of the server" true. Credentials follow the `secret: true`
-  pattern that already keeps share and router passwords out of the database.
+- ✅ **M13.7** (v1.49.0) **Reaching outward: an HTTP step and a credential store.** `http.request`
+  is an ordinary medium operation: one outbound request from this server, run by hand with a
+  confirmation or inside a flow under ADR-002's existing consent, its status/body/parsed-JSON
+  becoming the step result later steps read. Credentials are saved once under a short name
+  (owner-only, a 0600 root-owned file, atomic writes), referenced by name everywhere, resolved
+  only inside the root task that performs the request, and listable as names and dates alone; the
+  value arrives through the staged-secret machinery and has no path back out. The request itself
+  runs as a task because the helper's PrivateNetwork cannot open a connection. A Settings panel
+  manages the names. The step needs a url, so it stays out of the all-optional builder palette
+  until the M13.10 editor; flows use it via the API and future shelf entries.
 - ◐ **M13.8** **Durability.** (v1.47.0) A step may carry up to three retries for transient
   failures (the shelf's Update night retries apt.upgrade once, for the classic overnight apt
   lock); each attempt is its own recorded job, the run's slot keeps the attempt that counted, and
