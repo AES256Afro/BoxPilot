@@ -187,6 +187,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [logs, setLogs] = useState<{ id: string; container: string | null; lines: string[] } | null>(null);
   const [tunnels, setTunnels] = useState<Record<string, { running: boolean; exit: { ip: string; location: string | null } | null; forwardedPort: number | null }>>({});
   const [foreign, setForeign] = useState<Array<{ name: string; status: string; configFiles: string[] }> | null>(null);
+  const [foreignLogs, setForeignLogs] = useState<{ name: string; lines: string[] } | null>(null);
   useEffect(() => {
     fetch("/api/v1/operations/compose.projects.inspect/inspect")
       .then((response) => response.json())
@@ -262,6 +263,17 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
       setLogs({ id, container: container ?? null, lines: body.result?.lines ?? [] });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read logs");
+    }
+  };
+
+  const showForeignLogs = async (name: string) => {
+    try {
+      const response = await fetch("/api/v1/operations/compose.project.logs/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { name, lines: 200 } }) });
+      const body = (await response.json().catch(() => ({}))) as { result?: { name: string; lines: string[] }; error?: string };
+      if (!response.ok || !body.result) throw new Error(body.error ?? "Could not read the logs");
+      setForeignLogs({ name, lines: body.result.lines ?? [] });
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not read the logs");
     }
   };
 
@@ -552,13 +564,23 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
         <section className="panel">
           <header className="panel-header"><div><strong>Also on this server</strong><span>Compose stacks started outside BoxPilot. Their compose files stay theirs; BoxPilot lists them so this page tells the whole truth about the machine.</span></div></header>
           <ul className="foreign-projects">
-            {foreign.map((project) => (
-              <li key={project.name}>
-                <strong>{project.name}</strong>
-                <span className="muted">{project.status}</span>
-                <code>{project.configFiles[0] ?? ""}</code>
-              </li>
-            ))}
+            {foreign.map((project) => {
+              const running = /running|up/i.test(project.status) && !/exited|stopped/i.test(project.status);
+              const act = (action: "start" | "stop" | "restart") => start({ operationId: "compose.project.action", title: `${action[0].toUpperCase()}${action.slice(1)} ${project.name}`, parameters: { name: project.name, action }, preview: <span>Runs <code>docker compose {action}</code> on {project.name} using its own compose files. BoxPilot does not change or adopt the stack.</span> });
+              return (
+                <li key={project.name}>
+                  <strong>{project.name}</strong>
+                  <span className="muted">{project.status}</span>
+                  <code>{project.configFiles[0] ?? ""}</code>
+                  <span className="recovery-actions">
+                    {running
+                      ? <><button className="text-button" type="button" onClick={() => act("restart")}>Restart</button><button className="text-button" type="button" onClick={() => act("stop")}>Stop</button></>
+                      : <button className="text-button" type="button" onClick={() => act("start")}>Start</button>}
+                    <button className="text-button" type="button" onClick={() => void showForeignLogs(project.name)}>Logs</button>
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}
@@ -608,6 +630,15 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
               );
             })()}
             <pre className="app-logs">{logs.lines.join("\n") || "(no output)"}</pre>
+          </section>
+        </div>
+      )}
+
+      {foreignLogs && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setForeignLogs(null)}>
+          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="foreign-logs-title" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="modal-header"><div><span className="eyebrow">Logs</span><h2 id="foreign-logs-title">{foreignLogs.name}</h2></div><button className="icon-button" type="button" onClick={() => setForeignLogs(null)} aria-label="Close dialog">X</button></header>
+            <pre className="app-logs">{foreignLogs.lines.join("\n") || "(no output)"}</pre>
           </section>
         </div>
       )}

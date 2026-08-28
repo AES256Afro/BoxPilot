@@ -261,6 +261,31 @@ describe("generic app deployer", () => {
     expect(compose).toContain("./mon.yml:/etc/mon.yml:ro");
   });
 
+  it("starts, stops, and restarts a foreign compose stack by its own resolved files", async () => {
+    const { apps, calls } = await setup();
+    await apps.foreignProjectAction({ name: "handmade", action: "restart" });
+    // The name is resolved against `compose ls`, and its own two compose files are passed by -f.
+    const call = calls.find((c) => c.includes("--project-name handmade") && c.endsWith(" restart"));
+    expect(call).toContain("--file /home/user/stack/compose.yaml --file /home/user/stack/compose.override.yaml");
+    await expect(apps.foreignProjectAction({ name: "old-wordpress", action: "stop" })).resolves.toMatchObject({ action: "stop", done: true });
+  });
+
+  it("refuses to act on BoxPilot's own projects or an unknown name", async () => {
+    const { apps } = await setup();
+    // bp-* and boxpilot are managed from their cards, never as foreign stacks.
+    await expect(apps.foreignProjectAction({ name: "bp-jellyfin", action: "stop" })).rejects.toThrow(/No compose project named/);
+    await expect(apps.foreignProjectAction({ name: "boxpilot", action: "stop" })).rejects.toThrow(/No compose project named/);
+    // A name compose does not report is refused, so nothing runs against an arbitrary path.
+    await expect(apps.foreignProjectAction({ name: "ghost", action: "start" })).rejects.toThrow(/No compose project named/);
+    await expect(apps.foreignProjectAction({ name: "handmade", action: "delete" })).rejects.toThrow(/start, stop, or restart/);
+  });
+
+  it("reads a foreign stack's logs through its own compose files", async () => {
+    const { apps, calls } = await setup();
+    await apps.foreignProjectLogs({ name: "handmade", lines: 50 });
+    expect(calls.find((c) => c.includes("--project-name handmade") && c.includes("logs --no-color --tail 50"))).toBeTruthy();
+  });
+
   it("lists compose projects BoxPilot did not create, and only those", async () => {
     const { apps } = await setup();
     const { available, projects } = await apps.foreignProjects();

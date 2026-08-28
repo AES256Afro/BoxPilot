@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import AppCatalog from "./AppCatalog";
 
@@ -150,13 +150,20 @@ describe("App catalog", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url === "/api/v1/catalog") return json({ applications: [], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
-      if (url === "/api/v1/operations/compose.projects.inspect/inspect") return json({ operation: "compose.projects.inspect", result: { available: true, projects: [{ name: "old-wordpress", status: "exited(2)", configFiles: ["/opt/wordpress/docker-compose.yml"] }] } });
+      if (url === "/api/v1/operations/compose.projects.inspect/inspect") return json({ operation: "compose.projects.inspect", result: { available: true, projects: [{ name: "old-wordpress", status: "exited(2)", configFiles: ["/opt/wordpress/docker-compose.yml"] }, { name: "handmade", status: "running(3)", configFiles: ["/home/user/compose.yaml"] }] } });
       return json({ error: `unexpected ${url}` }, 500);
     });
     vi.stubGlobal("fetch", fetchMock);
     render(<AppCatalog csrfToken="csrf-token" />);
     expect(await screen.findByText("old-wordpress")).toBeTruthy();
     expect(screen.getByText("/opt/wordpress/docker-compose.yml")).toBeTruthy();
+    // An exited stack offers Start; a running one offers Stop/Restart. Both offer Logs.
+    const exited = screen.getByText("old-wordpress").closest("li")!;
+    expect(within(exited).getByRole("button", { name: "Start" })).toBeTruthy();
+    const runningStack = screen.getByText("handmade").closest("li")!;
+    expect(within(runningStack).getByRole("button", { name: "Stop" })).toBeTruthy();
+    expect(within(runningStack).getByRole("button", { name: "Restart" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Logs" }).length).toBe(2);
   });
 
   it("says a helper container is broken instead of a green Running", async () => {

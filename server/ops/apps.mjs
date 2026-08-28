@@ -71,6 +71,18 @@ export function appOperations() {
       run: (parameters, { apps }) => apps.foreignProjects(),
     }),
     defineOperation({
+      id: "compose.project.action", title: "Start, stop, or restart a compose stack", risk: "medium", timeoutMs: minutes(6),
+      description: "Runs docker compose start, stop, or restart on a stack this server has that BoxPilot did not create, using the stack's own compose files. Lifecycle only; the stack is not modified or adopted.",
+      parameters: { fields: { name: { type: "string", maxLength: 120, pattern: /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/ }, action: { type: "string", enum: ["start", "stop", "restart"] } } },
+      run: (parameters, { apps, progress }) => apps.foreignProjectAction({ name: parameters.name, action: parameters.action }, { progress }),
+    }),
+    defineOperation({
+      id: "compose.project.logs", title: "Read a compose stack's logs", risk: "low", readOnly: true, timeoutMs: 60_000,
+      description: "Tails the logs of a compose stack BoxPilot did not create. Nothing is changed.",
+      parameters: { fields: { name: { type: "string", maxLength: 120, pattern: /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/ }, lines: { type: "number", optional: true } } },
+      run: (parameters, { apps }) => apps.foreignProjectLogs({ name: parameters.name, lines: parameters.lines ?? 200 }),
+    }),
+    defineOperation({
       id: "app.vpn.inspect", title: "Read where a tunneled app's traffic leaves", risk: "low", readOnly: true, timeoutMs: 30_000,
       description: "For an app that runs through a VPN tunnel: whether the tunnel container is up, and the public IP and place its own log says the traffic leaves from. Nothing is changed.",
       parameters: { fields: { id: idField } },
