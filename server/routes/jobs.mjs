@@ -106,7 +106,7 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, jobLogR
   // to viewers by the service itself.
   router.get("/flows", (_request, response) => {
     if (!flows) return response.status(503).json({ error: "Flows are not available", code: "flows_unavailable" });
-    response.json({ flows: flows.list(), palette: flows.stepPalette() });
+    response.json({ flows: flows.list(), palette: flows.stepPalette(), shelf: flows.shelf() });
   });
 
   router.post("/flows", auth.requireCsrf, async (request, response) => {

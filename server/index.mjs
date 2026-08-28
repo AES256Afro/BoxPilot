@@ -40,6 +40,7 @@ import { createHealthAlerts } from "./health-alerts.mjs";
 import { createNotificationService } from "./notifications.mjs";
 import { createSchedulerService } from "./scheduler.mjs";
 import { createFlowService } from "./flows.mjs";
+import { loadFlowLibrary } from "./flow-library.mjs";
 import { createStateStore } from "./state.mjs";
 import { createSupportBundleService } from "./support-bundle.mjs";
 import { createVmCreationService } from "./vm-creation.mjs";
@@ -181,7 +182,9 @@ const notifications = createNotificationService({ store: state });
 notifications.start();
 // A flow failure that never produced a job has no failed-job push to carry the news; the flow
 // sends its own. Failed step jobs stay covered by the ordinary failed-job notifications.
-const flows = createFlowService({ store: state, jobs, notify: (message) => { notifications.send({ title: "Automation", message, priority: "high" }).catch(() => {}); } });
+const { library: flowLibrary, problems: flowLibraryProblems } = await loadFlowLibrary().catch(() => ({ library: [], problems: [] }));
+if (flowLibraryProblems.length) console.warn(`[boxpilot] flow library problems: ${flowLibraryProblems.map((problem) => `${problem.file}: ${problem.errors.join("; ")}`).join(" | ")}`);
+const flows = createFlowService({ store: state, jobs, library: flowLibrary, notify: (message) => { notifications.send({ title: "Automation", message, priority: "high" }).catch(() => {}); } });
 flows.start();
 scheduler.start();
 const setup = createSetupService({ helper, scheduler });

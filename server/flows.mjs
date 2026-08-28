@@ -87,7 +87,7 @@ export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
   return null;
 }
 
-export function createFlowService({ store, jobs, registry = defaultRegistry, pollMs = 1000, maxStepMs = null, retryDelayMs = 30_000, now = () => new Date(), notify = null }) {
+export function createFlowService({ store, jobs, registry = defaultRegistry, pollMs = 1000, maxStepMs = null, retryDelayMs = 30_000, now = () => new Date(), notify = null, library = [] }) {
   const running = new Set(); // flow ids mid-run; a flow must not lap itself
 
   function assertMayManage(flow, actorId, role) {
@@ -490,6 +490,11 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
    * Steps a flow can be built from without a parameter form: registered low and medium operations
    * every field of which is optional. The palette maintains itself as the registry grows.
    */
+  /** Ready-made automations shipped as files; the shelf reads these rather than a hardcoded list. */
+  function shelf() {
+    return library.map((entry) => ({ slug: entry.slug, name: entry.name, description: entry.description, steps: entry.steps }));
+  }
+
   function stepPalette() {
     const isScalar = (field) => ["string", "number", "boolean", undefined].includes(field.type);
     return registry.list()
@@ -509,5 +514,5 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
       }));
   }
 
-  return { create, list, update, remove, run, tick, start, recover, stepPalette, mintWebhook, clearWebhook, fireWebhook };
+  return { create, list, update, remove, run, tick, start, recover, stepPalette, shelf, mintWebhook, clearWebhook, fireWebhook };
 }

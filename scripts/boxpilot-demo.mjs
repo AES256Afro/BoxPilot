@@ -482,6 +482,11 @@ api.get("/flows", (_request, response) => json(response, {
       createdBy: "owner-demo", risk: "medium", running: false, createdAt: ago(100), updatedAt: ago(100), lastRunAt: ago(5), lastResult: "completed (1 step skipped by condition)", lastJobIds: ["d3", null],
       frequency: null, minute: null, hour: null, weekday: null, enabled: true, nextDueAt: null, triggerFlowId: "flow-1", webhookEnabled: false },
   ],
+  shelf: [
+    { slug: "update-night", name: "Update night", description: "Snapshot, refresh, then install every update.", steps: [{ operationId: "host.snapshot.create", parameters: {} }, { operationId: "apt.refresh", parameters: {} }, { operationId: "apt.upgrade", parameters: {}, retry: 1 }] },
+    { slug: "belt-and-braces", name: "Belt and braces", description: "Back up the database, then mirror it off-box.", steps: [{ operationId: "controller.backup.create", parameters: {} }, { operationId: "backup.sync", parameters: {} }] },
+    { slug: "tidy-docker", name: "Tidy up Docker", description: "Reclaim disk from unused images and layers.", steps: [{ operationId: "docker.prune", parameters: {} }] },
+  ],
   palette: [
     { operationId: "host.snapshot.create", title: "Create a machine snapshot", risk: "medium", description: "", fields: [] },
     { operationId: "apt.refresh", title: "Refresh package lists", risk: "low", description: "", fields: [] },

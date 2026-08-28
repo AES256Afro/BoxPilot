@@ -46,6 +46,24 @@ describe("Automations", () => {
     expect(screen.queryByLabelText("Runs after")).toBeNull();   // no flows exist in this fixture, so no select; nothing carried over
   });
 
+  it("shows the ready-made shelf from the API and installs an entry", async () => {
+    let posted: unknown = null;
+    const shelf = [{ slug: "tidy-docker", name: "Tidy up Docker", description: "Reclaim disk.", steps: [{ operationId: "docker.prune", parameters: {} }] }];
+    const paletteWithPrune = [...palette, { operationId: "docker.prune", title: "Clean up Docker disk space", risk: "medium", description: "", fields: [] }];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/flows" && (!init || init.method === undefined || init.method === "GET")) return json({ flows: [], palette: paletteWithPrune, shelf });
+      if (url === "/api/v1/flows" && init?.method === "POST") { posted = JSON.parse(String(init.body)); return json({ flow: {} }); }
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AutomationsCenter csrfToken="csrf" />);
+    expect(await screen.findByText("Tidy up Docker")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    await vi.waitFor(() => { if (!posted) throw new Error("not yet"); });
+    expect(posted).toEqual({ name: "Tidy up Docker", steps: [{ operationId: "docker.prune", parameters: {} }] });
+  });
+
   it("builds a parameterized step, coercing and omitting fields, and sending retry", async () => {
     let created: unknown = null;
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

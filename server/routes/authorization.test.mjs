@@ -93,7 +93,7 @@ beforeAll(async () => {
   app.use("/api/v1", createPeopleRouter({ state, auth }));
   app.use("/api/v1", createOperationsRouter({ state, helper, jobs, prerequisites: { inspect: async () => ({}) }, recoveryKit: { inspect: async () => ({}) }, actionCenter: { inspect: async () => ({}) }, auth }));
   app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, flows: {
-    list: () => [], stepPalette: () => [],
+    list: () => [], stepPalette: () => [], shelf: () => [],
     create: async ({ createdBy }) => ({ id: "flow-test", createdBy }),
     update: async () => ({ id: "flow-test" }),
     remove: () => {},
