@@ -580,8 +580,11 @@ This arc makes local access first-class — reachable and encrypted — without 
   status is read with Node's built-in `X509Certificate` (`server/tls-status.mjs`), no shell-out on the
   web side. This is the gate for passkeys over the LAN (M19.1) and for anything that wants a secure
   context. **Remaining:** bind 443 directly via `AmbientCapabilities=CAP_NET_BIND_SERVICE` so the port
-  is not in the URL; automatic renewal before the leaf expires; and fold the trusted HTTPS address into
-  the reachability panel below.
+  is not in the URL; and (done) the reachability panel folds the HTTPS address in (M18.3). ✅ (v1.70.0)
+  **Automatic renewal:** a background check reissues the leaf when it comes within 30 days of expiring,
+  reusing the CA so trusted devices stay trusted, running the same provisioning with the names already
+  on the certificate — and it waits rather than restarting BoxPilot out from under a running job
+  (`server/tls-renewal.mjs`).
 - ✅ **M18.3** (v1.65.0) **One place that tells you every way in.** A "Ways to reach BoxPilot" panel at
   the top of the Network page lists the addresses the control plane answers on — loopback, the LAN
   (when bound there), the LAN over HTTPS (one per certificate name and address, when TLS is

@@ -217,7 +217,7 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
               {tlsCap.provisioned ? (
                 <>
                   <p className="muted">On. Open <code>{`https://${reachName}:${tlsCap.port}`}</code> after installing the certificate on your device. Covers {[...(tlsCap.names ?? []), ...(tlsCap.ipAddresses ?? [])].map((entry, index, all) => <span key={entry}><code>{entry}</code>{index < all.length - 1 ? ", " : ""}</span>)}.</p>
-                  {tlsCap.notAfter && <p className="muted">Certificate valid until {tlsCap.notAfter}.</p>}
+                  {tlsCap.notAfter && <p className="muted">Certificate valid until {tlsCap.notAfter}. BoxPilot reissues it automatically before it expires, reusing the same authority so your devices stay trusting.</p>}
                   {tlsCap.caFingerprint && <p className="muted">Certificate authority fingerprint (SHA-256): <code style={{ wordBreak: "break-all" }}>{tlsCap.caFingerprint}</code>. Check this matches when your device asks.</p>}
                   <div className="recovery-actions">
                     <a className="primary-button" href="/ca.crt" download>Download the certificate</a>
