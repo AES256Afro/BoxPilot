@@ -4397,3 +4397,7 @@ textarea {
 .reach-answered .reach-mark { color: var(--good, #3fb27f); }
 .reach-refused .reach-mark, .reach-timeout .reach-mark, .reach-error .reach-mark, .reach-blocked-outside .reach-mark { color: var(--danger, #e06c6c); }
 .reach-not-probed .reach-mark { color: var(--text-muted); }
+
+/* Saved credential names: one line each, the remove within reach. */
+.credential-list { list-style: none; margin: 0 0 0.8rem; padding: 0; display: grid; gap: 0.4rem; }
+.credential-list li { display: flex; align-items: center; gap: 0.7rem; }
