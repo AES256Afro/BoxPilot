@@ -298,6 +298,7 @@ export function createAppHelper({
     for (const sidecar of manifest.sidecars ?? []) {
       const sidecarOwner = await imageDeclaredOwner(sidecar.image).catch(() => null);
       for (const volume of sidecar.volumes) {
+        if (!volume.path) continue;                 // a read-only host bind has no project directory to create
         const target = path.join(directory, volume.path);
         await mkdir(target, { recursive: true, mode: 0o755 });
         if (sidecarOwner) await chownDirectory(target, sidecarOwner.uid, sidecarOwner.gid).catch(() => {});
@@ -362,9 +363,9 @@ export function createAppHelper({
     // manifest change reaches the running app.
     for (const file of rendered.files ?? []) {
       const target = path.join(directory, file.path);
-      await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-      await writeFile(target, file.content, { mode: 0o600 });
-      if (runsAs) await chownDirectory(target, runsAs.uid, runsAs.gid).catch(() => {});
+      await mkdir(path.dirname(target), { recursive: true, mode: 0o755 });
+      await rm(target, { force: true }).catch(() => {});
+      await writeFile(target, file.content, { mode: 0o644 });
     }
     return rendered;
   }

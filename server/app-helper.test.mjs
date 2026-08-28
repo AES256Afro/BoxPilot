@@ -237,8 +237,28 @@ describe("generic app deployer", () => {
     await apps.install({ id: "conf", values: {} });
     const written = await readFile(path.join(catalogRoot, "conf", "app.conf"), "utf8");
     expect(written.trim()).toBe("say=hello");                 // interpolated and written where compose mounts it
+    // Non-secret config is world-readable, so a non-root container reads it on a first install
+    // before its image (and uid) is even known.
+    expect(((await stat(path.join(catalogRoot, "conf", "app.conf"))).mode & 0o777)).toBe(0o644);
     const compose = await readFile(path.join(catalogRoot, "conf", "compose.yaml"), "utf8");
     expect(compose).toContain("./app.conf:/etc/app/app.conf:ro");
+  });
+
+  it("installs a manifest whose sidecar mounts the host read-only, without crashing on the null path", async () => {
+    const { apps, catalogDirectory, catalogRoot } = await setup();
+    await writeFile(path.join(catalogDirectory, "mon.yaml"), [
+      "schemaVersion: 2", "id: mon", "name: Mon", "category: T", "description: d",
+      "image:", "  reference: nginx:1.27",
+      "ports:", "  - id: web", "    container: 9090", "    host: 9090",
+      "files:", "  - path: mon.yml", "    container: /etc/mon.yml", "    content: |", "      target: node:9100",
+      "sidecars:", "  - id: node", "    image: nginx:1.27",
+      "    volumes:", "      - id: rootfs", "        container: /host", "        hostPath: /",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n");
+    await expect(apps.install({ id: "mon", values: {} })).resolves.toMatchObject({ installed: true });
+    const compose = await readFile(path.join(catalogRoot, "mon", "compose.yaml"), "utf8");
+    expect(compose).toContain("/:/host:ro");
+    expect(compose).toContain("./mon.yml:/etc/mon.yml:ro");
   });
 
   it("lists compose projects BoxPilot did not create, and only those", async () => {

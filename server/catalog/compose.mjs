@@ -149,12 +149,12 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   // Every chosen host port is available to env values as ${PORT_<ID>}, so an app whose process
   // must know its own published port (qBittorrent's Host-header check, gluetun's inbound firewall)
   // can follow the owner's choice instead of hardcoding the default.
-  // ${PORT_<ID>} is a chosen host port; ${LAN_ADDRESS} is this server's address on the network,
-  // for a config that must reach another app's project (Grafana pointing at Prometheus), since
-  // separate compose projects cannot resolve each other by container name.
+  // ${PORT_<ID>} is a chosen host port, available to env and file content. (A cross-project
+  // reference like Grafana->Prometheus uses host.docker.internal:host-gateway, not this server's
+  // LAN address, which the helper cannot resolve behind its PrivateNetwork.)
   const portVariables = Object.fromEntries(hostPorts.map((port) => [`PORT_${port.id.toUpperCase().replace(/-/g, "_")}`, String(port.host)]));
-  const serverVariables = { ...portVariables, LAN_ADDRESS: lanAddress };
-  const withPortVariables = (value) => String(value).replace(/\$\{(PORT_[A-Z0-9_]+|LAN_ADDRESS)\}/g, (match, name) => serverVariables[name] ?? match);
+  const serverVariables = portVariables;
+  const withPortVariables = (value) => String(value).replace(/\$\{(PORT_[A-Z0-9_]+)\}/g, (match, name) => serverVariables[name] ?? match);
   // With networkVia the app lives inside the sidecar's network namespace (a VPN container), so
   // the ports are published on the sidecar and the app has no network of its own.
   if (manifest.networkVia) service.network_mode = `service:${manifest.networkVia}`;
