@@ -18,7 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/bo
 
 It installs Node 24, builds BoxPilot under `/opt/boxpilot`, enables the `boxpilot` and `boxpilot-helper` services, and prints the URL with a one-time owner token. Create the owner account, pick a setup profile (home server, DNS appliance, hypervisor, dev box, media server, smart home, observability, or just the essentials), and follow the checklist on the Overview. BoxPilot tells you when a new release is out; applying it is a one-click job that needs your password and rolls back by itself if the new version fails its health check.
 
-**Try it without a server:** `npm install && npm run build && npm run demo`, then open <http://127.0.0.1:8799>.
+**See it without installing:** [antifascist.work](https://antifascist.work) runs the real UI on fictional data. Locally: `npm install && npm run build && npm run demo`, then open <http://127.0.0.1:8799>.
 
 ## Features
 
@@ -26,7 +26,7 @@ It installs Node 24, builds BoxPilot under `/opt/boxpilot`, enables the `boxpilo
 | --- | --- |
 | **Overview** | Health at a glance, a setup checklist, what needs attention, your installed apps. |
 | **Updates & packages** | Install APT updates (all or selected), automatic security updates, restart hints, one-click common tools. |
-| **App catalog** | 159 self-hosted apps and game servers: search, install, configure, update, back up, restore, uninstall. What is running sits at the top. Every app with a login has a Sign in panel showing the page, the username, the password, and a way to change it. Apps that support it (Pi-hole) can run in Host network mode so they see each device on your LAN, not one shared address. A Performance page shows live CPU, memory, temperatures and disk use, with each app's cost and pause/stop controls beside it. Apps that run language models get a Models panel: see what is downloaded, add one, remove one. The Overview says plainly when an app has never been backed up, and one action gives every unprotected app a nightly backup. It also says when nothing holds a copy off the server, and can schedule that too. One switch decides whether an app is reachable from your home network or only through Tailscale, with HTTPS and a real certificate. |
+| **App catalog** | 161 self-hosted apps and game servers: search, install, configure, update, back up, restore, uninstall. Each has a Sign in panel with its address and credentials, a Performance page with live CPU, memory and disk per app, and one switch to choose LAN or Tailscale-only reach with HTTPS. Details below. |
 | **Services** | systemd units and timers: start, stop, restart, enable, disable, journal. |
 | **System** | Hostname, time zone, language, swap, trim, UPS monitoring, schedules, BoxPilot self-update. Housekeeping finds what nothing needs any more, such as old releases, unused images and stale backups, and clears only what you tick. |
 | **Users & SSH** | Accounts, sudo, SSH keys (import from GitHub), password-login policy. |
@@ -47,7 +47,13 @@ Sign in with a local password, your Tailscale identity, or GitHub.
 
 Photos and files (Immich, PhotoPrism, Nextcloud, Syncthing), media (Jellyfin, Plex, Emby, Audiobookshelf, Navidrome, Kavita), media automation (the *arr stack with qBittorrent behind a VPN), smart home (Home Assistant, Mosquitto, Zigbee2MQTT, Node-RED, ESPHome), Network-wide DNS blocking (Pi-hole with a blocklist picker and bundled Unbound, AdGuard Home, Technitium), monitoring (Uptime Kuma, Netdata, Prometheus, Grafana, Loki, Scrutiny, Beszel), networking (WireGuard, Nginx Proxy Manager, Cloudflare Tunnel), security (Vaultwarden, 2FAuth), communication (Matrix, Mattermost, ntfy, Gotify), notes and knowledge (BookStack, Wiki.js, Paperless-ngx, Joplin, Trilium, Linkding), household and finance (Grocy, Tandoor, Mealie, Actual Budget, Firefly III), developer tools (Forgejo, Portainer, code-server, databases with admin UIs, NocoDB, n8n), AI (Open WebUI + Ollama, Whisper, SearXNG), backups (Duplicati, Kopia, MinIO), game servers (Minecraft, Terraria, Factorio, Satisfactory, Palworld), and more.
 
-Each app is a YAML manifest plus a compose template; install, update, reconfigure, back up, and restore are generic.
+- **Sign in** panel per app: its address, username, password, and a way to change them.
+- **Performance** page: live CPU, memory, temperature and disk per app, with pause and stop.
+- **Reach**: one switch puts an app on your LAN or keeps it Tailscale-only, both over HTTPS with a real certificate. Apps that support it (Pi-hole) can take a host address so they see each LAN device.
+- **Backups**: the Overview names any app never backed up and any app with no copy off the box; one action fixes each.
+- **Models** panel for apps that run language models: list, add, remove.
+
+Each app is a YAML manifest plus a compose template; install, update, reconfigure, back up, and restore are generic. Stacks BoxPilot did not create can be adopted and managed alongside.
 
 ### Automations
 
