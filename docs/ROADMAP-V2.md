@@ -671,9 +671,16 @@ M8.3 shipped metrics (Prometheus, node-exporter, cAdvisor) with a provisioned Gr
 dashboard. Metrics tell you *that* something is wrong; this arc tells you *what happened* and *warns
 you first*.
 
-- **M21.1** **Logs in the same Grafana as the metrics.** A Loki stack with a log shipper reading the
-  host and every container, and a Loki data source auto-provisioned into Grafana, so one place holds
-  both. Uses the config-file and read-only-host-mount capabilities already built.
+- ✅ **M21.1** (v1.67.0) **Logs in the same Grafana as the metrics.** Grafana Alloy (`catalog/alloy.yaml`)
+  reads every container's log stream through a read-only Docker socket mount and ships it to Loki,
+  labelled by container name; Grafana auto-provisions a Loki data source (`catalog/grafana.yaml`)
+  alongside the Prometheus one, so metrics and logs live in one place. Uses the config-file provisioning
+  and read-only-host-mount capabilities already built. Verified end to end on the real box: a throwaway
+  logger's lines were shipped, stored, and queried back with the right container label (the key finding
+  was that Alloy must be its own compose project — sharing Loki's project makes the host-gateway hop a
+  hairpin that fails; separate projects reach Loki's published port fine, the same pattern Grafana uses
+  for Prometheus). **Remaining:** ship the systemd journal too (the Logs page already shows it), and a
+  ready-made "logs" dashboard.
 - **M21.2** **Alerting rules that reach your phone.** Prometheus/Alertmanager (or Grafana alerting)
   wired to the notification relay already in the product: disk filling, a container flapping, a
   scrape target down — routed to ntfy/Gotify, deduplicated, with a clear-when-resolved.

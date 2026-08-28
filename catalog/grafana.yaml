@@ -627,6 +627,11 @@ files:
           access: proxy
           url: http://host.docker.internal:9090
           isDefault: true
+        - name: Loki
+          uid: boxpilotloki
+          type: loki
+          access: proxy
+          url: http://host.docker.internal:3100
 signIn:
   path: /login
   usernameEnv: GF_SECURITY_ADMIN_USER
@@ -635,4 +640,4 @@ health:
   kind: running
   stableSeconds: 10
   timeoutSeconds: 180
-notes: Sign in with the admin username and the generated password (Secrets on this card). If you have installed Prometheus, it is already configured as a data source; the BoxPilot host dashboard is already there under Dashboards. Import id 1860 for the full node-exporter view.
+notes: Sign in with the admin username and the generated password (Secrets on this card). If you have installed Prometheus, it is already configured as a data source, and if you have installed Loki, it is too, so container and system logs are searchable under Explore. The BoxPilot host dashboard is already there under Dashboards. Import id 1860 for the full node-exporter view.
