@@ -149,8 +149,12 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   // Every chosen host port is available to env values as ${PORT_<ID>}, so an app whose process
   // must know its own published port (qBittorrent's Host-header check, gluetun's inbound firewall)
   // can follow the owner's choice instead of hardcoding the default.
+  // ${PORT_<ID>} is a chosen host port; ${LAN_ADDRESS} is this server's address on the network,
+  // for a config that must reach another app's project (Grafana pointing at Prometheus), since
+  // separate compose projects cannot resolve each other by container name.
   const portVariables = Object.fromEntries(hostPorts.map((port) => [`PORT_${port.id.toUpperCase().replace(/-/g, "_")}`, String(port.host)]));
-  const withPortVariables = (value) => String(value).replace(/\$\{(PORT_[A-Z0-9_]+)\}/g, (match, name) => portVariables[name] ?? match);
+  const serverVariables = { ...portVariables, LAN_ADDRESS: lanAddress };
+  const withPortVariables = (value) => String(value).replace(/\$\{(PORT_[A-Z0-9_]+|LAN_ADDRESS)\}/g, (match, name) => serverVariables[name] ?? match);
   // With networkVia the app lives inside the sidecar's network namespace (a VPN container), so
   // the ports are published on the sidecar and the app has no network of its own.
   if (manifest.networkVia) service.network_mode = `service:${manifest.networkVia}`;
@@ -163,7 +167,7 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   // mounted where the app expects them. A ${NAME} in the content is a non-secret setting or a
   // ${PORT_<ID>}; the schema already refused any secret reference, so nothing secret hits disk here.
   const secretNamesForFiles = new Set(manifest.env.filter((entry) => entry.secret).map((entry) => entry.name));
-  const fileSubstitute = (value) => String(value).replace(/\$\{([A-Z][A-Za-z0-9_]*)\}/g, (match, name) => (secretNamesForFiles.has(name) ? match : name in portVariables ? portVariables[name] : name in env ? String(env[name]) : match));
+  const fileSubstitute = (value) => String(value).replace(/\$\{([A-Z][A-Za-z0-9_]*)\}/g, (match, name) => (secretNamesForFiles.has(name) ? match : name in serverVariables ? serverVariables[name] : name in env ? String(env[name]) : match));
   const files = (manifest.files ?? []).map((file) => ({ path: file.path, content: fileSubstitute(file.content) }));
   for (const file of manifest.files ?? []) volumeMounts.push(`${composeLiteral(`./${file.path}`)}:${file.container}${file.readOnly === false ? "" : ":ro"}`);
   if (volumeMounts.length) service.volumes = volumeMounts;
@@ -193,7 +197,7 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
     // Sidecar env may reference the app's settings as ${NAME}: secrets stay references (resolved
     // from .env at compose time); plain settings are substituted here since they never reach .env.
     const secretNames = new Set(manifest.env.filter((entry) => entry.secret).map((entry) => entry.name));
-    const substitute = (value) => String(value).replace(/\$\{([A-Z][A-Za-z0-9_]*)\}/g, (match, name) => (secretNames.has(name) ? match : name in portVariables ? portVariables[name] : name in env ? composeLiteral(withPortVariables(env[name])) : ""));
+    const substitute = (value) => String(value).replace(/\$\{([A-Z][A-Za-z0-9_]*)\}/g, (match, name) => (secretNames.has(name) ? match : name in serverVariables ? serverVariables[name] : name in env ? composeLiteral(withPortVariables(env[name])) : ""));
     if (Object.keys(sidecar.env ?? {}).length) sidecarService.environment = Object.fromEntries(Object.entries(sidecar.env).map(([name, value]) => [name, substitute(value)]));
     if (sidecar.volumes.length) sidecarService.volumes = sidecar.volumes.map((volume) => (volume.hostPath
       ? `${volume.hostPath}:${volume.container}:ro`                 // curated, read-only host bind (an exporter reading the host)

@@ -294,3 +294,14 @@ describe("config files shipped with an app", () => {
     expect(files[0].content).toMatch(/node-exporter:9100/);
   });
 });
+
+describe("cross-app config wiring", () => {
+  it("provisions Grafana's Prometheus data source at this server's address", async () => {
+    const { manifests } = await loadCatalog();
+    const grafana = manifests.find((entry) => entry.id === "grafana");
+    const { files } = renderCompose(grafana, resolveValues(grafana, {}).values, { lanAddress: "192.168.8.10" });
+    const datasource = files.find((file) => file.path.includes("datasources"));
+    expect(datasource.content).toContain("url: http://192.168.8.10:9090");
+    expect(datasource.content).not.toContain("${LAN_ADDRESS}");   // interpolated, not left as a placeholder
+  });
+});
