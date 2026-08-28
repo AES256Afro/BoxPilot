@@ -6,8 +6,13 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 const palette = [
-  { operationId: "host.snapshot.create", title: "Create a machine snapshot", risk: "medium", description: "" },
-  { operationId: "apt.refresh", title: "Refresh package lists", risk: "low", description: "" },
+  { operationId: "host.snapshot.create", title: "Create a machine snapshot", risk: "medium", description: "", fields: [] },
+  { operationId: "apt.refresh", title: "Refresh package lists", risk: "low", description: "", fields: [] },
+  { operationId: "http.request", title: "Send an HTTP request", risk: "medium", description: "", fields: [
+    { name: "url", type: "string", optional: false, enum: null, default: null },
+    { name: "method", type: "string", optional: true, enum: ["GET", "POST"], default: null },
+    { name: "credentialName", type: "string", optional: true, enum: null, default: null },
+  ] },
 ];
 
 describe("Automations", () => {
@@ -39,6 +44,31 @@ describe("Automations", () => {
     // meant the next automation silently ran whenever the previous trigger completed.
     fireEvent.click(await screen.findByRole("button", { name: "Build your own" }));
     expect(screen.queryByLabelText("Runs after")).toBeNull();   // no flows exist in this fixture, so no select; nothing carried over
+  });
+
+  it("builds a parameterized step, coercing and omitting fields, and sending retry", async () => {
+    let created: unknown = null;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/flows" && (!init || init.method === undefined || init.method === "GET")) return json({ flows: [], palette });
+      if (url === "/api/v1/flows" && init?.method === "POST") { created = JSON.parse(String(init.body)); return json({ flow: {} }); }
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AutomationsCenter csrfToken="csrf" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Build your own" }));
+    fireEvent.change(screen.getByLabelText("Automation name"), { target: { value: "Ping" } });
+    fireEvent.change(screen.getByLabelText("Add a step"), { target: { value: "http.request" } });
+    fireEvent.change(screen.getByLabelText("Url for step 1"), { target: { value: "https://ntfy.sh/mytopic" } });
+    fireEvent.change(screen.getByLabelText("Method for step 1"), { target: { value: "POST" } });
+    // credentialName left blank must be omitted, not sent as "".
+    fireEvent.change(screen.getByLabelText("Retries for step 1"), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await vi.waitFor(() => { if (!created) throw new Error("not yet"); });
+    expect(created).toEqual({
+      name: "Ping",
+      steps: [{ operationId: "http.request", parameters: { url: "https://ntfy.sh/mytopic", method: "POST" }, retry: 2 }],
+    });
   });
 
   it("shows a skipped step holding its place in the last run, without a terminal", async () => {

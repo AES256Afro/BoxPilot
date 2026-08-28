@@ -491,10 +491,22 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
    * every field of which is optional. The palette maintains itself as the registry grows.
    */
   function stepPalette() {
+    const isScalar = (field) => ["string", "number", "boolean", undefined].includes(field.type);
     return registry.list()
       .filter((operation) => operation.risk !== "high" && !operation.readOnly)
-      .filter((operation) => Object.values(operation.parameters?.fields ?? {}).every((field) => field.optional))
-      .map((operation) => ({ operationId: operation.id, title: operation.title, risk: operation.risk, description: operation.description ?? "" }));
+      // Buildable by a plain form, and never able to store a secret in the flow's JSON. A field
+      // that is not a scalar (an array of packages, an object of app values) is fine only when it
+      // is optional: the form omits it, which is valid. A required non-scalar field, or any secret
+      // field, takes the whole operation out — the app-specific form is the place for those.
+      .filter((operation) => Object.values(operation.parameters?.fields ?? {}).every((field) => !field.secret && (isScalar(field) || field.optional)))
+      .map((operation) => ({
+        operationId: operation.id, title: operation.title, risk: operation.risk, description: operation.description ?? "",
+        // Only the scalar fields are offered; an optional non-scalar one is simply left unset.
+        fields: Object.entries(operation.parameters?.fields ?? {}).filter(([, field]) => isScalar(field)).map(([name, field]) => ({
+          name, type: field.type ?? "string", optional: Boolean(field.optional),
+          enum: Array.isArray(field.enum) ? field.enum : null, default: field.default ?? null,
+        })),
+      }));
   }
 
   return { create, list, update, remove, run, tick, start, recover, stepPalette, mintWebhook, clearWebhook, fireWebhook };

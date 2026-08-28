@@ -4405,3 +4405,10 @@ textarea {
 /* Stacks that live here but are not BoxPilot's: name, state, and where their compose file is. */
 .foreign-projects { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.45rem; }
 .foreign-projects li { display: flex; align-items: baseline; gap: 0.7rem; flex-wrap: wrap; }
+
+/* A draft automation step: its title, its parameters, and its failure/retry policy. */
+.flow-draft-head { display: flex; justify-content: space-between; align-items: baseline; gap: 0.6rem; }
+.flow-draft-fields { display: grid; gap: 0.5rem; margin: 0.5rem 0; }
+.flow-draft-fields label { display: grid; gap: 0.2rem; font-size: 0.9rem; }
+.flow-draft-policy { display: flex; gap: 0.7rem; align-items: center; flex-wrap: wrap; }
+.flow-draft-retry { display: flex; gap: 0.35rem; align-items: center; font-size: 0.9rem; color: var(--muted); }

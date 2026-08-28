@@ -483,13 +483,19 @@ api.get("/flows", (_request, response) => json(response, {
       frequency: null, minute: null, hour: null, weekday: null, enabled: true, nextDueAt: null, triggerFlowId: "flow-1", webhookEnabled: false },
   ],
   palette: [
-    { operationId: "host.snapshot.create", title: "Create a machine snapshot", risk: "medium", description: "" },
-    { operationId: "apt.refresh", title: "Refresh package lists", risk: "low", description: "" },
-    { operationId: "apt.upgrade", title: "Install package updates", risk: "medium", description: "" },
-    { operationId: "controller.backup.create", title: "Back up the BoxPilot database", risk: "low", description: "" },
-    { operationId: "backup.sync", title: "Mirror local backups to the independent destination", risk: "medium", description: "" },
-    { operationId: "docker.prune", title: "Clean up Docker disk space", risk: "medium", description: "" },
-    { operationId: "homepage.sync", title: "Sync Homepage with installed apps", risk: "low", description: "" },
+    { operationId: "host.snapshot.create", title: "Create a machine snapshot", risk: "medium", description: "", fields: [] },
+    { operationId: "apt.refresh", title: "Refresh package lists", risk: "low", description: "", fields: [] },
+    { operationId: "apt.upgrade", title: "Install package updates", risk: "medium", description: "", fields: [] },
+    { operationId: "controller.backup.create", title: "Back up the BoxPilot database", risk: "low", description: "", fields: [] },
+    { operationId: "backup.sync", title: "Mirror local backups to the independent destination", risk: "medium", description: "", fields: [] },
+    { operationId: "docker.prune", title: "Clean up Docker disk space", risk: "medium", description: "", fields: [] },
+    { operationId: "homepage.sync", title: "Sync Homepage with installed apps", risk: "low", description: "", fields: [{ name: "host", type: "string", optional: true, enum: null, default: null }] },
+    { operationId: "http.request", title: "Send an HTTP request", risk: "medium", description: "Call a webhook or API from this server.", fields: [
+      { name: "url", type: "string", optional: false, enum: null, default: null },
+      { name: "method", type: "string", optional: true, enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"], default: null },
+      { name: "body", type: "string", optional: true, enum: null, default: null },
+      { name: "credentialName", type: "string", optional: true, enum: null, default: null },
+    ] },
   ],
 }));
 api.get("/schedules", (_request, response) => json(response, { schedules: [
