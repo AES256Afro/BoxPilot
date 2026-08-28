@@ -263,6 +263,9 @@ app.post("/api/v1/auth/logout", auth.requireSession, auth.requireCsrf, auth.logo
 app.post("/api/v1/auth/elevate", auth.requireSession, auth.requireCsrf, auth.elevate);
 app.delete("/api/v1/auth/elevate", auth.requireSession, auth.requireCsrf, auth.dropElevation);
 app.post("/api/v1/auth/password", auth.requireSession, auth.requireCsrf, auth.changePassword);
+app.get("/api/v1/auth/sessions", auth.requireSession, auth.listSessions);
+app.delete("/api/v1/auth/sessions/:id", auth.requireSession, auth.requireCsrf, auth.revokeSession);
+app.post("/api/v1/auth/sessions/revoke-others", auth.requireSession, auth.requireCsrf, auth.revokeOtherSessions);
 
 app.use("/api/v1", auth.requireSession);
 app.use("/api/v1", (request, response, next) => {
