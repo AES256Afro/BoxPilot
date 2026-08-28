@@ -64,7 +64,7 @@ export async function verifyPassword(password, encoded) {
   return safeEqual(Buffer.from(derived).toString("base64url"), expected);
 }
 
-export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, resolveClientAddress = null } = {}) {
+export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, resolveClientAddress = null, notify = null } = {}) {
   /**
    * Best-effort "from where" for the session list: the tailnet peer if there is one, otherwise the
    * forwarded or socket address, plus the user agent. This is display metadata shown to the owner
@@ -78,6 +78,35 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
       address: raw ? (normalizeAddress(raw) ?? String(raw).slice(0, 64)) : null,
       userAgent: (request.get?.("user-agent") ?? "").slice(0, 300) || null,
     };
+  }
+
+  /**
+   * Notify the owner the first time their account signs in from an address (M19.4). The very first
+   * address on an account is baselined silently — there is no "new" to warn about when there is no
+   * history — and loopback is ignored, since a local sign-in is not the thing worth an alert. The
+   * push uses the same target as failed-job alerts, so it reaches wherever the owner already listens.
+   */
+  function noteSignIn(owner, descriptor, method) {
+    const address = descriptor?.address;
+    if (!notify || !owner || !address || address === "127.0.0.1" || address === "::1") return;
+    let verdict = "known";
+    try {
+      verdict = store.updateSetting?.("signinAddresses", {}, (known) => {
+        const map = known && typeof known === "object" && !Array.isArray(known) ? known : {};
+        const list = Array.isArray(map[owner.id]) ? map[owner.id] : [];
+        if (list.includes(address)) return { value: map, result: "known" };
+        const first = list.length === 0;
+        return { value: { ...map, [owner.id]: [...list, address].slice(-50) }, result: first ? "first" : "new" };
+      }, owner.id) ?? "known";
+    } catch { return; }
+    if (verdict === "known") return;
+    store.recordAudit("session.sign-in-address", { actorId: owner.id, subjectId: owner.id, details: { address, method, first: verdict === "first" } });
+    if (verdict === "first") return; // baseline the first address without an alert
+    void Promise.resolve(notify({
+      title: "New sign-in to BoxPilot",
+      message: `${owner.username} signed in from ${address} via ${method}. If this wasn't you, change your password and review Settings, Where you're signed in.`,
+      priority: "high",
+    })).catch(() => {});
   }
 
   function requestSession(request) {
@@ -183,7 +212,9 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
     try {
       const passwordHash = await hashPassword(password);
       const owner = store.consumeBootstrapToken(bootstrapToken, { username, passwordHash });
-      const session = store.createSession(owner.id, { ttlMs: sessionTtlMs, ...clientDescriptor(request), method: "password" });
+      const descriptor = clientDescriptor(request);
+      const session = store.createSession(owner.id, { ttlMs: sessionTtlMs, ...descriptor, method: "password" });
+      noteSignIn(owner, descriptor, "password"); // baselines the first address silently
       appendCookie(request, response, cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000)));
       response.status(201).json({ authenticated: true, owner: { id: owner.id, username: owner.username, role: owner.role ?? "owner" }, csrfToken: session.csrfToken, expiresAt: session.expiresAt });
     } catch (error) {
@@ -259,8 +290,10 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
       response.status(401).json({ error: "Invalid username or password", code: "invalid_credentials" });
       return;
     }
-    const session = store.createSession(owner.id, { ttlMs: sessionTtlMs, ...clientDescriptor(request), method: "password" });
+    const descriptor = clientDescriptor(request);
+    const session = store.createSession(owner.id, { ttlMs: sessionTtlMs, ...descriptor, method: "password" });
     store.recordAudit("session.created", { actorId: owner.id, subjectId: owner.id });
+    noteSignIn(owner, descriptor, "password");
     appendCookie(request, response, cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000)));
     response.json({ authenticated: true, owner: { id: owner.id, username: owner.username, role: owner.role ?? "owner" }, csrfToken: session.csrfToken, expiresAt: session.expiresAt });
   }
@@ -268,8 +301,10 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
   /** Issue a session for an owner authenticated by an external identity (Tailscale, GitHub). */
   function issueSession(request, response, owner, { method = "identity", detail = null } = {}) {
     if (owner?.role === "disabled") throw new Error("This account is disabled");
-    const session = store.createSession(owner.id, { ttlMs: sessionTtlMs, ...clientDescriptor(request), method });
+    const descriptor = clientDescriptor(request);
+    const session = store.createSession(owner.id, { ttlMs: sessionTtlMs, ...descriptor, method });
     store.recordAudit("session.created", { actorId: owner.id, subjectId: owner.id, details: { method, ...(detail ? { detail } : {}) } });
+    noteSignIn(owner, descriptor, method);
     appendCookie(request, response, cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000)));
     return { authenticated: true, owner: { id: owner.id, username: owner.username, role: owner.role ?? "owner" }, csrfToken: session.csrfToken, expiresAt: session.expiresAt, elevatedUntil: null, method };
   }

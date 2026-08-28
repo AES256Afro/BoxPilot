@@ -71,7 +71,8 @@ const audit = createAuditLog();
 const state = createStateStore();
 // The identity service is created below; the throttle asks it who the caller is, lazily, so the
 // two can be wired without ordering them.
-const auth = createAuthService(state, { resolveClientAddress: (request) => identity.clientAddress(request) });
+// notify is called only at sign-in time, long after the notifications service below is constructed.
+const auth = createAuthService(state, { resolveClientAddress: (request) => identity.clientAddress(request), notify: (payload) => notifications.send(payload) });
 const helper = createHelperClient({ timeoutMs: 180000 });
 const maintenance = createMaintenanceService();
 const libvirt = createHelperLibvirtService({ helper });

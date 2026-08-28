@@ -107,6 +107,7 @@ export default function SessionsSettings({ csrfToken }: { csrfToken: string }) {
             <button className="secondary-button" type="button" disabled={busy} onClick={() => void revokeOthers()}>Sign out everywhere else ({others})</button>
           </div>
         )}
+        <p className="muted">BoxPilot alerts you through your notification target when your account signs in from an address it has not seen before.</p>
         {message && <p className="good-text">{message}</p>}
         {error && <div className="auth-error" role="alert">{error}</div>}
       </div>
