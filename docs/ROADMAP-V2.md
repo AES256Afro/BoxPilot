@@ -408,8 +408,16 @@ its network, use a generic HTTP step for everything else, and hand SaaS breadth 
   needs run state persisted per step rather than inferred.
 - **M13.9** **Remote targets.** Run a step on another machine over SSH or the tailnet, so one flow can
   drive several boxes. This is where "manage other systems" stops meaning "call their API".
-- **M13.10** **The editor.** Deliberately late. Building a canvas before the data model has settled
-  is how these projects acquire a UI they cannot change.
+- ◐ **M13.10** **The editor.** First real slice (v1.52.0): the automation builder configures each
+  step, not just names it. The palette broadened from all-optional operations to everything a
+  scalar form can build (never high, never read-only, and never a step whose value would be a
+  secret, since flow steps are stored as JSON) and carries each operation's field descriptors; the
+  builder renders a form per step (text, number, yes/no, enum select), a retry count, and the
+  failure policy, coercing types and omitting unset optionals on save while the server validates
+  as ever. This makes http.request, retry, and parameterized steps reachable from the interface at
+  last, closing the shipped-but-unreachable gap on M13.3/13.4/13.7/13.8. Remaining: a canvas,
+  per-step naming and conditions in the form (they need a name picker), and reordering beyond
+  up/down.
 - **M13.11** **A flow library.** Shareable definitions the way the app catalog ships manifests:
   "snapshot, update, verify, tell me on ntfy" as one importable thing rather than everyone
   rebuilding it.
