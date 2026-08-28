@@ -16,7 +16,7 @@ interface Flow {
   risk: "low" | "medium" | "high"; running: boolean;
   lastRunAt: string | null; lastResult: string | null; lastJobIds: Array<string | null>;
   frequency: "hourly" | "daily" | "weekly" | null; minute: number | null; hour: number | null; weekday: number | null;
-  enabled: boolean; nextDueAt: string | null; triggerFlowId: string | null;
+  enabled: boolean; nextDueAt: string | null; triggerFlowId: string | null; webhookEnabled: boolean;
 }
 
 const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -134,6 +134,24 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
     setError(null); setNotice(null);
     try { await post(`/api/v1/flows/${encodeURIComponent(flow.id)}`, { enabled }, "PUT"); await refresh(); }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not change the schedule"); }
+  };
+
+  const mintWebhook = async (flow: Flow) => {
+    setError(null); setNotice(null);
+    try {
+      const response = await fetch(`/api/v1/flows/${encodeURIComponent(flow.id)}/webhook`, { method: "POST", headers: { "X-BoxPilot-CSRF": csrfToken } });
+      const body = (await response.json()) as { token?: string; path?: string; error?: string };
+      if (!response.ok || !body.path) throw new Error(body.error ?? "Could not create the webhook");
+      // The one time the URL exists outside the caller's hands: shown here, stored nowhere.
+      setNotice(`POST ${window.location.origin}${body.path} fires ${flow.name}. Copy it now; only its fingerprint is kept, so it cannot be shown again.`);
+      await refresh();
+    } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not create the webhook"); }
+  };
+
+  const removeWebhook = async (flow: Flow) => {
+    setError(null); setNotice(null);
+    try { await post(`/api/v1/flows/${encodeURIComponent(flow.id)}/webhook`, undefined, "DELETE"); setNotice(`${flow.name}'s webhook no longer works.`); await refresh(); }
+    catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not remove the webhook"); }
   };
 
   const removeFlow = async (flow: Flow) => {
@@ -262,6 +280,9 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
                     Runs {cadenceLabel(flow)}{flow.enabled && flow.nextDueAt ? `; next ${new Date(flow.nextDueAt).toLocaleString()}` : ""}{flow.enabled ? "" : "; paused"}. Runs under your account, the same as pressing Run.
                   </p>
                 )}
+                {flow.webhookEnabled && (
+                  <p className="muted">A webhook can fire this flow. The URL was shown once when it was created; regenerate it to get a new one.</p>
+                )}
                 {flow.triggerFlowId && (
                   <p className="muted">Runs after {flows?.find((other) => other.id === flow.triggerFlowId)?.name ?? "another flow"} completes, under its own creator's account.{flow.enabled ? "" : " Paused."}</p>
                 )}
@@ -276,6 +297,8 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
                   {flow.frequency && (
                     <button className="text-button" type="button" disabled={flow.running} onClick={() => void reschedule(flow, null)}>Stop scheduling it</button>
                   )}
+                  <button className="text-button" type="button" onClick={() => void mintWebhook(flow)}>{flow.webhookEnabled ? "Regenerate the webhook" : "Create a webhook"}</button>
+                  {flow.webhookEnabled && <button className="text-button" type="button" onClick={() => void removeWebhook(flow)}>Remove the webhook</button>}
                   <button className="text-button" type="button" disabled={flow.running} onClick={() => void removeFlow(flow)}>Remove</button>
                 </div>
               </article>

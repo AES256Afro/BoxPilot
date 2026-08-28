@@ -136,6 +136,27 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, jobLogR
     }
   });
 
+  router.post("/flows/:id/webhook", auth.requireCsrf, (request, response) => {
+    if (!flows) return response.status(503).json({ error: "Automations are not available", code: "flows_unavailable" });
+    try {
+      const { token } = flows.mintWebhook(request.params.id, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
+      // The token appears exactly once, here; from now on the server knows only its hash.
+      return response.json({ token, path: `/api/v1/hooks/flows/${request.params.id}/${token}` });
+    } catch (error) {
+      return response.status(error.message === "Flow not found" ? 404 : 403).json({ error: error.message });
+    }
+  });
+
+  router.delete("/flows/:id/webhook", auth.requireCsrf, (request, response) => {
+    if (!flows) return response.status(503).json({ error: "Automations are not available", code: "flows_unavailable" });
+    try {
+      flows.clearWebhook(request.params.id, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
+      return response.status(204).end();
+    } catch (error) {
+      return response.status(error.message === "Flow not found" ? 404 : 403).json({ error: error.message });
+    }
+  });
+
   router.post("/flows/:id/run", auth.requireCsrf, async (request, response) => {
     try {
       const result = await flows.run(request.params.id, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });

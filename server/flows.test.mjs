@@ -26,6 +26,7 @@ function fakeStore() {
       return flow;
     },
     markFlowRun(id, { result, jobIds }) { Object.assign(flows.get(id), { lastResult: result, lastJobIds: jobIds, lastRunAt: "now" }); },
+    setFlowWebhook(id, hash) { const flow = flows.get(id); if (!flow) throw new Error("Flow not found"); flow.webhookHash = hash; flow.webhookEnabled = Boolean(hash); return flow; },
     deleteFlow(id) { if (!flows.delete(id)) throw new Error("Flow not found"); },
     getJob: (id) => jobs.get(id) ?? null,
     getSetting: () => null,
@@ -413,6 +414,52 @@ describe("running a flow", () => {
     // And a legacy dangling link mid-chain no longer poisons saving a new follower.
     store.flows.get(b.id).triggerFlowId = "flow-ghost";
     await expect(service.create({ name: "c", steps: [goodSteps[0]], createdBy: "owner-1", triggerFlowId: b.id })).resolves.toMatchObject({ name: "c" });
+  });
+
+  it("a webhook fires its one flow under the creator's authority, and nothing else", async () => {
+    const store = fakeStore();
+    const jobs = fakeJobs(store);
+    let clockMs = Date.parse("2026-08-28T01:00:00Z");
+    const service = createFlowService({ store, jobs, pollMs: 2, now: () => new Date(clockMs) });
+    const flow = await service.create({ name: "hooked", steps: [goodSteps[0]], createdBy: "operator-7" });
+    const { token } = service.mintWebhook(flow.id, "operator-7", { role: "operator" });
+    expect(token.length).toBeGreaterThan(30);
+    // Only the hash is stored; the token itself exists nowhere in the store.
+    expect(JSON.stringify([...store.flows.values()])).not.toContain(token);
+
+    expect(service.fireWebhook(flow.id, token, { source: "192.168.1.50" })).toBe("accepted");
+    await new Promise((resolve) => setTimeout(resolve, 25));                    // the run is fire-and-record
+    expect(store.getFlow(flow.id).lastResult).toBe("completed");
+    expect(jobs.calls[0].actorId).toBe("operator-7");                           // the creator, not the caller
+    expect(store.audits.some((entry) => entry.event === "flow.webhook-fired" && entry.details.source === "192.168.1.50")).toBe(true);
+
+    // A wrong token, a flow without a webhook, and a missing flow all answer identically.
+    expect(service.fireWebhook(flow.id, "not-the-token")).toBe("not-found");
+    const bare = await service.create({ name: "bare", steps: [goodSteps[0]], createdBy: "owner-1" });
+    expect(service.fireWebhook(bare.id, token)).toBe("not-found");
+    expect(service.fireWebhook("flow-ghost", token)).toBe("not-found");
+
+    // The limit holds per flow per minute, and releases as the clock moves.
+    for (let index = 0; index < 5; index += 1) service.fireWebhook(flow.id, token);
+    expect(service.fireWebhook(flow.id, token)).toBe("rate-limited");
+    clockMs += 61_000;
+    expect(service.fireWebhook(flow.id, token)).toBe("accepted");
+
+    service.clearWebhook(flow.id, "operator-7", { role: "operator" });
+    expect(service.fireWebhook(flow.id, token)).toBe("not-found");
+  });
+
+  it("a webhook fire that the creator can no longer authorize is recorded and notified", async () => {
+    const store = fakeStore();
+    store.findOwnerById = (id) => ({ id, username: id, role: "viewer" });
+    const notified = [];
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, notify: (message) => notified.push(message) });
+    const flow = await service.create({ name: "demoted", steps: [goodSteps[0]], createdBy: "viewer-9" });
+    const { token } = service.mintWebhook(flow.id, "viewer-9", { role: "owner" });
+    expect(service.fireWebhook(flow.id, token)).toBe("accepted");
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(store.getFlow(flow.id).lastResult).toMatch(/skipped: viewer-9 can no longer approve/);
+    expect(notified[0]).toMatch(/demoted was fired by its webhook but did not run/);
   });
 
   it("only the creator or an owner may change or remove a flow", async () => {
