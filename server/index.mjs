@@ -301,7 +301,7 @@ app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort
 app.use("/api/v1", createStorageRouter({ auth, helper, inventory, state }));
 app.use("/api/v1", createPowerRouter());
 app.use("/api/v1", createChecklistRouter({ state, helper, notifications, inventory, network }));
-app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, webHost: host, webPort: port }));
+app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity, webHost: host, webPort: port }));
 
 app.use("/assets", express.static(path.join(dist, "assets"), { index: false, maxAge: "365d", immutable: true }));
 app.use(express.static(dist, { index: false }));

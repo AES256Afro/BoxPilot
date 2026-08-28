@@ -347,5 +347,5 @@ export function createIdentityService({
     };
   }
 
-  return { clientAddress: addressFor, tailscaleIdentity, tailscaleAccountFor, githubAccountFor, githubOwnerFor, linkTailscale, unlinkTailscale, githubConfigured, setGithubClientId, githubStart, githubPoll, githubLinked, linkGithub, unlinkGithub, summary, internals: { whois, flows: githubFlows } };
+  return { clientAddress: addressFor, tailscaleIdentity, tailscaleAccountFor, githubAccountFor, githubOwnerFor, linkTailscale, unlinkTailscale, githubConfigured, setGithubClientId, githubStart, githubPoll, githubLinked, linkGithub, unlinkGithub, summary, servePublishesControlPlane: serveProxiesUs, internals: { whois, flows: githubFlows } };
 }

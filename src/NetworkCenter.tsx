@@ -8,6 +8,9 @@ import DnsCheckPanel from "./DnsCheckPanel";
 
 type TlsCap = { provisioned: boolean; port: number; names?: string[]; ipAddresses?: string[]; fingerprint?: string | null; notAfter?: string | null; caFingerprint?: string | null; canProvision: boolean };
 
+type ReachWay = { id: string; label: string; url: string; scope: string; encrypted: boolean; trusted: boolean };
+type Reachability = { ways: ReachWay[]; onLan: boolean; tlsProvisioned: boolean; servePublished: boolean };
+
 type Topology = {
   generatedAt: string;
   collectors: Record<string, boolean>;
@@ -70,14 +73,19 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { start, dialog } = useOperation(csrfToken, () => { void loadNetworkCap(); });
+  const { start, dialog } = useOperation(csrfToken, () => { void loadNetworkCap(); void loadReach(); });
   const [networkCap, setNetworkCap] = useState<{ bind: string; port: number; lan: boolean; canSet: boolean } | null>(null);
   const [tlsCap, setTlsCap] = useState<TlsCap | null>(null);
+  const [reach, setReach] = useState<Reachability | null>(null);
   const loadNetworkCap = useCallback(() => fetch("/api/v1/capabilities")
     .then((response) => (response.ok ? response.json() : null))
     .then((body: { network?: { bind: string; port: number; lan: boolean; canSet: boolean }; tls?: TlsCap } | null) => { setNetworkCap(body?.network ?? null); setTlsCap(body?.tls ?? null); })
     .catch(() => {}), []);
-  useEffect(() => { void loadNetworkCap(); }, [loadNetworkCap]);
+  const loadReach = useCallback(() => fetch("/api/v1/network/reachability")
+    .then((response) => (response.ok ? response.json() : null))
+    .then((body: Reachability | null) => setReach(body))
+    .catch(() => {}), []);
+  useEffect(() => { void loadNetworkCap(); void loadReach(); }, [loadNetworkCap, loadReach]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -152,6 +160,28 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
         <article className="panel network-summary"><span className="eyebrow">Default resolvers</span><strong>{topology.defaultResolvers.join(" + ") || "Unavailable"}</strong><span>Observed from systemd-resolved, not router configuration</span></article>
         <article className="panel network-summary"><span className="eyebrow">Tailscale DNS path</span><strong>{topology.tailscale.defaultDnsObserved ? "Default resolver observed" : "Split resolver only"}</strong><span>{topology.tailscale.dnsName ?? "No tailnet DNS name"}</span></article>
       </div>
+
+      {reach && reach.ways.length > 0 && (
+        <section className="panel reach-panel">
+          <header className="panel-header"><div><strong>Ways to reach BoxPilot</strong><span>The addresses this panel answers on right now. Use the one that fits where you are.</span></div></header>
+          <div className="reach-list">
+            {reach.ways.map((way) => (
+              <div className="reach-way" key={way.id}>
+                <div className="reach-way-main">
+                  <a href={way.url} target="_blank" rel="noreferrer"><code>{way.url}</code></a>
+                  <span className="muted">{way.label} · {way.scope}</span>
+                </div>
+                <div className="reach-badges">
+                  <span className={`status-pill status-${way.encrypted ? "good" : "neutral"}`}>{way.encrypted ? "encrypted" : "not encrypted"}</span>
+                  {way.encrypted && !way.trusted && <span className="status-pill status-warning">install certificate</span>}
+                  <button className="text-button" type="button" onClick={() => void navigator.clipboard?.writeText(way.url)}>Copy</button>
+                </div>
+              </div>
+            ))}
+          </div>
+          {!reach.servePublished && <p className="muted">Publish BoxPilot on your tailnet with <code>tailscale serve --bg http://127.0.0.1:{networkCap?.port ?? 8787}</code> to reach it from anywhere over HTTPS.</p>}
+        </section>
+      )}
 
       <div className="dashboard-grid">
         <TailscalePanel start={start} tailscale={topology.tailscale} />

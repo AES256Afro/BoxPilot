@@ -4138,6 +4138,12 @@ textarea {
 .recovery-codes-box { margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2, rgba(127, 127, 127, 0.06)); }
 .recovery-code-list { list-style: none; margin: 8px 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; }
 .recovery-code-list code { font-size: 15px; letter-spacing: 0.06em; }
+.reach-list { display: grid; gap: 8px; }
+.reach-way { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.reach-way-main { display: grid; gap: 2px; min-width: 0; }
+.reach-way-main a { text-decoration: none; }
+.reach-way-main code { font-size: 14px; word-break: break-all; }
+.reach-badges { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .session-here { color: var(--accent); font-weight: 600; }
 .session-elevated { color: var(--good); font-weight: 600; }
 .session-row span code { font-size: 12px; }
