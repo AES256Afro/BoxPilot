@@ -6,7 +6,7 @@ import RestorePanel from "./RestorePanel";
 import RestoreReviewPanel from "./RestoreReviewPanel";
 import { inspectOperation } from "./operations";
 import { readJson } from "./http";
-import { judgeProtection, type AppProtection, type ProtectionVerdict, type ScheduleLike } from "./backupProtection";
+import { behindBackupSchedules, judgeProtection, type AppProtection, type ProtectionVerdict, type ScheduleLike } from "./backupProtection";
 import { offBoxVerdict, offBoxWarning, mirrorOperations, type OffBoxInputs } from "./offBox";
 
 interface BackupRecord { id: string; applicationId: string; destination: string; checksumSha256: string; sizeBytes: number; downtimeMs: number; restoreDrill: { passed?: boolean } | null; createdAt: string }
@@ -52,6 +52,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
   const [appProtection, setAppProtection] = useState<{ verdicts: ProtectionVerdict[]; available: boolean } | null>(null);
   const [protecting, setProtecting] = useState<string | null>(null);
   const [offBox, setOffBox] = useState<{ warning: string | null; inputs: OffBoxInputs; scheduled: boolean } | null>(null);
+  const [behind, setBehind] = useState<ScheduleLike[]>([]);
   const [backups, setBackups] = useState<BackupRecord[]>([]);
   const [protection, setProtection] = useState<ProtectionState | null>(null);
   const [retention, setRetention] = useState<RetentionStatus | null>(null);
@@ -105,6 +106,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
       ]);
       const schedules = (scheduleList as { schedules: ScheduleLike[] }).schedules ?? [];
       setAppProtection({ available: result.result.available, verdicts: judgeProtection(result.result.apps, schedules) });
+      setBehind(behindBackupSchedules(schedules));
 
       const read = async (url: string) => {
         try {
@@ -234,6 +236,11 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
     <div className="backup-center">
       {dialog}
       {error && <div className="auth-error" role="alert">{error}</div>}
+      {behind.length > 0 && (
+        <div className="auth-error" role="alert">
+          <strong>A scheduled backup has stopped running.</strong> {behind.map((schedule) => schedule.title ?? schedule.operationId).join(", ")} {behind.length === 1 ? "is" : "are"} overdue by more than a full cycle. The server may have been off, or the task may be failing every time. Open <strong>Automations</strong> to check it, or run a backup now below.
+        </div>
+      )}
 
       <div className="metric-grid">
         <article className="panel">

@@ -87,4 +87,29 @@ describe("health alerts with missing evidence", () => {
     snapshot = { storage: { root: { usedPercent: 10 }, smart: { available: true, disks: [{ device: "/dev/sda", health: "healthy" }] } } };
     expect(await alerts.check()).toMatchObject({ sent: ["resolved:storage.smart:/dev/sda"] });
   });
+
+  it("alerts when a scheduled backup falls behind, and clears when it catches up", async () => {
+    const settings = new Map();
+    const overdue = { id: "sch-1", operationId: "backup.cloud.sync", frequency: "daily", enabled: true, nextDueAt: "2026-08-20T04:00:00Z" };
+    let schedules = [overdue];
+    const store = {
+      getSetting: (key, fallback) => settings.get(key) ?? fallback,
+      setSetting: (key, value) => settings.set(key, value),
+      recordAudit: vi.fn(),
+      listSchedules: () => schedules,
+    };
+    const send = vi.fn(async () => ({ sent: true }));
+    const notifications = { getTarget: () => ({ kind: "ntfy" }), send };
+    const inventory = { inspect: async () => ({}) };
+    const alerts = createHealthAlerts({ inventory, notifications, store, now: () => new Date("2026-08-28T12:00:00Z"), resolveScheduleTitle: () => "Mirror backups to the cloud" });
+
+    const first = await alerts.check();
+    expect(first.sent).toEqual(["schedule.overdue:sch-1"]);
+    expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Scheduled task overdue: Mirror backups to the cloud", message: expect.stringContaining("has stopped protecting you"), priority: "default" });
+    expect(await alerts.check()).toMatchObject({ sent: [] }); // still overdue: no repeat
+
+    // The scheduler catches up (next run in the future): the alert resolves.
+    schedules = [{ ...overdue, nextDueAt: "2026-08-29T04:00:00Z" }];
+    expect((await alerts.check()).sent).toEqual(["resolved:schedule.overdue:sch-1"]);
+  });
 });

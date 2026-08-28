@@ -655,9 +655,16 @@ front door as strong as the rest of the product, and does it in a way that works
 M6 shipped the mechanics: off-box mirror, machine snapshots, restore drills, pre-change checkpoints.
 This arc turns them into a policy the owner sets once and a disaster they have already rehearsed.
 
-- **M20.1** **A backup policy, not a pile of schedules.** One page: what to protect, how often, how
-  many to keep, where the copies go, and when the last of each ran — with the "behind" detector
-  already built wired into it, so a mirror that quietly stopped is loud.
+- ◐ **M20.1** (v1.68.0) **A backup that quietly stopped is loud.** ✅ **The behind detector.** The
+  scheduler advances a schedule's next-due time every time it runs it, so a healthy schedule's next
+  run is always in the future; if it slips more than a whole cycle into the past, the scheduler skipped
+  an entire interval — the box was off for a long time, or the task stopped — and that is now a health
+  alert through the same notification target as everything else (`server/schedule-freshness.mjs`, wired
+  into `server/health-alerts.mjs`), covering both operation schedules (how BoxPilot's nightly backups
+  run) and scheduled flows. The Backups page shows a banner naming any overdue backup schedule, and the
+  schedules API carries an `overdue` flag. **Remaining:** the full one-page policy view (what/how
+  often/how many/where/last-ran in one place); this slice makes the failure loud, not the policy
+  visible.
 - **M20.2** **Encrypted cloud destinations, first-class.** B2, S3, and any rclone remote as a
   managed target with its own key, not a hand-edited rclone.conf.
 - **M20.3** **Scheduled restore rehearsals with a verdict.** The restore drill (M6.5) on a cadence,

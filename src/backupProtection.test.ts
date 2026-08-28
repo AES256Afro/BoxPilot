@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { judgeProtection, scheduledAppIds, protectionWarning, type AppProtection } from "./backupProtection";
+import { behindBackupSchedules, judgeProtection, scheduledAppIds, protectionWarning, type AppProtection } from "./backupProtection";
 
 const now = Date.parse("2026-08-25T12:00:00.000Z");
 const daysAgo = (days: number) => new Date(now - days * 86_400_000).toISOString();
@@ -78,5 +78,18 @@ describe("what the Overview says about it", () => {
 
   it("says nothing when every app has a recent backup", () => {
     expect(protectionWarning(judgeProtection([app({ id: "immich", backups: 4, newestAt: daysAgo(1) })], [], { now }))).toBeNull();
+  });
+});
+
+describe("behindBackupSchedules", () => {
+  it("keeps only overdue, enabled, backup-related schedules", () => {
+    const schedules = [
+      { operationId: "app.backup", enabled: true, overdue: true, title: "Back up application data" },
+      { operationId: "backup.cloud.sync", enabled: true, overdue: true, title: "Mirror to cloud" },
+      { operationId: "app.backup", enabled: true, overdue: false, title: "On time" },       // not overdue
+      { operationId: "app.backup", enabled: false, overdue: true, title: "Paused" },          // disabled
+      { operationId: "apt.upgrade", enabled: true, overdue: true, title: "Not a backup" },     // unrelated op
+    ];
+    expect(behindBackupSchedules(schedules).map((s: { title?: string }) => s.title)).toEqual(["Back up application data", "Mirror to cloud"]);
   });
 });

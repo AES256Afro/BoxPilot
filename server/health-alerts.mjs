@@ -3,8 +3,10 @@
  * when it turns bad (and one when it clears), through the same target failed jobs use.
  * Conditions come only from evidence the inventory already collects: disk space, SMART,
  * UPS state, failed services, reboot-required, unhealthy containers. State lives in a
- * setting so a restart does not re-send everything.
+ * setting so a restart does not re-send everything. A scheduled backup that quietly stopped is
+ * treated the same way (M20.1), read from the schedule table rather than the inventory snapshot.
  */
+import { evaluateScheduleFreshness } from "./schedule-freshness.mjs";
 
 export const healthConditions = Object.freeze({
   "storage.root.full": "Root disk nearly full",
@@ -14,6 +16,7 @@ export const healthConditions = Object.freeze({
   "system.services": "System services have failed",
   "system.reboot": "A reboot is required",
   "docker.unhealthy": "A container is unhealthy",
+  "schedule.overdue": "A scheduled task (such as a backup) has stopped running",
 });
 
 /** Derive the current set of bad conditions from an inventory snapshot. Pure. */
@@ -64,13 +67,20 @@ export function collectorAvailability(inventory) {
   };
 }
 
-export function createHealthAlerts({ inventory, notifications, store, intervalMs = 15 * 60 * 1000, initialDelayMs = 3 * 60 * 1000, now = () => new Date(), setInterval: schedule = globalThis.setInterval, setTimeout: delay = globalThis.setTimeout, clearInterval: unschedule = globalThis.clearInterval, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
+export function createHealthAlerts({ inventory, notifications, store, resolveScheduleTitle = (operationId) => operationId, intervalMs = 15 * 60 * 1000, initialDelayMs = 3 * 60 * 1000, now = () => new Date(), setInterval: schedule = globalThis.setInterval, setTimeout: delay = globalThis.setTimeout, clearInterval: unschedule = globalThis.clearInterval, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
   const settingKey = "healthAlertsState";
 
   /** One pass: evaluate, send for new conditions and for cleared ones, persist the active set. */
   async function check() {
     const snapshot = await inventory.inspect();
-    const active = evaluateHealth(snapshot);
+    // A stopped backup is a health condition too, but it comes from the schedule and flow tables,
+    // not the host. Both an operation schedule (how BoxPilot's own nightly backups run) and a
+    // scheduled flow can quietly fall behind.
+    const schedules = typeof store.listSchedules === "function" ? store.listSchedules() : [];
+    const flows = (typeof store.listFlows === "function" ? store.listFlows() : [])
+      .map((flow) => ({ id: `flow:${flow.id}`, title: flow.name, operationId: flow.name, frequency: flow.frequency, enabled: flow.enabled, nextDueAt: flow.nextDueAt }));
+    const scheduleAlerts = evaluateScheduleFreshness([...schedules, ...flows], { now: now(), titleFor: (s) => s.title ?? resolveScheduleTitle(s.operationId) });
+    const active = [...evaluateHealth(snapshot), ...scheduleAlerts];
     const previous = store.getSetting(settingKey, {}) ?? {};
     const nextState = {};
     const sent = [];
@@ -92,7 +102,8 @@ export function createHealthAlerts({ inventory, notifications, store, intervalMs
         delete nextState[alert.key]; // try again next round
       }
     }
-    const availability = collectorAvailability(snapshot);
+    // The schedule table is always readable, so an overdue alert can clear the moment it catches up.
+    const availability = { ...collectorAvailability(snapshot), "schedule.overdue": true };
     for (const [key, entry] of Object.entries(previous)) {
       if (nextState[key]) continue;
       if (entry?.notified === false) continue; // never announced, so there is nothing to say it cleared

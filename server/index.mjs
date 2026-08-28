@@ -44,6 +44,7 @@ import { createReleaseUpdateService } from "./release-updates.mjs";
 import { createSetupService } from "./setup-profiles.mjs";
 import { createUpdateNotifier } from "./update-notifier.mjs";
 import { createHealthAlerts } from "./health-alerts.mjs";
+import { registry } from "./ops/index.mjs";
 import { createNotificationService } from "./notifications.mjs";
 import { createSchedulerService } from "./scheduler.mjs";
 import { createFlowService } from "./flows.mjs";
@@ -198,7 +199,7 @@ flows.start();
 scheduler.start();
 const setup = createSetupService({ helper, scheduler });
 createUpdateNotifier({ releaseUpdates, notifications, store: state }).start();
-createHealthAlerts({ inventory, notifications, store: state }).start();
+createHealthAlerts({ inventory, notifications, store: state, resolveScheduleTitle: (operationId) => registry.get(operationId)?.title ?? operationId }).start();
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "256kb", strict: true }));

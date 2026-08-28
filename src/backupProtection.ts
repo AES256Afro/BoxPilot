@@ -27,6 +27,18 @@ export interface ScheduleLike {
    */
   parameters?: { subject?: unknown; id?: unknown } | null;
   enabled?: boolean;
+  /** Set by the schedules API when a schedule has slipped a whole cycle past its due time (M20.1). */
+  overdue?: boolean;
+  /** Human title from the schedules API (e.g. "Back up application data"). */
+  title?: string;
+}
+
+/** Backup-related schedules that have quietly fallen behind, for the "your backups stopped" banner. */
+export function behindBackupSchedules(schedules: ScheduleLike[]): ScheduleLike[] {
+  return schedules.filter((schedule) =>
+    schedule.overdue
+    && schedule.enabled !== false
+    && /^(app\.backup|backup\.|controller\.backup|host\.snapshot|vm\.)/.test(schedule.operationId));
 }
 
 export interface ProtectionVerdict {
