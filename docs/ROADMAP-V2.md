@@ -591,9 +591,26 @@ This arc makes local access first-class — reachable and encrypted — without 
 The whole box is guarded by one password plus optional Tailscale/GitHub identity. This arc makes the
 front door as strong as the rest of the product, and does it in a way that works on the LAN.
 
-- **M19.1** **Passkeys (WebAuthn) + recovery codes.** Register a phone or a security key; sign in with
-  a touch. Recovery codes for the day the authenticator is lost, shown once and stored hashed. Needs
-  M18.2's HTTPS to work on the LAN; over Tailscale Serve it works today.
+- ✅ **M19.1** (v1.61.0) **Passkeys (WebAuthn) + recovery codes.** Register a phone or a security key;
+  sign in with a touch. Verification is done with `node:crypto` alone (`server/webauthn.mjs`), not a
+  vendored library — the one thing that would force a CBOR decoder, reading the credential key out of
+  the attestation, is sidestepped by having the browser hand over the key in DER form via the WebAuthn
+  Level 2 accessors, so the server only ever parses authenticator-data bytes and checks a signature.
+  Attestation is not verified (`attestation: "none"`): proving an authenticator's make and model is not
+  something a single-owner box needs. A passkey is bound to the RP ID of the origin it was made at
+  (`boxpilot.lan`, the tailnet name, `localhost`) — that is how WebAuthn works — and the UI says so
+  rather than pretending one passkey covers every way in; register one per way in you use. Challenges
+  are single-use and in memory; the origin is taken from the browser and trusted safely, because every
+  check lives in signed material (the challenge, the origin in the client data, the RP ID hash in the
+  authenticator data). Sign-in is discoverable/usernameless (empty `allowCredentials`, `residentKey:
+  "required"`). Recovery codes: ten ~99-bit codes, shown once, stored only as SHA-256 hashes, each good
+  for one sign-in, regenerating replaces the set. Removing a passkey and minting recovery codes re-check
+  the password; registering does not (the biometric gesture is the consent). `server/passkeys.mjs`,
+  `server/routes/passkeys.mjs`, tables `passkeys` + `recovery_codes`, `src/passkey.ts`,
+  `src/PasskeySettings.tsx`, and the sign-in screen. **Needs** M18.2's HTTPS to work on the LAN (an
+  insecure origin is refused with that reason); over Tailscale Serve it works today. **Remaining:**
+  offer conditional-UI autofill on the sign-in field; a "cloned authenticator" alert surfaced in the UI
+  (the counter regression is already audited).
 - **M19.2** **A second factor for the password path.** TOTP for owners who keep the password, so the
   weakest door is not one secret.
 - **M19.3** **BoxPilot as an OIDC provider.** Sign in to your installed apps with your BoxPilot

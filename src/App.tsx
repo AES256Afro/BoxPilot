@@ -28,6 +28,7 @@ import ApprovalSettings from "./ApprovalSettings";
 import NotificationSettings from "./NotificationSettings";
 import CredentialsPanel from "./CredentialsPanel";
 import SignInSettings from "./SignInSettings";
+import PasskeySettings from "./PasskeySettings";
 import PeopleSettings from "./PeopleSettings";
 import PasswordSettings from "./PasswordSettings";
 import ThemeSettings from "./ThemeSettings";
@@ -168,6 +169,7 @@ function Settings({ csrfToken, role = "owner" }: { csrfToken: string; role?: str
       {/* Box-level settings are the owner's; a viewer's Settings page is their own password. */}
       {role === "owner" && <ApprovalSettings csrfToken={csrfToken} />}
       {role !== "viewer" && <SignInSettings csrfToken={csrfToken} />}
+      <PasskeySettings csrfToken={csrfToken} />
       {role === "owner" && <NotificationSettings csrfToken={csrfToken} />}
       {role === "owner" && <CredentialsPanel csrfToken={csrfToken} />}
       <PasswordSettings csrfToken={csrfToken} />
