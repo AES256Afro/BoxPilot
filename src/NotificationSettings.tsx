@@ -56,7 +56,7 @@ export default function NotificationSettings({ csrfToken }: { csrfToken: string 
         <div><strong>Notifications</strong><span>Failed jobs push to your phone. Ntfy and Gotify are both in the app catalog</span></div>
         <span className={`status-pill ${current?.configured ? "status-good" : "status-neutral"}`}>{current?.configured ? `${current.kind} configured` : "Off"}</span>
       </header>
-      <p className="muted">You get a push for: a failed job, a new BoxPilot release, and health changes on this server (root or any mounted disk over 85–90 % full, a disk with SMART problems, the UPS on battery or low, failed system services, a pending reboot, a container that is unhealthy or crash-looping, and a scheduled backup that has stopped running). Each condition is sent once when it appears and once when it clears; the watcher checks every 15 minutes.</p>
+      <p className="muted">You get a push for: a failed job, a new BoxPilot release, and health changes on this server (root or any mounted disk over 85–90 % full, a filesystem on track to fill within two weeks, a disk with SMART problems or whose errors are climbing, an SSD nearing its write-endurance limit, the UPS on battery or low, failed system services, a pending reboot, a container that is unhealthy or crash-looping, and a scheduled backup that has stopped running). Each condition is sent once when it appears and once when it clears; the watcher checks every 15 minutes.</p>
       <div className="notification-settings">
         {current?.configured && !editing && (
           <>
