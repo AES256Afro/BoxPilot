@@ -87,6 +87,24 @@ export function createStateStore({
       expires_at TEXT NOT NULL,
       last_seen_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS passkeys (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
+      rp_id TEXT NOT NULL,
+      public_key TEXT NOT NULL,
+      algorithm INTEGER NOT NULL,
+      sign_count INTEGER NOT NULL DEFAULT 0,
+      transports TEXT,
+      label TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      last_used_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS recovery_codes (
+      code_hash TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL REFERENCES owners(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      used_at TEXT
+    );
     CREATE TABLE IF NOT EXISTS jobs (
       id TEXT PRIMARY KEY,
       type TEXT NOT NULL,
@@ -580,6 +598,101 @@ export function createStateStore({
 
   function deleteExpiredSessions() {
     return Number(database.prepare("DELETE FROM sessions WHERE expires_at <= ?").run(timestamp()).changes);
+  }
+
+  // ---- Passkeys (WebAuthn, M19.1) ------------------------------------------------------------
+  function normalizePasskey(row) {
+    return row ? {
+      id: row.id, ownerId: row.owner_id, rpId: row.rp_id, publicKey: row.public_key,
+      algorithm: row.algorithm, signCount: row.sign_count, transports: parseJson(row.transports, []),
+      label: row.label, createdAt: row.created_at, lastUsedAt: row.last_used_at ?? null,
+    } : null;
+  }
+
+  function addPasskey({ id, ownerId, rpId, publicKey, algorithm, signCount = 0, transports = [], label }) {
+    if (!findOwnerById(ownerId)) throw new Error("Account not found");
+    if (database.prepare("SELECT 1 FROM passkeys WHERE id = ?").get(id)) throw new Error("This passkey is already registered");
+    const at = timestamp();
+    database.prepare("INSERT INTO passkeys (id, owner_id, rp_id, public_key, algorithm, sign_count, transports, label, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, ownerId, rpId, publicKey, algorithm, signCount, json(transports), label, at);
+    recordAudit("passkey.registered", { actorId: ownerId, subjectId: ownerId, details: { label, rpId } });
+    return normalizePasskey(database.prepare("SELECT * FROM passkeys WHERE id = ?").get(id));
+  }
+
+  function findPasskeyById(id) {
+    return typeof id === "string" ? normalizePasskey(database.prepare("SELECT * FROM passkeys WHERE id = ?").get(id)) : null;
+  }
+
+  /** Every passkey for an owner (for the management list). Public key omitted; it is not needed there. */
+  function listPasskeys(ownerId) {
+    return database.prepare("SELECT * FROM passkeys WHERE owner_id = ? ORDER BY created_at ASC").all(ownerId)
+      .map(normalizePasskey).map(({ publicKey: _publicKey, ...rest }) => rest);
+  }
+
+  function countPasskeys(ownerId) {
+    return Number(database.prepare("SELECT COUNT(*) AS count FROM passkeys WHERE owner_id = ?").get(ownerId).count);
+  }
+
+  /** Whether any account has a passkey, so the sign-in screen knows to offer that path. */
+  function anyPasskeys() {
+    return Number(database.prepare("SELECT COUNT(*) AS count FROM passkeys").get().count) > 0;
+  }
+
+  function updatePasskeyUse(id, signCount) {
+    database.prepare("UPDATE passkeys SET sign_count = ?, last_used_at = ? WHERE id = ?").run(signCount, timestamp(), id);
+  }
+
+  function renamePasskey(id, ownerId, label) {
+    const changes = Number(database.prepare("UPDATE passkeys SET label = ? WHERE id = ? AND owner_id = ?").run(label, id, ownerId).changes);
+    if (changes === 0) throw new Error("Passkey not found");
+    recordAudit("passkey.renamed", { actorId: ownerId, subjectId: ownerId, details: { label } });
+    return changes;
+  }
+
+  function deletePasskey(id, ownerId) {
+    const key = findPasskeyById(id);
+    const changes = Number(database.prepare("DELETE FROM passkeys WHERE id = ? AND owner_id = ?").run(id, ownerId).changes);
+    if (changes === 0) throw new Error("Passkey not found");
+    recordAudit("passkey.removed", { actorId: ownerId, subjectId: ownerId, details: { label: key?.label ?? null } });
+    return changes;
+  }
+
+  // ---- Recovery codes ------------------------------------------------------------------------
+  /** Replace an owner's recovery codes with a fresh hashed set. Returns how many were stored. */
+  function replaceRecoveryCodes(ownerId, codeHashes, { actorId = null } = {}) {
+    if (!findOwnerById(ownerId)) throw new Error("Account not found");
+    const at = timestamp();
+    const insert = database.prepare("INSERT INTO recovery_codes (code_hash, owner_id, created_at) VALUES (?, ?, ?)");
+    database.exec("BEGIN IMMEDIATE");
+    try {
+      database.prepare("DELETE FROM recovery_codes WHERE owner_id = ?").run(ownerId);
+      for (const hash of codeHashes) insert.run(hash, ownerId, at);
+      database.exec("COMMIT");
+    } catch (error) {
+      try { database.exec("ROLLBACK"); } catch { /* nothing of ours was open */ }
+      throw error;
+    }
+    recordAudit("recovery-codes.generated", { actorId: actorId ?? ownerId, subjectId: ownerId, details: { count: codeHashes.length } });
+    return codeHashes.length;
+  }
+
+  /** How many unused recovery codes an owner has left. */
+  function countRecoveryCodes(ownerId) {
+    return Number(database.prepare("SELECT COUNT(*) AS count FROM recovery_codes WHERE owner_id = ? AND used_at IS NULL").get(ownerId).count);
+  }
+
+  /**
+   * Spend a recovery code: mark the matching unused row used, in one statement so a code cannot be
+   * spent twice by a race. Returns the owner id it belonged to, or null.
+   */
+  function consumeRecoveryCode(codeHash) {
+    if (typeof codeHash !== "string") return null;
+    const row = database.prepare("SELECT owner_id FROM recovery_codes WHERE code_hash = ? AND used_at IS NULL").get(codeHash);
+    if (!row) return null;
+    const changes = Number(database.prepare("UPDATE recovery_codes SET used_at = ? WHERE code_hash = ? AND used_at IS NULL").run(timestamp(), codeHash).changes);
+    if (changes === 0) return null; // lost the race; another request just spent it
+    recordAudit("recovery-code.used", { actorId: row.owner_id, subjectId: row.owner_id });
+    return row.owner_id;
   }
 
   function recordAudit(type, { actorId = null, subjectId = null, details = {} } = {}) {
@@ -1369,6 +1482,17 @@ export function createStateStore({
     getJobOutput,
     deleteSession,
     deleteExpiredSessions,
+    addPasskey,
+    findPasskeyById,
+    listPasskeys,
+    countPasskeys,
+    anyPasskeys,
+    updatePasskeyUse,
+    renamePasskey,
+    deletePasskey,
+    replaceRecoveryCodes,
+    countRecoveryCodes,
+    consumeRecoveryCode,
     recordAudit,
     listAudit,
     subscribeJobs,

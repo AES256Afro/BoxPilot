@@ -16,7 +16,9 @@ import { createControllerRetentionService } from "./controller-retention.mjs";
 import { createGithubProvenanceService } from "./github-provenance.mjs";
 import { createAuthService } from "./security.mjs";
 import { createIdentityService } from "./identity.mjs";
+import { createPasskeyService } from "./passkeys.mjs";
 import { createIdentityRouter } from "./routes/identity.mjs";
+import { createPasskeyRouter } from "./routes/passkeys.mjs";
 import { createOperationsRouter } from "./routes/operations.mjs";
 import { createJobsRouter } from "./routes/jobs.mjs";
 import { createVirtualizationRouter } from "./routes/virtualization.mjs";
@@ -241,6 +243,7 @@ app.get("/ca.crt", async (_request, response) => {
 });
 
 const identity = createIdentityService({ store: state });
+const passkeys = createPasskeyService({ store: state });
 // The one token-gated door (ADR-002 addendum): fire a flow by webhook. Before the session wall
 // on purpose; the token is the auth, a wrong one is indistinguishable from a missing flow, and
 // nothing from the request reaches any step.
@@ -252,6 +255,7 @@ app.post("/api/v1/hooks/flows/:id/:token", (request, response) => {
 });
 
 app.use("/api/v1", createIdentityRouter({ store: state, auth, identity }));
+app.use("/api/v1", createPasskeyRouter({ store: state, auth, passkeys, identity }));
 app.get("/api/v1/auth/status", auth.status);
 app.post("/api/v1/auth/bootstrap", auth.bootstrap);
 app.post("/api/v1/auth/login", auth.login);

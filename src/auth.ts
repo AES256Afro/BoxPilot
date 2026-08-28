@@ -62,6 +62,7 @@ export async function dropElevation(csrfToken: string): Promise<void> {
 export interface IdentityOptions {
   tailscale: { available: boolean; login: string | null; displayName: string | null; node: string | null; linked: boolean };
   github: { configured: boolean };
+  passkey?: { registered: boolean };
 }
 
 export function fetchIdentityOptions(): Promise<IdentityOptions> {

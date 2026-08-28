@@ -389,10 +389,14 @@ const json = (response, body) => {
 /** What the machine has installed, per world: nothing at all on a server nobody has set up yet. */
 const installedFor = (scenario) => (scenario === "fresh" ? {} : installed);
 
-api.get("/capabilities", (_request, response) => json(response, { version: productVersion, network: { bind: "127.0.0.1", port: 8787, lan: false, canSet: true }, tls: { provisioned: true, port: 8443, names: ["homebox.lan", "homebox", "boxpilot.lan"], ipAddresses: [host.lan], fingerprint: "A1:B2:C3:D4:E5:F6:07:18:29:3A:4B:5C:6D:7E:8F:90:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89", notAfter: "Sep 29 12:00:00 2027 GMT", caFingerprint: "0F:1E:2D:3C:4B:5A:69:78:87:96:A5:B4:C3:D2:E1:F0:0F:1E:2D:3C:4B:5A:69:78:87:96:A5:B4:C3:D2:E1:F0", canProvision: true }, identity: { password: true, tailscale: true, github: true, passkeys: false, roles: ["owner", "operator", "viewer"] } }));
+api.get("/capabilities", (_request, response) => json(response, { version: productVersion, network: { bind: "127.0.0.1", port: 8787, lan: false, canSet: true }, tls: { provisioned: true, port: 8443, names: ["homebox.lan", "homebox", "boxpilot.lan"], ipAddresses: [host.lan], fingerprint: "A1:B2:C3:D4:E5:F6:07:18:29:3A:4B:5C:6D:7E:8F:90:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89", notAfter: "Sep 29 12:00:00 2027 GMT", caFingerprint: "0F:1E:2D:3C:4B:5A:69:78:87:96:A5:B4:C3:D2:E1:F0:0F:1E:2D:3C:4B:5A:69:78:87:96:A5:B4:C3:D2:E1:F0", canProvision: true }, identity: { password: true, tailscale: true, github: true, passkeys: true, roles: ["owner", "operator", "viewer"] } }));
 api.get("/health", (_request, response) => json(response, { status: "ok", product: "BoxPilot", version: productVersion, mode: "demo", safeMode: true, hostMutationsEnabled: false, mutationPolicy: "demo", ownerBootstrapRequired: false, timestamp: now().toISOString() }));
 api.get("/auth/status", (_request, response) => json(response, { bootstrapRequired: false, authenticated: true, owner: { id: "owner-demo", username: host.owner, role: "owner" }, csrfToken: "demo", expiresAt: ago(-12), elevatedUntil: null }));
 api.post("/auth/logout", (_request, response) => json(response, { ok: true }));
+api.get("/auth/passkey", (_request, response) => json(response, { passkeys: [
+  { id: "pk-demo-phone", rpId: host.tailnet, label: "iPhone (Face ID)", transports: ["internal", "hybrid"], createdAt: ago(24 * 34), lastUsedAt: ago(7) },
+  { id: "pk-demo-key", rpId: "boxpilot.lan", label: "YubiKey 5C", transports: ["usb"], createdAt: ago(24 * 11), lastUsedAt: ago(24 * 3) },
+], recoveryCodesRemaining: 8 }));
 api.get("/inventory", (_request, response) => json(response, inventory()));
 api.get("/network/topology", (_request, response) => json(response, topology()));
 api.get("/network/plans", (_request, response) => json(response, { plans: [] }));

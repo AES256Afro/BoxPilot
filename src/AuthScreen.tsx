@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { AuthError, bootstrapOwner, fetchIdentityOptions, loginOwner, loginWithTailscale, pollGithubSignIn, startGithubSignIn, type AuthStatus, type GithubFlow, type IdentityOptions } from "./auth";
+import { passkeysSupported, signInWithPasskey, signInWithRecoveryCode } from "./passkey";
 
 export default function AuthScreen({ bootstrapRequired, onAuthenticated }: { bootstrapRequired: boolean; onAuthenticated: (status: AuthStatus) => void }) {
   const [username, setUsername] = useState("operator");
@@ -30,6 +31,23 @@ export default function AuthScreen({ bootstrapRequired, onAuthenticated }: { boo
       if (requestError instanceof AuthError && requestError.code === "device_password_required") { setDevicePrompt({ username: requestError.username ?? "" }); if (password) setError("That password was not accepted"); }
       else setError(requestError instanceof Error ? requestError.message : "Tailscale sign-in failed");
     } finally { setSubmitting(false); }
+  };
+
+  const canPasskey = passkeysSupported();
+  const passkeySignIn = async () => {
+    setSubmitting(true); setError(null);
+    try { onAuthenticated(await signInWithPasskey()); }
+    catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Passkey sign-in failed"); }
+    finally { setSubmitting(false); }
+  };
+
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [recoveryCode, setRecoveryCode] = useState("");
+  const recoverySignIn = async () => {
+    setSubmitting(true); setError(null);
+    try { onAuthenticated(await signInWithRecoveryCode(recoveryCode)); }
+    catch (requestError) { setError(requestError instanceof Error ? requestError.message : "That recovery code was not accepted"); }
+    finally { setSubmitting(false); }
   };
 
   const githubSignIn = async () => {
@@ -87,9 +105,10 @@ export default function AuthScreen({ bootstrapRequired, onAuthenticated }: { boo
           </div>
         )}
 
-        {!bootstrapRequired && identity && (identity.tailscale.linked || identity.github.configured) && (
+        {!bootstrapRequired && identity && (identity.tailscale.linked || identity.github.configured || (identity.passkey?.registered && canPasskey)) && (
           <div className="identity-signin">
-            {identity.tailscale.linked && <button className="primary-button" type="button" disabled={submitting} onClick={() => void tailscaleSignIn()}>Continue as {identity.tailscale.displayName ?? identity.tailscale.login} (Tailscale)</button>}
+            {identity.passkey?.registered && canPasskey && <button className="primary-button" type="button" disabled={submitting} onClick={() => void passkeySignIn()}>Sign in with a passkey</button>}
+            {identity.tailscale.linked && <button className={identity.passkey?.registered && canPasskey ? "secondary-button" : "primary-button"} type="button" disabled={submitting} onClick={() => void tailscaleSignIn()}>Continue as {identity.tailscale.displayName ?? identity.tailscale.login} (Tailscale)</button>}
             {devicePrompt && (
               <form className="stack" onSubmit={(event) => { event.preventDefault(); void tailscaleSignIn(devicePassword); }}>
                 <p className="muted">First time in this browser: confirm the password for <strong>{devicePrompt.username}</strong>. Next time, Tailscale alone signs you in here.</p>
@@ -117,6 +136,20 @@ export default function AuthScreen({ bootstrapRequired, onAuthenticated }: { boo
           {error && <div className="auth-error" role="alert">{error}</div>}
           <button className="primary-button" type="submit" disabled={submitting}>{submitting ? "Verifying..." : bootstrapRequired ? "Create owner" : "Sign in"}</button>
         </form>
+        {!bootstrapRequired && (
+          recoveryOpen ? (
+            <form className="stack recovery-signin" onSubmit={(event) => { event.preventDefault(); void recoverySignIn(); }}>
+              <p className="muted">Lost every passkey and your password? Enter one of the recovery codes you saved.</p>
+              <input aria-label="Recovery code" autoComplete="one-time-code" spellCheck={false} placeholder="XXXXX-XXXXX-XXXXX-XXXXX" value={recoveryCode} onChange={(event) => setRecoveryCode(event.target.value)} />
+              <div className="recovery-actions">
+                <button className="primary-button" type="submit" disabled={submitting || recoveryCode.trim().length < 16}>Use recovery code</button>
+                <button className="text-button" type="button" onClick={() => { setRecoveryOpen(false); setError(null); }}>Back</button>
+              </div>
+            </form>
+          ) : (
+            <button className="text-button auth-recovery-link" type="button" onClick={() => { setRecoveryOpen(true); setError(null); }}>Use a recovery code instead</button>
+          )
+        )}
       </section>
     </main>
   );
