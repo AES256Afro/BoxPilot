@@ -36,6 +36,17 @@ env:
     label: Time zone
     type: timezone
     default: Etc/UTC
+files:
+  - path: provisioning/datasources/boxpilot.yaml
+    container: /etc/grafana/provisioning/datasources/boxpilot.yaml
+    content: |
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://${LAN_ADDRESS}:9090
+          isDefault: true
 signIn:
   path: /login
   usernameEnv: GF_SECURITY_ADMIN_USER
@@ -44,4 +55,4 @@ health:
   kind: running
   stableSeconds: 10
   timeoutSeconds: 180
-notes: Sign in with the admin username and the generated password (Secrets on this card). Runs as root so it can own its managed data folder.
+notes: Sign in with the admin username and the generated password (Secrets on this card). If you have installed Prometheus, it is already configured as a data source; add a dashboard from Dashboards, New, Import (node-exporter's dashboard id is 1860).

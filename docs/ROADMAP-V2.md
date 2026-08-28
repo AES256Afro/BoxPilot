@@ -198,8 +198,9 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
   and `${PORT_<ID>}`, refused if it embeds a secret, written into the project directory and mounted
   read-only) and **read-only host bind mounts for sidecars** (an absolute `hostPath`, always
   read-only, for an exporter that must read the host). Remaining: cAdvisor (needs privileged host
-  access, deferred rather than rushed), the libvirt exporter, and Grafana dashboard provisioning
-  (now unblocked by config files).
+  access, deferred rather than rushed), the libvirt exporter, and Grafana dashboard provisioning.
+  Grafana now auto-provisions Prometheus as a data source at ${LAN_ADDRESS}:9090 (v1.55.0), so
+  installing both draws graphs with no manual wiring; a starter dashboard is import-by-id for now.
 - ◐ **M8.4** Failed-job push notifications: `server/notifications.mjs` subscribes to the job-event stream and sends one push per failed job to ntfy, Gotify, or a webhook (both servers are catalog apps, so alerts can stay on-host); Settings panel with password-gated target + test button; deliveries and failures audited. Remaining triggers: updates available, backup stale, disk >90%, SMART, UPS. Host-health alerting stays with the ops CLI per HANDOFF.md. ✅ (v2) **Health alerts** (`server/health-alerts.mjs`): a 15-minute watcher over the sanitized inventory pushes once when a condition appears and once when it clears. Root/mounted disk ≥ 85–90 % full, SMART problems, UPS on battery/low, failed services, reboot required, unhealthy containers; state in the `healthAlertsState` setting so restarts do not re-send.
 - ✅ **M8.5** Log viewer: registry ops `logs.sources` (journal groups, every systemd unit, every container) and `logs.read` (tail any of them with a time window and text filter, redacted). The Logs page offers group tabs, a unit finder, a container picker, follow mode, and download; the support bundle reads through the same op. The fixed-four-sources route and `system.logs.inspect` legacy op are deleted.
 
