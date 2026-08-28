@@ -36,6 +36,7 @@ describe("Network Center", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (input.toString().endsWith("/api/v1/network/topology")) return new Response(JSON.stringify(topology), { status: 200, headers: { "Content-Type": "application/json" } });
       if (input.toString().endsWith("/api/v1/capabilities")) return new Response(JSON.stringify({ network: { bind: "127.0.0.1", port: 8787, lan: false, canSet: true } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (input.toString().endsWith("/api/v1/network/reachability")) return new Response(JSON.stringify({ ways: [], onLan: false, tlsProvisioned: false, servePublished: false }), { status: 200, headers: { "Content-Type": "application/json" } });
       if (input.toString().endsWith("/api/v1/network/dns-acceptance")) return new Response(JSON.stringify(acceptanceStatus), { status: 200, headers: { "Content-Type": "application/json" } });
       if (input.toString().endsWith("/api/v1/operations/network.wake/jobs")) return new Response(JSON.stringify({ job: { id: "job-wake", type: "op:network.wake", title: "Wake a device on the LAN", state: "awaiting_approval", risk: "low", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "low", passwordRequired: false, elevated: false, mode: "tiered", reason: "low risk" } }), { status: 201, headers: { "Content-Type": "application/json" } });
       expect(init?.method).toBe("POST");
@@ -87,6 +88,7 @@ describe("Network Center", () => {
       const url = input.toString();
       if (url.endsWith("/api/v1/network/topology")) return new Response(JSON.stringify(topology), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url.endsWith("/api/v1/capabilities")) return new Response(JSON.stringify({ network: { bind: "127.0.0.1", port: 8787, lan: false, canSet: true } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url.endsWith("/api/v1/network/reachability")) return new Response(JSON.stringify({ ways: [], onLan: false, tlsProvisioned: false, servePublished: false }), { status: 200, headers: { "Content-Type": "application/json" } });
       if (url.endsWith("/api/v1/operations/system.web.lan.set/jobs")) { staged = JSON.parse(String(init?.body)); return new Response(JSON.stringify({ job: { id: "j", type: "op:system.web.lan.set", title: "LAN", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "" } }), { status: 201, headers: { "Content-Type": "application/json" } }); }
       return new Response(JSON.stringify({}), { status: 200, headers: { "Content-Type": "application/json" } });
     });

@@ -582,9 +582,17 @@ This arc makes local access first-class — reachable and encrypted — without 
   context. **Remaining:** bind 443 directly via `AmbientCapabilities=CAP_NET_BIND_SERVICE` so the port
   is not in the URL; automatic renewal before the leaf expires; and fold the trusted HTTPS address into
   the reachability panel below.
-- **M18.3** **One place that tells you every way in.** A single panel that lists the addresses the
-  control plane answers on — loopback, LAN, tailnet, Serve HTTPS — each probed live (the reachability
-  doctor pointed at BoxPilot itself), so "why can't my phone reach it" has an answer on screen.
+- ✅ **M18.3** (v1.65.0) **One place that tells you every way in.** A "Ways to reach BoxPilot" panel at
+  the top of the Network page lists the addresses the control plane answers on — loopback, the LAN
+  (when bound there), the LAN over HTTPS (one per certificate name and address, when TLS is
+  provisioned), and the tailnet over Serve — each with its URL, who can use it, whether it is encrypted,
+  and whether the certificate needs installing first, plus copy. Assembled server-side from the bind,
+  the local certificate, and a real check of whether Tailscale Serve publishes the control plane
+  (`identity.servePublishesControlPlane`, i.e. the existing Serve-status detector), so the tailnet URL
+  is shown only when it actually works. `GET /api/v1/network/reachability`, pure `buildReachability` in
+  `server/routes/host.mjs`, panel in `src/NetworkCenter.tsx`. This is the answer to the "which URL do I
+  use" confusion that broke ntfy's notifications. **Remaining:** an active outside-in probe per address
+  (the reachability doctor pointed at BoxPilot itself), and the same panel per installed app.
 
 ## M19 — Identity and access, finished
 

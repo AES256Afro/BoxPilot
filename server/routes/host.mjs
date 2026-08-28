@@ -31,7 +31,28 @@ export function portsHeldByApp(manifest, own) {
     .map((port) => `${port.host}/${port.protocol}`));
 }
 
-export function createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls" }) {
+/**
+ * Every way to reach the control plane, from the bind, the local certificate, and whether Tailscale
+ * Serve publishes us. Pure so it can be checked directly. `encrypted` is whether the link is HTTPS;
+ * `trusted` is whether the certificate is trusted without installing anything (loopback and the real
+ * ts.net certificate are; the local-CA LAN certificate is not until the CA is installed).
+ */
+export function buildReachability({ webHost, webPort, lanIp, dnsName, tls, servePublished }) {
+  const onLan = webHost === "0.0.0.0";
+  const ways = [
+    { id: "loopback", label: "On this server", url: `http://127.0.0.1:${webPort}`, scope: "Only from the server itself", encrypted: false, trusted: true },
+  ];
+  if (onLan && lanIp) ways.push({ id: "lan", label: "On your home network", url: `http://${lanIp}:${webPort}`, scope: "Any device on your network", encrypted: false, trusted: false });
+  if (onLan && tls?.provisioned) {
+    for (const host of [...(tls.names ?? []), ...(tls.ipAddresses ?? [])]) {
+      ways.push({ id: `lan-https:${host}`, label: "On your home network, encrypted", url: `https://${host}:${tls.port}`, scope: "Any device on your network, after installing the certificate", encrypted: true, trusted: false });
+    }
+  }
+  if (servePublished && dnsName) ways.push({ id: "tailnet", label: "Over Tailscale, from anywhere", url: `https://${dnsName}`, scope: "Any device on your tailnet", encrypted: true, trusted: true });
+  return { ways, onLan, tlsProvisioned: Boolean(tls?.provisioned), servePublished: Boolean(servePublished) };
+}
+
+export function createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls" }) {
   const router = Router();
 
   // Catalog: manifests come from the working tree; live state comes from the helper (tolerated when unavailable).
@@ -145,6 +166,22 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
 
   router.get("/network/topology", async (_request, response) => {
     response.json(await network.inspect());
+  });
+
+  // Every way to reach the BoxPilot control plane, so "which URL do I use" has one honest answer
+  // (M18.3). Assembled from the bind, the local certificate, and whether Tailscale Serve publishes us.
+  router.get("/network/reachability", async (_request, response) => {
+    const [topology, tls, servePublished] = await Promise.all([
+      network.inspect().catch(() => ({})),
+      readTlsStatus({ dir: tlsDir }),
+      identity?.servePublishesControlPlane ? identity.servePublishesControlPlane().catch(() => false) : Promise.resolve(false),
+    ]);
+    response.json(buildReachability({
+      webHost, webPort,
+      lanIp: topology.eligibleLanAddresses?.[0]?.address ?? null,
+      dnsName: topology.tailscale?.dnsName ?? null,
+      tls, servePublished,
+    }));
   });
 
   router.post("/network/plans", async (request, response) => {
