@@ -15,6 +15,7 @@ import { parseExit, parseForwardedPort } from "./vpn-exit.mjs";
 import { bindingFor, deviceMatchesPattern, renderCompose, projectNameFor, resolveDevices } from "./catalog/compose.mjs";
 import { isDeniedHostPath } from "./catalog/schema.mjs";
 import { resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
+import { profileConnectionEnv, profileSecurityEnv } from "./vpn-profile.mjs";
 
 const actions = Object.freeze(["start", "stop", "restart", "pause", "unpause"]);
 const idPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
@@ -71,6 +72,7 @@ export function createAppHelper({
   listDevices = (directory) => readdir(directory),
   chownDirectory = (target, uid, gid) => chown(target, uid, gid),
   tailscaleBinary = process.env.BOXPILOT_TAILSCALE_BINARY ?? "/usr/bin/tailscale",
+  vpnProfile = null,
 } = {}) {
   const root = path.resolve(catalogRoot);
   const dirFor = (id) => path.join(root, id);
@@ -352,7 +354,19 @@ export function createAppHelper({
     // is simply absent from the compose file on a server without one.
     const required = devices.filter((device) => manifest.devices.some((pattern) => deviceMatchesPattern(device, pattern)));
     if (manifest.devices.some((pattern) => /[?*[]/.test(pattern)) && !required.length) throw new Error(`${manifest.name} needs a device matching ${manifest.devices.join(", ")} and none exists on this server`);
-    const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices, tailnetAddress: values.exposure === "tailnet" ? await tailnetAddress() : null });
+    // Shared VPN profile (M17.4): a manifest can offer to draw its VPN connection from the one saved
+    // profile. It is off unless the app opted in (USE_VPN_PROFILE=on), so an app carrying its own
+    // connection renders exactly as before. When on, the profile's connection overwrites the app's
+    // `fromVpnProfile` env, and its security options are layered onto the Gluetun sidecar.
+    const sidecarEnvOverrides = {};
+    if (manifest.usesVpnProfile && values.env?.USE_VPN_PROFILE === "on") {
+      const profile = vpnProfile ? await vpnProfile.read() : null;
+      if (!profile) throw new Error(`${manifest.name} is set to use the shared VPN profile, but none is saved. Save a VPN profile in the VPN section first, or turn off "Use my VPN profile" and give this app its own connection.`);
+      const connection = profileConnectionEnv(profile);
+      for (const entry of manifest.env) if (entry.fromVpnProfile && connection[entry.name] !== undefined) values.env[entry.name] = connection[entry.name];
+      if (manifest.networkVia) sidecarEnvOverrides[manifest.networkVia] = profileSecurityEnv(profile);
+    }
+    const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices, tailnetAddress: values.exposure === "tailnet" ? await tailnetAddress() : null, sidecarEnvOverrides });
     await writeFile(path.join(directory, ".env.tmp"), rendered.envFile, { mode: 0o600 });
     await rename(path.join(directory, ".env.tmp"), path.join(directory, ".env"));
     await writeFile(path.join(directory, "compose.yaml.tmp"), rendered.composeYaml, { mode: 0o600 });

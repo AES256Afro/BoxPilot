@@ -159,6 +159,9 @@ const jobs = createJobService(state, helper, {
     "backup.cloud.setup": (job, result) => state.setSetting("cloudDestination", result.destination, { updatedBy: job.createdBy }),
     "backup.cloud.sync": (job, result) => state.setSetting("cloudDestinationLastSync", { completedAt: result.completedAt, filesTransferred: result.filesTransferred, bytesTransferred: result.bytesTransferred, destination: result.destination, errors: result.errors ?? 0 }, { updatedBy: job.createdBy }),
     "backup.remote.sync": (job, result) => state.setSetting("backupDestinationLastSync", { completedAt: result.completedAt, filesTransferred: result.filesTransferred, bytesTransferred: result.bytesTransferred, destination: result.destination }, { updatedBy: job.createdBy }),
+    // The VPN section reads this non-secret description; the profile's secrets stay in the root file.
+    "vpn.profile.set": (job, result) => state.setSetting("vpnProfile", result, { updatedBy: job.createdBy }),
+    "vpn.profile.clear": (job) => state.setSetting("vpnProfile", null, { updatedBy: job.createdBy }),
   },
   // Prepare hooks pin server-derived expectations into the staged parameters.
   operationPrepareHooks: {

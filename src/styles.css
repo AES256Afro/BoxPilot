@@ -4440,3 +4440,17 @@ textarea {
 .flow-draft-fields label { display: grid; gap: 0.2rem; font-size: 0.9rem; }
 .flow-draft-policy { display: flex; gap: 0.7rem; align-items: center; flex-wrap: wrap; }
 .flow-draft-retry { display: flex; gap: 0.35rem; align-items: center; font-size: 0.9rem; color: var(--muted); }
+
+/* Shared VPN profile (M17.4): the VPN section on the Network page */
+.vpn-profile-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 4px 0 10px; }
+.vpn-profile-summary .eyebrow { display: block; margin-bottom: 2px; }
+.vpn-profile-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.vpn-profile-tags .chip { display: inline-flex; align-items: center; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; color: var(--text-muted); }
+.vpn-profile-form { display: grid; gap: 12px; }
+.vpn-profile-form .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.vpn-profile-form .field-grid label { display: grid; gap: 4px; font-size: 13px; }
+.vpn-profile-form .field-grid input, .vpn-profile-form .field-grid select { width: 100%; }
+.vpn-security-heading { margin: 6px 0 0; }
+.vpn-toggle-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 6px 14px; }
+.vpn-toggle-grid label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.vpn-toggle-grid input { width: auto; }

@@ -13,7 +13,7 @@ Install updates, add apps from a catalog, open only the ports you mean to, mount
 On a fresh Ubuntu Server (22.04 or newer):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh -s -- --ref v1.75.0
+curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh -s -- --ref v1.76.0
 ```
 
 It installs Node 24, builds BoxPilot under `/opt/boxpilot`, enables the `boxpilot` and `boxpilot-helper` services, and prints the URL with a one-time owner token. Create the owner account, pick a setup profile (home server, DNS appliance, hypervisor, dev box, media server, smart home, observability, or just the essentials), and follow the checklist on the Overview. BoxPilot tells you when a new release is out; applying it is a one-click job that needs your password and rolls back by itself if the new version fails its health check.
@@ -32,7 +32,7 @@ It installs Node 24, builds BoxPilot under `/opt/boxpilot`, enables the `boxpilo
 | **Users & SSH** | Accounts, sudo, SSH keys (import from GitHub), password-login policy. |
 | **Firewall** | ufw profiles, service presets, suggestions from what is actually listening, fail2ban. SSH, Tailscale, and BoxPilot can never be locked out. |
 | **Storage** | Disks and LVM (grow the root volume, snapshots with rollback), mounts by UUID, SMB/NFS shares with LAN discovery, Samba and NFS servers bound to your tailnet. |
-| **Network** | Gateway, resolvers, DNS listeners, LAN devices with Wake-on-LAN, Tailscale exit node and subnet router. |
+| **Network** | Gateway, resolvers, DNS listeners, LAN devices with Wake-on-LAN, Tailscale exit node and subnet router, a shared VPN profile to route apps through. |
 | **Virtual Machines** | VMs from cloud images or ISOs, lifecycle, snapshots, encrypted exports with restore drills. |
 | **Backups** | Drilled database backups, encrypted independent copies with retention, machine snapshots to redeploy the whole box, mirrors to a drive, SSH host, or cloud (B2, S3, WebDAV, Google Drive, OneDrive, Dropbox). |
 | **Repair Center** | Prerequisite installs, the disaster-recovery kit, guided fixes. |

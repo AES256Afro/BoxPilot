@@ -551,6 +551,21 @@ from reading container logs by hand. The tunnel is infrastructure; treat it like
   tested fact — a failed drill fires the failed-job alert, and a schedule that stops fires the
   overdue-schedule alert (M20.1). The card shows the last run and turns the badge amber if it failed
   or fell behind. Downloads pause for the few seconds of each drill and resume on their own.
+- ✅ **M17.4** (v1.76.0) **Shared VPN profile.** One VPN connection, entered once in the VPN section
+  on the Network page, that any VPN-capable app can be routed through with a single switch instead
+  of re-typing the provider and key per app. The connection (provider, WireGuard/OpenVPN keys,
+  countries) plus security options (DNS-over-TLS, malware/ad/tracker blocklists, port forwarding,
+  which LAN subnets the kill switch still allows, custom DNS) live in a root-owned file
+  (`server/vpn-profile.mjs`, 0600, beside the credential store); the web process only ever sees the
+  redacted description, mirrored to the `vpnProfile` setting. Written only through the registry
+  (`vpn.profile.set`/`clear`/`inspect`), the two secrets riding the ordinary secret-parameter
+  machinery. A manifest opts in with `usesVpnProfile: true` and marks its connection env
+  `fromVpnProfile`; a per-app "Use my VPN profile" switch (`USE_VPN_PROFILE=on`) makes the app helper
+  overlay the profile's connection onto its Gluetun sidecar and layer the security options on at
+  deploy. It is strictly additive: an app with the switch off renders exactly as before, so the live
+  qBittorrent is untouched until the owner chooses to adopt the profile. Stremio (v1.75.0) ships
+  routed through it. Remaining: a shared gateway (one Gluetun for several apps) if the connection
+  count ever matters; surfacing on the app card which apps a profile change will next reach.
 
 **Order across the new arcs.** M15.1 and M15.2 first: the pain is freshest, every check is already
 understood, and it pays off on every app forever. Then M14 as one arc, which finishes the mission

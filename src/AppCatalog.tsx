@@ -9,7 +9,7 @@ interface ManifestPort { id: string; label: string; container: number; host: num
 interface ManifestVolume { id: string; label: string; container: string; path: string | null; hostPath: string | null; readOnly: boolean; backup: boolean; configurable: boolean; description: string | null }
 interface SetupChoice { id: string; label: string; description: string | null; website: string | null; recommended: boolean; exec: string[] }
 interface ManifestSetup { title: string; note: string | null; finalize: string[] | null; finalizeLabel: string | null; choices: SetupChoice[] }
-interface ManifestEnv { name: string; label: string; description: string | null; type: "string" | "password" | "number" | "boolean" | "timezone" | "path"; default: string | number | boolean | null; required: boolean; secret: boolean; generate: boolean; options: string[] | null; fixed: boolean }
+interface ManifestEnv { name: string; label: string; description: string | null; type: "string" | "password" | "number" | "boolean" | "timezone" | "path"; default: string | number | boolean | null; required: boolean; secret: boolean; generate: boolean; options: string[] | null; fixed: boolean; fromVpnProfile?: boolean }
 export interface Manifest {
   id: string; name: string; category: string; description: string; website: string | null; icon: string | null; risk: "low" | "medium" | "high"; notes: string | null;
   connections?: Array<{ app: string; role: string; where: string; note: string | null }>;
@@ -21,6 +21,7 @@ export interface Manifest {
   network?: string;
   networkModes?: string[];
   networkVia?: string | null;
+  usesVpnProfile?: boolean;
   sidecars?: Array<{ id: string }>;
   modelRunner?: { kind: string; service: string } | null;
   sha256: string;
@@ -107,6 +108,10 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
   const toggleSetup = (id: string, checked: boolean) => setValues((current) => ({ ...current, setup: checked ? [...new Set([...(current.setup ?? []), id])] : (current.setup ?? []).filter((entry) => entry !== id) }));
   const editablePorts = manifest.ports.filter((port) => !port.fixed);
   const editableEnv = manifest.env.filter((entry) => !entry.fixed && !entry.generate);
+  // When an app is routed through the shared VPN profile, the connection fields come from the
+  // profile, so they are hidden here rather than asked for twice.
+  const usingVpnProfile = Boolean(manifest.usesVpnProfile) && values.env.USE_VPN_PROFILE === "on";
+  const shownEnv = editableEnv.filter((entry) => !(usingVpnProfile && entry.fromVpnProfile));
   const generated = manifest.env.filter((entry) => entry.generate);
   // A password the app signs you in with is worth choosing yourself; the rest (database
   // passwords, session secrets) nobody ever types, so those stay generated and out of the way.
@@ -131,11 +136,12 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
           </fieldset>}
           {editablePorts.length > 0 && <fieldset><legend>Ports</legend>{editablePorts.map((port) => <label key={port.id}>{port.label} <span className="muted">({port.containerFollowsHost ? "the app listens here" : `container ${port.container}/${port.protocol}`}, {port.exposure === "loopback" ? "this server only" : "LAN"})</span><input type="number" min={1} max={65535} value={values.ports[port.id] ?? port.host} onChange={(event) => setPort(port.id, event.target.value)} aria-label={`${port.label} port`} /></label>)}</fieldset>}
           {editableVolumes.length > 0 && <fieldset><legend>Folders</legend>{editableVolumes.map((volume) => <label key={volume.id}>{volume.label}{volume.description && <span className="muted">{volume.description}</span>}<input type="text" value={values.volumes[volume.id] ?? ""} onChange={(event) => setVolume(volume.id, event.target.value)} aria-label={`${volume.label} path`} placeholder={volume.hostPath ?? "/srv/..."} /></label>)}</fieldset>}
-          {editableEnv.length > 0 && <fieldset><legend>Settings</legend>{editableEnv.map((entry) => (
+          {shownEnv.length > 0 && <fieldset><legend>Settings</legend>{shownEnv.map((entry) => (
             <label key={entry.name}>{entry.label}{entry.required && " *"}{entry.description && <span className="muted">{entry.description}</span>}
               {entry.options ? <select value={values.env[entry.name] ?? ""} onChange={(event) => setEnv(entry.name, event.target.value)} aria-label={entry.label}>{entry.options.map((option) => <option key={option} value={option}>{option}</option>)}</select>
                 : entry.type === "boolean" ? <select value={values.env[entry.name] || "false"} onChange={(event) => setEnv(entry.name, event.target.value)} aria-label={entry.label}><option value="true">Yes</option><option value="false">No</option></select>
                 : <input type={entry.type === "password" ? "password" : entry.type === "number" ? "number" : "text"} value={values.env[entry.name] ?? ""} onChange={(event) => setEnv(entry.name, event.target.value)} aria-label={entry.label} required={entry.required} />}
+              {entry.name === "USE_VPN_PROFILE" && usingVpnProfile && <span className="muted">The VPN provider and key come from your VPN profile (set it up on the Network page). If none is saved, the install will ask you to save one first.</span>}
             </label>
           ))}</fieldset>}
           {manifest.setup && manifest.setup.choices.length > 0 && (

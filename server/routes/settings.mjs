@@ -6,6 +6,7 @@ import { Router } from "express";
 import { approvalModes, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "../ops/risk.mjs";
 import { normalizeDestination } from "../backup-destination.mjs";
 import { healthConditions } from "../health-alerts.mjs";
+import { vpnProviders, vpnProtocols } from "../vpn-profile.mjs";
 
 export function createSettingsRouter({ state, notifications, auth }) {
   const router = Router();
@@ -73,6 +74,12 @@ export function createSettingsRouter({ state, notifications, auth }) {
     state.setSetting("approvalMode", mode, { updatedBy: owner.id });
     state.recordAudit("settings.approval-mode.changed", { actorId: owner.id, subjectId: owner.id, details: { approvalMode: mode } });
     return response.json({ approvalMode: mode, modes: approvalModes, elevationTtlMs });
+  });
+
+  // The shared VPN profile (M17.4): the non-secret description mirrored from vpn.profile.set, plus the
+  // choices the form offers. The secrets stay in a root-owned file the web process never reads.
+  router.get("/settings/vpn-profile", (_request, response) => {
+    response.json({ profile: state.getSetting("vpnProfile", null), providers: vpnProviders, protocols: vpnProtocols });
   });
 
   // Cloud (rclone) destination: the non-secret description saved by backup.cloud.setup, plus the last mirror.
