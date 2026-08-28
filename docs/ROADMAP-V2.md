@@ -690,9 +690,13 @@ you first*.
   per-container log-volume bar chart, a live logs panel, and Container + Search variables), verified by
   deploying Grafana on the box and reading it back from Grafana's API. **Remaining:** ship the systemd
   journal too (the Logs page already shows it).
-- **M21.2** **Alerting rules that reach your phone.** Prometheus/Alertmanager (or Grafana alerting)
-  wired to the notification relay already in the product: disk filling, a container flapping, a
-  scrape target down — routed to ntfy/Gotify, deduplicated, with a clear-when-resolved.
+- ◐ **M21.2** (v1.69.0) **Alerting rules that reach your phone.** BoxPilot's own alert loop already
+  routes disk/SMART/UPS/failed-services/reboot/unhealthy-container to ntfy/Gotify, deduplicated and
+  clear-when-resolved, without a separate Alertmanager to run. Strengthened it where the real gaps
+  were: a **crash-looping container** (state "restarting"/"dead", worse than merely unhealthy and
+  unambiguous — a stopped container is "exited", so an intentional stop does not trip it), and the
+  **overdue-schedule** detector from M20.1. **Remaining:** custom metric thresholds from Prometheus
+  (sustained CPU/memory, a scrape target down), for owners who want more than the built-in conditions.
 - **M21.3** **A public-facing status page.** An at-a-glance "is everything up" the owner can glance
   at, or share read-only, built from the uptime data already collected.
 - **M21.4** **The libvirt exporter**, so VM metrics join the host and container ones for owners who
