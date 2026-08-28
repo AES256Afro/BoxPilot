@@ -616,6 +616,128 @@ files:
           }
         ]
       }
+  - path: dashboards/boxpilot-logs.json
+    container: /etc/grafana/dashboards/boxpilot-logs.json
+    content: |
+      {
+        "uid": "boxpilot-logs",
+        "title": "BoxPilot — Logs",
+        "tags": [
+          "boxpilot"
+        ],
+        "timezone": "browser",
+        "schemaVersion": 39,
+        "version": 1,
+        "refresh": "30s",
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "editable": true,
+        "templating": {
+          "list": [
+            {
+              "name": "container",
+              "label": "Container",
+              "type": "query",
+              "datasource": {
+                "type": "loki",
+                "uid": "boxpilotloki"
+              },
+              "query": "label_values(container)",
+              "refresh": 2,
+              "includeAll": true,
+              "allValue": ".+",
+              "multi": true,
+              "current": {
+                "text": "All",
+                "value": "$__all"
+              }
+            },
+            {
+              "name": "search",
+              "label": "Search",
+              "type": "textbox",
+              "current": {
+                "text": "",
+                "value": ""
+              }
+            }
+          ]
+        },
+        "panels": [
+          {
+            "id": 1,
+            "type": "timeseries",
+            "title": "Log lines per container",
+            "datasource": {
+              "type": "loki",
+              "uid": "boxpilotloki"
+            },
+            "gridPos": {
+              "x": 0,
+              "y": 0,
+              "w": 24,
+              "h": 6
+            },
+            "fieldConfig": {
+              "defaults": {
+                "custom": {
+                  "drawStyle": "bars",
+                  "fillOpacity": 60,
+                  "stacking": {
+                    "mode": "normal"
+                  }
+                }
+              }
+            },
+            "targets": [
+              {
+                "refId": "A",
+                "datasource": {
+                  "type": "loki",
+                  "uid": "boxpilotloki"
+                },
+                "expr": "sum by (container) (count_over_time({container=~\"$container\"} |~ \"$search\" [$__auto]))",
+                "legendFormat": "{{container}}"
+              }
+            ]
+          },
+          {
+            "id": 2,
+            "type": "logs",
+            "title": "Logs",
+            "datasource": {
+              "type": "loki",
+              "uid": "boxpilotloki"
+            },
+            "gridPos": {
+              "x": 0,
+              "y": 6,
+              "w": 24,
+              "h": 18
+            },
+            "options": {
+              "showTime": true,
+              "wrapLogMessage": true,
+              "prettifyLogMessage": false,
+              "enableLogDetails": true,
+              "sortOrder": "Descending",
+              "dedupStrategy": "none"
+            },
+            "targets": [
+              {
+                "refId": "A",
+                "datasource": {
+                  "type": "loki",
+                  "uid": "boxpilotloki"
+                },
+                "expr": "{container=~\"$container\"} |~ \"$search\""
+              }
+            ]
+          }
+        ]
+      }
   - path: provisioning/datasources/boxpilot.yaml
     container: /etc/grafana/provisioning/datasources/boxpilot.yaml
     content: |
@@ -640,4 +762,4 @@ health:
   kind: running
   stableSeconds: 10
   timeoutSeconds: 180
-notes: Sign in with the admin username and the generated password (Secrets on this card). If you have installed Prometheus, it is already configured as a data source, and if you have installed Loki, it is too, so container and system logs are searchable under Explore. The BoxPilot host dashboard is already there under Dashboards. Import id 1860 for the full node-exporter view.
+notes: Sign in with the admin username and the generated password (Secrets on this card). If you have installed Prometheus, it is already configured as a data source, and if you have installed Loki, it is too, so container and system logs are searchable under Explore. The BoxPilot host dashboard is already there under Dashboards, and a BoxPilot Logs dashboard too if Loki is installed. Import id 1860 for the full node-exporter view.
