@@ -23,6 +23,7 @@ import { systemUpdate } from "./update.mjs";
 import { backupRemoteKeygen, backupRemoteSync, backupRemoteTest } from "./backup-remote.mjs";
 import { networkWake } from "./network.mjs";
 import { probeAddresses } from "./reachability.mjs";
+import { httpRequest } from "./http-request.mjs";
 
 export const tasks = Object.freeze({
   "apt.update": aptUpdate,
@@ -58,6 +59,7 @@ export const tasks = Object.freeze({
   "router.inspect": routerInspect,
   "dns.blocker.verify": (parameters) => dnsBlockerVerify(parameters),
   "app.reachability.probe": (parameters) => probeAddresses(parameters),
+  "http.request": (parameters) => httpRequest(parameters),
   "router.leases": routerLeases,
   "share.mount": shareMount,
   "share.unmount": shareUnmount,

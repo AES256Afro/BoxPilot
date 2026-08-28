@@ -26,6 +26,7 @@ import StorageCenter from "./StorageCenter";
 import ActivityDrawer from "./ActivityDrawer";
 import ApprovalSettings from "./ApprovalSettings";
 import NotificationSettings from "./NotificationSettings";
+import CredentialsPanel from "./CredentialsPanel";
 import SignInSettings from "./SignInSettings";
 import PeopleSettings from "./PeopleSettings";
 import PasswordSettings from "./PasswordSettings";
@@ -168,6 +169,7 @@ function Settings({ csrfToken, role = "owner" }: { csrfToken: string; role?: str
       {role === "owner" && <ApprovalSettings csrfToken={csrfToken} />}
       {role !== "viewer" && <SignInSettings csrfToken={csrfToken} />}
       {role === "owner" && <NotificationSettings csrfToken={csrfToken} />}
+      {role === "owner" && <CredentialsPanel csrfToken={csrfToken} />}
       <PasswordSettings csrfToken={csrfToken} />
       {role === "owner" && <PeopleSettings csrfToken={csrfToken} />}
       <ThemeSettings />
