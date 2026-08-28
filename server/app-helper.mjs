@@ -763,6 +763,49 @@ export function createAppHelper({
     return { available: true, projects };
   }
 
+  /**
+   * A foreign compose project resolved from `docker compose ls`, or null. The name is looked up
+   * against what compose actually reports rather than trusted from the caller, so nothing can be
+   * run against an arbitrary path, and BoxPilot's own projects are never treated as foreign.
+   */
+  async function resolveForeignProject(name) {
+    if (typeof name !== "string" || !name.length || name.startsWith("bp-") || name === "boxpilot") return null;
+    const { available, projects } = await foreignProjects();
+    if (!available) return null;
+    return projects.find((project) => project.name === name) ?? null;
+  }
+
+  /** The -f arguments for a project's compose files, from its own resolved configuration. */
+  function composeFileArgs(project) {
+    return project.configFiles.filter((file) => typeof file === "string" && file.startsWith("/")).flatMap((file) => ["--file", file]);
+  }
+
+  /**
+   * Start, stop, or restart a compose stack BoxPilot did not create (M3.10). Lifecycle only: the
+   * project's own compose files are used verbatim, so this manages what is there without adopting
+   * or remodelling it.
+   */
+  async function foreignProjectAction({ name, action }, { progress = null } = {}) {
+    if (!["start", "stop", "restart"].includes(action)) throw new Error("action must be start, stop, or restart");
+    const project = await resolveForeignProject(name);
+    if (!project) throw new Error(`No compose project named ${name} was found (BoxPilot's own apps are managed from their cards)`);
+    const files = composeFileArgs(project);
+    if (!files.length) throw new Error(`${name} does not report a compose file, so BoxPilot cannot act on it`);
+    progress?.(`${action} ${name}...`, "stdout");
+    const result = await docker(["compose", "--project-name", name, ...files, action], { timeout: 5 * 60_000, progress });
+    if (!result.ok) throw new Error(`docker compose ${action} failed: ${redact(result.stderr).split("\n").slice(-3).join(" ")}`);
+    return { name, action, done: true };
+  }
+
+  /** Tail a foreign project's logs, the same read the app cards offer for managed apps. */
+  async function foreignProjectLogs({ name, lines = 200 }) {
+    const project = await resolveForeignProject(name);
+    if (!project) throw new Error(`No compose project named ${name} was found`);
+    const files = composeFileArgs(project);
+    const result = await docker(["compose", "--project-name", name, ...files, "logs", "--no-color", "--tail", String(Math.min(Math.max(Number(lines) || 200, 1), 1000))], { timeout: 30_000 });
+    return { name, lines: redact(`${result.stdout}\n${result.stderr}`).split("\n").filter((line) => line.length).slice(-1000) };
+  }
+
   /** Effective compose.yaml and .env for an installed app. Secret values are masked here; app.secrets (elevated) reveals them. */
   async function config({ id }) {
     const manifest = await ensureManifest(id);
@@ -1311,5 +1354,5 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { syncHomepage, inspect, reachabilityFacts, vpnKillSwitchDrill, foreignProjects, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }
