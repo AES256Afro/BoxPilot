@@ -32,28 +32,7 @@ interface PaletteStep { operationId: string; title: string; risk: string; descri
 interface DraftStep { operationId: string; onFailure: "stop" | "continue"; retry: number; parameters: Record<string, string> }
 const humanize = (name: string) => name.replace(/([A-Z])/g, " $1").replace(/[._]/g, " ").replace(/^./, (c) => c.toUpperCase()).trim();
 
-/** The shelf: flows worth having before anyone builds one. Names double as install-state keys. */
-const shelf: Array<{ name: string; description: string; steps: FlowStep[] }> = [
-  {
-    name: "Update night",
-    description: "Take a machine snapshot, refresh the package lists, then install every update. The upgrade restarts services running old libraries by itself, BoxPilot included, after this flow's result is safely recorded.",
-    steps: [
-      { operationId: "host.snapshot.create", parameters: {} },
-      { operationId: "apt.refresh", parameters: {} },
-      // One retry: the classic overnight failure is a transient apt lock held by unattended
-      // upgrades, and thirty seconds later it is gone.
-      { operationId: "apt.upgrade", parameters: {}, retry: 1 },
-    ],
-  },
-  {
-    name: "Belt and braces",
-    description: "Back up the BoxPilot database with a restore drill, then mirror every local backup to the independent destination. The pair that makes a dead disk an errand instead of a loss.",
-    steps: [
-      { operationId: "controller.backup.create", parameters: {} },
-      { operationId: "backup.sync", parameters: {} },
-    ],
-  },
-];
+interface ShelfItem { slug: string; name: string; description: string; steps: FlowStep[] }
 
 const riskCopy: Record<string, string> = {
   low: "runs with one click",
@@ -64,6 +43,7 @@ const riskCopy: Record<string, string> = {
 export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) {
   const [flows, setFlows] = useState<Flow[] | null>(null);
   const [palette, setPalette] = useState<PaletteStep[]>([]);
+  const [shelf, setShelf] = useState<ShelfItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
@@ -76,9 +56,10 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
     try {
       const response = await fetch("/api/v1/flows");
       if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error ?? "Could not read automations");
-      const body = (await response.json()) as { flows: Flow[]; palette: PaletteStep[] };
+      const body = (await response.json()) as { flows: Flow[]; palette: PaletteStep[]; shelf?: ShelfItem[] };
       setFlows(body.flows);
       setPalette(body.palette);
+      setShelf(body.shelf ?? []);
       setError(null);
       return body.flows;
     } catch (requestError) {
@@ -110,7 +91,7 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
     }
   };
 
-  const installFromShelf = async (item: (typeof shelf)[number]) => {
+  const installFromShelf = async (item: ShelfItem) => {
     setError(null); setNotice(null);
     try {
       await post("/api/v1/flows", { name: item.name, steps: item.steps });
@@ -189,6 +170,7 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
       {error && <div className="auth-error" role="alert">{error}</div>}
       {notice && !error && <p className="muted">{notice}</p>}
 
+      {shelf.length > 0 && (
       <section className="panel">
         <header className="panel-header">
           <div>
@@ -209,6 +191,7 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
           ))}
         </div>
       </section>
+      )}
 
       <section className="panel">
         <header className="panel-header">
