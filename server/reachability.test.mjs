@@ -126,6 +126,7 @@ describe("the prober, against a real socket", () => {
   });
 
   it("bounds how many addresses one ask may probe", async () => {
-    await expect(probeAddresses({ probes: Array.from({ length: 13 }, (_, index) => ({ id: `p${index}`, url: "http://127.0.0.1:1/" })) })).rejects.toThrow(/At most 12/);
+    // 24, not 12: every LAN address is probed twice (inside and outside vantage) since v1.48.2.
+    await expect(probeAddresses({ probes: Array.from({ length: 25 }, (_, index) => ({ id: `p${index}`, url: "http://127.0.0.1:1/" })) })).rejects.toThrow(/At most 24/);
   });
 });

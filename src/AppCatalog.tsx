@@ -428,7 +428,18 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                     // not resolve across them.
                     const lan = data?.host.lanAddress ?? null;
                     const portOf = (entry: { manifest: Manifest; live: LiveState | null }) => entry.live?.urls?.[0]?.host ?? entry.manifest.ports?.[0]?.host ?? null;
-                    const addressOf = (entry: { manifest: Manifest; live: LiveState | null }) => { const port = portOf(entry); return lan && port ? `http://${lan}:${port}` : null; };
+                    // A port moved off the LAN never gets a LAN address here: Serve's HTTPS
+                    // address works for apps too (real certificate), and a tailnet-bound port
+                    // without Serve is named as such instead of handed out as a dead LAN URL.
+                    const addressOf = (entry: { manifest: Manifest; live: LiveState | null }): { url: string | null; caveat: string | null } => {
+                      const first = entry.live?.urls?.[0] ?? null;
+                      const port = portOf(entry);
+                      if (!port) return { url: null, caveat: null };
+                      const served = (serves ?? []).find((serve) => serve.port === port);
+                      if (served) return { url: `https://${served.dnsName}:${served.port}`, caveat: null };
+                      if (first && first.exposure !== "lan") return { url: null, caveat: `${entry.manifest.name} is reachable only through Tailscale right now; switch it to home network for app-to-app wiring, or publish it on the tailnet.` };
+                      return { url: lan ? `http://${lan}:${port}` : null, caveat: null };
+                    };
                     const outgoing = (manifest.connections ?? []).map((connection) => ({ connection, target: data?.applications.find((entry) => entry.manifest.id === connection.app) ?? null }));
                     const incoming = (data?.applications ?? []).filter((entry) => entry.live?.installed && (entry.manifest.connections ?? []).some((connection) => connection.app === manifest.id));
                     if (!outgoing.length && !incoming.length) return null;
@@ -440,7 +451,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                             <li key={`out-${connection.app}`}>
                               <strong>{target?.manifest.name ?? connection.app}</strong> as its {connection.role}: in {manifest.name} under {connection.where}.
                               {target?.live?.installed
-                                ? (addressOf(target) ? <> Address: <code>{addressOf(target)}</code>.</> : null)
+                                ? (() => { const address = addressOf(target); return address.url ? <> Address: <code>{address.url}</code>.</> : address.caveat ? <span className="muted"> {address.caveat}</span> : null; })()
                                 : <span className="muted"> Install {target?.manifest.name ?? connection.app} first.</span>}
                               {connection.note && <span className="muted"> {connection.note}</span>}
                             </li>
@@ -451,7 +462,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                             return (
                               <li key={`in-${entry.manifest.id}`}>
                                 <strong>{entry.manifest.name}</strong> connects here as its {connection.role}, set up in {entry.manifest.name} under {connection.where}.
-                                {lan && portOf({ manifest, live }) ? <> This app's address there: <code>{`http://${lan}:${portOf({ manifest, live })}`}</code>.</> : null}
+                                {(() => { const address = addressOf({ manifest, live }); return address.url ? <> This app's address there: <code>{address.url}</code>.</> : null; })()}
                               </li>
                             );
                           })}

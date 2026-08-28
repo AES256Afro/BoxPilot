@@ -146,7 +146,7 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
     setError(null); setNotice(null);
     try {
       await post("/api/v1/flows", { name: draftName, steps: draftSteps.map((step) => ({ operationId: step.operationId, parameters: {}, ...(step.onFailure === "continue" ? { onFailure: "continue" as const } : {}) })), ...(draftAfter ? { triggerFlowId: draftAfter } : {}) });
-      setDraftName(""); setDraftSteps([]); setBuilding(false);
+      setDraftName(""); setDraftSteps([]); setDraftAfter(""); setBuilding(false);
       await refresh();
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not save the automation"); }
   };
@@ -251,7 +251,7 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
                       ? <p className="muted">The first step is being staged…</p>
                       : flow.lastJobIds.map((jobId, index) => (
                         <div key={jobId ?? `skipped-${index}`} className="flow-run-step">
-                          <span className="eyebrow">Step {index + 1}{flow.steps[index] ? ` · ${titleFor(flow.steps[index].operationId)}${flow.steps[index].name ? ` (${flow.steps[index].name})` : ""}` : ""}{jobId === null ? " · skipped, its condition was not met" : ""}</span>
+                          <span className="eyebrow">Step {index + 1}{flow.steps[index] ? ` · ${titleFor(flow.steps[index].operationId)}${flow.steps[index].name ? ` (${flow.steps[index].name})` : ""}` : ""}{jobId === null ? " · did not run; the last-run line above says why" : ""}</span>
                           {jobId !== null && <JobLogView jobId={jobId} title={flow.steps[index] ? titleFor(flow.steps[index].operationId) : `step ${index + 1}`} />}
                         </div>
                       ))}

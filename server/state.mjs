@@ -898,9 +898,13 @@ export function createStateStore({
   }
 
   function deleteFlow(id, { actorId = null } = {}) {
+    // Followers wired to run after this flow would otherwise dangle forever: never firing,
+    // with a card still claiming they run after something, and blocking new chains through
+    // them. Detaching them is the honest reading of deleting their trigger.
+    const detached = Number(database.prepare("UPDATE flows SET trigger_flow_id = NULL WHERE trigger_flow_id = ?").run(id).changes);
     const changes = Number(database.prepare("DELETE FROM flows WHERE id = ?").run(id).changes);
     if (!changes) throw new Error("Flow not found");
-    recordAudit("flow.deleted", { actorId, subjectId: id });
+    recordAudit("flow.deleted", { actorId, subjectId: id, details: detached ? { followersDetached: detached } : undefined });
   }
 
   function deleteSchedule(id, { actorId = null } = {}) {
