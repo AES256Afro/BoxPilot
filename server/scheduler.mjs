@@ -1,5 +1,6 @@
 import { registry as defaultRegistry } from "./ops/index.mjs";
 import { secretFields } from "./ops/registry.mjs";
+import { overdueScheduleIds } from "./schedule-freshness.mjs";
 
 /**
  * Operation scheduler (M6.1): runs registered low/medium-risk operations on a cadence,
@@ -75,9 +76,12 @@ export function createSchedulerService({ store, jobs, registry = defaultRegistry
 
   /** Schedules for one account (the owner sees all). Parameters are summarised, never echoed whole. */
   function list({ createdBy = null } = {}) {
-    return store.listSchedules()
+    const all = store.listSchedules();
+    // "Behind" means the scheduler has skipped a whole cycle: a nightly backup that stopped (M20.1).
+    const behind = overdueScheduleIds(all, { now: now() });
+    return all
       .filter((schedule) => !createdBy || schedule.createdBy === createdBy)
-      .map((schedule) => ({ ...schedule, parameters: describeParameters(schedule.parameters), title: registry.get(schedule.operationId)?.title ?? schedule.operationId, cadence: describeCadence(schedule) }));
+      .map((schedule) => ({ ...schedule, parameters: describeParameters(schedule.parameters), title: registry.get(schedule.operationId)?.title ?? schedule.operationId, cadence: describeCadence(schedule), overdue: behind.has(schedule.id) }));
   }
 
   /** What the schedule acts on, for the panel to show — the subject, not the whole parameter set. */
