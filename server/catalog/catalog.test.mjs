@@ -296,12 +296,24 @@ describe("config files shipped with an app", () => {
 });
 
 describe("cross-app config wiring", () => {
-  it("provisions Grafana's Prometheus data source at this server's address", async () => {
-    const { manifests } = await loadCatalog();
-    const grafana = manifests.find((entry) => entry.id === "grafana");
-    const { files } = renderCompose(grafana, resolveValues(grafana, {}).values, { lanAddress: "192.168.8.10" });
-    const datasource = files.find((file) => file.path.includes("datasources"));
-    expect(datasource.content).toContain("url: http://192.168.8.10:9090");
-    expect(datasource.content).not.toContain("${LAN_ADDRESS}");   // interpolated, not left as a placeholder
+  it("provisions Grafana's Prometheus data source via host.docker.internal, not a LAN address the helper cannot resolve", () => {
+    return loadCatalog().then(({ manifests }) => {
+      const grafana = manifests.find((entry) => entry.id === "grafana");
+      const { compose, files } = renderCompose(grafana, resolveValues(grafana, {}).values, { lanAddress: "0.0.0.0" });
+      const datasource = files.find((file) => file.path.includes("datasources"));
+      expect(datasource.content).toContain("url: http://host.docker.internal:9090");
+      expect(compose.services.grafana.extra_hosts).toContain("host.docker.internal:host-gateway");
+    });
+  });
+});
+
+describe("a manifest file cannot clobber the generated project files", () => {
+  it("refuses a file path of compose.yaml or .env", () => {
+    const base = { id: "c", name: "C", category: "T", description: "d", schemaVersion: 2, image: { reference: "nginx:1.27" } };
+    for (const reserved of ["compose.yaml", ".env"]) {
+      const { manifest, errors } = validateManifest({ ...base, files: [{ path: reserved, container: "/x", content: "x" }] });
+      expect(manifest, reserved).toBeNull();
+      expect(errors.join(" ")).toMatch(/must not overwrite the generated/);
+    }
   });
 });

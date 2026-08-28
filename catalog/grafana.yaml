@@ -12,6 +12,8 @@ image:
 # Grafana's own image runs as 472; BoxPilot gives the data folder to that account, so the
 # container has no reason to run as root.
 user: "472:472"
+extraHosts:
+  - "host.docker.internal:host-gateway"
 ports:
   - id: web
     label: Web UI
@@ -45,7 +47,7 @@ files:
         - name: Prometheus
           type: prometheus
           access: proxy
-          url: http://${LAN_ADDRESS}:9090
+          url: http://host.docker.internal:9090
           isDefault: true
 signIn:
   path: /login

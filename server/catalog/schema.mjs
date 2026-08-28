@@ -186,6 +186,7 @@ export function validateManifest(raw) {
     checkKeys(errors, path, file, ["path", "container", "content", "readOnly"], ["path", "container", "content"]);
     // A safe relative path: no leading slash, no traversal, plain segments only.
     if (typeof file.path !== "string" || file.path.length > 200 || file.path.startsWith("/") || /(^|\/)\.\.(\/|$)/.test(file.path) || !/^[A-Za-z0-9._/-]+$/.test(file.path)) fail(errors, `${path}.path`, "must be a safe relative path");
+    else if (["compose.yaml", "compose.yaml.tmp", ".env", ".env.tmp"].includes(file.path)) fail(errors, `${path}.path`, "must not overwrite the generated compose or env file");
     else if (filePaths.has(file.path)) fail(errors, `${path}.path`, "duplicate file path"); else filePaths.add(file.path);
     if (typeof file.container !== "string" || !containerPathPattern.test(file.container)) fail(errors, `${path}.container`, "must be an absolute container path");
     if (typeof file.content !== "string" || file.content.length > 65536) fail(errors, `${path}.content`, "must be text of at most 64 KiB");
