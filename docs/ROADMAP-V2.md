@@ -560,7 +560,7 @@ a laptop on the couch that is not on the tailnet cannot reach it at all, and not
 over HTTPS on the LAN, which blocks every browser feature that needs a secure context (passkeys
 first among them). This arc makes local access first-class without weakening the away path.
 
-- **M18.1** **Bind to the LAN, safely.** An owner-only toggle that also serves the admin UI on the
+- ✅ **M18.1** (v1.59.0) **Bind to the LAN, safely.** An owner-only toggle that also serves the admin UI on the
   network address, not only loopback. The identity trust already handles this correctly — a LAN
   request is neither a tailnet address nor a Serve-fronted loopback hop, so it earns no automatic
   Tailscale identity and falls through to the password — so the work is the plumbing (rewrite the

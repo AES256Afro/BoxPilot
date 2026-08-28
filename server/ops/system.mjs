@@ -30,6 +30,12 @@ async function readText(path) {
 export function systemOperations() {
   return [
     defineOperation({
+      id: "system.web.lan.set", title: "Reach BoxPilot on your local network", risk: "medium", timeoutMs: 2 * 60_000, minimumRole: "owner",
+      description: "Serves the BoxPilot control panel on this server's network address, not only over Tailscale, so a device on your LAN can reach it. The Tailscale path keeps working. Anyone on your network can then reach the sign-in page, and the password crosses the LAN unencrypted until HTTPS on the LAN lands, so turn this on only on a network you trust. BoxPilot restarts a few seconds after this runs.",
+      parameters: { fields: { enabled: { type: "boolean" } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("web.bind.set", { scope: parameters.enabled ? "lan" : "loopback" }, { timeoutMs: 60_000, logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
       id: "system.reboot", title: "Reboot the server", risk: "high", timeoutMs: 60_000,
       description: "Schedules a reboot in a few seconds. Running VMs and containers stop; BoxPilot comes back when the host does.",
       parameters: { fields: { delaySeconds: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 2 && value <= 300 ? null : "must be a whole number of seconds between 2 and 300") } } },

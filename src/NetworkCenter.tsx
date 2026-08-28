@@ -68,7 +68,13 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { start, dialog } = useOperation(csrfToken);
+  const { start, dialog } = useOperation(csrfToken, () => { void loadNetworkCap(); });
+  const [networkCap, setNetworkCap] = useState<{ bind: string; port: number; lan: boolean; canSet: boolean } | null>(null);
+  const loadNetworkCap = useCallback(() => fetch("/api/v1/capabilities")
+    .then((response) => (response.ok ? response.json() : null))
+    .then((body: { network?: { bind: string; port: number; lan: boolean; canSet: boolean } } | null) => setNetworkCap(body?.network ?? null))
+    .catch(() => {}), []);
+  useEffect(() => { void loadNetworkCap(); }, [loadNetworkCap]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -149,6 +155,22 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
         <LocalNamesPanel csrfToken={csrfToken} start={start} lanAddress={topology.eligibleLanAddresses[0]?.address ?? null} />
         <DnsCheckPanel csrfToken={csrfToken} lanAddress={topology.eligibleLanAddresses[0]?.address ?? null} />
         <RouterPanel start={start} gateway={topology.defaultRoutes[0]?.gateway ?? null} />
+        {networkCap?.canSet && (
+          <section className="panel">
+            <header className="panel-header"><div><strong>Reach BoxPilot on your network</strong><span>By default BoxPilot answers over Tailscale and on this server only. Turn this on to also reach it from a device on your LAN that is not on your tailnet.</span></div></header>
+            <p className="muted">
+              {networkCap.lan
+                ? <>On now. A device on your network can open <code>{`http://${topology.eligibleLanAddresses[0]?.address ?? "this-server"}:${networkCap.port}`}</code>. Tailscale still works too.</>
+                : <>Off. BoxPilot is reachable over Tailscale and from this server only.</>}
+            </p>
+            {!networkCap.lan && <p className="muted">The sign-in password would cross your LAN unencrypted until HTTPS on the LAN lands, so turn this on only on a network you trust.</p>}
+            <div className="recovery-actions">
+              <button className={networkCap.lan ? "secondary-button" : "primary-button"} type="button" onClick={() => start({ operationId: "system.web.lan.set", title: networkCap.lan ? "Stop serving BoxPilot on the LAN" : "Reach BoxPilot on your local network", parameters: { enabled: !networkCap.lan }, preview: <span>{networkCap.lan ? <>Returns BoxPilot to Tailscale-and-loopback only and closes the web port on the firewall.</> : <>Also serves BoxPilot on this server's network address and opens the web port on the firewall. The Tailscale path keeps working; the password crosses the LAN unencrypted. BoxPilot restarts a few seconds after you approve.</>}</span> })}>
+                {networkCap.lan ? "Turn off LAN access" : "Turn on LAN access"}
+              </button>
+            </div>
+          </section>
+        )}
         <section className="panel">
           <header className="panel-header"><div><strong>Devices on your LAN</strong><span>Neighbours this server has talked to recently (ARP table). Wake sends Wake-on-LAN magic packets; the device must allow it in firmware.</span></div></header>
           {topology.devices && topology.devices.length ? <div className="workload-list">{topology.devices.map((device) => <div className="workload" key={`${device.address}-${device.mac}`}><div><strong>{device.address}</strong><span><code>{device.mac}</code>{device.interface ? ` via ${device.interface}` : ""}</span></div><span className={`status-pill status-${device.state === "REACHABLE" ? "good" : "neutral"}`}>{device.state.toLowerCase()}</span><button className="text-button" type="button" onClick={() => start({ operationId: "network.wake", title: `Wake ${device.address}`, parameters: { mac: device.mac }, preview: <span>Broadcasts Wake-on-LAN magic packets for <code>{device.mac}</code> on this server's network. Nothing is read back. The device either wakes or it does not.</span> })}>Wake</button></div>)}</div> : <p className="empty-state">{topology.collectors.neighbors === false ? "The neighbour table is unavailable." : "No resolved neighbours right now. Devices appear after this server exchanges traffic with them."}</p>}

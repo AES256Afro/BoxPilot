@@ -389,6 +389,7 @@ const json = (response, body) => {
 /** What the machine has installed, per world: nothing at all on a server nobody has set up yet. */
 const installedFor = (scenario) => (scenario === "fresh" ? {} : installed);
 
+api.get("/capabilities", (_request, response) => json(response, { version: productVersion, network: { bind: "127.0.0.1", port: 8787, lan: false, canSet: true }, identity: { password: true, tailscale: true, github: true, passkeys: false, roles: ["owner", "operator", "viewer"] } }));
 api.get("/health", (_request, response) => json(response, { status: "ok", product: "BoxPilot", version: productVersion, mode: "demo", safeMode: true, hostMutationsEnabled: false, mutationPolicy: "demo", ownerBootstrapRequired: false, timestamp: now().toISOString() }));
 api.get("/auth/status", (_request, response) => json(response, { bootstrapRequired: false, authenticated: true, owner: { id: "owner-demo", username: host.owner, role: "owner" }, csrfToken: "demo", expiresAt: ago(-12), elevatedUntil: null }));
 api.post("/auth/logout", (_request, response) => json(response, { ok: true }));
