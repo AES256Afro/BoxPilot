@@ -89,7 +89,16 @@ an effect no single step has.
   running), and a refusal is recorded and notified. Only completion triggers, not failure: a
   failed A already stops and tells; chaining repairs onto failure is a different consent shape.
   Cycles are refused at save time. Everything third-party stays deferred as below.
-- Triggers a third party can fire (a webhook, a health alert, a device appearing) are deferred
-  until the consent question is answered properly: who approved the run a trigger fires at 3am,
-  and how is that consent shown and revoked. That is a decision, not a feature, and it gets its
-  own ADR.
+- **Addendum (v1.50.0): the webhook is admitted, as delegated consent with a fence.** The deferred
+  question was: who approved the run a trigger fires at 3am? Answer: the flow's creator did, by
+  minting a token for exactly that flow. The token is the creator's own authority, delegated for
+  one action ("run this flow"), the way an API key is; minting it is the consent, the armed state
+  is visible on the flow's row, and regenerating or removing the token (or disabling the flow)
+  revokes it. What keeps this consent simple is the fence: the caller chooses only WHEN, never
+  WHAT. No parameter from the request reaches any step, so a webhook cannot make a flow do
+  anything its creator did not already write down. The token is shown once and only its hash is
+  stored (a hash is not a secret); presentation is compared in constant time; a wrong token is
+  indistinguishable from a missing flow; fires are rate-limited per flow and audited with their
+  source; the run itself goes through the same door as a scheduled one, with the same refusals
+  (creator demoted, always-ask mode, already running), recorded and notified the same way.
+  Health alerts and device events as triggers remain future work, but they now have a template.
