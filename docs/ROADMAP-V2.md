@@ -733,8 +733,13 @@ fully looks after."
 BoxPilot sees disks and mounts; it does not yet help the owner reason about capacity, health over
 time, or the filesystem features a home server leans on.
 
-- **M23.1** **Capacity planning.** Where the space is going, per app and per mount, and a projection
-  of when a disk fills based on the trend — before it does.
+- ◐ **M23.1** (v1.72.0) **Capacity planning.** ✅ **The projection.** A daily sampler keeps a small
+  free-space history per mount, and a least-squares fit over it says when each filesystem runs out at
+  the recent rate — before it does. The Storage page shows a "Filling up" panel (mounts on track to
+  fill within three months, amber inside two weeks), and a filesystem projected to fill soon becomes a
+  health alert to the phone, earlier than the 90% threshold that arrives with little runway.
+  `server/disk-forecast.mjs` (pure fit + sampler), `GET /storage/forecast`, wired into `health-alerts`.
+  **Remaining:** the per-app "where the space is going" breakdown (which app's data grew).
 - **M23.2** **Filesystem snapshots as a first-class thing.** ZFS/btrfs snapshot management where the
   filesystem supports it, alongside the LVM snapshots already handled, with browse-and-restore.
 - **M23.3** **SMART trends, not just a green light.** The disk-health data over time, so a drive

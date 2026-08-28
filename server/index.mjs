@@ -45,6 +45,7 @@ import { createSetupService } from "./setup-profiles.mjs";
 import { createUpdateNotifier } from "./update-notifier.mjs";
 import { createHealthAlerts } from "./health-alerts.mjs";
 import { createTlsRenewal } from "./tls-renewal.mjs";
+import { createDiskSampler } from "./disk-forecast.mjs";
 import { registry } from "./ops/index.mjs";
 import { createNotificationService } from "./notifications.mjs";
 import { createSchedulerService } from "./scheduler.mjs";
@@ -203,6 +204,8 @@ createUpdateNotifier({ releaseUpdates, notifications, store: state }).start();
 createHealthAlerts({ inventory, notifications, store: state, resolveScheduleTitle: (operationId) => registry.get(operationId)?.title ?? operationId }).start();
 // Reissue the LAN certificate before it expires, reusing its CA so trusted devices stay trusted (M18.2).
 createTlsRenewal({ helper, store: state }).start();
+// Sample free space daily so the disk-fill forecast (M23.1) has a trend to project.
+createDiskSampler({ inventory, store: state }).start();
 
 app.disable("x-powered-by");
 app.use(express.json({ limit: "256kb", strict: true }));

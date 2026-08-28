@@ -11,6 +11,7 @@ import net from "node:net";
 import dns from "node:dns/promises";
 import { fixedRun } from "../exec.mjs";
 import { collectStorage } from "../storage-inventory.mjs";
+import { projectDaysToFull } from "../disk-forecast.mjs";
 import { parseNeighbors } from "../network.mjs";
 import { credentialPattern, hostPattern } from "../tasks/shares.mjs";
 
@@ -93,6 +94,21 @@ export function createStorageRouter({ auth, helper = null, inventory = null, sta
     } catch (error) {
       response.status(503).json({ error: error.message, code: "storage_unavailable" });
     }
+  });
+
+  // When each filesystem is on track to fill, from the sampled free-space history (M23.1).
+  router.get("/storage/forecast", async (_request, response) => {
+    const history = state?.getSetting?.("diskUsageHistory", {}) ?? {};
+    const now = Date.now();
+    const forecasts = [];
+    for (const [target, samples] of Object.entries(history)) {
+      const days = projectDaysToFull(samples, { now });
+      if (days === null) continue;
+      const latest = Array.isArray(samples) && samples.length ? samples[samples.length - 1] : null;
+      forecasts.push({ target, daysToFull: Math.max(0, Math.round(days)), availableBytes: latest?.availableBytes ?? null, totalBytes: latest?.totalBytes ?? null, samples: Array.isArray(samples) ? samples.length : 0 });
+    }
+    forecasts.sort((a, b) => a.daysToFull - b.daysToFull);
+    response.json({ forecasts, tracking: Object.keys(history).length });
   });
 
   // Discover LAN hosts offering SMB (445) or NFS (2049): recent neighbours plus a sweep of each /24.
