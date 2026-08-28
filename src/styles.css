@@ -4147,6 +4147,14 @@ textarea {
 .reach-way-main a { text-decoration: none; }
 .reach-way-main code { font-size: 14px; word-break: break-all; }
 .reach-badges { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.watch-status { display: grid; gap: 8px; margin: 6px 0 12px; }
+.watch-summary { font-size: 13px; }
+.watch-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.watch-item { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; color: var(--text-muted); }
+.watch-item.watch-active { color: var(--text); border-color: var(--warning, #d29922); }
+.watch-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.watch-dot-clear { background: var(--good, #3fb950); }
+.watch-dot-active { background: var(--warning, #d29922); }
 .session-here { color: var(--accent); font-weight: 600; }
 .session-elevated { color: var(--good); font-weight: 600; }
 .session-row span code { font-size: 12px; }

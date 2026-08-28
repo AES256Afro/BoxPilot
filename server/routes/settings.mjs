@@ -5,6 +5,7 @@
 import { Router } from "express";
 import { approvalModes, defaultApprovalMode, elevationTtlMs, normalizeApprovalMode } from "../ops/risk.mjs";
 import { normalizeDestination } from "../backup-destination.mjs";
+import { healthConditions } from "../health-alerts.mjs";
 
 export function createSettingsRouter({ state, notifications, auth }) {
   const router = Router();
@@ -25,6 +26,20 @@ export function createSettingsRouter({ state, notifications, auth }) {
   // Failed-job push notifications (M8.4): where alerts go.
   router.get("/settings/notifications", (_request, response) => {
     response.json(notifications.describe());
+  });
+
+  // What BoxPilot watches for on its own, and which conditions are live right now. The active set is
+  // the health-alert watcher's own persisted state, grouped back to its condition families.
+  router.get("/settings/watch", (_request, response) => {
+    const active = state.getSetting("healthAlertsState", {}) ?? {};
+    const byFamily = {};
+    for (const [key, entry] of Object.entries(active)) {
+      if (!entry || entry.notified === false) continue; // recorded but not yet announced
+      const family = key.split(":")[0];
+      (byFamily[family] ??= []).push({ title: entry.title ?? key, since: entry.since ?? null });
+    }
+    const conditions = Object.entries(healthConditions).map(([key, label]) => ({ key, label, active: Boolean(byFamily[key]?.length), details: byFamily[key] ?? [] }));
+    response.json({ targetConfigured: notifications.describe().configured === true, activeCount: Object.values(byFamily).reduce((sum, list) => sum + list.length, 0), conditions });
   });
 
   router.put("/settings/notifications", auth.requireCsrf, async (request, response) => {
