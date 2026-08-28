@@ -39,12 +39,590 @@ env:
     type: timezone
     default: Etc/UTC
 files:
+  - path: provisioning/dashboards/boxpilot.yaml
+    container: /etc/grafana/provisioning/dashboards/boxpilot.yaml
+    content: |
+      apiVersion: 1
+      providers:
+        - name: BoxPilot
+          type: file
+          allowUiUpdates: true
+          options:
+            path: /etc/grafana/dashboards
+            foldersFromFilesStructure: false
+  - path: dashboards/boxpilot-host.json
+    container: /etc/grafana/dashboards/boxpilot-host.json
+    content: |
+      {
+        "uid": "boxpilot-host",
+        "title": "BoxPilot \u2014 Host",
+        "tags": [
+          "boxpilot"
+        ],
+        "timezone": "browser",
+        "schemaVersion": 39,
+        "version": 1,
+        "refresh": "30s",
+        "time": {
+          "from": "now-6h",
+          "to": "now"
+        },
+        "editable": true,
+        "panels": [
+          {
+            "id": 1,
+            "type": "stat",
+            "title": "CPU used",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "boxpilotprom"
+            },
+            "gridPos": {
+              "x": 0,
+              "y": 0,
+              "w": 6,
+              "h": 4
+            },
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent",
+                "min": 0,
+                "max": 100,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 75
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                },
+                "color": {
+                  "mode": "thresholds"
+                }
+              },
+              "overrides": []
+            },
+            "options": {
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "colorMode": "value",
+              "graphMode": "area",
+              "orientation": "auto"
+            },
+            "targets": [
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "boxpilotprom"
+                },
+                "expr": "100 - (avg(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+                "refId": "A"
+              }
+            ]
+          },
+          {
+            "id": 2,
+            "type": "stat",
+            "title": "Memory used",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "boxpilotprom"
+            },
+            "gridPos": {
+              "x": 6,
+              "y": 0,
+              "w": 6,
+              "h": 4
+            },
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent",
+                "min": 0,
+                "max": 100,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 75
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                },
+                "color": {
+                  "mode": "thresholds"
+                }
+              },
+              "overrides": []
+            },
+            "options": {
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "colorMode": "value",
+              "graphMode": "area",
+              "orientation": "auto"
+            },
+            "targets": [
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "boxpilotprom"
+                },
+                "expr": "100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)",
+                "refId": "A"
+              }
+            ]
+          },
+          {
+            "id": 3,
+            "type": "stat",
+            "title": "Root disk used",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "boxpilotprom"
+            },
+            "gridPos": {
+              "x": 12,
+              "y": 0,
+              "w": 6,
+              "h": 4
+            },
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent",
+                "min": 0,
+                "max": 100,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 75
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                },
+                "color": {
+                  "mode": "thresholds"
+                }
+              },
+              "overrides": []
+            },
+            "options": {
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "colorMode": "value",
+              "graphMode": "area",
+              "orientation": "auto"
+            },
+            "targets": [
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "boxpilotprom"
+                },
+                "expr": "100 * (1 - node_filesystem_avail_bytes{mountpoint=\"/\",fstype!=\"rootfs\"} / node_filesystem_size_bytes{mountpoint=\"/\",fstype!=\"rootfs\"})",
+                "refId": "A"
+              }
+            ]
+          },
+          {
+            "id": 4,
+            "type": "stat",
+            "title": "Swap used",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "boxpilotprom"
+            },
+            "gridPos": {
+              "x": 18,
+              "y": 0,
+              "w": 6,
+              "h": 4
+            },
+            "fieldConfig": {
+              "defaults": {
+                "unit": "percent",
+                "min": 0,
+                "max": 100,
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 25
+                    },
+                    {
+                      "color": "red",
+                      "value": 50
+                    }
+                  ]
+                },
+                "color": {
+                  "mode": "thresholds"
+                }
+              },
+              "overrides": []
+            },
+            "options": {
+              "reduceOptions": {
+                "calcs": [
+                  "lastNotNull"
+                ],
+                "fields": "",
+                "values": false
+              },
+              "colorMode": "value",
+              "graphMode": "area",
+              "orientation": "auto"
+            },
+            "targets": [
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "boxpilotprom"
+                },
+                "expr": "100 * (1 - (node_memory_SwapFree_bytes / (node_memory_SwapTotal_bytes > 0)))",
+                "refId": "A"
+              }
+            ]
+          },
+          {
+            "id": 5,
+            "type": "timeseries",
+            "title": "CPU utilisation",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "boxpilotprom"
+            },
+            "gridPos": {
+              "x": 0,
+              "y": 4,
+              "w": 12,
+              "h": 8
+            },
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "drawStyle": "line",
+                  "fillOpacity": 10,
+                  "showPoints": "never",
+                  "lineWidth": 1
+                },
+                "unit": "percent"
+              },
+              "overrides": []
+            },
+            "options": {
+              "legend": {
+                "displayMode": "list",
+                "placement": "bottom"
+              },
+              "tooltip": {
+                "mode": "multi"
+              }
+            },
+            "targets": [
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "boxpilotprom"
+                },
+                "expr": "100 - (avg by(instance)(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+                "legendFormat": "cpu %",
+                "refId": "A"
+              }
+            ]
+          },
+          {
+            "id": 6,
+            "type": "timeseries",
+            "title": "Load average",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "boxpilotprom"
+            },
+            "gridPos": {
+              "x": 12,
+              "y": 4,
+              "w": 12,
+              "h": 8
+            },
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "drawStyle": "line",
+                  "fillOpacity": 10,
+                  "showPoints": "never",
+                  "lineWidth": 1
+                }
+              },
+              "overrides": []
+            },
+            "options": {
+              "legend": {
+                "displayMode": "list",
+                "placement": "bottom"
+              },
+              "tooltip": {
+                "mode": "multi"
+              }
+            },
+            "targets": [
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "boxpilotprom"
+                },
+                "expr": "node_load1",
+                "legendFormat": "1m",
+                "refId": "A"
+              },
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "boxpilotprom"
+                },
+                "expr": "node_load5",
+                "legendFormat": "5m",
+                "refId": "B"
+              },
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "boxpilotprom"
+                },
+                "expr": "node_load15",
+                "legendFormat": "15m",
+                "refId": "C"
+              }
+            ]
+          },
+          {
+            "id": 7,
+            "type": "timeseries",
+            "title": "Network throughput",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "boxpilotprom"
+            },
+            "gridPos": {
+              "x": 0,
+              "y": 12,
+              "w": 12,
+              "h": 8
+            },
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "drawStyle": "line",
+                  "fillOpacity": 10,
+                  "showPoints": "never",
+                  "lineWidth": 1
+                },
+                "unit": "Bps"
+              },
+              "overrides": []
+            },
+            "options": {
+              "legend": {
+                "displayMode": "list",
+                "placement": "bottom"
+              },
+              "tooltip": {
+                "mode": "multi"
+              }
+            },
+            "targets": [
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "boxpilotprom"
+                },
+                "expr": "rate(node_network_receive_bytes_total{device!=\"lo\"}[5m])",
+                "legendFormat": "in {{device}}",
+                "refId": "A"
+              },
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "boxpilotprom"
+                },
+                "expr": "-rate(node_network_transmit_bytes_total{device!=\"lo\"}[5m])",
+                "legendFormat": "out {{device}}",
+                "refId": "B"
+              }
+            ]
+          },
+          {
+            "id": 8,
+            "type": "timeseries",
+            "title": "Disk I/O",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "boxpilotprom"
+            },
+            "gridPos": {
+              "x": 12,
+              "y": 12,
+              "w": 12,
+              "h": 8
+            },
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "drawStyle": "line",
+                  "fillOpacity": 10,
+                  "showPoints": "never",
+                  "lineWidth": 1
+                },
+                "unit": "Bps"
+              },
+              "overrides": []
+            },
+            "options": {
+              "legend": {
+                "displayMode": "list",
+                "placement": "bottom"
+              },
+              "tooltip": {
+                "mode": "multi"
+              }
+            },
+            "targets": [
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "boxpilotprom"
+                },
+                "expr": "rate(node_disk_read_bytes_total[5m])",
+                "legendFormat": "read {{device}}",
+                "refId": "A"
+              },
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "boxpilotprom"
+                },
+                "expr": "-rate(node_disk_written_bytes_total[5m])",
+                "legendFormat": "write {{device}}",
+                "refId": "B"
+              }
+            ]
+          },
+          {
+            "id": 9,
+            "type": "timeseries",
+            "title": "Memory in use",
+            "datasource": {
+              "type": "prometheus",
+              "uid": "boxpilotprom"
+            },
+            "gridPos": {
+              "x": 0,
+              "y": 20,
+              "w": 24,
+              "h": 7
+            },
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "drawStyle": "line",
+                  "fillOpacity": 10,
+                  "showPoints": "never",
+                  "lineWidth": 1
+                },
+                "unit": "bytes"
+              },
+              "overrides": []
+            },
+            "options": {
+              "legend": {
+                "displayMode": "list",
+                "placement": "bottom"
+              },
+              "tooltip": {
+                "mode": "multi"
+              }
+            },
+            "targets": [
+              {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "boxpilotprom"
+                },
+                "expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes",
+                "legendFormat": "used",
+                "refId": "A"
+              }
+            ]
+          }
+        ]
+      }
   - path: provisioning/datasources/boxpilot.yaml
     container: /etc/grafana/provisioning/datasources/boxpilot.yaml
     content: |
       apiVersion: 1
       datasources:
         - name: Prometheus
+          uid: boxpilotprom
           type: prometheus
           access: proxy
           url: http://host.docker.internal:9090
@@ -57,4 +635,4 @@ health:
   kind: running
   stableSeconds: 10
   timeoutSeconds: 180
-notes: Sign in with the admin username and the generated password (Secrets on this card). If you have installed Prometheus, it is already configured as a data source; add a dashboard from Dashboards, New, Import (node-exporter's dashboard id is 1860).
+notes: Sign in with the admin username and the generated password (Secrets on this card). If you have installed Prometheus, it is already configured as a data source; the BoxPilot host dashboard is already there under Dashboards. Import id 1860 for the full node-exporter view.

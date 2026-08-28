@@ -317,3 +317,21 @@ describe("a manifest file cannot clobber the generated project files", () => {
     }
   });
 });
+
+describe("Grafana ships a provisioned host dashboard", () => {
+  it("provisions a valid dashboard bound to the Prometheus data source", async () => {
+    const { manifests } = await loadCatalog();
+    const grafana = manifests.find((entry) => entry.id === "grafana");
+    const { files } = renderCompose(grafana, resolveValues(grafana, { env: { GF_SECURITY_ADMIN_PASSWORD: "x" } }).values, { lanAddress: "0.0.0.0" });
+    const provider = files.find((file) => file.path === "provisioning/dashboards/boxpilot.yaml");
+    const dashboardFile = files.find((file) => file.path === "dashboards/boxpilot-host.json");
+    expect(provider.content).toContain("path: /etc/grafana/dashboards");
+    const dashboard = JSON.parse(dashboardFile.content);   // valid JSON, verified live on a real Grafana
+    expect(dashboard.uid).toBe("boxpilot-host");
+    expect(dashboard.panels.length).toBeGreaterThan(4);
+    // Every panel binds the provisioned data source by its fixed uid, so nothing is left unbound.
+    for (const panel of dashboard.panels) expect(panel.datasource.uid).toBe("boxpilotprom");
+    const datasource = files.find((file) => file.path === "provisioning/datasources/boxpilot.yaml");
+    expect(datasource.content).toContain("uid: boxpilotprom");
+  });
+});
