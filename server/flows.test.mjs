@@ -481,6 +481,21 @@ describe("running a flow", () => {
     expect(notified[0]).toMatch(/demoted was fired by its webhook but did not run/);
   });
 
+  it("the step palette carries scalar fields and excludes steps that would store a secret", async () => {
+    const store = fakeStore();
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2 });
+    const palette = service.stepPalette();
+    const http = palette.find((entry) => entry.operationId === "http.request");
+    expect(http).toBeTruthy();
+    expect(http.fields.find((field) => field.name === "url")).toMatchObject({ type: "string", optional: false });
+    expect(http.fields.find((field) => field.name === "method")?.enum).toContain("POST");
+    // A step whose value would be a secret must never be offered, because flow steps are stored as JSON.
+    expect(palette.some((entry) => entry.operationId === "credentials.set")).toBe(false);
+    expect(palette.some((entry) => entry.operationId === "app.password.set")).toBe(false);
+    // High-risk and read-only stay out as before.
+    expect(palette.every((entry) => entry.operationId !== "app.purge")).toBe(true);
+  });
+
   it("only the creator or an owner may change or remove a flow", async () => {
     const store = fakeStore();
     const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2 });
@@ -496,17 +511,20 @@ describe("running a flow", () => {
 });
 
 describe("the step palette", () => {
-  it("offers exactly the operations that need no form: every field optional, never high, never read-only", async () => {
+  it("offers steps a scalar form can build, never high, read-only, or secret-bearing", async () => {
     const store = fakeStore();
     const service = createFlowService({ store, jobs: fakeJobs(store) });
     const palette = service.stepPalette();
     const ids = palette.map((step) => step.operationId);
     expect(ids).toContain("apt.upgrade");
     expect(ids).toContain("host.snapshot.create");
-    expect(ids).not.toContain("storage.format"); // high
-    expect(ids).not.toContain("app.backup"); // requires an app id
-    expect(ids).not.toContain("app.inspect"); // read-only
-    expect(palette.every((step) => step.title && step.risk)).toBe(true);
+    expect(ids).toContain("app.backup");                 // now included: a form can supply its app id
+    expect(ids).not.toContain("storage.format");         // high
+    expect(ids).not.toContain("app.inspect");            // read-only
+    expect(ids).not.toContain("credentials.set");        // would store a secret in the flow
+    expect(palette.every((step) => step.title && step.risk && Array.isArray(step.fields))).toBe(true);
+    // app.backup carries its scalar fields for the builder to render.
+    expect(palette.find((step) => step.operationId === "app.backup").fields.map((field) => field.name)).toEqual(["id", "keep"]);
   });
 });
 

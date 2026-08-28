@@ -27,7 +27,10 @@ const cadenceLabel = (flow: Flow): string | null => {
   if (flow.frequency === "daily") return `every day at ${two(flow.hour ?? 3)}:${two(flow.minute ?? 0)}`;
   return `every ${weekdays[flow.weekday ?? 0]} at ${two(flow.hour ?? 3)}:${two(flow.minute ?? 0)}`;
 };
-interface PaletteStep { operationId: string; title: string; risk: string; description: string }
+interface PaletteField { name: string; type: "string" | "number" | "boolean"; optional: boolean; enum: string[] | null; default: string | number | boolean | null }
+interface PaletteStep { operationId: string; title: string; risk: string; description: string; fields: PaletteField[] }
+interface DraftStep { operationId: string; onFailure: "stop" | "continue"; retry: number; parameters: Record<string, string> }
+const humanize = (name: string) => name.replace(/([A-Z])/g, " $1").replace(/[._]/g, " ").replace(/^./, (c) => c.toUpperCase()).trim();
 
 /** The shelf: flows worth having before anyone builds one. Names double as install-state keys. */
 const shelf: Array<{ name: string; description: string; steps: FlowStep[] }> = [
@@ -65,7 +68,7 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
   const [notice, setNotice] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
   const [draftAfter, setDraftAfter] = useState("");
-  const [draftSteps, setDraftSteps] = useState<Array<{ operationId: string; onFailure: "stop" | "continue" }>>([]);
+  const [draftSteps, setDraftSteps] = useState<DraftStep[]>([]);
   const [building, setBuilding] = useState(false);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -163,7 +166,17 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
   const saveDraft = async () => {
     setError(null); setNotice(null);
     try {
-      await post("/api/v1/flows", { name: draftName, steps: draftSteps.map((step) => ({ operationId: step.operationId, parameters: {}, ...(step.onFailure === "continue" ? { onFailure: "continue" as const } : {}) })), ...(draftAfter ? { triggerFlowId: draftAfter } : {}) });
+      const steps = draftSteps.map((step) => {
+        const fields = palette.find((entry) => entry.operationId === step.operationId)?.fields ?? [];
+        const parameters: Record<string, unknown> = {};
+        for (const field of fields) {
+          const raw = step.parameters[field.name];
+          if (raw === undefined || raw === "") continue;                 // an unset optional field is simply absent
+          parameters[field.name] = field.type === "number" ? Number(raw) : field.type === "boolean" ? raw === "true" : raw;
+        }
+        return { operationId: step.operationId, parameters, ...(step.onFailure === "continue" ? { onFailure: "continue" as const } : {}), ...(step.retry > 0 ? { retry: step.retry } : {}) };
+      });
+      await post("/api/v1/flows", { name: draftName, steps, ...(draftAfter ? { triggerFlowId: draftAfter } : {}) });
       setDraftName(""); setDraftSteps([]); setDraftAfter(""); setBuilding(false);
       await refresh();
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not save the automation"); }
@@ -218,31 +231,57 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
               </label>
             )}
             <label>Add a step
-              <select aria-label="Add a step" value="" onChange={(event) => { if (event.target.value) setDraftSteps((current) => [...current, { operationId: event.target.value, onFailure: "stop" }]); }}>
+              <select aria-label="Add a step" value="" onChange={(event) => { const chosen = event.target.value; if (chosen) setDraftSteps((current) => [...current, { operationId: chosen, onFailure: "stop", retry: 0, parameters: {} }]); }}>
                 <option value="">Pick an operation…</option>
                 {palette.map((step) => <option key={step.operationId} value={step.operationId}>{step.title} ({step.risk})</option>)}
               </select>
             </label>
             {draftSteps.length > 0 && (
               <ol className="flow-draft-steps">
-                {draftSteps.map((step, index) => (
-                  <li key={`${step.operationId}-${index}`}>
-                    {titleFor(step.operationId)}
-                    <span>
-                      <select aria-label={`If step ${index + 1} fails`} value={step.onFailure} onChange={(event) => setDraftSteps((current) => current.map((entry, at) => (at === index ? { ...entry, onFailure: event.target.value as "stop" | "continue" } : entry)))}>
-                        <option value="stop">if it fails: stop the run</option>
-                        <option value="continue">if it fails: keep going</option>
-                      </select>
-                      <button className="text-button" type="button" disabled={index === 0} onClick={() => setDraftSteps((current) => { const next = [...current]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next; })}>Up</button>
-                      <button className="text-button" type="button" onClick={() => setDraftSteps((current) => current.filter((_, at) => at !== index))}>Remove</button>
-                    </span>
-                  </li>
-                ))}
+                {draftSteps.map((step, index) => {
+                  const fields = palette.find((entry) => entry.operationId === step.operationId)?.fields ?? [];
+                  const setParam = (name: string, value: string) => setDraftSteps((current) => current.map((entry, at) => (at === index ? { ...entry, parameters: { ...entry.parameters, [name]: value } } : entry)));
+                  return (
+                    <li key={`${step.operationId}-${index}`}>
+                      <div className="flow-draft-head">
+                        <strong>{titleFor(step.operationId)}</strong>
+                        <span>
+                          <button className="text-button" type="button" disabled={index === 0} onClick={() => setDraftSteps((current) => { const next = [...current]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next; })}>Up</button>
+                          <button className="text-button" type="button" onClick={() => setDraftSteps((current) => current.filter((_, at) => at !== index))}>Remove</button>
+                        </span>
+                      </div>
+                      {fields.length > 0 && (
+                        <div className="flow-draft-fields">
+                          {fields.map((field) => (
+                            <label key={field.name}>{humanize(field.name)}{field.optional ? "" : " *"}
+                              {field.enum
+                                ? <select aria-label={`${humanize(field.name)} for step ${index + 1}`} value={step.parameters[field.name] ?? ""} onChange={(event) => setParam(field.name, event.target.value)}><option value="">choose…</option>{field.enum.map((option) => <option key={option} value={option}>{option}</option>)}</select>
+                                : field.type === "boolean"
+                                  ? <select aria-label={`${humanize(field.name)} for step ${index + 1}`} value={step.parameters[field.name] ?? ""} onChange={(event) => setParam(field.name, event.target.value)}><option value="">choose…</option><option value="true">Yes</option><option value="false">No</option></select>
+                                  : <input aria-label={`${humanize(field.name)} for step ${index + 1}`} type={field.type === "number" ? "number" : "text"} value={step.parameters[field.name] ?? ""} onChange={(event) => setParam(field.name, event.target.value)} />}
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flow-draft-policy">
+                        <select aria-label={`If step ${index + 1} fails`} value={step.onFailure} onChange={(event) => setDraftSteps((current) => current.map((entry, at) => (at === index ? { ...entry, onFailure: event.target.value as "stop" | "continue" } : entry)))}>
+                          <option value="stop">if it fails: stop the run</option>
+                          <option value="continue">if it fails: keep going</option>
+                        </select>
+                        <label className="flow-draft-retry">retry
+                          <select aria-label={`Retries for step ${index + 1}`} value={String(step.retry)} onChange={(event) => setDraftSteps((current) => current.map((entry, at) => (at === index ? { ...entry, retry: Number(event.target.value) } : entry)))}>
+                            {[0, 1, 2, 3].map((count) => <option key={count} value={count}>{count === 0 ? "no retry" : `${count}\u00d7`}</option>)}
+                          </select>
+                        </label>
+                      </div>
+                    </li>
+                  );
+                })}
               </ol>
             )}
             <div className="recovery-actions">
               <button className="primary-button" type="submit" disabled={!draftName.trim() || draftSteps.length === 0}>Save</button>
-              <span className="muted">These steps need no settings; operations that do are coming with the flow editor.</span>
+              <span className="muted">A field marked * is required. Whatever you set is checked when you save.</span>
             </div>
           </form>
         )}
