@@ -2,14 +2,13 @@ schemaVersion: 2
 id: prometheus
 name: Prometheus
 category: Monitoring
-icon: "🔥"
-description: "Metrics database that powers the Grafana dashboards: scrapes node-exporter (host metrics) and cAdvisor (container metrics) on this server."
+icon: "📈"
+description: Collects metrics from this server and keeps a time series of them. Ships with node-exporter, already wired as a scrape target, so the host's CPU, memory, disk, filesystem, and network are recorded out of the box. Point Grafana at it to draw the graphs.
 website: https://prometheus.io
-risk: low
+risk: medium
 image:
   reference: prom/prometheus:v3.14.0
-  version: "3.14.0"
-user: "65534:65534"
+  version: 3.14.0
 ports:
   - id: web
     label: Web UI
@@ -18,13 +17,38 @@ ports:
     exposure: lan
 volumes:
   - id: data
-    label: Time-series database
+    label: Metrics database
     container: /prometheus
     path: data
-    backup: false
-command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=90d", "--web.enable-lifecycle"]
+files:
+  - path: prometheus.yml
+    container: /etc/prometheus/prometheus.yml
+    content: |
+      global:
+        scrape_interval: 15s
+        scrape_timeout: 10s
+      scrape_configs:
+        - job_name: prometheus
+          static_configs:
+            - targets: ["localhost:9090"]
+        - job_name: node
+          static_configs:
+            - targets: ["node-exporter:9100"]
+sidecars:
+  - id: node-exporter
+    image: prom/node-exporter:v1.12.1
+    command: ["--path.rootfs=/host"]
+    volumes:
+      - id: rootfs
+        container: /host
+        hostPath: /
 health:
   kind: running
   stableSeconds: 15
-  timeoutSeconds: 300
-notes: "Add scrape targets by editing the compose file via Config: mount a prometheus.yml under /etc/prometheus/ that lists http://<this server>:9100 (node-exporter) and :8103 (cAdvisor). In Grafana add Prometheus as a data source at http://<this server>:9090."
+  timeoutSeconds: 180
+connections:
+  - app: grafana
+    role: metrics source
+    where: in Grafana, add a Prometheus data source at http://<this server>:9090
+    note: Grafana is its own compose project, so use this server's address, not a container name.
+notes: "node-exporter reads the host filesystem read-only through /host and is scraped automatically. To graph any of it, install Grafana and add this as a Prometheus data source. The metrics database grows over time; it lives in the app's data volume and is included in backups."

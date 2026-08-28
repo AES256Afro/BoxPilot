@@ -155,12 +155,18 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   // the ports are published on the sidecar and the app has no network of its own.
   if (manifest.networkVia) service.network_mode = `service:${manifest.networkVia}`;
   else if (publishedPorts.length) service.ports = publishedPorts;
-  if (manifest.volumes.length) {
-    service.volumes = manifest.volumes.map((volume) => {
-      const source = composeLiteral(volume.path ? `./${volume.path}` : values.volumes[volume.id] ?? volume.hostPath);
-      return `${source}:${volume.container}${volume.readOnly ? ":ro" : ""}`;
-    });
-  }
+  const volumeMounts = manifest.volumes.map((volume) => {
+    const source = composeLiteral(volume.path ? `./${volume.path}` : values.volumes[volume.id] ?? volume.hostPath);
+    return `${source}:${volume.container}${volume.readOnly ? ":ro" : ""}`;
+  });
+  // Config files shipped with the app: written into the project directory by the deployer and
+  // mounted where the app expects them. A ${NAME} in the content is a non-secret setting or a
+  // ${PORT_<ID>}; the schema already refused any secret reference, so nothing secret hits disk here.
+  const secretNamesForFiles = new Set(manifest.env.filter((entry) => entry.secret).map((entry) => entry.name));
+  const fileSubstitute = (value) => String(value).replace(/\$\{([A-Z][A-Za-z0-9_]*)\}/g, (match, name) => (secretNamesForFiles.has(name) ? match : name in portVariables ? portVariables[name] : name in env ? String(env[name]) : match));
+  const files = (manifest.files ?? []).map((file) => ({ path: file.path, content: fileSubstitute(file.content) }));
+  for (const file of manifest.files ?? []) volumeMounts.push(`${composeLiteral(`./${file.path}`)}:${file.container}${file.readOnly === false ? "" : ":ro"}`);
+  if (volumeMounts.length) service.volumes = volumeMounts;
   const environment = {};
   for (const entry of manifest.env) {
     if (!(entry.name in env)) continue;
@@ -189,7 +195,9 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
     const secretNames = new Set(manifest.env.filter((entry) => entry.secret).map((entry) => entry.name));
     const substitute = (value) => String(value).replace(/\$\{([A-Z][A-Za-z0-9_]*)\}/g, (match, name) => (secretNames.has(name) ? match : name in portVariables ? portVariables[name] : name in env ? composeLiteral(withPortVariables(env[name])) : ""));
     if (Object.keys(sidecar.env ?? {}).length) sidecarService.environment = Object.fromEntries(Object.entries(sidecar.env).map(([name, value]) => [name, substitute(value)]));
-    if (sidecar.volumes.length) sidecarService.volumes = sidecar.volumes.map((volume) => `./${volume.path}:${volume.container}`);
+    if (sidecar.volumes.length) sidecarService.volumes = sidecar.volumes.map((volume) => (volume.hostPath
+      ? `${volume.hostPath}:${volume.container}:ro`                 // curated, read-only host bind (an exporter reading the host)
+      : `./${volume.path}:${volume.container}`));
     if ((sidecar.capabilities ?? []).length) { sidecarService.cap_drop = ["ALL"]; sidecarService.cap_add = [...sidecar.capabilities]; }
     if ((sidecar.devices ?? []).length) sidecarService.devices = sidecar.devices.map((device) => `${device}:${device}`);
     if (manifest.networkVia === sidecar.id && publishedPorts.length) sidecarService.ports = publishedPorts;
@@ -199,5 +207,5 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   if (!hostNetwork && (manifest.sidecars ?? []).length) service.depends_on = manifest.sidecars.map((sidecar) => sidecar.id);
   const secretEntries = manifest.env.filter((entry) => entry.secret && entry.name in env);
   const envFile = secretEntries.map((entry) => envFileLine(entry.name, env[entry.name])).join("\n") + (secretEntries.length ? "\n" : "");
-  return { compose, composeYaml: YAML.stringify(compose, { lineWidth: 0 }), envFile, env, hostPorts };
+  return { compose, composeYaml: YAML.stringify(compose, { lineWidth: 0 }), envFile, env, hostPorts, files };
 }

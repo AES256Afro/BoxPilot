@@ -356,6 +356,16 @@ export function createAppHelper({
     await rename(path.join(directory, ".env.tmp"), path.join(directory, ".env"));
     await writeFile(path.join(directory, "compose.yaml.tmp"), rendered.composeYaml, { mode: 0o600 });
     await rename(path.join(directory, "compose.yaml.tmp"), path.join(directory, "compose.yaml"));
+    // Config files shipped with the app (a prometheus.yml, a datasource yaml). Their paths were
+    // validated safe and relative by the schema; each is written under the project directory and
+    // mounted into the container by the compose file. Rewritten whole on every deploy, so a
+    // manifest change reaches the running app.
+    for (const file of rendered.files ?? []) {
+      const target = path.join(directory, file.path);
+      await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+      await writeFile(target, file.content, { mode: 0o600 });
+      if (runsAs) await chownDirectory(target, runsAs.uid, runsAs.gid).catch(() => {});
+    }
     return rendered;
   }
 

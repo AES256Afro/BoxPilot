@@ -246,3 +246,51 @@ describe("networkVia and sidecar targets", () => {
     expect(validateManifest({ ...base, setup: { title: "Models", choices: [{ id: "llama", label: "Llama", exec: ["x"], service: "missing" }] } }).errors).toContainEqual(expect.stringContaining("service"));
   });
 });
+
+describe("config files shipped with an app", () => {
+  it("mounts a manifest file read-only, interpolates non-secret settings, and refuses a secret", () => {
+    const withFile = {
+      id: "conf", name: "Conf", category: "T", description: "d", schemaVersion: 2,
+      image: { reference: "nginx:1.27" },
+      env: [{ name: "GREETING", default: "hello" }, { name: "TOKEN", type: "password" }],
+      files: [{ path: "app.conf", container: "/etc/app/app.conf", content: "say=${GREETING}\nport=${PORT_WEB}" }],
+      ports: [{ id: "web", container: 80, host: 8080 }],
+    };
+    const { manifest, errors } = validateManifest(withFile);
+    expect(errors).toEqual([]);
+    const { values } = resolveValues(manifest, {});
+    const { compose, files } = renderCompose(manifest, values, { lanAddress: "0.0.0.0" });
+    expect(compose.services.conf.volumes).toContain("./app.conf:/etc/app/app.conf:ro");
+    expect(files).toEqual([{ path: "app.conf", content: "say=hello\nport=8080" }]);
+
+    const leaky = validateManifest({ ...withFile, files: [{ path: "x.conf", container: "/x", content: "auth=${TOKEN}" }] });
+    expect(leaky.manifest).toBeNull();
+    expect(leaky.errors.join(" ")).toMatch(/must not embed the secret TOKEN/);
+
+    const escape = validateManifest({ ...withFile, files: [{ path: "../etc/evil", container: "/x", content: "x" }] });
+    expect(escape.manifest).toBeNull();
+    expect(escape.errors.join(" ")).toMatch(/safe relative path/);
+  });
+
+  it("mounts a sidecar host bind read-only, and refuses a writable one", () => {
+    const monitor = {
+      id: "mon", name: "Mon", category: "T", description: "d", schemaVersion: 2,
+      image: { reference: "prom/prometheus:v3.14.0" },
+      sidecars: [{ id: "node", image: "prom/node-exporter:v1.12.1", volumes: [{ id: "rootfs", container: "/host", hostPath: "/" }] }],
+    };
+    const { manifest, errors } = validateManifest(monitor);
+    expect(errors).toEqual([]);
+    const { compose } = renderCompose(manifest, resolveValues(manifest, {}).values, { lanAddress: "0.0.0.0" });
+    expect(compose.services.node.volumes).toEqual(["/:/host:ro"]);
+    const writable = validateManifest({ ...monitor, sidecars: [{ id: "node", image: "x", volumes: [{ id: "r", container: "/host", hostPath: "/", readOnly: false }] }] });
+    expect(writable.errors.join(" ")).toMatch(/always read-only/);
+  });
+
+  it("the shipped Prometheus stack renders host metrics wiring", async () => {
+    const { manifests } = await loadCatalog();
+    const prometheus = manifests.find((entry) => entry.id === "prometheus");
+    const { compose, files } = renderCompose(prometheus, resolveValues(prometheus, {}).values, { lanAddress: "0.0.0.0" });
+    expect(compose.services["node-exporter"].volumes).toContain("/:/host:ro");
+    expect(files[0].content).toMatch(/node-exporter:9100/);
+  });
+});
