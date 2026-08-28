@@ -3,7 +3,7 @@ id: prometheus
 name: Prometheus
 category: Monitoring
 icon: "📈"
-description: Collects metrics from this server and keeps a time series of them. Ships with node-exporter, already wired as a scrape target, so the host's CPU, memory, disk, filesystem, and network are recorded out of the box. Point Grafana at it to draw the graphs.
+description: Collects metrics from this server and keeps a time series of them. Ships with node-exporter (the host's CPU, memory, disk, filesystem, and network) and cAdvisor (per-container CPU, memory, and I/O), both already wired as scrape targets. Point Grafana at it to draw the graphs.
 website: https://prometheus.io
 risk: medium
 image:
@@ -34,6 +34,9 @@ files:
         - job_name: node
           static_configs:
             - targets: ["node-exporter:9100"]
+        - job_name: cadvisor
+          static_configs:
+            - targets: ["cadvisor:8080"]
 sidecars:
   - id: node-exporter
     image: prom/node-exporter:v1.12.1
@@ -42,6 +45,27 @@ sidecars:
       - id: rootfs
         container: /host
         hostPath: /
+  - id: cadvisor
+    image: gcr.io/cadvisor/cadvisor:v0.55.1
+    command: ["--docker_only=true", "--housekeeping_interval=30s"]
+    devices:
+      - /dev/kmsg
+    volumes:
+      - id: rootfs
+        container: /rootfs
+        hostPath: /
+      - id: run
+        container: /var/run
+        hostPath: /var/run
+      - id: sys
+        container: /sys
+        hostPath: /sys
+      - id: docker
+        container: /var/lib/docker
+        hostPath: /var/lib/docker
+      - id: disk
+        container: /dev/disk
+        hostPath: /dev/disk
 health:
   kind: running
   stableSeconds: 15
@@ -51,4 +75,4 @@ connections:
     role: metrics source
     where: in Grafana, add a Prometheus data source at http://<this server>:9090
     note: Grafana is its own compose project, so use this server's address, not a container name.
-notes: "node-exporter reads the host filesystem read-only through /host and is scraped automatically. To graph any of it, install Grafana and add this as a Prometheus data source. The metrics database grows over time; it lives in the app's data volume and is included in backups."
+notes: "node-exporter reads the host read-only through /host and cAdvisor reads the container runtime read-only; both are scraped automatically. To graph any of it, install Grafana and add this as a Prometheus data source. The metrics database grows over time; it lives in the app's data volume and is included in backups."
