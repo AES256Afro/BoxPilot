@@ -67,7 +67,7 @@ function checkKeys(errors, path, value, allowed, required = []) {
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
-  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner", "connections"], ["schemaVersion", "id", "name", "category", "description", "image"]);
+  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner", "connections", "files"], ["schemaVersion", "id", "name", "category", "description", "image"]);
   if (raw.schemaVersion !== 2) fail(errors, "manifest.schemaVersion", "must be 2");
   // Docker gives a container 64 MB of shared memory. Anything decoding video wants far more, and
   // runs out in ways that look like the app is broken rather than out of a resource.
@@ -171,6 +171,28 @@ export function validateManifest(raw) {
     if (entry.fixed && entry.default === undefined) fail(errors, `${path}.fixed`, "fixed entries need a default");
   });
 
+  // files: config files shipped with the app (a prometheus.yml, a datasource yaml), written into
+  // the project directory and mounted read-only into the container. This is what lets a
+  // multi-file app exist without app-specific JavaScript. A secret must never be baked into one,
+  // so content that references a secret env var by ${NAME} is refused; non-secret settings and
+  // ${PORT_<ID>} are interpolated at deploy time.
+  const secretEnvNames = new Set(env.filter((entry) => entry?.secret || entry?.type === "password").map((entry) => entry.name));
+  const files = Array.isArray(raw.files) ? raw.files : raw.files === undefined ? [] : (fail(errors, "manifest.files", "must be a list"), []);
+  if (files.length > 16) fail(errors, "manifest.files", "at most 16 files");
+  const filePaths = new Set();
+  files.forEach((file, index) => {
+    const path = `manifest.files[${index}]`;
+    if (!isObject(file)) return fail(errors, path, "must be a mapping");
+    checkKeys(errors, path, file, ["path", "container", "content", "readOnly"], ["path", "container", "content"]);
+    // A safe relative path: no leading slash, no traversal, plain segments only.
+    if (typeof file.path !== "string" || file.path.length > 200 || file.path.startsWith("/") || /(^|\/)\.\.(\/|$)/.test(file.path) || !/^[A-Za-z0-9._/-]+$/.test(file.path)) fail(errors, `${path}.path`, "must be a safe relative path");
+    else if (filePaths.has(file.path)) fail(errors, `${path}.path`, "duplicate file path"); else filePaths.add(file.path);
+    if (typeof file.container !== "string" || !containerPathPattern.test(file.container)) fail(errors, `${path}.container`, "must be an absolute container path");
+    if (typeof file.content !== "string" || file.content.length > 65536) fail(errors, `${path}.content`, "must be text of at most 64 KiB");
+    else for (const match of file.content.matchAll(/\$\{([A-Z][A-Za-z0-9_]*)\}/g)) if (secretEnvNames.has(match[1])) fail(errors, `${path}.content`, `must not embed the secret ${match[1]}`);
+    if (file.readOnly !== undefined && typeof file.readOnly !== "boolean") fail(errors, `${path}.readOnly`, "must be boolean");
+  });
+
   // networkModes: the attachment options the owner may pick between (bridge/host). Absent means
   // the app is fixed to its own `network`. Host mode ignores published ports and skips sidecars,
   // so a manifest that needs its ports proxied through a sidecar (networkVia) cannot offer it.
@@ -236,10 +258,19 @@ export function validateManifest(raw) {
     sidecarVolumes.forEach((volume, volumeIndex) => {
       const volumePath = `${path}.volumes[${volumeIndex}]`;
       if (!isObject(volume)) return fail(errors, volumePath, "must be a mapping");
-      checkKeys(errors, volumePath, volume, ["id", "container", "path", "backup"], ["id", "container", "path"]);
+      checkKeys(errors, volumePath, volume, ["id", "container", "path", "hostPath", "readOnly", "backup"], ["id", "container"]);
       if (typeof volume.id !== "string" || !keyPattern.test(volume.id)) fail(errors, `${volumePath}.id`, "must be a short slug");
       if (typeof volume.container !== "string" || !containerPathPattern.test(volume.container)) fail(errors, `${volumePath}.container`, "must be an absolute container path");
-      if (typeof volume.path !== "string" || !relativePathPattern.test(volume.path) || managedPaths.has(volume.path)) fail(errors, `${volumePath}.path`, "must be a unique relative directory name (sidecar data is always managed)"); else managedPaths.add(volume.path);
+      // A sidecar mount is either managed project data (a relative path) or a read-only host
+      // bind (an absolute hostPath, curated release content, for exporters that must read the
+      // host). A host bind is always read-only: a monitoring sidecar never writes the host.
+      if (volume.hostPath !== undefined) {
+        if (volume.path !== undefined) fail(errors, volumePath, "set either path or hostPath, not both");
+        if (typeof volume.hostPath !== "string" || !containerPathPattern.test(volume.hostPath)) fail(errors, `${volumePath}.hostPath`, "must be an absolute host path");
+        if (volume.readOnly === false) fail(errors, `${volumePath}.readOnly`, "a sidecar host mount is always read-only");
+      } else if (typeof volume.path !== "string" || !relativePathPattern.test(volume.path) || managedPaths.has(volume.path)) {
+        fail(errors, `${volumePath}.path`, "must be a unique relative directory name (sidecar data is always managed)");
+      } else managedPaths.add(volume.path);
       if (volume.backup !== undefined && typeof volume.backup !== "boolean") fail(errors, `${volumePath}.backup`, "must be boolean");
     });
   });
@@ -329,6 +360,7 @@ export function validateManifest(raw) {
     // UDP one never can be, so it keeps its LAN binding rather than vanishing.
     ports: ports.map((port) => ({ id: port.id, label: port.label ?? port.id, container: port.container, host: port.host ?? port.container, protocol: port.protocol ?? "tcp", exposure: port.exposure ?? "lan", fixed: port.fixed ?? false, tailnet: port.tailnet ?? ((port.protocol ?? "tcp") === "udp" ? "unchanged" : "serve"), containerFollowsHost: port.containerFollowsHost ?? false })),
     volumes: volumes.map((volume) => ({ id: volume.id, label: volume.label ?? volume.id, container: volume.container, path: volume.path ?? null, hostPath: volume.hostPath ?? null, readOnly: volume.readOnly ?? false, backup: volume.backup ?? (volume.path !== undefined), configurable: volume.configurable ?? false, description: volume.description ?? null, subdirectories: volume.subdirectories ?? [] })),
+    files: files.map((file) => ({ path: file.path, container: file.container, content: file.content, readOnly: file.readOnly ?? true })),
     env: env.map((entry) => ({ name: entry.name, label: entry.label ?? entry.name, description: entry.description ?? null, type: entry.type ?? "string", default: entry.default ?? null, required: entry.required ?? false, secret: entry.secret ?? entry.type === "password", generate: entry.generate ?? false, options: entry.options ?? null, fixed: entry.fixed ?? false })),
     health: { kind: raw.health?.kind ?? "running", stableSeconds: raw.health?.stableSeconds ?? 10, timeoutSeconds: raw.health?.timeoutSeconds ?? 180 },
     capabilities: raw.capabilities ?? [],
@@ -359,7 +391,7 @@ export function validateManifest(raw) {
       env: sidecar.env ?? {},
       capabilities: sidecar.capabilities ?? [],
       devices: sidecar.devices ?? [],
-      volumes: (sidecar.volumes ?? []).map((volume) => ({ id: volume.id, container: volume.container, path: volume.path, backup: volume.backup ?? true })),
+      volumes: (sidecar.volumes ?? []).map((volume) => ({ id: volume.id, container: volume.container, path: volume.path ?? null, hostPath: volume.hostPath ?? null, readOnly: volume.readOnly ?? Boolean(volume.hostPath), backup: volume.hostPath ? false : (volume.backup ?? true) })),
     })),
   });
   return { manifest, errors: [] };

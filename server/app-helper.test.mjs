@@ -224,6 +224,23 @@ describe("generic app deployer", () => {
     await expect(plain.apps.vpnKillSwitchDrill({ id: "plain" })).rejects.toThrow(/does not run through a VPN tunnel/);
   });
 
+  it("writes a manifest's config files into the project directory on install", async () => {
+    const { apps, catalogDirectory, catalogRoot } = await setup();
+    await writeFile(path.join(catalogDirectory, "conf.yaml"), [
+      "schemaVersion: 2", "id: conf", "name: Conf", "category: T", "description: d",
+      "image:", "  reference: nginx:1.27",
+      "ports:", "  - id: web", "    container: 80", "    host: 8080",
+      "env:", "  - name: GREETING", "    default: hello",
+      "files:", "  - path: app.conf", "    container: /etc/app/app.conf", "    content: |", "      say=${GREETING}",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n");
+    await apps.install({ id: "conf", values: {} });
+    const written = await readFile(path.join(catalogRoot, "conf", "app.conf"), "utf8");
+    expect(written.trim()).toBe("say=hello");                 // interpolated and written where compose mounts it
+    const compose = await readFile(path.join(catalogRoot, "conf", "compose.yaml"), "utf8");
+    expect(compose).toContain("./app.conf:/etc/app/app.conf:ro");
+  });
+
   it("lists compose projects BoxPilot did not create, and only those", async () => {
     const { apps } = await setup();
     const { available, projects } = await apps.foreignProjects();
