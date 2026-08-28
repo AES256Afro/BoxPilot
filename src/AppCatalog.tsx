@@ -186,6 +186,8 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [config, setConfig] = useState<{ manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure" } | null>(null);
   const [logs, setLogs] = useState<{ id: string; container: string | null; lines: string[] } | null>(null);
   const [tunnels, setTunnels] = useState<Record<string, { running: boolean; exit: { ip: string; location: string | null } | null; forwardedPort: number | null }>>({});
+  // The weekly kill-switch verification schedule per VPN app, if the owner turned it on.
+  const [killswitch, setKillswitch] = useState<Record<string, { id: string; overdue: boolean; lastRunAt: string | null; lastResult: string | null }>>({});
   const [foreign, setForeign] = useState<Array<{ name: string; status: string; configFiles: string[] }> | null>(null);
   const [foreignLogs, setForeignLogs] = useState<{ name: string; lines: string[] } | null>(null);
   useEffect(() => {
@@ -253,7 +255,34 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
         if (response.ok && body.result?.tunneled) setTunnels((current) => ({ ...current, [entry.manifest.id]: { running: body.result?.running ?? false, exit: body.result?.exit ?? null, forwardedPort: body.result?.forwardedPort ?? null } }));
       } catch { /* the pill already covers a broken tunnel; the exit line is a bonus */ }
     }
+    void loadKillswitch();
   }, [csrfToken]);
+
+  // Which VPN apps have the kill-switch drill running on a schedule, and how the last run went.
+  const loadKillswitch = useCallback(async () => {
+    try {
+      const body = (await fetch("/api/v1/schedules").then((response) => (response.ok ? response.json() : { schedules: [] }))) as { schedules: Array<{ id: string; operationId: string; parameters?: { subject?: string }; overdue?: boolean; lastRunAt?: string | null; lastResult?: string | null }> };
+      const map: Record<string, { id: string; overdue: boolean; lastRunAt: string | null; lastResult: string | null }> = {};
+      for (const schedule of body.schedules ?? []) {
+        const subject = schedule.parameters?.subject;
+        if (schedule.operationId === "app.vpn.killswitch.drill" && subject) map[subject] = { id: schedule.id, overdue: Boolean(schedule.overdue), lastRunAt: schedule.lastRunAt ?? null, lastResult: schedule.lastResult ?? null };
+      }
+      setKillswitch(map);
+    } catch { /* the manual button still works without this */ }
+  }, []);
+
+  const scheduleKillswitch = async (appId: string) => {
+    try {
+      await fetch("/api/v1/schedules", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ operationId: "app.vpn.killswitch.drill", parameters: { id: appId }, frequency: "weekly", minute: 0, hour: 4, weekday: 0 }) });
+      await loadKillswitch();
+    } catch { /* a failure leaves the button as it was */ }
+  };
+  const unscheduleKillswitch = async (scheduleId: string) => {
+    try {
+      await fetch(`/api/v1/schedules/${encodeURIComponent(scheduleId)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } });
+      await loadKillswitch();
+    } catch { /* leave it on if the delete failed */ }
+  };
 
   const showLogs = async (id: string, container?: string) => {
     try {
@@ -409,7 +438,11 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
               </header>
               <p>{manifest.description}</p>
               {installed && manifest.networkVia && tunnels[manifest.id]?.exit && tunnels[manifest.id].running && (
-                <p className="muted app-stats">VPN exit: {tunnels[manifest.id].exit?.location ?? "unknown place"} · {tunnels[manifest.id].exit?.ip}{tunnels[manifest.id].forwardedPort ? ` · forwarded port ${tunnels[manifest.id].forwardedPort} (set it under Tools, Options, Connection)` : ""} · <button className="text-button" type="button" onClick={() => start({ operationId: "app.vpn.killswitch.drill", title: `Prove ${manifest.name}'s kill switch`, parameters: { id: manifest.id }, preview: <span>Forces the tunnel down for a few seconds, checks nothing can reach the internet while it is down, then brings it back. Downloads pause briefly and resume by themselves; the result is recorded.</span> })}>Prove the kill switch</button></p>
+                <p className="muted app-stats">VPN exit: {tunnels[manifest.id].exit?.location ?? "unknown place"} · {tunnels[manifest.id].exit?.ip}{tunnels[manifest.id].forwardedPort ? ` · forwarded port ${tunnels[manifest.id].forwardedPort} (set it under Tools, Options, Connection)` : ""} · <button className="text-button" type="button" onClick={() => start({ operationId: "app.vpn.killswitch.drill", title: `Prove ${manifest.name}'s kill switch`, parameters: { id: manifest.id }, preview: <span>Forces the tunnel down for a few seconds, checks nothing can reach the internet while it is down, then brings it back. Downloads pause briefly and resume by themselves; the result is recorded.</span> })}>Prove the kill switch</button>
+                  {killswitch[manifest.id]
+                    ? <> · <span className={`status-pill status-${killswitch[manifest.id].overdue || (killswitch[manifest.id].lastResult && !killswitch[manifest.id].lastResult!.startsWith("completed")) ? "warning" : "good"}`}>auto-checked weekly</span>{killswitch[manifest.id].lastRunAt ? ` (last ${new Date(killswitch[manifest.id].lastRunAt!).toLocaleDateString()}${killswitch[manifest.id].lastResult && !killswitch[manifest.id].lastResult!.startsWith("completed") ? ", failed" : ""})` : ""} <button className="text-button" type="button" onClick={() => void unscheduleKillswitch(killswitch[manifest.id].id)}>stop</button></>
+                    : <> · <button className="text-button" type="button" onClick={() => void scheduleKillswitch(manifest.id)}>Verify weekly</button></>}
+                </p>
               )}
               {installed && stats?.[manifest.id] && (
                 <p className="muted app-stats">CPU {stats[manifest.id].cpuPercent.toFixed(1)}% · {(stats[manifest.id].memBytes / 1024 / 1024).toFixed(0)} MiB{stats[manifest.id].containers > 1 ? ` · ${stats[manifest.id].containers} containers` : ""}</p>

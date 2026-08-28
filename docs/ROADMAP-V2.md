@@ -546,7 +546,11 @@ from reading container logs by hand. The tunnel is infrastructure; treat it like
   with timings. The mechanics were proven against the live tunnel before the op was written: stop,
   four-second probe timing out, restore, new exit address. "Prove the kill switch" sits next to
   the exit line on the card. A drill that cannot restore the tunnel reports that as its failure,
-  never a pass.
+  never a pass. ✅ (v1.71.0) **Verify weekly:** a one-click toggle next to the manual button schedules
+  the drill (a weekly operation schedule), so "if the VPN drops, nothing leaks" is a continuously
+  tested fact — a failed drill fires the failed-job alert, and a schedule that stops fires the
+  overdue-schedule alert (M20.1). The card shows the last run and turns the badge amber if it failed
+  or fell behind. Downloads pause for the few seconds of each drill and resume on their own.
 
 **Order across the new arcs.** M15.1 and M15.2 first: the pain is freshest, every check is already
 understood, and it pays off on every app forever. Then M14 as one arc, which finishes the mission

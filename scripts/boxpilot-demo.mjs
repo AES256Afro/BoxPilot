@@ -34,7 +34,7 @@ const digest = (seed) => createHash("sha256").update(`demo:${seed}`).digest("hex
 
 // ---------- the fictional server ----------
 const host = { hostname: "homebox", lan: "192.168.50.20", gateway: "192.168.50.1", tailnet: "homebox.tail0a1b.ts.net", tailscaleIp: "100.101.102.103", owner: "alex" };
-const installed = { "open-webui": 8088, jellyfin: 8096, "pi-hole": 8084, immich: 2283, vaultwarden: 8222, "uptime-kuma": 3001, homepage: 3000, nextcloud: 8087, scrutiny: 8086 };
+const installed = { "open-webui": 8088, jellyfin: 8096, "pi-hole": 8084, immich: 2283, vaultwarden: 8222, "uptime-kuma": 3001, homepage: 3000, nextcloud: 8087, scrutiny: 8086, qbittorrent: 8095 };
 const stats = { jellyfin: { cpuPercent: 3.2, memBytes: 412 * 1024 ** 2, containers: 1 }, "pi-hole": { cpuPercent: 0.4, memBytes: 96 * 1024 ** 2, containers: 2 }, immich: { cpuPercent: 6.1, memBytes: 1.4 * GiB, containers: 4 }, vaultwarden: { cpuPercent: 0.1, memBytes: 48 * 1024 ** 2, containers: 1 }, "uptime-kuma": { cpuPercent: 0.8, memBytes: 120 * 1024 ** 2, containers: 1 }, homepage: { cpuPercent: 0.2, memBytes: 70 * 1024 ** 2, containers: 1 }, nextcloud: { cpuPercent: 1.9, memBytes: 620 * 1024 ** 2, containers: 3 }, scrutiny: { cpuPercent: 0.3, memBytes: 110 * 1024 ** 2, containers: 1 } };
 
 const lsblk = JSON.stringify({ blockdevices: [
@@ -535,6 +535,7 @@ api.get("/schedules", (_request, response) => json(response, { schedules: [
   { id: "s1", operationId: "app.backup", parameters: { subject: "immich" }, frequency: "daily", minute: 0, hour: 3, weekday: null, enabled: true, createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-8), lastRunAt: ago(16) },
   { id: "s2", operationId: "backup.cloud.sync", parameters: {}, frequency: "daily", minute: 30, hour: 4, weekday: null, enabled: true, createdBy: "owner-demo", createdAt: ago(200), nextDueAt: ago(-7), lastRunAt: ago(26), lastJobId: "d3", lastResult: "started" },
   { id: "s3", operationId: "apt.refresh", parameters: {}, frequency: "weekly", minute: 0, hour: 5, weekday: 0, enabled: true, createdBy: "owner-demo", createdAt: ago(400), nextDueAt: ago(-60), lastRunAt: ago(108), lastJobId: "j2", lastResult: "started" },
+  { id: "s4", operationId: "app.vpn.killswitch.drill", parameters: { subject: "qbittorrent" }, frequency: "weekly", minute: 0, hour: 4, weekday: 0, enabled: true, overdue: false, title: "Prove the kill switch", cadence: "weekly on Sunday at 04:00", createdBy: "owner-demo", createdAt: ago(400), nextDueAt: ago(-90), lastRunAt: ago(60), lastResult: "completed" },
 ] }));
 api.get("/system/update", (_request, response) => json(response, { current: { version: productVersion, tag: `v${productVersion}` }, latest: { tag: `v${productVersion}`, version: productVersion, publishedAt: ago(30), url: "https://github.com/AES256Afro/BoxPilot/releases" }, updateAvailable: false, checkedAt: now().toISOString(), error: null }));
 api.get("/power/ups/detect", (_request, response) => json(response, { devices: [{ vendorId: "051d", productId: "0002", manufacturer: "American Power Conversion", product: "Back-UPS ES 700G", driver: "usbhid-ups", confidence: "vendor-id", sysfs: "1-3" }], nutInstalled: true }));
