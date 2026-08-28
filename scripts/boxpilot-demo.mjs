@@ -239,6 +239,9 @@ export const inspections = {
   "app.config.inspect": { id: "homepage", name: "Homepage", directory: "/var/lib/boxpilot-managed/catalog/homepage", compose: "name: bp-homepage\nservices:\n  homepage:\n    image: ghcr.io/gethomepage/homepage:v1.5.0\n    restart: unless-stopped\n    ports:\n      - 192.168.1.10:3000:3000\n", env: [{ name: "HOMEPAGE_ALLOWED_HOSTS", value: "*", secret: false }, { name: "PUID", value: "1000", secret: false }, { name: "SECRET", value: "********", secret: true }] },
   // Every dialog the interface can open needs an answer here; see scripts/demo-fixtures.test.mjs.
   "app.vpn.inspect": { id: "qbittorrent", tunneled: true, sidecarId: "vpn", running: true, status: "running", exit: { ip: "203.0.113.7", location: "Netherlands, North Holland, Amsterdam", at: "2026-08-25T03:00:00Z" } },
+  "compose.projects.inspect": { available: true, projects: [
+    { name: "old-wordpress", status: "exited(2)", configFiles: ["/opt/wordpress/docker-compose.yml"] },
+  ] },
   "credentials.inspect": { credentials: [
     { name: "ntfy-token", createdAt: "2026-08-20T10:00:00.000Z", updatedAt: "2026-08-26T09:30:00.000Z" },
     { name: "weather-api", createdAt: "2026-08-24T18:00:00.000Z", updatedAt: "2026-08-24T18:00:00.000Z" },

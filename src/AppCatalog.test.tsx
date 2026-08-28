@@ -146,6 +146,19 @@ describe("App catalog", () => {
     expect(screen.getAllByText("http://192.168.1.10:8989").length).toBeGreaterThanOrEqual(1);
   });
 
+  it("lists compose stacks that live here but are not BoxPilot's", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      if (url === "/api/v1/operations/compose.projects.inspect/inspect") return json({ operation: "compose.projects.inspect", result: { available: true, projects: [{ name: "old-wordpress", status: "exited(2)", configFiles: ["/opt/wordpress/docker-compose.yml"] }] } });
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppCatalog csrfToken="csrf-token" />);
+    expect(await screen.findByText("old-wordpress")).toBeTruthy();
+    expect(screen.getByText("/opt/wordpress/docker-compose.yml")).toBeTruthy();
+  });
+
   it("says a helper container is broken instead of a green Running", async () => {
     // A VPN sidecar crash-looped for an hour behind a green "Running" pill; the app container
     // being up is not the app working when the container it routes through is down.

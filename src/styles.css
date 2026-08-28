@@ -4401,3 +4401,7 @@ textarea {
 /* Saved credential names: one line each, the remove within reach. */
 .credential-list { list-style: none; margin: 0 0 0.8rem; padding: 0; display: grid; gap: 0.4rem; }
 .credential-list li { display: flex; align-items: center; gap: 0.7rem; }
+
+/* Stacks that live here but are not BoxPilot's: name, state, and where their compose file is. */
+.foreign-projects { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.45rem; }
+.foreign-projects li { display: flex; align-items: baseline; gap: 0.7rem; flex-wrap: wrap; }

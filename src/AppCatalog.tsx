@@ -186,6 +186,13 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [config, setConfig] = useState<{ manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure" } | null>(null);
   const [logs, setLogs] = useState<{ id: string; container: string | null; lines: string[] } | null>(null);
   const [tunnels, setTunnels] = useState<Record<string, { running: boolean; exit: { ip: string; location: string | null } | null; forwardedPort: number | null }>>({});
+  const [foreign, setForeign] = useState<Array<{ name: string; status: string; configFiles: string[] }> | null>(null);
+  useEffect(() => {
+    fetch("/api/v1/operations/compose.projects.inspect/inspect")
+      .then((response) => response.json())
+      .then((body: { result?: { available: boolean; projects: Array<{ name: string; status: string; configFiles: string[] }> } }) => setForeign(body.result?.available ? body.result.projects : null))
+      .catch(() => setForeign(null));
+  }, []);
   const [reachability, setReachability] = useState<{ id: string; checking: boolean; headline: string | null; addresses: Array<{ kind: string; url: string; portLabel: string | null; outcome: string; verdict: string | null; note: string | null }> } | null>(null);
   const [models, setModels] = useState<{ id: string; name: string; available: boolean; reason: string | null; rows: Array<{ name: string; id: string; size: string; modified: string; bytes: number }>; wanted: string; loading: boolean } | null>(null);
   const [effectiveConfig, setEffectiveConfig] = useState<{ id: string; name: string; compose: string | null; env: Array<{ name: string; value: string; secret: boolean }>; directory: string } | null>(null);
@@ -541,6 +548,20 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
 
   return (
     <div className="app-catalog">
+      {foreign !== null && foreign.length > 0 && (
+        <section className="panel">
+          <header className="panel-header"><div><strong>Also on this server</strong><span>Compose stacks started outside BoxPilot. Their compose files stay theirs; BoxPilot lists them so this page tells the whole truth about the machine.</span></div></header>
+          <ul className="foreign-projects">
+            {foreign.map((project) => (
+              <li key={project.name}>
+                <strong>{project.name}</strong>
+                <span className="muted">{project.status}</span>
+                <code>{project.configFiles[0] ?? ""}</code>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {dialog}
       {stranded.length > 0 && (
         <section className="panel">

@@ -48,6 +48,13 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
       if (url.includes("1.1.1.1")) return execTable.leaks || execTable.vpn === "running" ? { ok: true, stdout: "204", stderr: "" } : { ok: false, stdout: "000", stderr: "curl: (28) timed out" };
       return { ok: false, stdout: "", stderr: `unexpected exec ${url}` };
     }
+    if (args[0] === "compose" && args[1] === "ls") {
+      return { ok: true, stdout: JSON.stringify([
+        { Name: "bp-jellyfin", Status: "running(1)", ConfigFiles: "/var/lib/boxpilot-managed/catalog/jellyfin/compose.yaml" },
+        { Name: "old-wordpress", Status: "exited(2)", ConfigFiles: "/opt/wordpress/docker-compose.yml" },
+        { Name: "handmade", Status: "running(3)", ConfigFiles: "/home/user/stack/compose.yaml,/home/user/stack/compose.override.yaml" },
+      ]), stderr: "" };
+    }
     if (args[0] === "compose") {
       const name = args[args.indexOf("--project-name") + 1];
       const verb = args.find((arg, index) => index > 0 && ["up", "down", "pull", "start", "stop", "restart"].includes(arg));
@@ -214,6 +221,17 @@ describe("generic app deployer", () => {
     await writeFile(path.join(plain.catalogDirectory, "plain.yaml"), tunnelManifest.replace("id: qbt", "id: plain").replace("networkVia: vpn\n", ""));
     await plain.apps.install({ id: "plain", values: {} });
     await expect(plain.apps.vpnKillSwitchDrill({ id: "plain" })).rejects.toThrow(/does not run through a VPN tunnel/);
+  });
+
+  it("lists compose projects BoxPilot did not create, and only those", async () => {
+    const { apps } = await setup();
+    const { available, projects } = await apps.foreignProjects();
+    expect(available).toBe(true);
+    // Its own bp- projects are not "foreign"; multiple config files split cleanly.
+    expect(projects).toEqual([
+      { name: "old-wordpress", status: "exited(2)", configFiles: ["/opt/wordpress/docker-compose.yml"] },
+      { name: "handmade", status: "running(3)", configFiles: ["/home/user/stack/compose.yaml", "/home/user/stack/compose.override.yaml"] },
+    ]);
   });
 
   it("changing one setting leaves every other choice standing, secrets included", async () => {
