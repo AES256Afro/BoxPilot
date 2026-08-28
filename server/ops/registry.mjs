@@ -59,7 +59,7 @@ export function validateParameters(spec, parameters, title = "Operation") {
 }
 
 export function defineOperation(definition) {
-  const { id, title, risk, readOnly = false, elevatedOnly = false, timeoutMs = defaultTimeoutMs, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null } = definition ?? {};
+  const { id, title, risk, readOnly = false, elevatedOnly = false, timeoutMs = defaultTimeoutMs, parameters = { fields: {} }, run, description = "", minimumRole = null, confirm = null, restartsService = false } = definition ?? {};
   if (typeof id !== "string" || !idPattern.test(id)) throw new Error(`Operation id "${id}" must be lower-case dotted segments`);
   if (typeof title !== "string" || !title.trim()) throw new Error(`Operation ${id} needs a title`);
   if (!riskTiers.includes(risk)) throw new Error(`Operation ${id} risk must be one of ${riskTiers.join(", ")}`);
@@ -70,7 +70,9 @@ export function defineOperation(definition) {
   if (confirm !== null && typeof confirm !== "function") throw new Error(`Operation ${id} confirm must be a function of the parameters returning the text to type`);
   // minimumRole: who may stage/approve regardless of tier (e.g. anything that sends data off the box is owner-only).
   // confirm(parameters): text the approver must type for destructive jobs; checked server-side at approval.
-  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), timeoutMs, parameters, run, minimumRole, confirm });
+  // restartsService: the operation restarts (or reboots) the BoxPilot service, so approving it while
+  // another job runs would interrupt that job. The job service refuses the approval when so.
+  return Object.freeze({ id, title, description, risk, readOnly: Boolean(readOnly), elevatedOnly: Boolean(elevatedOnly), timeoutMs, parameters, run, minimumRole, confirm, restartsService: Boolean(restartsService) });
 }
 
 export class OperationRegistry {

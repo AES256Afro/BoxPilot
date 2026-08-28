@@ -220,6 +220,43 @@ describe("durable job executor", () => {
   });
 });
 
+describe("guarding restarts against running jobs (M4.5 / self-update safety)", () => {
+  it("refuses to start a service-restarting job while another job runs, then allows it once idle", async () => {
+    const helper = { request: vi.fn(async () => ({ started: true })) };
+    const { store, owner, jobs } = await setup(helper);
+    const expectedCommit = "a".repeat(40);
+
+    // A job that is actively running (an update now would cut it off).
+    const running = store.createJob({ type: "op:share.mount", title: "Mounting nas", parameters: {}, recovery: {}, createdBy: owner.id });
+    store.transitionJob(running.id, "awaiting_approval", "applying");
+
+    const update = await jobs.createOperationJob("system.update", { tag: "v1.62.0", expectedCommit }, owner.id);
+    await expect(jobs.approveAndRun(update.id, owner.id, { password: "correct horse battery" })).rejects.toThrow(/Wait for a running job to finish first: Mounting nas/);
+    expect(helper.request).not.toHaveBeenCalled();
+    // The blocked update is still awaiting approval, not left half-transitioned.
+    expect(store.getJob(update.id).state).toBe("awaiting_approval");
+
+    // Once the other job finishes, the same update proceeds.
+    store.transitionJob(running.id, "applying", "verifying");
+    store.transitionJob(running.id, "verifying", "completed", { result: {} });
+    const started = await jobs.approveAndRun(update.id, owner.id, { password: "correct horse battery" });
+    expect(started.state).toBe("completed");
+    expect(helper.request).toHaveBeenCalledWith("system.update", expect.objectContaining({ tag: "v1.62.0" }), expect.anything());
+    store.close();
+  });
+
+  it("does not block ordinary operations while a job runs", async () => {
+    const helper = { request: vi.fn(async () => ({ ok: true })) };
+    const { store, owner, jobs } = await setup(helper);
+    const running = store.createJob({ type: "op:share.mount", title: "Mounting nas", parameters: {}, recovery: {}, createdBy: owner.id });
+    store.transitionJob(running.id, "awaiting_approval", "applying");
+    // apt.refresh does not restart the service, so it is free to run alongside.
+    const refresh = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+    await expect(jobs.approveAndRun(refresh.id, owner.id, { session: store.getSession(store.createSession(owner.id).token) })).resolves.toMatchObject({ state: "completed" });
+    store.close();
+  });
+});
+
 describe("cancelling staged jobs", () => {
   it("lets the creator withdraw a job awaiting approval and refuses to approve it afterwards", async () => {
     const helper = { request: vi.fn() };

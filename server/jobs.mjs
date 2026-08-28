@@ -73,6 +73,18 @@ export function createJobService(store, helper, {
     }
     const parameterError = registry.validate(registeredOperation.id, parameters);
     if (parameterError) throw new Error(`Job parameters are no longer valid: ${parameterError}`);
+    // An operation that restarts (or reboots) BoxPilot must not start while another job is mid-run:
+    // the restart would cut that job off and leave it marked interrupted, its work half-done. The
+    // update job is still awaiting_approval here, so it is not yet in the active list itself. This is
+    // a best-effort guard against the common case (approving an update while a job is visibly
+    // running), not a lock against a job that starts in the same instant.
+    if (registeredOperation.restartsService && typeof store.listActiveJobs === "function") {
+      const running = store.listActiveJobs().filter((other) => other.id !== jobId);
+      if (running.length) {
+        const names = running.map((other) => other.title).join(", ");
+        throw new Error(`Wait for ${running.length === 1 ? "a running job" : `${running.length} running jobs`} to finish first: ${names}. "${registeredOperation.title}" restarts BoxPilot and would interrupt ${running.length === 1 ? "it" : "them"}.`);
+      }
+    }
     const execution = {
       operation: registeredOperation.id,
       parameters,
