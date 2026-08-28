@@ -39,7 +39,7 @@ export function updateOperations() {
       },
     }),
     defineOperation({
-      id: "system.update", title: "Update BoxPilot", risk: "high", timeoutMs: 10 * 60_000,
+      id: "system.update", title: "Update BoxPilot", risk: "high", timeoutMs: 10 * 60_000, restartsService: true,
       description: "Downloads the chosen GitHub release, builds it, swaps it into place, and restarts BoxPilot. If the new version does not pass its health check the previous tree is restored automatically. Let running jobs finish first; the restart interrupts them.",
       parameters: { fields: { tag: { type: "string", pattern: releaseTagPattern }, expectedCommit: { type: "string", pattern: /^[a-f0-9]{40}$/ } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("system.update", { tag: parameters.tag, expectedCommit: parameters.expectedCommit }, { timeoutMs: 5 * 60_000, logPath: jobLog?.path ?? null }),
