@@ -26,6 +26,17 @@ describe("health alerts", () => {
     expect(evaluateHealth({})).toEqual([]);
   });
 
+  it("alerts on a crash-looping container instead of (not as well as) unhealthy", () => {
+    const alerts = evaluateHealth({ docker: { containers: [
+      { name: "bp-sonarr", state: "restarting", status: "Restarting (1) 3 seconds ago", health: "none" },
+      { name: "bp-radarr", state: "running", health: "unhealthy" },
+      { name: "bp-jellyfin", state: "running", health: "healthy" },
+      { name: "bp-paused", state: "exited", status: "Exited (0) 2 hours ago", health: "none" }, // intentionally stopped: no alert
+    ] } });
+    expect(alerts.map((a) => a.key)).toEqual(["docker.restarting:bp-sonarr", "docker.unhealthy:bp-radarr"]);
+    expect(alerts[0].message).toContain("crash-looping");
+  });
+
   it("sends once per new condition, announces resolution once, and persists state", async () => {
     const settings = new Map();
     const store = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: vi.fn() };

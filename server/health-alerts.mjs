@@ -16,6 +16,7 @@ export const healthConditions = Object.freeze({
   "system.services": "System services have failed",
   "system.reboot": "A reboot is required",
   "docker.unhealthy": "A container is unhealthy",
+  "docker.restarting": "A container keeps restarting (crash-looping)",
   "schedule.overdue": "A scheduled task (such as a backup) has stopped running",
 });
 
@@ -46,8 +47,16 @@ export function evaluateHealth(inventory) {
     alerts.push({ key: "system.reboot", priority: "default", title: "A reboot is required", message: "Updates were installed that need a restart. Reboot from the System page when convenient." });
   }
   for (const container of inventory?.docker?.containers ?? []) {
-    if (container.health !== "unhealthy") continue;
-    alerts.push({ key: `docker.unhealthy:${container.name}`, priority: "default", title: `Container ${container.name} is unhealthy`, message: "Its health check is failing. Open the app's Logs on the App catalog page." });
+    // Crash-looping is worse than unhealthy and unambiguous: a running container is "running", so
+    // "restarting"/"dead" means Docker keeps trying to start something that keeps dying. A stopped
+    // container is "exited", not "restarting", so an intentional stop does not trip this.
+    if (container.state === "restarting" || container.state === "dead") {
+      alerts.push({ key: `docker.restarting:${container.name}`, priority: "default", title: `Container ${container.name} keeps restarting`, message: `It is crash-looping${container.status ? ` (${container.status})` : ""}. Open the app's Logs on the App catalog page to see why it will not stay up.` });
+      continue; // one alert per container; a crash-looping one is not also reported as unhealthy
+    }
+    if (container.health === "unhealthy") {
+      alerts.push({ key: `docker.unhealthy:${container.name}`, priority: "default", title: `Container ${container.name} is unhealthy`, message: "Its health check is failing. Open the app's Logs on the App catalog page." });
+    }
   }
   return alerts;
 }
@@ -64,6 +73,7 @@ export function collectorAvailability(inventory) {
     "system.services": maintenance?.available !== false && Number.isFinite(maintenance?.system?.failedServiceCount),
     "system.reboot": maintenance?.available !== false && typeof maintenance?.reboot?.required === "boolean",
     "docker.unhealthy": inventory?.docker?.available !== false && Array.isArray(inventory?.docker?.containers),
+    "docker.restarting": inventory?.docker?.available !== false && Array.isArray(inventory?.docker?.containers),
   };
 }
 
