@@ -129,7 +129,7 @@ describe("App catalog", () => {
       const url = input.toString();
       if (url === "/api/v1/catalog") return json({ applications: [
         { manifest: sonarr, live: live("sonarr", 8989) },
-        { manifest: { ...manifest, id: "jellyfin", name: "Jellyfin" }, live: live("jellyfin", 8096) },
+        { manifest: { ...manifest, id: "jellyfin", name: "Jellyfin" }, live: { ...live("jellyfin", 8096), urls: [{ id: "web", label: "Web UI", host: 8096, exposure: "tailnet" }] } },
         { manifest: { ...manifest, id: "prowlarr", name: "Prowlarr" }, live: null },
       ], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
       return json({ error: `unexpected ${url}` }, 500);
@@ -138,8 +138,9 @@ describe("App catalog", () => {
     render(<AppCatalog csrfToken="csrf-token" />);
     const summaries = await screen.findAllByText("Wiring");
     fireEvent.click(summaries[0]);
-    // Outgoing: the installed target gets a real address, the missing one an instruction.
-    expect(screen.getAllByText("http://192.168.1.10:8096").length).toBeGreaterThanOrEqual(1);
+    // Outgoing: a target moved off the LAN gets the truth, never a dead LAN address.
+    expect(screen.getByText(/reachable only through Tailscale right now/)).toBeTruthy();
+    expect(screen.queryAllByText("http://192.168.1.10:8096").filter((node) => node.closest(".app-addresses")?.textContent?.includes("Wiring"))).toHaveLength(0);
     expect(screen.getByText(/Install prowlarr first|Install Prowlarr first/)).toBeTruthy();
     // Incoming, on Jellyfin's card: Sonarr announces itself with this app's address.
     expect(screen.getAllByText("http://192.168.1.10:8989").length).toBeGreaterThanOrEqual(1);

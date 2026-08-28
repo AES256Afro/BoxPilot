@@ -149,10 +149,14 @@ describe("generic app deployer", () => {
       "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
     ].join("\n") + "\n");
     await apps.install({ id: "arr", values: { volumes: { media: mediaRoot } } });
-    expect(await stat(path.join(mediaRoot, "tv")).then((entry) => entry.isDirectory())).toBe(true);
+    // The layout is created through the RESOLVED base (macOS tmpdirs sit behind /var -> /private/var),
+    // which is also what keeps a symlinked base from being written through before validation.
+    const { realpath } = await import("node:fs/promises");
+    const resolvedRoot = await realpath(mediaRoot);
+    expect(await stat(path.join(resolvedRoot, "tv")).then((entry) => entry.isDirectory())).toBe(true);
     // Only the folder that was missing got created and handed over; the existing one was left alone.
-    expect(chowned.filter(([target]) => target === path.join(mediaRoot, "tv"))).toHaveLength(1);
-    expect(chowned.filter(([target]) => target === path.join(mediaRoot, "torrents"))).toHaveLength(0);
+    expect(chowned.filter(([target]) => target === path.join(resolvedRoot, "tv"))).toHaveLength(1);
+    expect(chowned.filter(([target]) => target.endsWith("torrents"))).toHaveLength(0);
   });
 
   it("a sidecar in a crash loop fails the health wait and shows on the card", async () => {

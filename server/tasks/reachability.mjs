@@ -12,7 +12,7 @@
 import http from "node:http";
 import https from "node:https";
 
-const probeLimit = 12;
+const probeLimit = 24;
 
 function probeOne(url, timeoutMs, sourceAddress = null) {
   return new Promise((resolve) => {

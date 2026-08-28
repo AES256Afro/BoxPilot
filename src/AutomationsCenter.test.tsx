@@ -35,6 +35,10 @@ describe("Automations", () => {
         { operationId: "host.snapshot.create", parameters: {} },
       ],
     });
+    // The Runs-after choice must not leak into the next draft: a stale selection here once
+    // meant the next automation silently ran whenever the previous trigger completed.
+    fireEvent.click(await screen.findByRole("button", { name: "Build your own" }));
+    expect(screen.queryByLabelText("Runs after")).toBeNull();   // no flows exist in this fixture, so no select; nothing carried over
   });
 
   it("shows a skipped step holding its place in the last run, without a terminal", async () => {
@@ -59,7 +63,9 @@ describe("Automations", () => {
     render(<AutomationsCenter csrfToken="csrf" />);
     fireEvent.click(await screen.findByText("What the last run did"));
     expect(await screen.findByText("snapshot written")).toBeTruthy();
-    expect(screen.getByText(/Step 2 .*skipped, its condition was not met/)).toBeTruthy();
+    // The label covers both null causes (condition not met, or a continue-step that could not
+    // start); the last-run line carries the specifics.
+    expect(screen.getByText(/Step 2 .*did not run; the last-run line above says why/)).toBeTruthy();
     // The skipped step fetched nothing: no job, no output.
     expect(fetchMock.mock.calls.map(([input]) => String(input)).filter((url) => url.includes("/jobs/") && !url.includes("j1"))).toEqual([]);
   });

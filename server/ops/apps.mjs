@@ -77,7 +77,7 @@ export function appOperations() {
       run: async (parameters, { apps, runUnit, jobLog }) => {
         const facts = await apps.reachabilityFacts({ id: parameters.id });
         const plan = planProbes(facts, facts.serves);
-        const wanted = plan.filter((address) => address.probe).map((address) => ({ id: address.id, url: address.url }));
+        const wanted = plan.filter((address) => address.probe).map((address) => ({ id: address.id, url: address.url, ...(address.sourceAddress ? { sourceAddress: address.sourceAddress } : {}) }));
         const probed = wanted.length
           ? await runUnit.runTask("app.reachability.probe", { probes: wanted }, { timeoutMs: 45_000, logPath: jobLog?.path ?? null })
           : { results: [] };

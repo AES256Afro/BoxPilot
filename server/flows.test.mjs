@@ -330,7 +330,8 @@ describe("running a flow", () => {
     expect(outcome.completed).toBe(true);
     expect(jobs.calls).toHaveLength(2);                                // one retry, no more
     const saved = store.getFlow(flow.id);
-    expect(saved.lastResult).toMatch(/completed with problems: step 1 .*succeeded on attempt 2 of 2/);
+    // A retry that saved the step is a footnote on success, not a problem: the run completed.
+    expect(saved.lastResult).toMatch(/^completed \(step 1 .*succeeded on attempt 2 of 2\)/);
     expect(saved.lastJobIds).toEqual(["job-2"]);                       // the attempt that counted holds the slot
   });
 
@@ -354,6 +355,64 @@ describe("running a flow", () => {
     expect(store.flows.get("flow-9").lastJobIds).toEqual(["job-1", "job-2"]);   // what ran is kept
     expect(store.flows.get("flow-10").lastResult).toBe("completed");
     expect(notified).toHaveLength(1);
+  });
+
+  it("a condition reading a step that never finished cascades the skip instead of failing", async () => {
+    const store = fakeStore();
+    const jobs = fakeJobs(store, { failAt: 1, alwaysFail: false, results: {} });
+    const service = createFlowService({ store, jobs, pollMs: 2 });
+    // Step 1 fails but the flow keeps going; step 2 reads step 1's result; step 3 is unconditional.
+    const flow = await service.create({
+      name: "cascade",
+      steps: [
+        { operationId: "host.snapshot.create", parameters: {}, name: "check", onFailure: "continue" },
+        { operationId: "app.backup", parameters: { id: "immich" }, when: { value: "{{ steps.check.artifact }}" } },
+        { operationId: "controller.backup.create", parameters: {} },
+      ],
+      createdBy: "owner-1",
+    });
+    const outcome = await service.run(flow.id, "owner-1", { role: "owner" });
+    expect(outcome.completed).toBe(true);
+    expect(store.getFlow(flow.id).lastJobIds).toEqual(["job-1", null, "job-2"]);
+    // A missing FIELD on a step that finished still fails loudly (typo protection unchanged);
+    // pinned by the earlier "broken reference fails loudly" test.
+  });
+
+  it("a saved chain always runs to its end: saving and running share one depth limit", async () => {
+    const store = fakeStore();
+    const jobs = fakeJobs(store);
+    const service = createFlowService({ store, jobs, pollMs: 2 });
+    let previous = null;
+    const saved = [];
+    for (let index = 0; index < 12; index += 1) {
+      try {
+        previous = await service.create({ name: `link-${index}`, steps: [goodSteps[0]], createdBy: "owner-1", triggerFlowId: previous?.id ?? null });
+        saved.push(previous);
+      } catch (error) {
+        expect(error.message).toMatch(/chain at most 8 deep/);
+        break;
+      }
+    }
+    expect(saved.length).toBeLessThan(12);                    // the limit exists
+    await service.run(saved[0].id, "owner-1", { role: "owner" });
+    // The contract: nothing that saved may silently not run. Every link in the chain fired.
+    for (const flow of saved) expect(store.getFlow(flow.id).lastResult).toBe("completed");
+  });
+
+  it("deleting a flow detaches its followers instead of stranding them", async () => {
+    const store = fakeStore();
+    store.deleteFlow = function (id) {
+      for (const flow of store.flows.values()) if (flow.triggerFlowId === id) flow.triggerFlowId = null;
+      if (!store.flows.delete(id)) throw new Error("Flow not found");
+    };
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2 });
+    const a = await service.create({ name: "a", steps: [goodSteps[0]], createdBy: "owner-1" });
+    const b = await service.create({ name: "b", steps: [goodSteps[0]], createdBy: "owner-1", triggerFlowId: a.id });
+    service.remove(a.id, "owner-1", { role: "owner" });
+    expect(store.flows.get(b.id).triggerFlowId).toBeNull();
+    // And a legacy dangling link mid-chain no longer poisons saving a new follower.
+    store.flows.get(b.id).triggerFlowId = "flow-ghost";
+    await expect(service.create({ name: "c", steps: [goodSteps[0]], createdBy: "owner-1", triggerFlowId: b.id })).resolves.toMatchObject({ name: "c" });
   });
 
   it("only the creator or an owner may change or remove a flow", async () => {

@@ -209,7 +209,7 @@ describe("every job an automation or schedule points at exists", () => {
     try {
       const { flows } = await body("/flows");
       const { schedules } = await body("/schedules");
-      // A null entry is a step whose condition was not met: it holds its place and has no job.
+      // A null entry is a step that did not run (condition not met, or it could not start): it holds its place and has no job.
       const ids = [...flows.flatMap((flow) => flow.lastJobIds.filter((entry) => entry !== null)), ...schedules.map((schedule) => schedule.lastJobId).filter(Boolean)];
       expect(ids.length).toBeGreaterThan(0);
       for (const id of ids) {

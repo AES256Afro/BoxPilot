@@ -15,6 +15,12 @@ import { holdsPlaceholder, isSinglePlaceholder, referencesIn, resolveValues, ste
 
 const nameLimit = 80;
 const stepLimit = 10;
+// One flow may run after another; a chain may be at most this many links, and the same number
+// governs saving and running, so nothing that saves can silently not run.
+const chainLimit = 8;
+// Failures run() has already recorded on the flow, so a caller must not overwrite them with
+// "skipped". Every stop-path throw in run() carries one of these prefixes; keep them in step.
+const recordedRunFailure = /stopped at step|failed at step|lost sight of step/;
 const riskOrder = { low: 0, medium: 1, high: 2 };
 
 /** The highest tier any step carries; what the flow answers for. */
@@ -121,14 +127,16 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
   function checkTrigger(triggerFlowId, ownId = null) {
     if (triggerFlowId === null || triggerFlowId === undefined) return null;
     let current = triggerFlowId;
-    for (let depth = 0; depth < 20; depth += 1) {
+    for (let depth = 0; depth < chainLimit; depth += 1) {
       if (current === ownId) return "that would make the flow trigger itself in a loop";
       const flow = store.getFlow(current);
-      if (!flow) return "the flow it should run after does not exist";
+      // Only the flow pointed at directly must exist; a gap further up the chain (a flow
+      // deleted before follower cleanup existed) ends the walk rather than blaming this link.
+      if (!flow) return depth === 0 ? "the flow it should run after does not exist" : null;
       if (!flow.triggerFlowId) return null;
       current = flow.triggerFlowId;
     }
-    return "the chain of flows running after flows is too deep";
+    return `flows may chain at most ${chainLimit} deep`;
   }
 
   async function create({ name, steps, createdBy, cadence = null, triggerFlowId = null }) {
@@ -195,10 +203,12 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
     }
 
     running.add(id);
+    let completedRun = false;
     // One entry per step, in step order: a job id, or null for a step whose condition was not
     // met. The page maps run entries back to steps by position, so skipped steps hold their place.
     const jobIds = [];
     const problems = [];
+    const notes = [];
     let skippedByCondition = 0;
     const namedResults = {};
     try {
@@ -209,6 +219,11 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
         // and holds its place, not failed. A reference that cannot resolve is a real failure:
         // hiding a typo behind "condition not met" would make every misspelling silent.
         if (step.when) {
+          // A named step that never finished (skipped by its own condition, or failed under a
+          // keep-going policy) is not a typo: the condition cannot be true, so this step
+          // skips too. Only a missing FIELD on a step that did finish fails loudly.
+          const reads = referencesIn({ value: step.when.value });
+          if (reads.length === 1 && !Object.hasOwn(namedResults, reads[0].step)) { jobIds.push(null); skippedByCondition += 1; continue; }
           let read;
           try {
             read = resolveValues({ value: step.when.value }, namedResults).value;
@@ -266,7 +281,7 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
             throw new Error(`${flow.name} ${summary}`);
           }
           if (finished.state === "completed") {
-            if (attempt > 1) problems.push(`step ${index + 1} (${title}) succeeded on attempt ${attempt} of ${attemptsAllowed}`);
+            if (attempt > 1) notes.push(`step ${index + 1} (${title}) succeeded on attempt ${attempt} of ${attemptsAllowed}`);
             break;
           }
           store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, jobId: job.id, attempt } });
@@ -282,16 +297,21 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
         if (finished?.state !== "completed") continue;
         if (typeof step.name === "string") namedResults[step.name] = finished.result ?? {};
       }
+      // A retry that saved a step and a condition that skipped one are footnotes on success,
+      // never problems: the red style is for runs that actually went wrong.
+      const asides = [...notes, ...(skippedByCondition > 0 ? [`${skippedByCondition} step${skippedByCondition === 1 ? "" : "s"} skipped by condition`] : [])];
       const result = problems.length
         ? `completed with problems: ${problems.join("; ")}`.slice(0, 300)
-        : skippedByCondition > 0 ? `completed (${skippedByCondition} step${skippedByCondition === 1 ? "" : "s"} skipped by condition)` : "completed";
+        : asides.length ? `completed (${asides.join("; ")})`.slice(0, 300) : "completed";
       store.markFlowRun(id, { result, jobIds });
       store.recordAudit("flow.completed", { actorId, subjectId: id, details: { steps: flow.steps.length, problems: problems.length } });
-      // Followers run after this flow's own record is final, so their failures are their own.
-      await runFollowers(id, { depth: chainDepth });
+      completedRun = true;
       return { completed: true, steps: flow.steps.length, jobIds, problems };
     } finally {
       running.delete(id);
+      // Followers start only after this flow has let go of itself: its record is final, and
+      // it no longer reads as running while the chain behind it works through its own steps.
+      if (completedRun) await runFollowers(id, { depth: chainDepth });
     }
   }
 
@@ -302,7 +322,7 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
    * a chain someone managed to loop past validation cannot run forever.
    */
   async function runFollowers(flowId, { depth = 0 } = {}) {
-    if (depth >= 5) return;
+    if (depth >= chainLimit) return;
     for (const follower of store.listFlowsTriggeredBy?.(flowId) ?? []) {
       if (running.has(follower.id)) continue;
       const creator = store.findOwnerById?.(follower.createdBy) ?? null;
@@ -310,7 +330,7 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
         if (creator && ["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
         await run(follower.id, follower.createdBy, { role: creator?.role ?? "owner", chainDepth: depth + 1 });
       } catch (error) {
-        if (!/stopped at step|failed at step|lost sight of step/.test(error.message)) {
+        if (!recordedRunFailure.test(error.message)) {
           store.markFlowRun(follower.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
           store.recordAudit("flow.skipped", { actorId: follower.createdBy, subjectId: follower.id, details: { reason: error.message.slice(0, 200) } });
           notify?.(`${follower.name} was due to run after another flow but did not: ${error.message}`.slice(0, 300));
@@ -344,7 +364,7 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
           store.recordAudit("flow.scheduled-run", { actorId: flow.createdBy, subjectId: flow.id, details: { nextDueAt } });
         } catch (error) {
           // run() already recorded the failure on the flow; a refusal before it started needs recording here.
-          if (!/stopped at step|failed at step|lost sight of step/.test(error.message)) {
+          if (!recordedRunFailure.test(error.message)) {
             store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
             store.recordAudit("flow.skipped", { actorId: flow.createdBy, subjectId: flow.id, details: { reason: error.message.slice(0, 200) } });
             // A refusal produces no job, so nothing else would tell the owner their schedule did not run.

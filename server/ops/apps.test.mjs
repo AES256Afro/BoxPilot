@@ -13,6 +13,25 @@ function fakeApps(installed = true, port = 8093) {
   return { inspect: vi.fn(async () => ({ applications: [{ id: "ntfy", installed, urls: installed && port ? [{ id: "web", host: port, exposure: "lan" }] : [] }] })) };
 }
 
+describe("the reachability op hands the task everything the planner decided", () => {
+  it("keeps sourceAddress on outside-vantage probes", async () => {
+    const facts = {
+      installed: true, running: true, sidecars: [], serves: [],
+      lanAddress: "192.168.1.10", tailnetAddress: null, tailnetDnsName: null,
+      ports: [{ id: "web", label: "Web UI", host: 8095, exposure: "lan", protocol: "tcp" }],
+    };
+    let handed = null;
+    await operations["app.reachability.inspect"].run({ id: "demo" }, {
+      apps: { reachabilityFacts: async () => facts },
+      runUnit: { runTask: async (name, parameters) => { handed = parameters; return { results: [] }; } },
+      jobLog: null,
+    });
+    const outside = handed.probes.find((probe) => probe.sourceAddress);
+    // The outside vantage is the whole feature; dropping this field once shipped it inert.
+    expect(outside).toMatchObject({ url: "http://192.168.1.10:8095", sourceAddress: "192.168.1.10" });
+  });
+});
+
 describe("app stats", () => {
   it("parses docker stats lines and rolls sidecars up into their app", () => {
     const output = [
