@@ -1,0 +1,111 @@
+schemaVersion: 2
+id: stremio
+name: Stremio (through a VPN)
+category: Media
+icon: "🎬"
+description: Stremio's streaming server, routed entirely through a VPN tunnel (Gluetun). Point the Stremio app (desktop, mobile, or web on this machine) at this server so all fetching and streaming goes through the VPN. If the tunnel drops, traffic stops instead of leaking. Works with Mullvad, Proton, NordVPN, Surfshark, PIA, AirVPN, Windscribe, IVPN, and most others over WireGuard or OpenVPN.
+website: https://www.stremio.com
+risk: medium
+image:
+  reference: stremio/server:v4.20.8
+  version: 4.20.8
+networkVia: vpn
+ports:
+  - id: web
+    label: Streaming server
+    container: 11470
+    host: 11470
+    exposure: lan
+volumes:
+  - id: config
+    label: Server data and cache
+    container: /root/.stremio-server
+    path: config
+env:
+  - name: APP_PATH
+    default: /root/.stremio-server
+    fixed: true
+  - name: CASTING_DISABLED
+    default: "1"
+    fixed: true
+  - name: NO_CORS
+    label: Allow other origins to connect
+    description: Set to 1 so a browser page (like web.stremio.com) can reach this server from another machine. The desktop and mobile apps do not need it. Leaving it empty keeps the server's origin checks on.
+    default: ""
+    options:
+      - ""
+      - "1"
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+  - name: VPN_SERVICE_PROVIDER
+    label: VPN provider
+    description: Your VPN service. Pick "custom" for any WireGuard config file from a provider not listed.
+    default: mullvad
+    options:
+      - mullvad
+      - protonvpn
+      - nordvpn
+      - surfshark
+      - private internet access
+      - airvpn
+      - windscribe
+      - ivpn
+      - custom
+  - name: VPN_TYPE
+    label: Protocol
+    default: wireguard
+    options:
+      - wireguard
+      - openvpn
+  - name: WIREGUARD_PRIVATE_KEY
+    label: WireGuard private key
+    description: From the WireGuard config your provider gives you (the PrivateKey line). Required for WireGuard.
+    type: password
+  - name: WIREGUARD_ADDRESSES
+    label: WireGuard address
+    description: The Address line from the same config, for example 10.64.222.21/32. Needed by Mullvad, Proton, and custom configs.
+  - name: OPENVPN_USER
+    label: OpenVPN username
+    description: Only for the OpenVPN protocol.
+  - name: OPENVPN_PASSWORD
+    label: OpenVPN password
+    type: password
+  - name: SERVER_COUNTRIES
+    label: Preferred countries
+    description: Comma-separated, for example Netherlands,Switzerland. Leave empty to let the provider choose.
+sidecars:
+  - id: vpn
+    image: qmcgaw/gluetun:v3.41.3
+    capabilities:
+      - CAP_NET_ADMIN
+    devices:
+      - /dev/net/tun
+    env:
+      VPN_SERVICE_PROVIDER: ${VPN_SERVICE_PROVIDER}
+      VPN_TYPE: ${VPN_TYPE}
+      WIREGUARD_PRIVATE_KEY: ${WIREGUARD_PRIVATE_KEY}
+      WIREGUARD_ADDRESSES: ${WIREGUARD_ADDRESSES}
+      OPENVPN_USER: ${OPENVPN_USER}
+      OPENVPN_PASSWORD: ${OPENVPN_PASSWORD}
+      SERVER_COUNTRIES: ${SERVER_COUNTRIES}
+      TZ: ${TZ}
+      FIREWALL_OUTBOUND_SUBNETS: 192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,100.64.0.0/10
+      # Gluetun's firewall drops inbound it was not told about; the streaming server listens on
+      # 11470 inside the tunnel's namespace, so that is the port the firewall must admit.
+      FIREWALL_INPUT_PORTS: "11470"
+      # Written where the mounted volume is, so the log stops carrying a permission-denied ERROR
+      # about caching the public IP under /tmp.
+      PUBLICIP_FILE: /gluetun/ip
+      HEALTH_VPN_DURATION_INITIAL: 30s
+    volumes:
+      - id: gluetun
+        container: /gluetun
+        path: gluetun
+        backup: false
+health:
+  kind: running
+  stableSeconds: 30
+  timeoutSeconds: 300
+notes: "In the Stremio app open Settings and set the streaming server URL to http://<this server>:11470. The desktop and mobile apps connect over plain HTTP; a browser page can only reach it over HTTP from this same machine, so use the desktop or mobile app for a server on another box. Check the VPN is up in the log of the vpn container: it prints the public IP it got. The tunnel admits only port 11470 from your network and nothing else."
