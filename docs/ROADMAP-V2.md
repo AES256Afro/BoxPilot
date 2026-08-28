@@ -742,8 +742,14 @@ time, or the filesystem features a home server leans on.
   **Remaining:** the per-app "where the space is going" breakdown (which app's data grew).
 - **M23.2** **Filesystem snapshots as a first-class thing.** ZFS/btrfs snapshot management where the
   filesystem supports it, alongside the LVM snapshots already handled, with browse-and-restore.
-- **M23.3** **SMART trends, not just a green light.** The disk-health data over time, so a drive
-  that is slowly failing is a slope, not a surprise at the end.
+- ◐ **M23.3** (v1.73.0) **SMART trends, not just a green light.** ✅ **The alert.** A daily sampler
+  keeps a small per-disk history of the numbers that move before a drive dies, and a least-squares fit
+  turns them into warnings while smartctl still says "healthy": a media-error count that is climbing,
+  or an SSD's write-endurance projected to reach its limit within six months (or already past 90%).
+  Both go to the phone through the same notification target, so a slowly-failing drive is a slope, not
+  a surprise at the end. `server/smart-trends.mjs` (pure trend + sampler), wired into `health-alerts`.
+  **Remaining:** a per-disk trend chart in the UI (the Overview already shows the point-in-time numbers;
+  Scrutiny in the catalog draws the full graphs).
 - **M23.4** **Guided array and mount setup.** Bringing a new disk from bare to mounted-and-backed-up
   in a few clicks, with the deny-list and safety rails already in the deployer.
 

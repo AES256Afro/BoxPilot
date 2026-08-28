@@ -8,6 +8,7 @@
  */
 import { evaluateScheduleFreshness } from "./schedule-freshness.mjs";
 import { evaluateDiskForecast } from "./disk-forecast.mjs";
+import { evaluateSmartTrends } from "./smart-trends.mjs";
 
 export const healthConditions = Object.freeze({
   "storage.root.full": "Root disk nearly full",
@@ -20,6 +21,8 @@ export const healthConditions = Object.freeze({
   "docker.restarting": "A container keeps restarting (crash-looping)",
   "schedule.overdue": "A scheduled task (such as a backup) has stopped running",
   "storage.forecast": "A filesystem is on track to fill soon",
+  "smart.errors": "A disk's error count is climbing",
+  "smart.wear": "An SSD is nearing its write-endurance limit",
 });
 
 /** Derive the current set of bad conditions from an inventory snapshot. Pure. */
@@ -94,7 +97,9 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
     const scheduleAlerts = evaluateScheduleFreshness([...schedules, ...flows], { now: now(), titleFor: (s) => s.title ?? resolveScheduleTitle(s.operationId) });
     // A filesystem projected to fill soon, from the free-space history the sampler keeps (M23.1).
     const forecastAlerts = evaluateDiskForecast(store.getSetting?.("diskUsageHistory", {}) ?? {}, { now: now() });
-    const active = [...evaluateHealth(snapshot), ...scheduleAlerts, ...forecastAlerts];
+    // A drive going bad shows in its SMART numbers before it fails outright (M23.3).
+    const smartAlerts = evaluateSmartTrends(store.getSetting?.("smartHistory", {}) ?? {}, { now: now() });
+    const active = [...evaluateHealth(snapshot), ...scheduleAlerts, ...forecastAlerts, ...smartAlerts];
     const previous = store.getSetting(settingKey, {}) ?? {};
     const nextState = {};
     const sent = [];
@@ -117,7 +122,7 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
       }
     }
     // The schedule table is always readable, so an overdue alert can clear the moment it catches up.
-    const availability = { ...collectorAvailability(snapshot), "schedule.overdue": true, "storage.forecast": true };
+    const availability = { ...collectorAvailability(snapshot), "schedule.overdue": true, "storage.forecast": true, "smart.errors": true, "smart.wear": true };
     for (const [key, entry] of Object.entries(previous)) {
       if (nextState[key]) continue;
       if (entry?.notified === false) continue; // never announced, so there is nothing to say it cleared

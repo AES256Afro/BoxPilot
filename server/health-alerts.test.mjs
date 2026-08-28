@@ -115,6 +115,18 @@ describe("health alerts with missing evidence", () => {
     expect(send).toHaveBeenCalledWith({ title: expect.stringContaining("/mnt/media"), message: expect.stringContaining("runs out of free space"), priority: "high" });
   });
 
+  it("alerts when a disk's SMART errors are climbing", async () => {
+    const settings = new Map();
+    const start = Date.parse("2026-08-08T12:00:00Z");
+    const samples = Array.from({ length: 20 }, (_u, i) => ({ at: new Date(start + i * 86_400_000).toISOString(), mediaErrors: i < 15 ? 0 : (i - 14) * 3, percentageUsed: null }));
+    settings.set("smartHistory", { "/dev/sda": samples });
+    const store = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: vi.fn(), listSchedules: () => [] };
+    const send = vi.fn(async () => ({ sent: true }));
+    const alerts = createHealthAlerts({ inventory: { inspect: async () => ({}) }, notifications: { getTarget: () => ({ kind: "ntfy" }), send }, store, now: () => new Date("2026-08-28T12:00:00Z") });
+    expect((await alerts.check()).sent).toEqual(["smart.errors:/dev/sda"]);
+    expect(send).toHaveBeenCalledWith({ title: expect.stringContaining("/dev/sda"), message: expect.stringContaining("errors are rising"), priority: "high" });
+  });
+
   it("alerts when a scheduled backup falls behind, and clears when it catches up", async () => {
     const settings = new Map();
     const overdue = { id: "sch-1", operationId: "backup.cloud.sync", frequency: "daily", enabled: true, nextDueAt: "2026-08-20T04:00:00Z" };
