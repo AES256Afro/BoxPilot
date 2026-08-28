@@ -388,6 +388,8 @@ api.get("/inventory", (_request, response) => json(response, inventory()));
 api.get("/network/topology", (_request, response) => json(response, topology()));
 api.get("/network/plans", (_request, response) => json(response, { plans: [] }));
 api.get("/jobs", (_request, response) => json(response, { jobs }));
+api.post("/flows/:id/webhook", (request, response) => json(response, { token: "demo-token-shown-once", path: `/api/v1/hooks/flows/${request.params.id}/demo-token-shown-once` }));
+api.delete("/flows/:id/webhook", (_request, response) => response.status(204).end());
 api.get("/jobs/:id", (request, response) => {
   // 404 like the product: falling back to the first job meant an unknown id quietly opened
   // somebody else's terminal, and the pruned-job message never showed anywhere.
@@ -472,10 +474,10 @@ api.get("/flows", (_request, response) => json(response, {
   flows: [
     { id: "flow-1", name: "Update night", steps: [{ operationId: "host.snapshot.create", parameters: {} }, { operationId: "apt.refresh", parameters: {} }, { operationId: "apt.upgrade", parameters: {} }],
       createdBy: "owner-demo", risk: "medium", running: false, createdAt: ago(200), updatedAt: ago(200), lastRunAt: ago(30), lastResult: "completed", lastJobIds: ["j1", "j2", "j3"],
-      frequency: "weekly", minute: 0, hour: 3, weekday: 0, enabled: true, nextDueAt: ago(-96), triggerFlowId: null },
+      frequency: "weekly", minute: 0, hour: 3, weekday: 0, enabled: true, nextDueAt: ago(-96), triggerFlowId: null, webhookEnabled: true },
     { id: "flow-2", name: "Belt and braces", steps: [{ operationId: "controller.backup.create", parameters: {}, name: "backup" }, { operationId: "backup.sync", parameters: {}, when: { value: "{{ steps.backup.changed }}" }, onFailure: "continue" }],
       createdBy: "owner-demo", risk: "medium", running: false, createdAt: ago(100), updatedAt: ago(100), lastRunAt: ago(5), lastResult: "completed (1 step skipped by condition)", lastJobIds: ["d3", null],
-      frequency: null, minute: null, hour: null, weekday: null, enabled: true, nextDueAt: null, triggerFlowId: "flow-1" },
+      frequency: null, minute: null, hour: null, weekday: null, enabled: true, nextDueAt: null, triggerFlowId: "flow-1", webhookEnabled: false },
   ],
   palette: [
     { operationId: "host.snapshot.create", title: "Create a machine snapshot", risk: "medium", description: "" },

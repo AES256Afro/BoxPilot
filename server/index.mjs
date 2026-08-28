@@ -218,6 +218,16 @@ app.get("/api/v1/health", (_request, response) => {
 });
 
 const identity = createIdentityService({ store: state });
+// The one token-gated door (ADR-002 addendum): fire a flow by webhook. Before the session wall
+// on purpose; the token is the auth, a wrong one is indistinguishable from a missing flow, and
+// nothing from the request reaches any step.
+app.post("/api/v1/hooks/flows/:id/:token", (request, response) => {
+  const outcome = flows.fireWebhook(request.params.id, request.params.token, { source: request.ip });
+  if (outcome === "accepted") return response.status(202).json({ accepted: true });
+  if (outcome === "rate-limited") return response.status(429).json({ error: "This flow's webhook is being fired too often; wait a minute" });
+  return response.status(404).json({ error: "Not found" });
+});
+
 app.use("/api/v1", createIdentityRouter({ store: state, auth, identity }));
 app.get("/api/v1/auth/status", auth.status);
 app.post("/api/v1/auth/bootstrap", auth.bootstrap);

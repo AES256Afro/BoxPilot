@@ -9,6 +9,7 @@
  * nothing attempts an automatic unwind — a half-done flow the owner can read beats a rollback
  * that guesses.
  */
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { registry as defaultRegistry, validateParameters } from "./ops/index.mjs";
 import { computeNextRun, validateCadence } from "./scheduler.mjs";
 import { holdsPlaceholder, isSinglePlaceholder, referencesIn, resolveValues, stepNamePattern } from "./flow-values.mjs";
@@ -148,7 +149,8 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
   }
 
   function list() {
-    return store.listFlows().map((flow) => ({ ...flow, risk: flowRisk(flow.steps, registry), running: running.has(flow.id) }));
+    // The hash never travels to a browser: it is not invertible, but it is also not the page's business.
+    return store.listFlows().map(({ webhookHash: _webhookHash, ...flow }) => ({ ...flow, risk: flowRisk(flow.steps, registry), running: running.has(flow.id) }));
   }
 
   async function update(id, { name, steps, cadence, enabled, triggerFlowId }, actorId, { role = "owner" } = {}) {
@@ -316,6 +318,67 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
   }
 
   /**
+   * The webhook (ADR-002 addendum, v1.50.0): a token minted by the flow's creator, delegated
+   * authority for exactly one action. Only the hash is stored, the caller chooses only WHEN
+   * (nothing from the request reaches any step), and firing goes through the same door as a
+   * scheduled run, refusals and all.
+   */
+  function mintWebhook(id, actorId, { role = "owner" } = {}) {
+    const flow = store.getFlow(id);
+    assertMayManage(flow, actorId, role);
+    const token = randomBytes(32).toString("base64url");
+    store.setFlowWebhook(id, createHash("sha256").update(token).digest("hex"), { actorId });
+    return { token };
+  }
+
+  function clearWebhook(id, actorId, { role = "owner" } = {}) {
+    const flow = store.getFlow(id);
+    assertMayManage(flow, actorId, role);
+    store.setFlowWebhook(id, null, { actorId });
+    return { removed: true };
+  }
+
+  // A caller may fire one flow at most this often; beyond it the answer is 429 without a run.
+  const webhookFires = new Map();
+  const webhookLimit = { count: 6, perMs: 60_000 };
+
+  /**
+   * Fire a flow from its webhook. Returns "accepted" | "not-found" | "rate-limited"; the run
+   * itself happens after the response, under the creator's stored authority, and a refusal is
+   * recorded on the flow and notified exactly like a scheduled run's.
+   */
+  function fireWebhook(id, token, { source = null } = {}) {
+    const flow = store.getFlow(id);
+    // A wrong token and a missing flow answer identically, so the URL cannot be probed apart.
+    if (!flow || !flow.webhookHash || typeof token !== "string" || !token.length) return "not-found";
+    const presented = createHash("sha256").update(token).digest();
+    const stored = Buffer.from(flow.webhookHash, "hex");
+    if (presented.length !== stored.length || !timingSafeEqual(presented, stored)) return "not-found";
+    const recent = (webhookFires.get(id) ?? []).filter((at) => now().getTime() - at < webhookLimit.perMs);
+    if (recent.length >= webhookLimit.count) { webhookFires.set(id, recent); return "rate-limited"; }
+    webhookFires.set(id, [...recent, now().getTime()]);
+    store.recordAudit("flow.webhook-fired", { actorId: flow.createdBy, subjectId: id, details: { source: source ? String(source).slice(0, 60) : null } });
+    void runUnderCreator(flow, "was fired by its webhook but did not run");
+    return "accepted";
+  }
+
+  /** One flow run under its creator's stored authority, with refusals recorded and notified. */
+  async function runUnderCreator(flow, refusalPhrase) {
+    if (running.has(flow.id)) return;
+    const creator = store.findOwnerById?.(flow.createdBy) ?? null;
+    try {
+      if (creator && ["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
+      await run(flow.id, flow.createdBy, { role: creator?.role ?? "owner" });
+    } catch (error) {
+      if (!recordedRunFailure.test(error.message)) {
+        store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
+        store.recordAudit("flow.skipped", { actorId: flow.createdBy, subjectId: flow.id, details: { reason: error.message.slice(0, 200) } });
+        notify?.(`${flow.name} ${refusalPhrase}: ${error.message}`.slice(0, 300));
+      }
+    }
+  }
+
+  /**
    * Start the flows wired to run after this one completed, each under its own creator's stored
    * authority with the same refusals as a scheduled run. A follower failing is its own story,
    * recorded on the follower; it never rewrites the finished flow's result. Depth is bounded so
@@ -324,17 +387,22 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
   async function runFollowers(flowId, { depth = 0 } = {}) {
     if (depth >= chainLimit) return;
     for (const follower of store.listFlowsTriggeredBy?.(flowId) ?? []) {
-      if (running.has(follower.id)) continue;
-      const creator = store.findOwnerById?.(follower.createdBy) ?? null;
-      try {
-        if (creator && ["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
-        await run(follower.id, follower.createdBy, { role: creator?.role ?? "owner", chainDepth: depth + 1 });
-      } catch (error) {
-        if (!recordedRunFailure.test(error.message)) {
-          store.markFlowRun(follower.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
-          store.recordAudit("flow.skipped", { actorId: follower.createdBy, subjectId: follower.id, details: { reason: error.message.slice(0, 200) } });
-          notify?.(`${follower.name} was due to run after another flow but did not: ${error.message}`.slice(0, 300));
-        }
+      await runUnderCreatorAtDepth(follower, depth + 1);
+    }
+  }
+
+  /** runUnderCreator, threading the chain depth so follower cascades stay bounded. */
+  async function runUnderCreatorAtDepth(flow, chainDepth) {
+    if (running.has(flow.id)) return;
+    const creator = store.findOwnerById?.(flow.createdBy) ?? null;
+    try {
+      if (creator && ["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
+      await run(flow.id, flow.createdBy, { role: creator?.role ?? "owner", chainDepth });
+    } catch (error) {
+      if (!recordedRunFailure.test(error.message)) {
+        store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
+        store.recordAudit("flow.skipped", { actorId: flow.createdBy, subjectId: flow.id, details: { reason: error.message.slice(0, 200) } });
+        notify?.(`${flow.name} was due to run after another flow but did not: ${error.message}`.slice(0, 300));
       }
     }
   }
@@ -416,5 +484,5 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
       .map((operation) => ({ operationId: operation.id, title: operation.title, risk: operation.risk, description: operation.description ?? "" }));
   }
 
-  return { create, list, update, remove, run, tick, start, recover, stepPalette };
+  return { create, list, update, remove, run, tick, start, recover, stepPalette, mintWebhook, clearWebhook, fireWebhook };
 }

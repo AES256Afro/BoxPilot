@@ -351,7 +351,7 @@ export function createStateStore({
   if (!sessionColumns.includes("elevated_until")) database.exec("ALTER TABLE sessions ADD COLUMN elevated_until TEXT");
   // v1.33.0 shipped flows without a cadence; a flow on a clock needs one (ADR-002 addendum).
   const flowColumns = database.prepare("PRAGMA table_info(flows)").all().map((column) => column.name);
-  for (const [column, definition] of [["frequency", "TEXT"], ["minute", "INTEGER"], ["hour", "INTEGER"], ["weekday", "INTEGER"], ["enabled", "INTEGER NOT NULL DEFAULT 1"], ["next_due_at", "TEXT"], ["trigger_flow_id", "TEXT"]]) {
+  for (const [column, definition] of [["frequency", "TEXT"], ["minute", "INTEGER"], ["hour", "INTEGER"], ["weekday", "INTEGER"], ["enabled", "INTEGER NOT NULL DEFAULT 1"], ["next_due_at", "TEXT"], ["trigger_flow_id", "TEXT"], ["webhook_hash", "TEXT"]]) {
     if (!flowColumns.includes(column)) database.exec(`ALTER TABLE flows ADD COLUMN ${column} ${definition}`);
   }
   const approvalColumns = database.prepare("PRAGMA table_info(approvals)").all().map((column) => column.name);
@@ -839,6 +839,8 @@ export function createStateStore({
       frequency: row.frequency, minute: row.minute, hour: row.hour, weekday: row.weekday,
       enabled: row.enabled === 1 || row.enabled === undefined, nextDueAt: row.next_due_at,
       triggerFlowId: row.trigger_flow_id ?? null,
+      webhookEnabled: Boolean(row.webhook_hash),
+      webhookHash: row.webhook_hash ?? null,
     };
   }
 
@@ -890,6 +892,15 @@ export function createStateStore({
 
   function listDueFlows(nowIso) {
     return database.prepare("SELECT * FROM flows WHERE enabled = 1 AND next_due_at IS NOT NULL AND next_due_at <= ? ORDER BY next_due_at").all(nowIso).map(normalizeFlow);
+  }
+
+  /** Arm or disarm a flow's webhook; only the hash of the token is ever stored. */
+  function setFlowWebhook(id, hash, { actorId = null } = {}) {
+    const current = getFlow(id);
+    if (!current) throw new Error("Flow not found");
+    database.prepare("UPDATE flows SET webhook_hash = ?, updated_at = ? WHERE id = ?").run(hash, timestamp(), id);
+    recordAudit(hash ? "flow.webhook-armed" : "flow.webhook-removed", { actorId, subjectId: id });
+    return getFlow(id);
   }
 
   /** Enabled flows wired to run after the given flow completes (ADR-002 addendum, v1.45.0). */
@@ -1377,7 +1388,7 @@ export function createStateStore({
     listFlows,
     updateFlow,
     markFlowRun,
-    listDueFlows, listFlowsTriggeredBy,
+    listDueFlows, listFlowsTriggeredBy, setFlowWebhook,
     deleteFlow,
     createSchedule,
     getSchedule,
