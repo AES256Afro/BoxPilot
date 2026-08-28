@@ -1,0 +1,85 @@
+schemaVersion: 2
+id: alloy
+name: Grafana Alloy
+category: Monitoring
+icon: "🚚"
+description: "Ships your containers' logs to Loki so you can search them in Grafana. Reads the Docker log stream and forwards every container's output, labelled by container name."
+website: https://grafana.com/docs/alloy/
+risk: medium
+image:
+  reference: grafana/alloy:v1.19.2
+  version: v1.19.2
+extraHosts:
+  - "host.docker.internal:host-gateway"
+command:
+  - run
+  - /etc/alloy/config.alloy
+  - --storage.path=/var/lib/alloy/data
+  - --server.http.listen-addr=0.0.0.0:12345
+  - --disable-reporting
+ports:
+  - id: web
+    label: Alloy UI
+    container: 12345
+    host: 12345
+    exposure: lan
+volumes:
+  - id: data
+    label: Alloy state
+    container: /var/lib/alloy/data
+    path: data
+    backup: false
+  - id: docker-sock
+    label: Docker socket (read-only)
+    container: /var/run/docker.sock
+    hostPath: /var/run/docker.sock
+    readOnly: true
+files:
+  - path: config.alloy
+    container: /etc/alloy/config.alloy
+    content: |
+      logging {
+        level  = "warn"
+        format = "logfmt"
+      }
+
+      // Discover every running container and tail its log stream through the Docker socket.
+      discovery.docker "containers" {
+        host = "unix:///var/run/docker.sock"
+      }
+
+      // Label each line with its container name (Docker reports it as "/name").
+      discovery.relabel "containers" {
+        targets = []
+        rule {
+          source_labels = ["__meta_docker_container_name"]
+          regex         = "/(.*)"
+          target_label  = "container"
+        }
+      }
+
+      loki.source.docker "default" {
+        host          = "unix:///var/run/docker.sock"
+        targets       = discovery.docker.containers.targets
+        relabel_rules = discovery.relabel.containers.rules
+        forward_to    = [loki.write.default.receiver]
+      }
+
+      loki.write "default" {
+        endpoint {
+          url = "http://host.docker.internal:3100/loki/api/v1/push"
+        }
+      }
+health:
+  kind: running
+  stableSeconds: 15
+  timeoutSeconds: 180
+connections:
+  - app: loki
+    role: log destination
+    where: install Loki first; Alloy sends logs to it at this server's port 3100
+    note: Loki is its own compose project, so Alloy reaches it at this server's address, not a container name. Keep Loki reachable on the network (its default).
+  - app: grafana
+    role: viewer
+    where: with Loki added as a data source in Grafana, search these logs under Explore
+notes: "Reads the Docker log stream through a read-only socket mount and forwards every container's logs to Loki, labelled by container name. Install Loki first, then add Loki as a Grafana data source (Grafana wires it automatically if both are installed). On first start Alloy may log a few 'timestamp too old' errors as it skips log history older than Loki keeps; new logs are unaffected and the errors stop once it catches up. The systemd journal is not shipped by default; BoxPilot's Logs page already shows it. The Docker socket is mounted read-only, but note that read access to it still exposes everything Docker knows."

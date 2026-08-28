@@ -26,7 +26,7 @@ It installs Node 24, builds BoxPilot under `/opt/boxpilot`, enables the `boxpilo
 | --- | --- |
 | **Overview** | Health at a glance, a setup checklist, what needs attention, your installed apps. |
 | **Updates & packages** | Install APT updates (all or selected), automatic security updates, restart hints, one-click common tools. |
-| **App catalog** | 161 self-hosted apps and game servers: search, install, configure, update, back up, restore, uninstall. Each has a Sign in panel with its address and credentials, a Performance page with live CPU, memory and disk per app, and one switch to choose LAN or Tailscale-only reach with HTTPS. Details below. |
+| **App catalog** | 162 self-hosted apps and game servers: search, install, configure, update, back up, restore, uninstall. Each has a Sign in panel with its address and credentials, a Performance page with live CPU, memory and disk per app, and one switch to choose LAN or Tailscale-only reach with HTTPS. Details below. |
 | **Services** | systemd units and timers: start, stop, restart, enable, disable, journal. |
 | **System** | Hostname, time zone, language, swap, trim, UPS monitoring, schedules, BoxPilot self-update. Housekeeping finds what nothing needs any more, such as old releases, unused images and stale backups, and clears only what you tick. |
 | **Users & SSH** | Accounts, sudo, SSH keys (import from GitHub), password-login policy. |
