@@ -10,6 +10,7 @@ import { approvalModes, elevationTtlMs } from "../ops/risk.mjs";
 import { findPortConflicts, listListeners } from "../ports.mjs";
 import { resolveValues } from "../catalog/schema.mjs";
 import { hashPassword, renderAutoinstall, validateAutoinstallInput } from "../autoinstall.mjs";
+import { readTlsStatus } from "../tls-status.mjs";
 
 /**
  * The ports an installed app is already holding, as `port/protocol`, so reconfiguring it does not
@@ -30,7 +31,7 @@ export function portsHeldByApp(manifest, own) {
     .map((port) => `${port.host}/${port.protocol}`));
 }
 
-export function createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, webHost = "127.0.0.1", webPort = 8787 }) {
+export function createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls" }) {
   const router = Router();
 
   // Catalog: manifests come from the working tree; live state comes from the helper (tolerated when unavailable).
@@ -86,6 +87,7 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
   router.get("/capabilities", async (_request, response) => {
     const has = (id) => registry.has(id);
     const catalogApps = await catalogService.all().then(({ manifests }) => manifests.length).catch(() => 0);
+    const tls = await readTlsStatus({ dir: tlsDir });
     response.json({
       version: productVersion,
       approvals: { modes: approvalModes, riskTiers, elevationTtlMs },
@@ -98,6 +100,7 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       backups: { controller: true, applications: true, vms: true, restic: true, restoreDrills: true, retention: true, schedules: true },
       identity: { password: true, tailscale: true, github: true, passkeys: false, roles: ["owner", "operator", "viewer"] },
       network: { bind: webHost, port: webPort, lan: webHost === "0.0.0.0", canSet: has("system.web.lan.set") },
+      tls: { ...tls, canProvision: has("system.web.tls.provision") },
     });
   });
 
