@@ -552,3 +552,133 @@ from reading container logs by hand. The tunnel is infrastructure; treat it like
 understood, and it pays off on every app forever. Then M14 as one arc, which finishes the mission
 the owner actually started; M17.1 and M17.2 ride along since the media stack is where the tunnel
 lives. M16 when the owner says the word about a second firewall box; nothing else depends on it.
+
+## M18 — Reach BoxPilot the way you actually live on your network
+
+Today the control plane is loopback-only behind Tailscale Serve: away from home it is perfect, but
+a laptop on the couch that is not on the tailnet cannot reach it at all, and nothing here is served
+over HTTPS on the LAN, which blocks every browser feature that needs a secure context (passkeys
+first among them). This arc makes local access first-class without weakening the away path.
+
+- **M18.1** **Bind to the LAN, safely.** An owner-only toggle that also serves the admin UI on the
+  network address, not only loopback. The identity trust already handles this correctly — a LAN
+  request is neither a tailnet address nor a Serve-fronted loopback hop, so it earns no automatic
+  Tailscale identity and falls through to the password — so the work is the plumbing (rewrite the
+  bind, deferred self-restart, open the web port in the firewall) and the honesty (a plain warning
+  that the password crosses the LAN in the clear until M18.2). Binding `0.0.0.0` keeps the Serve
+  path working, so this cannot lock the owner out.
+- **M18.2** **HTTPS on the LAN with a local certificate.** A self-signed certificate (or a small
+  local CA the owner can trust once on their devices), so LAN access is encrypted and secure-context
+  browser features light up. This is the gate for passkeys over the LAN and for anything that wants
+  `crypto.subtle` or the clipboard. Renewal handled; the trust story shown plainly.
+- **M18.3** **One place that tells you every way in.** A single panel that lists the addresses the
+  control plane answers on — loopback, LAN, tailnet, Serve HTTPS — each probed live (the reachability
+  doctor pointed at BoxPilot itself), so "why can't my phone reach it" has an answer on screen.
+
+## M19 — Identity and access, finished
+
+The whole box is guarded by one password plus optional Tailscale/GitHub identity. This arc makes the
+front door as strong as the rest of the product, and does it in a way that works on the LAN.
+
+- **M19.1** **Passkeys (WebAuthn) + recovery codes.** Register a phone or a security key; sign in with
+  a touch. Recovery codes for the day the authenticator is lost, shown once and stored hashed. Needs
+  M18.2's HTTPS to work on the LAN; over Tailscale Serve it works today.
+- **M19.2** **A second factor for the password path.** TOTP for owners who keep the password, so the
+  weakest door is not one secret.
+- **M19.3** **BoxPilot as an OIDC provider.** Sign in to your installed apps with your BoxPilot
+  identity, through a forward-auth proxy — one login for the whole box instead of a password per app.
+- **M19.4** **Session and device management.** See what is signed in, from where, and cut any of it
+  off; a real session list, not just a cookie.
+
+## M20 — Backups you can bet the house on
+
+M6 shipped the mechanics: off-box mirror, machine snapshots, restore drills, pre-change checkpoints.
+This arc turns them into a policy the owner sets once and a disaster they have already rehearsed.
+
+- **M20.1** **A backup policy, not a pile of schedules.** One page: what to protect, how often, how
+  many to keep, where the copies go, and when the last of each ran — with the "behind" detector
+  already built wired into it, so a mirror that quietly stopped is loud.
+- **M20.2** **Encrypted cloud destinations, first-class.** B2, S3, and any rclone remote as a
+  managed target with its own key, not a hand-edited rclone.conf.
+- **M20.3** **Scheduled restore rehearsals with a verdict.** The restore drill (M6.5) on a cadence,
+  per app, recording pass/fail over time, so "backups work" is a graph, not a hope.
+- **M20.4** **One-button disaster recovery.** From a bare machine and an off-box copy to a running
+  server, timed, with the machine-snapshot redeploy (M6.4) as its spine.
+
+## M21 — Observability, the second half
+
+M8.3 shipped metrics (Prometheus, node-exporter, cAdvisor) with a provisioned Grafana host
+dashboard. Metrics tell you *that* something is wrong; this arc tells you *what happened* and *warns
+you first*.
+
+- **M21.1** **Logs in the same Grafana as the metrics.** A Loki stack with a log shipper reading the
+  host and every container, and a Loki data source auto-provisioned into Grafana, so one place holds
+  both. Uses the config-file and read-only-host-mount capabilities already built.
+- **M21.2** **Alerting rules that reach your phone.** Prometheus/Alertmanager (or Grafana alerting)
+  wired to the notification relay already in the product: disk filling, a container flapping, a
+  scrape target down — routed to ntfy/Gotify, deduplicated, with a clear-when-resolved.
+- **M21.3** **A public-facing status page.** An at-a-glance "is everything up" the owner can glance
+  at, or share read-only, built from the uptime data already collected.
+- **M21.4** **The libvirt exporter**, so VM metrics join the host and container ones for owners who
+  run virtual machines.
+
+## M22 — App lifecycle: adopt, update, and trust
+
+The catalog installs and manages BoxPilot's own apps well, and now lists and lifecycle-manages
+foreign stacks (M3.10). This arc closes the gap between "a stack that is here" and "a stack BoxPilot
+fully looks after."
+
+- **M22.1** **Adopt a foreign stack for real.** Read an existing compose project into a managed
+  shape so backups, updates, and config editing apply to it, not just start/stop — the hard half of
+  M3.10, done conservatively (the owner reviews the derived manifest before it takes over).
+- **M22.2** **Update channels and a rollback history.** Per app: stable vs latest, a visible history
+  of image versions installed, and a one-click return to any previous one, on top of the checkpoint
+  machinery already there.
+- **M22.3** **App bundles.** A named set of apps installed and wired together in one approved run —
+  the media stack (M14.2) generalized, so "a Nextcloud office", "an *arr stack", "a monitoring
+  stack" are each one choice.
+- **M22.4** **A signed community manifest source.** A second catalog the owner can opt into, with
+  provenance shown, so the app list can grow without a BoxPilot release — bounded by signature and a
+  clear "not curated by BoxPilot" mark.
+
+## M23 — Storage and data, understood
+
+BoxPilot sees disks and mounts; it does not yet help the owner reason about capacity, health over
+time, or the filesystem features a home server leans on.
+
+- **M23.1** **Capacity planning.** Where the space is going, per app and per mount, and a projection
+  of when a disk fills based on the trend — before it does.
+- **M23.2** **Filesystem snapshots as a first-class thing.** ZFS/btrfs snapshot management where the
+  filesystem supports it, alongside the LVM snapshots already handled, with browse-and-restore.
+- **M23.3** **SMART trends, not just a green light.** The disk-health data over time, so a drive
+  that is slowly failing is a slope, not a surprise at the end.
+- **M23.4** **Guided array and mount setup.** Bringing a new disk from bare to mounted-and-backed-up
+  in a few clicks, with the deny-list and safety rails already in the deployer.
+
+## M24 — Automation intelligence
+
+M13 gave flows a solid, consent-respecting engine. This arc makes the product suggest and reason,
+not just execute.
+
+- **M24.1** **Suggested automations.** From what is installed and what has gone wrong, propose flows
+  worth having — "you have qBittorrent and Sonarr; want the finished-files sweep?" — as one-click
+  additions to the shelf, never auto-created.
+- **M24.2** **Anomaly notices from the metrics.** A quiet watch over the time series that says "this
+  is unusual for your box" — a memory climb, a nightly job that got slower — grounded in the data,
+  not a model's guess.
+- **M24.3** **Guided troubleshooting.** When something is wrong, a walk from symptom to cause using
+  the checks the product already has (the reachability doctor, the kill-switch drill, the health
+  reads), so the answer is a sequence of real evidence, not advice.
+
+## M25 — On your phone
+
+BoxPilot is a desktop web app that happens to work on a phone. This arc makes the phone a
+first-class place to approve, glance, and act.
+
+- **M25.1** **A proper PWA.** Installable, offline-aware for reads, laid out for a thumb — the
+  dashboard and approvals designed for the small screen, not shrunk to it.
+- **M25.2** **Push approvals.** "Update available for Jellyfin — approve?" as a push you tap, tied to
+  the passkey (M19.1), so approving a medium action from bed is a touch, not a login.
+- **M25.3** **A today view.** What ran overnight, what needs attention, what is off-box and current —
+  the morning glance, on the lock screen.
+
