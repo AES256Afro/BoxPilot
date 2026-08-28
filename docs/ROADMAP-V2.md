@@ -679,8 +679,10 @@ you first*.
   logger's lines were shipped, stored, and queried back with the right container label (the key finding
   was that Alloy must be its own compose project — sharing Loki's project makes the host-gateway hop a
   hairpin that fails; separate projects reach Loki's published port fine, the same pattern Grafana uses
-  for Prometheus). **Remaining:** ship the systemd journal too (the Logs page already shows it), and a
-  ready-made "logs" dashboard.
+  for Prometheus). A ready-made **BoxPilot Logs** dashboard is auto-provisioned into Grafana too (a
+  per-container log-volume bar chart, a live logs panel, and Container + Search variables), verified by
+  deploying Grafana on the box and reading it back from Grafana's API. **Remaining:** ship the systemd
+  journal too (the Logs page already shows it).
 - **M21.2** **Alerting rules that reach your phone.** Prometheus/Alertmanager (or Grafana alerting)
   wired to the notification relay already in the product: disk filling, a container flapping, a
   scrape target down — routed to ntfy/Gotify, deduplicated, with a clear-when-resolved.
