@@ -149,7 +149,10 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
 - ◐ **M3.7** Stacks: the setup wizard's profiles are the first stacks. *Media server*, *Smart home*, *Observability*, *Dev box* install several catalog items in one approved run, with live done/ready state per item. Remaining: a shared compose network and cross-app wiring (e.g. Grafana data sources, Jellyseerr → Jellyfin) inside a bundle.
 - ◐ **M3.8** Per-app Tailscale Serve: `app.serve.set` publishes any installed catalog app's web port at `https://<host>.<tailnet>.ts.net:<port>` with a real certificate (tailnet only, Funnel off); `app.serve.inspect` shows what is published; catalog cards get a serve toggle and an "Open on tailnet 🔒" link. Remaining: Caddy/NPM reverse proxy path, `<app>.lan` local DNS + internal CA, auto-register on install. ✅ (1.7) **Exposure per app** (`values.exposure` lan|tailnet, `app.exposure.set`): tailnet-only rebinds HTTP ports to loopback behind Serve; each manifest port declares `tailnet: serve|address|unchanged` so protocol ports (git SSH, sync, RTSP, game) move to the tailnet address and house services (DNS 53, a proxy's 80/443, UniFi inform) stay on the LAN. The confirmation names which is which.
 - ✅ (v1) **M3.9** Per-app card shows health pill, logs, live CPU/memory (`app.stats.inspect`, sidecars rolled up), update badge, backups, config, secrets, tailnet serve. Remaining: backup-staleness hint on the card.
-- **M3.10** Import existing compose projects found in `/opt`, `~/docker` etc. → adopt into catalog ("Adopt this stack").
+- ◐ **M3.10** (v1.51.0) The honest first half: the App catalog lists compose projects BoxPilot did
+  not create (`compose.projects.inspect` via `docker compose ls`), with status and compose file
+  locations, so the page tells the whole truth about the machine. Adopting one into the catalog
+  ("Adopt this stack") remains the second half.
 
 ### Phase 4, Install experience (1–2 weeks)
 - ◐ **M4.1** `scripts/boxpilot-install.sh`: one command on a fresh Ubuntu box. Node 24 (sha256-verified), user, config, build via the upgrade script, units, access mode (tailscale/lan/local), health check, first-owner token. Re-run = upgrade. Remaining: verify on a pristine VM, GitHub Release tarballs + signature.
