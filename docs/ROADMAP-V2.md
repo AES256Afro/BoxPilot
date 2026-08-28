@@ -624,8 +624,10 @@ front door as strong as the rest of the product, and does it in a way that works
   sign-out. Every revoke is owner-scoped and audited. Sign-in records the address/user-agent/method at
   each entry point so the list has something honest to show; the "from where" is best-effort and says
   so. `state.mjs` (id + metadata columns, migrated and backfilled), `server/security.mjs`,
-  `src/SessionsSettings.tsx`. **Remaining:** a geo/ASN hint on the address, and a "this looks new" nudge
-  when a session signs in from an unfamiliar address.
+  `src/SessionsSettings.tsx`. ✅ (v1.64.0) **New-sign-in alerts:** the first address on an account is
+  baselined silently, then any genuinely new address sends a push through the same notification target
+  as failed-job alerts ("New sign-in to BoxPilot: alex from 100.x via passkey"), with the known set
+  kept per owner and loopback ignored. **Remaining:** a geo/ASN hint on the address.
 
 ## M20 — Backups you can bet the house on
 
