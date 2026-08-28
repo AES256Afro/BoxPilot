@@ -46,4 +46,18 @@ describe("Schedules panel", () => {
     render(<SchedulesPanel csrfToken="csrf-token" />);
     expect(await screen.findByText("skipped: Always-ask approvals")).toBeTruthy();
   });
+
+  it("marks an overdue schedule as behind", async () => {
+    const overdue = { ...schedule, id: "s3", overdue: true };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/api/v1/schedules")) return json({ schedules: [overdue] });
+      if (url.endsWith("/api/v1/catalog")) return json({ applications: [], host: {} });
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SchedulesPanel csrfToken="csrf-token" />);
+    expect(await screen.findByText("behind")).toBeTruthy();
+  });
+
 });
