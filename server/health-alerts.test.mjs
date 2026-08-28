@@ -99,6 +99,22 @@ describe("health alerts with missing evidence", () => {
     expect(await alerts.check()).toMatchObject({ sent: ["resolved:storage.smart:/dev/sda"] });
   });
 
+  it("alerts when a filesystem is projected to fill soon", async () => {
+    const settings = new Map();
+    const GB = 1024 ** 3;
+    // Ten daily samples losing 10 GB/day, ending near empty: fills in a couple of days.
+    const start = Date.parse("2026-08-18T12:00:00Z");
+    const samples = Array.from({ length: 10 }, (_u, i) => ({ at: new Date(start + i * 86_400_000).toISOString(), availableBytes: (100 - i * 10) * GB + 20 * GB }));
+    settings.set("diskUsageHistory", { "/mnt/media": samples });
+    const store = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: vi.fn(), listSchedules: () => [] };
+    const send = vi.fn(async () => ({ sent: true }));
+    const notifications = { getTarget: () => ({ kind: "ntfy" }), send };
+    const alerts = createHealthAlerts({ inventory: { inspect: async () => ({}) }, notifications, store, now: () => new Date("2026-08-28T12:00:00Z") });
+    const result = await alerts.check();
+    expect(result.sent).toEqual(["storage.forecast:/mnt/media"]);
+    expect(send).toHaveBeenCalledWith({ title: expect.stringContaining("/mnt/media"), message: expect.stringContaining("runs out of free space"), priority: "high" });
+  });
+
   it("alerts when a scheduled backup falls behind, and clears when it catches up", async () => {
     const settings = new Map();
     const overdue = { id: "sch-1", operationId: "backup.cloud.sync", frequency: "daily", enabled: true, nextDueAt: "2026-08-20T04:00:00Z" };

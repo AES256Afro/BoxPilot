@@ -16,6 +16,7 @@ interface VolumeGroup { name: string | null; physicalVolumes: string[]; sizeByte
 interface ShareRow { name: string; kind: "smb" | "nfs"; source: string; mountpoint: string; readOnly: boolean; automount: boolean; mounted: boolean; sizeBytes: number | null; usedBytes: number | null; availableBytes: number | null }
 interface SnapshotRow { path: string; name: string; volumeGroup: string | null; sizeBytes: number; origin?: string; sizeGiB?: number; createdAt?: string; suffix?: string | null }
 interface StorageReport { devices: DeviceRow[]; mounts: MountRow[]; fstab: FstabRow[]; volumeGroups: VolumeGroup[]; snapshots?: SnapshotRow[]; shares: ShareRow[]; tools: { cifs: boolean; nfs: boolean; smbclient: boolean; showmount: boolean } }
+interface Forecast { target: string; daysToFull: number; availableBytes: number | null; totalBytes: number | null; samples: number }
 interface Discovered { address: string; name: string | null; smb: boolean; nfs: boolean; mac: string | null; interface: string | null }
 
 function gib(bytes: number | null): string {
@@ -54,12 +55,14 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
   const [snapshotOrigin, setSnapshotOrigin] = useState("");
   const [snapshotSize, setSnapshotSize] = useState(10);
   const [snapshotLabel, setSnapshotLabel] = useState("");
+  const [forecasts, setForecasts] = useState<Forecast[]>([]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       setReport(await readJson<StorageReport>(await fetch("/api/v1/storage/overview")));
+      fetch("/api/v1/storage/forecast").then((response) => (response.ok ? response.json() : { forecasts: [] })).then((body: { forecasts?: Forecast[] }) => setForecasts(body.forecasts ?? [])).catch(() => {});
       setRefreshKey((key) => key + 1);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read storage state");
@@ -147,6 +150,20 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
         <article className="panel"><span className="eyebrow">Network shares</span><strong>{loading && !report ? "…" : report?.shares.length ?? "—"}</strong><span>{report?.shares.filter((entry) => entry.mounted).length ?? 0} connected</span></article>
         <article className="panel"><span className="eyebrow">Unallocated</span><strong>{loading && !report ? "…" : report ? gib(report.volumeGroups.reduce((sum, group) => sum + group.freeBytes, 0)) : "—"}</strong><span>free inside LVM volume groups</span></article>
       </div>
+
+      {forecasts.filter((forecast) => forecast.daysToFull <= 90).length > 0 && (
+        <section className="panel">
+          <header className="panel-header"><div><strong>Filling up</strong><span>At the rate free space has been dropping, these fill within three months. The estimate needs a few days of history and updates as the trend changes.</span></div></header>
+          <div className="workload-list">
+            {forecasts.filter((forecast) => forecast.daysToFull <= 90).map((forecast) => (
+              <div className="workload" key={forecast.target}>
+                <div><strong>{forecast.target}</strong><span>{forecast.availableBytes !== null ? `${gib(forecast.availableBytes)} free now` : ""}</span></div>
+                <span className={`status-pill status-${forecast.daysToFull <= 14 ? "warning" : "neutral"}`}>{forecast.daysToFull <= 0 ? "full very soon" : `~${forecast.daysToFull} day${forecast.daysToFull === 1 ? "" : "s"} left`}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {(report?.volumeGroups ?? []).some((group) => group.logicalVolumes.some((volume) => !volume.snapshot && volume.mountpoints.length > 0)) && (() => {
         const origins = (report?.volumeGroups ?? []).flatMap((group) => group.logicalVolumes.filter((volume) => !volume.snapshot && volume.mountpoints.length > 0).map((volume) => ({ group, volume })));
