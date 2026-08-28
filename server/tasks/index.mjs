@@ -22,6 +22,7 @@ import { ensureCloudImage } from "./cloud-images.mjs";
 import { systemUpdate } from "./update.mjs";
 import { backupRemoteKeygen, backupRemoteSync, backupRemoteTest } from "./backup-remote.mjs";
 import { networkWake } from "./network.mjs";
+import { webBindSet } from "./web-bind.mjs";
 import { probeAddresses } from "./reachability.mjs";
 import { httpRequest } from "./http-request.mjs";
 
@@ -60,6 +61,7 @@ export const tasks = Object.freeze({
   "dns.blocker.verify": (parameters) => dnsBlockerVerify(parameters),
   "app.reachability.probe": (parameters) => probeAddresses(parameters),
   "http.request": (parameters) => httpRequest(parameters),
+  "web.bind.set": (parameters) => webBindSet(parameters),
   "router.leases": routerLeases,
   "share.mount": shareMount,
   "share.unmount": shareUnmount,

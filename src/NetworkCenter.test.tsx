@@ -35,6 +35,7 @@ describe("Network Center", () => {
   it("renders live topology and creates a no-change recovery assessment", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (input.toString().endsWith("/api/v1/network/topology")) return new Response(JSON.stringify(topology), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (input.toString().endsWith("/api/v1/capabilities")) return new Response(JSON.stringify({ network: { bind: "127.0.0.1", port: 8787, lan: false, canSet: true } }), { status: 200, headers: { "Content-Type": "application/json" } });
       if (input.toString().endsWith("/api/v1/network/dns-acceptance")) return new Response(JSON.stringify(acceptanceStatus), { status: 200, headers: { "Content-Type": "application/json" } });
       if (input.toString().endsWith("/api/v1/operations/network.wake/jobs")) return new Response(JSON.stringify({ job: { id: "job-wake", type: "op:network.wake", title: "Wake a device on the LAN", state: "awaiting_approval", risk: "low", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "low", passwordRequired: false, elevated: false, mode: "tiered", reason: "low risk" } }), { status: 201, headers: { "Content-Type": "application/json" } });
       expect(init?.method).toBe("POST");
@@ -77,6 +78,27 @@ describe("Network Center", () => {
     expect(await screen.findByText("Low risk")).toBeTruthy();
     const wakeCall = fetchMock.mock.calls.find(([url]) => url.toString().endsWith("/operations/network.wake/jobs"));
     expect(JSON.parse(String(wakeCall?.[1]?.body))).toEqual({ parameters: { mac: "aa:bb:cc:dd:ee:ff" } });
+  });
+
+
+  it("offers a LAN-access toggle from the network capability, staging the owner-only op", async () => {
+    let staged: unknown = null;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.endsWith("/api/v1/network/topology")) return new Response(JSON.stringify(topology), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url.endsWith("/api/v1/capabilities")) return new Response(JSON.stringify({ network: { bind: "127.0.0.1", port: 8787, lan: false, canSet: true } }), { status: 200, headers: { "Content-Type": "application/json" } });
+      if (url.endsWith("/api/v1/operations/system.web.lan.set/jobs")) { staged = JSON.parse(String(init?.body)); return new Response(JSON.stringify({ job: { id: "j", type: "op:system.web.lan.set", title: "LAN", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "" } }), { status: 201, headers: { "Content-Type": "application/json" } }); }
+      return new Response(JSON.stringify({}), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<NetworkCenter csrfToken="csrf" />);
+    const toggle = await screen.findByRole("button", { name: "Turn on LAN access" });
+    fireEvent.click(toggle);
+    // The approve dialog opens; confirm it and check the op is staged to enable.
+    const confirm = await screen.findByRole("button", { name: /Reach BoxPilot on your local network|Confirm|Apply/ });
+    fireEvent.click(confirm);
+    await vi.waitFor(() => { if (!staged) throw new Error("not yet"); });
+    expect(staged).toEqual({ parameters: { enabled: true } });
   });
 
 });

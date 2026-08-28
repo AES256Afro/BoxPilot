@@ -30,7 +30,7 @@ export function portsHeldByApp(manifest, own) {
     .map((port) => `${port.host}/${port.protocol}`));
 }
 
-export function createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth }) {
+export function createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, webHost = "127.0.0.1", webPort = 8787 }) {
   const router = Router();
 
   // Catalog: manifests come from the working tree; live state comes from the helper (tolerated when unavailable).
@@ -97,6 +97,7 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       vms: { create: true, cloudImages: has("vm.cloud.create"), lifecycle: true, snapshots: true, exports: true, protection: true, restoreDrills: true, recovery: true, delete: false, console: false },
       backups: { controller: true, applications: true, vms: true, restic: true, restoreDrills: true, retention: true, schedules: true },
       identity: { password: true, tailscale: true, github: true, passkeys: false, roles: ["owner", "operator", "viewer"] },
+      network: { bind: webHost, port: webPort, lan: webHost === "0.0.0.0", canSet: has("system.web.lan.set") },
     });
   });
 
