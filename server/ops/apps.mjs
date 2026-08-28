@@ -65,6 +65,12 @@ export function appOperations() {
       },
     }),
     defineOperation({
+      id: "compose.projects.inspect", title: "List compose projects BoxPilot did not create", risk: "low", readOnly: true, timeoutMs: 60_000,
+      description: "Compose stacks running on this server that were started outside BoxPilot, with their status and compose file locations. Nothing is changed.",
+      parameters: { fields: {} },
+      run: (parameters, { apps }) => apps.foreignProjects(),
+    }),
+    defineOperation({
       id: "app.vpn.inspect", title: "Read where a tunneled app's traffic leaves", risk: "low", readOnly: true, timeoutMs: 30_000,
       description: "For an app that runs through a VPN tunnel: whether the tunnel container is up, and the public IP and place its own log says the traffic leaves from. Nothing is changed.",
       parameters: { fields: { id: idField } },

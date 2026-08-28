@@ -733,6 +733,23 @@ export function createAppHelper({
     };
   }
 
+  /**
+   * Compose projects on this server that BoxPilot did not create (M3.10): a stack somebody
+   * started by hand in /opt or a home directory. Listed so the catalog page tells the whole
+   * truth about the machine; managing them is a later, separate step.
+   */
+  async function foreignProjects() {
+    const result = await docker(["compose", "ls", "--all", "--format", "json"], { timeout: 30_000 });
+    if (!result.ok) return { available: false, projects: [] };
+    let parsed;
+    try { parsed = JSON.parse(result.stdout); } catch { return { available: false, projects: [] }; }
+    if (!Array.isArray(parsed)) return { available: false, projects: [] };
+    const projects = parsed
+      .filter((entry) => typeof entry?.Name === "string" && !entry.Name.startsWith("bp-"))
+      .map((entry) => ({ name: entry.Name, status: entry.Status ?? "unknown", configFiles: typeof entry.ConfigFiles === "string" ? entry.ConfigFiles.split(",").map((file) => file.trim()) : [] }));
+    return { available: true, projects };
+  }
+
   /** Effective compose.yaml and .env for an installed app. Secret values are masked here; app.secrets (elevated) reveals them. */
   async function config({ id }) {
     const manifest = await ensureManifest(id);
@@ -1281,5 +1298,5 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { syncHomepage, inspect, reachabilityFacts, vpnKillSwitchDrill, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, reachabilityFacts, vpnKillSwitchDrill, foreignProjects, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }
