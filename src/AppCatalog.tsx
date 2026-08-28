@@ -565,6 +565,8 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
           <header className="panel-header"><div><strong>Also on this server</strong><span>Compose stacks started outside BoxPilot. Their compose files stay theirs; BoxPilot lists them so this page tells the whole truth about the machine.</span></div></header>
           <ul className="foreign-projects">
             {foreign.map((project) => {
+              // compose reports a compound status ("running(1), exited(1)"); count the stack as
+              // running only when it is up with nothing stopped, so the buttons offered match.
               const running = /running|up/i.test(project.status) && !/exited|stopped/i.test(project.status);
               const act = (action: "start" | "stop" | "restart") => start({ operationId: "compose.project.action", title: `${action[0].toUpperCase()}${action.slice(1)} ${project.name}`, parameters: { name: project.name, action }, preview: <span>Runs <code>docker compose {action}</code> on {project.name} using its own compose files. BoxPilot does not change or adopt the stack.</span> });
               return (

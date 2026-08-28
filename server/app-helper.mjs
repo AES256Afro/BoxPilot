@@ -775,7 +775,7 @@ export function createAppHelper({
     return projects.find((project) => project.name === name) ?? null;
   }
 
-  /** The -f arguments for a project's compose files, from its own resolved configuration. */
+  /** The --file arguments for a project's compose files, from its own resolved configuration. */
   function composeFileArgs(project) {
     return project.configFiles.filter((file) => typeof file === "string" && file.startsWith("/")).flatMap((file) => ["--file", file]);
   }
