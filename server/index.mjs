@@ -17,8 +17,10 @@ import { createGithubProvenanceService } from "./github-provenance.mjs";
 import { createAuthService } from "./security.mjs";
 import { createIdentityService } from "./identity.mjs";
 import { createPasskeyService } from "./passkeys.mjs";
+import { createOidcService } from "./oidc.mjs";
 import { createIdentityRouter } from "./routes/identity.mjs";
 import { createPasskeyRouter } from "./routes/passkeys.mjs";
+import { createOidcRouter, createOidcAdminRouter } from "./routes/oidc.mjs";
 import { createOperationsRouter } from "./routes/operations.mjs";
 import { createJobsRouter } from "./routes/jobs.mjs";
 import { createVirtualizationRouter } from "./routes/virtualization.mjs";
@@ -245,6 +247,7 @@ app.get("/ca.crt", async (_request, response) => {
 
 const identity = createIdentityService({ store: state });
 const passkeys = createPasskeyService({ store: state });
+const oidc = createOidcService({ store: state });
 // The one token-gated door (ADR-002 addendum): fire a flow by webhook. Before the session wall
 // on purpose; the token is the auth, a wrong one is indistinguishable from a missing flow, and
 // nothing from the request reaches any step.
@@ -302,6 +305,11 @@ app.use("/api/v1", createStorageRouter({ auth, helper, inventory, state }));
 app.use("/api/v1", createPowerRouter());
 app.use("/api/v1", createChecklistRouter({ state, helper, notifications, inventory, network }));
 app.use("/api/v1", createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity, webHost: host, webPort: port }));
+app.use("/api/v1", createOidcAdminRouter({ oidc, auth }));
+
+// OIDC provider endpoints (M19.3) live at the site root, not under /api/v1: discovery, JWKS, token
+// and userinfo are public by design, and /oidc/authorize reads the owner's session itself.
+app.use(createOidcRouter({ oidc, auth, store: state }));
 
 app.use("/assets", express.static(path.join(dist, "assets"), { index: false, maxAge: "365d", immutable: true }));
 app.use(express.static(dist, { index: false }));

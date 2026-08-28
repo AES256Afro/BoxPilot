@@ -30,6 +30,7 @@ import CredentialsPanel from "./CredentialsPanel";
 import SignInSettings from "./SignInSettings";
 import PasskeySettings from "./PasskeySettings";
 import SessionsSettings from "./SessionsSettings";
+import OidcSettings from "./OidcSettings";
 import PeopleSettings from "./PeopleSettings";
 import PasswordSettings from "./PasswordSettings";
 import ThemeSettings from "./ThemeSettings";
@@ -170,6 +171,7 @@ function Settings({ csrfToken, role = "owner" }: { csrfToken: string; role?: str
       {/* Box-level settings are the owner's; a viewer's Settings page is their own password. */}
       {role === "owner" && <ApprovalSettings csrfToken={csrfToken} />}
       {role !== "viewer" && <SignInSettings csrfToken={csrfToken} />}
+      {role === "owner" && <OidcSettings csrfToken={csrfToken} />}
       <PasskeySettings csrfToken={csrfToken} />
       <SessionsSettings csrfToken={csrfToken} />
       {role === "owner" && <NotificationSettings csrfToken={csrfToken} />}
@@ -351,12 +353,28 @@ function App() {
       .catch((error) => setAuthError(error instanceof Error ? error.message : "Unable to reach BoxPilot authentication"));
   }, []);
 
+  // An app's "Sign in with BoxPilot" (M19.3) lands here with ?next=/oidc/authorize when the strict
+  // session cookie was not sent on the cross-site hop. Once we know the owner is signed in, continue
+  // the flow. Only same-site /oidc/ paths are followed, so this cannot be an open redirect.
+  useEffect(() => {
+    if (!authStatus?.authenticated) return;
+    const next = new URLSearchParams(window.location.search).get("next");
+    if (next && next.startsWith("/oidc/")) window.location.href = next;
+  }, [authStatus?.authenticated]);
+
   if (authError) {
     return <main className="auth-shell"><section className="auth-card"><span className="eyebrow">Connection failed</span><h1>BoxPilot is unavailable</h1><p role="alert">{authError}</p><button className="secondary-button" type="button" onClick={() => window.location.reload()}>Try again</button></section></main>;
   }
   if (!authStatus) return <main className="auth-shell"><section className="auth-card"><span className="eyebrow">Private administration</span><h1>Loading BoxPilot...</h1></section></main>;
   if (!authStatus.authenticated) {
-    return <AuthScreen bootstrapRequired={authStatus.bootstrapRequired} onAuthenticated={setAuthStatus} />;
+    // After signing in, continue an app's "Sign in with BoxPilot" flow if one sent us here. Only
+    // same-site /oidc/ paths are followed, so this can never be an open redirect.
+    const onAuthed = (status: AuthStatus) => {
+      const next = new URLSearchParams(window.location.search).get("next");
+      if (next && next.startsWith("/oidc/")) { window.location.href = next; return; }
+      setAuthStatus(status);
+    };
+    return <AuthScreen bootstrapRequired={authStatus.bootstrapRequired} onAuthenticated={onAuthed} />;
   }
   return <Console authStatus={authStatus} onAuthChanged={setAuthStatus} onSignedOut={() => setAuthStatus({ ...authStatus, authenticated: false, owner: null, csrfToken: null, expiresAt: null })} />;
 }

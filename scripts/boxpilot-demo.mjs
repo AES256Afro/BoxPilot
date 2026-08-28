@@ -397,6 +397,14 @@ api.get("/auth/passkey", (_request, response) => json(response, { passkeys: [
   { id: "pk-demo-phone", rpId: host.tailnet, label: "iPhone (Face ID)", transports: ["internal", "hybrid"], createdAt: ago(24 * 34), lastUsedAt: ago(7) },
   { id: "pk-demo-key", rpId: "boxpilot.lan", label: "YubiKey 5C", transports: ["usb"], createdAt: ago(24 * 11), lastUsedAt: ago(24 * 3) },
 ], recoveryCodesRemaining: 8 }));
+api.get("/oidc/clients", (_request, response) => json(response, {
+  issuer: `https://${host.tailnet}`,
+  discovery: `https://${host.tailnet}/.well-known/openid-configuration`,
+  clients: [
+    { id: "grafana-a1b2c3d4e5f6", name: "Grafana", redirectUris: [`https://grafana.${host.tailnet}/login/generic_oauth`], createdAt: ago(24 * 20) },
+    { id: "immich-9f8e7d6c5b4a", name: "Immich", redirectUris: [`https://photos.${host.tailnet}/auth/login`], createdAt: ago(24 * 5) },
+  ],
+}));
 api.get("/network/reachability", (_request, response) => json(response, {
   ways: [
     { id: "loopback", label: "On this server", url: "http://127.0.0.1:8787", scope: "Only from the server itself", encrypted: false, trusted: true },

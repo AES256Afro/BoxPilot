@@ -621,8 +621,21 @@ front door as strong as the rest of the product, and does it in a way that works
   (the counter regression is already audited).
 - **M19.2** **A second factor for the password path.** TOTP for owners who keep the password, so the
   weakest door is not one secret.
-- **M19.3** **BoxPilot as an OIDC provider.** Sign in to your installed apps with your BoxPilot
-  identity, through a forward-auth proxy — one login for the whole box instead of a password per app.
+- ✅ **M19.3** (v1.66.0) **BoxPilot as an OIDC provider.** Apps can offer "Sign in with BoxPilot"
+  instead of their own passwords. Standards-compliant authorization-code + PKCE only, so there is no
+  client secret to store — a registered client is just a name and its redirect URIs. The one secret is
+  the signing keypair (EC P-256, kept in the state directory like the TLS key, generated on first use);
+  the public half is at the JWKS endpoint. Tokens are ES256 JWTs signed with `node:crypto` alone
+  (`server/jwt.mjs`, JOSE raw signatures via `ieee-p1363`, JWKS from node's JWK export — no library).
+  Endpoints live at the site root: `/.well-known/openid-configuration`, `/oidc/jwks`, `/oidc/authorize`
+  (session-gated, a server-rendered consent screen), `/oidc/token`, `/oidc/userinfo`
+  (`server/oidc.mjs`, `server/routes/oidc.mjs`). The issuer is whatever BoxPilot URL the app reached,
+  so nothing is configured. Owner-registers clients under Settings, Single sign-on (`src/OidcSettings.tsx`);
+  scopes `openid`/`profile`/`groups` (the role travels as a group so apps can authorize by it). A
+  same-site `?next=/oidc/…` bounce carries the owner through sign-in when the strict cookie is not sent
+  on the cross-site hop. Security: PKCE S256 enforced, exact redirect-URI match, single-use codes bound
+  to client and redirect, consent CSRF, error-redirects only to validated URIs. **Remaining:** a
+  forward-auth endpoint for apps with no native OIDC; refresh tokens; per-client scope limits.
 - ✅ **M19.4** (v1.62.0) **Session and device management.** A session list on Settings: every live
   session for the account, with the device (parsed from the user agent), the address it signed in from,
   how (password, passkey, Tailscale, GitHub, recovery code), when, and how recently it was active — the
