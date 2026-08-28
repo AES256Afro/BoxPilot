@@ -4116,6 +4116,9 @@ textarea {
 .approval-option input { margin-top: 4px; }
 .approval-option strong { display: block; }
 .approval-option span { color: var(--text-muted); font-size: 13px; }
+.settings-panel textarea { width: 100%; box-sizing: border-box; font-family: var(--mono, ui-monospace, monospace); font-size: 13px; resize: vertical; padding: 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface, #0d1117); color: inherit; }
+.settings-panel label.field { display: grid; gap: 4px; font-size: 13px; }
+.settings-panel label.field input { width: 100%; box-sizing: border-box; }
 
 .services-center { display: grid; gap: 16px; }
 .services-center .panel-header .recovery-actions input { min-width: 180px; }
