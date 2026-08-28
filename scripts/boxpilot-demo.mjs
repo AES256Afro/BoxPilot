@@ -441,6 +441,11 @@ api.get("/settings/watch", (_request, response) => json(response, { targetConfig
   ["docker.unhealthy", "A container is unhealthy"], ["docker.restarting", "A container keeps restarting (crash-looping)"], ["schedule.overdue", "A scheduled task (such as a backup) has stopped running"],
 ].map(([key, label]) => ({ key, label, active: false, details: [] })) }));
 api.get("/settings/approval-mode", (_request, response) => json(response, { mode: "tiered", modes: ["tiered", "always-ask"] }));
+api.get("/settings/vpn-profile", (_request, response) => json(response, {
+  profile: { configured: true, provider: "mullvad", type: "wireguard", wireguardAddresses: "10.64.222.21/32", countries: "Sweden, Netherlands", portForwarding: "off", dot: "on", blockMalicious: "on", blockAds: "on", blockSurveillance: "off", dnsAddress: "", outboundSubnets: "192.168.0.0/16, 10.0.0.0/8", healthTargetAddress: "", hasWireguardKey: true, hasOpenvpnPassword: false, updatedAt: ago(48) },
+  providers: ["mullvad", "protonvpn", "nordvpn", "surfshark", "private internet access", "airvpn", "windscribe", "ivpn", "custom"],
+  protocols: ["wireguard", "openvpn"],
+}));
 // Real profiles from the product, resolved against the demo's installed set, so the first page a
 // new owner sees is actually exercisable here.
 api.get("/setup", async (request, response) => {

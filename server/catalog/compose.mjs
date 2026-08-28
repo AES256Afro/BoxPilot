@@ -114,7 +114,7 @@ export function securityOptFor(manifest, hostNetwork) {
   return needsPrivilegedBind ? [] : ["no-new-privileges:true"];
 }
 
-export function renderCompose(manifest, values, { existingEnv = {}, lanAddress = "0.0.0.0", tailnetAddress = null, devices = manifest.devices } = {}) {
+export function renderCompose(manifest, values, { existingEnv = {}, lanAddress = "0.0.0.0", tailnetAddress = null, devices = manifest.devices, sidecarEnvOverrides = {} } = {}) {
   const env = { ...values.env };
   for (const entry of manifest.env) {
     // A secret the request does not re-enter keeps its stored value. Secrets never live in the
@@ -197,6 +197,13 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
     const secretNames = new Set(manifest.env.filter((entry) => entry.secret).map((entry) => entry.name));
     const substitute = (value) => String(value).replace(/\$\{([A-Z][A-Za-z0-9_]*)\}/g, (match, name) => (secretNames.has(name) ? match : name in serverVariables ? serverVariables[name] : name in env ? composeLiteral(withPortVariables(env[name])) : ""));
     if (Object.keys(sidecar.env ?? {}).length) sidecarService.environment = Object.fromEntries(Object.entries(sidecar.env).map(([name, value]) => [name, substitute(value)]));
+    // A caller (the app helper, for an app routed through the shared VPN profile) can add or override
+    // this sidecar's env with already-resolved plain values: the profile's security options land on
+    // the Gluetun sidecar without the manifest having to enumerate them.
+    const overrides = sidecarEnvOverrides[sidecar.id];
+    if (overrides && Object.keys(overrides).length) {
+      sidecarService.environment = { ...(sidecarService.environment ?? {}), ...Object.fromEntries(Object.entries(overrides).map(([name, value]) => [name, composeLiteral(String(value))])) };
+    }
     if (sidecar.volumes.length) sidecarService.volumes = sidecar.volumes.map((volume) => (volume.hostPath
       ? `${volume.hostPath}:${volume.container}:ro`                 // curated, read-only host bind (an exporter reading the host)
       : `./${volume.path}:${volume.container}`));

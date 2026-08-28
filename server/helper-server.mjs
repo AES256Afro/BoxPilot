@@ -5,6 +5,7 @@ import { productVersion } from "./version.mjs";
 import { registry } from "./ops/index.mjs";
 import { createRunUnitClient } from "./run-unit.mjs";
 import { createCredentialStore } from "./credentials.mjs";
+import { createVpnProfileStore } from "./vpn-profile.mjs";
 import { createAppHelper } from "./app-helper.mjs";
 import { createVmCloudHelper } from "./vm-cloud.mjs";
 import { createHostInspectHelper } from "./host-inspect-helper.mjs";
@@ -43,7 +44,8 @@ const vmMedia = createVmMediaHelper();
 const prerequisites = createPrerequisiteHelper();
 const runUnit = createRunUnitClient();
 const credentials = createCredentialStore();
-const apps = createAppHelper();
+const vpnProfile = createVpnProfileStore();
+const apps = createAppHelper({ vpnProfile });
 const vmCloud = createVmCloudHelper();
 const foundation = createLibvirtFoundationHelper();
 const controllerBackups = createControllerBackupHelper();
@@ -62,7 +64,7 @@ const machineSnapshot = createMachineSnapshotHelper({ controllerBackups });
 const housekeeping = createHousekeepingService({ apps, runUnit });
 const performance = createPerformanceService();
 const localDns = createLocalDnsService({ apps, runDocker: fixedRun });
-const helperDependencies = { runUnit, credentials, apps, housekeeping, performance, localDns, vmCloud, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRestoreDrill, vmRecovery, vmRetention, machineSnapshot };
+const helperDependencies = { runUnit, credentials, vpnProfile, apps, housekeeping, performance, localDns, vmCloud, hostInspect, controllerBackups, controllerProtection, controllerRetention, prerequisites, foundation, vmMedia, virtualization, vmProtection, vmRestoreDrill, vmRecovery, vmRetention, machineSnapshot };
 if (recovery.blocked) {
   console.error("BoxPilot is serving requests; restore drills stay unavailable until that is resolved.");
 }

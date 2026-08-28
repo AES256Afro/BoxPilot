@@ -10,6 +10,7 @@ image:
   reference: stremio/server:v4.20.8
   version: 4.20.8
 networkVia: vpn
+usesVpnProfile: true
 ports:
   - id: web
     label: Streaming server
@@ -39,10 +40,18 @@ env:
     label: Time zone
     type: timezone
     default: Etc/UTC
+  - name: USE_VPN_PROFILE
+    label: Use my VPN profile
+    description: Route this app through the shared VPN profile set up in the VPN section, instead of entering a provider and key here. Turn it on and the connection fields below are supplied from the profile.
+    default: "off"
+    options:
+      - "off"
+      - "on"
   - name: VPN_SERVICE_PROVIDER
     label: VPN provider
     description: Your VPN service. Pick "custom" for any WireGuard config file from a provider not listed.
     default: mullvad
+    fromVpnProfile: true
     options:
       - mullvad
       - protonvpn
@@ -56,6 +65,7 @@ env:
   - name: VPN_TYPE
     label: Protocol
     default: wireguard
+    fromVpnProfile: true
     options:
       - wireguard
       - openvpn
@@ -63,18 +73,23 @@ env:
     label: WireGuard private key
     description: From the WireGuard config your provider gives you (the PrivateKey line). Required for WireGuard.
     type: password
+    fromVpnProfile: true
   - name: WIREGUARD_ADDRESSES
     label: WireGuard address
     description: The Address line from the same config, for example 10.64.222.21/32. Needed by Mullvad, Proton, and custom configs.
+    fromVpnProfile: true
   - name: OPENVPN_USER
     label: OpenVPN username
     description: Only for the OpenVPN protocol.
+    fromVpnProfile: true
   - name: OPENVPN_PASSWORD
     label: OpenVPN password
     type: password
+    fromVpnProfile: true
   - name: SERVER_COUNTRIES
     label: Preferred countries
     description: Comma-separated, for example Netherlands,Switzerland. Leave empty to let the provider choose.
+    fromVpnProfile: true
 sidecars:
   - id: vpn
     image: qmcgaw/gluetun:v3.41.3

@@ -174,3 +174,29 @@ describe("no-new-privileges and the ports an app cannot otherwise bind", () => {
     expect(securityOptFor({ ports: [{ id: "x", host: 0, protocol: "tcp" }] }, true)).toEqual(["no-new-privileges:true"]);
   });
 });
+
+describe("sidecarEnvOverrides", () => {
+  const tunneled = {
+    id: "app", sha256: "x", image: { reference: "app:1" }, network: "bridge", networkModes: ["bridge"], networkVia: "vpn",
+    ports: [{ id: "web", label: "UI", container: 8080, host: 8080, protocol: "tcp", exposure: "lan" }],
+    volumes: [], env: [], capabilities: [], devices: [], extraHosts: [], sysctls: [],
+    sidecars: [{ id: "vpn", image: "gluetun:1", env: { VPN_TYPE: "wireguard", FIREWALL_OUTBOUND_SUBNETS: "10.0.0.0/8" }, volumes: [], capabilities: [], devices: [] }],
+  };
+  const values = { ports: { web: 8080 }, env: {}, volumes: {} };
+
+  it("adds and overrides sidecar env from the caller (the shared VPN profile's security options)", () => {
+    const { compose } = renderCompose(tunneled, values, { lanAddress: "192.168.1.10", sidecarEnvOverrides: { vpn: { DOT: "on", BLOCK_ADS: "on", FIREWALL_OUTBOUND_SUBNETS: "192.168.1.0/24" } } });
+    expect(compose.services.vpn.environment.DOT).toBe("on");
+    expect(compose.services.vpn.environment.BLOCK_ADS).toBe("on");
+    // the override wins over the manifest's own value
+    expect(compose.services.vpn.environment.FIREWALL_OUTBOUND_SUBNETS).toBe("192.168.1.0/24");
+    // untouched manifest env survives
+    expect(compose.services.vpn.environment.VPN_TYPE).toBe("wireguard");
+  });
+
+  it("changes nothing when no overrides are given", () => {
+    const { compose } = renderCompose(tunneled, values, { lanAddress: "192.168.1.10" });
+    expect(compose.services.vpn.environment.FIREWALL_OUTBOUND_SUBNETS).toBe("10.0.0.0/8");
+    expect(compose.services.vpn.environment.DOT).toBeUndefined();
+  });
+});

@@ -67,11 +67,15 @@ function checkKeys(errors, path, value, allowed, required = []) {
 export function validateManifest(raw) {
   const errors = [];
   if (!isObject(raw)) return { manifest: null, errors: ["manifest: must be a mapping"] };
-  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner", "connections", "files"], ["schemaVersion", "id", "name", "category", "description", "image"]);
+  checkKeys(errors, "manifest", raw, ["schemaVersion", "id", "name", "category", "description", "website", "icon", "risk", "image", "ports", "volumes", "env", "health", "capabilities", "devices", "extraHosts", "command", "user", "network", "notes", "uninstall", "sidecars", "setup", "networkVia", "sysctls", "shmSize", "optionalDevices", "signIn", "networkModes", "modelRunner", "connections", "files", "usesVpnProfile"], ["schemaVersion", "id", "name", "category", "description", "image"]);
   if (raw.schemaVersion !== 2) fail(errors, "manifest.schemaVersion", "must be 2");
   // Docker gives a container 64 MB of shared memory. Anything decoding video wants far more, and
   // runs out in ways that look like the app is broken rather than out of a resource.
   if (raw.shmSize !== undefined && !(typeof raw.shmSize === "string" && /^[1-9][0-9]{0,4}[mg]$/.test(raw.shmSize))) fail(errors, "manifest.shmSize", "must look like 256m or 1g");
+  // usesVpnProfile: the app can be routed through the one shared VPN profile instead of its own
+  // connection. It needs a networkVia sidecar (a Gluetun container) for the profile to configure.
+  if (raw.usesVpnProfile !== undefined && typeof raw.usesVpnProfile !== "boolean") fail(errors, "manifest.usesVpnProfile", "must be boolean");
+  if (raw.usesVpnProfile === true && raw.networkVia === undefined) fail(errors, "manifest.usesVpnProfile", "needs a networkVia sidecar to route through");
   if (typeof raw.id !== "string" || !idPattern.test(raw.id)) fail(errors, "manifest.id", "must be a short lower-case slug");
   for (const field of ["name", "category", "description"]) if (typeof raw[field] !== "string" || !raw[field].trim() || raw[field].length > 400) fail(errors, `manifest.${field}`, "must be a non-empty string");
   if (raw.website !== undefined && !(typeof raw.website === "string" && /^https:\/\/[^\s]+$/.test(raw.website))) fail(errors, "manifest.website", "must be an https URL");
@@ -161,7 +165,8 @@ export function validateManifest(raw) {
   env.forEach((entry, index) => {
     const path = `manifest.env[${index}]`;
     if (!isObject(entry)) return fail(errors, path, "must be a mapping");
-    checkKeys(errors, path, entry, ["name", "label", "description", "type", "default", "required", "secret", "generate", "options", "fixed"], ["name"]);
+    checkKeys(errors, path, entry, ["name", "label", "description", "type", "default", "required", "secret", "generate", "options", "fixed", "fromVpnProfile"], ["name"]);
+    if (entry.fromVpnProfile !== undefined && typeof entry.fromVpnProfile !== "boolean") fail(errors, `${path}.fromVpnProfile`, "must be boolean");
     if (typeof entry.name !== "string" || !envNamePattern.test(entry.name) || envNames.has(entry.name)) fail(errors, `${path}.name`, "must be a unique environment variable name"); else envNames.add(entry.name);
     if (entry.type !== undefined && !envTypes.includes(entry.type)) fail(errors, `${path}.type`, `must be one of ${envTypes.join(", ")}`);
     for (const flag of ["required", "secret", "generate", "fixed"]) if (entry[flag] !== undefined && typeof entry[flag] !== "boolean") fail(errors, `${path}.${flag}`, "must be boolean");
@@ -362,7 +367,7 @@ export function validateManifest(raw) {
     ports: ports.map((port) => ({ id: port.id, label: port.label ?? port.id, container: port.container, host: port.host ?? port.container, protocol: port.protocol ?? "tcp", exposure: port.exposure ?? "lan", fixed: port.fixed ?? false, tailnet: port.tailnet ?? ((port.protocol ?? "tcp") === "udp" ? "unchanged" : "serve"), containerFollowsHost: port.containerFollowsHost ?? false })),
     volumes: volumes.map((volume) => ({ id: volume.id, label: volume.label ?? volume.id, container: volume.container, path: volume.path ?? null, hostPath: volume.hostPath ?? null, readOnly: volume.readOnly ?? false, backup: volume.backup ?? (volume.path !== undefined), configurable: volume.configurable ?? false, description: volume.description ?? null, subdirectories: volume.subdirectories ?? [] })),
     files: files.map((file) => ({ path: file.path, container: file.container, content: file.content, readOnly: file.readOnly ?? true })),
-    env: env.map((entry) => ({ name: entry.name, label: entry.label ?? entry.name, description: entry.description ?? null, type: entry.type ?? "string", default: entry.default ?? null, required: entry.required ?? false, secret: entry.secret ?? entry.type === "password", generate: entry.generate ?? false, options: entry.options ?? null, fixed: entry.fixed ?? false })),
+    env: env.map((entry) => ({ name: entry.name, label: entry.label ?? entry.name, description: entry.description ?? null, type: entry.type ?? "string", default: entry.default ?? null, required: entry.required ?? false, secret: entry.secret ?? entry.type === "password", generate: entry.generate ?? false, options: entry.options ?? null, fixed: entry.fixed ?? false, fromVpnProfile: entry.fromVpnProfile ?? false })),
     health: { kind: raw.health?.kind ?? "running", stableSeconds: raw.health?.stableSeconds ?? 10, timeoutSeconds: raw.health?.timeoutSeconds ?? 180 },
     capabilities: raw.capabilities ?? [],
     devices: raw.devices ?? [],
@@ -381,6 +386,7 @@ export function validateManifest(raw) {
       choices: raw.setup.choices.map((choice) => ({ id: choice.id, label: choice.label.trim(), description: choice.description ?? null, website: choice.website ?? null, recommended: choice.recommended ?? false, exec: [...choice.exec], service: choice.service ?? null })),
     } : null,
     networkVia: raw.networkVia ?? null,
+    usesVpnProfile: raw.usesVpnProfile ?? false,
     networkModes,
     modelRunner,
     sysctls: raw.sysctls ?? [],
