@@ -745,7 +745,9 @@ export function createAppHelper({
     try { parsed = JSON.parse(result.stdout); } catch { return { available: false, projects: [] }; }
     if (!Array.isArray(parsed)) return { available: false, projects: [] };
     const projects = parsed
-      .filter((entry) => typeof entry?.Name === "string" && !entry.Name.startsWith("bp-"))
+      // BoxPilot's own stacks are not "foreign": the per-app projects are bp-*, and a
+      // compose-deployed controller's own project is "boxpilot".
+      .filter((entry) => typeof entry?.Name === "string" && !entry.Name.startsWith("bp-") && entry.Name !== "boxpilot")
       .map((entry) => ({ name: entry.Name, status: entry.Status ?? "unknown", configFiles: typeof entry.ConfigFiles === "string" ? entry.ConfigFiles.split(",").map((file) => file.trim()) : [] }));
     return { available: true, projects };
   }

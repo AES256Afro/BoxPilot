@@ -447,6 +447,25 @@ describe("running a flow", () => {
 
     service.clearWebhook(flow.id, "operator-7", { role: "operator" });
     expect(service.fireWebhook(flow.id, token)).toBe("not-found");
+
+    // Pausing the flow revokes the webhook, the same gesture that revokes the clock.
+    const paused = await service.create({ name: "paused", steps: [goodSteps[0]], createdBy: "operator-7" });
+    const minted = service.mintWebhook(paused.id, "operator-7", { role: "operator" }).token;
+    store.getFlow(paused.id).enabled = false;
+    expect(service.fireWebhook(paused.id, minted)).toBe("not-found");
+  });
+
+  it("a webhook never escalates: a deleted creator refuses instead of running as owner", async () => {
+    const store = fakeStore();
+    store.findOwnerById = () => null;
+    const notified = [];
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, notify: (message) => notified.push(message) });
+    const flow = await service.create({ name: "orphaned", steps: [goodSteps[0]], createdBy: "ghost-1" });
+    const { token } = service.mintWebhook(flow.id, "ghost-1", { role: "owner" });
+    expect(service.fireWebhook(flow.id, token)).toBe("accepted");
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(store.getFlow(flow.id).lastResult).toMatch(/skipped:.*creator no longer exists/);
+    expect(notified[0]).toMatch(/creator no longer exists/);
   });
 
   it("a webhook fire that the creator can no longer authorize is recorded and notified", async () => {

@@ -7,6 +7,7 @@
  * in memory, merged at execution, a placeholder in every record), reading happens only inside the
  * root task that performs the request, and everything the interface can list is names and dates.
  */
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -28,9 +29,12 @@ export function createCredentialStore({ file = defaultCredentialFile, now = () =
 
   async function save(entries) {
     await mkdir(path.dirname(file), { recursive: true, mode: 0o755 });
-    // Write-then-rename so a crash mid-write can never leave a truncated store behind.
-    await writeFile(`${file}.tmp`, JSON.stringify(entries, null, 2), { mode: 0o600 });
-    await rename(`${file}.tmp`, file);
+    // Write-then-rename so a crash mid-write can never leave a truncated store behind. The temp
+    // name is unique per write, so two concurrent writers cannot share one temp file and rename
+    // a half-written blend of both over the store.
+    const temp = `${file}.${randomUUID()}.tmp`;
+    await writeFile(temp, JSON.stringify(entries, null, 2), { mode: 0o600 });
+    await rename(temp, file);
   }
 
   async function set({ name, value }) {

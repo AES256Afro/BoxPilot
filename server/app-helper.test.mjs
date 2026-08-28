@@ -51,6 +51,7 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
     if (args[0] === "compose" && args[1] === "ls") {
       return { ok: true, stdout: JSON.stringify([
         { Name: "bp-jellyfin", Status: "running(1)", ConfigFiles: "/var/lib/boxpilot-managed/catalog/jellyfin/compose.yaml" },
+        { Name: "boxpilot", Status: "running(2)", ConfigFiles: "/opt/boxpilot/docker-compose.yml" },
         { Name: "old-wordpress", Status: "exited(2)", ConfigFiles: "/opt/wordpress/docker-compose.yml" },
         { Name: "handmade", Status: "running(3)", ConfigFiles: "/home/user/stack/compose.yaml,/home/user/stack/compose.override.yaml" },
       ]), stderr: "" };

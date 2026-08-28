@@ -393,8 +393,10 @@ its network, use a generic HTTP step for everything else, and hand SaaS breadth 
   only inside the root task that performs the request, and listable as names and dates alone; the
   value arrives through the staged-secret machinery and has no path back out. The request itself
   runs as a task because the helper's PrivateNetwork cannot open a connection. A Settings panel
-  manages the names. The step needs a url, so it stays out of the all-optional builder palette
-  until the M13.10 editor; flows use it via the API and future shelf entries.
+  manages the names. The step needs a url and so a parameter form, which the v1 builder
+  deliberately does not have; it is reachable today through the API and becomes a first-class
+  builder step with M13.10's editor. The credential panel's copy says "operation", not "step",
+  so it does not promise a builder control that is not there yet.
 - ◐ **M13.8** **Durability.** (v1.47.0) A step may carry up to three retries for transient
   failures (the shelf's Update night retries apt.upgrade once, for the classic overnight apt
   lock); each attempt is its own recorded job, the run's slot keeps the attempt that counted, and

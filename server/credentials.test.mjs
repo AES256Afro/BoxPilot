@@ -77,6 +77,28 @@ describe("the HTTP request task, against a real socket", () => {
       .rejects.toThrow(/No credential is named ghost/);
   });
 
+  it("refuses the cloud metadata endpoint but allows loopback and LAN", async () => {
+    const { store } = await storeIn();
+    // Nothing legitimate lives on link-local; the owner's own ntfy on loopback is the point.
+    await expect(httpRequest({ url: "http://169.254.169.254/latest/meta-data/" }, { credentials: store })).rejects.toThrow(/link-local metadata/);
+    await expect(httpRequest({ url: "http://metadata.google.internal/x" }, { credentials: store })).rejects.toThrow(/link-local metadata/);
+    // A loopback target is allowed (it connects, which is not-refused; here nothing listens).
+    await expect(httpRequest({ url: "http://127.0.0.1:9/x" }, { credentials: store, timeoutMs: 500 })).rejects.toThrow(/failed|answer/);
+  });
+
+  it("does not follow a redirect while carrying a credential, so the token cannot leak cross-origin", async () => {
+    const { store } = await storeIn();
+    await store.set({ name: "hook", value: "tk_secret" });
+    let followed = false;
+    const fetcher = async (url, options) => {
+      if (options.redirect === "manual") return { status: 302, ok: false, headers: new Map([["content-type", "text/plain"]]), body: null, text: async () => "moved" };
+      followed = true; return { status: 200, ok: true, headers: new Map(), body: null, text: async () => "leaked" };
+    };
+    const result = await httpRequest({ url: "http://example.test/webhook", credentialName: "hook", credentialHeader: "X-Api-Key", credentialPrefix: "" }, { credentials: store, fetcher });
+    expect(followed).toBe(false);            // the redirect was returned, not chased
+    expect(result.status).toBe(302);
+  });
+
   it("refuses non-http schemes and oversized inputs", async () => {
     const { store } = await storeIn();
     await expect(httpRequest({ url: "file:///etc/passwd" }, { credentials: store })).rejects.toThrow(/http\(s\)/);
