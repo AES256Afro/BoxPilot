@@ -6,6 +6,8 @@ interface Schedule {
   minute: number; hour: number | null; weekday: number | null; enabled: boolean;
   nextDueAt: string; lastRunAt: string | null; lastJobId: string | null; lastResult: string | null;
   title: string; cadence: string;
+  /** Set by the API when a schedule has slipped a whole cycle past its due time (M20.1). */
+  overdue?: boolean;
 }
 
 interface Template { key: string; label: string; operationId: string; parameters: Record<string, unknown> }
@@ -117,7 +119,7 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null }: { c
                 <tr className={schedule.enabled ? "" : "schedule-disabled"}>
                   <td>{schedule.title}{typeof schedule.parameters.subject === "string" ? <> · <code>{schedule.parameters.subject}</code></> : null}</td>
                   <td>{schedule.cadence}</td>
-                  <td>{schedule.enabled ? new Date(schedule.nextDueAt).toLocaleString() : "paused"}</td>
+                  <td>{schedule.enabled ? <>{new Date(schedule.nextDueAt).toLocaleString()}{schedule.overdue ? <span className="status-pill status-warning" style={{ marginLeft: 6 }} title="This schedule has not run for more than a full cycle — the server may have been off, or the task may be failing.">behind</span> : null}</> : "paused"}</td>
                   <td>{lastResultPill(schedule)}</td>
                   <td>
                     <div className="recovery-actions">
