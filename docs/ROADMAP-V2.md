@@ -373,8 +373,15 @@ its network, use a generic HTTP step for everything else, and hand SaaS breadth 
   authority with the scheduler's refusals, refusals are recorded and notified, cycles are refused
   at save, and depth is bounded. Only completion triggers, not failure. Remaining: signals from
   jobs and thresholds, which start to look like the third-party question below.
-- **M13.6** **Inbound webhooks.** A signed URL that starts a flow, with a per-trigger token, a rate
-  limit, and a hard rule that a request from outside can never approve its own risk tier.
+- ✅ **M13.6** (v1.50.0) **Inbound webhooks.** The deferred consent question got its ADR-002
+  addendum and then its code: a flow's creator mints a token for exactly that flow (delegated
+  authority, like an API key), the armed state shows on the row, regenerating or removing revokes.
+  The fence that keeps the consent simple: the caller chooses only WHEN, never WHAT — nothing from
+  the request reaches any step. The token is shown once, only its SHA-256 is stored, comparison is
+  constant-time, a wrong token is indistinguishable from a missing flow, fires are rate-limited
+  per flow (6/minute) and audited with their source, and the run goes through the same door as a
+  scheduled one, refusals recorded and notified identically. POST /api/v1/hooks/flows/:id/:token,
+  mounted before the session wall on purpose.
 - ✅ **M13.7** (v1.49.0) **Reaching outward: an HTTP step and a credential store.** `http.request`
   is an ordinary medium operation: one outbound request from this server, run by hand with a
   confirmation or inside a flow under ADR-002's existing consent, its status/body/parsed-JSON
