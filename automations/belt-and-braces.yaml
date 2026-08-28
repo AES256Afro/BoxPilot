@@ -1,0 +1,7 @@
+name: Belt and braces
+description: Back up the BoxPilot database with a restore drill, then mirror every local backup to the independent destination. The pair that makes a dead disk an errand instead of a loss.
+steps:
+  - operationId: controller.backup.create
+    parameters: {}
+  - operationId: backup.sync
+    parameters: {}
