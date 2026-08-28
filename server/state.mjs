@@ -367,6 +367,15 @@ export function createStateStore({
   if (!ownerColumns.includes("role")) database.exec("ALTER TABLE owners ADD COLUMN role TEXT NOT NULL DEFAULT 'owner'");
   const sessionColumns = database.prepare("PRAGMA table_info(sessions)").all().map((column) => column.name);
   if (!sessionColumns.includes("elevated_until")) database.exec("ALTER TABLE sessions ADD COLUMN elevated_until TEXT");
+  // A public per-session id and the "from where" metadata for the session list (M19.4). The token
+  // hash stays the secret; the id is what the owner sees and revokes by.
+  for (const [column, definition] of [["id", "TEXT"], ["client_address", "TEXT"], ["user_agent", "TEXT"], ["method", "TEXT"]]) {
+    if (!sessionColumns.includes(column)) database.exec(`ALTER TABLE sessions ADD COLUMN ${column} ${definition}`);
+  }
+  // Give any session that predates the id column a stable one, so every row is revocable.
+  for (const row of database.prepare("SELECT token_hash FROM sessions WHERE id IS NULL").all()) {
+    database.prepare("UPDATE sessions SET id = ? WHERE token_hash = ?").run(randomUUID(), row.token_hash);
+  }
   // v1.33.0 shipped flows without a cadence; a flow on a clock needs one (ADR-002 addendum).
   const flowColumns = database.prepare("PRAGMA table_info(flows)").all().map((column) => column.name);
   for (const [column, definition] of [["frequency", "TEXT"], ["minute", "INTEGER"], ["hour", "INTEGER"], ["weekday", "INTEGER"], ["enabled", "INTEGER NOT NULL DEFAULT 1"], ["next_due_at", "TEXT"], ["trigger_flow_id", "TEXT"], ["webhook_hash", "TEXT"]]) {
@@ -529,14 +538,15 @@ export function createStateStore({
     return { id: account.id, username: account.username, role: "disabled", createdAt: account.createdAt };
   }
 
-  function createSession(ownerId, { ttlMs = 12 * 60 * 60 * 1000 } = {}) {
+  function createSession(ownerId, { ttlMs = 12 * 60 * 60 * 1000, address = null, userAgent = null, method = null } = {}) {
     const token = tokenBytes(32).toString("base64url");
     const csrfToken = tokenBytes(32).toString("base64url");
+    const id = randomUUID();
     const createdAt = now();
     const expiresAt = new Date(createdAt.getTime() + ttlMs);
-    database.prepare("INSERT INTO sessions (token_hash, owner_id, csrf_token, created_at, expires_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(digest(token), ownerId, csrfToken, iso(createdAt), iso(expiresAt), iso(createdAt));
-    return { token, csrfToken, expiresAt: iso(expiresAt) };
+    database.prepare("INSERT INTO sessions (token_hash, id, owner_id, csrf_token, created_at, expires_at, last_seen_at, client_address, user_agent, method) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(digest(token), id, ownerId, csrfToken, iso(createdAt), iso(expiresAt), iso(createdAt), address, userAgent, method);
+    return { token, csrfToken, expiresAt: iso(expiresAt), id };
   }
 
   function getSession(token) {
@@ -550,12 +560,39 @@ export function createStateStore({
     if (!row) return null;
     if (!row.last_seen_at || Date.parse(at) - Date.parse(row.last_seen_at) > 60_000) database.prepare("UPDATE sessions SET last_seen_at = ? WHERE token_hash = ?").run(at, digest(token));
     return {
+      id: row.id,
       tokenHash: row.token_hash,
       owner: { id: row.owner_id, username: row.username, role: row.role ?? "owner" },
       csrfToken: row.csrf_token,
       expiresAt: row.expires_at,
       elevatedUntil: row.elevated_until ?? null,
     };
+  }
+
+  /** Every live session for an owner, newest activity first, for the session list (M19.4). */
+  function listSessions(ownerId) {
+    const at = timestamp();
+    return database.prepare("SELECT id, created_at, expires_at, last_seen_at, client_address, user_agent, method, elevated_until FROM sessions WHERE owner_id = ? AND expires_at > ? ORDER BY last_seen_at DESC").all(ownerId, at).map((row) => ({
+      id: row.id,
+      createdAt: row.created_at,
+      expiresAt: row.expires_at,
+      lastSeenAt: row.last_seen_at,
+      address: row.client_address ?? null,
+      userAgent: row.user_agent ?? null,
+      method: row.method ?? null,
+      elevated: Boolean(row.elevated_until && Date.parse(row.elevated_until) > now().getTime()),
+    }));
+  }
+
+  /** End one of an owner's sessions by its public id. Returns how many rows went (0 or 1). */
+  function revokeSession(ownerId, id) {
+    if (typeof id !== "string") return 0;
+    return Number(database.prepare("DELETE FROM sessions WHERE owner_id = ? AND id = ?").run(ownerId, id).changes);
+  }
+
+  /** End every session for an owner except the one to keep. Returns how many were ended. */
+  function revokeOtherSessions(ownerId, keepId) {
+    return Number(database.prepare("DELETE FROM sessions WHERE owner_id = ? AND id IS NOT ?").run(ownerId, keepId).changes);
   }
 
   /** Mark a session as recently password-verified until `until` (ISO string or Date). Returns the new value or null if the session is gone. */
@@ -1473,6 +1510,9 @@ export function createStateStore({
     setOwnerPassword,
     createSession,
     getSession,
+    listSessions,
+    revokeSession,
+    revokeOtherSessions,
     elevateSession,
     clearSessionElevation,
     getSetting,

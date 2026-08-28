@@ -1,6 +1,6 @@
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { defaultThrottle as throttle, defaultSprayThrottle as sprayThrottle } from "./login-throttle.mjs";
-import { tailnetClientAddress } from "./identity.mjs";
+import { normalizeAddress, tailnetClientAddress } from "./identity.mjs";
 import { promisify } from "node:util";
 import { elevationTtlMs } from "./ops/risk.mjs";
 
@@ -65,6 +65,21 @@ export async function verifyPassword(password, encoded) {
 }
 
 export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, resolveClientAddress = null } = {}) {
+  /**
+   * Best-effort "from where" for the session list: the tailnet peer if there is one, otherwise the
+   * forwarded or socket address, plus the user agent. This is display metadata shown to the owner
+   * about their own sessions, not a trust decision, so a forged header at worst mislabels a row.
+   */
+  function clientDescriptor(request) {
+    const direct = tailnetClientAddress(request);
+    const forwarded = String(request.get?.("x-forwarded-for") ?? "").split(",")[0].trim();
+    const raw = direct || forwarded || request.socket?.remoteAddress || request.ip || null;
+    return {
+      address: raw ? (normalizeAddress(raw) ?? String(raw).slice(0, 64)) : null,
+      userAgent: (request.get?.("user-agent") ?? "").slice(0, 300) || null,
+    };
+  }
+
   function requestSession(request) {
     const cookies = parseCookies(request.get("cookie"));
     // The host-pinned name wins; the plain one keeps sessions issued before this alive.
@@ -168,7 +183,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
     try {
       const passwordHash = await hashPassword(password);
       const owner = store.consumeBootstrapToken(bootstrapToken, { username, passwordHash });
-      const session = store.createSession(owner.id, { ttlMs: sessionTtlMs });
+      const session = store.createSession(owner.id, { ttlMs: sessionTtlMs, ...clientDescriptor(request), method: "password" });
       appendCookie(request, response, cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000)));
       response.status(201).json({ authenticated: true, owner: { id: owner.id, username: owner.username, role: owner.role ?? "owner" }, csrfToken: session.csrfToken, expiresAt: session.expiresAt });
     } catch (error) {
@@ -244,7 +259,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
       response.status(401).json({ error: "Invalid username or password", code: "invalid_credentials" });
       return;
     }
-    const session = store.createSession(owner.id, { ttlMs: sessionTtlMs });
+    const session = store.createSession(owner.id, { ttlMs: sessionTtlMs, ...clientDescriptor(request), method: "password" });
     store.recordAudit("session.created", { actorId: owner.id, subjectId: owner.id });
     appendCookie(request, response, cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000)));
     response.json({ authenticated: true, owner: { id: owner.id, username: owner.username, role: owner.role ?? "owner" }, csrfToken: session.csrfToken, expiresAt: session.expiresAt });
@@ -253,7 +268,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
   /** Issue a session for an owner authenticated by an external identity (Tailscale, GitHub). */
   function issueSession(request, response, owner, { method = "identity", detail = null } = {}) {
     if (owner?.role === "disabled") throw new Error("This account is disabled");
-    const session = store.createSession(owner.id, { ttlMs: sessionTtlMs });
+    const session = store.createSession(owner.id, { ttlMs: sessionTtlMs, ...clientDescriptor(request), method });
     store.recordAudit("session.created", { actorId: owner.id, subjectId: owner.id, details: { method, ...(detail ? { detail } : {}) } });
     appendCookie(request, response, cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000)));
     return { authenticated: true, owner: { id: owner.id, username: owner.username, role: owner.role ?? "owner" }, csrfToken: session.csrfToken, expiresAt: session.expiresAt, elevatedUntil: null, method };
@@ -330,7 +345,34 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
     response.status(204).end();
   }
 
-  return { bootstrap, login, status, logout, elevate, dropElevation, changePassword, issueSession, requestSession, requireSession, requireCsrf, requireRole, trustedDevice, rememberDevice, checkPassword, rejectThrottled };
+  // ---- Session list (M19.4): what is signed in, from where, and cut any of it off ------------
+  function listSessions(request, response) {
+    const session = request.boxpilotSession;
+    response.json({ currentId: session.id, sessions: store.listSessions(session.owner.id) });
+  }
+
+  function revokeSession(request, response) {
+    const session = request.boxpilotSession;
+    const id = request.params.id;
+    if (!store.revokeSession(session.owner.id, id)) {
+      response.status(404).json({ error: "That session was not found", code: "session_not_found" });
+      return;
+    }
+    const wasCurrent = id === session.id;
+    store.recordAudit("session.revoked", { actorId: session.owner.id, subjectId: session.owner.id, details: { self: wasCurrent } });
+    // Ending your own session is a sign-out, so clear the cookie in that one case.
+    if (wasCurrent) response.setHeader("Set-Cookie", [cookieHeader(request, "", 0), `${cookieName}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0`]);
+    response.json({ revoked: true, wasCurrent });
+  }
+
+  function revokeOtherSessions(request, response) {
+    const session = request.boxpilotSession;
+    const count = store.revokeOtherSessions(session.owner.id, session.id);
+    store.recordAudit("session.revoked-others", { actorId: session.owner.id, subjectId: session.owner.id, details: { count } });
+    response.json({ revoked: count });
+  }
+
+  return { bootstrap, login, status, logout, elevate, dropElevation, changePassword, issueSession, requestSession, requireSession, requireCsrf, requireRole, trustedDevice, rememberDevice, checkPassword, rejectThrottled, listSessions, revokeSession, revokeOtherSessions };
 }
 
 export const securityInternals = { cookieName, parseCookies, safeEqual, validateCredentials };

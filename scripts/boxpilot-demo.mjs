@@ -397,6 +397,10 @@ api.get("/auth/passkey", (_request, response) => json(response, { passkeys: [
   { id: "pk-demo-phone", rpId: host.tailnet, label: "iPhone (Face ID)", transports: ["internal", "hybrid"], createdAt: ago(24 * 34), lastUsedAt: ago(7) },
   { id: "pk-demo-key", rpId: "boxpilot.lan", label: "YubiKey 5C", transports: ["usb"], createdAt: ago(24 * 11), lastUsedAt: ago(24 * 3) },
 ], recoveryCodesRemaining: 8 }));
+api.get("/auth/sessions", (_request, response) => json(response, { currentId: "sess-demo-here", sessions: [
+  { id: "sess-demo-here", createdAt: ago(6), expiresAt: ago(-6), lastSeenAt: ago(0.02), address: host.tailscaleIp, userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/130.0 Safari/537.36", method: "passkey", elevated: true },
+  { id: "sess-demo-phone", createdAt: ago(31), expiresAt: ago(-2), lastSeenAt: ago(3), address: host.tailscaleIp, userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Version/18.0 Mobile Safari/604.1", method: "tailscale", elevated: false },
+] }));
 api.get("/inventory", (_request, response) => json(response, inventory()));
 api.get("/network/topology", (_request, response) => json(response, topology()));
 api.get("/network/plans", (_request, response) => json(response, { plans: [] }));

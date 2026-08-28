@@ -4138,6 +4138,9 @@ textarea {
 .recovery-codes-box { margin-top: 10px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-2, rgba(127, 127, 127, 0.06)); }
 .recovery-code-list { list-style: none; margin: 8px 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 16px; }
 .recovery-code-list code { font-size: 15px; letter-spacing: 0.06em; }
+.session-here { color: var(--accent); font-weight: 600; }
+.session-elevated { color: var(--good); font-weight: 600; }
+.session-row span code { font-size: 12px; }
 
 /* Activity drawer (M1.5) */
 .activity-button { position: relative; display: inline-flex; align-items: center; gap: 6px; }

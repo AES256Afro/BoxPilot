@@ -615,8 +615,17 @@ front door as strong as the rest of the product, and does it in a way that works
   weakest door is not one secret.
 - **M19.3** **BoxPilot as an OIDC provider.** Sign in to your installed apps with your BoxPilot
   identity, through a forward-auth proxy — one login for the whole box instead of a password per app.
-- **M19.4** **Session and device management.** See what is signed in, from where, and cut any of it
-  off; a real session list, not just a cookie.
+- ✅ **M19.4** (v1.62.0) **Session and device management.** A session list on Settings: every live
+  session for the account, with the device (parsed from the user agent), the address it signed in from,
+  how (password, passkey, Tailscale, GitHub, recovery code), when, and how recently it was active — the
+  current one marked, an elevated window shown as "unlocked". Each session carries a stable public id
+  (the token hash stays the only secret), so it is revoked by id without the token ever being exposed;
+  revoke one, or "sign out everywhere else" in one action; revoking the current session is a plain
+  sign-out. Every revoke is owner-scoped and audited. Sign-in records the address/user-agent/method at
+  each entry point so the list has something honest to show; the "from where" is best-effort and says
+  so. `state.mjs` (id + metadata columns, migrated and backfilled), `server/security.mjs`,
+  `src/SessionsSettings.tsx`. **Remaining:** a geo/ASN hint on the address, and a "this looks new" nudge
+  when a session signs in from an unfamiliar address.
 
 ## M20 — Backups you can bet the house on
 
