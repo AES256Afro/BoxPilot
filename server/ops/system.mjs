@@ -31,9 +31,18 @@ export function systemOperations() {
   return [
     defineOperation({
       id: "system.web.lan.set", title: "Reach BoxPilot on your local network", risk: "medium", timeoutMs: 2 * 60_000, minimumRole: "owner",
-      description: "Serves the BoxPilot control panel on this server's network address, not only over Tailscale, so a device on your LAN can reach it. The Tailscale path keeps working. Anyone on your network can then reach the sign-in page, and the password crosses the LAN unencrypted until HTTPS on the LAN lands, so turn this on only on a network you trust. BoxPilot restarts a few seconds after this runs.",
+      description: "Serves the BoxPilot control panel on this server's network address, not only over Tailscale, so a device on your LAN can reach it. The Tailscale path keeps working. Anyone on your network can then reach the sign-in page, and over plain HTTP the password crosses the LAN unencrypted, so set up HTTPS on the LAN as well and turn this on only on a network you trust. BoxPilot restarts a few seconds after this runs.",
       parameters: { fields: { enabled: { type: "boolean" } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("web.bind.set", { scope: parameters.enabled ? "lan" : "loopback" }, { timeoutMs: 60_000, logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "system.web.tls.provision", title: "Set up HTTPS on your local network", risk: "medium", timeoutMs: 3 * 60_000, minimumRole: "owner",
+      description: "Creates a BoxPilot certificate authority on this server (once) and issues a certificate for the names and address you reach it by, then serves the control panel over HTTPS on the LAN. Install the certificate on your devices from the download it gives you, and the browser trusts the sign-in page with no warning and the password is encrypted on your network. The plain and Tailscale paths keep working. BoxPilot restarts a few seconds after this runs.",
+      parameters: { fields: {
+        names: { type: "array", validate: (value) => (Array.isArray(value) && value.length >= 1 && value.length <= 16 && value.every((name) => typeof name === "string" && /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/i.test(name)) ? null : "must be 1 to 16 valid host names") },
+        ipAddresses: { type: "array", optional: true, validate: (value) => (Array.isArray(value) && value.length <= 8 && value.every((address) => typeof address === "string" && /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(address)) ? null : "must be up to 8 IPv4 addresses") },
+      } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("web.tls.provision", { names: parameters.names, ipAddresses: parameters.ipAddresses ?? [] }, { timeoutMs: 2 * 60_000, logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "system.reboot", title: "Reboot the server", risk: "high", timeoutMs: 60_000,

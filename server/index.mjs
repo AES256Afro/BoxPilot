@@ -1,8 +1,11 @@
 import express from "express";
 import { randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
 import { createDeviceResolver } from "./catalog/devices.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { startTlsListener } from "./tls-listener.mjs";
 import { productVersion } from "./version.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { createJobLogReader } from "./job-log.mjs";
@@ -55,6 +58,7 @@ import { createVmRestoreDrillService } from "./vm-restore-drill.mjs";
 const app = express();
 const host = process.env.BOXPILOT_HOST ?? "127.0.0.1";
 const port = Number.parseInt(process.env.BOXPILOT_PORT ?? "8787", 10);
+const tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dist = path.join(root, "dist");
 
@@ -220,6 +224,22 @@ app.get("/api/v1/health", (_request, response) => {
   });
 });
 
+// The local CA's public certificate, so a device can install it and trust HTTPS on the LAN (M18.2).
+// Public on purpose: a browser must fetch it before it can trust the sign-in page, and it is a
+// public certificate, never a key. Only ever serves ca.crt from the TLS directory.
+app.get("/ca.crt", async (_request, response) => {
+  const caPath = path.join(tlsDir, "ca.crt");
+  try {
+    await stat(caPath);
+  } catch {
+    return response.status(404).type("text/plain").send("No BoxPilot certificate authority has been set up yet.");
+  }
+  response.setHeader("Content-Type", "application/x-x509-ca-cert");
+  response.setHeader("Content-Disposition", 'attachment; filename="boxpilot-ca.crt"');
+  response.setHeader("Cache-Control", "no-store");
+  createReadStream(caPath).on("error", () => response.destroy()).pipe(response);
+});
+
 const identity = createIdentityService({ store: state });
 // The one token-gated door (ADR-002 addendum): fire a flow by webhook. Before the session wall
 // on purpose; the token is the auth, a wrong one is indistinguishable from a missing flow, and
@@ -314,3 +334,7 @@ app.listen(port, host, () => {
   console.log(`BoxPilot ${productVersion} listening on http://${host}:${port}`);
   if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
 });
+
+// The encrypted LAN listener (M18.2), if a certificate has been provisioned. Never fatal: the HTTP
+// listener and the Tailscale Serve path above keep working regardless.
+startTlsListener(app, { host });

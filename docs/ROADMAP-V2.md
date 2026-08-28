@@ -555,10 +555,10 @@ lives. M16 when the owner says the word about a second firewall box; nothing els
 
 ## M18 — Reach BoxPilot the way you actually live on your network
 
-Today the control plane is loopback-only behind Tailscale Serve: away from home it is perfect, but
-a laptop on the couch that is not on the tailnet cannot reach it at all, and nothing here is served
-over HTTPS on the LAN, which blocks every browser feature that needs a secure context (passkeys
-first among them). This arc makes local access first-class without weakening the away path.
+By default the control plane is loopback-only behind Tailscale Serve: away from home it is perfect,
+but a laptop on the couch that is not on the tailnet could not reach it at all, and without HTTPS on
+the LAN every browser feature that needs a secure context (passkeys first among them) stays dark.
+This arc makes local access first-class — reachable and encrypted — without weakening the away path.
 
 - ✅ **M18.1** (v1.59.0) **Bind to the LAN, safely.** An owner-only toggle that also serves the admin UI on the
   network address, not only loopback. The identity trust already handles this correctly — a LAN
@@ -567,10 +567,21 @@ first among them). This arc makes local access first-class without weakening the
   bind, deferred self-restart, open the web port in the firewall) and the honesty (a plain warning
   that the password crosses the LAN in the clear until M18.2). Binding `0.0.0.0` keeps the Serve
   path working, so this cannot lock the owner out.
-- **M18.2** **HTTPS on the LAN with a local certificate.** A self-signed certificate (or a small
-  local CA the owner can trust once on their devices), so LAN access is encrypted and secure-context
-  browser features light up. This is the gate for passkeys over the LAN and for anything that wants
-  `crypto.subtle` or the clipboard. Renewal handled; the trust story shown plainly.
+- ◐ **M18.2** (v1.60.0) **HTTPS on the LAN with a local certificate.** ✅ **The core.** A small local
+  certificate authority created once on the box (`server/tasks/web-tls.mjs`, op `system.web.tls.provision`,
+  EC P-256 via the system `openssl`), reused forever so a device that trusts it stays trusting, and a
+  short-lived leaf reissued for the server's names and LAN address (`boxpilot.lan`, `<host>`, `<host>.lan`,
+  and the IPv4 as an IP SAN so `https://<lan-ip>:8443` is trusted with no DNS at all). The web process
+  opens a second listener that terminates TLS itself (`server/tls-listener.mjs`, port 8443, opt-in and
+  never fatal — the HTTP and Serve paths are untouched, so this cannot lock the owner out); the CA
+  private key stays root-only, the leaf key is readable only by the `boxpilot` group, the certificates
+  are public. The owner installs the CA once per device from a public `/ca.crt` download (never a key),
+  with the SHA-256 fingerprint shown to check against and per-OS install steps on the Network page. The
+  status is read with Node's built-in `X509Certificate` (`server/tls-status.mjs`), no shell-out on the
+  web side. This is the gate for passkeys over the LAN (M19.1) and for anything that wants a secure
+  context. **Remaining:** bind 443 directly via `AmbientCapabilities=CAP_NET_BIND_SERVICE` so the port
+  is not in the URL; automatic renewal before the leaf expires; and fold the trusted HTTPS address into
+  the reachability panel below.
 - **M18.3** **One place that tells you every way in.** A single panel that lists the addresses the
   control plane answers on — loopback, LAN, tailnet, Serve HTTPS — each probed live (the reachability
   doctor pointed at BoxPilot itself), so "why can't my phone reach it" has an answer on screen.
