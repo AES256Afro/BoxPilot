@@ -1,0 +1,10 @@
+name: Update night
+description: Take a machine snapshot, refresh the package lists, then install every update. The upgrade restarts services running old libraries by itself, BoxPilot included, after this flow's result is safely recorded.
+steps:
+  - operationId: host.snapshot.create
+    parameters: {}
+  - operationId: apt.refresh
+    parameters: {}
+  - operationId: apt.upgrade
+    parameters: {}
+    retry: 1

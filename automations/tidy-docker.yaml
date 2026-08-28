@@ -1,0 +1,5 @@
+name: Tidy up Docker
+description: Reclaim disk from images and build layers nothing uses anymore. Safe to run on a schedule; running containers and their images are never touched.
+steps:
+  - operationId: docker.prune
+    parameters: {}

@@ -418,9 +418,13 @@ its network, use a generic HTTP step for everything else, and hand SaaS breadth 
   last, closing the shipped-but-unreachable gap on M13.3/13.4/13.7/13.8. Remaining: a canvas,
   per-step naming and conditions in the form (they need a name picker), and reordering beyond
   up/down.
-- **M13.11** **A flow library.** Shareable definitions the way the app catalog ships manifests:
-  "snapshot, update, verify, tell me on ntfy" as one importable thing rather than everyone
-  rebuilding it.
+- ◐ **M13.11** (v1.53.0) **A flow library.** The ready-made shelf is now files, not a hardcoded
+  array: `automations/*.yaml`, each validated against the live registry by the same validateFlow
+  the API uses, so a library entry can never offer a step a hand-built flow could not (a retired
+  op, a high-risk one, a secret-bearing one show up as a load problem instead of a broken shelf
+  item). `loadFlowLibrary` mirrors the catalog loader; `/flows` serves the shelf; the page reads
+  it. Adding an entry is dropping a YAML file. Remaining: sharing definitions between servers and
+  an export of a flow the owner built, which is the same shape pointed outward.
 - **M13.12** **Model steps.** A step that asks the local model runner — Ollama is already in the
   catalog — to summarise, classify or choose between options, with the answer constrained to a
   schema. Useful for "read this log and tell me whether it matters". A model may never select the
