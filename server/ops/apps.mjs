@@ -72,7 +72,7 @@ export function appOperations() {
     }),
     defineOperation({
       id: "compose.project.action", title: "Start, stop, or restart a compose stack", risk: "medium", timeoutMs: minutes(6),
-      description: "Runs docker compose start, stop, or restart on a stack this server has that BoxPilot did not create, using the stack's own compose files. Lifecycle only; the stack is not modified or adopted.",
+      description: "Runs docker compose start, stop, or restart on a compose stack on this server that BoxPilot did not create, using the stack's own compose files. Lifecycle only; the stack is not modified or adopted.",
       parameters: { fields: { name: { type: "string", maxLength: 120, pattern: /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/ }, action: { type: "string", enum: ["start", "stop", "restart"] } } },
       run: (parameters, { apps, progress }) => apps.foreignProjectAction({ name: parameters.name, action: parameters.action }, { progress }),
     }),

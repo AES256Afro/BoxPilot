@@ -235,15 +235,22 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
                       </div>
                       {fields.length > 0 && (
                         <div className="flow-draft-fields">
-                          {fields.map((field) => (
-                            <label key={field.name}>{humanize(field.name)}{field.optional ? "" : " *"}
-                              {field.enum
-                                ? <select aria-label={`${humanize(field.name)} for step ${index + 1}`} value={step.parameters[field.name] ?? ""} onChange={(event) => setParam(field.name, event.target.value)}><option value="">choose…</option>{field.enum.map((option) => <option key={option} value={option}>{option}</option>)}</select>
-                                : field.type === "boolean"
-                                  ? <select aria-label={`${humanize(field.name)} for step ${index + 1}`} value={step.parameters[field.name] ?? ""} onChange={(event) => setParam(field.name, event.target.value)}><option value="">choose…</option><option value="true">Yes</option><option value="false">No</option></select>
-                                  : <input aria-label={`${humanize(field.name)} for step ${index + 1}`} type={field.type === "number" ? "number" : "text"} value={step.parameters[field.name] ?? ""} onChange={(event) => setParam(field.name, event.target.value)} />}
-                            </label>
-                          ))}
+                          {fields.map((field) => {
+                            // A field with a fixed set of choices (declared enum, or yes/no for a
+                            // boolean) renders as one select; everything else is a text or number box.
+                            const choices = field.enum ?? (field.type === "boolean" ? ["true", "false"] : null);
+                            const label = `${humanize(field.name)} for step ${index + 1}`;
+                            return (
+                              <label key={field.name}>{humanize(field.name)}{field.optional ? "" : " *"}
+                                {choices
+                                  ? <select aria-label={label} value={step.parameters[field.name] ?? ""} onChange={(event) => setParam(field.name, event.target.value)}>
+                                      <option value="">choose…</option>
+                                      {choices.map((option) => <option key={option} value={option}>{field.type === "boolean" ? (option === "true" ? "Yes" : "No") : option}</option>)}
+                                    </select>
+                                  : <input aria-label={label} type={field.type === "number" ? "number" : "text"} value={step.parameters[field.name] ?? ""} onChange={(event) => setParam(field.name, event.target.value)} />}
+                              </label>
+                            );
+                          })}
                         </div>
                       )}
                       <div className="flow-draft-policy">

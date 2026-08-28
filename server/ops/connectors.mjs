@@ -35,7 +35,7 @@ export function connectorOperations() {
     }),
     defineOperation({
       id: "http.request", title: "Send an HTTP request", risk: "medium", timeoutMs: minutes(2), minimumRole: "owner",
-      description: "Sends one request from this server: a webhook, an ntfy push, an API call. A saved credential can ride along by name in a header of your choosing; the response's status, body, and parsed JSON become the result, which later automation steps can read. Owner-run. Sent from this server; a redirect is never followed when a credential rides along.",
+      description: "Sends one request from this server: a webhook, an ntfy push, an API call. A saved credential can ride along by name in a header of your choosing; the response's status, body, and parsed JSON become the result, which later automation steps can read. A redirect is never followed when a credential rides along.",
       parameters: { fields: {
         url: { type: "string", maxLength: 2048, pattern: /^https?:\/\/\S+$/ },
         method: { type: "string", optional: true, enum: ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"] },
