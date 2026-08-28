@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 
 interface NotificationState { configured: boolean; kind: "ntfy" | "gotify" | "webhook" | null; url: string | null; topic: string | null; hasToken: boolean }
+interface WatchCondition { key: string; label: string; active: boolean; details: Array<{ title: string; since: string | null }> }
+interface WatchStatus { targetConfigured: boolean; activeCount: number; conditions: WatchCondition[] }
 
 /**
  * Settings panel: where failed-job alerts go. ntfy and Gotify are both in the app catalog,
@@ -18,8 +20,12 @@ export default function NotificationSettings({ csrfToken }: { csrfToken: string 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const [watch, setWatch] = useState<WatchStatus | null>(null);
   const refresh = () => fetch("/api/v1/settings/notifications").then((response) => response.json()).then((body: NotificationState) => setCurrent(body)).catch(() => setError("Could not read the notification settings"));
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => {
+    void refresh();
+    fetch("/api/v1/settings/watch").then((response) => (response.ok ? response.json() : null)).then((body: WatchStatus | null) => setWatch(body)).catch(() => {});
+  }, []);
 
   const save = async (target: { kind: string; url: string; topic?: string; token?: string } | null) => {
     setBusy(true); setError(null); setMessage(null);
@@ -56,7 +62,20 @@ export default function NotificationSettings({ csrfToken }: { csrfToken: string 
         <div><strong>Notifications</strong><span>Failed jobs push to your phone. Ntfy and Gotify are both in the app catalog</span></div>
         <span className={`status-pill ${current?.configured ? "status-good" : "status-neutral"}`}>{current?.configured ? `${current.kind} configured` : "Off"}</span>
       </header>
-      <p className="muted">You get a push for: a failed job, a new BoxPilot release, and health changes on this server (root or any mounted disk over 85–90 % full, a filesystem on track to fill within two weeks, a disk with SMART problems or whose errors are climbing, an SSD nearing its write-endurance limit, the UPS on battery or low, failed system services, a pending reboot, a container that is unhealthy or crash-looping, and a scheduled backup that has stopped running). Each condition is sent once when it appears and once when it clears; the watcher checks every 15 minutes.</p>
+      <p className="muted">You get a push for a failed job and a new BoxPilot release. BoxPilot also watches your server for the conditions below and notifies you when one turns bad — and again when it clears — checking every 15 minutes.</p>
+      {watch && (
+        <div className="watch-status">
+          <div className="watch-summary">{watch.activeCount === 0 ? <span className="good-text">All clear</span> : <span className="auth-error" style={{ display: "inline", padding: "2px 8px" }}>{watch.activeCount} needs attention</span>}{!watch.targetConfigured && <span className="muted"> · set a target below so these can reach you</span>}</div>
+          <div className="watch-grid">
+            {watch.conditions.map((condition) => (
+              <span className={`watch-item ${condition.active ? "watch-active" : ""}`} key={condition.key} title={condition.active ? condition.details.map((detail) => detail.title).join("; ") : "Clear"}>
+                <span className={`watch-dot ${condition.active ? "watch-dot-active" : "watch-dot-clear"}`} aria-hidden="true" />
+                {condition.label}{condition.active && condition.details.length > 1 ? ` (${condition.details.length})` : ""}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="notification-settings">
         {current?.configured && !editing && (
           <>

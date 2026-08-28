@@ -434,6 +434,12 @@ api.get("/controller-backup-retention", (_request, response) => json(response, {
 api.get("/settings/backup-destination", (_request, response) => json(response, { destination: { host: "nas.local", port: 22, user: "backup", path: "/volume1/boxpilot" }, lastSync: { completedAt: ago(26), filesTransferred: 3, bytesTransferred: 58 * 1024 ** 2, destination: "backup@nas.local:/volume1/boxpilot" } }));
 api.get("/settings/cloud-destination", (_request, response) => json(response, { destination: { provider: "b2", account: "001a2b3c4d5e", bucket: "homebox-backups", path: "homebox" }, lastSync: { completedAt: ago(26), filesTransferred: 3, bytesTransferred: "58.1 MiB", destination: "boxpilot:homebox-backups/homebox", errors: 0 } }));
 api.get("/settings/notifications", (_request, response) => json(response, { configured: true, kind: "ntfy", url: "http://127.0.0.1:8093", topic: "homebox", hasToken: false }));
+api.get("/settings/watch", (_request, response) => json(response, { targetConfigured: true, activeCount: 0, conditions: [
+  ["storage.root.full", "Root disk nearly full"], ["storage.mount.full", "A mounted filesystem is nearly full"], ["storage.forecast", "A filesystem is on track to fill soon"],
+  ["storage.smart", "A disk reports SMART problems"], ["smart.errors", "A disk's error count is climbing"], ["smart.wear", "An SSD is nearing its write-endurance limit"],
+  ["power.ups", "UPS on battery or low"], ["system.services", "System services have failed"], ["system.reboot", "A reboot is required"],
+  ["docker.unhealthy", "A container is unhealthy"], ["docker.restarting", "A container keeps restarting (crash-looping)"], ["schedule.overdue", "A scheduled task (such as a backup) has stopped running"],
+].map(([key, label]) => ({ key, label, active: false, details: [] })) }));
 api.get("/settings/approval-mode", (_request, response) => json(response, { mode: "tiered", modes: ["tiered", "always-ask"] }));
 // Real profiles from the product, resolved against the demo's installed set, so the first page a
 // new owner sees is actually exercisable here.
