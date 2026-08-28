@@ -286,12 +286,17 @@ describe("config files shipped with an app", () => {
     expect(writable.errors.join(" ")).toMatch(/always read-only/);
   });
 
-  it("the shipped Prometheus stack renders host metrics wiring", async () => {
+  it("the shipped Prometheus stack renders host and per-container metrics wiring", async () => {
     const { manifests } = await loadCatalog();
     const prometheus = manifests.find((entry) => entry.id === "prometheus");
     const { compose, files } = renderCompose(prometheus, resolveValues(prometheus, {}).values, { lanAddress: "0.0.0.0" });
+    // node-exporter (host) and cadvisor (per-container), both read-only, both scraped. Verified
+    // live: all three targets came up UP and container series flowed.
     expect(compose.services["node-exporter"].volumes).toContain("/:/host:ro");
+    expect(compose.services.cadvisor.volumes).toContain("/var/lib/docker:/var/lib/docker:ro");
+    expect(compose.services.cadvisor.devices).toContain("/dev/kmsg:/dev/kmsg");
     expect(files[0].content).toMatch(/node-exporter:9100/);
+    expect(files[0].content).toMatch(/cadvisor:8080/);
   });
 });
 
