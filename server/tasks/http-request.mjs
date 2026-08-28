@@ -18,12 +18,22 @@ export async function httpRequest(parameters = {}, { credentials = createCredent
   if (!methods.has(method)) throw new Error(`method must be one of ${[...methods].join(", ")}`);
   if (body !== null && (typeof body !== "string" || body.length > 16384)) throw new Error("body must be a string of at most 16384 characters");
 
+  // The cloud metadata endpoint answers no legitimate home-server request and hands out
+  // instance credentials; nothing else legitimate lives on link-local. Loopback and LAN are
+  // deliberately allowed, because the owner's own ntfy and LAN webhooks are the point.
+  const host = new URL(url).hostname;
+  if (host === "169.254.169.254" || host === "metadata.google.internal" || /^169\.254\./.test(host) || /^\[?fe80:/i.test(host)) {
+    throw new Error("Requests to the link-local metadata range are refused");
+  }
+
   const headers = {};
   if (body !== null) headers["Content-Type"] = contentType ?? "application/json";
+  let carriesCredential = false;
   if (credentialName) {
     const value = await credentials.read(credentialName);
     if (value === null) throw new Error(`No credential is named ${credentialName}; save it under Settings first`);
     headers[credentialHeader] = `${credentialPrefix}${value}`;
+    carriesCredential = true;
   }
 
   const started = now();
@@ -31,13 +41,31 @@ export async function httpRequest(parameters = {}, { credentials = createCredent
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let response;
   try {
-    response = await fetcher(url, { method, headers, ...(body !== null && method !== "GET" && method !== "HEAD" ? { body } : {}), redirect: "follow", signal: controller.signal });
+    // A redirect can send a custom credential header to another origin (fetch strips only
+    // Authorization/Cookie), so a request that carries a credential never follows one: a 3xx
+    // is returned as-is for the caller to read rather than chased to an attacker's host.
+    response = await fetcher(url, { method, headers, ...(body !== null && method !== "GET" && method !== "HEAD" ? { body } : {}), redirect: carriesCredential ? "manual" : "follow", signal: controller.signal });
   } catch (error) {
     throw new Error(error.name === "AbortError" ? `No answer within ${Math.round(timeoutMs / 1000)}s` : `The request failed: ${error.cause?.code ?? error.message}`);
-  } finally {
-    clearTimeout(timer);
   }
-  const text = await response.text().catch(() => "");
+  // Read the body under the same abort deadline and stop at the excerpt cap, so a server that
+  // dribbles or never ends a huge body cannot hang the task or exhaust memory: the request is
+  // bounded end to end, not just to first byte.
+  let text = "";
+  try {
+    const reader = response.body?.getReader?.();
+    if (reader) {
+      const decoder = new TextDecoder();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        text += decoder.decode(value, { stream: true });
+        if (text.length >= bodyLimit + 1) { void reader.cancel().catch(() => {}); break; }
+      }
+    } else {
+      text = await response.text();
+    }
+  } catch { text = ""; } finally { clearTimeout(timer); }
   const excerpt = text.slice(0, bodyLimit);
   let json = null;
   try { json = JSON.parse(text); } catch { /* not JSON; the excerpt still tells the story */ }

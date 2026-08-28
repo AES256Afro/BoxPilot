@@ -140,17 +140,20 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
     return `flows may chain at most ${chainLimit} deep`;
   }
 
+  // The stored hash is never the browser's business; strip it from anything a route returns.
+  const withoutHash = ({ webhookHash: _webhookHash, ...flow }) => flow;
+
   async function create({ name, steps, createdBy, cadence = null, triggerFlowId = null }) {
     const problem = validateFlow({ name, steps }, registry);
     if (problem) throw new Error(problem);
     const triggerProblem = checkTrigger(triggerFlowId);
     if (triggerProblem) throw new Error(triggerProblem);
-    return store.createFlow({ name: name.trim(), steps: normalizeSteps(steps), createdBy, triggerFlowId, ...cadenceFields(cadence) });
+    return withoutHash(store.createFlow({ name: name.trim(), steps: normalizeSteps(steps), createdBy, triggerFlowId, ...cadenceFields(cadence) }));
   }
 
   function list() {
     // The hash never travels to a browser: it is not invertible, but it is also not the page's business.
-    return store.listFlows().map(({ webhookHash: _webhookHash, ...flow }) => ({ ...flow, risk: flowRisk(flow.steps, registry), running: running.has(flow.id) }));
+    return store.listFlows().map((flow) => ({ ...withoutHash(flow), risk: flowRisk(flow.steps, registry), running: running.has(flow.id) }));
   }
 
   async function update(id, { name, steps, cadence, enabled, triggerFlowId }, actorId, { role = "owner" } = {}) {
@@ -169,7 +172,7 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
     if (enabled === true && flow.frequency && cadence === undefined) {
       changes.nextDueAt = computeNextRun(flow, now()).toISOString();
     }
-    return store.updateFlow(id, changes, { actorId });
+    return withoutHash(store.updateFlow(id, changes, { actorId }));
   }
 
   function remove(id, actorId, { role = "owner" } = {}) {
@@ -350,7 +353,9 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
   function fireWebhook(id, token, { source = null } = {}) {
     const flow = store.getFlow(id);
     // A wrong token and a missing flow answer identically, so the URL cannot be probed apart.
-    if (!flow || !flow.webhookHash || typeof token !== "string" || !token.length) return "not-found";
+    // A disabled flow answers as if it had no webhook: pausing is the revocation gesture the UI
+    // offers, and it must revoke this trigger as it revokes the clock and flow-after-flow ones.
+    if (!flow || !flow.webhookHash || flow.enabled === false || typeof token !== "string" || !token.length) return "not-found";
     const presented = createHash("sha256").update(token).digest();
     const stored = Buffer.from(flow.webhookHash, "hex");
     if (presented.length !== stored.length || !timingSafeEqual(presented, stored)) return "not-found";
@@ -358,7 +363,10 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
     if (recent.length >= webhookLimit.count) { webhookFires.set(id, recent); return "rate-limited"; }
     webhookFires.set(id, [...recent, now().getTime()]);
     store.recordAudit("flow.webhook-fired", { actorId: flow.createdBy, subjectId: id, details: { source: source ? String(source).slice(0, 60) : null } });
-    void runUnderCreator(flow, "was fired by its webhook but did not run");
+    // Unhandled here would reject an un-awaited promise; a remote caller must never be able to
+    // crash the web process, so the run is fired and its own failures are swallowed after being
+    // recorded inside runUnderCreator.
+    void runUnderCreator(flow, "was fired by its webhook but did not run").catch(() => {});
     return "accepted";
   }
 
@@ -367,8 +375,11 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
     if (running.has(flow.id)) return;
     const creator = store.findOwnerById?.(flow.createdBy) ?? null;
     try {
-      if (creator && ["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
-      await run(flow.id, flow.createdBy, { role: creator?.role ?? "owner" });
+      // No creator means no authority to borrow: refuse rather than run at owner privilege, or a
+      // deleted operator's flow fired by webhook would escalate to owner.
+      if (!creator) throw new Error("the flow's creator no longer exists");
+      if (["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
+      await run(flow.id, flow.createdBy, { role: creator.role });
     } catch (error) {
       if (!recordedRunFailure.test(error.message)) {
         store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
@@ -396,8 +407,9 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
     if (running.has(flow.id)) return;
     const creator = store.findOwnerById?.(flow.createdBy) ?? null;
     try {
-      if (creator && ["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
-      await run(flow.id, flow.createdBy, { role: creator?.role ?? "owner", chainDepth });
+      if (!creator) throw new Error("the flow's creator no longer exists");
+      if (["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
+      await run(flow.id, flow.createdBy, { role: creator.role, chainDepth });
     } catch (error) {
       if (!recordedRunFailure.test(error.message)) {
         store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
@@ -426,9 +438,10 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
         if (running.has(flow.id)) { store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy }); continue; }
         const creator = store.findOwnerById?.(flow.createdBy) ?? null;
         try {
-          if (creator && ["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
+          if (!creator) throw new Error("the flow's creator no longer exists");
+          if (["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
           store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy });
-          await run(flow.id, flow.createdBy, { role: creator?.role ?? "owner" });
+          await run(flow.id, flow.createdBy, { role: creator.role });
           store.recordAudit("flow.scheduled-run", { actorId: flow.createdBy, subjectId: flow.id, details: { nextDueAt } });
         } catch (error) {
           // run() already recorded the failure on the flow; a refusal before it started needs recording here.
