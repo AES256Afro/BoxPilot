@@ -13,13 +13,14 @@ function fakeFiles(fstab = BASE_FSTAB) {
   };
 }
 
-function fakeRun({ uuidDevice = "/dev/sdb1", mountFails = false, verifyFails = false, mountedAt = {}, lsblkNodes = null } = {}) {
+function fakeRun({ uuidDevice = "/dev/sdb1", mountFails = false, mountNoStick = false, detectedType = null, verifyFails = false, mountedAt = {}, lsblkNodes = null } = {}) {
   return vi.fn(async (binary, args) => {
     if (binary.endsWith("blkid") && args[0] === "-U") return uuidDevice ? { ok: true, stdout: uuidDevice, stderr: "" } : { ok: false, stdout: "", stderr: "" };
+    if (binary.endsWith("blkid") && args.includes("TYPE")) return { ok: true, stdout: detectedType ?? "", stderr: "" };
     if (binary.endsWith("blkid")) return { ok: true, stdout: "new-uuid-1234", stderr: "" };
     if (binary.endsWith("findmnt") && args[0] === "--verify") return verifyFails ? { ok: false, stdout: "", stderr: "/etc/fstab parse error" } : { ok: true, stdout: "", stderr: "" };
     if (binary.endsWith("findmnt")) { const target = args.at(-1); return mountedAt[target] ? { ok: true, stdout: mountedAt[target], stderr: "" } : { ok: false, stdout: "", stderr: "" }; }
-    if (binary.endsWith("mount") && !binary.endsWith("umount")) { if (mountFails) return { ok: false, stdout: "", stderr: "wrong fs type" }; mountedAt[args[0]] = "mounted"; return { ok: true, stdout: "", stderr: "" }; }
+    if (binary.endsWith("mount") && !binary.endsWith("umount")) { if (mountFails) return { ok: false, stdout: "", stderr: "wrong fs type" }; if (!mountNoStick) mountedAt[args[0]] = "mounted"; return { ok: true, stdout: "", stderr: "" }; }
     if (binary.endsWith("umount")) { delete mountedAt[args[0]]; return { ok: true, stdout: "", stderr: "" }; }
     // Without explicit nodes, lsblk describes the asked-for device as a plain, unmounted partition.
     if (binary.endsWith("lsblk")) return { ok: true, stdout: JSON.stringify({ blockdevices: lsblkNodes ?? [{ path: args.at(-1), type: "part", fstype: "ext4", ro: false, mountpoints: [null] }] }), stderr: "" };
@@ -56,6 +57,24 @@ describe("root storage tasks", () => {
 
     await expect(storageMount({ uuid: "abcd-1234", name: "media" }, { run: fakeRun({ uuidDevice: null }), files: fakeFiles() })).rejects.toThrow("No filesystem with UUID");
     await expect(storageMount({ uuid: "abcd-1234", name: "Bad Name" }, { run: fakeRun(), files: fakeFiles() })).rejects.toThrow("Name");
+  });
+
+  it("rolls the entry back when mount exits 0 but nothing actually mounted", async () => {
+    // A `nofail` entry mount can succeed-and-skip, and an unclean exFAT/NTFS volume can leave nothing
+    // mounted: trusting the exit code once left a live fstab entry that blocked every retry.
+    const files = fakeFiles();
+    await expect(storageMount({ uuid: "0023-7927", name: "the-dump", fstype: "exfat" }, { run: fakeRun({ mountNoStick: true }), files })).rejects.toThrow("nothing is mounted there");
+    expect(files.state.fstab).toBe(BASE_FSTAB);
+  });
+
+  it("gives a removable exFAT filesystem passno 0, and pins an auto-detected type into the entry", async () => {
+    const exfatFiles = fakeFiles();
+    await storageMount({ uuid: "0023-7927", name: "dump", fstype: "exfat" }, { run: fakeRun(), files: exfatFiles });
+    expect(exfatFiles.state.fstab).toContain("# boxpilot:dump\nUUID=0023-7927 /mnt/dump exfat defaults,nofail 0 0");
+
+    const autoFiles = fakeFiles();
+    await storageMount({ uuid: "aaaa-bbbb", name: "photos" }, { run: fakeRun({ detectedType: "exfat" }), files: autoFiles });
+    expect(autoFiles.state.fstab).toContain("UUID=aaaa-bbbb /mnt/photos exfat defaults,nofail 0 0");
   });
 
   it("unmounts only BoxPilot-managed entries", async () => {
