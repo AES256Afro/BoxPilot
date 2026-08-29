@@ -256,7 +256,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
     if (view === "performance") return <PerformanceCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "users") return <UsersCenter csrfToken={authStatus.csrfToken ?? ""} />;
     if (view === "firewall") return <FirewallCenter csrfToken={authStatus.csrfToken ?? ""} />;
-    if (view === "storage") return <StorageCenter csrfToken={authStatus.csrfToken ?? ""} />;
+    if (view === "storage") return <StorageCenter csrfToken={authStatus.csrfToken ?? ""} onNavigate={setView} />;
     if (view === "network") return <NetworkCenter csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;
     if (view === "repairs") return <RepairCenter csrfToken={authStatus.csrfToken ?? ""} onNavigate={setView} />;
     if (view === "virtualization") return <VirtualMachines csrfToken={authStatus.csrfToken ?? ""} onOpenRepair={() => setView("repairs")} />;

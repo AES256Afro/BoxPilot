@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import type { ViewName } from "./data";
 import { readJson } from "./http";
 import { validShareName } from "./shareName";
 import { useOperation } from "./ApproveDialog";
@@ -31,7 +32,7 @@ const nameValid = (name: string) => /^[a-z0-9][a-z0-9-]{0,31}$/.test(name);
 // exFAT/FAT/NTFS carry no Unix permissions, so a plain mount is root-owned and apps cannot write.
 const permissionlessFs = (fstype: string | null) => ["exfat", "vfat", "ntfs", "ntfs3", "msdos"].includes((fstype ?? "").toLowerCase());
 
-export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
+export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: string; onNavigate?: (view: ViewName) => void }) {
   const [report, setReport] = useState<StorageReport | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -40,6 +41,7 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
   const [mountName, setMountName] = useState("");
   const [mountReadOnly, setMountReadOnly] = useState(false);
   const [mountAppWritable, setMountAppWritable] = useState(false);
+  const [sharePrefill, setSharePrefill] = useState<{ name: string; path: string } | null>(null);
 
   const [discovered, setDiscovered] = useState<{ devices: Discovered[]; scanned: number } | null>(null);
   const [discovering, setDiscovering] = useState(false);
@@ -270,6 +272,11 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
                         confirmText: device.path ?? "",
                         preview: <span>Runs <code>wipefs -a</code> then <code>mkfs.ext4</code> on <code>{device.path}</code> ({gib(device.sizeBytes)}{device.model ? `, ${device.model}` : ""}). <strong>Everything on it is destroyed.</strong></span>,
                       })}>Format</button>}
+                      {!device.protected && device.mountpoints.some((point) => point.startsWith("/mnt/") || point.startsWith("/srv/")) && <button className="text-button" type="button" onClick={() => {
+                        const point = device.mountpoints.find((entry) => entry.startsWith("/mnt/") || entry.startsWith("/srv/")) ?? device.mountpoints[0];
+                        setSharePrefill({ name: slug(device.label || point.split("/").filter(Boolean).pop() || "share"), path: point });
+                        document.getElementById("file-server")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }}>Share on network</button>}
                     </div>
                   </td>
                 </tr>
@@ -404,7 +411,7 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
         </p>
       </section>
 
-      <SambaPanel start={start} refreshKey={refreshKey} folders={[...new Set([...(report?.shares ?? []).map((entry) => entry.mountpoint), ...(report?.fstab ?? []).filter((row) => row.managedName).map((row) => row.mountpoint), "/srv", "/mnt"])]} />
+      <SambaPanel start={start} refreshKey={refreshKey} prefill={sharePrefill} onNavigate={onNavigate} folders={[...new Set([...(report?.shares ?? []).map((entry) => entry.mountpoint), ...(report?.fstab ?? []).filter((row) => row.managedName).map((row) => row.mountpoint), "/srv", "/mnt"])]} />
       <NfsPanel start={start} refreshKey={refreshKey} folders={[...new Set([...(report?.shares ?? []).map((entry) => entry.mountpoint), ...(report?.fstab ?? []).filter((row) => row.managedName).map((row) => row.mountpoint), "/srv", "/mnt"])]} />
 
       <section className="panel">
