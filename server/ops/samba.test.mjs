@@ -13,7 +13,7 @@ describe("samba operations", () => {
     expect(validateParameters(spec, { scope: "everyone", shares: [] }, "t")).toContain("one of");
     const runUnit = { runTask: vi.fn(async () => ({ ok: true })) };
     await operations["samba.apply"].run({ shares: [{ name: "Media", path: "/mnt/nas-media", guest: true }] }, { runUnit, jobLog: null });
-    expect(runUnit.runTask).toHaveBeenCalledWith("samba.apply", { workgroup: "WORKGROUP", scope: "tailscale", shares: [{ name: "Media", path: "/mnt/nas-media", comment: null, readOnly: false, guest: true, users: [] }] }, expect.anything());
+    expect(runUnit.runTask).toHaveBeenCalledWith("samba.apply", { workgroup: "WORKGROUP", scope: "tailscale", shares: [{ name: "Media", path: "/mnt/nas-media", comment: null, readOnly: false, guest: true, users: [], recycle: false }] }, expect.anything());
     expect(operations["samba.apply"].risk).toBe("medium");
   });
 

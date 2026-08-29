@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseSmbConf, renderSmbConf, sambaApply, sambaUserRemove, sambaUserSet, validateSambaConfig } from "./samba.mjs";
+import { parseSmbConf, renderSmbConf, sambaApply, sambaRecycleEmpty, sambaUserRemove, sambaUserSet, validateSambaConfig } from "./samba.mjs";
 
 function fakeRun({ testparmFails = false, lanDevice = "eno1", users = {} } = {}) {
   return vi.fn(async (binary, args) => {
@@ -47,11 +47,33 @@ describe("samba tasks", () => {
     const parsed = parseSmbConf(text);
     expect(parsed).toMatchObject({ managed: true, workgroup: "WORKGROUP", scope: "tailscale", interfaces: ["lo", "tailscale0"] });
     expect(parsed.shares).toEqual([
-      { name: "Media", path: "/mnt/nas-media", comment: "Films", readOnly: true, guest: true, users: [], forceUser: null },
-      { name: "Private", path: "/srv/private", comment: "Private", readOnly: false, guest: false, users: ["jamie", "sam"], forceUser: "homebox" },
+      { name: "Media", path: "/mnt/nas-media", comment: "Films", readOnly: true, guest: true, users: [], forceUser: null, recycle: false },
+      { name: "Private", path: "/srv/private", comment: "Private", readOnly: false, guest: false, users: ["jamie", "sam"], forceUser: "homebox", recycle: false },
     ]);
     expect(renderSmbConf({ scope: "lan", lanInterface: "eno1" })).toContain("   interfaces = lo tailscale0 eno1\n   bind interfaces only = yes\n   smb ports = 445\n   disable netbios = no");
     expect(parseSmbConf("[global]\n   workgroup = HOME\n[printers]\n   path = /var/spool/samba\n   printable = yes\n")).toMatchObject({ managed: false, workgroup: "HOME", scope: "lan", shares: [] });
+  });
+
+  it("renders a recycle bin for a share, and empties it by share name only", async () => {
+    const conf = renderSmbConf({ scope: "lan", lanInterface: "eno1", shares: [{ name: "dump", path: "/mnt/the-dump", readOnly: false, guest: false, users: ["bigbox"], recycle: true }], forceUsers: { dump: "bigbox" } });
+    expect(conf).toContain("vfs objects = fruit streams_xattr recycle");
+    expect(conf).toContain("recycle:repository = .recycle");
+    expect(parseSmbConf(conf).shares[0].recycle).toBe(true);
+
+    const calls = [];
+    const run = vi.fn(async (binary, args) => { calls.push([binary, ...args]); return binary.endsWith("/du") ? { ok: true, stdout: "5242880\t/mnt/the-dump/.recycle", stderr: "" } : { ok: true, stdout: "", stderr: "" }; });
+    const files = { readFile: vi.fn(async () => conf) };
+
+    const all = await sambaRecycleEmpty({ share: "dump" }, { run, files });
+    expect(all).toMatchObject({ emptied: true, share: "dump", path: "/mnt/the-dump/.recycle", freedBytes: 5242880 });
+    expect(calls.some(([bin, ...a]) => bin.endsWith("/rm") && a.includes("/mnt/the-dump/.recycle"))).toBe(true);
+
+    calls.length = 0;
+    await sambaRecycleEmpty({ share: "dump", olderThanDays: 30 }, { run, files });
+    expect(calls.some(([bin, ...a]) => bin.endsWith("/find") && a.includes("-mtime") && a.includes("+30"))).toBe(true);
+    expect(calls.some(([bin]) => bin.endsWith("/rm"))).toBe(false); // an age-based clean never wipes the whole bin
+
+    await expect(sambaRecycleEmpty({ share: "nope" }, { run, files })).rejects.toThrow(/No share named/);
   });
 
   it("applies the configuration: backs up a foreign smb.conf, validates with testparm, reloads, and verifies listening", async () => {

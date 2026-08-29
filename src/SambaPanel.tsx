@@ -2,7 +2,15 @@ import { useCallback, useEffect, useState, type ReactNode, useRef } from "react"
 import type { PendingOperation } from "./ApproveDialog";
 import type { ViewName } from "./data";
 
-interface ShareConfig { name: string; path: string; comment: string | null; readOnly: boolean; guest: boolean; users: string[]; forceUser?: string | null }
+interface ShareConfig { name: string; path: string; comment: string | null; readOnly: boolean; guest: boolean; users: string[]; forceUser?: string | null; recycle?: boolean; recycleBytes?: number | null }
+
+const formatBytes = (bytes: number) => {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let value = bytes / 1024; let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+};
 interface SambaState {
   installed: boolean; running: boolean | null; configured: boolean; error: string | null;
   config: { managed: boolean; workgroup: string; scope: "tailscale" | "lan"; interfaces: string[]; shares: ShareConfig[] };
@@ -33,6 +41,7 @@ export default function SambaPanel({ start, folders, refreshKey, prefill, onNavi
   const [access, setAccess] = useState<"everyone" | "users" | "selected">("users");
   const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [readOnly, setReadOnly] = useState(false);
+  const [recycle, setRecycle] = useState(true);
   const [newUser, setNewUser] = useState("");
   const [newPassword, setNewPassword] = useState("");
 
@@ -66,8 +75,8 @@ export default function SambaPanel({ start, folders, refreshKey, prefill, onNavi
   const nameFree = !draft.some((share) => share.name.toLowerCase() === name.trim().toLowerCase());
   const addValid = shareNameValid(name.trim()) && nameFree && pathValid(path.trim()) && (access !== "selected" || selectedUsers.length > 0);
   const addShare = () => {
-    setDraft((current) => [...current, { name: name.trim(), path: path.trim().replace(/\/+$/, "") || "/", comment: comment.trim() || null, readOnly, guest: access === "everyone", users: access === "selected" ? selectedUsers : [] }]);
-    setDirty(true); setName(""); setPath(""); setComment(""); setSelectedUsers([]); setReadOnly(false); setAccess("users");
+    setDraft((current) => [...current, { name: name.trim(), path: path.trim().replace(/\/+$/, "") || "/", comment: comment.trim() || null, readOnly, guest: access === "everyone", users: access === "selected" ? selectedUsers : [], recycle }]);
+    setDirty(true); setName(""); setPath(""); setComment(""); setSelectedUsers([]); setReadOnly(false); setRecycle(true); setAccess("users");
   };
   const removeShare = (shareName: string) => { setDraft((current) => current.filter((share) => share.name !== shareName)); setDirty(true); };
   const toggleUser = (user: string, checked: boolean) => setSelectedUsers((current) => (checked ? [...new Set([...current, user])] : current.filter((entry) => entry !== user)));
@@ -75,7 +84,7 @@ export default function SambaPanel({ start, folders, refreshKey, prefill, onNavi
   const apply = () => start({
     operationId: "samba.apply",
     title: `Apply ${draft.length} file share${draft.length === 1 ? "" : "s"} (${scope === "lan" ? "tailnet + LAN" : "tailnet only"})`,
-    parameters: { workgroup, scope, shares: draft.map((share) => ({ name: share.name, path: share.path, comment: share.comment, readOnly: share.readOnly, guest: share.guest, users: share.users })) },
+    parameters: { workgroup, scope, shares: draft.map((share) => ({ name: share.name, path: share.path, comment: share.comment, readOnly: share.readOnly, guest: share.guest, users: share.users, recycle: Boolean(share.recycle) })) },
     preview: (
       <div className="plan-preview">
         <p>Writes <code>/etc/samba/smb.conf</code> bound to <code>lo</code>, <code>tailscale0</code>{scope === "lan" ? ", and your LAN interface" : " and nothing else"}, validates it with <code>testparm</code>, and reloads Samba. Any existing smb.conf is kept as <code>smb.conf.before-boxpilot</code>.</p>
@@ -138,15 +147,22 @@ export default function SambaPanel({ start, folders, refreshKey, prefill, onNavi
           <thead><tr><th>Share</th><th>Folder</th><th>Who</th><th>Access</th><th aria-label="Actions" /></tr></thead>
           <tbody>
             {draft.length === 0 && <tr><td colSpan={5} className="muted">No shares yet. Add one below, then Apply.</td></tr>}
-            {draft.map((share) => (
-              <tr key={share.name}>
-                <td><strong>{share.name}</strong>{share.comment && <span className="muted">, {share.comment}</span>}</td>
-                <td><code>{share.path}</code></td>
-                <td>{share.guest ? "Everyone (no password)" : share.users.length ? share.users.join(", ") : "Any user"}</td>
-                <td>{share.readOnly ? "Read-only" : "Read & write"}</td>
-                <td><button className="text-button" type="button" onClick={() => removeShare(share.name)}>Remove</button></td>
-              </tr>
-            ))}
+            {draft.map((share) => {
+              const live = state?.config.shares.find((row) => row.name === share.name);
+              const bin = live?.recycle ? live.recycleBytes ?? 0 : null; // bytes if this share's recycle bin is live, else null
+              return (
+                <tr key={share.name}>
+                  <td><strong>{share.name}</strong>{share.comment && <span className="muted">, {share.comment}</span>}</td>
+                  <td><code>{share.path}</code></td>
+                  <td>{share.guest ? "Everyone (no password)" : share.users.length ? share.users.join(", ") : "Any user"}</td>
+                  <td>{share.readOnly ? "Read-only" : "Read & write"}{share.recycle && <span className="muted"> · recycle bin{bin ? ` ${formatBytes(bin)}` : ""}</span>}</td>
+                  <td>
+                    {bin !== null && bin > 0 && <button className="text-button" type="button" onClick={() => start({ operationId: "samba.recycle.empty", title: `Empty the recycle bin for ${share.name}`, parameters: { share: share.name }, preview: <span>Permanently deletes {formatBytes(bin)} of recycled files from <code>{share.path}/.recycle</code>. Files deleted over the share after this are recoverable again.</span> })}>Empty bin</button>}
+                    <button className="text-button" type="button" onClick={() => removeShare(share.name)}>Remove</button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -167,6 +183,7 @@ export default function SambaPanel({ start, folders, refreshKey, prefill, onNavi
         </label>
         {access === "selected" && <div className="share-list">{(state?.users ?? []).map((user) => <label key={user}><input type="checkbox" checked={selectedUsers.includes(user)} onChange={(event) => toggleUser(user, event.target.checked)} aria-label={`Allow ${user}`} /> {user}</label>)}{(state?.users.length ?? 0) === 0 && <span className="muted">Add a user first.</span>}</div>}
         <label className="cloud-vm-check share-readonly"><input type="checkbox" checked={readOnly} onChange={(event) => setReadOnly(event.target.checked)} />read-only</label>
+        <label className="cloud-vm-check share-recycle" title="A file deleted over the network moves into a hidden .recycle folder on the share instead of being erased, so an accidental delete from another machine can be recovered."><input type="checkbox" checked={recycle} disabled={readOnly} onChange={(event) => setRecycle(event.target.checked)} />recycle bin (keep deleted files)</label>
         <div className="recovery-actions share-actions">
           <button className="secondary-button" type="submit" disabled={!addValid}>Add share</button>
           {name.trim() && !nameFree && <span className="muted">That name is already used.</span>}

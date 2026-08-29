@@ -33,6 +33,9 @@ const binaries = {
   usermod: "/usr/sbin/usermod",
   ip: "/usr/sbin/ip",
   ss: "/usr/bin/ss",
+  find: "/usr/bin/find",
+  du: "/usr/bin/du",
+  rm: "/usr/bin/rm",
 };
 
 function cleanPath(value) {
@@ -56,7 +59,7 @@ export function validateSambaConfig({ workgroup = "WORKGROUP", scope = "tailscal
     names.add(share.name.toLowerCase());
     if (cleanPath(share.path) === null) return `share "${share.name}": path must be an absolute folder outside system locations`;
     if (share.comment !== undefined && share.comment !== null && (typeof share.comment !== "string" || share.comment.length > 80 || /[\r\n]/.test(share.comment))) return `share "${share.name}": comment is too long`;
-    for (const flag of ["readOnly", "guest"]) if (share[flag] !== undefined && typeof share[flag] !== "boolean") return `share "${share.name}": ${flag} must be true or false`;
+    for (const flag of ["readOnly", "guest", "recycle"]) if (share[flag] !== undefined && typeof share[flag] !== "boolean") return `share "${share.name}": ${flag} must be true or false`;
     if (share.users !== undefined && !(Array.isArray(share.users) && share.users.every((user) => typeof user === "string" && sambaUsernamePattern.test(user)))) return `share "${share.name}": users must be a list of usernames`;
     if (share.guest && share.users?.length) return `share "${share.name}": a guest share cannot also be limited to users`;
   }
@@ -104,6 +107,19 @@ export function renderSmbConf({ workgroup = "WORKGROUP", scope = "tailscale", la
     if (!share.guest && share.users?.length) lines.push(`   valid users = ${share.users.join(" ")}`);
     if (forceUsers[share.name]) lines.push(`   force user = ${forceUsers[share.name]}`);
     lines.push("   force group = sambashare", "   create mask = 0664", "   directory mask = 0775");
+    // Recycle bin: a delete over the network moves the file into a hidden .recycle folder on the
+    // share instead of erasing it, so an accidental delete from another machine is recoverable.
+    // recycle is listed last so it is the module that actually performs the unlink (as a move).
+    if (share.recycle) lines.push(
+      "   vfs objects = fruit streams_xattr recycle",
+      "   recycle:repository = .recycle",
+      "   recycle:keeptree = yes",
+      "   recycle:versions = yes",
+      "   recycle:touch = yes",
+      "   recycle:directory_mode = 0770",
+      "   recycle:exclude = *.tmp|~$*",
+      "   recycle:maxsize = 0",
+    );
   }
   return `${lines.join("\n")}\n`;
 }
@@ -136,6 +152,7 @@ export function parseSmbConf(content) {
       guest: yes(values["guest ok"]),
       users: (values["valid users"] ?? "").split(/[\s,]+/).filter(Boolean),
       forceUser: values["force user"] ?? null,
+      recycle: (values["vfs objects"] ?? "").split(/\s+/).includes("recycle"),
     });
   }
   return {
@@ -229,4 +246,41 @@ export async function sambaUserRemove({ username } = {}, { run = fixedRun, log =
   if (!result.ok && !/Failed to find entry|does not exist/i.test(`${result.stderr}${result.stdout}`)) throw new Error(`smbpasswd failed: ${tail(result.stderr)}`);
   log?.(`Removed Samba access for ${username}; the Linux account was kept`, "stdout");
   return { username, removed: true, accountKept: true };
+}
+
+/** The size of a share's recycle bin in bytes, or 0 if there is nothing recycled (or it cannot be read). */
+export async function recycleSizeBytes(run, sharePath) {
+  const base = cleanPath(sharePath);
+  if (!base) return 0;
+  const result = await run(binaries.du, ["-sb", "--", `${base}/.recycle`], { timeout: 15_000 }).catch(() => null);
+  return result?.ok ? (Number.parseInt(result.stdout.split(/\s+/)[0], 10) || 0) : 0;
+}
+
+/**
+ * Empty a share's recycle bin. With olderThanDays > 0 only files last touched before that are
+ * removed (for a scheduled auto-clean); otherwise the whole .recycle folder is cleared. The path is
+ * resolved from the applied smb.conf by share name, so only a real share's own .recycle is ever
+ * touched, never an arbitrary path.
+ */
+export async function sambaRecycleEmpty({ share, olderThanDays = 0 } = {}, { run = fixedRun, log = null, files = { readFile } } = {}) {
+  if (typeof share !== "string" || !shareNamePattern.test(share)) throw new Error("Share name is invalid");
+  const days = Number.isFinite(Number(olderThanDays)) ? Math.trunc(Number(olderThanDays)) : 0;
+  if (days < 0 || days > 3650) throw new Error("olderThanDays must be between 0 and 3650");
+  const config = parseSmbConf(await files.readFile(smbConfPath, "utf8").catch(() => ""));
+  const entry = config.shares.find((row) => row.name === share);
+  if (!entry) throw new Error(`No share named ${share} is configured`);
+  const base = cleanPath(entry.path);
+  if (!base) throw new Error(`Share ${share} has an unusable path`);
+  const recycleDir = `${base}/.recycle`;
+  const freedBytes = await recycleSizeBytes(run, base);
+  if (days > 0) {
+    const removed = await run(binaries.find, [recycleDir, "-type", "f", "-mtime", `+${days}`, "-delete"], { timeout: 300_000 });
+    if (!removed.ok && !/No such file/i.test(removed.stderr)) throw new Error(`Could not clean the recycle bin: ${tail(removed.stderr)}`);
+    await run(binaries.find, [recycleDir, "-mindepth", "1", "-type", "d", "-empty", "-delete"], { timeout: 120_000 }).catch(() => {});
+  } else {
+    const removed = await run(binaries.rm, ["-rf", "--", recycleDir], { timeout: 300_000 });
+    if (!removed.ok) throw new Error(`Could not empty the recycle bin: ${tail(removed.stderr)}`);
+  }
+  log?.(`Emptied the recycle bin for ${share}${days ? ` (files older than ${days} days)` : ""}`, "stdout");
+  return { emptied: true, share, path: recycleDir, olderThanDays: days, freedBytes };
 }

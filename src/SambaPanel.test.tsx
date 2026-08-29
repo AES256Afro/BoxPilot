@@ -37,8 +37,8 @@ describe("Samba panel", () => {
     expect(start).toHaveBeenCalledWith(expect.objectContaining({
       operationId: "samba.apply",
       parameters: { workgroup: "WORKGROUP", scope: "tailscale", shares: [
-        { name: "Media", path: "/mnt/nas-media", comment: "Films", readOnly: true, guest: true, users: [] },
-        { name: "Private", path: "/srv/private", comment: null, readOnly: false, guest: false, users: ["jamie"] },
+        { name: "Media", path: "/mnt/nas-media", comment: "Films", readOnly: true, guest: true, users: [], recycle: false },
+        { name: "Private", path: "/srv/private", comment: null, readOnly: false, guest: false, users: ["jamie"], recycle: true },
       ] },
     }));
   });
@@ -61,6 +61,16 @@ describe("Samba panel", () => {
     expect(screen.getByText(/the firewall also has to allow SMB/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Open the Firewall page" }));
     expect(onNavigate).toHaveBeenCalledWith("firewall");
+  });
+
+  it("shows a share's recycle bin, empties it, and offers the recycle toggle when adding a share", async () => {
+    const withRecycle = { ...base, config: { ...base.config, shares: [{ name: "Docs", path: "/mnt/docs", comment: null, readOnly: false, guest: false, users: ["jamie"], forceUser: "homebox", recycle: true, recycleBytes: 2_415_919_104 }] } };
+    const start = setup(withRecycle);
+    fireEvent.click(await screen.findByRole("button", { name: "Empty bin" }));
+    expect(start).toHaveBeenCalledWith(expect.objectContaining({ operationId: "samba.recycle.empty", parameters: { share: "Docs" } }));
+    // The table shows the bin's size, and the add-share form offers the toggle (on by default).
+    expect(screen.getAllByText(/recycle bin/).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText("recycle bin (keep deleted files)")).toBeTruthy();
   });
 
   it("switches scope to the LAN, adds users with an in-memory password, and removes shares", async () => {

@@ -1,6 +1,6 @@
 import { access, readFile } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
-import { parseSmbConf, sambaUsernamePattern, scopes, shareNamePattern, smbConfPath, validateSambaConfig, workgroupPattern } from "../tasks/samba.mjs";
+import { parseSmbConf, recycleSizeBytes, sambaUsernamePattern, scopes, shareNamePattern, smbConfPath, validateSambaConfig, workgroupPattern } from "../tasks/samba.mjs";
 
 const minutes = (value) => value * 60_000;
 const systemctl = process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl";
@@ -25,6 +25,8 @@ export function sambaOperations() {
         }
         const group = await run("/usr/bin/getent", ["group", "sambashare"], { timeout: 10_000 }).catch(() => null);
         const users = group?.ok && group.stdout ? (group.stdout.trim().split(":")[3] ?? "").split(",").filter(Boolean).sort() : [];
+        // How much sits in each share's recycle bin, so the page can show it and offer to empty it.
+        for (const share of config.shares) if (share.recycle) share.recycleBytes = await recycleSizeBytes(run, share.path);
         return { installed, running, configured: content.length > 0 && config.managed, config, users };
       },
     }),
@@ -38,8 +40,17 @@ export function sambaOperations() {
       } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("samba.apply", {
         workgroup: parameters.workgroup ?? "WORKGROUP", scope: parameters.scope ?? "tailscale",
-        shares: parameters.shares.map((share) => ({ name: share.name, path: share.path, comment: share.comment ?? null, readOnly: share.readOnly ?? false, guest: share.guest ?? false, users: share.users ?? [] })),
+        shares: parameters.shares.map((share) => ({ name: share.name, path: share.path, comment: share.comment ?? null, readOnly: share.readOnly ?? false, guest: share.guest ?? false, users: share.users ?? [], recycle: share.recycle ?? false })),
       }, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "samba.recycle.empty", title: "Empty a share's recycle bin", risk: "medium", timeoutMs: minutes(6),
+      description: "Permanently deletes the recycled files in a share's hidden .recycle folder. With an age, only files recycled before then are removed, which is what a scheduled auto-clean uses.",
+      parameters: { fields: {
+        share: { type: "string", maxLength: 31, pattern: shareNamePattern },
+        olderThanDays: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 0 && value <= 3650 ? null : "must be a whole number of days between 0 and 3650") },
+      } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("samba.recycle.empty", { share: parameters.share, olderThanDays: parameters.olderThanDays ?? 0 }, { timeoutMs: minutes(5), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "samba.user.set", title: "Add or update a file-server user", risk: "medium", timeoutMs: minutes(2),
