@@ -121,23 +121,43 @@ export async function storageMount({ uuid, name, fstype = "auto", readOnly = fal
   if (typeof fstype !== "string" || !/^[a-z0-9]{2,12}$/.test(fstype)) throw new Error("Filesystem type is invalid");
   const device = await run(binaries.blkid, ["-U", uuid], { timeout: 15_000 });
   if (!device.ok || !device.stdout.trim()) throw new Error(`No filesystem with UUID ${uuid} was found`);
-  assertNotProtected(device.stdout.trim(), await deviceTree(run, device.stdout.trim()));
+  const dev = device.stdout.trim();
+  assertNotProtected(dev, await deviceTree(run, dev));
   const mountpoint = `/mnt/${name}`;
   const mounted = await run(binaries.findmnt, ["-n", mountpoint], { timeout: 15_000 });
   if (mounted.ok && mounted.stdout.trim()) throw new Error(`${mountpoint} is already mounted`);
   await files.mkdir(mountpoint, { recursive: true, mode: 0o755 });
+  // Boot-time fsck only helps the journaling Linux filesystems that ship one; a removable
+  // exFAT/NTFS/FAT drive has no fsck installed by default, so anything else gets passno 0 to keep
+  // boot clean. When the type was left to auto-detect, pin the detected type into the entry too, so
+  // a USB disk that is slow to settle mounts by an explicit type rather than being skipped.
+  let entryFstype = fstype;
+  if (fstype === "auto") {
+    const detected = (await run(binaries.blkid, ["-o", "value", "-s", "TYPE", dev], { timeout: 15_000 }).catch(() => ({ stdout: "" }))).stdout.trim();
+    if (/^[a-z0-9]{2,12}$/.test(detected)) entryFstype = detected;
+  }
+  const fsckPass = ["ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "jfs", "reiserfs"].includes(entryFstype) ? "2" : "0";
   const options = readOnly ? "ro,nofail" : "defaults,nofail";
-  const previous = await appendFstabEntry({ run, files, log }, name, `UUID=${uuid} ${mountpoint} ${fstype} ${options} 0 2`);
+  const previous = await appendFstabEntry({ run, files, log }, name, `UUID=${uuid} ${mountpoint} ${entryFstype} ${options} 0 ${fsckPass}`);
   await run(binaries.systemctl, ["daemon-reload"], { timeout: 30_000 });
   log?.(`$ mount ${mountpoint}`, "stdout");
   const mountResult = await run(binaries.mount, [mountpoint], { timeout: 60_000 });
-  if (!mountResult.ok) {
+  // mount can exit 0 while quietly skipping a `nofail` entry it judges not ready, or while leaving
+  // nothing mounted for an unclean exFAT/NTFS volume. Trusting the exit code alone once reported
+  // success with nothing mounted, leaving a live fstab entry that then blocked every retry, so
+  // confirm the filesystem is really there before committing to it.
+  const check = mountResult.ok
+    ? await run(binaries.findmnt, ["-n", "-b", "-o", "SOURCE,FSTYPE,SIZE", mountpoint], { timeout: 15_000 })
+    : { ok: false, stdout: "", stderr: "" };
+  if (!mountResult.ok || !check.stdout.trim()) {
     await files.writeFile(fstabPath, previous);
     await run(binaries.systemctl, ["daemon-reload"], { timeout: 30_000 }).catch(() => {});
-    throw new Error(`mount failed and the fstab entry was removed again: ${mountResult.stderr.split("\n").slice(-2).join(" ")}`);
+    const reason = mountResult.ok
+      ? "mount reported success but nothing is mounted there — a drive ejected unsafely (exFAT/NTFS) or still spinning up can do this; reconnect or repair the drive and try again"
+      : tail(mountResult.stderr);
+    throw new Error(`mount failed and the fstab entry was removed again: ${reason}`);
   }
-  const check = await run(binaries.findmnt, ["-n", "-b", "-o", "SOURCE,FSTYPE,SIZE", mountpoint], { timeout: 15_000 });
-  return { mounted: true, name, mountpoint, uuid, device: device.stdout.trim(), detail: check.stdout.trim() || null, persistent: true };
+  return { mounted: true, name, mountpoint, uuid, device: dev, detail: check.stdout.trim(), persistent: true };
 }
 
 /** Unmount and remove a BoxPilot-managed fstab entry. Foreign entries are refused. */
