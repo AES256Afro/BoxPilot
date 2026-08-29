@@ -43,6 +43,26 @@ describe("Samba panel", () => {
     }));
   });
 
+  it("prefills the add-share form when a drive's Share on network action passes it in", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => (input.toString() === "/api/v1/storage/samba" ? json(base) : json({ error: "x" }, 500))));
+    render(<SambaPanel start={vi.fn()} folders={["/mnt/the-dump"]} refreshKey={0} prefill={{ name: "the-dump", path: "/mnt/the-dump" }} />);
+    await screen.findByText("Films", { exact: false });
+    expect((screen.getByLabelText("New share name") as HTMLInputElement).value).toBe("the-dump");
+    expect((screen.getByLabelText("New share folder") as HTMLInputElement).value).toBe("/mnt/the-dump");
+  });
+
+  it("surfaces the firewall step only on LAN scope and navigates to it", async () => {
+    const onNavigate = vi.fn();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => (input.toString() === "/api/v1/storage/samba" ? json(base) : json({ error: "x" }, 500))));
+    render(<SambaPanel start={vi.fn()} folders={["/mnt/nas-media"]} refreshKey={0} onNavigate={onNavigate} />);
+    await screen.findByText("Films", { exact: false });
+    expect(screen.queryByText(/the firewall also has to allow SMB/)).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: /Tailscale \+ LAN/ }));
+    expect(screen.getByText(/the firewall also has to allow SMB/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open the Firewall page" }));
+    expect(onNavigate).toHaveBeenCalledWith("firewall");
+  });
+
   it("switches scope to the LAN, adds users with an in-memory password, and removes shares", async () => {
     const start = setup(base);
     await screen.findByText("Films", { exact: false });

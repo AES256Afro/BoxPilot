@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode, useRef } from "react";
 import type { PendingOperation } from "./ApproveDialog";
+import type { ViewName } from "./data";
 
 interface ShareConfig { name: string; path: string; comment: string | null; readOnly: boolean; guest: boolean; users: string[]; forceUser?: string | null }
 interface SambaState {
@@ -17,7 +18,7 @@ const usernameValid = (name: string) => /^[a-z_][a-z0-9_-]{0,31}$/.test(name);
  * "Share folders from this server": a Samba file server bound to the tailnet (and optionally
  * the LAN). The owner edits a draft of the share list and applies it as one medium-risk job.
  */
-export default function SambaPanel({ start, folders, refreshKey }: { start: (operation: PendingOperation) => void; folders: string[]; refreshKey: number }) {
+export default function SambaPanel({ start, folders, refreshKey, prefill, onNavigate }: { start: (operation: PendingOperation) => void; folders: string[]; refreshKey: number; prefill?: { name: string; path: string } | null; onNavigate?: (view: ViewName) => void }) {
   const [state, setState] = useState<SambaState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<ShareConfig[]>([]);
@@ -54,6 +55,13 @@ export default function SambaPanel({ start, folders, refreshKey }: { start: (ope
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh, refreshKey]);
+
+  // "Share on network" on a drive over in the Block devices table prefills this form and scrolls
+  // here, so adding a mounted drive as a share is one click rather than a hunt for the right path.
+  useEffect(() => {
+    if (!prefill) return;
+    setName(prefill.name); setPath(prefill.path); setComment(""); setReadOnly(false); setAccess("users");
+  }, [prefill]);
 
   const nameFree = !draft.some((share) => share.name.toLowerCase() === name.trim().toLowerCase());
   const addValid = shareNameValid(name.trim()) && nameFree && pathValid(path.trim()) && (access !== "selected" || selectedUsers.length > 0);
@@ -101,9 +109,16 @@ export default function SambaPanel({ start, folders, refreshKey }: { start: (ope
 
       <div className="samba-scope">
         <label><input type="radio" name="samba-scope" checked={scope === "tailscale"} onChange={() => { setScope("tailscale"); setDirty(true); }} /> <strong>Tailscale only</strong> {hint("recommended, reachable from your devices anywhere, invisible on the LAN")}</label>
-        <label><input type="radio" name="samba-scope" checked={scope === "lan"} onChange={() => { setScope("lan"); setDirty(true); }} /> <strong>Tailscale + LAN</strong> {hint("also visible to devices on your home network; tick “Windows file sharing (SMB)” on the Firewall page")}</label>
+        <label><input type="radio" name="samba-scope" checked={scope === "lan"} onChange={() => { setScope("lan"); setDirty(true); }} /> <strong>Tailscale + LAN</strong> {hint("also visible to devices on your home network")}</label>
         <label className="samba-workgroup">Workgroup <input aria-label="Workgroup" value={workgroup} onChange={(event) => { setWorkgroup(event.target.value.toUpperCase()); setDirty(true); }} /></label>
       </div>
+      {scope === "lan" && (
+        <p className="samba-firewall-note muted">On the LAN, the firewall also has to allow SMB, or other devices cannot connect.{" "}
+          {onNavigate
+            ? <button className="text-button" type="button" onClick={() => onNavigate("firewall")}>Open the Firewall page</button>
+            : <>Tick “Windows file sharing (SMB)” on the Firewall page.</>}
+        </p>
+      )}
 
       <div className="samba-users">
         <strong>Users</strong> {hint("who may sign in to password-protected shares")}
