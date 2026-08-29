@@ -77,6 +77,30 @@ describe("root storage tasks", () => {
     expect(autoFiles.state.fstab).toContain("UUID=aaaa-bbbb /mnt/photos exfat defaults,nofail 0 0");
   });
 
+  it("hands a permission-less drive to the apps user via uid/gid mount options", async () => {
+    const files = fakeFiles();
+    const run = fakeRun();
+    const result = await storageMount({ uuid: "0023-7927", name: "dump", fstype: "exfat", appWritable: true }, { run, files });
+    expect(files.state.fstab).toContain("UUID=0023-7927 /mnt/dump exfat rw,nofail,uid=1000,gid=1000 0 0");
+    expect(result.owner).toBe("1000:1000");
+    // exFAT ownership is a mount option, so no chown is issued.
+    expect(run).not.toHaveBeenCalledWith(expect.stringContaining("chown"), expect.anything(), expect.anything());
+  });
+
+  it("chowns the mountpoint of a Linux filesystem instead of touching its fstab options", async () => {
+    const files = fakeFiles();
+    const run = fakeRun();
+    await storageMount({ uuid: "abcd-1234", name: "data", fstype: "ext4", appWritable: true }, { run, files });
+    expect(files.state.fstab).toContain("UUID=abcd-1234 /mnt/data ext4 defaults,nofail 0 2");
+    expect(run).toHaveBeenCalledWith(expect.stringContaining("chown"), ["1000:1000", "/mnt/data"], expect.anything());
+  });
+
+  it("ignores appWritable when the mount is read-only", async () => {
+    const files = fakeFiles();
+    await storageMount({ uuid: "0023-7927", name: "dump", fstype: "exfat", appWritable: true, readOnly: true }, { run: fakeRun(), files });
+    expect(files.state.fstab).toContain("UUID=0023-7927 /mnt/dump exfat ro,nofail 0 0");
+  });
+
   it("unmounts only BoxPilot-managed entries", async () => {
     const files = fakeFiles(`${BASE_FSTAB}# boxpilot:media\nUUID=x /mnt/media ext4 defaults,nofail 0 2\n`);
     const run = fakeRun({ mountedAt: { "/mnt/media": "/dev/sdb1" } });

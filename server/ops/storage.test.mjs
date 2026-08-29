@@ -30,7 +30,7 @@ describe("storage operations", () => {
   it("stages mutations as root tasks and enforces parameter shapes", async () => {
     const runUnit = { runTask: vi.fn(async (task, parameters) => ({ task, parameters })) };
     await expect(operations["storage.mount"].run({ uuid: "abcd-1234", name: "media" }, { runUnit, jobLog: null }))
-      .resolves.toEqual({ task: "storage.mount", parameters: { uuid: "abcd-1234", name: "media", fstype: "auto", readOnly: false } });
+      .resolves.toEqual({ task: "storage.mount", parameters: { uuid: "abcd-1234", name: "media", fstype: "auto", readOnly: false, appWritable: false } });
     await expect(operations["storage.format"].run({ device: "/dev/sdb" }, { runUnit, jobLog: null }))
       .resolves.toEqual({ task: "storage.format", parameters: { device: "/dev/sdb", label: null } });
     await expect(operations["storage.swapfile.set"].run({ sizeGiB: 4 }, { runUnit, jobLog: null }))

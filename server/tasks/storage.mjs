@@ -29,6 +29,7 @@ const binaries = {
   swapon: "/usr/sbin/swapon",
   swapoff: "/usr/sbin/swapoff",
   chmod: "/usr/bin/chmod",
+  chown: "/usr/bin/chown",
   rm: "/usr/bin/rm",
   lvextend: "/usr/sbin/lvextend",
   lvcreate: "/usr/sbin/lvcreate",
@@ -115,10 +116,14 @@ export async function appendFstabEntry({ run, files, log }, name, entry) {
 }
 
 /** Mount a filesystem by UUID at /mnt/<name> with a verified, nofail fstab entry. */
-export async function storageMount({ uuid, name, fstype = "auto", readOnly = false } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, mkdir } } = {}) {
+export const appUserId = 1000;
+export const permissionlessFilesystems = Object.freeze(["exfat", "vfat", "ntfs", "ntfs3", "msdos"]);
+
+export async function storageMount({ uuid, name, fstype = "auto", readOnly = false, appWritable = false, uid = appUserId, gid = appUserId } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, mkdir } } = {}) {
   if (typeof uuid !== "string" || !uuidPattern.test(uuid)) throw new Error("UUID is invalid");
   if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name must be lower-case letters, digits, and hyphens (max 32)");
   if (typeof fstype !== "string" || !/^[a-z0-9]{2,12}$/.test(fstype)) throw new Error("Filesystem type is invalid");
+  if (![uid, gid].every((value) => Number.isInteger(value) && value >= 0 && value <= 65_535)) throw new Error("Owner uid/gid are invalid");
   const device = await run(binaries.blkid, ["-U", uuid], { timeout: 15_000 });
   if (!device.ok || !device.stdout.trim()) throw new Error(`No filesystem with UUID ${uuid} was found`);
   const dev = device.stdout.trim();
@@ -137,7 +142,14 @@ export async function storageMount({ uuid, name, fstype = "auto", readOnly = fal
     if (/^[a-z0-9]{2,12}$/.test(detected)) entryFstype = detected;
   }
   const fsckPass = ["ext2", "ext3", "ext4", "xfs", "btrfs", "f2fs", "jfs", "reiserfs"].includes(entryFstype) ? "2" : "0";
-  const options = readOnly ? "ro,nofail" : "defaults,nofail";
+  // Make an external drive usable by apps: a filesystem without Unix permissions (exFAT, FAT, NTFS)
+  // carries ownership as a mount option, so hand the whole volume to the apps user in the entry; a
+  // Linux filesystem keeps its own on-disk permissions, so we chown the top of it after mounting.
+  const permissionless = permissionlessFilesystems.includes(entryFstype);
+  const giveToApps = appWritable && !readOnly;
+  const options = readOnly ? "ro,nofail"
+    : giveToApps && permissionless ? `rw,nofail,uid=${uid},gid=${gid}`
+      : "defaults,nofail";
   const previous = await appendFstabEntry({ run, files, log }, name, `UUID=${uuid} ${mountpoint} ${entryFstype} ${options} 0 ${fsckPass}`);
   await run(binaries.systemctl, ["daemon-reload"], { timeout: 30_000 });
   log?.(`$ mount ${mountpoint}`, "stdout");
@@ -157,7 +169,14 @@ export async function storageMount({ uuid, name, fstype = "auto", readOnly = fal
       : tail(mountResult.stderr);
     throw new Error(`mount failed and the fstab entry was removed again: ${reason}`);
   }
-  return { mounted: true, name, mountpoint, uuid, device: dev, detail: check.stdout.trim(), persistent: true };
+  // A Linux filesystem already mounted; give the top of it to the apps user so containers running as
+  // that uid can create their own folders. Only the mountpoint itself, never a recursive sweep.
+  if (giveToApps && !permissionless) {
+    const owned = await run(binaries.chown, [`${uid}:${gid}`, mountpoint], { timeout: 30_000 });
+    if (owned.ok) log?.(`Owner of ${mountpoint} set to ${uid}:${gid} so apps can write there`, "stdout");
+    else log?.(`Could not set the owner of ${mountpoint}; apps may not be able to write there: ${tail(owned.stderr)}`, "stderr");
+  }
+  return { mounted: true, name, mountpoint, uuid, device: dev, detail: check.stdout.trim(), owner: giveToApps ? `${uid}:${gid}` : null, persistent: true };
 }
 
 /** Unmount and remove a BoxPilot-managed fstab entry. Foreign entries are refused. */

@@ -46,6 +46,8 @@ const lsblk = JSON.stringify({ blockdevices: [
   { path: "/dev/mapper/ubuntu--vg-boxpilot--snap--20260821--0900--before--upgrade", kname: "dm-3", pkname: "nvme0n1p3", type: "lvm", size: 20 * GiB, fstype: "ext4", mountpoints: [null], ro: false, rm: false },
   { path: "/dev/sda", kname: "sda", pkname: null, type: "disk", size: 4000 * GiB, fstype: null, model: "Example USB HDD 4TB", tran: "usb", mountpoints: [null], ro: false, rm: true },
   { path: "/dev/sda1", kname: "sda1", pkname: "sda", type: "part", size: 4000 * GiB, fstype: "ext4", uuid: "77aa-media", label: "media", mountpoints: ["/mnt/media"], ro: false, rm: true },
+  { path: "/dev/sdb", kname: "sdb", pkname: null, type: "disk", size: 2000 * GiB, fstype: null, model: "Example USB HDD 2TB", tran: "usb", mountpoints: [null], ro: false, rm: true },
+  { path: "/dev/sdb1", kname: "sdb1", pkname: "sdb", type: "part", size: 2000 * GiB, fstype: "exfat", uuid: "6B3F-1D2A", label: "Backup", mountpoints: [null], ro: false, rm: true },
 ] });
 const fstab = [
   { device: "UUID=5f2d-root", mountpoint: "/", fstype: "ext4", options: "defaults", managedName: null },

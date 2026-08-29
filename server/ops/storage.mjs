@@ -80,8 +80,11 @@ export function storageOperations() {
         name: { type: "string", maxLength: 32, pattern: mountNamePattern },
         fstype: { type: "string", optional: true, maxLength: 12, pattern: /^[a-z0-9]{2,12}$/ },
         readOnly: { type: "boolean", optional: true },
+        // Hand the drive to the apps user (uid/gid 1000) so containers and network shares can write
+        // to it: for exFAT/FAT/NTFS as a mount option, for a Linux filesystem by chowning its top.
+        appWritable: { type: "boolean", optional: true },
       } },
-      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.mount", { uuid: parameters.uuid, name: parameters.name, fstype: parameters.fstype ?? "auto", readOnly: parameters.readOnly ?? false }, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.mount", { uuid: parameters.uuid, name: parameters.name, fstype: parameters.fstype ?? "auto", readOnly: parameters.readOnly ?? false, appWritable: parameters.appWritable ?? false }, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "storage.unmount", title: "Unmount a managed filesystem", risk: "medium", timeoutMs: minutes(3),
