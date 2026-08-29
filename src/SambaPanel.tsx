@@ -79,6 +79,7 @@ export default function SambaPanel({ start, folders, refreshKey, prefill, onNavi
     setDirty(true); setName(""); setPath(""); setComment(""); setSelectedUsers([]); setReadOnly(false); setRecycle(true); setAccess("users");
   };
   const removeShare = (shareName: string) => { setDraft((current) => current.filter((share) => share.name !== shareName)); setDirty(true); };
+  const setShareRecycle = (shareName: string, on: boolean) => { setDraft((current) => current.map((share) => (share.name === shareName ? { ...share, recycle: on } : share))); setDirty(true); };
   const toggleUser = (user: string, checked: boolean) => setSelectedUsers((current) => (checked ? [...new Set([...current, user])] : current.filter((entry) => entry !== user)));
 
   const apply = () => start({
@@ -155,7 +156,7 @@ export default function SambaPanel({ start, folders, refreshKey, prefill, onNavi
                   <td><strong>{share.name}</strong>{share.comment && <span className="muted">, {share.comment}</span>}</td>
                   <td><code>{share.path}</code></td>
                   <td>{share.guest ? "Everyone (no password)" : share.users.length ? share.users.join(", ") : "Any user"}</td>
-                  <td>{share.readOnly ? "Read-only" : "Read & write"}{share.recycle && <span className="muted"> · recycle bin{bin ? ` ${formatBytes(bin)}` : ""}</span>}</td>
+                  <td>{share.readOnly ? "Read-only" : <>Read &amp; write{" "}<label className="share-recycle-toggle muted" title="Keep files deleted over the network in a hidden .recycle folder on the share, so they can be recovered."><input type="checkbox" checked={Boolean(share.recycle)} onChange={(event) => setShareRecycle(share.name, event.target.checked)} /> recycle bin{bin ? ` (${formatBytes(bin)})` : ""}</label></>}</td>
                   <td>
                     {bin !== null && bin > 0 && <button className="text-button" type="button" onClick={() => start({ operationId: "samba.recycle.empty", title: `Empty the recycle bin for ${share.name}`, parameters: { share: share.name }, preview: <span>Permanently deletes {formatBytes(bin)} of recycled files from <code>{share.path}/.recycle</code>. Files deleted over the share after this are recoverable again.</span> })}>Empty bin</button>}
                     <button className="text-button" type="button" onClick={() => removeShare(share.name)}>Remove</button>

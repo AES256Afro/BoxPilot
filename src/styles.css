@@ -4458,3 +4458,7 @@ textarea {
 /* Samba: the LAN firewall reminder + the "Share on network" prefill flow */
 .samba-firewall-note { margin: 8px 0 0; padding: 8px 12px; border-left: 3px solid var(--warning, #d29922); background: color-mix(in srgb, var(--warning, #d29922) 8%, transparent); border-radius: 4px; }
 .samba-firewall-note .text-button { color: var(--accent, #4493f8); }
+
+/* Samba: inline recycle-bin toggle on each share row */
+.share-recycle-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; cursor: pointer; }
+.share-recycle-toggle input { width: auto; margin: 0; }
