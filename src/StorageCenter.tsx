@@ -28,6 +28,8 @@ const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9-]+/g, "-").r
 const BACKUP_MOUNT_NAME = "boxpilot-backup";
 
 const nameValid = (name: string) => /^[a-z0-9][a-z0-9-]{0,31}$/.test(name);
+// exFAT/FAT/NTFS carry no Unix permissions, so a plain mount is root-owned and apps cannot write.
+const permissionlessFs = (fstype: string | null) => ["exfat", "vfat", "ntfs", "ntfs3", "msdos"].includes((fstype ?? "").toLowerCase());
 
 export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
   const [report, setReport] = useState<StorageReport | null>(null);
@@ -37,6 +39,7 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
   const [mountTarget, setMountTarget] = useState<DeviceRow | null>(null);
   const [mountName, setMountName] = useState("");
   const [mountReadOnly, setMountReadOnly] = useState(false);
+  const [mountAppWritable, setMountAppWritable] = useState(false);
 
   const [discovered, setDiscovered] = useState<{ devices: Discovered[]; scanned: number } | null>(null);
   const [discovering, setDiscovering] = useState(false);
@@ -239,7 +242,7 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
       ))}
 
       <section className="panel">
-        <header className="panel-header"><div><strong>Block devices</strong><span>Mount adds a UUID entry to fstab with nofail and verifies it first. Format erases the device and asks you to type its name. The system disk and LVM members are never offered.</span></div>
+        <header className="panel-header"><div><strong>Block devices</strong><span>Mount a drive so your apps and network shares can use it: a nofail fstab entry, verified first, and by default handed to your apps so they can write to it. Format erases the device and asks you to type its name. The system disk and LVM members are never offered.</span></div>
           <button className="secondary-button" type="button" disabled={loading} onClick={() => void refresh()}>Refresh</button>
         </header>
         <div className="table-scroll">
@@ -259,7 +262,7 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
                   <td>{device.mountpoints.length ? device.mountpoints.map((point) => <code key={point}>{point}</code>) : device.mountedBelow.length ? <span className="muted">holds {device.mountedBelow.join(", ")}</span> : "—"}</td>
                   <td>
                     <div className="recovery-actions">
-                      {canMount(device) && <button className="text-button" type="button" onClick={() => { setMountTarget(device); setMountName(device.label ? slug(device.label) : ""); setMountReadOnly(false); }}>Mount</button>}
+                      {canMount(device) && <button className="text-button" type="button" onClick={() => { setMountTarget(device); setMountName(device.label ? slug(device.label) : ""); setMountReadOnly(false); setMountAppWritable(permissionlessFs(device.fstype)); }}>Mount</button>}
                       {canFormat(device) && <button className="text-button" type="button" onClick={() => start({
                         operationId: "storage.format",
                         title: `Erase and format ${device.path}`,
@@ -278,12 +281,13 @@ export default function StorageCenter({ csrfToken }: { csrfToken: string }) {
           <div className="recovery-actions storage-mount-form">
             <span>Mount <code>{mountTarget.path}</code> at <code>/mnt/{nameValid(mountName) ? mountName : "<name>"}</code></span>
             <input aria-label="Mount name" placeholder="data" value={mountName} onChange={(event) => setMountName(event.target.value.toLowerCase())} />
-            <label className="cloud-vm-check"><input type="checkbox" checked={mountReadOnly} onChange={(event) => setMountReadOnly(event.target.checked)} />read-only</label>
+            <label className="cloud-vm-check"><input type="checkbox" checked={mountReadOnly} onChange={(event) => { setMountReadOnly(event.target.checked); if (event.target.checked) setMountAppWritable(false); }} />read-only</label>
+            <label className="cloud-vm-check" title="Give the drive to your apps (user 1000) so containers and network shares can write to it. Without this an exFAT/NTFS drive is read-only for apps."><input type="checkbox" checked={mountAppWritable} disabled={mountReadOnly} onChange={(event) => setMountAppWritable(event.target.checked)} />writable by my apps</label>
             <button className="primary-button" type="button" disabled={!nameValid(mountName)} onClick={() => start({
               operationId: "storage.mount",
               title: `Mount ${mountTarget.path} at /mnt/${mountName}`,
-              parameters: { uuid: mountTarget.uuid, name: mountName, ...(mountReadOnly ? { readOnly: true } : {}) },
-              preview: <span>Adds <code>UUID={mountTarget.uuid} /mnt/{mountName} {mountTarget.fstype ?? "auto"} {mountReadOnly ? "ro,nofail" : "defaults,nofail"} 0 2</code> to fstab, verifies it, and mounts. A missing disk never blocks boot.</span>,
+              parameters: { uuid: mountTarget.uuid, name: mountName, ...(mountReadOnly ? { readOnly: true } : {}), ...(mountAppWritable && !mountReadOnly ? { appWritable: true } : {}) },
+              preview: <span>Mounts <code>{mountTarget.path}</code> ({mountTarget.fstype ?? "auto"}) at <code>/mnt/{mountName}</code> with a <code>nofail</code> fstab entry, so a missing disk never blocks boot.{mountReadOnly ? " Read-only." : mountAppWritable ? (permissionlessFs(mountTarget.fstype) ? " Owned by your apps user so containers and shares can write to it." : " The top folder is handed to your apps user so containers can write to it.") : ""}</span>,
             })}>Mount</button>
             <button className="text-button" type="button" onClick={() => setMountTarget(null)}>Cancel</button>
           </div>

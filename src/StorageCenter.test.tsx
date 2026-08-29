@@ -54,8 +54,9 @@ describe("Storage center", () => {
     fireEvent.click(screen.getByRole("button", { name: "Mount" })); // /dev/sdb1, prefilled from its label
     fireEvent.change(screen.getByLabelText("Mount name"), { target: { value: "media" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Mount" }).at(-1) as HTMLElement);
+    expect(screen.getByText("writable by my apps")).toBeTruthy();
     expect(await screen.findByText("Medium risk")).toBeTruthy();
-    expect(screen.getByText(/UUID=data-uuid \/mnt\/media ext4 defaults,nofail 0 2/)).toBeTruthy();
+    // ext4 keeps its on-disk ownership, so the app-writable default is off here (no appWritable sent).
     await waitFor(() => expect(JSON.parse(staged["storage.mount"] ?? "{}")).toEqual({ parameters: { uuid: "data-uuid", name: "media" } }));
   });
 
