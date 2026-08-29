@@ -66,6 +66,27 @@ describe("App catalog", () => {
     expect(JSON.parse(stagedBody ?? "{}")).toEqual({ parameters: { id: "jellyfin", values: { ports: { web: 8097 }, env: {}, volumes: { media: "/mnt/media" } } } });
   });
 
+  it("offers the server's mounted drives and network shares as a folder dropdown at setup", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest, live: { id: "jellyfin", installed: false, dataPresent: false, state: null, container: { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, urls: [] } }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      if (url === "/api/v1/storage/overview") return json({ mounts: [{ target: "/mnt/the-dump" }, { target: "/" }], shares: [{ mountpoint: "/mnt/nas-media" }], fstab: [] });
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppCatalog csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Install" }));
+    await screen.findByLabelText("Media library path");
+    const options = await waitFor(() => {
+      const list = document.getElementById("app-mounted-folders");
+      const values = list ? [...list.querySelectorAll("option")].map((option) => (option as HTMLOptionElement).value) : [];
+      expect(values).toContain("/mnt/the-dump");
+      return values;
+    });
+    expect(options).toContain("/mnt/nas-media"); // a network share, offered too
+    expect(options).not.toContain("/"); // system mounts are filtered out
+  });
+
   it("offers lifecycle, update, uninstall, and purge for an installed app", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();

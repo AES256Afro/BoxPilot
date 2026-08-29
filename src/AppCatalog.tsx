@@ -77,6 +77,26 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
   const [values, setValues] = useState<Values>(() => initialValues(manifest, live));
   const [checking, setChecking] = useState(false);
   const [problems, setProblems] = useState<string[]>([]);
+  // Offer the drives and network shares already mounted on this server as a dropdown for a folder
+  // field, so attaching one to an app is a pick, not a typed path — and needs no credentials, because
+  // the drive or share was connected once under Storage.
+  const [mountedFolders, setMountedFolders] = useState<string[]>([]);
+  const hasConfigurableVolumes = manifest.volumes.some((volume) => volume.configurable);
+  useEffect(() => {
+    if (!hasConfigurableVolumes) return undefined;
+    let active = true;
+    const dataFolder = (folder: unknown): folder is string => typeof folder === "string" && (folder.startsWith("/mnt/") || folder.startsWith("/srv/"));
+    fetch("/api/v1/storage/overview").then((response) => (response.ok ? response.json() : null)).then((report: { mounts?: Array<{ target: string }>; shares?: Array<{ mountpoint: string }>; fstab?: Array<{ mountpoint: string; managedName: string | null }> } | null) => {
+      if (!active || !report) return;
+      const list = [
+        ...(report.shares ?? []).map((share) => share.mountpoint),
+        ...(report.mounts ?? []).map((mount) => mount.target).filter(dataFolder),
+        ...(report.fstab ?? []).filter((row) => row.managedName && dataFolder(row.mountpoint)).map((row) => row.mountpoint),
+      ].filter(dataFolder);
+      setMountedFolders([...new Set(list)].sort());
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [hasConfigurableVolumes]);
   const submit = async () => {
     const compact = compactValues(manifest, values);
     setChecking(true); setProblems([]);
@@ -135,7 +155,11 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
             </label>
           </fieldset>}
           {editablePorts.length > 0 && <fieldset><legend>Ports</legend>{editablePorts.map((port) => <label key={port.id}>{port.label} <span className="muted">({port.containerFollowsHost ? "the app listens here" : `container ${port.container}/${port.protocol}`}, {port.exposure === "loopback" ? "this server only" : "LAN"})</span><input type="number" min={1} max={65535} value={values.ports[port.id] ?? port.host} onChange={(event) => setPort(port.id, event.target.value)} aria-label={`${port.label} port`} /></label>)}</fieldset>}
-          {editableVolumes.length > 0 && <fieldset><legend>Folders</legend>{editableVolumes.map((volume) => <label key={volume.id}>{volume.label}{volume.description && <span className="muted">{volume.description}</span>}<input type="text" value={values.volumes[volume.id] ?? ""} onChange={(event) => setVolume(volume.id, event.target.value)} aria-label={`${volume.label} path`} placeholder={volume.hostPath ?? "/srv/..."} /></label>)}</fieldset>}
+          {editableVolumes.length > 0 && <fieldset><legend>Folders</legend>
+            {mountedFolders.length > 0 && <p className="muted">Pick one of your mounted drives or network shares from the list, or type a path. A mounted folder needs no credentials here — the drive or share was connected once under Storage.</p>}
+            <datalist id="app-mounted-folders">{mountedFolders.map((folder) => <option value={folder} key={folder} />)}</datalist>
+            {editableVolumes.map((volume) => <label key={volume.id}>{volume.label}{volume.description && <span className="muted">{volume.description}</span>}<input type="text" list="app-mounted-folders" value={values.volumes[volume.id] ?? ""} onChange={(event) => setVolume(volume.id, event.target.value)} aria-label={`${volume.label} path`} placeholder={volume.hostPath ?? "/srv/..."} /></label>)}
+          </fieldset>}
           {shownEnv.length > 0 && <fieldset><legend>Settings</legend>{shownEnv.map((entry) => (
             <label key={entry.name}>{entry.label}{entry.required && " *"}{entry.description && <span className="muted">{entry.description}</span>}
               {entry.options ? <select value={values.env[entry.name] ?? ""} onChange={(event) => setEnv(entry.name, event.target.value)} aria-label={entry.label}>{entry.options.map((option) => <option key={option} value={option}>{option}</option>)}</select>
