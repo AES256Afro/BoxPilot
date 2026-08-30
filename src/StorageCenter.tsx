@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ViewName } from "./data";
+import { appFolders, buildStorageMap, type MapApp, type MapSambaShare, type StorageMapEntry } from "./storageMap";
 import { readJson } from "./http";
 import { validShareName } from "./shareName";
 import { useOperation } from "./ApproveDialog";
@@ -61,6 +62,8 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
   const [snapshotSize, setSnapshotSize] = useState(10);
   const [snapshotLabel, setSnapshotLabel] = useState("");
   const [forecasts, setForecasts] = useState<Forecast[]>([]);
+  const [mapApps, setMapApps] = useState<MapApp[]>([]);
+  const [mapShares, setMapShares] = useState<MapSambaShare[]>([]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -68,6 +71,9 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
     try {
       setReport(await readJson<StorageReport>(await fetch("/api/v1/storage/overview")));
       fetch("/api/v1/storage/forecast").then((response) => (response.ok ? response.json() : { forecasts: [] })).then((body: { forecasts?: Forecast[] }) => setForecasts(body.forecasts ?? [])).catch(() => {});
+      // For the storage map: which apps mount which folders, and which folders are served as shares.
+      fetch("/api/v1/catalog").then((response) => (response.ok ? response.json() : null)).then((body: { applications?: Parameters<typeof appFolders>[0] } | null) => setMapApps(body?.applications ? appFolders(body.applications) : [])).catch(() => {});
+      fetch("/api/v1/storage/samba").then((response) => (response.ok ? response.json() : null)).then((body: { config?: { shares?: MapSambaShare[] } } | null) => setMapShares(body?.config?.shares ?? [])).catch(() => {});
       setRefreshKey((key) => key + 1);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read storage state");
@@ -155,6 +161,38 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
         <article className="panel"><span className="eyebrow">Network shares</span><strong>{loading && !report ? "…" : report?.shares.length ?? "—"}</strong><span>{report?.shares.filter((entry) => entry.mounted).length ?? 0} connected</span></article>
         <article className="panel"><span className="eyebrow">Unallocated</span><strong>{loading && !report ? "…" : report ? gib(report.volumeGroups.reduce((sum, group) => sum + group.freeBytes, 0)) : "—"}</strong><span>free inside LVM volume groups</span></article>
       </div>
+
+      {(() => {
+        const map = report ? buildStorageMap({ mounts: report.mounts, sambaShares: mapShares, apps: mapApps, forecasts, networkTargets: report.shares.map((entry) => entry.mountpoint) }) : [];
+        if (!map.length) return null;
+        return (
+          <section className="panel">
+            <header className="panel-header"><div><strong>Storage map</strong><span>Each place data lives, what uses it, and how it is shared, in one picture.</span></div></header>
+            <div className="storage-map">
+              {map.map((entry) => {
+                const usedShare = entry.sizeBytes && entry.availableBytes !== null ? Math.min(100, Math.round(((entry.sizeBytes - entry.availableBytes) / entry.sizeBytes) * 100)) : null;
+                return (
+                  <article className="storage-map-card" key={entry.id}>
+                    <header>
+                      <strong>{entry.label}</strong>
+                      <span className="muted">{entry.kind === "network" ? `network share · ${entry.source}` : entry.kind === "drive" ? `${entry.fstype ?? "drive"} · ${entry.source}` : "everything not on a mounted drive"}</span>
+                    </header>
+                    {usedShare !== null && (
+                      <div className="storage-map-usage">
+                        <div className="storage-map-bar" role="img" aria-label={`${usedShare}% used`}><span style={{ width: `${usedShare}%` }} className={usedShare >= 90 ? "bar-hot" : ""} /></div>
+                        <span className="muted">{gib(entry.availableBytes)} free{entry.daysToFull !== null && entry.daysToFull <= 90 ? ` · fills in ~${entry.daysToFull} days` : ""}</span>
+                      </div>
+                    )}
+                    {usedShare === null && entry.daysToFull !== null && <p className="muted">Fills in ~{entry.daysToFull} days at the current rate.</p>}
+                    <div className="storage-map-row"><span className="eyebrow">Apps</span>{entry.apps.length ? entry.apps.map((app) => <span className="chip" key={app.id + app.path} title={app.path}>{app.name}</span>) : <span className="muted">none yet</span>}</div>
+                    <div className="storage-map-row"><span className="eyebrow">Shared as</span>{entry.shares.length ? entry.shares.map((share) => <span className="chip" key={share.name}>{share.name}{share.recycle ? " · recycle bin" : ""}</span>) : <span className="muted">not shared</span>}</div>
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        );
+      })()}
 
       {forecasts.filter((forecast) => forecast.daysToFull <= 90).length > 0 && (
         <section className="panel">
