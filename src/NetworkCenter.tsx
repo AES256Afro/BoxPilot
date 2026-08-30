@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { readJson } from "./http";
 import { useOperation } from "./ApproveDialog";
 import TailscalePanel from "./TailscalePanel";
+import TailnetPanel from "./TailnetPanel";
 import VpnProfilePanel from "./VpnProfilePanel";
 import LocalNamesPanel from "./LocalNamesPanel";
 import RouterPanel from "./RouterPanel";
@@ -183,6 +184,8 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
           {!reach.servePublished && <p className="muted">Publish BoxPilot on your tailnet with <code>tailscale serve --bg http://127.0.0.1:{networkCap?.port ?? 8787}</code> to reach it from anywhere over HTTPS.</p>}
         </section>
       )}
+
+      <TailnetPanel />
 
       <VpnProfilePanel csrfToken={csrfToken} />
 

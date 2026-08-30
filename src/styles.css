@@ -4462,3 +4462,8 @@ textarea {
 /* Samba: inline recycle-bin toggle on each share row */
 .share-recycle-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; cursor: pointer; }
 .share-recycle-toggle input { width: auto; margin: 0; }
+
+/* Tailnet device list (M24.1) + a generic chip token (previously only scoped under .vpn-profile-tags) */
+.chip { display: inline-flex; align-items: center; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; color: var(--text-muted); margin-right: 6px; }
+.watch-dot-off { background: var(--text-muted, #768390); opacity: 0.45; }
+.tailnet-self { margin-left: 8px; font-size: 11px; }

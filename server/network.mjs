@@ -346,7 +346,43 @@ export function parseNeighbors(stdout) {
     .sort((left, right) => (order[left.state] - order[right.state]) || left.address.localeCompare(right.address, undefined, { numeric: true }));
 }
 
+/**
+ * `tailscale status --json` with peers: every device on the owner's tailnet, reduced to what the
+ * Network page shows. Keys and endpoint details stay out; names, addresses, and roles come through.
+ */
+export function parseTailnetPeers(stdout) {
+  let parsed;
+  try { parsed = JSON.parse(stdout); } catch { return { connected: false, self: null, peers: [] }; }
+  const ipv4 = (value) => typeof value === "string" && /^\d+\.\d+\.\d+\.\d+$/.test(value);
+  const shape = (node, isSelf) => ({
+    name: typeof node.DNSName === "string" && node.DNSName ? node.DNSName.split(".")[0] : (node.HostName ?? "unknown"),
+    dnsName: typeof node.DNSName === "string" ? node.DNSName.replace(/\.$/, "") : null,
+    address: (node.TailscaleIPs ?? []).find(ipv4) ?? null,
+    os: typeof node.OS === "string" ? node.OS : null,
+    online: isSelf ? true : Boolean(node.Online),
+    lastSeen: typeof node.LastSeen === "string" && !node.LastSeen.startsWith("0001-") ? node.LastSeen : null,
+    exitNode: Boolean(node.ExitNodeOption),
+    // Approved subnet routes this node serves (its own /32 addresses are not routes).
+    subnetRoutes: (node.PrimaryRoutes ?? []).filter((entry) => typeof entry === "string" && !entry.includes(":")),
+    // A peer with a current direct address talks peer-to-peer; otherwise traffic bounces off a relay.
+    direct: isSelf ? null : Boolean(node.CurAddr),
+    relay: typeof node.Relay === "string" && node.Relay ? node.Relay : null,
+    isSelf,
+  });
+  const self = parsed.Self ? shape(parsed.Self, true) : null;
+  const peers = Object.values(parsed.Peer ?? {}).map((peer) => shape(peer, false))
+    .sort((left, right) => (Number(right.online) - Number(left.online)) || left.name.localeCompare(right.name));
+  return { connected: parsed.BackendState === "Running", self, peers };
+}
+
 export function createNetworkService({ store, runCommand = fixedCommand, getNetworkInterfaces = os.networkInterfaces } = {}) {
+  /** The whole tailnet as this server sees it (read-only; runs unprivileged). */
+  async function tailnet() {
+    const result = await runCommand("tailscale", ["status", "--json"]);
+    if (!result.ok) return { available: false, connected: false, self: null, peers: [] };
+    return { available: true, ...parseTailnetPeers(result.stdout) };
+  }
+
   async function inspect() {
     const [addressesResult, routesResult, resolversResult, listenersResult, tailscaleResult, neighborsResult, prefsResult, allRoutesResult] = await Promise.all([
       runCommand("ip", ["-j", "-4", "address", "show"]),
@@ -534,7 +570,7 @@ export function createNetworkService({ store, runCommand = fixedCommand, getNetw
     };
   }
 
-  return { inspect, plan, routerReadiness, validateAssessment, validateAcceptanceBaseline };
+  return { inspect, tailnet, plan, routerReadiness, validateAssessment, validateAcceptanceBaseline };
 }
 
 export const networkInternals = { buildRouterReadiness, declaredDevices, deviceRoles, eligibleLanAddresses, hostAddresses, ipv4Number, parseDefaultRoutes, parseDnsListeners, parseIpAddresses, parseResolverStatus, roleGuides, safeLabel, sameIpv4Subnet, topologyGuidance };

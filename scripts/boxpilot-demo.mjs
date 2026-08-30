@@ -419,6 +419,13 @@ api.get("/auth/sessions", (_request, response) => json(response, { currentId: "s
 ] }));
 api.get("/inventory", (_request, response) => json(response, inventory()));
 api.get("/network/topology", (_request, response) => json(response, topology()));
+api.get("/network/tailnet", (_request, response) => json(response, { available: true, connected: true,
+  self: { name: "homebox", dnsName: host.tailnet, address: host.tailscaleIp, os: "linux", online: true, lastSeen: null, exitNode: false, subnetRoutes: ["192.168.50.0/24"], direct: null, relay: null, isSelf: true },
+  peers: [
+    { name: "workbook", dnsName: "workbook.tail0a1b.ts.net", address: "100.64.0.7", os: "macOS", online: true, lastSeen: null, exitNode: false, subnetRoutes: [], direct: true, relay: null, isSelf: false },
+    { name: "gamebox", dnsName: "gamebox.tail0a1b.ts.net", address: "100.64.0.8", os: "windows", online: true, lastSeen: null, exitNode: false, subnetRoutes: [], direct: true, relay: null, isSelf: false },
+    { name: "pixel", dnsName: "pixel.tail0a1b.ts.net", address: "100.64.0.9", os: "android", online: false, lastSeen: ago(30), exitNode: false, subnetRoutes: [], direct: false, relay: "sfo", isSelf: false },
+  ] }));
 api.get("/network/plans", (_request, response) => json(response, { plans: [] }));
 api.get("/jobs", (_request, response) => json(response, { jobs }));
 api.post("/flows/:id/webhook", (request, response) => json(response, { token: "demo-token-shown-once", path: `/api/v1/hooks/flows/${request.params.id}/demo-token-shown-once` }));

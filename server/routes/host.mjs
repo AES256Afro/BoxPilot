@@ -168,6 +168,12 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     response.json(await network.inspect());
   });
 
+  // Every device on the owner's tailnet (M24.1): names, addresses, roles, and reachability, so the
+  // Network page shows the tailnet the way it shows the LAN. Read-only; nothing here mutates.
+  router.get("/network/tailnet", async (_request, response) => {
+    response.json(await network.tailnet());
+  });
+
   // Every way to reach the BoxPilot control plane, so "which URL do I use" has one honest answer
   // (M18.3). Assembled from the bind, the local certificate, and whether Tailscale Serve publishes us.
   router.get("/network/reachability", async (_request, response) => {
