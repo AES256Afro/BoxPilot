@@ -615,6 +615,14 @@ This arc makes local access first-class — reachable and encrypted — without 
   `server/routes/host.mjs`, panel in `src/NetworkCenter.tsx`. This is the answer to the "which URL do I
   use" confusion that broke ntfy's notifications. **Remaining:** an active outside-in probe per address
   (the reachability doctor pointed at BoxPilot itself), and the same panel per installed app.
+- ✅ **M18.4** (v1.81.0) **The tailnet, visible.** A "Devices on your tailnet" panel on the Network page
+  lists every machine signed into the owner's Tailscale network the way the LAN device list does: name,
+  tailnet address, OS, online state (offline devices show last seen), direct vs relayed connection, and
+  the roles that matter — exit node, subnet router with its routes, and "this server". New devices appear
+  as they join with nothing to configure. Pure `parseTailnetPeers` over `tailscale status --json` in
+  `server/network.mjs` (read-only, unprivileged, keys and endpoints never pass through),
+  `GET /api/v1/network/tailnet`, `src/TailnetPanel.tsx`. **Remaining:** turning rows into pickers
+  (grant a share to a device, open its address) once a concrete action needs one.
 
 ## M19 — Identity and access, finished
 

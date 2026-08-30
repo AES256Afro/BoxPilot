@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createNetworkService, networkInternals, parseNeighbors, validateNetworkPlanInput } from "./network.mjs";
+import { createNetworkService, networkInternals, parseNeighbors, parseTailnetPeers, validateNetworkPlanInput } from "./network.mjs";
 import { createStateStore } from "./state.mjs";
 
 const directories = [];
@@ -257,5 +257,24 @@ describe("network topology and DNS assessment", () => {
     expect(networkInternals.parseIpAddresses('[{"ifname":"eno1","address":"not-returned","addr_info":[{"family":"inet","local":"192.168.1.10","prefixlen":24,"scope":"global"}]}]')).toEqual([{ interface: "eno1", address: "192.168.1.10", cidr: "192.168.1.10/24", family: 4, internal: false }]);
     expect(networkInternals.sameIpv4Subnet("192.168.1.50", "192.168.1.10/24")).toBe(true);
     expect(networkInternals.sameIpv4Subnet("192.168.9.50", "192.168.1.10/24")).toBe(false);
+  });
+
+  it("reduces tailscale status with peers to names, addresses, roles, and reachability", () => {
+    const status = JSON.stringify({
+      BackendState: "Running",
+      Self: { DNSName: "homebox.tail1234.ts.net.", HostName: "homebox", TailscaleIPs: ["100.64.0.5", "fd7a::1"], OS: "linux", ExitNodeOption: false, PrimaryRoutes: ["192.168.1.0/24"] },
+      Peer: {
+        "key-a": { DNSName: "workbook.tail1234.ts.net.", TailscaleIPs: ["100.64.0.7"], OS: "macOS", Online: true, CurAddr: "192.168.1.20:41641", Relay: "sfo", LastSeen: "0001-01-01T00:00:00Z" },
+        "key-b": { DNSName: "phone.tail1234.ts.net.", TailscaleIPs: ["100.64.0.9"], OS: "android", Online: false, CurAddr: "", LastSeen: "2026-08-20T10:00:00Z", ExitNodeOption: true },
+      },
+    });
+    const result = parseTailnetPeers(status);
+    expect(result.connected).toBe(true);
+    expect(result.self).toMatchObject({ name: "homebox", address: "100.64.0.5", os: "linux", online: true, subnetRoutes: ["192.168.1.0/24"], isSelf: true });
+    // Online peers sort first; the zero LastSeen sentinel becomes null; direct vs relayed comes from CurAddr.
+    expect(result.peers.map((peer) => peer.name)).toEqual(["workbook", "phone"]);
+    expect(result.peers[0]).toMatchObject({ online: true, direct: true, lastSeen: null, os: "macOS" });
+    expect(result.peers[1]).toMatchObject({ online: false, direct: false, exitNode: true, lastSeen: "2026-08-20T10:00:00Z" });
+    expect(parseTailnetPeers("not json")).toEqual({ connected: false, self: null, peers: [] });
   });
 });
