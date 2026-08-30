@@ -4467,3 +4467,15 @@ textarea {
 .chip { display: inline-flex; align-items: center; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; color: var(--text-muted); margin-right: 6px; }
 .watch-dot-off { background: var(--text-muted, #768390); opacity: 0.45; }
 .tailnet-self { margin-left: 8px; font-size: 11px; }
+
+/* Storage map (M23.4): one card per place data lives */
+.storage-map { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.storage-map-card { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px; align-content: start; }
+.storage-map-card header { display: grid; gap: 2px; }
+.storage-map-card header strong { font-size: 14px; }
+.storage-map-usage { display: grid; gap: 4px; }
+.storage-map-bar { height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--border) 60%, transparent); overflow: hidden; }
+.storage-map-bar span { display: block; height: 100%; border-radius: 3px; background: var(--accent, #4493f8); }
+.storage-map-bar span.bar-hot { background: var(--warning, #d29922); }
+.storage-map-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.storage-map-row .eyebrow { margin-right: 2px; }
