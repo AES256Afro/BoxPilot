@@ -71,6 +71,7 @@ export function createAppHelper({
   lanAddress = "0.0.0.0",
   listDevices = (directory) => readdir(directory),
   chownDirectory = (target, uid, gid) => chown(target, uid, gid),
+  statPath = (target) => stat(target),
   tailscaleBinary = process.env.BOXPILOT_TAILSCALE_BINARY ?? "/usr/bin/tailscale",
   vpnProfile = null,
 } = {}) {
@@ -309,15 +310,22 @@ export function createAppHelper({
     // A folder the app is pointed at may not exist yet. Docker would create it as root:root, and an
     // app that runs as a normal user (PUID, or a declared `user:`) then cannot write its own data —
     // the install looks fine and every download or upload fails. Create it ourselves and hand it over.
-    // An existing folder is never touched: it is the owner's library, with their ownership.
+    // If it already exists but is root-owned and the app must write there, hand it over too: root
+    // ownership means Docker or a default created it, never the owner's own library (which carries
+    // their account's ownership). A folder owned by a real user is left alone, and so is a read-only
+    // mount, which the app never writes to.
     const runsAs = managedOwner;
     for (const volume of manifest.volumes) {
       const chosen = values.volumes?.[volume.id] ?? volume.hostPath;
       // Only folders meant to hold data: every system mount a manifest declares is on the deny list.
       if (!chosen || isDeniedHostPath(chosen)) continue;
-      if (await stat(chosen).then(() => true, () => false)) continue;
-      await mkdir(chosen, { recursive: true, mode: 0o755 }).catch(() => {});
-      if (runsAs) await chownDirectory(chosen, runsAs.uid, runsAs.gid).catch(() => {});
+      const info = await statPath(chosen).catch(() => null);
+      if (!info) {
+        await mkdir(chosen, { recursive: true, mode: 0o755 }).catch(() => {});
+        if (runsAs) await chownDirectory(chosen, runsAs.uid, runsAs.gid).catch(() => {});
+      } else if (runsAs && runsAs.uid !== 0 && !volume.readOnly && info.uid === 0) {
+        await chownDirectory(chosen, runsAs.uid, runsAs.gid).catch(() => {});
+      }
     }
     for (const volume of manifest.volumes) {
       const hostPath = values.volumes?.[volume.id];
