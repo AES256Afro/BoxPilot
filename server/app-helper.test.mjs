@@ -8,7 +8,7 @@ import { createCatalogService } from "./catalog/index.mjs";
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
 
-async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, runCommand = undefined, execTable = { vpn: "running", leaks: false, noCurl: false } } = {}) {
+async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, statPath = undefined, runCommand = undefined, execTable = { vpn: "running", leaks: false, noCurl: false } } = {}) {
   const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
   const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
   await writeFile(path.join(catalogDirectory, "demo.yaml"), `schemaVersion: 2\nid: demo\nname: Demo\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8080\nvolumes:\n  - id: data\n    container: /data\n    path: data\n  - id: docker\n    container: /var/run/docker.sock\n    hostPath: /var/run/docker.sock\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\n  - name: TZ\n    default: Etc/UTC\nhealth:\n  kind: ${healthKind}\n  stableSeconds: 4\n  timeoutSeconds: 30\n`);
@@ -78,7 +78,7 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
   const wait = vi.fn(async (ms) => { nowMs += ms; });
   const catalog = createCatalogService({ directory: catalogDirectory, ttlMs: 0 });
   const backupRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-appbk-")); directories.push(backupRoot);
-  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, lanAddress: "192.168.1.10", ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(runCommand ? { runCommand } : {}) });
+  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, lanAddress: "192.168.1.10", ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(statPath ? { statPath } : {}), ...(runCommand ? { runCommand } : {}) });
   const advance = (ms) => { nowMs += ms; };
   return { apps, calls, containers, catalogRoot, catalogDirectory, backupRoot, advance };
 }
@@ -165,6 +165,28 @@ describe("generic app deployer", () => {
     // Only the folder that was missing got created and handed over; the existing one was left alone.
     expect(chowned.filter(([target]) => target === path.join(resolvedRoot, "tv"))).toHaveLength(1);
     expect(chowned.filter(([target]) => target.endsWith("torrents"))).toHaveLength(0);
+  });
+
+  it("hands an existing but root-owned data folder to the app so it can write", async () => {
+    // The qBittorrent case: the download folder already exists but is root-owned (Docker or a default
+    // made it), so the app running as PUID 1000 cannot write and every torrent errors. The deployer
+    // should claim a root-owned read-write folder for the app; a folder owned by a real user is left.
+    const chowned = [];
+    const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-rootmedia-")); directories.push(mediaRoot);
+    const { apps, catalogDirectory } = await setup({
+      chownDirectory: async (target, uid, gid) => { chowned.push([target, uid, gid]); },
+      statPath: async (target) => (target === mediaRoot ? { uid: 0, isDirectory: () => true } : stat(target)),
+    });
+    await writeFile(path.join(catalogDirectory, "arr.yaml"), [
+      "schemaVersion: 2", "id: arr", "name: Arr", "category: T", "description: d",
+      "image:", "  reference: nginx:1.27",
+      "ports:", "  - id: web", "    container: 8989", "    host: 8989",
+      "env:", "  - name: PUID", "    default: \"1000\"", "    fixed: true", "  - name: PGID", "    default: \"1000\"", "    fixed: true",
+      "volumes:", "  - id: media", "    container: /data", "    hostPath: /srv/media", "    configurable: true", "    backup: false",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n");
+    await apps.install({ id: "arr", values: { volumes: { media: mediaRoot } } });
+    expect(chowned.some(([target, uid, gid]) => target === mediaRoot && uid === 1000 && gid === 1000)).toBe(true);
   });
 
   it("a sidecar in a crash loop fails the health wait and shows on the card", async () => {
