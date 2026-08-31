@@ -454,7 +454,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
                 <span>{formatBytes(artifact.sizeBytes)} | SHA-256 recorded | {new Date(artifact.createdAt).toLocaleString()}</span>
                 <code>{artifact.id}</code>
                 <span>{artifact.encrypted ? "Encrypted" : "Not encrypted"} | {artifact.protected ? "Protected" : "Not protected"} | {artifact.restoreDrill.passed ? "Restore drill passed" : "Restore drill not run"}</span>
-                <button type="button" className="text-button" onClick={() => startProtection(artifact)} disabled={pending !== null || !protectionDestination?.ready}>Back up independently</button>
+                <button type="button" className="text-button" onClick={() => startProtection(artifact)} disabled={pending !== null || !protectionDestination?.ready}>Keep a second copy</button>
               </div>
             ))}
           </div>

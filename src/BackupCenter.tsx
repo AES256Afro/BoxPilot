@@ -203,9 +203,9 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
   const protectBackup = (backupId: string) => {
     start({
       operationId: "controller.backup.protect",
-      title: "Protect the backup independently",
+      title: "Keep a second copy of this backup",
       parameters: { backupId },
-      preview: <span>Copies the verified backup into the separate encrypted restic repository, reads the whole repository back, and restore-drills the exact snapshot with no network. Nothing is pruned or overwritten.</span>,
+      preview: <span>Copies this backup into a separate encrypted store, reads the whole store back to prove it arrived intact, and restores that exact copy in isolation to prove it opens. Nothing existing is removed or overwritten.</span>,
     });
   };
 
