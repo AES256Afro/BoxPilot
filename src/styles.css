@@ -4551,3 +4551,13 @@ textarea {
 .problem-card > button { justify-self: start; }
 .problem-manual { color: var(--muted); margin: 0; max-width: 82ch; }
 .repair-prereq-header { margin-top: 4px; }
+
+/* Per-OS paths to a share, shown wherever a share is named (M22.7) */
+.connect-paths { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; }
+.connect-paths li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.connect-os { min-width: 7ch; color: var(--muted); font-size: 11px; }
+.connect-hint { font-size: 11px; }
+.connect-paths-compact .connect-os { min-width: 6ch; }
+.share-connect-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.storage-map-connect { margin-top: 6px; }
+.storage-map-connect summary { cursor: pointer; color: var(--muted); font-size: 11px; }

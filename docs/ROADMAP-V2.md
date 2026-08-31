@@ -635,6 +635,14 @@ This arc makes local access first-class — reachable and encrypted — without 
   produced it; the fix for the mount case is the new `storage.remount`. Copy across the page was
   rewritten from architecture language into what the reader would say.
 
+- ✅ **M22.7** (v1.94.0) **The address to type, wherever a share is named.** One shared component
+  (`src/ConnectPaths.tsx` over the pure `src/sharePaths.ts`) renders the Windows and macOS/Linux
+  forms of a share path with a copy button, and takes a subpath so it can point at a folder inside
+  the share rather than only its root — "save your downloads here" is useless without the path to
+  type on each machine. Used on the file-server panel and on each storage-map card that is shared.
+  macOS and Linux share one row because the URL is identical; printing it twice under two labels
+  reads as two different answers.
+
 - ✅ **M22.5** (v1.88.0) **Windows can find the server.** A healthy Samba share is reachable by
   typing `\\host\share` but never appears under Network in Windows File Explorer, because Windows
   browses with WS-Discovery and Samba does not speak it (nmbd's NetBIOS browsing is off by default in

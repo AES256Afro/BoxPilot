@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode, useRef } from "react"
 import type { PendingOperation } from "./ApproveDialog";
 import type { ViewName } from "./data";
 import { inspectOperation } from "./operations";
+import ConnectPaths from "./ConnectPaths";
 
 interface DiagnosticCheck { id: string; state: "ok" | "problem" | "warn" | "info"; title: string; detail: string; hint: string | null; share: string | null }
 
@@ -289,10 +290,11 @@ export default function SambaPanel({ start, folders, refreshKey, prefill, onNavi
           <ul className="share-connect">
             {state.config.shares.map((share) => (
               <li key={share.name}>
-                <strong>{share.name}</strong>
-                <span>Windows <code>\\{connectHost}\{share.name}</code></span>
-                <span>macOS, Linux <code>smb://{connectHost}/{share.name}</code></span>
-                <span>{share.guest ? "no password" : "sign in with a file-server user"}</span>
+                <div className="share-connect-head">
+                  <strong>{share.name}</strong>
+                  <span className="muted"><code>{share.path}</code> · {share.guest ? "no password" : "sign in with a file-server user"}{share.readOnly ? " · read-only" : ""}</span>
+                </div>
+                <ConnectPaths host={connectHost} share={share.name} />
               </li>
             ))}
           </ul>
