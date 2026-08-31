@@ -56,6 +56,9 @@ export function createSchedulerService({ store, jobs, registry = defaultRegistry
     // A schedule is stored, so a credential given to it would sit in the database and in every backup.
     const secrets = secretFields(operation.parameters).filter((name) => parameters?.[name] !== undefined && parameters?.[name] !== null && parameters?.[name] !== "");
     if (secrets.length) throw new Error(`${operation.title} needs a password or key each time, so it cannot run unattended`);
+    // A typed confirmation is a person promising they meant it; a schedule cannot make that promise.
+    // Without this the job would be staged every tick and refused at approval every tick, forever.
+    if (typeof operation.confirm === "function") throw new Error(`${operation.title} asks you to type a confirmation each time, so it cannot run on a schedule`);
     // Destination-pinning hooks supply host/provider fields at run time; validate the same way here.
     const prepared = typeof jobs.prepareParameters === "function" ? await jobs.prepareParameters(operationId, parameters ?? {}) : parameters ?? {};
     const parameterError = registry.validate(operationId, prepared);

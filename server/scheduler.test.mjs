@@ -24,6 +24,8 @@ async function setup({ now = () => new Date("2026-08-20T10:30:00") } = {}) {
       "apt.refresh": { id, title: "Refresh package lists", risk: "low", readOnly: false },
       "apt.purge": { id, title: "Purge packages", risk: "high", readOnly: false },
       "app.inspect": { id, title: "Inspect", risk: "low", readOnly: true },
+      "snap.delete": { id, title: "Delete a snapshot", risk: "medium", readOnly: false, confirm: (p) => String(p.name ?? "") },
+      "recycle.empty": { id, title: "Empty the recycle bin", risk: "medium", readOnly: false },
     })[id] ?? null,
     validate: (id, parameters) => (id === "app.backup" && !parameters.id ? "requires id" : null),
   };
@@ -53,6 +55,11 @@ describe("operation scheduler", () => {
     await expect(scheduler.create({ ...base, operationId: "nope" })).rejects.toThrow("not registered");
     await expect(scheduler.create({ ...base, operationId: "app.backup", parameters: {} })).rejects.toThrow("requires id");
     await expect(scheduler.create({ ...base, operationId: "apt.refresh", minute: 99 })).rejects.toThrow("minute");
+    // A typed-confirm op would be staged and refused every tick, forever, if it could be scheduled.
+    // storage.fs-snapshot.delete is the one medium op that carries a confirm; it must be refused.
+    await expect(scheduler.create({ ...base, operationId: "snap.delete", parameters: { name: "nightly" } })).rejects.toThrow("type a confirmation");
+    // The ops that ARE meant to run unattended (no confirm) still schedule fine.
+    await expect(scheduler.create({ ...base, operationId: "recycle.empty", parameters: { share: "media" } })).resolves.toBeTruthy();
   });
 
   it("runs due schedules as their creator and advances the next occurrence", async () => {
