@@ -1,4 +1,4 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { fixedRun } from "../exec.mjs";
 
 /**
@@ -354,7 +354,7 @@ export async function storageLvmSnapshotRollback({ path: snapshot } = {}, { run 
  * Unmounting (lazily, because a dead device will not release cleanly) and mounting again makes fstab
  * resolve the UUID afresh and land on the device that is really there.
  */
-export async function storageRemount({ name } = {}, { run = fixedRun, log = null, files = { readFile, exists: (target) => access(target).then(() => true, () => false) } } = {}) {
+export async function storageRemount({ name } = {}, { run = fixedRun, log = null, files = { readFile, readable: (target) => readdir(target).then(() => true, () => false) } } = {}) {
   if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name is invalid");
   const content = await files.readFile(fstabPath, "utf8");
   const entry = parseManagedFstab(content).find((row) => row.name === name);   // parseManagedFstab returns { name, line, markerIndex }
@@ -375,14 +375,16 @@ export async function storageRemount({ name } = {}, { run = fixedRun, log = null
     log?.(`$ umount ${mountpoint}`, "stdout");
     const plain = await run(binaries.umount, [mountpoint], { timeout: 60_000 });
     if (!plain.ok) {
-      // A refused umount is usually EBUSY — something is still using the folder — and not the
-      // dead device this op exists for. Detaching lazily in that case splits the writers: whoever
-      // holds the old filesystem keeps writing into one that no path reaches any more, and those
-      // writes are lost silently. So the lazy detach is only for a device that is genuinely gone,
-      // which is a fact we can check rather than infer from the failure.
-      const deviceGone = !(await files.exists(before));
-      if (!deviceGone) throw new Error(`${mountpoint} is in use, so it was left alone: ${tail(plain.stderr)}. Stop whatever is using it — an app with that folder mounted, or the file server — and try again.`);
-      log?.(`${before} no longer exists, so ${mountpoint} is being detached lazily`, "stderr");
+      // A refused umount is usually EBUSY — something is still using a healthy folder — and lazily
+      // detaching that splits the writers: whoever holds the old filesystem keeps writing into one
+      // no path reaches any more, and those writes are lost silently. So only detach lazily when the
+      // mount is actually dead. The device-name test cannot tell: a drive that dropped and came back
+      // reclaims the same name (/dev/sdb2 → /dev/sdb2), so the node exists again while the old mount
+      // is still broken. What is unambiguous is whether the mount still reads: a dead filesystem
+      // returns an I/O error on the very listing that was empty in File Explorer, a live one does not.
+      const mountReadable = await files.readable(mountpoint);
+      if (mountReadable) throw new Error(`${mountpoint} is in use, so it was left alone: ${tail(plain.stderr)}. Stop whatever is using it — an app with that folder mounted, or the file server — and try again.`);
+      log?.(`${mountpoint} is not readable, so its drive is gone; detaching lazily`, "stderr");
       const lazy = await run(binaries.umount, ["-l", mountpoint], { timeout: 60_000 });
       if (!lazy.ok) throw new Error(`Could not detach ${mountpoint}: ${tail(lazy.stderr)}`);
     }

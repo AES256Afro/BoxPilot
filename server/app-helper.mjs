@@ -1246,11 +1246,24 @@ export function createAppHelper({
       const actual = await sha256File(artifact);
       if (actual !== meta.checksumSha256) return fail("The archive does not match the checksum recorded when it was written, so it has been damaged since.");
     }
+    // Stream the member list rather than buffering it. `tar -tzf` prints one name per file, and an
+    // app with a large mail store or photo library has enough files that the whole list would blow
+    // a fixed stdout buffer and read as damage on a perfectly good archive. onLine counts them and
+    // keeps only the top-level names, so memory stays flat however many files the backup holds.
     progress?.(`$ tar -tzf ${target} (reads the whole archive; writes nothing)`, "stdout");
-    const listed = await runCommand(tarBinary, ["-tzf", artifact], { timeout: 60 * 60_000, maxBuffer: 64 * 1024 * 1024 });
+    const topLevel = new Set();
+    let memberCount = 0;
+    const listed = await runCommand(tarBinary, ["-tzf", artifact], {
+      timeout: 60 * 60_000,
+      onLine: (line) => {
+        const name = String(line ?? "").trim();
+        if (!name) return;
+        memberCount += 1;
+        const first = name.replace(/^\.\//, "").split("/")[0];
+        if (first) topLevel.add(first);
+      },
+    });
     if (!listed.ok) return fail(`The archive could not be read all the way through: ${redact(listed.stderr).split("\n").slice(-2).join(" ")}`);
-    const members = listed.stdout.split("\n").map((line) => line.trim()).filter(Boolean);
-    const topLevel = new Set(members.map((member) => member.replace(/^\.\//, "").split("/")[0]).filter(Boolean));
     const expected = meta?.contents ?? ["compose.yaml"];
     const missing = expected.filter((entry) => !topLevel.has(entry.split("/")[0]));
     if (missing.length) return fail(`The archive is missing ${missing.join(", ")}, which the backup says it contains.`);
@@ -1263,8 +1276,8 @@ export function createAppHelper({
     try { YAML.parse(compose.stdout); } catch (error) { return fail(`The compose file in the archive is not valid YAML: ${error.message}`); }
 
     const durationMs = clock().getTime() - startedAt;
-    progress?.(`${target} reads cleanly: ${members.length} entr${members.length === 1 ? "y" : "ies"}, compose.yaml valid`, "stdout");
-    return { verified: true, id, backup: target, checkedAt: clock().toISOString(), sizeBytes: info.size, entries: topLevel.size, members: members.length, contents: expected, checksumVerified: Boolean(meta?.checksumSha256), durationMs, reason: null };
+    progress?.(`${target} reads cleanly: ${memberCount} entr${memberCount === 1 ? "y" : "ies"}, compose.yaml valid`, "stdout");
+    return { verified: true, id, backup: target, checkedAt: clock().toISOString(), sizeBytes: info.size, entries: topLevel.size, members: memberCount, contents: expected, checksumVerified: Boolean(meta?.checksumSha256), durationMs, reason: null };
   }
 
   /** Restore a backup over the app directory: checksum check, safety backup, stop, extract, start. */
