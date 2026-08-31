@@ -250,6 +250,7 @@ export const inspections = {
     { id: "share.Media.write", state: "ok", title: "Media: read-only, as configured", detail: "/mnt/media is shared read-only.", hint: null, share: "Media" },
     { id: "share.Documents.write", state: "ok", title: "Documents: writable", detail: "Writes land as alex.", hint: null, share: "Documents" },
   ] },
+  "storage.folders": { path: "/mnt/media", folders: ["/mnt/media/films", "/mnt/media/music", "/mnt/media/series", "/mnt/media/torrents"], truncated: false },
   "storage.fs-snapshots.inspect": { supported: true, btrfs: { toolPresent: true, filesystems: [{ target: "/mnt/pool", source: "/dev/sdc1", snapshots: [{ name: "before-reorg", path: "/mnt/pool/.boxpilot-snapshots/before-reorg" }] }] }, zfs: { toolPresent: true, datasets: [{ name: "tank/media", mountpoint: "/tank/media", snapshots: [{ name: "nightly", path: "tank/media@nightly", used: "1.2G" }] }] } },
   "compose.project.logs": { name: "old-wordpress", lines: [
     "wordpress_1  | [28-Aug-2026] WordPress database connection failed",
