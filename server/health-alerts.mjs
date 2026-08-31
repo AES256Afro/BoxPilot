@@ -43,8 +43,10 @@ export function evaluateHealth(inventory) {
   // an empty folder with nothing anywhere reporting a fault, so this has to announce itself.
   const blockDevices = inventory?.storage?.blockDevices;
   if (blockDevices?.available && Array.isArray(blockDevices.devices) && blockDevices.devices.length > 0) {
-    const present = new Set(blockDevices.devices.map((device) => device.name).filter((name) => name && name !== "[unavailable]"));
-    for (const mount of inventory?.storage?.filesystems?.mounts ?? []) {
+    const present = new Set(blockDevices.devices.map((device) => device.name).filter((name) => name?.startsWith("/dev/")));
+    // Only compare when there is something real to compare against. If the device names ever stop
+    // being full paths, an empty set here would report every drive on the server as detached at once.
+    for (const mount of present.size === 0 ? [] : inventory?.storage?.filesystems?.mounts ?? []) {
       if (!mount.source?.startsWith("/dev/") || present.has(mount.source)) continue;
       alerts.push({ key: `storage.mount.detached:${mount.target}`, priority: "high", title: `${mount.target} lost its drive`, message: `It is still mounted from ${mount.source}, which is no longer a device on this server — the drive was disconnected, and may have come back under a different name. Anything reading that folder now sees it empty, including network shares. Reconnect it from the Repair page.` });
     }

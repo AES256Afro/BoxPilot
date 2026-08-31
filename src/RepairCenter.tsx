@@ -309,7 +309,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       {actionCenter && (
         <section className="panel action-center">
           <header className="panel-header">
-            <div><span className="eyebrow">Worth attention</span><strong>Noticed on this server</strong><span>Checked {new Date(actionCenter.generatedAt).toLocaleString()}{actionCenter.sourceStatus === "ready" ? "" : " · some evidence could not be read, so this list may be short"}</span></div>
+            <div><span className="eyebrow">Not broken, not protected</span><strong>What is not covered yet</strong><span>Nothing here is failing. These are the gaps that only matter on the day something does. Checked {new Date(actionCenter.generatedAt).toLocaleString()}{actionCenter.sourceStatus === "ready" ? "" : " · some of it could not be read, so this list may be short"}</span></div>
             <div className="action-counts"><span className="action-critical">{actionCenter.summary.critical} critical</span><span className="action-warning">{actionCenter.summary.warning} warning</span><span>{actionCenter.summary.info} info</span></div>
           </header>
           <div className="action-list">
