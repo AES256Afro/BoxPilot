@@ -68,6 +68,15 @@ describe("shares and drives nobody can write to", () => {
     expect(found.manual).toContain("Storage page");
   });
 
+  it("needs the real owner, not one inferred from whether a force user exists", () => {
+    // Deriving ownerUid from `forceUser ? 1000 : 0` made every force-user-less read-write share
+    // report "nobody can write to it", whoever actually owned the folder.
+    const ownedByAUser = { name: "torrents", path: "/mnt/the-dump/torrents", readOnly: false, ownerUid: 1000, forceUser: null };
+    expect(unwritableShares({ shares: [ownedByAUser] })).toEqual([]);
+    const rootOwned = { ...ownedByAUser, ownerUid: 0 };
+    expect(unwritableShares({ shares: [rootOwned] })).toHaveLength(1);
+  });
+
   it("accepts a share with a force user, and a read-only one", () => {
     expect(unwritableShares({ shares: [{ name: "a", path: "/mnt/a", readOnly: false, ownerUid: 0, forceUser: "bigbox" }] })).toEqual([]);
     expect(unwritableShares({ shares: [{ name: "b", path: "/mnt/b", readOnly: true, ownerUid: 0, forceUser: null }] })).toEqual([]);
