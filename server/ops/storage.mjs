@@ -114,7 +114,11 @@ export function storageOperations() {
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.fs-snapshot.delete", { kind: parameters.kind, target: parameters.target, name: parameters.name }, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
-      id: "storage.folders", title: "List folders on a drive", risk: "low", readOnly: true, timeoutMs: 30_000,
+      // operator, like app.logs and logs.read: this runs in the root helper, so it reads through
+      // directory permissions and would let a viewer enumerate every folder under /mnt and /srv,
+      // including ones owned by somebody else. Its only caller is the install dialog, which a
+      // viewer cannot submit anyway.
+      id: "storage.folders", title: "List folders on a drive", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 30_000,
       description: "The folders directly inside a mounted drive or share, so a path can be picked instead of typed. Read-only, and confined to /mnt and /srv.",
       parameters: { fields: { path: { type: "string", maxLength: 512, pattern: /^\/(mnt|srv)(\/[^\0\r\n]*)?$/ } } },
       run: async (parameters) => {

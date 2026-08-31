@@ -102,8 +102,11 @@ describe("listing folders on a drive", () => {
     } finally { await fsPromises.rm(base, { recursive: true, force: true }); }
   });
 
-  it("is read-only, so a viewer can use the picker", () => {
+  it("is operator-only, because it reads through directory permissions as root", () => {
+    // It runs in the root helper, so a viewer could otherwise enumerate every folder under /mnt and
+    // /srv including ones owned by somebody else. Same gate as app.logs and logs.read.
     expect(op().readOnly).toBe(true);
     expect(op().risk).toBe("low");
+    expect(op().minimumRole).toBe("operator");
   });
 });

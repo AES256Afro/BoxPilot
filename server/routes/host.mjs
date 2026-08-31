@@ -144,8 +144,11 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     if (samba?.configured) {
       const shares = samba.config?.shares ?? [];
       facts.samba = { configured: true, scope: samba.config?.scope ?? "tailscale", shareCount: shares.length, discoveryRunning: Boolean(samba.discovery?.running) };
-      // A share is unwritable when its folder is root-owned and no force user was resolved for it.
-      facts.shares = shares.map((share) => ({ name: share.name, path: share.path, readOnly: Boolean(share.readOnly), forceUser: share.forceUser ?? null, ownerUid: share.forceUser ? 1000 : 0 }));
+      // The owner uid comes from the helper, which stats the folder. Deriving it from whether a
+      // force user exists made every force-user-less read-write share look unwritable.
+      facts.shares = shares
+        .filter((share) => Number.isInteger(share.ownerUid))
+        .map((share) => ({ name: share.name, path: share.path, readOnly: Boolean(share.readOnly), forceUser: share.forceUser ?? null, ownerUid: share.ownerUid }));
     }
     const verifications = state.getSetting("appBackupVerifications", {}) ?? {};
     const drills = state.getSetting("killSwitchDrills", {}) ?? {};

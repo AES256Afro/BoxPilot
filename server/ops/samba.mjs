@@ -1,4 +1,4 @@
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, stat } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
 import { discoveryState, parseSmbConf, sambaDiagnose, recycleSizeBytes, sambaUsernamePattern, scopes, shareNamePattern, smbConfPath, validateSambaConfig, workgroupPattern } from "../tasks/samba.mjs";
 
@@ -27,6 +27,9 @@ export function sambaOperations() {
         const users = group?.ok && group.stdout ? (group.stdout.trim().split(":")[3] ?? "").split(",").filter(Boolean).sort() : [];
         // How much sits in each share's recycle bin, so the page can show it and offer to empty it.
         for (const share of config.shares) if (share.recycle) share.recycleBytes = await recycleSizeBytes(run, share.path);
+        // Who owns the folder behind each share. Read here because the helper runs as root and can
+        // stat it; a caller that guesses this gets "nobody can write to it" wrong for every share.
+        for (const share of config.shares) share.ownerUid = await stat(share.path).then((info) => info.uid, () => null);
         // Whether Windows will list this server by itself, which is a different question from
         // whether the shares work: without wsdd they are reachable only by typing the name.
         const discovery = await discoveryState(run);
