@@ -132,6 +132,45 @@ export function permissionlessMounts({ mounts = [] } = {}) {
     }));
 }
 
+/** Which mount a path actually sits on: the deepest mount point that is a prefix of it. */
+export function mountFor(target, mounts = []) {
+  const candidates = mounts
+    .filter((mount) => mount.target && (target === mount.target || target.startsWith(mount.target === "/" ? "/" : `${mount.target}/`)))
+    .sort((left, right) => right.target.length - left.target.length);
+  return candidates[0] ?? null;
+}
+
+/**
+ * Apps that were each pointed at a big data folder by the owner, but at folders on different
+ * drives, so nothing one writes is visible to another.
+ *
+ * The case this is written from: qBittorrent saved into /srv/media on the 500 GB system disk while
+ * Plex read /mnt/the-dump on the 15 TB drive. Both were healthy, both were configured exactly as
+ * asked, and neither could see the other's files. Nothing anywhere said so, because from each app's
+ * side nothing is wrong. Only owner-chosen folders under /mnt or /srv are compared: an app's own
+ * private config directory is supposed to be private, and saying so about every app would be noise.
+ */
+export function splitDataFolders({ apps = [], mounts = [] } = {}) {
+  const placed = [];
+  for (const app of apps) {
+    for (const folder of app.dataFolders ?? []) {
+      if (!/^\/(mnt|srv)\//.test(folder) && !["/mnt", "/srv"].includes(folder)) continue;
+      const mount = mountFor(folder, mounts);
+      placed.push({ app: app.name ?? app.id, folder, mount: mount?.target ?? "/", source: mount?.source ?? null });
+    }
+  }
+  const drives = [...new Set(placed.map((entry) => entry.mount))];
+  if (placed.length < 2 || drives.length < 2) return [];
+  return [finding({
+    id: "split-data-folders",
+    severity: "info",
+    title: "Your apps are saving to different drives",
+    detail: "These apps were each given a folder to work in, but on different drives, so none of them can see what the others write. That is fine if it was deliberate; it is the usual reason a download appears nowhere and a library stays empty.",
+    evidence: placed.map((entry) => `${entry.app} uses ${entry.folder} on ${entry.mount}`),
+    manual: "If they are meant to share files, point them at folders on the same drive from each app's Settings, and move any existing files across first.",
+  })];
+}
+
 /** Apps that cannot write to a data folder, folded in from the catalog's own per-app check. */
 export function unwritableAppFolders({ apps = [] } = {}) {
   return apps.flatMap((app) => (app.folderProblems ?? []).slice(0, 1).map((problem) => finding({
@@ -196,6 +235,7 @@ export function detectRemediations(facts = {}) {
     ...vpnLeaks(facts),
     ...failedRehearsals(facts),
     ...unwritableAppFolders(facts),
+    ...splitDataFolders(facts),
     ...unwritableShares(facts),
     ...permissionlessMounts(facts),
     ...windowsCannotDiscover(facts),

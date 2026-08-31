@@ -590,7 +590,7 @@ api.get("/remediations", (request, response) => {
   if (world !== "trouble") return json(response, { findings: [], counts: { critical: 0, warning: 0, info: 0 }, checkedAt: now().toISOString() });
   return json(response, {
     checkedAt: now().toISOString(),
-    counts: { critical: 1, warning: 2, info: 1 },
+    counts: { critical: 1, warning: 2, info: 2 },
     findings: [
       { id: "stale-mount:media", severity: "critical", title: "/mnt/media is mounted from a drive that is gone",
         detail: "The mount still points at /dev/sda2, which no longer exists - the drive was disconnected and came back under a different name. Anything reading this folder gets an error or sees it empty, including network shares and any app that uses it.",
@@ -604,6 +604,10 @@ api.get("/remediations", (request, response) => {
         detail: "/srv/media is owned by user root, while the app runs as user 1000. Downloads, uploads, and anything else this app saves there will fail without saying why.",
         evidence: ["Media folder: /srv/media", "owned by user root, while the app runs as user 1000"],
         fix: { operationId: "app.reconfigure", parameters: { id: "qbittorrent", values: {} }, label: "Fix folder access", preview: "Redeploys qBittorrent with its current settings; the deploy hands its data folders to the user the app runs as. Nothing else changes." }, manual: null },
+      { id: "split-data-folders", severity: "info", title: "Your apps are saving to different drives",
+        detail: "These apps were each given a folder to work in, but on different drives, so none of them can see what the others write. That is fine if it was deliberate; it is the usual reason a download appears nowhere and a library stays empty.",
+        evidence: ["qBittorrent uses /srv/media on /", "Jellyfin uses /mnt/media on /mnt/media"],
+        fix: null, manual: "If they are meant to share files, point them at folders on the same drive from each app's Settings, and move any existing files across first." },
       { id: "windows-discovery", severity: "info", title: "Windows will not list this server under Network",
         detail: "Windows finds file servers with WS-Discovery, which Samba does not answer. The shares work if you type the address; they just never appear on their own.",
         evidence: ["sharing on the LAN", "wsdd is not running"],

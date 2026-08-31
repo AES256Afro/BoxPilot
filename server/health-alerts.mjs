@@ -14,6 +14,7 @@ export const healthConditions = Object.freeze({
   "storage.root.full": "Root disk nearly full",
   "storage.mount.full": "A mounted filesystem is nearly full",
   "storage.smart": "A disk reports SMART problems",
+  "storage.mount.detached": "A drive was disconnected and its folder is now empty",
   "power.ups": "UPS on battery or low",
   "system.services": "System services have failed",
   "system.reboot": "A reboot is required",
@@ -35,6 +36,18 @@ export function evaluateHealth(inventory) {
   for (const mount of inventory?.storage?.filesystems?.mounts ?? []) {
     if (mount.target === "/" || !["warning", "critical"].includes(mount.capacityState)) continue;
     alerts.push({ key: `storage.mount.full:${mount.target}`, priority: mount.capacityState === "critical" ? "high" : "default", title: `${mount.target} is ${mount.usedPercent}% full`, message: `The filesystem mounted at ${mount.target} is nearly full.` });
+  }
+  // A mount whose device has gone. A drive that drops off the bus for a moment comes back under a
+  // different kernel name and the old mount stays, pointing at nothing: findmnt still lists it, df
+  // still prints the size it cached, and only a real read fails. Shares and bind mounts then serve
+  // an empty folder with nothing anywhere reporting a fault, so this has to announce itself.
+  const blockDevices = inventory?.storage?.blockDevices;
+  if (blockDevices?.available && Array.isArray(blockDevices.devices) && blockDevices.devices.length > 0) {
+    const present = new Set(blockDevices.devices.map((device) => device.name).filter((name) => name && name !== "[unavailable]"));
+    for (const mount of inventory?.storage?.filesystems?.mounts ?? []) {
+      if (!mount.source?.startsWith("/dev/") || present.has(mount.source)) continue;
+      alerts.push({ key: `storage.mount.detached:${mount.target}`, priority: "high", title: `${mount.target} lost its drive`, message: `It is still mounted from ${mount.source}, which is no longer a device on this server — the drive was disconnected, and may have come back under a different name. Anything reading that folder now sees it empty, including network shares. Reconnect it from the Repair page.` });
+    }
   }
   for (const disk of inventory?.storage?.smart?.disks ?? []) {
     if (["healthy", "unavailable"].includes(disk.health)) continue;
@@ -74,6 +87,8 @@ export function collectorAvailability(inventory) {
     "storage.root.full": Boolean(storage?.root && Number.isFinite(storage.root.usedPercent)),
     "storage.mount.full": storage?.filesystems?.available !== false && Array.isArray(storage?.filesystems?.mounts),
     "storage.smart": storage?.smart?.available !== false && Array.isArray(storage?.smart?.disks) && storage.smart.disks.length > 0,
+    // Needs both halves: without the device list every mount would look detached.
+    "storage.mount.detached": storage?.filesystems?.available !== false && Array.isArray(storage?.filesystems?.mounts) && storage?.blockDevices?.available === true && (storage.blockDevices.devices?.length ?? 0) > 0,
     "power.ups": inventory?.power?.ups?.available === true,
     "system.services": maintenance?.available !== false && Number.isFinite(maintenance?.system?.failedServiceCount),
     "system.reboot": maintenance?.available !== false && typeof maintenance?.reboot?.required === "boolean",
