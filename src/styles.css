@@ -4505,3 +4505,16 @@ textarea {
 .share-connect li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
 .share-connect li > strong { min-width: 9ch; }
 .samba-discovery { margin-top: 4px; }
+
+/* File-sharing diagnostic (M22.5) */
+.samba-diagnose { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 10px; }
+.samba-diagnose > .muted { flex: 1 1 18ch; }
+.diagnose-results { flex: 1 0 100%; list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 6px; }
+.diagnose-results li { display: flex; gap: 8px; align-items: baseline; }
+.diagnose-body { display: grid; gap: 1px; }
+.diagnose-body > span { color: var(--muted); }
+.diagnose-mark { width: 1.5em; flex: none; text-align: center; font-weight: 700; }
+.diagnose-ok .diagnose-mark { color: var(--accent-light); }
+.diagnose-problem .diagnose-mark { color: var(--danger); }
+.diagnose-warn .diagnose-mark { color: var(--warn); }
+.diagnose-info .diagnose-mark { color: var(--muted); }

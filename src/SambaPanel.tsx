@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState, type ReactNode, useRef } from "react";
 import type { PendingOperation } from "./ApproveDialog";
 import type { ViewName } from "./data";
+import { inspectOperation } from "./operations";
+
+interface DiagnosticCheck { id: string; state: "ok" | "problem" | "warn" | "info"; title: string; detail: string; hint: string | null; share: string | null }
 
 interface ShareConfig { name: string; path: string; comment: string | null; readOnly: boolean; guest: boolean; users: string[]; forceUser?: string | null; recycle?: boolean; recycleBytes?: number | null }
 
@@ -86,6 +89,21 @@ export default function SambaPanel({ start, folders, refreshKey, prefill, onNavi
   // quietly fills the drive. Same mechanism as the VPN kill-switch's "Verify weekly".
   const [autoClean, setAutoClean] = useState<Record<string, string>>({});
   const [autoCleanError, setAutoCleanError] = useState<string | null>(null);
+
+  // "Why can't my other computer open this?" answered from the server rather than guessed at.
+  const [diagnosis, setDiagnosis] = useState<{ checks: DiagnosticCheck[]; ok: boolean } | null>(null);
+  const [diagnosing, setDiagnosing] = useState(false);
+  const runDiagnosis = async () => {
+    setDiagnosing(true);
+    try {
+      const { result } = await inspectOperation<{ checks: DiagnosticCheck[]; ok: boolean }>("samba.diagnose");
+      setDiagnosis(result);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Could not check file sharing");
+    } finally {
+      setDiagnosing(false);
+    }
+  };
   const loadAutoClean = useCallback(async () => {
     try {
       const body = (await fetch("/api/v1/schedules").then((response) => (response.ok ? response.json() : { schedules: [] }))) as { schedules: Array<{ id: string; operationId: string; parameters?: { subject?: string } }> };
@@ -241,6 +259,27 @@ export default function SambaPanel({ start, folders, refreshKey, prefill, onNavi
         {dirty && <span className="muted">Changes are not live until you apply.</span>}
         {!dirty && state?.configured && <span className="muted">Everything shown is live.</span>}
       </div>
+
+      {state?.configured && (
+        <div className="samba-diagnose">
+          <button className="secondary-button" type="button" disabled={diagnosing} onClick={() => void runDiagnosis()}>{diagnosing ? "Checking..." : "Check file sharing"}</button>
+          <span className="muted">Says what is actually wrong when another computer cannot open a share.</span>
+          {diagnosis && (
+            <ul className="diagnose-results">
+              {diagnosis.checks.map((check) => (
+                <li key={check.id} className={`diagnose-${check.state}`}>
+                  <span className="diagnose-mark" aria-hidden="true">{check.state === "ok" ? "✓" : check.state === "problem" ? "!" : check.state === "warn" ? "•" : "i"}</span>
+                  <span className="diagnose-body">
+                    <strong>{check.title}</strong>
+                    <span>{check.detail}{check.hint ? ` ${check.hint}` : ""}</span>
+                  </span>
+                </li>
+              ))}
+              {diagnosis.checks.length === 0 && <li className="muted">Nothing to check yet.</li>}
+            </ul>
+          )}
+        </div>
+      )}
 
       {state?.configured && (
         <div className="muted share-note">

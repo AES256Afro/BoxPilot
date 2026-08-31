@@ -241,6 +241,15 @@ export const inspections = {
   "app.config.inspect": { id: "homepage", name: "Homepage", directory: "/var/lib/boxpilot-managed/catalog/homepage", compose: "name: bp-homepage\nservices:\n  homepage:\n    image: ghcr.io/gethomepage/homepage:v1.5.0\n    restart: unless-stopped\n    ports:\n      - 192.168.1.10:3000:3000\n", env: [{ name: "HOMEPAGE_ALLOWED_HOSTS", value: "*", secret: false }, { name: "PUID", value: "1000", secret: false }, { name: "SECRET", value: "********", secret: true }] },
   // Every dialog the interface can open needs an answer here; see scripts/demo-fixtures.test.mjs.
   "app.vpn.inspect": { id: "qbittorrent", tunneled: true, sidecarId: "vpn", running: true, status: "running", exit: { ip: "203.0.113.7", location: "Netherlands, North Holland, Amsterdam", at: "2026-08-25T03:00:00Z" } },
+  "samba.diagnose": { ok: true, scope: "tailscale", discovery: { installed: false, running: false }, checks: [
+    { id: "running", state: "ok", title: "The file server is running", detail: "smbd is active.", hint: null, share: null },
+    { id: "config", state: "ok", title: "The configuration is valid", detail: "2 share(s) defined.", hint: null, share: null },
+    { id: "listening", state: "ok", title: "Listening for connections", detail: "Answering on 100.100.20.10:445.", hint: null, share: null },
+    { id: "firewall", state: "info", title: "The firewall is not filtering", detail: "ufw is inactive.", hint: null, share: null },
+    { id: "discovery", state: "info", title: "Windows will not list this server", detail: "Windows browses with WS-Discovery, which Samba does not speak.", hint: null, share: null },
+    { id: "share.Media.write", state: "ok", title: "Media: read-only, as configured", detail: "/mnt/media is shared read-only.", hint: null, share: "Media" },
+    { id: "share.Documents.write", state: "ok", title: "Documents: writable", detail: "Writes land as alex.", hint: null, share: "Documents" },
+  ] },
   "storage.fs-snapshots.inspect": { supported: true, btrfs: { toolPresent: true, filesystems: [{ target: "/mnt/pool", source: "/dev/sdc1", snapshots: [{ name: "before-reorg", path: "/mnt/pool/.boxpilot-snapshots/before-reorg" }] }] }, zfs: { toolPresent: true, datasets: [{ name: "tank/media", mountpoint: "/tank/media", snapshots: [{ name: "nightly", path: "tank/media@nightly", used: "1.2G" }] }] } },
   "compose.project.logs": { name: "old-wordpress", lines: [
     "wordpress_1  | [28-Aug-2026] WordPress database connection failed",

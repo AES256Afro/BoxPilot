@@ -630,6 +630,13 @@ This arc makes local access first-class — reachable and encrypted — without 
   (3702/udp, 5357/tcp); another turns it back off and withdraws the rules. `samba.inspect` reports
   the state, and the panel now lists every share's exact Windows and macOS/Linux path to paste.
   `server/tasks/samba.mjs` (`sambaDiscoverySet`, `discoveryState`), op `samba.discovery.set`.
+- ✅ **M22.6** (v1.89.0) **"Why can't my other computer open this?"** One read-only pass over the
+  whole file server that says what is actually wrong, because the two ways sharing fails in practice
+  are invisible from the client: a share nobody can write to (root-owned folder, no force user) and
+  a share nobody can find (no WS-Discovery). Checks the service, the configuration, what it is
+  listening on, the firewall, discovery, and per share the folder, who can write, and whether the
+  users it allows exist. Missing discovery is reported as a warning, not a fault, because the share
+  does work. `sambaDiagnose` in `server/tasks/samba.mjs`, op `samba.diagnose`.
 
 - ✅ **M23.4** (v1.82.0) **Storage map.** One card per place data lives — each mounted drive, each
   connected network share, the system disk — with capacity and a usage bar, the fill forecast, the
