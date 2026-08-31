@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
 import { devicePattern, labelPattern, logicalVolumePattern, mountNamePattern, parseManagedFstab, uuidPattern } from "../tasks/storage.mjs";
+import { fsSnapshotsInspect, snapshotKinds, snapshotNamePattern as fsSnapshotNamePattern } from "../tasks/fs-snapshots.mjs";
 
 /** The LV name the Storage page shows for a snapshot path (device-mapper escapes "-" as "--"). */
 function snapshotNameFromPath(devicePath) {
@@ -85,6 +86,32 @@ export function storageOperations() {
         appWritable: { type: "boolean", optional: true },
       } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.mount", { uuid: parameters.uuid, name: parameters.name, fstype: parameters.fstype ?? "auto", readOnly: parameters.readOnly ?? false, appWritable: parameters.appWritable ?? false }, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "storage.fs-snapshots.inspect", title: "Read filesystem snapshots", risk: "low", readOnly: true, timeoutMs: minutes(1),
+      description: "Which btrfs filesystems and ZFS datasets exist on this server and the snapshots they hold. Empty on a server without either, which is the common case.",
+      parameters: { fields: {} },
+      run: (_parameters, { run }) => fsSnapshotsInspect({}, { run }),
+    }),
+    defineOperation({
+      id: "storage.fs-snapshot.create", title: "Take a filesystem snapshot", risk: "medium", timeoutMs: minutes(2),
+      description: "A read-only btrfs snapshot (under .boxpilot-snapshots on the filesystem) or a ZFS snapshot of a dataset. The target must be a filesystem this server actually mounts; a name it does not recognise is refused.",
+      parameters: { fields: {
+        kind: { type: "string", enum: [...snapshotKinds] },
+        target: { type: "string", maxLength: 256, pattern: /^[A-Za-z0-9/][A-Za-z0-9._/-]{0,255}$/ },
+        name: { type: "string", maxLength: 32, pattern: fsSnapshotNamePattern },
+      } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.fs-snapshot.create", { kind: parameters.kind, target: parameters.target, name: parameters.name }, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "storage.fs-snapshot.delete", title: "Delete a filesystem snapshot", risk: "medium", timeoutMs: minutes(2), confirm: (parameters) => String(parameters.name ?? ""),
+      description: "Removes one snapshot: a btrfs snapshot under the managed .boxpilot-snapshots folder, or a ZFS snapshot by its @name. The filesystem's live data is untouched.",
+      parameters: { fields: {
+        kind: { type: "string", enum: [...snapshotKinds] },
+        target: { type: "string", maxLength: 256, pattern: /^[A-Za-z0-9/][A-Za-z0-9._/-]{0,255}$/ },
+        name: { type: "string", maxLength: 32, pattern: fsSnapshotNamePattern },
+      } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.fs-snapshot.delete", { kind: parameters.kind, target: parameters.target, name: parameters.name }, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "storage.unmount", title: "Unmount a managed filesystem", risk: "medium", timeoutMs: minutes(3),

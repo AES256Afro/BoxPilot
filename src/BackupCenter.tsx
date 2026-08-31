@@ -6,6 +6,7 @@ import RestorePanel from "./RestorePanel";
 import RestoreReviewPanel from "./RestoreReviewPanel";
 import { inspectOperation } from "./operations";
 import { readJson } from "./http";
+import { useTailnetHosts } from "./tailnetHosts";
 import { behindBackupSchedules, judgeProtection, type AppProtection, type ProtectionVerdict, type ScheduleLike } from "./backupProtection";
 import { offBoxVerdict, offBoxWarning, mirrorOperations, type OffBoxInputs } from "./offBox";
 
@@ -49,6 +50,7 @@ function formatBytes(bytes: number): string {
  * protection lives on the Virtual Machines page.
  */
 export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenRepair?: () => void }) {
+  const tailnetHosts = useTailnetHosts();
   const [appProtection, setAppProtection] = useState<{ verdicts: ProtectionVerdict[]; available: boolean } | null>(null);
   const [protecting, setProtecting] = useState<string | null>(null);
   const [offBox, setOffBox] = useState<{ warning: string | null; inputs: OffBoxInputs; scheduled: boolean } | null>(null);
@@ -408,7 +410,8 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
         </div>
         {remote?.publicKey && <pre className="app-logs" aria-label="Mirror public key">{remote.publicKey}</pre>}
         <form className="recovery-actions" onSubmit={(event) => { event.preventDefault(); void saveDestination(); }}>
-          <input aria-label="Destination host" placeholder="host or IP" value={form.host} onChange={(event) => editForm({ host: event.target.value })} required />
+          <input aria-label="Destination host" list="tailnet-hosts" placeholder="host or IP, or pick a tailnet device" value={form.host} onChange={(event) => editForm({ host: event.target.value })} required />
+          <datalist id="tailnet-hosts">{tailnetHosts.map((entry) => <option value={entry} key={entry} />)}</datalist>
           <input aria-label="Destination port" type="number" min={1} max={65535} value={form.port} onChange={(event) => editForm({ port: Number(event.target.value) })} style={{ width: "6em" }} />
           <input aria-label="Destination user" placeholder="user" value={form.user} onChange={(event) => editForm({ user: event.target.value })} required />
           <input aria-label="Destination path" placeholder="/absolute/path" value={form.path} onChange={(event) => editForm({ path: event.target.value })} required />
