@@ -775,6 +775,55 @@ describe("generic app deployer", () => {
     await expect(apps.restoreAppBackupPath({ id: "demo", backup: backupResult.artifact, path: "data/missing.txt" })).rejects.toThrow("is not in");
   });
 
+  it("remembers what an update moved from, and can put the app and its sidecar back", async () => {
+    // The update that succeeds and turns out wrong two days later. The failure path already knows
+    // how to redeploy a pinned image; this is the same move made deliberately, and it has to bring
+    // the sidecar with it - an app restored onto an upgraded database cannot read its own data.
+    const { apps, calls, catalogRoot, catalogDirectory } = await setup();
+    const manifest = (image, sidecarImage) => [
+      "schemaVersion: 2", "id: pair", "name: Pair", "category: T", "description: d",
+      `image:`, `  reference: ${image}`,
+      "ports:", "  - id: web", "    container: 80", "    host: 8080",
+      "sidecars:", "  - id: db", `    image: ${sidecarImage}`,
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n";
+
+    await writeFile(path.join(catalogDirectory, "pair.yaml"), manifest("app:1.0", "postgres:15"));
+    await apps.install({ id: "pair" });
+
+    // The catalog moves both images forward.
+    // Replace the file rather than rewriting it: the catalog notices new directory entries, and a
+    // release replaces the tree. (An in-place edit of the same file is a separate, real staleness
+    // bug — see the catalog cache fix in this release.)
+    await rm(path.join(catalogDirectory, "pair.yaml"));
+    await writeFile(path.join(catalogDirectory, "pair.yaml"), manifest("app:2.0.1", "postgres:16.2"));
+    const updated = await apps.update({ id: "pair" });
+    expect(updated).toMatchObject({ updated: true, previousReference: "app:1.0", reference: "app:2.0.1" });
+    let stored = JSON.parse(await readFile(path.join(catalogRoot, "pair", "boxpilot.json"), "utf8"));
+    expect(stored.updateHistory[0]).toMatchObject({ from: { pair: "app:1.0", db: "postgres:15" }, to: { pair: "app:2.0.1", db: "postgres:16.2" } });
+    expect(await readFile(path.join(catalogRoot, "pair", "compose.yaml"), "utf8")).toContain("app:2.0.1");
+
+    calls.length = 0;
+    const back = await apps.rollbackApp({ id: "pair" });
+    expect(back).toMatchObject({ rolledBack: true, restored: { pair: "app:1.0", db: "postgres:15" } });
+    // Both services are pinned back, not just the app.
+    const composeText = await readFile(path.join(catalogRoot, "pair", "compose.yaml"), "utf8");
+    expect(composeText).toContain("app:1.0");
+    expect(composeText).toContain("postgres:15");
+    // It pulls, because the previous image is unused after an update and a prune may have removed it.
+    expect(calls).toContainEqual(expect.stringMatching(/compose .* pull$/));
+    // The rollback is itself history, so going back again steps back rather than ping-ponging.
+    stored = JSON.parse(await readFile(path.join(catalogRoot, "pair", "boxpilot.json"), "utf8"));
+    expect(stored.updateHistory[0]).toMatchObject({ rolledBack: true, to: { pair: "app:1.0" } });
+    expect(stored.pinnedRollback).toBe(true);
+  });
+
+  it("refuses to roll back an app that has never been updated", async () => {
+    const { apps } = await setup();
+    await apps.install({ id: "demo" });
+    await expect(apps.rollbackApp({ id: "demo" })).rejects.toThrow("nothing to go back to");
+  });
+
   it("rehearses a restore against a real archive, and refuses a damaged or truncated one", async () => {
     // A checksum proves the bytes did not rot; it cannot prove the archive opens or holds the app.
     // The rehearsal unpacks the whole thing for real, and leaves the live app entirely alone.

@@ -826,7 +826,16 @@ fully looks after."
 - **M22.1** **Adopt a foreign stack for real.** Read an existing compose project into a managed
   shape so backups, updates, and config editing apply to it, not just start/stop — the hard half of
   M3.10, done conservatively (the owner reviews the derived manifest before it takes over).
-- **M22.2** **Update channels and a rollback history.** Per app: stable vs latest, a visible history
+- ◐ **M22.2** (v1.99.0) **Update history and going back.** ✅ **The way back.** Every update records
+  what each service moved from, read out of the deployed compose file (the only exact record: the
+  manifest has already moved on, and stored state carries the app's own image but never its
+  sidecars'). "Go back to <version>" redeploys the app *and any sidecar that moved with it* — an app
+  restored onto an upgraded database cannot read its own data. The version comes from the app's own
+  recorded history rather than the request, so the operation can only ever restore what that app was
+  already running, and catalog references are version tags (never `latest`), so the old image is
+  re-pullable after a prune has removed it locally. `rollbackApp` in `server/app-helper.mjs`,
+  `deployedImages` in `server/catalog/compose.mjs`, op `app.rollback`. **Remaining:** channels
+  (stable vs latest) and stepping back more than one release.
   of image versions installed, and a one-click return to any previous one, on top of the checkpoint
   machinery already there.
 - **M22.3** **App bundles.** A named set of apps installed and wired together in one approved run —
