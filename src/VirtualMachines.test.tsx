@@ -168,7 +168,7 @@ describe("Virtual Machines", () => {
     expect(await screen.findByText("Export snapshot-lab")).toBeTruthy();
     expect(screen.getByText(/not yet a protected backup/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
-    fireEvent.click(screen.getByRole("button", { name: "Back up independently" }));
+    fireEvent.click(screen.getByRole("button", { name: "Keep a second copy" }));
     expect(await screen.findByText("Back up snapshot-lab independently")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
     fireEvent.click(screen.getByRole("button", { name: "Apply retention" }));

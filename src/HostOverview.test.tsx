@@ -33,7 +33,7 @@ describe("live host overview", () => {
     expect(screen.getByText(/42 C/)).toBeTruthy();
     expect(screen.getByText("ext4 kernel errors: 0")).toBeTruthy();
     expect(screen.getByText("UPS power protection")).toBeTruthy();
-    expect(screen.getByText("Host maintenance readiness")).toBeTruthy();
+    expect(screen.getByText("Housekeeping")).toBeTruthy();
     expect(screen.getByText("Not required")).toBeTruthy();
     expect(screen.getByText("enabled active")).toBeTruthy();
     expect(screen.getByText("Local UPS is online")).toBeTruthy();
