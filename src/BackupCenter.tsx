@@ -287,7 +287,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
         {retention?.policy && (
           <div className="recovery-actions">
             <span className="muted">Retention keeps at least {retention.policy.minimumCopies ?? 3} independent copies; {retention.candidates?.length ?? 0} snapshot(s) currently eligible for forgetting.</span>
-            {(retention.candidates?.length ?? 0) > 0 && <button className="secondary-button" type="button" onClick={() => start({ operationId: "controller.backup.retention.apply", title: "Apply controller backup retention", parameters: {}, preview: <span>Forgets only the currently eligible old snapshots and verifies the repository afterwards. Never prunes.</span> })}>Apply retention</button>}
+            {(retention.candidates?.length ?? 0) > 0 && <button className="secondary-button" type="button" onClick={() => start({ operationId: "controller.backup.retention.apply", title: "Apply controller backup retention", parameters: {}, preview: <span>Removes the record of old backups that are safe to let go, then checks the store is still intact. The files themselves are not deleted and no space is reclaimed yet, so nothing recent is ever at risk.</span> })}>Apply retention</button>}
           </div>
         )}
       </section>

@@ -25,7 +25,12 @@ describe("a mount whose drive has gone", () => {
 
   it("announces it, because nothing else on the box will", () => {
     const alerts = evaluateHealth(detached);
+    // Only the dead mount, and NOT the LVM root: /dev/mapper/ubuntu--vg-ubuntu--lv is both the
+    // root's source and a device lsblk --paths reports, so a false "root disk lost its drive" high
+    // alert every 15 minutes is exactly what this asserts against. Confirmed against the real box.
     expect(alerts.map((alert) => alert.key)).toEqual(["storage.mount.detached:/mnt/the-dump"]);
+    expect(alerts.some((alert) => alert.key.includes("/"))).toBe(true);
+    expect(alerts.some((alert) => alert.key === "storage.mount.detached:/")).toBe(false);
     expect(alerts[0].priority).toBe("high");
     expect(alerts[0].message).toContain("/dev/sda2");
     expect(alerts[0].message).toContain("shares");
