@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { containersOnStaleMounts, detectRemediations, mountFor, splitDataFolders, failedRehearsals, permissionlessMounts, staleMounts, unwritableShares, vpnLeaks, windowsCannotDiscover } from "./remediations.mjs";
+import { containersOnStaleMounts, detectRemediations, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, staleMounts, unwritableShares, vpnLeaks, windowsCannotDiscover } from "./remediations.mjs";
 
 /**
  * The situation each of these was written from, on a real server:
@@ -183,5 +183,26 @@ describe("apps saving to different drives", () => {
   it("needs at least two folders before there is anything to compare", () => {
     expect(splitDataFolders({ mounts, apps: [{ id: "plex", name: "Plex", dataFolders: ["/mnt/the-dump"] }] })).toEqual([]);
     expect(splitDataFolders({ mounts, apps: [] })).toEqual([]);
+  });
+});
+
+describe("a watcher with nowhere to send anything", () => {
+  const apps = [{ id: "plex", name: "Plex" }];
+
+  it("says so, because it makes every other alert silent", () => {
+    const [found] = nothingCanReachYou({ notifications: { configured: false }, apps });
+    expect(found.severity).toBe("warning");
+    expect(found.title).toContain("reach you");
+    expect(found.manual).toContain("Notifications");
+  });
+
+  it("is quiet when a target is set, or when it cannot tell", () => {
+    expect(nothingCanReachYou({ notifications: { configured: true }, apps })).toEqual([]);
+    expect(nothingCanReachYou({ notifications: null, apps })).toEqual([]);   // unknown is not "missing"
+    expect(nothingCanReachYou({ apps })).toEqual([]);
+  });
+
+  it("does not nag a server with nothing installed on it yet", () => {
+    expect(nothingCanReachYou({ notifications: { configured: false }, apps: [] })).toEqual([]);
   });
 });
