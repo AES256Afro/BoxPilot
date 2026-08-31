@@ -102,6 +102,21 @@ describe("App catalog", () => {
     expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
   });
 
+  it("shows where an installed app's data lives, so a wrong drive is obvious at a glance", async () => {
+    // The confusion this prevents: a download client pointed at one disk while the media app reads
+    // another. The card names the drive rather than leaving it to be discovered.
+    const withWritableVolume = { ...manifest, volumes: [{ id: "media", label: "Downloads", container: "/data", path: null, hostPath: "/srv/media", readOnly: false, backup: false, configurable: true, description: null }] };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest: withWritableVolume, live: { id: "jellyfin", installed: true, dataPresent: true, state: { installedAt: "x", updatedAt: "x", manifestSha256: "abc", image: { reference: "r", id: "sha256:1" }, values: { ports: {}, env: {}, volumes: { media: "/mnt/the-dump/torrents" } }, pinnedRollback: false, uninstalledAt: null }, container: { exists: true, running: true, status: "running", health: "healthy", restarts: 0, image: "sha256:1" }, urls: [] } }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AppCatalog csrfToken="csrf-token" />);
+    // The chosen path wins over the manifest default, so the card shows where the data actually is.
+    expect(await screen.findByText("/mnt/the-dump/torrents")).toBeTruthy();
+  });
+
   it("answers \"Can't reach it?\" with a verdict per address, from the doctor's op", async () => {
     const report = { headline: null, probedFrom: "this server", addresses: [
       { id: "probe-0", portId: "web", portLabel: "Web UI", kind: "lan", url: "http://192.168.1.10:8096", probe: true, note: null, outcome: "answered", status: 200, ms: 14, verdict: "Answers (HTTP 200 in 14ms)." },
