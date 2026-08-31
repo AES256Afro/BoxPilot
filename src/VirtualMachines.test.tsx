@@ -166,7 +166,7 @@ describe("Virtual Machines", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
     fireEvent.click(screen.getByRole("button", { name: "Export" }));
     expect(await screen.findByText("Export snapshot-lab")).toBeTruthy();
-    expect(screen.getByText(/not yet a protected backup/)).toBeTruthy();
+    expect(screen.getByText(/not yet a backup kept somewhere else/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
     fireEvent.click(screen.getByRole("button", { name: "Keep a second copy" }));
     expect(await screen.findByText("Back up snapshot-lab independently")).toBeTruthy();
@@ -175,7 +175,7 @@ describe("Virtual Machines", () => {
     expect(await screen.findByText("Apply VM backup retention")).toBeTruthy();
     expect(screen.getByText(/Prune never runs/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
-    fireEvent.click(screen.getByRole("button", { name: "Run isolated restore drill" }));
+    fireEvent.click(screen.getByRole("button", { name: "Test the restore" }));
     expect(await screen.findByText("Restore drill for snapshot-lab")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
     expect(screen.getByText("protected-lab-recovery-old")).toBeTruthy();

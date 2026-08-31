@@ -201,7 +201,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       operationId: "vm.snapshot.create",
       title: `Snapshot ${domain.name} as ${snapshotName}`,
       parameters: { name: domain.name, snapshotName },
-      preview: <span>Creates an offline internal snapshot of the stopped VM. Only plain qcow2 disks qualify. Checked before anything runs, and a snapshot is not an independent backup.</span>,
+      preview: <span>Takes a point-in-time snapshot of the stopped VM you can roll back to. Only plain qcow2 disks can do this, and it is checked first. A snapshot lives on the same disk, so it is not a backup.</span>,
     });
   };
 
@@ -213,7 +213,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       operationId: "vm.export.create",
       title: `Export ${domain.name}`,
       parameters: { name: domain.name },
-      preview: <span>Flattens the stopped VM's disks into standalone qcow2 files with SHA-256 evidence, verified against the source. This is a local integrity-checked artifact, not yet a protected backup. The source VM is unchanged and must stay stopped.</span>,
+      preview: <span>Copies the stopped VM's disks into standalone files, checksummed and checked against the originals. This is a local copy on the same server, not yet a backup kept somewhere else. The VM itself is untouched and must stay stopped.</span>,
     });
   };
 
@@ -222,7 +222,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       operationId: "vm.export.protect",
       title: `Back up ${artifact.domainName} independently`,
       parameters: { exportId: artifact.id },
-      preview: <span>Reverifies the local export, writes an encrypted restic snapshot to the independent destination, and reads the whole repository back. Protected status still requires the isolated restore drill afterwards.</span>,
+      preview: <span>Re-checks the local copy, writes an encrypted copy to the separate destination, and reads the whole thing back to prove it arrived intact. It only counts as backed up once a test restore has opened it, which is the next step.</span>,
     });
   };
 
@@ -444,7 +444,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
         {exports.length === 0 ? (
           <div className="vm-empty">
             <strong>{unread.includes("exports") ? "Exports could not be read" : "No VM exports recorded"}</strong>
-            <p>{unread.includes("exports") ? "This does not mean there is nothing here. BoxPilot could not read the list just now. Refresh in a moment." : "Stop a managed persistent VM, then generate a reviewed export plan. Encryption, an independent destination, and an isolated restore boot are still required before BoxPilot will call it protected."}</p>
+            <p>{unread.includes("exports") ? "This does not mean there is nothing here. BoxPilot could not read the list just now. Refresh in a moment." : "Stop a VM BoxPilot manages, then make a local copy of it. It counts as backed up once that copy is encrypted, kept somewhere other than this server, and proven by a test restore."}</p>
           </div>
         ) : (
           <div className="vm-resource-grid">
@@ -464,11 +464,11 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
             {protectedBackups.map((backup) => (
               <article className="vm-domain" key={backup.id}>
                 <div className="vm-domain-summary">
-                  <div className="vm-domain-name"><span className="vm-icon">BK</span><div><strong>{backup.domainName}</strong><span>{formatBytes(backup.sizeBytes)} | encrypted independent restic snapshot</span><span>{backup.repositoryVerified ? "Repository data verified" : "Repository verification missing"} | {backup.restoreDrill.passed ? "isolated restore drill passed" : "isolated restore still required"}</span></div></div>
+                  <div className="vm-domain-name"><span className="vm-icon">BK</span><div><strong>{backup.domainName}</strong><span>{formatBytes(backup.sizeBytes)} | encrypted copy, kept off this server</span><span>{backup.repositoryVerified ? "read back and intact" : "not yet read back"} | {backup.restoreDrill.passed ? "test restore passed" : "test restore still needed"}</span></div></div>
                   <span className={`status-pill status-${backup.retained === false ? "warning" : backup.protected ? "good" : "warning"}`}>{backup.retained === false ? "forgotten" : backup.protected ? "protected" : "not protected"}</span>
                 </div>
                 <div className="vm-actions">
-                  {backup.retained !== false && !backup.protected && <button type="button" className="text-button" onClick={() => startRestoreDrill(backup)} disabled={pending !== null}>Run isolated restore drill</button>}
+                  {backup.retained !== false && !backup.protected && <button type="button" className="text-button" onClick={() => startRestoreDrill(backup)} disabled={pending !== null}>Test the restore</button>}
                   {backup.retained !== false && backup.protected && <button type="button" className="text-button" onClick={() => openRecoveryPlanner(backup)} disabled={pending !== null}>Create recovery clone</button>}
                   {backup.retained === false && <span>Snapshot metadata forgotten {backup.retention?.forgottenAt ? new Date(backup.retention.forgottenAt).toLocaleString() : "by retention"}</span>}
                 </div>
@@ -510,11 +510,11 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       </div>
 
       {message && <p className="vm-message" aria-live="polite">{message}</p>}
-      {plannerOpen && <VmPlanner csrfToken={csrfToken} onClose={() => setPlannerOpen(false)} onStage={(input) => { setPlannerOpen(false); startOperation({ operationId: "vm.create", title: `Create VM ${input.name}`, parameters: { ...input }, preview: <span>Creates <code>{input.name}</code> exactly as planned through the restricted helper, {input.vcpus} vCPU, {formatMemory(input.memoryMiB * 1024)} RAM, {input.diskGiB} GiB disk from <code>{input.isoFile}</code>. Revalidated against the live host first. Failure rolls back the new domain and its storage.</span> }); }} />}
+      {plannerOpen && <VmPlanner csrfToken={csrfToken} onClose={() => setPlannerOpen(false)} onStage={(input) => { setPlannerOpen(false); startOperation({ operationId: "vm.create", title: `Create VM ${input.name}`, parameters: { ...input }, preview: <span>Creates <code>{input.name}</code> exactly as planned through the restricted helper, {input.vcpus} vCPU, {formatMemory(input.memoryMiB * 1024)} RAM, {input.diskGiB} GiB disk from <code>{input.isoFile}</code>. Checked against the live host first. If it fails, the new VM and its disks are removed.</span> }); }} />}
       {snapshotDomain && (
         <div className="vm-planner-backdrop" role="presentation">
           <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-snapshot-title">
-            <header className="vm-planner-header"><div><span className="eyebrow">Offline snapshot</span><h2 id="vm-snapshot-title">Snapshot {snapshotDomain.name}</h2><p>Only stopped, persistent VMs with plain qcow2 disks can use this workflow.</p></div><button type="button" className="modal-close" aria-label="Close snapshot plan" onClick={() => setSnapshotDomain(null)}>X</button></header>
+            <header className="vm-planner-header"><div><span className="eyebrow">Offline snapshot</span><h2 id="vm-snapshot-title">Snapshot {snapshotDomain.name}</h2><p>Only stopped VMs with plain qcow2 disks can be snapshotted.</p></div><button type="button" className="modal-close" aria-label="Close snapshot plan" onClick={() => setSnapshotDomain(null)}>X</button></header>
             <div className="vm-action-review">
               <form onSubmit={(event) => { event.preventDefault(); createSnapshot(); }}>
                 <label className="vm-snapshot-name">Snapshot name<input value={snapshotName} onChange={(event) => setSnapshotName(event.target.value)} pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,62}" maxLength={63} required autoComplete="off" /><span>Use 1-63 letters, numbers, dots, underscores, or hyphens.</span></label>
@@ -528,7 +528,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       {recoveryBackup && (
         <div className="vm-planner-backdrop" role="presentation">
           <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-recovery-title">
-            <header className="vm-planner-header"><div><span className="eyebrow">Recovery clone</span><h2 id="vm-recovery-title">Recover {recoveryBackup.domainName}</h2><p>Create a separate persistent VM from the exact protected snapshot. The source and repository remain unchanged.</p></div><button type="button" className="modal-close" aria-label="Close recovery plan" onClick={() => setRecoveryBackup(null)}>X</button></header>
+            <header className="vm-planner-header"><div><span className="eyebrow">Recovery clone</span><h2 id="vm-recovery-title">Recover {recoveryBackup.domainName}</h2><p>Builds a new, separate VM from this backup. The original VM and the backup are both left as they are.</p></div><button type="button" className="modal-close" aria-label="Close recovery plan" onClick={() => setRecoveryBackup(null)}>X</button></header>
             <div className="vm-action-review">
               <form onSubmit={(event) => { event.preventDefault(); startRecovery(); }}>
                 <label className="vm-snapshot-name">New VM name<input value={recoveryName} onChange={(event) => setRecoveryName(event.target.value)} pattern="[A-Za-z0-9][A-Za-z0-9_.-]{0,62}" maxLength={63} required autoComplete="off" /><span>The name must be available. The new VM will not replace the source.</span></label>
