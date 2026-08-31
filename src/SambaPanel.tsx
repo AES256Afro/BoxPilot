@@ -16,6 +16,7 @@ interface SambaState {
   config: { managed: boolean; workgroup: string; scope: "tailscale" | "lan"; interfaces: string[]; shares: ShareConfig[] };
   users: string[];
   tailscaleDnsName: string | null; tailscaleAddress: string | null; lanAddress: string | null;
+  discovery?: { installed: boolean; running: boolean };
 }
 
 const shareNameValid = (name: string) => /^[A-Za-z0-9][A-Za-z0-9 _.-]{0,30}$/.test(name) && !["global", "homes", "printers", "print$", "ipc$"].includes(name.toLowerCase());
@@ -156,6 +157,19 @@ export default function SambaPanel({ start, folders, refreshKey, prefill, onNavi
             : <>Tick “Windows file sharing (SMB)” on the Firewall page.</>}
         </p>
       )}
+      {/* Windows browses with WS-Discovery, which Samba does not answer: without this a working
+          share is reachable by typing its name but never appears under Network in File Explorer. */}
+      {/* Offered on the LAN, where discovery works at all; but if it is already running it stays
+          visible in every scope, so switching to tailnet-only never strands it with no way off. */}
+      {state && (scope === "lan" || state.discovery?.running) && (
+        <p className="samba-discovery muted">
+          {state.discovery?.running
+            ? <>This server appears under <strong>Network</strong> in Windows File Explorer{scope === "lan" ? "" : " (which only reaches devices on the LAN, so it does nothing in this scope)"}.{" "}
+                <button className="text-button" type="button" onClick={() => start({ operationId: "samba.discovery.set", title: "Stop showing this server in Windows", parameters: { enabled: false }, preview: <span>Stops and disables <code>wsdd</code> and withdraws the discovery rules (3702/udp, 5357/tcp). Shares keep working; Windows will need the address typed in.</span> })}>turn off</button></>
+            : <>Windows does not list this server under <strong>Network</strong> yet: Windows browses with WS-Discovery, which Samba does not speak. Shares still work if you type the address.{" "}
+                <button className="text-button" type="button" onClick={() => start({ operationId: "samba.discovery.set", title: "Show this server in Windows", parameters: { enabled: true }, preview: <span>Installs <code>wsdd</code>, runs it, and allows the two discovery ports (3702/udp, 5357/tcp) so File Explorer lists this server under Network. Shares and permissions are unchanged.</span> })}>Show it in Windows</button></>}
+        </p>
+      )}
 
       <div className="samba-users">
         <strong>Users</strong> {hint("who may sign in to password-protected shares")}
@@ -229,12 +243,25 @@ export default function SambaPanel({ start, folders, refreshKey, prefill, onNavi
       </div>
 
       {state?.configured && (
-        <p className="muted share-note">
-          <strong>Connect:</strong> macOS/Linux <code>smb://{connectHost}/{draft[0]?.name ?? "<share>"}</code> · Windows <code>\\{connectHost}\{draft[0]?.name ?? "<share>"}</code>
-          {scope === "tailscale" && <>. Works from any device signed into your tailnet, nowhere else.</>}
-          {scope === "lan" && state.lanAddress && <>, on the LAN use <code>{state.lanAddress}</code>; from outside use the Tailscale name.</>}
-          {state.config.shares.some((share) => share.forceUser === null && !share.readOnly) && <> Folders owned by root are read-only for everyone until you change their owner.</>}
-        </p>
+        <div className="muted share-note">
+          {/* Every applied share, with the exact text to paste on each platform. Windows needs the
+              backslash form typed into File Explorer's address bar; macOS and Linux take a URL. */}
+          <strong>Open a share from another computer</strong>
+          <ul className="share-connect">
+            {state.config.shares.map((share) => (
+              <li key={share.name}>
+                <strong>{share.name}</strong>
+                <span>Windows <code>\\{connectHost}\{share.name}</code></span>
+                <span>macOS, Linux <code>smb://{connectHost}/{share.name}</code></span>
+                <span>{share.guest ? "no password" : "sign in with a file-server user"}</span>
+              </li>
+            ))}
+          </ul>
+          {state.config.shares.length === 0 && <p>Nothing is shared yet.</p>}
+          {scope === "tailscale" && <p>Works from any device signed into your tailnet, nowhere else.</p>}
+          {scope === "lan" && state.lanAddress && <p>On the LAN use <code>{state.lanAddress}</code>; from outside use the Tailscale name.</p>}
+          {state.config.shares.some((share) => share.forceUser === null && !share.readOnly) && <p>Folders owned by root are read-only for everyone until you change their owner.</p>}
+        </div>
       )}
     </section>
   );

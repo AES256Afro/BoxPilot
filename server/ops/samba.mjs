@@ -1,6 +1,6 @@
 import { access, readFile } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
-import { parseSmbConf, recycleSizeBytes, sambaUsernamePattern, scopes, shareNamePattern, smbConfPath, validateSambaConfig, workgroupPattern } from "../tasks/samba.mjs";
+import { discoveryState, parseSmbConf, recycleSizeBytes, sambaUsernamePattern, scopes, shareNamePattern, smbConfPath, validateSambaConfig, workgroupPattern } from "../tasks/samba.mjs";
 
 const minutes = (value) => value * 60_000;
 const systemctl = process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl";
@@ -27,7 +27,10 @@ export function sambaOperations() {
         const users = group?.ok && group.stdout ? (group.stdout.trim().split(":")[3] ?? "").split(",").filter(Boolean).sort() : [];
         // How much sits in each share's recycle bin, so the page can show it and offer to empty it.
         for (const share of config.shares) if (share.recycle) share.recycleBytes = await recycleSizeBytes(run, share.path);
-        return { installed, running, configured: content.length > 0 && config.managed, config, users };
+        // Whether Windows will list this server by itself, which is a different question from
+        // whether the shares work: without wsdd they are reachable only by typing the name.
+        const discovery = await discoveryState(run);
+        return { installed, running, configured: content.length > 0 && config.managed, config, users, discovery };
       },
     }),
     defineOperation({
@@ -51,6 +54,12 @@ export function sambaOperations() {
         olderThanDays: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 0 && value <= 3650 ? null : "must be a whole number of days between 0 and 3650") },
       } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("samba.recycle.empty", { share: parameters.share, olderThanDays: parameters.olderThanDays ?? 0 }, { timeoutMs: minutes(5), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "samba.discovery.set", title: "Show this server in Windows", risk: "medium", timeoutMs: minutes(6),
+      description: "Windows finds file servers with WS-Discovery, which Samba does not speak, so a working share never appears under Network in File Explorer. Turning this on installs wsdd, runs it, and allows the two discovery ports (3702/udp, 5357/tcp). Shares and permissions are unchanged either way.",
+      parameters: { fields: { enabled: { type: "boolean" } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("samba.discovery.set", { enabled: parameters.enabled }, { timeoutMs: minutes(5), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "samba.user.set", title: "Add or update a file-server user", risk: "medium", timeoutMs: minutes(2),

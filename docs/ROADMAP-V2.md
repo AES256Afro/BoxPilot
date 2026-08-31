@@ -623,6 +623,14 @@ This arc makes local access first-class — reachable and encrypted — without 
   `server/network.mjs` (read-only, unprivileged, keys and endpoints never pass through),
   `GET /api/v1/network/tailnet`, `src/TailnetPanel.tsx`. **Remaining:** turning rows into pickers
   (grant a share to a device, open its address) once a concrete action needs one.
+- ✅ **M22.5** (v1.88.0) **Windows can find the server.** A healthy Samba share is reachable by
+  typing `\\host\share` but never appears under Network in Windows File Explorer, because Windows
+  browses with WS-Discovery and Samba does not speak it (nmbd's NetBIOS browsing is off by default in
+  Windows 10 and 11). One button installs and runs `wsdd` and allows the two discovery ports
+  (3702/udp, 5357/tcp); another turns it back off and withdraws the rules. `samba.inspect` reports
+  the state, and the panel now lists every share's exact Windows and macOS/Linux path to paste.
+  `server/tasks/samba.mjs` (`sambaDiscoverySet`, `discoveryState`), op `samba.discovery.set`.
+
 - ✅ **M23.4** (v1.82.0) **Storage map.** One card per place data lives — each mounted drive, each
   connected network share, the system disk — with capacity and a usage bar, the fill forecast, the
   apps that mount folders there, and the network shares serving it out (with their recycle bins).
