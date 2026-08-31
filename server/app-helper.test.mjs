@@ -189,6 +189,31 @@ describe("generic app deployer", () => {
     expect(chowned.some(([target, uid, gid]) => target === mediaRoot && uid === 1000 && gid === 1000)).toBe(true);
   });
 
+  it("reports a data folder the installed app cannot write to, and clears once ownership is right", async () => {
+    // The silent qBittorrent failure: every torrent errored at 0% because /data was root-owned.
+    // The catalog listing should say so on the card instead of leaving the app to fail quietly.
+    const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-ro-media-")); directories.push(mediaRoot);
+    let ownerUid = 0;
+    const { apps, catalogDirectory } = await setup({
+      chownDirectory: async () => {},
+      statPath: async (target) => (target === mediaRoot ? { uid: ownerUid, gid: ownerUid, mode: 0o40755, isDirectory: () => true } : stat(target)),
+    });
+    await writeFile(path.join(catalogDirectory, "arr.yaml"), [
+      "schemaVersion: 2", "id: arr", "name: Arr", "category: T", "description: d",
+      "image:", "  reference: nginx:1.27",
+      "ports:", "  - id: web", "    container: 8989", "    host: 8989",
+      "env:", "  - name: PUID", "    default: \"1000\"", "    fixed: true", "  - name: PGID", "    default: \"1000\"", "    fixed: true",
+      "volumes:", "  - id: media", "    container: /data", "    hostPath: /srv/media", "    configurable: true", "    backup: false",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n");
+    await apps.install({ id: "arr", values: { volumes: { media: mediaRoot } } });
+    const before = (await apps.inspect({ id: "arr" })).applications[0];
+    expect(before.folderProblems).toEqual([{ path: mediaRoot, volume: "media", reason: "owned by user root, while the app runs as user 1000" }]);
+    ownerUid = 1000;
+    const after = (await apps.inspect({ id: "arr" })).applications[0];
+    expect(after.folderProblems).toEqual([]);
+  });
+
   it("a sidecar in a crash loop fails the health wait and shows on the card", async () => {
     // qBittorrent "ran" for an hour while its VPN container crash-looped: the deploy that broke
     // it passed the health check (which watched only the app container) and the card said
