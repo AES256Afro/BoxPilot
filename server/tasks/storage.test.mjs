@@ -220,17 +220,40 @@ describe("reconnecting a drive that came back under a new name", () => {
       if (binary.endsWith("mount")) { source = "/dev/sdb2"; return { ok: true, stdout: "", stderr: "" }; }
       return { ok: true, stdout: "", stderr: "" };
     });
-    const result = await storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab } });
+    const result = await storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab, exists: async () => false } });
     expect(result).toMatchObject({ remounted: true, source: "/dev/sdb2", previousSource: "/dev/sda2", deviceChanged: true });
     expect(calls).toContain("umount /mnt/the-dump");
     expect(calls).toContain("umount -l /mnt/the-dump");     // the fallback the dead device forces
     expect(calls).toContain("mount /mnt/the-dump");
   });
 
+  it("refuses to lazily detach a mount that is merely busy", async () => {
+    // EBUSY is the ordinary umount failure, not the dead device this op is for. Detaching anyway
+    // leaves whoever holds the folder writing into a filesystem no path reaches.
+    const run = vi.fn(async (binary) => {
+      if (binary.endsWith("findmnt")) return { ok: true, stdout: "/dev/sdb2\n", stderr: "" };
+      if (binary.endsWith("umount")) return { ok: false, stdout: "", stderr: "umount: /mnt/the-dump: target is busy" };
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    const files = { readFile: async () => fstab, exists: async () => true };   // the device is still there
+    await expect(storageRemount({ name: "the-dump" }, { run, files })).rejects.toThrow("in use");
+    expect(run.mock.calls.some(([binary, callArgs]) => binary.endsWith("umount") && callArgs.includes("-l"))).toBe(false);
+  });
+
+  it("refuses an entry whose fstab line is not a drive mounted at that path", async () => {
+    // `# boxpilot:swap` sits above `/swap.boxpilot none swap sw,nofail 0 0`. The marker name passes
+    // the pattern and the membership check, but the entry has nothing to do with /mnt/swap.
+    const withSwap = "# boxpilot:swap\n/swap.boxpilot none swap sw,nofail 0 0\n";
+    const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
+    await expect(storageRemount({ name: "swap" }, { run, files: { readFile: async () => withSwap, exists: async () => true } }))
+      .rejects.toThrow("not a drive mounted at /mnt/swap");
+    expect(run.mock.calls.some(([binary]) => binary.endsWith("umount"))).toBe(false);
+  });
+
   it("refuses a mount BoxPilot does not manage, and an invalid name", async () => {
     const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
-    await expect(storageRemount({ name: "not-ours" }, { run, files: { readFile: async () => fstab } })).rejects.toThrow("not a BoxPilot-managed mount");
-    await expect(storageRemount({ name: "../etc" }, { run, files: { readFile: async () => fstab } })).rejects.toThrow("Name is invalid");
+    await expect(storageRemount({ name: "not-ours" }, { run, files: { readFile: async () => fstab, exists: async () => false } })).rejects.toThrow("not a BoxPilot-managed mount");
+    await expect(storageRemount({ name: "../etc" }, { run, files: { readFile: async () => fstab, exists: async () => false } })).rejects.toThrow("Name is invalid");
     expect(run.mock.calls.some(([binary]) => binary.endsWith("umount"))).toBe(false);
   });
 
@@ -240,6 +263,6 @@ describe("reconnecting a drive that came back under a new name", () => {
       if (binary.endsWith("mount") && !binary.endsWith("umount")) return { ok: false, stdout: "", stderr: "mount: /mnt/the-dump: can't find UUID=0023-7927" };
       return { ok: true, stdout: "", stderr: "" };
     });
-    await expect(storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab } })).rejects.toThrow("may be unplugged");
+    await expect(storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab, exists: async () => false } })).rejects.toThrow("may be unplugged");
   });
 });

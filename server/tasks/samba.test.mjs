@@ -128,11 +128,11 @@ describe("samba tasks", () => {
       if (args?.[0] === "is-active") return { ok: true, stdout: "active\n", stderr: "" };
       return { ok: true, stdout: "", stderr: "" };
     });
-    const files = { access: async (target) => { if (target.includes("wsdd") && !installed) throw new Error("ENOENT"); } };
+    const files = { access: async (target) => { if (target.includes("wsdd") && !installed) throw new Error("ENOENT"); }, readFile: async () => "# Managed by BoxPilot\n[global]\n   interfaces = lo tailscale0 eno1\n" };
 
     const first = await sambaDiscoverySet({ enabled: true }, { run, files });
     expect(first).toMatchObject({ enabled: true, installed: true, running: true, allowed: ["3702/udp", "5357/tcp"] });
-    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "-y", "--no-install-recommends", "wsdd"], expect.objectContaining({ env: { DEBIAN_FRONTEND: "noninteractive" } }));
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "-y", "--no-install-recommends", "wsdd"], expect.anything());   // the env is pinned by its own test below
     expect(run).toHaveBeenCalledWith(expect.stringContaining("systemctl"), ["enable", "--now", "wsdd"], expect.anything());
     expect(run).toHaveBeenCalledWith("/usr/sbin/ufw", ["allow", "3702/udp", "comment", "BoxPilot WS-Discovery"], expect.anything());
 
@@ -144,7 +144,7 @@ describe("samba tasks", () => {
 
   it("turns Windows discovery off by stopping wsdd and withdrawing the discovery rules", async () => {
     const run = vi.fn(async () => ({ ok: true, stdout: "inactive\n", stderr: "" }));
-    const files = { access: async () => { throw new Error("ENOENT"); } };
+    const files = { access: async () => { throw new Error("ENOENT"); }, readFile: async () => "# Managed by BoxPilot\n[global]\n   interfaces = lo tailscale0 eno1\n" };
     await expect(sambaDiscoverySet({ enabled: false }, { run, files })).resolves.toMatchObject({ enabled: false, installed: false });
     expect(run).toHaveBeenCalledWith(expect.stringContaining("systemctl"), ["disable", "--now", "wsdd"], expect.anything());
     expect(run).toHaveBeenCalledWith("/usr/sbin/ufw", ["--force", "delete", "allow", "3702/udp"], expect.anything());
@@ -153,7 +153,7 @@ describe("samba tasks", () => {
 
   it("reports a clear failure when wsdd cannot be installed", async () => {
     const run = vi.fn(async (binary) => (binary.endsWith("apt-get") ? { ok: false, stdout: "", stderr: "E: Unable to locate package wsdd" } : { ok: true, stdout: "", stderr: "" }));
-    const files = { access: async () => { throw new Error("ENOENT"); } };
+    const files = { access: async () => { throw new Error("ENOENT"); }, readFile: async () => "# Managed by BoxPilot\n[global]\n   interfaces = lo tailscale0 eno1\n" };
     await expect(sambaDiscoverySet({ enabled: true }, { run, files })).rejects.toThrow("Could not install wsdd");
   });
   describe("sambaDiagnose", () => {
@@ -228,5 +228,25 @@ describe("samba tasks", () => {
       expect(result.checks).toHaveLength(1);
       expect(result.checks[0].id).toBe("installed");
     });
+  });
+  it("refuses to open LAN ports when the shares are tailnet-only", async () => {
+    // wsdd multicasts this server's name to the LAN and the two rules are LAN-facing. On a
+    // tailnet-only server that is the opposite of what the scope asked for. The UI hides the
+    // button in that scope, but a hidden button is not a check.
+    const tailnetOnly = "# Managed by BoxPilot\n[global]\n   interfaces = lo tailscale0\n";
+    const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
+    const files = { access: async () => {}, readFile: async () => tailnetOnly };   // wsdd present
+    await expect(sambaDiscoverySet({ enabled: true }, { run, files })).rejects.toThrow("Tailscale only");
+    expect(run.mock.calls.some(([binary]) => binary.endsWith("ufw") || binary.endsWith("apt-get"))).toBe(false);
+    // Turning it off is always allowed: there is no reason to refuse to close ports.
+    await expect(sambaDiscoverySet({ enabled: false }, { run, files })).resolves.toMatchObject({ enabled: false });
+  });
+
+  it("suspends needrestart while installing, so apt cannot restart BoxPilot mid-job", async () => {
+    let installed = false;
+    const run = vi.fn(async (binary) => { if (binary.endsWith("apt-get")) installed = true; return { ok: true, stdout: "active\n", stderr: "" }; });
+    const files = { access: async (target) => { if (target.includes("wsdd") && !installed) throw new Error("ENOENT"); }, readFile: async () => "# Managed by BoxPilot\n[global]\n   interfaces = lo tailscale0 eno1\n" };
+    await sambaDiscoverySet({ enabled: true }, { run, files });
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", expect.anything(), expect.objectContaining({ env: { DEBIAN_FRONTEND: "noninteractive", NEEDRESTART_SUSPEND: "1" } }));
   });
 });

@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { fixedRun } from "../exec.mjs";
 
 /**
@@ -354,12 +354,17 @@ export async function storageLvmSnapshotRollback({ path: snapshot } = {}, { run 
  * Unmounting (lazily, because a dead device will not release cleanly) and mounting again makes fstab
  * resolve the UUID afresh and land on the device that is really there.
  */
-export async function storageRemount({ name } = {}, { run = fixedRun, log = null, files = { readFile } } = {}) {
+export async function storageRemount({ name } = {}, { run = fixedRun, log = null, files = { readFile, exists: (target) => access(target).then(() => true, () => false) } } = {}) {
   if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name is invalid");
   const content = await files.readFile(fstabPath, "utf8");
   const entry = parseManagedFstab(content).find((row) => row.name === name);   // parseManagedFstab returns { name, line, markerIndex }
   if (!entry) throw new Error(`${name} is not a BoxPilot-managed mount; remount it yourself for entries you created`);
-  const mountpoint = `/mnt/${name}`;
+  // The marker owns whatever line follows it, and not every managed entry is a mount under /mnt:
+  // the swap file's marker is `# boxpilot:swap` over an entry whose target is `none`. Taking the
+  // mountpoint from the entry itself, rather than assuming /mnt/<name>, is what keeps this op from
+  // unmounting a path the entry has nothing to do with.
+  const mountpoint = entry.line.trim().split(/\s+/)[1] ?? "";
+  if (mountpoint !== `/mnt/${name}`) throw new Error(`The ${name} entry is not a drive mounted at /mnt/${name}; nothing was changed`);
 
   const sourceOf = async () => {
     const result = await run(binaries.findmnt, ["-n", "-o", "SOURCE", mountpoint], { timeout: 15_000 });
@@ -370,8 +375,14 @@ export async function storageRemount({ name } = {}, { run = fixedRun, log = null
     log?.(`$ umount ${mountpoint}`, "stdout");
     const plain = await run(binaries.umount, [mountpoint], { timeout: 60_000 });
     if (!plain.ok) {
-      // Expected when the backing device is gone: the kernel cannot flush to something absent.
-      log?.(`umount was refused (${tail(plain.stderr)}); detaching lazily instead`, "stderr");
+      // A refused umount is usually EBUSY — something is still using the folder — and not the
+      // dead device this op exists for. Detaching lazily in that case splits the writers: whoever
+      // holds the old filesystem keeps writing into one that no path reaches any more, and those
+      // writes are lost silently. So the lazy detach is only for a device that is genuinely gone,
+      // which is a fact we can check rather than infer from the failure.
+      const deviceGone = !(await files.exists(before));
+      if (!deviceGone) throw new Error(`${mountpoint} is in use, so it was left alone: ${tail(plain.stderr)}. Stop whatever is using it — an app with that folder mounted, or the file server — and try again.`);
+      log?.(`${before} no longer exists, so ${mountpoint} is being detached lazily`, "stderr");
       const lazy = await run(binaries.umount, ["-l", mountpoint], { timeout: 60_000 });
       if (!lazy.ok) throw new Error(`Could not detach ${mountpoint}: ${tail(lazy.stderr)}`);
     }

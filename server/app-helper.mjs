@@ -1211,9 +1211,18 @@ export function createAppHelper({
   /**
    * Rehearse a restore without performing one (M20.3). A checksum proves the bytes are the bytes
    * that were written; it does not prove the archive can be opened, or that what comes out is the
-   * app. So this unpacks the whole thing into a scratch directory, checks that everything the
-   * backup claims to contain is actually there and that the compose file survived, and throws the
-   * scratch copy away. The live app is never touched and never stopped.
+   * app.
+   *
+   * Nothing is written to disk to find that out. An earlier version of this unpacked the archive
+   * into scratch space beside the backups, which was wrong twice over: the off-box mirrors copy
+   * that tree and never delete, so a half-extracted `.env` would be pushed to the destination and
+   * stay there; and a large app would fill the filesystem holding every backup and every app's
+   * live data, unattended, at half past three in the morning.
+   *
+   * Reading the archive proves as much. `tar -tzf` has to decompress the entire stream to reach
+   * every header, so a corrupt byte, a truncated member, or a bad gzip checksum anywhere fails it,
+   * and the output is a list of names rather than the data. The compose file is then read on its
+   * own, because being able to redeploy from the archive is the thing being rehearsed.
    */
   async function verifyAppBackup({ id, backup: backupName = null }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
@@ -1237,27 +1246,25 @@ export function createAppHelper({
       const actual = await sha256File(artifact);
       if (actual !== meta.checksumSha256) return fail("The archive does not match the checksum recorded when it was written, so it has been damaged since.");
     }
-    // Unpack for real, into scratch space that is removed whatever happens. Anything less than a
-    // full extraction would not catch a truncated or corrupt member deep inside the archive.
-    const scratch = path.join(backupDirectory, `.verify-${randomUUID()}`);
-    try {
-      await mkdir(scratch, { recursive: true, mode: 0o700 });
-      progress?.(`$ tar -xzf ${target} (into scratch space, the app is untouched)`, "stdout");
-      const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", scratch], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
-      if (!extract.ok) return fail(`The archive could not be unpacked: ${redact(extract.stderr).split("\n").slice(-2).join(" ")}`);
-      const unpacked = await readdir(scratch).catch(() => []);
-      const expected = meta?.contents ?? ["compose.yaml"];
-      const missing = expected.filter((entry) => !unpacked.includes(entry.split("/")[0]));
-      if (missing.length) return fail(`The archive is missing ${missing.join(", ")}, which the backup says it contains.`);
-      const compose = await readFile(path.join(scratch, "compose.yaml"), "utf8").catch(() => null);
-      if (compose === null) return fail("The archive has no compose.yaml, so it could not be redeployed from.");
-      try { YAML.parse(compose); } catch (error) { return fail(`The compose file in the archive is not valid YAML: ${error.message}`); }
-      const durationMs = clock().getTime() - startedAt;
-      progress?.(`${target} unpacked cleanly: ${unpacked.length} top-level entr${unpacked.length === 1 ? "y" : "ies"}, compose.yaml valid`, "stdout");
-      return { verified: true, id, backup: target, checkedAt: clock().toISOString(), sizeBytes: info.size, entries: unpacked.length, contents: expected, checksumVerified: Boolean(meta?.checksumSha256), durationMs, reason: null };
-    } finally {
-      await rm(scratch, { recursive: true, force: true }).catch(() => {});
-    }
+    progress?.(`$ tar -tzf ${target} (reads the whole archive; writes nothing)`, "stdout");
+    const listed = await runCommand(tarBinary, ["-tzf", artifact], { timeout: 60 * 60_000, maxBuffer: 64 * 1024 * 1024 });
+    if (!listed.ok) return fail(`The archive could not be read all the way through: ${redact(listed.stderr).split("\n").slice(-2).join(" ")}`);
+    const members = listed.stdout.split("\n").map((line) => line.trim()).filter(Boolean);
+    const topLevel = new Set(members.map((member) => member.replace(/^\.\//, "").split("/")[0]).filter(Boolean));
+    const expected = meta?.contents ?? ["compose.yaml"];
+    const missing = expected.filter((entry) => !topLevel.has(entry.split("/")[0]));
+    if (missing.length) return fail(`The archive is missing ${missing.join(", ")}, which the backup says it contains.`);
+
+    // Read the compose file out on its own. No --occurrence: that is GNU tar only, and this has to
+    // behave the same wherever it runs. It costs a second pass over the archive, which a weekly
+    // background rehearsal can afford.
+    const compose = await runCommand(tarBinary, ["-xzOf", artifact, "compose.yaml"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+    if (!compose.ok || !compose.stdout.trim()) return fail("The archive has no compose.yaml, so it could not be redeployed from.");
+    try { YAML.parse(compose.stdout); } catch (error) { return fail(`The compose file in the archive is not valid YAML: ${error.message}`); }
+
+    const durationMs = clock().getTime() - startedAt;
+    progress?.(`${target} reads cleanly: ${members.length} entr${members.length === 1 ? "y" : "ies"}, compose.yaml valid`, "stdout");
+    return { verified: true, id, backup: target, checkedAt: clock().toISOString(), sizeBytes: info.size, entries: topLevel.size, members: members.length, contents: expected, checksumVerified: Boolean(meta?.checksumSha256), durationMs, reason: null };
   }
 
   /** Restore a backup over the app directory: checksum check, safety backup, stop, extract, start. */

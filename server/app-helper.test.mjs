@@ -753,12 +753,14 @@ describe("generic app deployer", () => {
     const made = await apps.backup({ id: "demo" });
 
     calls.length = 0;
+    const before = await readdir(path.join(backupRoot, "demo"));
     const verdict = await apps.verifyAppBackup({ id: "demo" });      // no name: the newest one
     expect(verdict).toMatchObject({ verified: true, id: "demo", backup: made.artifact, checksumVerified: true, reason: null });
     expect(verdict.entries).toBeGreaterThan(0);
-    // Never stops the app, and leaves no scratch directory behind.
+    // Never stops the app, and writes nothing at all: the off-box mirrors copy this tree and never
+    // delete, so anything left here — a half-extracted .env — would be pushed and kept forever.
     expect(calls.some((entry) => /compose .* (stop|down)$/.test(entry))).toBe(false);
-    expect((await readdir(path.join(backupRoot, "demo"))).some((name) => name.startsWith(".verify-"))).toBe(false);
+    expect(await readdir(path.join(backupRoot, "demo"))).toEqual(before);
     expect(await readFile(path.join(catalogRoot, "demo", "data", "file.txt"), "utf8")).toBe("precious");
 
     // Bit rot: the archive no longer matches the checksum written beside it.
@@ -772,7 +774,7 @@ describe("generic app deployer", () => {
     await rm(path.join(backupRoot, "demo", damaged.artifact.replace(/\.tar\.gz$/, ".json")), { force: true });
     const unopenable = await apps.verifyAppBackup({ id: "demo", backup: damaged.artifact });
     expect(unopenable.verified).toBe(false);
-    expect(unopenable.reason).toContain("could not be unpacked");
+    expect(unopenable.reason).toContain("could not be read all the way through");
 
     await expect(apps.verifyAppBackup({ id: "demo", backup: "20260101T000000Z.tar.gz" })).rejects.toThrow("does not exist");
   });

@@ -23,7 +23,7 @@ const homepageOperations = new Set(["homepage.sync", "app.install", "app.uninsta
 export const hostLane = "host";
 
 /** Operations that read or write the shared backup tree; they hold the host lane as well as their own. */
-const backupTreeOperations = new Set(["app.backup", "app.backup.restore", "backup.sync", "backup.remote.sync", "backup.cloud.sync"]);
+const backupTreeOperations = new Set(["app.backup", "app.backup.restore", "app.backup.verify", "backup.sync", "backup.remote.sync", "backup.cloud.sync"]);
 
 /** The lanes an operation must hold, as an array. Read-only operations never queue, so never get here. */
 export function laneFor(operation, parameters = {}) {

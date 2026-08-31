@@ -125,9 +125,16 @@ export function storageOperations() {
         const requested = parameters.path.replace(/\/+$/, "") || "/mnt";
         if (requested.includes("/../") || requested.endsWith("/..")) throw new Error("Path is invalid");
         // Resolve first and re-check: a symlink under /mnt must not become a listing of /etc.
-        const base = await realpath(requested).catch(() => requested);
+        // Fails closed — an unresolvable path is not silently treated as itself.
+        const base = await realpath(requested).catch(() => null);
+        if (base === null) return { path: requested, folders: [], truncated: false };
         if (!/^\/(mnt|srv)(\/|$)/.test(base)) throw new Error(`${parameters.path} resolves outside /mnt and /srv`);
         const entries = await readdir(base, { withFileTypes: true }).catch(() => []);
+        // readdir re-resolves every component in the kernel, so a component swapped for a symlink
+        // between the check and the read would have been listed from somewhere else. Confirm the
+        // path still resolves where it did before returning anything.
+        const after = await realpath(base).catch(() => null);
+        if (after !== base) throw new Error(`${parameters.path} changed while it was being read; nothing is being reported`);
         const folders = entries
           .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
           .map((entry) => `${base === "/" ? "" : base}/${entry.name}`)
