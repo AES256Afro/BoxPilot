@@ -343,3 +343,44 @@ export async function storageLvmSnapshotRollback({ path: snapshot } = {}, { run 
   log?.(deferred ? "The merge is scheduled; reboot to apply it. The snapshot is consumed by the merge." : "Merged", "stdout");
   return { rollbackScheduled: true, path: snapshot, rebootRequired: deferred, detail: output.split("\n").filter(Boolean).slice(-2).join(" ") };
 }
+
+/**
+ * Re-attach a managed mount to whatever device now carries its UUID, keeping the fstab entry.
+ *
+ * A USB drive that drops off the bus for a moment comes back under a different kernel name, and the
+ * old mount stays in the table pointing at a device that no longer exists. Nothing reports an error:
+ * `findmnt` still lists it, `df` still prints the size it cached, and only an actual read returns
+ * EIO. Anything serving that folder — a network share, an app's bind mount — quietly serves nothing.
+ * Unmounting (lazily, because a dead device will not release cleanly) and mounting again makes fstab
+ * resolve the UUID afresh and land on the device that is really there.
+ */
+export async function storageRemount({ name } = {}, { run = fixedRun, log = null, files = { readFile } } = {}) {
+  if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name is invalid");
+  const content = await files.readFile(fstabPath, "utf8");
+  const entry = parseManagedFstab(content).find((row) => row.name === name);   // parseManagedFstab returns { name, line, markerIndex }
+  if (!entry) throw new Error(`${name} is not a BoxPilot-managed mount; remount it yourself for entries you created`);
+  const mountpoint = `/mnt/${name}`;
+
+  const sourceOf = async () => {
+    const result = await run(binaries.findmnt, ["-n", "-o", "SOURCE", mountpoint], { timeout: 15_000 });
+    return result.ok ? result.stdout.trim() || null : null;
+  };
+  const before = await sourceOf();
+  if (before) {
+    log?.(`$ umount ${mountpoint}`, "stdout");
+    const plain = await run(binaries.umount, [mountpoint], { timeout: 60_000 });
+    if (!plain.ok) {
+      // Expected when the backing device is gone: the kernel cannot flush to something absent.
+      log?.(`umount was refused (${tail(plain.stderr)}); detaching lazily instead`, "stderr");
+      const lazy = await run(binaries.umount, ["-l", mountpoint], { timeout: 60_000 });
+      if (!lazy.ok) throw new Error(`Could not detach ${mountpoint}: ${tail(lazy.stderr)}`);
+    }
+  }
+  log?.(`$ mount ${mountpoint}`, "stdout");
+  const mounted = await run(binaries.mount, [mountpoint], { timeout: 120_000 });
+  if (!mounted.ok) throw new Error(`Could not mount ${mountpoint} again: ${tail(mounted.stderr)}. The drive may be unplugged; check it is connected and try again.`);
+  const after = await sourceOf();
+  if (!after) throw new Error(`${mountpoint} did not come back after remounting. The drive may be unplugged.`);
+  log?.(`${mountpoint} is mounted from ${after}${before && before !== after ? ` (it was ${before}, which no longer exists)` : ""}`, "stdout");
+  return { remounted: true, name, mountpoint, source: after, previousSource: before, deviceChanged: Boolean(before && before !== after) };
+}

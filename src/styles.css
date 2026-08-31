@@ -4534,3 +4534,20 @@ textarea {
 .cert-steps { margin: 6px 0 0; padding-left: 1.2em; display: grid; gap: 5px; }
 .cert-steps li { color: var(--muted); }
 .cert-steps strong { color: var(--text); margin-right: 4px; }
+
+/* Repair: problems first, each with its fix (M6.6) */
+.repair-problems { border-left: 3px solid var(--border); }
+.repair-worst-critical { border-left-color: var(--danger); }
+.repair-worst-warning { border-left-color: var(--warn); }
+.problem-list { display: grid; gap: 12px; }
+.problem-card { display: grid; gap: 8px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface-raised, transparent); }
+.problem-card > p { max-width: 82ch; margin: 0; }
+.problem-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.problem-heading > strong { font-size: 15px; }
+.problem-critical { border-color: var(--danger); }
+.problem-warning { border-color: var(--warn-dim); }
+.problem-evidence { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 8px; }
+.problem-evidence li { color: var(--muted); font-size: 11px; border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; }
+.problem-card > button { justify-self: start; }
+.problem-manual { color: var(--muted); margin: 0; max-width: 82ch; }
+.repair-prereq-header { margin-top: 4px; }

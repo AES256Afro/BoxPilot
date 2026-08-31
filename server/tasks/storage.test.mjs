@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { assertNotProtected, parseManagedFstab, removeManagedEntry, storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageUnmount, swapFileSet } from "./storage.mjs";
+import { assertNotProtected, parseManagedFstab, removeManagedEntry, storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageUnmount, swapFileSet, storageRemount } from "./storage.mjs";
 
 const BASE_FSTAB = "# /etc/fstab\nUUID=root-uuid / ext4 defaults 0 1\n";
 
@@ -200,5 +200,46 @@ describe("root storage tasks", () => {
     await expect(swapFileSet({ remove: true }, { run, files })).resolves.toMatchObject({ removed: true });
     expect(files.state.fstab).toBe(BASE_FSTAB);
     await expect(swapFileSet({ sizeGiB: 999 }, { run, files })).rejects.toThrow("between 1 and 64");
+  });
+});
+
+describe("reconnecting a drive that came back under a new name", () => {
+  // The real event: a USB drive dropped off at 06:46, returned two seconds later as sdb, and
+  // /mnt/the-dump stayed mounted from the sda2 that no longer existed. Reads returned EIO and the
+  // Windows share showed an empty folder, while findmnt and df both still looked healthy.
+  const fstab = "# boxpilot:the-dump\nUUID=0023-7927 /mnt/the-dump exfat defaults,nofail,uid=1000,gid=1000 0 0\n";
+
+  it("detaches lazily when the dead device refuses a normal unmount, then mounts from fstab", async () => {
+    const calls = [];
+    let source = "/dev/sda2";
+    const run = vi.fn(async (binary, args) => {
+      calls.push(`${binary.split("/").pop()} ${args.join(" ")}`);
+      if (binary.endsWith("findmnt")) return { ok: true, stdout: `${source}\n`, stderr: "" };
+      if (binary.endsWith("umount") && !args.includes("-l")) return { ok: false, stdout: "", stderr: "umount: /mnt/the-dump: target is busy" };
+      if (binary.endsWith("umount")) { source = ""; return { ok: true, stdout: "", stderr: "" }; }
+      if (binary.endsWith("mount")) { source = "/dev/sdb2"; return { ok: true, stdout: "", stderr: "" }; }
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    const result = await storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab } });
+    expect(result).toMatchObject({ remounted: true, source: "/dev/sdb2", previousSource: "/dev/sda2", deviceChanged: true });
+    expect(calls).toContain("umount /mnt/the-dump");
+    expect(calls).toContain("umount -l /mnt/the-dump");     // the fallback the dead device forces
+    expect(calls).toContain("mount /mnt/the-dump");
+  });
+
+  it("refuses a mount BoxPilot does not manage, and an invalid name", async () => {
+    const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
+    await expect(storageRemount({ name: "not-ours" }, { run, files: { readFile: async () => fstab } })).rejects.toThrow("not a BoxPilot-managed mount");
+    await expect(storageRemount({ name: "../etc" }, { run, files: { readFile: async () => fstab } })).rejects.toThrow("Name is invalid");
+    expect(run.mock.calls.some(([binary]) => binary.endsWith("umount"))).toBe(false);
+  });
+
+  it("says the drive may be unplugged when the mount does not come back", async () => {
+    const run = vi.fn(async (binary) => {
+      if (binary.endsWith("findmnt")) return { ok: true, stdout: "", stderr: "" };
+      if (binary.endsWith("mount") && !binary.endsWith("umount")) return { ok: false, stdout: "", stderr: "mount: /mnt/the-dump: can't find UUID=0023-7927" };
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    await expect(storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab } })).rejects.toThrow("may be unplugged");
   });
 });

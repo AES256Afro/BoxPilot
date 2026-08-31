@@ -114,6 +114,12 @@ export function storageOperations() {
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.fs-snapshot.delete", { kind: parameters.kind, target: parameters.target, name: parameters.name }, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
+      id: "storage.remount", title: "Reconnect a drive", risk: "medium", timeoutMs: minutes(5),
+      description: "Detaches a managed mount and mounts it again from its fstab entry, which finds the drive by UUID wherever the kernel has put it. This is the fix when a drive was unplugged for a moment and came back under a different name, leaving the old mount pointing at nothing. The fstab entry and everything on the drive are unchanged.",
+      parameters: { fields: { name: { type: "string", maxLength: 32, pattern: mountNamePattern } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.remount", { name: parameters.name }, { timeoutMs: minutes(4), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
       id: "storage.unmount", title: "Unmount a managed filesystem", risk: "medium", timeoutMs: minutes(3),
       description: "Unmounts /mnt/<name> and removes the fstab entry BoxPilot added. Entries you created yourself are refused.",
       parameters: { fields: { name: { type: "string", maxLength: 32, pattern: mountNamePattern } } },
