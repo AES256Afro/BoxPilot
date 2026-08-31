@@ -4561,3 +4561,7 @@ textarea {
 .share-connect-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .storage-map-connect { margin-top: 6px; }
 .storage-map-connect summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+
+/* One-click notification target from an installed app (M8.6) */
+.notification-local-offer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.notification-local-offer > span { flex: 1 1 20ch; }

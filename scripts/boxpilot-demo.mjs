@@ -34,7 +34,7 @@ const digest = (seed) => createHash("sha256").update(`demo:${seed}`).digest("hex
 
 // ---------- the fictional server ----------
 const host = { hostname: "homebox", lan: "192.168.50.20", gateway: "192.168.50.1", tailnet: "homebox.tail0a1b.ts.net", tailscaleIp: "100.101.102.103", owner: "alex" };
-const installed = { "open-webui": 8088, jellyfin: 8096, "pi-hole": 8084, immich: 2283, vaultwarden: 8222, "uptime-kuma": 3001, homepage: 3000, nextcloud: 8087, scrutiny: 8086, qbittorrent: 8095 };
+const installed = { "open-webui": 8088, jellyfin: 8096, "pi-hole": 8084, immich: 2283, vaultwarden: 8222, "uptime-kuma": 3001, homepage: 3000, nextcloud: 8087, scrutiny: 8086, qbittorrent: 8095, ntfy: 8093 };
 const stats = { jellyfin: { cpuPercent: 3.2, memBytes: 412 * 1024 ** 2, containers: 1 }, "pi-hole": { cpuPercent: 0.4, memBytes: 96 * 1024 ** 2, containers: 2 }, immich: { cpuPercent: 6.1, memBytes: 1.4 * GiB, containers: 4 }, vaultwarden: { cpuPercent: 0.1, memBytes: 48 * 1024 ** 2, containers: 1 }, "uptime-kuma": { cpuPercent: 0.8, memBytes: 120 * 1024 ** 2, containers: 1 }, homepage: { cpuPercent: 0.2, memBytes: 70 * 1024 ** 2, containers: 1 }, nextcloud: { cpuPercent: 1.9, memBytes: 620 * 1024 ** 2, containers: 3 }, scrutiny: { cpuPercent: 0.3, memBytes: 110 * 1024 ** 2, containers: 1 } };
 
 const lsblk = JSON.stringify({ blockdevices: [

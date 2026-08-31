@@ -676,6 +676,14 @@ This arc makes local access first-class — reachable and encrypted — without 
   read-write data folders against the user the app actually runs as (PUID, `user:`, or the image's
   own) and the card warns — folder, reason — with a one-click "Fix folder access" redeploy that hands
   the folder over. Complements v1.80.2's deploy-time ownership claim by catching apps broken *now*.
+- ✅ **M8.6** (v1.98.0) **One-click notification target.** BoxPilot watches thirteen conditions and
+  pushes a failed job or a lost drive to the phone, but only if a target is set, and setting one meant
+  knowing the address to type. When ntfy or Gotify is installed and running on this server, the
+  Notifications panel now offers to point BoxPilot straight at it — one click fills the loopback
+  address, leaving only the owner password — and then says, honestly, that to receive on the phone you
+  subscribe in the app to the topic at the server's tailnet address, publishing it there first if it
+  is only reachable locally. Closes the loop the Repair page's "nothing can reach you" opened.
+
 - ✅ **M8.5** (v1.84.0) **Readability + full job output.** Type floor raised (the 7–9px rules moved to
   9–11px; text buttons and panel subtitles to 12px), prose capped at a readable measure, keyboard
   focus outlines extended to inputs/selects/links. And the root task runner now writes every command
