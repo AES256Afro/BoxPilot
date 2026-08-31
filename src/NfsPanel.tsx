@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState, useRef } from "react";
 import type { PendingOperation } from "./ApproveDialog";
 
+import { nfsFstabLine, nfsPaths } from "./sharePaths";
+
 interface ExportConfig { path: string; readOnly: boolean; clients?: string[] }
 interface NfsState {
   installed: boolean; running: boolean | null; configured: boolean; error: string | null;
@@ -104,10 +106,37 @@ export default function NfsPanel({ start, folders, refreshKey }: { start: (opera
         <button className="primary-button" type="button" disabled={!dirty && Boolean(state?.configured)} onClick={apply}>{state?.configured ? "Apply changes" : "Apply and start exporting"}</button>
         {dirty && <span className="muted">Changes are not live until you apply.</span>}
       </div>
-      {state?.configured && draft.length > 0 && (
-        <p className="muted share-note">
-          <strong>Mount it:</strong> Linux <code>sudo mount -t nfs4 {host}:{draft[0].path} /mnt/{draft[0].path.split("/").filter(Boolean).at(-1)}</code> · macOS Finder → Go → Connect to Server → <code>nfs://{host}{draft[0].path}</code> · in a VM, add <code>{host}:{draft[0].path}  /mnt/share  nfs4  defaults,nofail,_netdev  0 0</code> to fstab.
-        </p>
+      {state?.configured && (state.config?.exports.length ?? 0) > 0 && (
+        <div className="muted share-note">
+          {/* Every applied export, not only the first one. Each needs its own command: the mount
+              names the export path, and a second export mounted with the first one's line lands on
+              the wrong folder without saying so. */}
+          <strong>Mount one of these from another computer</strong>
+          <ul className="share-connect">
+            {state.config!.exports.map((entry) => (
+              <li key={entry.path}>
+                <div className="share-connect-head">
+                  <strong>{entry.path}</strong>
+                  <span className="muted">{entry.readOnly ? "read-only" : "read and write"}</span>
+                </div>
+                <ul className="connect-paths">
+                  {nfsPaths({ host, exportPath: entry.path }).map((form) => (
+                    <li key={form.os}>
+                      <span className="connect-os">{form.os}</span>
+                      <code>{form.path}</code>
+                      <button className="text-button" type="button" onClick={() => void navigator.clipboard?.writeText(form.path)} aria-label={`Copy the ${form.os} form for ${entry.path}`}>Copy</button>
+                    </li>
+                  ))}
+                  <li>
+                    <span className="connect-os">At boot</span>
+                    <code>{nfsFstabLine({ host, exportPath: entry.path })}</code>
+                    <button className="text-button" type="button" onClick={() => void navigator.clipboard?.writeText(nfsFstabLine({ host, exportPath: entry.path }))} aria-label={`Copy the fstab line for ${entry.path}`}>Copy</button>
+                  </li>
+                </ul>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </section>
   );

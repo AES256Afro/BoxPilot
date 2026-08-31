@@ -22,8 +22,12 @@ describe("NFS panel", () => {
 
   it("shows exports with mount hints and applies an edited list with LAN scope", async () => {
     const start = setup(base);
-    expect(await screen.findByText("/srv/media")).toBeTruthy();
+    // The export now appears in the list and again in its own connect block, so match all of them.
+    expect((await screen.findAllByText("/srv/media")).length).toBeGreaterThan(0);
     expect(screen.getByText(/nfs:\/\/homebox\.tail1234\.ts\.net\/srv\/media/)).toBeTruthy();
+    // Each export carries its own mount command, named after its own last folder.
+    expect(screen.getByText(/sudo mount -t nfs4 homebox\.tail1234\.ts\.net:\/srv\/media \/mnt\/media/)).toBeTruthy();
+    expect(screen.getByText(/nfs4 defaults,nofail,_netdev/)).toBeTruthy();   // whitespace is normalised in the DOM query
     fireEvent.click(screen.getByRole("radio", { name: /Tailscale \+ LAN/ }));
     fireEvent.change(screen.getByLabelText("New export folder"), { target: { value: "/srv/shared/" } });
     fireEvent.click(screen.getByRole("button", { name: "Add export" }));
