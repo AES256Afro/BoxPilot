@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { containersOnStaleMounts, detectRemediations, failedRehearsals, permissionlessMounts, staleMounts, unwritableShares, vpnLeaks, windowsCannotDiscover } from "./remediations.mjs";
+import { containersOnStaleMounts, detectRemediations, mountFor, splitDataFolders, failedRehearsals, permissionlessMounts, staleMounts, unwritableShares, vpnLeaks, windowsCannotDiscover } from "./remediations.mjs";
 
 /**
  * The situation each of these was written from, on a real server:
@@ -134,5 +134,54 @@ describe("the whole sweep", () => {
     });
     expect(findings.length).toBeGreaterThan(0);
     for (const entry of findings) expect(Boolean(entry.fix) || Boolean(entry.manual)).toBe(true);
+  });
+});
+
+describe("apps saving to different drives", () => {
+  // The real one: qBittorrent wrote into /srv/media on the 500 GB system disk while Plex read
+  // /mnt/the-dump on the 15 TB drive. Both healthy, both configured as asked, neither able to see
+  // the other's files, and nothing anywhere said so.
+  const mounts = [
+    { target: "/", source: "/dev/mapper/ubuntu--vg-ubuntu--lv" },
+    { target: "/mnt/the-dump", source: "/dev/sdb2" },
+  ];
+
+  it("works out which drive a folder is actually on, deepest mount wins", () => {
+    expect(mountFor("/srv/media/torrents", mounts).target).toBe("/");
+    expect(mountFor("/mnt/the-dump/torrents/media", mounts).target).toBe("/mnt/the-dump");
+    expect(mountFor("/mnt/the-dump", mounts).target).toBe("/mnt/the-dump");
+    // A folder that merely shares a prefix belongs to the root mount, not the drive.
+    expect(mountFor("/mnt/the-dump-backup", mounts).target).toBe("/");
+    expect(mountFor("/srv/x", [])).toBe(null);
+  });
+
+  it("names the split, with each app and the drive it is really on", () => {
+    const [found] = splitDataFolders({ mounts, apps: [
+      { id: "qbittorrent", name: "qBittorrent", dataFolders: ["/srv/media"] },
+      { id: "plex", name: "Plex", dataFolders: ["/mnt/the-dump"] },
+    ] });
+    expect(found.severity).toBe("info");            // it may be deliberate; it is never invisible
+    expect(found.evidence).toEqual(["qBittorrent uses /srv/media on /", "Plex uses /mnt/the-dump on /mnt/the-dump"]);
+    expect(found.manual).toContain("same drive");
+  });
+
+  it("stays quiet when everything is on one drive", () => {
+    expect(splitDataFolders({ mounts, apps: [
+      { id: "qbittorrent", name: "qBittorrent", dataFolders: ["/mnt/the-dump/torrents"] },
+      { id: "plex", name: "Plex", dataFolders: ["/mnt/the-dump"] },
+    ] })).toEqual([]);
+  });
+
+  it("ignores private config folders, which are supposed to be private", () => {
+    // Every app has one of these; reporting them all would be noise, not a finding.
+    expect(splitDataFolders({ mounts, apps: [
+      { id: "vaultwarden", name: "Vaultwarden", dataFolders: ["/var/lib/boxpilot-managed/catalog/vaultwarden/data"] },
+      { id: "pi-hole", name: "Pi-hole", dataFolders: ["/var/lib/boxpilot-managed/catalog/pi-hole/etc"] },
+    ] })).toEqual([]);
+  });
+
+  it("needs at least two folders before there is anything to compare", () => {
+    expect(splitDataFolders({ mounts, apps: [{ id: "plex", name: "Plex", dataFolders: ["/mnt/the-dump"] }] })).toEqual([]);
+    expect(splitDataFolders({ mounts, apps: [] })).toEqual([]);
   });
 });

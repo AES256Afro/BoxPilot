@@ -89,7 +89,7 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   },
   repairs: {
     title: "Repair Center",
-    description: "Check prerequisites, fix what is missing, and verify every operation.",
+    description: "What is wrong on this server, and the fix for each one.",
   },
   virtualization: {
     title: "Virtual Machines",
@@ -127,7 +127,7 @@ const viewFeatures: Record<ViewName, string[]> = {
   firewall: ["Profiles", "Service presets", "Suggestions from what is listening", "fail2ban", "SSH, Tailscale, and BoxPilot always reachable"],
   storage: ["Disks and LVM", "Grow the root volume", "Snapshots with rollback", "Mount by UUID", "SMB/NFS shares with LAN discovery", "Samba and NFS servers on your tailnet", "Swap files", "Format empty disks"],
   network: ["Gateway and resolvers", "DNS listeners", "Devices on your LAN", "Wake-on-LAN", "Tailscale exit node", "Subnet router"],
-  repairs: ["Prerequisite checks", "Guided repairs", "Disaster-recovery kit", "Verification after every operation"],
+  repairs: ["Find what is broken", "Reconnect a drive that dropped out", "Fix a folder nothing can write to", "See what a job did, step by step", "Rebuild-from-scratch checklist"],
   virtualization: ["QEMU/KVM setup", "VMs from cloud images or ISOs", "Start, stop, snapshots", "Encrypted exports", "Restore drills", "Recover as a clone"],
   backups: ["Database backups with restore drills", "Encrypted independent copies", "Retention", "Machine snapshots", "Mirrors to a drive, SSH host, or cloud", "Restore from a snapshot"],
   github: ["Release and commit metadata", "Asset digests", "No token needed"],

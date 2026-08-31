@@ -635,6 +635,16 @@ This arc makes local access first-class — reachable and encrypted — without 
   produced it; the fix for the mount case is the new `storage.remount`. Copy across the page was
   rewritten from architecture language into what the reader would say.
 
+- ✅ **M6.7** (v1.95.0) **A lost drive announces itself.** The failure that started this: a USB
+  drive dropped off the bus at 06:46, came back two seconds later under a different kernel name, and
+  the mount stayed pointing at the device that no longer existed. It was found hours later by a share
+  looking empty. `evaluateHealth` now raises `storage.mount.detached` (high) when a mount's source is
+  not among the block devices, so it reaches the phone through the same notification target as
+  everything else. The condition needs both halves of the evidence: without the device list, absent
+  evidence would read as "every drive has gone". Repair also gained the split-data-folders finding —
+  apps each given an owner-chosen folder, but on different drives, so nothing one writes is visible
+  to another, which is why a download appeared nowhere and a library stayed empty.
+
 - ✅ **M22.7** (v1.94.0) **The address to type, wherever a share is named.** One shared component
   (`src/ConnectPaths.tsx` over the pure `src/sharePaths.ts`) renders the Windows and macOS/Linux
   forms of a share path with a copy button, and takes a subpath so it can point at a folder inside

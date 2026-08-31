@@ -157,13 +157,17 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       backupVerification: verifications[app.id] ?? null,
       killSwitchDrill: drills[app.id] ?? null,
     }));
-    // Which folders each installed app has bound, so a remount can say what needs restarting.
-    facts.containers = facts.apps.map((app) => {
+    // Which folders each installed app has bound, so a remount can say what needs restarting, and
+    // which of those the owner chose, so a split across drives can be spotted. A volume with a
+    // `path` is inside the app's own managed directory and is nobody else's business.
+    for (const app of facts.apps) {
       const manifest = manifests.find((entry) => entry.id === app.id);
       const stored = live?.applications?.find((entry) => entry.id === app.id)?.state?.values?.volumes ?? {};
-      const binds = (manifest?.volumes ?? []).map((volume) => stored[volume.id] ?? volume.hostPath).filter((bind) => typeof bind === "string" && bind.startsWith("/"));
-      return { name: `bp-${app.id}`, appId: app.id, binds };
-    }).filter((container) => container.binds.length > 0);
+      const chosen = (volume) => stored[volume.id] ?? volume.hostPath;
+      app.binds = (manifest?.volumes ?? []).map(chosen).filter((bind) => typeof bind === "string" && bind.startsWith("/"));
+      app.dataFolders = (manifest?.volumes ?? []).filter((volume) => !volume.path && !volume.readOnly).map(chosen).filter((folder) => typeof folder === "string" && folder.startsWith("/"));
+    }
+    facts.containers = facts.apps.filter((app) => app.binds.length > 0).map((app) => ({ name: `bp-${app.id}`, appId: app.id, binds: app.binds }));
     response.json({ ...detectRemediations(facts), checkedAt: new Date().toISOString() });
   });
 

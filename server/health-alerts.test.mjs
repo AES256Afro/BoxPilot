@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createHealthAlerts, evaluateHealth } from "./health-alerts.mjs";
+import { collectorAvailability, createHealthAlerts, evaluateHealth } from "./health-alerts.mjs";
 
 const healthy = {
   storage: { root: { usedPercent: 40 }, filesystems: { mounts: [{ target: "/", usedPercent: 40, capacityState: "healthy" }, { target: "/mnt/media", usedPercent: 60, capacityState: "healthy" }] }, smart: { disks: [{ device: "/dev/nvme0n1", health: "healthy", temperatureCelsius: 35, mediaErrors: 0 }] } },
@@ -7,6 +7,51 @@ const healthy = {
   maintenance: { system: { failedServiceCount: 0 }, reboot: { required: false } },
   docker: { containers: [{ name: "bp-jellyfin", health: "healthy" }] },
 };
+
+describe("a mount whose drive has gone", () => {
+  // 06:46 on a real server: a USB drive dropped off the bus and returned two seconds later as
+  // /dev/sdb, while /mnt/the-dump stayed mounted from the /dev/sda2 that no longer existed. Every
+  // check short of a real read passed, and the Windows share showed an empty folder for hours.
+  const detached = {
+    storage: {
+      root: { usedPercent: 32 },
+      filesystems: { available: true, mounts: [
+        { target: "/", source: "/dev/mapper/ubuntu--vg-ubuntu--lv", usedPercent: 32, capacityState: "healthy" },
+        { target: "/mnt/the-dump", source: "/dev/sda2", usedPercent: 13, capacityState: "healthy" },
+      ] },
+      blockDevices: { available: true, devices: [{ name: "/dev/sdb" }, { name: "/dev/sdb2" }, { name: "/dev/mapper/ubuntu--vg-ubuntu--lv" }] },
+    },
+  };
+
+  it("announces it, because nothing else on the box will", () => {
+    const alerts = evaluateHealth(detached);
+    expect(alerts.map((alert) => alert.key)).toEqual(["storage.mount.detached:/mnt/the-dump"]);
+    expect(alerts[0].priority).toBe("high");
+    expect(alerts[0].message).toContain("/dev/sda2");
+    expect(alerts[0].message).toContain("shares");
+  });
+
+  it("says nothing once the drive is back under its new name", () => {
+    const back = structuredClone(detached);
+    back.storage.filesystems.mounts[1].source = "/dev/sdb2";
+    expect(evaluateHealth(back)).toEqual([]);
+  });
+
+  it("stays quiet about network and virtual mounts, which have no device to lose", () => {
+    const other = structuredClone(detached);
+    other.storage.filesystems.mounts[1] = { target: "/mnt/nas", source: "[remote-or-virtual-source]", capacityState: "healthy" };
+    expect(evaluateHealth(other)).toEqual([]);
+  });
+
+  it("does not claim every mount is detached when the device list is missing", () => {
+    // Without the block-device half, absent evidence would read as "every drive has gone".
+    const blind = structuredClone(detached);
+    blind.storage.blockDevices = { available: false, devices: [] };
+    expect(evaluateHealth(blind)).toEqual([]);
+    expect(collectorAvailability(blind)["storage.mount.detached"]).toBe(false);
+    expect(collectorAvailability(detached)["storage.mount.detached"]).toBe(true);
+  });
+});
 
 describe("health alerts", () => {
   it("derives conditions from the inventory", () => {
