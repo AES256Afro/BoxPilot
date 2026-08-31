@@ -764,7 +764,50 @@ export function scenarioOf(referer) {
 export const fixturesFor = (name) => ({ ...inspections, ...(scenarios[name] ?? {}) });
 
 api.get("/operations", (_request, response) => json(response, { operations: [], riskTiers: ["low", "medium", "high"] }));
-api.get("/operations/prerequisites", (_request, response) => json(response, { generatedAt: now().toISOString(), checks: [], counts: { ready: 9, repairable: 0, missing: 0, conflict: 0 }, ready: true }));
+const demoPrerequisites = [
+  { id: "helper.boundary", group: "BoxPilot", name: "Root helper", status: "ready", summary: "Answering on its socket, running the pinned release.", repair: null },
+  { id: "docker", group: "Applications", name: "Docker Engine", status: "ready", summary: "28.0.0 installed, service active.", repair: null },
+  { id: "smartmontools", group: "Disks", name: "smartmontools", status: "ready", summary: "7.4 installed; the disk-health timer is running.", repair: null },
+  { id: "restic", group: "Backups", name: "restic", status: "ready", summary: "0.17.3 installed.", repair: null },
+  { id: "rsync", group: "Backups", name: "rsync", status: "missing", summary: "Not installed. Mirroring backups to another machine needs it.", repair: { kind: "approved", description: "Installs rsync from Ubuntu's repositories." } },
+  { id: "virtualization", group: "Virtual machines", name: "QEMU/KVM and libvirt", status: "ready", summary: "Hardware virtualization available; libvirtd active.", repair: null },
+  { id: "apt-metadata", group: "Updates", name: "Package lists", status: "ready", summary: "Refreshed 4 hours ago.", repair: null },
+];
+api.get("/operations/prerequisites", (_request, response) => json(response, { generatedAt: now().toISOString(), checks: demoPrerequisites, counts: { ready: 6, repairable: 1, missing: 1, conflict: 0 }, ready: false }));
+
+// The Repair page's other two panels. Without these the demo showed two "unavailable" notices,
+// which reads as a broken page rather than as the feature it is meant to be showing.
+api.get("/operations/recovery-kit", (_request, response) => json(response, {
+  schemaVersion: 2, generatedAt: ago(2), product: { name: "BoxPilot", version: productVersion }, mode: "secret-free-readiness-and-runbook",
+  summary: { status: "operator-checks-required", verified: 4, actionRequired: 0, operatorChecks: 2, notApplicable: 0, total: 6 },
+  checks: [
+    { id: "controller.database", state: "verified", title: "Restore BoxPilot's own database", evidence: "3 backups, newest 6 hours old, each checked by restoring the copy.", action: "Keep a copy somewhere that is not this machine." },
+    { id: "controller.source", state: "operator-check", title: "Get the server back", evidence: "No copy of this BoxPilot release is recorded outside this server.", action: "Keep the release and your Ubuntu setup notes somewhere else." },
+    { id: "host.snapshot", state: "verified", title: "Restore the machine snapshot", evidence: "Machine snapshot from 2 days ago, 1.2 GiB, verified.", action: "Refresh it after any big change." },
+    { id: "applications.backup", state: "operator-check", title: "Restore each app's data", evidence: "5 of 7 installed apps have a backup; 2 have never been backed up.", action: "Back up the two without one, then rehearse weekly." },
+    { id: "virtualization.backup", state: "verified", title: "Restore virtual machines", evidence: "2 VMs with encrypted copies and passing restore drills.", action: "Repeat the drills now and then." },
+    { id: "host.prerequisites", state: "verified", title: "Check it, then make a new kit", evidence: "7 checks reported; 1 optional tool missing.", action: "Re-run before any recovery work." },
+  ],
+  evidence: { jobs: [], controllerBackups: [{ id: "b1" }, { id: "b2" }, { id: "b3" }], controllerProtections: [{ id: "p1" }], controllerRetentionRuns: [{ id: "r1" }], applications: [{ id: "jellyfin" }, { id: "plex" }], virtualMachines: [{ name: "buildbox" }], vmBackups: [{ id: "v1" }, { id: "v2" }], prerequisites: demoPrerequisites },
+  runbookMarkdown: "# BoxPilot recovery runbook\n\n1. Get the server back\n2. Get back in privately\n3. Restore BoxPilot's own database\n4. Restore the machine snapshot\n5. Restore each app's data\n6. Restore virtual machines\n7. Check it, then make a new kit\n",
+}));
+
+api.get("/operations/action-center", (_request, response) => json(response, {
+  generatedAt: ago(2), sourceStatus: "ready", summary: { critical: 0, warning: 2, info: 0, total: 2 },
+  notices: [
+    { id: "recovery.controller.source", severity: "warning", category: "If this server died", title: "Get the server back",
+      summary: "Keep the release and your Ubuntu setup notes somewhere else.",
+      evidence: ["No copy of this BoxPilot release is recorded outside this server."],
+      recommendation: { view: "github", title: "Open GitHub", steps: ["Keep a copy of the BoxPilot version you are running somewhere other than this server.", "Keep the notes for setting Ubuntu up again beside it, so a rebuild does not start from memory.", "The GitHub page shows which release this is, so you can check the copy you kept matches."] },
+      boundary: { mutationPerformed: false, automaticFixAvailable: false, commandsIncluded: false, secretsIncluded: false, logsIncluded: false } },
+    { id: "recovery.applications.backup", severity: "warning", category: "Apps with no backup", title: "Restore each app's data",
+      summary: "Back up the two without one, then rehearse weekly.",
+      evidence: ["5 of 7 installed apps have a backup; 2 have never been backed up."],
+      recommendation: { view: "catalog", title: "Open Catalog", steps: ["Open the App catalog. Each card says whether that app has ever been backed up.", "Back it up from the card, then use Rehearse weekly so a broken backup does not stay unnoticed.", "Mirror the backups off this server from the Backups page."] },
+      boundary: { mutationPerformed: false, automaticFixAvailable: false, commandsIncluded: false, secretsIncluded: false, logsIncluded: false } },
+  ],
+  boundary: { mutationPerformed: false, automaticRepair: false, persistence: false, browserNotifications: false, externalDelivery: false, credentialsIncluded: false, arbitraryLogsIncluded: false },
+}));
 api.get("/operations/:id/inspect", (request, response) => {
   const result = fixturesFor(scenarioOf(request.get("referer")))[request.params.id];
   if (!result) return response.status(404).json({ error: "Not in the demo", code: "demo_missing" });

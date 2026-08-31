@@ -262,7 +262,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
         <div>
           <span className="eyebrow">Repair</span>
           <strong>{loading ? "Checking this server..." : problems.length === 0 ? "Nothing needs fixing" : `${problems.length} thing${problems.length === 1 ? "" : "s"} to fix`}</strong>
-          <p>{problems.length === 0 ? "Everything BoxPilot knows how to check is working. Prerequisites and recovery evidence are below." : "Each one says what is wrong and what fixes it. Nothing runs until you approve it."}</p>
+          <p>{problems.length === 0 ? "Everything BoxPilot knows how to check is working. What is installed, and what you would need to rebuild this server, are below." : "Each one says what is wrong and what fixes it. Nothing runs until you approve it."}</p>
         </div>
         <button className="secondary-button" type="button" onClick={() => void refresh()} disabled={loading}>{loading ? "Checking..." : "Check again"}</button>
       </section>
@@ -310,7 +310,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
         <section className="panel action-center">
           <header className="panel-header">
             <div><span className="eyebrow">Not broken, not protected</span><strong>What is not covered yet</strong><span>Nothing here is failing. These are the gaps that only matter on the day something does. Checked {new Date(actionCenter.generatedAt).toLocaleString()}{actionCenter.sourceStatus === "ready" ? "" : " · some of it could not be read, so this list may be short"}</span></div>
-            <div className="action-counts"><span className="action-critical">{actionCenter.summary.critical} critical</span><span className="action-warning">{actionCenter.summary.warning} warning</span><span>{actionCenter.summary.info} info</span></div>
+            <div className="action-counts">{actionCenter.summary.critical > 0 && <span className="action-critical">{actionCenter.summary.critical} serious</span>}{actionCenter.summary.warning > 0 && <span className="action-warning">{actionCenter.summary.warning} to look at</span>}{actionCenter.summary.info > 0 && <span>{actionCenter.summary.info} worth knowing</span>}</div>
           </header>
           <div className="action-list">
             {actionCenter.notices.map((item) => (
@@ -330,7 +330,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
         <section className="panel recovery-kit">
           <header className="panel-header">
             <div><span className="eyebrow">If you had to rebuild this server</span><strong>What you would need, and what you have</strong><span>Checked {new Date(recoveryKit.generatedAt).toLocaleString()} · BoxPilot {recoveryKit.product.version} · contains no passwords or keys, so it is safe to keep a copy off the box</span></div>
-            <span className={`status-pill status-${recoveryKit.summary.actionRequired > 0 ? "warning" : "neutral"}`}>{recoveryKit.summary.status.replaceAll("-", " ")}</span>
+            <span className={`status-pill status-${recoveryKit.summary.actionRequired > 0 ? "warning" : "neutral"}`}>{recoveryKit.summary.actionRequired > 0 ? `${recoveryKit.summary.actionRequired} to sort out` : recoveryKit.summary.operatorChecks > 0 ? `${recoveryKit.summary.operatorChecks} to check` : "ready"}</span>
           </header>
           <div className="recovery-summary">
             <span><strong>{recoveryKit.summary.verified}</strong>verified</span>
