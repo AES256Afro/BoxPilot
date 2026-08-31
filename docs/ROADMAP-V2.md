@@ -683,6 +683,16 @@ This arc makes local access first-class — reachable and encrypted — without 
   address, leaving only the owner password — and then says, honestly, that to receive on the phone you
   subscribe in the app to the topic at the server's tailnet address, publishing it there first if it
   is only reachable locally. Closes the loop the Repair page's "nothing can reach you" opened.
+- ✅ **M8.7** (v1.98.1) **Where each app's data lives, on its card.** An installed app that lets you
+  choose a data folder now shows it — "Data: /mnt/the-dump/torrents" — so an app writing to the wrong
+  drive is visible at a glance rather than a mystery. This is the class of confusion that took a shell
+  session to untangle (a download client on one disk, the media app reading another).
+- ✅ **M8.8** (v1.98.2–v1.98.4) **Plain-language sweep.** The Virtual Machines and System pages, the
+  retention previews, and the recovery guidance were rewritten out of the vocabulary they were built
+  in — "integrity-checked artifact", "encrypted independent restic snapshot", "isolated restore
+  drill", "forget but never prune" — into what the reader would say. A full pass confirmed no visible
+  page overflows on mobile, no console errors across 30 page/world combinations, no unlabeled
+  controls, and no per-app request fan-out; the sweep found the copy, not new faults.
 
 - ✅ **M8.5** (v1.84.0) **Readability + full job output.** Type floor raised (the 7–9px rules moved to
   9–11px; text buttons and panel subtitles to 12px), prose capped at a readable measure, keyboard
