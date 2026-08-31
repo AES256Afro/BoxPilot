@@ -26,7 +26,7 @@ const usernameValid = (name: string) => /^[a-z_][a-z0-9_-]{0,31}$/.test(name);
  * "Share folders from this server": a Samba file server bound to the tailnet (and optionally
  * the LAN). The owner edits a draft of the share list and applies it as one medium-risk job.
  */
-export default function SambaPanel({ start, folders, refreshKey, prefill, onNavigate }: { start: (operation: PendingOperation) => void; folders: string[]; refreshKey: number; prefill?: { name: string; path: string } | null; onNavigate?: (view: ViewName) => void }) {
+export default function SambaPanel({ start, folders, refreshKey, prefill, onNavigate, csrfToken }: { start: (operation: PendingOperation) => void; folders: string[]; refreshKey: number; prefill?: { name: string; path: string } | null; onNavigate?: (view: ViewName) => void; csrfToken?: string }) {
   const [state, setState] = useState<SambaState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<ShareConfig[]>([]);
@@ -80,6 +80,31 @@ export default function SambaPanel({ start, folders, refreshKey, prefill, onNavi
   };
   const removeShare = (shareName: string) => { setDraft((current) => current.filter((share) => share.name !== shareName)); setDirty(true); };
   const setShareRecycle = (shareName: string, on: boolean) => { setDraft((current) => current.map((share) => (share.name === shareName ? { ...share, recycle: on } : share))); setDirty(true); };
+
+  // Auto-clean: a weekly schedule of samba.recycle.empty with an age, per share, so the bin never
+  // quietly fills the drive. Same mechanism as the VPN kill-switch's "Verify weekly".
+  const [autoClean, setAutoClean] = useState<Record<string, string>>({});
+  const loadAutoClean = useCallback(async () => {
+    try {
+      const body = (await fetch("/api/v1/schedules").then((response) => (response.ok ? response.json() : { schedules: [] }))) as { schedules: Array<{ id: string; operationId: string; parameters?: { share?: string } }> };
+      setAutoClean(Object.fromEntries(body.schedules.filter((schedule) => schedule.operationId === "samba.recycle.empty" && schedule.parameters?.share).map((schedule) => [schedule.parameters!.share!, schedule.id])));
+    } catch { /* the buttons just show the manual state */ }
+  }, []);
+  useEffect(() => { void loadAutoClean(); }, [loadAutoClean, refreshKey]);
+  const scheduleAutoClean = async (shareName: string) => {
+    if (!csrfToken) return;
+    try {
+      await fetch("/api/v1/schedules", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ operationId: "samba.recycle.empty", parameters: { share: shareName, olderThanDays: 30 }, frequency: "weekly", minute: 0, hour: 5, weekday: 0 }) });
+      await loadAutoClean();
+    } catch { /* a failure leaves the button as it was */ }
+  };
+  const unscheduleAutoClean = async (scheduleId: string) => {
+    if (!csrfToken) return;
+    try {
+      await fetch(`/api/v1/schedules/${encodeURIComponent(scheduleId)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } });
+      await loadAutoClean();
+    } catch { /* leave as-is */ }
+  };
   const toggleUser = (user: string, checked: boolean) => setSelectedUsers((current) => (checked ? [...new Set([...current, user])] : current.filter((entry) => entry !== user)));
 
   const apply = () => start({
@@ -159,6 +184,9 @@ export default function SambaPanel({ start, folders, refreshKey, prefill, onNavi
                   <td>{share.readOnly ? "Read-only" : <>Read &amp; write{" "}<label className="share-recycle-toggle muted" title="Keep files deleted over the network in a hidden .recycle folder on the share, so they can be recovered."><input type="checkbox" checked={Boolean(share.recycle)} onChange={(event) => setShareRecycle(share.name, event.target.checked)} /> recycle bin{bin ? ` (${formatBytes(bin)})` : ""}</label></>}</td>
                   <td>
                     {bin !== null && bin > 0 && <button className="text-button" type="button" onClick={() => start({ operationId: "samba.recycle.empty", title: `Empty the recycle bin for ${share.name}`, parameters: { share: share.name }, preview: <span>Permanently deletes {formatBytes(bin)} of recycled files from <code>{share.path}/.recycle</code>. Files deleted over the share after this are recoverable again.</span> })}>Empty bin</button>}
+                    {bin !== null && csrfToken && (autoClean[share.name]
+                      ? <span className="muted share-autoclean">auto-cleans weekly (keeps 30 days) <button className="text-button" type="button" onClick={() => void unscheduleAutoClean(autoClean[share.name])}>stop</button></span>
+                      : <button className="text-button" type="button" title="Every week, permanently delete recycled files older than 30 days, so the bin never fills the drive." onClick={() => void scheduleAutoClean(share.name)}>Auto-clean</button>)}
                     <button className="text-button" type="button" onClick={() => removeShare(share.name)}>Remove</button>
                   </td>
                 </tr>

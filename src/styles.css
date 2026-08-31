@@ -4492,3 +4492,4 @@ textarea {
 .app-folder-warning { border-left: 3px solid var(--warning, #d29922); background: color-mix(in srgb, var(--warning, #d29922) 8%, transparent); border-radius: 4px; padding: 8px 12px; display: grid; gap: 6px; font-size: 13px; }
 .app-folder-warning p { margin: 0; }
 .app-folder-warning .secondary-button { justify-self: start; }
+.share-autoclean { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
