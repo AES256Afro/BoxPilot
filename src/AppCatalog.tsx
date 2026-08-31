@@ -514,6 +514,17 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                   <button className="secondary-button" type="button" onClick={() => start({ operationId: "app.reconfigure", title: `Fix folder access for ${manifest.name}`, parameters: { id: manifest.id, values: {} }, preview: <span>Redeploys {manifest.name} with its current settings; the deploy hands its data folders to the app's own user so it can write there. Nothing else changes.</span> })}>Fix folder access</button>
                 </div>
               )}
+              {/* Where this app's data actually lives, on installed apps that let you choose. Seeing
+                  the drive at a glance is what makes a download client saving to the wrong disk
+                  obvious instead of a mystery. Only owner-facing folders under /mnt or /srv; the
+                  app's own config directory is not interesting here. */}
+              {installed && (() => {
+                const folders = manifest.volumes
+                  .filter((volume) => volume.configurable && !volume.readOnly)
+                  .map((volume) => ({ label: volume.label, path: live?.state?.values?.volumes?.[volume.id] ?? volume.hostPath }))
+                  .filter((entry): entry is { label: string; path: string } => typeof entry.path === "string" && (entry.path.startsWith("/mnt/") || entry.path.startsWith("/srv/")));
+                return folders.length > 0 ? <p className="muted app-stats app-data-line">Data: {folders.map((entry, index) => <span key={entry.path}>{index > 0 ? " · " : ""}<code>{entry.path}</code></span>)}</p> : null;
+              })()}
               {installed && manifest.networkVia && tunnels[manifest.id]?.exit && tunnels[manifest.id].running && (
                 <p className="muted app-stats">VPN exit: {tunnels[manifest.id].exit?.location ?? "unknown place"} · {tunnels[manifest.id].exit?.ip}{tunnels[manifest.id].forwardedPort ? ` · forwarded port ${tunnels[manifest.id].forwardedPort} (set it under Tools, Options, Connection)` : ""} · <button className="text-button" type="button" onClick={() => start({ operationId: "app.vpn.killswitch.drill", title: `Prove ${manifest.name}'s kill switch`, parameters: { id: manifest.id }, preview: <span>Forces the tunnel down for a few seconds, checks nothing can reach the internet while it is down, then brings it back. Downloads pause briefly and resume by themselves; the result is recorded.</span> })}>Prove the kill switch</button>
                   {killswitch[manifest.id]
