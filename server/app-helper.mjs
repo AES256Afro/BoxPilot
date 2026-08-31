@@ -12,7 +12,7 @@ import { fixedRun } from "./exec.mjs";
 import { parseServeStatus } from "./tailscale-serve.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { parseExit, parseForwardedPort } from "./vpn-exit.mjs";
-import { bindingFor, deviceMatchesPattern, renderCompose, projectNameFor, resolveDevices } from "./catalog/compose.mjs";
+import { bindingFor, deployedImages, deviceMatchesPattern, renderCompose, projectNameFor, resolveDevices } from "./catalog/compose.mjs";
 import { isDeniedHostPath } from "./catalog/schema.mjs";
 import { resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
 import { profileConnectionEnv, profileSecurityEnv } from "./vpn-profile.mjs";
@@ -20,6 +20,8 @@ import { profileConnectionEnv, profileSecurityEnv } from "./vpn-profile.mjs";
 const actions = Object.freeze(["start", "stop", "restart", "pause", "unpause"]);
 const idPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
 export const backupNamePattern = /^\d{8}T\d{6}Z\.tar\.gz$/;
+/** How many updates to remember per app. Enough to step back through a bad week, small enough to store. */
+export const updateHistoryLimit = 10;
 
 /**
  * Canonicalise a path for the deny-list check even when its leaf does not exist yet: resolve every
@@ -502,6 +504,7 @@ export function createAppHelper({
         return manifest.ports.filter((port) => port.protocol === "tcp" && (port.tailnet ?? "serve") === "serve").map((port) => ({ id: port.id, label: port.label, host: hostNetworked ? port.container : state.values?.ports?.[port.id] ?? port.host, exposure: port.exposure, path: signInPortId(manifest) === port.id ? manifest.signIn?.path ?? null : null }));
       })() : [],
       updateAvailable: Boolean(state?.installed && state.image?.reference && state.image.reference !== manifest.image.reference),
+      updateHistory: state?.updateHistory ?? [],
       installedImage: state?.image?.reference ?? null,
       folderProblems: await folderProblems(manifest, state).catch(() => []),
     };
@@ -618,6 +621,10 @@ export function createAppHelper({
     const { values, errors } = resolveValues(manifest, sanitizeStoredValues(manifest, state.values ?? {}));
     if (errors.length) throw new Error(`Stored settings no longer match the manifest: ${errors.join("; ")}`);
     const saved = takeCheckpoint ? await checkpoint({ id, reason: "update" }, { progress }) : null;
+    // What is running right now, read from the deployed compose file before it is overwritten. This
+    // is the only exact record: the manifest below has already moved to the new tags, and stored
+    // state carries the app's own image but never its sidecars'.
+    const runningBefore = deployedImages(await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => ""));
     await writeProject(manifest, values, { existingEnv: await readEnv(id), devices }); // picks up manifest changes (new image tag)
     const pull = await compose(id, ["pull"], { timeout: 30 * 60_000, progress });
     if (!pull.ok) throw new Error(`docker compose pull failed: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
@@ -625,8 +632,15 @@ export function createAppHelper({
     try {
       if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
       const status = await waitHealthy(manifest, progress);
-      await writeState(id, { ...state, updatedAt: clock().toISOString(), manifestSha256: manifest.sha256 ?? null, image: { reference: manifest.image.reference, id: status.image }, values: storableValues(manifest, values, values.env), pinnedRollback: false });
-      return { updated: true, id, previousImage: before.image, image: status.image, changed: before.image !== status.image, checkpoint: saved };
+      const deployedNow = deployedImages(await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => ""));
+      // Keep what it came from, so going back is a click rather than an archaeology exercise. Only
+      // when something actually moved: re-running an update that changes nothing is not history.
+      const movedFrom = Object.fromEntries(Object.entries(runningBefore).filter(([service, reference]) => deployedNow[service] !== reference));
+      const history = Object.keys(movedFrom).length
+        ? [{ at: clock().toISOString(), from: movedFrom, to: Object.fromEntries(Object.keys(movedFrom).map((service) => [service, deployedNow[service] ?? null])) }, ...(state.updateHistory ?? [])].slice(0, updateHistoryLimit)
+        : state.updateHistory ?? [];
+      await writeState(id, { ...state, updatedAt: clock().toISOString(), manifestSha256: manifest.sha256 ?? null, image: { reference: manifest.image.reference, id: status.image }, values: storableValues(manifest, values, values.env), pinnedRollback: false, updateHistory: history });
+      return { updated: true, id, previousImage: before.image, image: status.image, changed: before.image !== status.image, previousReference: runningBefore[id] ?? state.image?.reference ?? null, reference: manifest.image.reference, checkpoint: saved };
     } catch (error) {
       let rolledBack = false;
       if (before.image) {
@@ -643,6 +657,54 @@ export function createAppHelper({
       }
       throw new Error(`${manifest.name} update failed${rolledBack ? "; the previous image was restored" : " and automatic rollback also failed"}. ${error.message}`);
     }
+  }
+
+  /**
+   * Put an app back on the versions it was running before its last update (M22.2).
+   *
+   * The failure path inside update() already knows how to redeploy a pinned image; this is the same
+   * move made deliberately, for the update that succeeded and turned out wrong two days later. It
+   * takes no image from the caller — only what this app's own history records — so it can restore a
+   * previous version and nothing else. Catalog references are version tags, never `latest`, so the
+   * old image is re-pullable even after an unused-image prune has removed it locally.
+   */
+  async function rollbackApp({ id, devices = null }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
+    const manifest = await ensureManifest(id);
+    const state = await readState(id);
+    if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
+    const last = (state.updateHistory ?? [])[0];
+    if (!last || !Object.keys(last.from ?? {}).length) throw new Error(`${manifest.name} has not been updated since it was installed, so there is nothing to go back to`);
+
+    const { values, errors } = resolveValues(manifest, sanitizeStoredValues(manifest, state.values ?? {}));
+    if (errors.length) throw new Error(`Stored settings no longer match the manifest: ${errors.join("; ")}`);
+    // Pin every service that moved, app and sidecars alike: restoring the app onto an upgraded
+    // database is how a rollback reports success and leaves the app unable to read its own data.
+    const pinned = {
+      ...manifest,
+      ...(last.from[id] ? { image: { ...manifest.image, reference: last.from[id] } } : {}),
+      sidecars: (manifest.sidecars ?? []).map((sidecar) => (last.from[sidecar.id] ? { ...sidecar, image: last.from[sidecar.id] } : sidecar)),
+    };
+    const saved = takeCheckpoint ? await checkpoint({ id, reason: "going back a version" }, { progress }) : null;
+    const restoring = Object.entries(last.from).map(([service, reference]) => `${service} to ${reference}`).join(", ");
+    progress?.(`Putting ${manifest.name} back: ${restoring}`, "stdout");
+    await writeProject(pinned, values, { existingEnv: await readEnv(id), devices });
+    // Pull explicitly: the previous image is unused after an update, so a prune may have removed it.
+    const pull = await compose(id, ["pull"], { timeout: 30 * 60_000, progress });
+    if (!pull.ok) throw new Error(`Could not fetch the previous version: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
+    const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
+    if (!up.ok) throw new Error(`${manifest.name} would not start on the previous version: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
+    const status = await waitHealthy(manifest, progress);
+    // The rollback is itself an entry, so going back twice steps back twice rather than ping-ponging.
+    const entry = { at: clock().toISOString(), from: last.to ?? {}, to: last.from, rolledBack: true };
+    await writeState(id, {
+      ...state,
+      updatedAt: clock().toISOString(),
+      image: { reference: last.from[id] ?? state.image?.reference ?? null, id: status.image },
+      pinnedRollback: true,
+      updateHistory: [entry, ...(state.updateHistory ?? []).slice(1)].slice(0, updateHistoryLimit),
+    });
+    progress?.(`${manifest.name} is back on ${last.from[id] ?? "its previous version"}`, "stdout");
+    return { rolledBack: true, id, restored: last.from, from: last.to ?? {}, checkpoint: saved };
   }
 
   async function reconfigure({ id, values: rawValues = {}, devices = null }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
@@ -1525,5 +1587,5 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { syncHomepage, inspect, reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

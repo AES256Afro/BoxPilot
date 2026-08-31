@@ -218,3 +218,23 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   const envFile = secretEntries.map((entry) => envFileLine(entry.name, env[entry.name])).join("\n") + (secretEntries.length ? "\n" : "");
   return { compose, composeYaml: YAML.stringify(compose, { lineWidth: 0 }), envFile, env, hostPorts, files };
 }
+
+/**
+ * The image references a deployed compose file is actually running, keyed by service.
+ *
+ * The inverse of what renderCompose writes, and the only exact record of what an app was on before
+ * an update: the manifest has already moved on by the time an update runs, and the stored state
+ * carries the app's own image but never its sidecars'. Rolling an app back without its sidecar is
+ * how you get a database refusing the data directory it was just upgraded for.
+ */
+export function deployedImages(composeText) {
+  let parsed = null;
+  try { parsed = YAML.parse(String(composeText ?? "")); } catch { return {}; }
+  const services = parsed?.services;
+  if (!services || typeof services !== "object") return {};
+  const images = {};
+  for (const [name, service] of Object.entries(services)) {
+    if (typeof service?.image === "string" && service.image.trim()) images[name] = service.image.trim();
+  }
+  return images;
+}

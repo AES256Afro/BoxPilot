@@ -5,7 +5,7 @@
  * can never reach into another setting, and that a password survives storage exactly as typed.
  */
 import { describe, expect, it } from "vitest";
-import { envFileLine, renderCompose, securityOptFor } from "./compose.mjs";
+import { deployedImages, envFileLine, renderCompose, securityOptFor } from "./compose.mjs";
 
 describe("values the owner typed", () => {
   const manifest = {
@@ -198,5 +198,37 @@ describe("sidecarEnvOverrides", () => {
     const { compose } = renderCompose(tunneled, values, { lanAddress: "192.168.1.10" });
     expect(compose.services.vpn.environment.FIREWALL_OUTBOUND_SUBNETS).toBe("10.0.0.0/8");
     expect(compose.services.vpn.environment.DOT).toBeUndefined();
+  });
+});
+
+describe("reading back what a deployed compose file runs", () => {
+  it("returns the image reference for the app and each sidecar", () => {
+    // The only exact record of what was running before an update: the manifest has already moved on,
+    // and stored state carries the app's own image but never its sidecars'.
+    const text = [
+      "name: bp-qbittorrent",
+      "services:",
+      "  qbittorrent:",
+      "    image: lscr.io/linuxserver/qbittorrent:5.2.3_v2.0.14-ls472",
+      "    container_name: bp-qbittorrent",
+      "  vpn:",
+      "    image: qmcgaw/gluetun:v3.41.3",
+      "",
+    ].join("\n");
+    expect(deployedImages(text)).toEqual({
+      qbittorrent: "lscr.io/linuxserver/qbittorrent:5.2.3_v2.0.14-ls472",
+      vpn: "qmcgaw/gluetun:v3.41.3",
+    });
+  });
+
+  it("survives a file that is missing, empty, unparseable, or has no services", () => {
+    for (const bad of ["", "   ", "not: [valid", "services:", "name: x", null, undefined]) {
+      expect(deployedImages(bad)).toEqual({});
+    }
+  });
+
+  it("skips a service with no image, rather than recording an empty reference", () => {
+    const text = "services:\n  app:\n    image: nginx:1.27\n  built:\n    build: .\n";
+    expect(deployedImages(text)).toEqual({ app: "nginx:1.27" });
   });
 });

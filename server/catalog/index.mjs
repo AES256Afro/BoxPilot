@@ -53,8 +53,8 @@ export async function loadCatalog({ directory = defaultCatalogDirectory } = {}) 
  *
  * Concurrent callers share one load: three panels opening at once used to start three.
  */
-export function createCatalogService({ directory = defaultCatalogDirectory, ttlMs = 5000, now = () => Date.now() } = {}) {
-  let cache = null; let checkedAt = 0; let signature = null; let inFlight = null;
+export function createCatalogService({ directory = defaultCatalogDirectory, ttlMs = 5000, maxAgeMs = 5 * 60_000, now = () => Date.now() } = {}) {
+  let cache = null; let checkedAt = 0; let signature = null; let inFlight = null; let loadedAt = 0;
 
   async function directorySignature() {
     try {
@@ -71,9 +71,15 @@ export function createCatalogService({ directory = defaultCatalogDirectory, ttlM
     inFlight = (async () => {
       const current = await directorySignature();
       checkedAt = now();
-      if (cache && current !== null && current === signature) return cache;
+      // A directory's mtime moves when entries are added, removed, or renamed — not when a file
+      // inside it is edited. A release replaces the tree, so upgrades are seen immediately; an
+      // edit in place is not seen at all, and would otherwise be served stale until a restart.
+      // Reloading on a bounded age costs one walk every few minutes and bounds that to minutes.
+      const stale = now() - loadedAt >= maxAgeMs;
+      if (cache && !stale && current !== null && current === signature) return cache;
       cache = await loadCatalog({ directory });
       signature = current;
+      loadedAt = now();
       return cache;
     })().finally(() => { inFlight = null; });
     return inFlight;

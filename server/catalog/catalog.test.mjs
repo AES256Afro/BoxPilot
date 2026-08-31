@@ -340,3 +340,33 @@ describe("Grafana ships a provisioned host dashboard", () => {
     expect(datasource.content).toContain("uid: boxpilotprom");
   });
 });
+
+describe("catalog freshness", () => {
+  it("picks up an edit made in place, which the directory's mtime cannot see", async () => {
+    // A directory's mtime moves when entries are added or removed, not when a file inside one is
+    // edited. Without a bounded max age an in-place edit is served stale until the process restarts.
+    const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+    const os = (await import("node:os")).default;
+    const path = (await import("node:path")).default;
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-fresh-"));
+    const manifest = (host) => ["schemaVersion: 2", "id: solo", "name: Solo", "category: T", "description: d",
+      "image:", "  reference: nginx:1.27", "ports:", "  - id: web", "    container: 80", `    host: ${host}`,
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30"].join("\n") + "\n";
+    try {
+      let clock = 1_000_000;
+      const { createCatalogService } = await import("./index.mjs");
+      const catalog = createCatalogService({ directory, ttlMs: 0, maxAgeMs: 60_000, now: () => clock });
+      await writeFile(path.join(directory, "solo.yaml"), manifest(8080));
+      expect((await catalog.all()).manifests[0].ports[0].host).toBe(8080);
+
+      // Edited in place: same name, so the directory signature is unchanged.
+      await writeFile(path.join(directory, "solo.yaml"), manifest(9090));
+      expect((await catalog.all()).manifests[0].ports[0].host).toBe(8080);   // still cached, as designed
+
+      clock += 61_000;                                                        // past the max age
+      expect((await catalog.all()).manifests[0].ports[0].host).toBe(9090);    // reloaded
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
