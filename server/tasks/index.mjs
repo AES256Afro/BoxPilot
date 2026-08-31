@@ -13,6 +13,7 @@ import { housekeepingRemoveTrees } from "./housekeeping.mjs";
 import { routerConnect, routerInspect, routerLeases } from "./router.mjs";
 import { dnsBlockerVerify } from "./dns-check.mjs";
 import { sambaApply, sambaRecycleEmpty, sambaUserRemove, sambaUserSet } from "./samba.mjs";
+import { fsSnapshotCreate, fsSnapshotDelete } from "./fs-snapshots.mjs";
 import { nfsApply } from "./nfs.mjs";
 import { upsSetup } from "./ups.mjs";
 import { fail2banApply } from "./fail2ban.mjs";
@@ -67,6 +68,8 @@ export const tasks = Object.freeze({
   "router.leases": routerLeases,
   "share.mount": shareMount,
   "share.unmount": shareUnmount,
+  "storage.fs-snapshot.create": fsSnapshotCreate,
+  "storage.fs-snapshot.delete": fsSnapshotDelete,
   "samba.apply": sambaApply,
   "samba.recycle.empty": sambaRecycleEmpty,
   "samba.user.set": sambaUserSet,

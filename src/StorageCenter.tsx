@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ViewName } from "./data";
 import { appFolders, buildStorageMap, type MapApp, type MapSambaShare, type StorageMapEntry } from "./storageMap";
+import { useTailnetHosts } from "./tailnetHosts";
 import { readJson } from "./http";
 import { validShareName } from "./shareName";
 import { useOperation } from "./ApproveDialog";
@@ -64,6 +65,9 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
   const [forecasts, setForecasts] = useState<Forecast[]>([]);
   const [mapApps, setMapApps] = useState<MapApp[]>([]);
   const [mapShares, setMapShares] = useState<MapSambaShare[]>([]);
+  const tailnetHosts = useTailnetHosts();
+  const [fsSnapshots, setFsSnapshots] = useState<{ supported: boolean; btrfs: { filesystems: Array<{ target: string; source: string | null; snapshots: Array<{ name: string; path: string }> }> }; zfs: { datasets: Array<{ name: string; mountpoint: string | null; snapshots: Array<{ name: string; path: string; used?: string | null }> }> } } | null>(null);
+  const [fsSnapshotName, setFsSnapshotName] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -74,6 +78,7 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
       // For the storage map: which apps mount which folders, and which folders are served as shares.
       fetch("/api/v1/catalog").then((response) => (response.ok ? response.json() : null)).then((body: { applications?: Parameters<typeof appFolders>[0] } | null) => setMapApps(body?.applications ? appFolders(body.applications) : [])).catch(() => {});
       fetch("/api/v1/storage/samba").then((response) => (response.ok ? response.json() : null)).then((body: { config?: { shares?: MapSambaShare[] } } | null) => setMapShares(body?.config?.shares ?? [])).catch(() => {});
+      fetch("/api/v1/operations/storage.fs-snapshots.inspect/inspect").then((response) => (response.ok ? response.json() : null)).then((body: { result?: NonNullable<typeof fsSnapshots> } | null) => setFsSnapshots(body?.result ?? null)).catch(() => {});
       setRefreshKey((key) => key + 1);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read storage state");
@@ -281,6 +286,43 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
         </section>
       ))}
 
+      {fsSnapshots?.supported && (
+        <section className="panel">
+          <header className="panel-header"><div><strong>Filesystem snapshots</strong><span>btrfs and ZFS snapshots on this server, alongside the LVM snapshots above. Deleting one never touches the live data.</span></div></header>
+          {[...fsSnapshots.btrfs.filesystems.map((filesystem) => ({ kind: "btrfs" as const, target: filesystem.target, label: `${filesystem.target} (btrfs${filesystem.source ? ` · ${filesystem.source}` : ""})`, snapshots: filesystem.snapshots })),
+            ...fsSnapshots.zfs.datasets.map((dataset) => ({ kind: "zfs" as const, target: dataset.name, label: `${dataset.name} (ZFS${dataset.mountpoint ? ` · ${dataset.mountpoint}` : ""})`, snapshots: dataset.snapshots }))].map((entry) => (
+            <div className="fs-snapshot-target" key={`${entry.kind}:${entry.target}`}>
+              <strong>{entry.label}</strong>
+              {entry.snapshots.length === 0 ? <span className="muted"> — no snapshots yet</span> : (
+                <ul className="fs-snapshot-list">
+                  {entry.snapshots.map((snapshot) => (
+                    <li key={snapshot.path}>
+                      <code>{snapshot.name}</code>
+                      <button className="text-button" type="button" onClick={() => start({
+                        operationId: "storage.fs-snapshot.delete",
+                        title: `Delete snapshot ${snapshot.name}`,
+                        parameters: { kind: entry.kind, target: entry.target, name: snapshot.name },
+                        confirmText: snapshot.name,
+                        preview: <span>Removes the snapshot <code>{snapshot.path}</code>. The filesystem's live data is untouched; only this restore point disappears.</span>,
+                      })}>Delete</button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="recovery-actions">
+                <input aria-label={`Snapshot name for ${entry.target}`} placeholder="before-upgrade" value={fsSnapshotName} onChange={(event) => setFsSnapshotName(event.target.value)} />
+                <button className="secondary-button" type="button" disabled={!/^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/.test(fsSnapshotName)} onClick={() => start({
+                  operationId: "storage.fs-snapshot.create",
+                  title: `Snapshot ${entry.target}`,
+                  parameters: { kind: entry.kind, target: entry.target, name: fsSnapshotName },
+                  preview: <span>{entry.kind === "btrfs" ? <>Creates a read-only btrfs snapshot at <code>{entry.target}/.boxpilot-snapshots/{fsSnapshotName}</code>.</> : <>Creates the ZFS snapshot <code>{entry.target}@{fsSnapshotName}</code>.</>} Instant, and shares space with the live data until it changes.</span>,
+                })}>Take a snapshot</button>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
       <section className="panel">
         <header className="panel-header"><div><strong>Block devices</strong><span>Mount a drive so your apps and network shares can use it: a nofail fstab entry, verified first, and by default handed to your apps so they can write to it. Format erases the device and asks you to type its name. The system disk and LVM members are never offered.</span></div>
           <button className="secondary-button" type="button" disabled={loading} onClick={() => void refresh()}>Refresh</button>
@@ -399,7 +441,8 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
             <select aria-label="Share type" value={kind} onChange={(event) => { setKind(event.target.value as "smb" | "nfs"); setListed(null); }}><option value="smb">SMB / Windows sharing (most NAS, My Cloud)</option><option value="nfs">NFS</option></select>
           </label>
           <label>NAS address or name
-            <input aria-label="Host" placeholder="192.168.1.50 or mycloud" value={host} onChange={(event) => setHost(event.target.value)} />
+            <input aria-label="Host" list="tailnet-hosts-storage" placeholder="192.168.1.50, mycloud, or a tailnet device" value={host} onChange={(event) => setHost(event.target.value)} />
+            <datalist id="tailnet-hosts-storage">{tailnetHosts.map((entry) => <option value={entry} key={entry} />)}</datalist>
           </label>
           <label>{kind === "smb" ? "Share name" : "Export path"}
             <input aria-label={kind === "smb" ? "Share name" : "Export path"} placeholder={kind === "smb" ? "Public or Public/Backups" : "/volume1/media"} value={share} onChange={(event) => setShareAndName(event.target.value)} />
