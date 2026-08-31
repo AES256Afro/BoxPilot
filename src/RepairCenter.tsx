@@ -210,7 +210,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
     setCanaryResult(null);
     try {
       const { result } = await inspectOperation<{ helperVersion: string }>("canary.verify");
-      setCanaryResult(`The helper answered over its socket: version ${result.helperVersion}. No host state was touched.`);
+      setCanaryResult(`Answered: the root side is running, version ${result.helperVersion}. Nothing on the server was changed.`);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "The helper did not answer");
     } finally {
