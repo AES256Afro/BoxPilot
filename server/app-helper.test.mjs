@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -8,7 +8,7 @@ import { createCatalogService } from "./catalog/index.mjs";
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
 
-async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, statPath = undefined, runCommand = undefined, execTable = { vpn: "running", leaks: false, noCurl: false } } = {}) {
+async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, statPath = undefined, lstatPath = undefined, runCommand = undefined, vpnProfile = undefined, execTable = { vpn: "running", leaks: false, noCurl: false } } = {}) {
   const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
   const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
   await writeFile(path.join(catalogDirectory, "demo.yaml"), `schemaVersion: 2\nid: demo\nname: Demo\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8080\nvolumes:\n  - id: data\n    container: /data\n    path: data\n  - id: docker\n    container: /var/run/docker.sock\n    hostPath: /var/run/docker.sock\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\n  - name: TZ\n    default: Etc/UTC\nhealth:\n  kind: ${healthKind}\n  stableSeconds: 4\n  timeoutSeconds: 30\n`);
@@ -78,7 +78,7 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
   const wait = vi.fn(async (ms) => { nowMs += ms; });
   const catalog = createCatalogService({ directory: catalogDirectory, ttlMs: 0 });
   const backupRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-appbk-")); directories.push(backupRoot);
-  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, lanAddress: "192.168.1.10", ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(statPath ? { statPath } : {}), ...(runCommand ? { runCommand } : {}) });
+  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, lanAddress: "192.168.1.10", ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(statPath ? { statPath } : {}), ...(lstatPath ? { lstatPath } : {}), ...(runCommand ? { runCommand } : {}), ...(vpnProfile ? { vpnProfile } : {}) });
   const advance = (ms) => { nowMs += ms; };
   return { apps, calls, containers, catalogRoot, catalogDirectory, backupRoot, advance };
 }
@@ -175,7 +175,7 @@ describe("generic app deployer", () => {
     const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-rootmedia-")); directories.push(mediaRoot);
     const { apps, catalogDirectory } = await setup({
       chownDirectory: async (target, uid, gid) => { chowned.push([target, uid, gid]); },
-      statPath: async (target) => (target === mediaRoot ? { uid: 0, isDirectory: () => true } : stat(target)),
+      lstatPath: async (target) => (target === mediaRoot ? { uid: 0, isSymbolicLink: () => false, isDirectory: () => true } : lstat(target)),
     });
     await writeFile(path.join(catalogDirectory, "arr.yaml"), [
       "schemaVersion: 2", "id: arr", "name: Arr", "category: T", "description: d",
@@ -187,6 +187,55 @@ describe("generic app deployer", () => {
     ].join("\n") + "\n");
     await apps.install({ id: "arr", values: { volumes: { media: mediaRoot } } });
     expect(chowned.some(([target, uid, gid]) => target === mediaRoot && uid === 1000 && gid === 1000)).toBe(true);
+  });
+
+  it("never chowns through a symlink that resolves into a protected location", async () => {
+    // The privilege-escalation guard: a compromised app (uid 1000) plants a symlink inside a folder
+    // it owns, pointing at /etc, then a redeploy points a writable volume at that symlink. Root must
+    // refuse before any chown, not chase the link and hand /etc to uid 1000.
+    const chowned = [];
+    const base = await mkdtemp(path.join(os.tmpdir(), "boxpilot-symtrap-")); directories.push(base);
+    const trap = path.join(base, "pwn");
+    // /usr is a real directory (not symlink-rewritten) and deny-listed on both Linux and macOS,
+    // where /etc would realpath to the non-denied /private/etc. On the Linux target this is /etc.
+    await symlink("/usr", trap);   // the planted symlink into a protected location
+    const { apps, catalogDirectory } = await setup({ chownDirectory: async (target, uid, gid) => { chowned.push([target, uid, gid]); } });
+    await writeFile(path.join(catalogDirectory, "arr.yaml"), [
+      "schemaVersion: 2", "id: arr", "name: Arr", "category: T", "description: d",
+      "image:", "  reference: nginx:1.27",
+      "ports:", "  - id: web", "    container: 8989", "    host: 8989",
+      "env:", "  - name: PUID", "    default: \"1000\"", "    fixed: true", "  - name: PGID", "    default: \"1000\"", "    fixed: true",
+      "volumes:", "  - id: media", "    container: /data", "    hostPath: /srv/media", "    configurable: true", "    backup: false",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n");
+    await expect(apps.install({ id: "arr", values: { volumes: { media: trap } } })).rejects.toThrow("protected system location");
+    expect(chowned.some(([target]) => target === trap || target === "/etc")).toBe(false);
+  });
+
+  it("does not persist shared-VPN-profile connection values into per-app state (GET /catalog would leak them)", async () => {
+    // The profile is owner-only, but its injected connection env used to land in boxpilot.json and be
+    // served by /catalog to any role. With the profile on, those values are re-derived every deploy,
+    // so they must not be stored; the toggle itself must stay stored so the app keeps using the profile.
+    const profile = { provider: "protonvpn", type: "wireguard", wireguardPrivateKey: "PRIV==", wireguardAddresses: "10.2.0.2/32", openvpnUser: "acct-9931", openvpnPassword: "opw", countries: "Switzerland", portForwarding: "on" };
+    const { apps, catalogRoot, catalogDirectory } = await setup({ vpnProfile: { read: async () => profile } });
+    await writeFile(path.join(catalogDirectory, "vpnapp.yaml"), [
+      "schemaVersion: 2", "id: vpnapp", "name: VpnApp", "category: T", "description: d", "networkVia: vpn", "usesVpnProfile: true",
+      "image:", "  reference: nginx:1.27",
+      "ports:", "  - id: web", "    container: 8080", "    host: 8080",
+      "env:",
+      "  - name: USE_VPN_PROFILE", "    default: \"off\"",
+      "  - name: WIREGUARD_ADDRESSES", "    default: \"\"", "    fromVpnProfile: true",
+      "  - name: OPENVPN_USER", "    default: \"\"", "    fromVpnProfile: true",
+      "  - name: WIREGUARD_PRIVATE_KEY", "    type: password", "    fromVpnProfile: true",
+      "sidecars:", "  - id: vpn", "    image: qmcgaw/gluetun:v3",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n");
+    await apps.install({ id: "vpnapp", values: { env: { USE_VPN_PROFILE: "on" } } });
+    const stored = JSON.parse(await readFile(path.join(catalogRoot, "vpnapp", "boxpilot.json"), "utf8"));
+    expect(stored.values.env.USE_VPN_PROFILE).toBe("on");           // the toggle is remembered
+    expect(stored.values.env).not.toHaveProperty("WIREGUARD_ADDRESSES"); // the profile's values are not
+    expect(stored.values.env).not.toHaveProperty("OPENVPN_USER");
+    expect(stored.values.env).not.toHaveProperty("WIREGUARD_PRIVATE_KEY"); // secret, filtered as before
   });
 
   it("reports a data folder the installed app cannot write to, and clears once ownership is right", async () => {

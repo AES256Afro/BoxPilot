@@ -7,7 +7,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createSettingsRouter } from "./settings.mjs";
 
 let server; let base; const settings = new Map();
-const auth = { requireRole: () => (_request, _response, next) => next(), requireCsrf: (_request, _response, next) => next() };
+// Role-aware stub: a request carries its role in x-test-role; owner satisfies any requireRole.
+const auth = {
+  requireRole: (role) => (request, response, next) => ((request.headers["x-test-role"] === role || request.headers["x-test-role"] === "owner") ? next() : response.status(403).json({ error: "forbidden" })),
+  requireCsrf: (_request, _response, next) => next(),
+};
 const notifications = { describe: () => ({ configured: true, kind: "ntfy" }) };
 const state = { getSetting: (key, fallback) => settings.get(key) ?? fallback };
 
@@ -39,5 +43,19 @@ describe("GET /settings/watch", () => {
     expect(byKey["storage.smart"].details[0].title).toContain("/dev/sda");
     // Every condition family from the watcher is present.
     expect(body.conditions.length).toBeGreaterThanOrEqual(12);
+  });
+});
+
+describe("GET /settings/vpn-profile role gate", () => {
+  it("serves the owner but refuses viewer and operator (it names the VPN account and exempted LAN ranges)", async () => {
+    settings.set("vpnProfile", { configured: true, provider: "protonvpn", openvpnUser: "acct-9931", outboundSubnets: "192.168.8.0/24" });
+    const at = (role) => fetch(`${base}/api/v1/settings/vpn-profile`, { headers: { "x-test-role": role } });
+    expect((await at("viewer")).status).toBe(403);
+    expect((await at("operator")).status).toBe(403);
+    const ownerResponse = await at("owner");
+    expect(ownerResponse.status).toBe(200);
+    expect((await ownerResponse.json()).profile.openvpnUser).toBe("acct-9931");
+    // A sibling GET with no per-route gate stays open to lower roles, proving the gate is specific.
+    expect((await fetch(`${base}/api/v1/settings/cloud-destination`, { headers: { "x-test-role": "viewer" } })).status).toBe(200);
   });
 });

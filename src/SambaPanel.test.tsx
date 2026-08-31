@@ -73,19 +73,24 @@ describe("Samba panel", () => {
     expect(screen.getByText("recycle bin (keep deleted files)")).toBeTruthy();
   });
 
-  it("schedules a weekly auto-clean of a share's recycle bin", async () => {
+  it("schedules a weekly auto-clean and then shows it as armed", async () => {
     const withRecycle = { ...base, config: { ...base.config, shares: [{ name: "Docs", path: "/mnt/docs", comment: null, readOnly: false, guest: false, users: ["jamie"], forceUser: "homebox", recycle: true, recycleBytes: 1024 }] } };
     let posted: string | undefined;
+    let scheduled = false;   // the scheduler exposes the target as parameters.subject, not .share
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();
       if (url === "/api/v1/storage/samba") return json(withRecycle);
-      if (url === "/api/v1/schedules" && init?.method === "POST") { posted = init.body as string; return json({ id: "s9" }, 201); }
-      if (url === "/api/v1/schedules") return json({ schedules: [] });
+      if (url === "/api/v1/schedules" && init?.method === "POST") { posted = init.body as string; scheduled = true; return json({ id: "s9" }, 201); }
+      if (url === "/api/v1/schedules") return json({ schedules: scheduled ? [{ id: "s9", operationId: "samba.recycle.empty", parameters: { subject: "Docs" } }] : [] });
       return json({ error: "unexpected" }, 500);
     }));
     render(<SambaPanel start={vi.fn()} folders={[]} refreshKey={0} csrfToken="csrf" />);
     fireEvent.click(await screen.findByRole("button", { name: "Auto-clean" }));
     await waitFor(() => expect(JSON.parse(posted ?? "{}")).toEqual({ operationId: "samba.recycle.empty", parameters: { share: "Docs", olderThanDays: 30 }, frequency: "weekly", minute: 0, hour: 5, weekday: 0 }));
+    // The reload keyed on parameters.subject flips the control to armed, with a working stop button.
+    await screen.findByText("auto-cleans weekly (keeps 30 days)");
+    expect(screen.getByRole("button", { name: "stop" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Auto-clean" })).toBeNull();
   });
 
   it("switches scope to the LAN, adds users with an in-memory password, and removes shares", async () => {

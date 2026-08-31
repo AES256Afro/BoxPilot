@@ -776,8 +776,17 @@ time, or the filesystem features a home server leans on.
   health alert to the phone, earlier than the 90% threshold that arrives with little runway.
   `server/disk-forecast.mjs` (pure fit + sampler), `GET /storage/forecast`, wired into `health-alerts`.
   **Remaining:** the per-app "where the space is going" breakdown (which app's data grew).
-- **M23.2** **Filesystem snapshots as a first-class thing.** ZFS/btrfs snapshot management where the
-  filesystem supports it, alongside the LVM snapshots already handled, with browse-and-restore.
+- ◐ **M23.2** (v1.86.0) **Filesystem snapshots as a first-class thing.** Where btrfs filesystems or
+  ZFS datasets exist, a Storage panel lists their snapshots and offers take (read-only btrfs snapshot
+  under a managed `.boxpilot-snapshots` folder; `zfs snapshot`) and delete (typed confirmation).
+  Every mutation re-derives its target from the live system (`findmnt`, `zfs list`), so a request can
+  never name a path or dataset it invented, and a bare ZFS dataset can never be destroyed — the
+  `@name` is always appended (`server/tasks/fs-snapshots.mjs`). The panel hides itself on servers
+  with neither filesystem, which is the common case and this server's. **Remaining:** rollback /
+  browse-and-restore, deliberately absent until it can be verified against a real btrfs/ZFS
+  filesystem — rollback discards data newer than the snapshot and will not ship untested. Same
+  release: tailnet devices offered as a dropdown in the SSH-backup and network-mount host fields
+  (M18.4 follow-up, `src/tailnetHosts.ts`).
 - ◐ **M23.3** (v1.73.0) **SMART trends, not just a green light.** ✅ **The alert.** A daily sampler
   keeps a small per-disk history of the numbers that move before a drive dies, and a least-squares fit
   turns them into warnings while smartctl still says "healthy": a media-error count that is climbing,

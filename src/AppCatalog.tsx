@@ -66,10 +66,18 @@ function initialValues(manifest: Manifest, live: LiveState | null): Values {
 const isPaused = (live: LiveState | null) => live?.container.status === "paused";
 const isRunning = (live: LiveState | null) => Boolean(live?.container.running) && !isPaused(live);
 
-function compactValues(manifest: Manifest, values: Values): Values {
-  const ports = Object.fromEntries(Object.entries(values.ports).filter(([id, host]) => manifest.ports.find((port) => port.id === id)?.host !== host));
-  const env = Object.fromEntries(Object.entries(values.env).filter(([name, value]) => value !== "" && String(manifest.env.find((entry) => entry.name === name)?.default ?? "") !== value));
-  const volumes = Object.fromEntries(Object.entries(values.volumes).filter(([id, path]) => path !== "" && manifest.volumes.find((volume) => volume.id === id)?.hostPath !== path));
+// Send only what differs from the baseline. On install the baseline is the manifest default; on
+// reconfigure it is the app's STORED value, because the server merges each field over the stored set
+// ({...stored, ...request}). Comparing to the manifest default there would silently drop a change
+// back to the default — e.g. turning "Use my VPN profile" from on to off, whose "off" IS the default,
+// left the stored "on" in place and the app stayed on the profile. Baseline-aware, that change is sent.
+function compactValues(manifest: Manifest, values: Values, baseline?: Values): Values {
+  const portBase = (id: string) => baseline?.ports?.[id] ?? manifest.ports.find((port) => port.id === id)?.host;
+  const envBase = (name: string) => baseline?.env?.[name] ?? String(manifest.env.find((entry) => entry.name === name)?.default ?? "");
+  const volumeBase = (id: string) => baseline?.volumes?.[id] ?? manifest.volumes.find((volume) => volume.id === id)?.hostPath;
+  const ports = Object.fromEntries(Object.entries(values.ports).filter(([id, host]) => portBase(id) !== host));
+  const env = Object.fromEntries(Object.entries(values.env).filter(([name, value]) => value !== "" && envBase(name) !== value));
+  const volumes = Object.fromEntries(Object.entries(values.volumes).filter(([id, path]) => path !== "" && volumeBase(id) !== path));
   // Setup choices are always sent explicitly: an empty list means "none", not "the defaults".
   return { ports, env, volumes, ...((manifest.networkModes?.length ?? 0) > 1 && values.networkMode ? { networkMode: values.networkMode } : {}), ...(manifest.setup ? { setup: values.setup ?? [] } : {}) };
 }
@@ -99,7 +107,7 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
     return () => { active = false; };
   }, [hasConfigurableVolumes]);
   const submit = async () => {
-    const compact = compactValues(manifest, values);
+    const compact = compactValues(manifest, values, mode === "reconfigure" ? live?.state?.values : undefined);
     setChecking(true); setProblems([]);
     try {
       const response = await fetch(`/api/v1/catalog/${encodeURIComponent(manifest.id)}/precheck`, { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ values: compact }) });

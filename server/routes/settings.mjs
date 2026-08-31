@@ -77,8 +77,10 @@ export function createSettingsRouter({ state, notifications, auth }) {
   });
 
   // The shared VPN profile (M17.4): the non-secret description mirrored from vpn.profile.set, plus the
-  // choices the form offers. The secrets stay in a root-owned file the web process never reads.
-  router.get("/settings/vpn-profile", (_request, response) => {
+  // choices the form offers. The secrets stay in a root-owned file the web process never reads. Owner
+  // only, matching vpn.profile.inspect: the description still names the VPN account (openvpnUser) and
+  // the LAN ranges the kill switch exempts, which a viewer or operator has no call to read.
+  router.get("/settings/vpn-profile", auth.requireRole("owner"), (_request, response) => {
     response.json({ profile: state.getSetting("vpnProfile", null), providers: vpnProviders, protocols: vpnProtocols });
   });
 
