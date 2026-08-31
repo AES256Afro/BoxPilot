@@ -623,6 +623,19 @@ This arc makes local access first-class — reachable and encrypted — without 
   `server/network.mjs` (read-only, unprivileged, keys and endpoints never pass through),
   `GET /api/v1/network/tailnet`, `src/TailnetPanel.tsx`. **Remaining:** turning rows into pickers
   (grant a share to a device, open its address) once a concrete action needs one.
+- ✅ **M23.4** (v1.82.0) **Storage map.** One card per place data lives — each mounted drive, each
+  connected network share, the system disk — with capacity and a usage bar, the fill forecast, the
+  apps that mount folders there, and the network shares serving it out (with their recycle bins).
+  Pure correlation in `src/storageMap.ts` over data the Storage page already fetches; no new endpoint.
+- ✅ **M15.4** (v1.83.0) **No silent write failures.** The catalog listing checks each installed app's
+  read-write data folders against the user the app actually runs as (PUID, `user:`, or the image's
+  own) and the card warns — folder, reason — with a one-click "Fix folder access" redeploy that hands
+  the folder over. Complements v1.80.2's deploy-time ownership claim by catching apps broken *now*.
+- ✅ **M8.5** (v1.84.0) **Readability + full job output.** Type floor raised (the 7–9px rules moved to
+  9–11px; text buttons and panel subtitles to 12px), prose capped at a readable measure, keyboard
+  focus outlines extended to inputs/selects/links. And the root task runner now writes every command
+  a task executes into the job log (command lines plus stderr on failure; never stdout, which can
+  carry secret-derived values), so a job's Output is a complete history rather than a summary line.
 
 ## M19 — Identity and access, finished
 
