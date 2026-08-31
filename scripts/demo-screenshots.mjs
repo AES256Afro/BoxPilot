@@ -27,6 +27,7 @@ const settleMs = 2500;
 const pages = [
   ["overview", "overview"], ["catalog", "catalog"], ["automations", "automations"], ["firewall", "firewall"],
   ["storage", "storage"], ["backups", "backups"], ["network", "network"], ["updates", "updates"], ["system", "system"],
+  ["repairs", "repairs"],
 ];
 
 function findChrome() {
