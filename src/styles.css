@@ -4522,3 +4522,7 @@ textarea {
 /* Restore-rehearsal verdict (M20.3) */
 .backup-verdict-ok { color: var(--accent-light); }
 .backup-verdict-bad { color: var(--danger); font-weight: 600; }
+.backup-rehearsal { display: grid; gap: 4px; margin-bottom: 10px; }
+.backup-history { display: flex; align-items: baseline; gap: 5px; }
+.backup-tick-ok { color: var(--accent-light); }
+.backup-tick-bad { color: var(--danger); font-weight: 700; }
