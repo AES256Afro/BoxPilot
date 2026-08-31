@@ -173,7 +173,7 @@ describe("Virtual Machines", () => {
     fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
     fireEvent.click(screen.getByRole("button", { name: "Apply retention" }));
     expect(await screen.findByText("Apply VM backup retention")).toBeTruthy();
-    expect(screen.getByText(/Prune never runs/)).toBeTruthy();
+    expect(screen.getByText(/no space is reclaimed/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
     fireEvent.click(screen.getByRole("button", { name: "Test the restore" }));
     expect(await screen.findByText("Restore drill for snapshot-lab")).toBeTruthy();

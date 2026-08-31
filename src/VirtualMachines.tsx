@@ -231,7 +231,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       operationId: "vm.backup.retention.apply",
       title: "Apply VM backup retention",
       parameters: {},
-      preview: <span>Forgets only the currently eligible old snapshots. Restore-tested, unreferenced, over the age floor, and never below {retentionStatus?.policy?.minimumCopiesPerDomain ?? 3} copies per VM. Then verifies the repository. Prune never runs, so no space is reclaimed.</span>,
+      preview: <span>Lets go of old backups that are safe to drop: only ones that passed a test restore, are no longer in use, are past the minimum age, and never below {retentionStatus?.policy?.minimumCopiesPerDomain ?? 3} copies per VM. Then checks the store is intact. The files stay and no space is reclaimed, so nothing you still need is touched.</span>,
     });
   };
 
