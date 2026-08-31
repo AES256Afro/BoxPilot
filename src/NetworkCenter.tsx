@@ -182,6 +182,23 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
             ))}
           </div>
           {!reach.servePublished && <p className="muted">Publish BoxPilot on your tailnet with <code>tailscale serve --bg http://127.0.0.1:{networkCap?.port ?? 8787}</code> to reach it from anywhere over HTTPS.</p>}
+          {/* The "install certificate" badge above used to be the end of the story: no download and
+              nowhere to learn how. This is only about reaching this page over HTTPS - file shares
+              use SMB and never involve a certificate. */}
+          {reach.ways.some((way) => way.encrypted && !way.trusted) && (
+            <details className="cert-help">
+              <summary>Getting rid of the browser warning on those addresses</summary>
+              <p className="muted">BoxPilot signs its own certificate, so browsers do not know to trust it until you install the authority below on each machine you browse from. This affects this web interface only. Opening a file share is SMB and needs no certificate at all.</p>
+              <p><a className="text-button" href="/api/v1/tls/ca.crt" download="boxpilot-ca.crt">Download the certificate</a></p>
+              <ul className="cert-steps">
+                <li><strong>Windows</strong> Double-click the file, Install Certificate, Local Machine, "Place all certificates in the following store", Browse, <em>Trusted Root Certification Authorities</em>. Restart the browser.</li>
+                <li><strong>macOS</strong> Double-click to open Keychain Access, add it to the <em>System</em> keychain, then open it there and set "When using this certificate" to <em>Always Trust</em>.</li>
+                <li><strong>iPhone, iPad</strong> Open the file to install the profile, then turn it on in Settings, General, About, Certificate Trust Settings.</li>
+                <li><strong>Android</strong> Settings, Security, "Install a certificate", CA certificate.</li>
+                <li><strong>Firefox</strong> keeps its own store: Settings, Privacy &amp; Security, Certificates, View Certificates, Authorities, Import.</li>
+              </ul>
+            </details>
+          )}
         </section>
       )}
 

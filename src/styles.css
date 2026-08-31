@@ -4526,3 +4526,11 @@ textarea {
 .backup-history { display: flex; align-items: baseline; gap: 5px; }
 .backup-tick-ok { color: var(--accent-light); }
 .backup-tick-bad { color: var(--danger); font-weight: 700; }
+.killswitch-leaked { color: var(--danger); font-weight: 600; }
+
+/* Certificate install help (M12.x) */
+.cert-help { margin-top: 8px; }
+.cert-help summary { cursor: pointer; }
+.cert-steps { margin: 6px 0 0; padding-left: 1.2em; display: grid; gap: 5px; }
+.cert-steps li { color: var(--muted); }
+.cert-steps strong { color: var(--text); margin-right: 4px; }
