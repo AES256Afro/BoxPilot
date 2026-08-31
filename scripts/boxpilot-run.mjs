@@ -13,6 +13,7 @@ import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { tasks } from "../server/tasks/index.mjs";
+import { fixedRun } from "../server/exec.mjs";
 import { createJobLogWriter, defaultJobLogDirectory, jobIdPattern } from "../server/job-log.mjs";
 
 export const runDirectory = process.env.BOXPILOT_RUN_DIRECTORY ?? "/run/boxpilot/run";
@@ -66,10 +67,23 @@ export async function runTask(id, { now = () => new Date(), taskTable = tasks } 
   const jobId = spec.logPath ? path.basename(spec.logPath, ".log") : null;
   const writer = createJobLogWriter({ jobId, directory: defaultJobLogDirectory, gid: serviceGroupId() });
   const log = (line, stream) => { void writer.append(line, stream); };
+  // Every command a task executes lands in the job log, so the output history is complete without
+  // each task narrating by hand. Command lines only, plus stderr when one fails: argv is secret-free
+  // by convention here (passwords ride stdin), but stdout is not — it can carry generated
+  // credentials or password-derived hashes, and this log is readable by the service group.
+  const run = async (binary, args = [], options = {}) => {
+    log(`$ ${path.basename(binary)} ${args.join(" ")}`.trim(), "stdout");
+    const result = await fixedRun(binary, args, options);
+    if (!result.ok) {
+      const tail = String(result.stderr ?? "").split("\n").filter(Boolean).slice(-3).join("\n");
+      log(`(exit ${result.code ?? "?"})${tail ? `\n${tail}` : ""}`, "stderr");
+    }
+    return result;
+  };
   let payload;
   const timer = new Promise((_resolve, reject) => setTimeout(() => reject(new Error(`Task ${spec.task} exceeded ${spec.timeoutMs} ms`)), spec.timeoutMs).unref?.());
   try {
-    const result = await Promise.race([task(spec.parameters, { log }), timer]);
+    const result = await Promise.race([task(spec.parameters, { log, run }), timer]);
     payload = { ok: true, task: spec.task, result };
   } catch (error) {
     payload = { ok: false, task: spec.task, error: error instanceof Error ? error.message : String(error) };
