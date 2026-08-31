@@ -313,8 +313,19 @@ export async function discoveryState(run, files = { access }) {
  * disable the service and withdraw those rules. Shares themselves are untouched either way —
  * this only decides whether Windows lists the server without being told its name.
  */
-export async function sambaDiscoverySet({ enabled = true } = {}, { run = fixedRun, log = null, files = { access } } = {}) {
+export async function sambaDiscoverySet({ enabled = true } = {}, { run = fixedRun, log = null, files = { access, readFile } } = {}) {
   const on = enabled === true || enabled === "true";
+  if (on) {
+    // Discovery is a LAN thing: the ports are LAN-facing and wsdd multicasts this server's name to
+    // every device on the network. On a tailnet-only file server the shares are deliberately not
+    // reachable from the LAN, so opening them and announcing the host there is the opposite of what
+    // was asked for. The scope lives in smb.conf, which is the only thing that decides it — the
+    // button that offers this is hidden in other scopes, but a hidden button is not a check.
+    const config = parseSmbConf(await files.readFile(smbConfPath, "utf8").catch(() => ""));
+    if (config.managed && config.scope !== "lan") {
+      throw new Error("This server shares over Tailscale only, so there is nothing on the LAN to discover. Switch sharing to \"Tailscale + LAN\" first if you want Windows to list it.");
+    }
+  }
   if (!on) {
     await run(binaries.systemctl, ["disable", "--now", "wsdd"], { timeout: 60_000 }).catch(() => {});
     for (const entry of discoveryPorts) {
@@ -328,7 +339,10 @@ export async function sambaDiscoverySet({ enabled = true } = {}, { run = fixedRu
     log?.("Installing wsdd so Windows can discover this server", "stdout");
     const install = await run(binaries.aptGet, ["install", "-y", "--no-install-recommends", "wsdd"], {
       timeout: 300_000,
-      env: { DEBIAN_FRONTEND: "noninteractive" },
+      // NEEDRESTART_SUSPEND as well as DEBIAN_FRONTEND: needrestart in automatic mode restarts
+      // services running outdated libraries after any apt run, and it has killed the BoxPilot
+      // process waiting on the very job that invoked it.
+      env: { DEBIAN_FRONTEND: "noninteractive", NEEDRESTART_SUSPEND: "1" },
     });
     if (!install.ok) throw new Error(`Could not install wsdd: ${tail(install.stderr) || "apt-get failed"}. Check that updates are working, then try again.`);
   }
