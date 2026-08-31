@@ -226,6 +226,25 @@ export function failedRehearsals({ apps = [] } = {}) {
     }));
 }
 
+/**
+ * BoxPilot watching for problems with nowhere to send them. Every other check here, and every
+ * health condition the watcher tracks, ends at a notification target; without one they are all
+ * silently true and nobody hears any of it. The drive that dropped off this server went unnoticed
+ * for hours for exactly this reason.
+ */
+export function nothingCanReachYou({ notifications = null, apps = [] } = {}) {
+  if (notifications?.configured !== false) return [];
+  if (apps.length === 0) return [];   // nothing installed yet: there is nothing to be told about
+  return [finding({
+    id: "no-notification-target",
+    severity: "warning",
+    title: "Nothing BoxPilot notices can reach you",
+    detail: "BoxPilot watches for failing disks, filesystems filling up, containers crash-looping, backups that stopped running, and drives that drop off — but it has nowhere to send any of it, so all of that watching is silent.",
+    evidence: ["no notification target is set"],
+    manual: "Set a target under Settings, Notifications. A self-hosted ntfy server or the ntfy.sh app both work, and there is a Send test button to prove it arrives.",
+  })];
+}
+
 /** Everything, worst first, with a stable order inside a severity so the list does not shuffle. */
 export function detectRemediations(facts = {}) {
   const staleTargets = staleMounts(facts).map((entry) => entry.id.replace("stale-mount:", "")).map((name) => `/mnt/${name}`);
@@ -238,6 +257,7 @@ export function detectRemediations(facts = {}) {
     ...splitDataFolders(facts),
     ...unwritableShares(facts),
     ...permissionlessMounts(facts),
+    ...nothingCanReachYou(facts),
     ...windowsCannotDiscover(facts),
   ];
   const rank = (entry) => severities.indexOf(entry.severity);

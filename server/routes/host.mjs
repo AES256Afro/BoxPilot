@@ -56,7 +56,7 @@ export function buildReachability({ webHost, webPort, lanIp, dnsName, tls, serve
   return { ways, onLan, tlsProvisioned: Boolean(tls?.provisioned), servePublished: Boolean(servePublished) };
 }
 
-export function createHostRouter({ state, helper, catalogService, inventory, network, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls" }) {
+export function createHostRouter({ state, helper, catalogService, inventory, network, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls" }) {
   const router = Router();
 
   // Catalog: manifests come from the working tree; live state comes from the helper (tolerated when unavailable).
@@ -168,6 +168,9 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       app.dataFolders = (manifest?.volumes ?? []).filter((volume) => !volume.path && !volume.readOnly).map(chosen).filter((folder) => typeof folder === "string" && folder.startsWith("/"));
     }
     facts.containers = facts.apps.filter((app) => app.binds.length > 0).map((app) => ({ name: `bp-${app.id}`, appId: app.id, binds: app.binds }));
+    // Every finding here, and every health condition the watcher tracks, ends at a notification
+    // target. Whether there is one is therefore part of whether any of this reaches anybody.
+    try { facts.notifications = { configured: notifications?.describe?.().configured === true }; } catch { facts.notifications = null; }
     response.json({ ...detectRemediations(facts), checkedAt: new Date().toISOString() });
   });
 
