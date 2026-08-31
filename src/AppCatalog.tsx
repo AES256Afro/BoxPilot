@@ -35,7 +35,7 @@ interface LiveState {
   updateAvailable?: boolean;
   installedImage?: string | null;
   folderProblems?: Array<{ path: string; volume: string; reason: string }>;
-  backupVerification?: { verified: boolean; backup: string; reason: string | null; checkedAt: string } | null;
+  backupVerification?: { verified: boolean; backup: string; reason: string | null; checkedAt: string; history?: Array<{ verified: boolean; backup: string; reason: string | null; checkedAt: string }> } | null;
 }
 interface CatalogResponse {
   applications: Array<{ manifest: Manifest; live: LiveState | null }>;
@@ -228,6 +228,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [tunnels, setTunnels] = useState<Record<string, { running: boolean; exit: { ip: string; location: string | null } | null; forwardedPort: number | null }>>({});
   // The weekly kill-switch verification schedule per VPN app, if the owner turned it on.
   const [killswitch, setKillswitch] = useState<Record<string, { id: string; overdue: boolean; lastRunAt: string | null; lastResult: string | null }>>({});
+  const [rehearsal, setRehearsal] = useState<Record<string, string>>({});   // app id -> schedule id
   const [foreign, setForeign] = useState<Array<{ name: string; status: string; configFiles: string[] }> | null>(null);
   const [foreignLogs, setForeignLogs] = useState<{ name: string; lines: string[] } | null>(null);
   useEffect(() => {
@@ -303,14 +304,30 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
     try {
       const body = (await fetch("/api/v1/schedules").then((response) => (response.ok ? response.json() : { schedules: [] }))) as { schedules: Array<{ id: string; operationId: string; parameters?: { subject?: string }; overdue?: boolean; lastRunAt?: string | null; lastResult?: string | null }> };
       const map: Record<string, { id: string; overdue: boolean; lastRunAt: string | null; lastResult: string | null }> = {};
+      const rehearsals: Record<string, string> = {};
       for (const schedule of body.schedules ?? []) {
         const subject = schedule.parameters?.subject;
         if (schedule.operationId === "app.vpn.killswitch.drill" && subject) map[subject] = { id: schedule.id, overdue: Boolean(schedule.overdue), lastRunAt: schedule.lastRunAt ?? null, lastResult: schedule.lastResult ?? null };
+        if (schedule.operationId === "app.backup.verify" && subject) rehearsals[subject] = schedule.id;
       }
       setKillswitch(map);
+      setRehearsal(rehearsals);
     } catch { /* the manual button still works without this */ }
   }, []);
 
+  // A rehearsal on a cadence is what turns "the backups restore" from a one-off into a record.
+  const scheduleRehearsal = async (appId: string) => {
+    try {
+      await fetch("/api/v1/schedules", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ operationId: "app.backup.verify", parameters: { id: appId }, frequency: "weekly", minute: 30, hour: 3, weekday: 1 }) });
+      await loadKillswitch();
+    } catch { /* a failure leaves the button as it was */ }
+  };
+  const unscheduleRehearsal = async (scheduleId: string) => {
+    try {
+      await fetch(`/api/v1/schedules/${encodeURIComponent(scheduleId)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } });
+      await loadKillswitch();
+    } catch { /* leave it on if the delete failed */ }
+  };
   const scheduleKillswitch = async (appId: string) => {
     try {
       await fetch("/api/v1/schedules", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ operationId: "app.vpn.killswitch.drill", parameters: { id: appId }, frequency: "weekly", minute: 0, hour: 4, weekday: 0 }) });
@@ -759,13 +776,27 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
             <header className="modal-header"><div><span className="eyebrow">Backups</span><h2 id="backups-title">{appBackups.name}</h2></div><button className="icon-button" type="button" onClick={() => setAppBackups(null)} aria-label="Close dialog">X</button></header>
             <div className="modal-copy">
               {appBackups.backups.length === 0 && <p>No backups yet. Back up creates a consistent archive of the app's data and configuration.</p>}
-              {appBackups.verification && (
-                <p className={appBackups.verification.verified ? "backup-verdict-ok" : "backup-verdict-bad"}>
-                  {appBackups.verification.verified
-                    ? <>Last rehearsal passed: <code>{appBackups.verification.backup}</code> unpacked cleanly on {new Date(appBackups.verification.checkedAt).toLocaleString()}.</>
-                    : <>Last rehearsal <strong>failed</strong> on {new Date(appBackups.verification.checkedAt).toLocaleString()}: {appBackups.verification.reason}</>}
-                </p>
-              )}
+              <div className="backup-rehearsal">
+                {appBackups.verification && (
+                  <p className={appBackups.verification.verified ? "backup-verdict-ok" : "backup-verdict-bad"}>
+                    {appBackups.verification.verified
+                      ? <>Last rehearsal passed: <code>{appBackups.verification.backup}</code> unpacked cleanly on {new Date(appBackups.verification.checkedAt).toLocaleString()}.</>
+                      : <>Last rehearsal <strong>failed</strong> on {new Date(appBackups.verification.checkedAt).toLocaleString()}: {appBackups.verification.reason}</>}
+                  </p>
+                )}
+                {/* A run of results, so an intermittent failure is visible rather than overwritten. */}
+                {(appBackups.verification?.history?.length ?? 0) > 1 && (
+                  <p className="muted backup-history">
+                    <span>Recent rehearsals</span>
+                    {appBackups.verification!.history!.map((entry) => (
+                      <span key={entry.checkedAt} className={entry.verified ? "backup-tick-ok" : "backup-tick-bad"} title={`${new Date(entry.checkedAt).toLocaleString()}: ${entry.verified ? "passed" : entry.reason ?? "failed"}`}>{entry.verified ? "\u25CF" : "\u2715"}</span>
+                    ))}
+                  </p>
+                )}
+                {appBackups.backups.length > 0 && (rehearsal[appBackups.id]
+                  ? <p className="muted">Rehearsed automatically every week. <button className="text-button" type="button" onClick={() => void unscheduleRehearsal(rehearsal[appBackups.id])}>stop</button></p>
+                  : <p className="muted">Nothing checks these on their own. <button className="text-button" type="button" onClick={() => void scheduleRehearsal(appBackups.id)}>Rehearse weekly</button></p>)}
+              </div>
               {browsing && (
                 <div className="backup-browser">
                   <div className="recovery-actions">
