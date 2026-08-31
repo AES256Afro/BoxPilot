@@ -36,7 +36,20 @@ const binaries = {
   find: "/usr/bin/find",
   du: "/usr/bin/du",
   rm: "/usr/bin/rm",
+  aptGet: "/usr/bin/apt-get",
+  ufw: "/usr/sbin/ufw",
 };
+
+/**
+ * Windows finds file servers with WS-Discovery, not the NetBIOS browsing Samba's nmbd speaks:
+ * Windows 10 and 11 ship with SMB1 and the Computer Browser service off, so a healthy Samba
+ * server is reachable by typing \\host\share but never appears under Network. wsdd answers the
+ * discovery multicast on Samba's behalf, which is the whole of the difference.
+ */
+export const discoveryPorts = Object.freeze([
+  { port: 3702, protocol: "udp", label: "WS-Discovery" },   // the multicast probe Windows sends
+  { port: 5357, protocol: "tcp", label: "WS-Discovery metadata" }, // the reply Windows then fetches
+]);
 
 function cleanPath(value) {
   if (typeof value !== "string" || !/^\/[^\0\r\n]*$/.test(value) || value.includes("/../") || value.endsWith("/..") || value.length > 512) return null;
@@ -283,4 +296,54 @@ export async function sambaRecycleEmpty({ share, olderThanDays = 0 } = {}, { run
   }
   log?.(`Emptied the recycle bin for ${share}${days ? ` (files older than ${days} days)` : ""}`, "stdout");
   return { emptied: true, share, path: recycleDir, olderThanDays: days, freedBytes };
+}
+
+/** Is wsdd present, and is it running? Read-only, used by samba.inspect to describe discovery. */
+export async function discoveryState(run, files = { access }) {
+  const installed = await Promise.all(["/usr/bin/wsdd", "/usr/sbin/wsdd"].map((candidate) => files.access(candidate).then(() => true, () => false)));
+  const present = installed.some(Boolean);
+  if (!present) return { installed: false, running: false };
+  const active = await run(binaries.systemctl, ["is-active", "wsdd"], { timeout: 10_000 }).catch(() => null);
+  return { installed: true, running: active ? active.stdout.trim() === "active" : false };
+}
+
+/**
+ * Turn Windows discovery on or off. On: install wsdd if the box does not have it, enable the
+ * service, and allow the two discovery ports so the multicast can actually arrive. Off: stop and
+ * disable the service and withdraw those rules. Shares themselves are untouched either way —
+ * this only decides whether Windows lists the server without being told its name.
+ */
+export async function sambaDiscoverySet({ enabled = true } = {}, { run = fixedRun, log = null, files = { access } } = {}) {
+  const on = enabled === true || enabled === "true";
+  if (!on) {
+    await run(binaries.systemctl, ["disable", "--now", "wsdd"], { timeout: 60_000 }).catch(() => {});
+    for (const entry of discoveryPorts) {
+      await run(binaries.ufw, ["--force", "delete", "allow", `${entry.port}/${entry.protocol}`], { timeout: 30_000 }).catch(() => {});
+    }
+    log?.("Windows discovery is off; shares stay reachable by typing the server name", "stdout");
+    return { enabled: false, ...(await discoveryState(run, files)) };
+  }
+  const before = await discoveryState(run, files);
+  if (!before.installed) {
+    log?.("Installing wsdd so Windows can discover this server", "stdout");
+    const install = await run(binaries.aptGet, ["install", "-y", "--no-install-recommends", "wsdd"], {
+      timeout: 300_000,
+      env: { DEBIAN_FRONTEND: "noninteractive" },
+    });
+    if (!install.ok) throw new Error(`Could not install wsdd: ${tail(install.stderr) || "apt-get failed"}. Check that updates are working, then try again.`);
+  }
+  const after = await discoveryState(run, files);
+  if (!after.installed) throw new Error("wsdd did not install; Windows discovery is unavailable on this server");
+  const enable = await run(binaries.systemctl, ["enable", "--now", "wsdd"], { timeout: 60_000 });
+  if (!enable.ok) throw new Error(`Could not start wsdd: ${tail(enable.stderr)}`);
+  // Discovery is multicast: without these two rules Windows never hears the reply, and the
+  // feature looks broken in exactly the way it looked broken before wsdd was there at all.
+  const allowed = [];
+  for (const entry of discoveryPorts) {
+    const rule = await run(binaries.ufw, ["allow", `${entry.port}/${entry.protocol}`, "comment", `BoxPilot ${entry.label}`], { timeout: 30_000 });
+    if (rule.ok) allowed.push(`${entry.port}/${entry.protocol}`);
+    else log?.(`Could not allow ${entry.port}/${entry.protocol} (${tail(rule.stderr)}); Windows may still not list this server`, "stderr");
+  }
+  log?.("Windows discovery is on; this server appears under Network in File Explorer", "stdout");
+  return { enabled: true, ...(await discoveryState(run, files)), allowed };
 }

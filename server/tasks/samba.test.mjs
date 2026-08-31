@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseSmbConf, renderSmbConf, sambaApply, sambaRecycleEmpty, sambaUserRemove, sambaUserSet, validateSambaConfig } from "./samba.mjs";
+import { parseSmbConf, renderSmbConf, sambaApply, sambaDiscoverySet, sambaRecycleEmpty, sambaUserRemove, sambaUserSet, validateSambaConfig } from "./samba.mjs";
 
 function fakeRun({ testparmFails = false, lanDevice = "eno1", users = {} } = {}) {
   return vi.fn(async (binary, args) => {
@@ -118,5 +118,42 @@ describe("samba tasks", () => {
     await expect(sambaUserSet({ username: "Bad Name", password: "long enough pw" }, { run })).rejects.toThrow("Username");
     await expect(sambaUserRemove({ username: "sam" }, { run })).resolves.toEqual({ username: "sam", removed: true, accountKept: true });
     expect(run).toHaveBeenCalledWith("/usr/bin/smbpasswd", ["-x", "sam"], expect.anything());
+  });
+  it("turns Windows discovery on: installs wsdd only when missing, then enables it and opens the discovery ports", async () => {
+    // The reason a healthy share is invisible in File Explorer: Windows browses with WS-Discovery,
+    // which Samba does not speak. wsdd answers it, and the multicast needs the two ports open.
+    let installed = false;
+    const run = vi.fn(async (binary, args) => {
+      if (binary.endsWith("apt-get")) { installed = true; return { ok: true, stdout: "", stderr: "" }; }
+      if (args?.[0] === "is-active") return { ok: true, stdout: "active\n", stderr: "" };
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    const files = { access: async (target) => { if (target.includes("wsdd") && !installed) throw new Error("ENOENT"); } };
+
+    const first = await sambaDiscoverySet({ enabled: true }, { run, files });
+    expect(first).toMatchObject({ enabled: true, installed: true, running: true, allowed: ["3702/udp", "5357/tcp"] });
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "-y", "--no-install-recommends", "wsdd"], expect.objectContaining({ env: { DEBIAN_FRONTEND: "noninteractive" } }));
+    expect(run).toHaveBeenCalledWith(expect.stringContaining("systemctl"), ["enable", "--now", "wsdd"], expect.anything());
+    expect(run).toHaveBeenCalledWith("/usr/sbin/ufw", ["allow", "3702/udp", "comment", "BoxPilot WS-Discovery"], expect.anything());
+
+    // Already installed: no second apt-get, the service is just (re-)enabled.
+    run.mockClear();
+    await sambaDiscoverySet({ enabled: true }, { run, files });
+    expect(run.mock.calls.some(([binary]) => binary.endsWith("apt-get"))).toBe(false);
+  });
+
+  it("turns Windows discovery off by stopping wsdd and withdrawing the discovery rules", async () => {
+    const run = vi.fn(async () => ({ ok: true, stdout: "inactive\n", stderr: "" }));
+    const files = { access: async () => { throw new Error("ENOENT"); } };
+    await expect(sambaDiscoverySet({ enabled: false }, { run, files })).resolves.toMatchObject({ enabled: false, installed: false });
+    expect(run).toHaveBeenCalledWith(expect.stringContaining("systemctl"), ["disable", "--now", "wsdd"], expect.anything());
+    expect(run).toHaveBeenCalledWith("/usr/sbin/ufw", ["--force", "delete", "allow", "3702/udp"], expect.anything());
+    expect(run).toHaveBeenCalledWith("/usr/sbin/ufw", ["--force", "delete", "allow", "5357/tcp"], expect.anything());
+  });
+
+  it("reports a clear failure when wsdd cannot be installed", async () => {
+    const run = vi.fn(async (binary) => (binary.endsWith("apt-get") ? { ok: false, stdout: "", stderr: "E: Unable to locate package wsdd" } : { ok: true, stdout: "", stderr: "" }));
+    const files = { access: async () => { throw new Error("ENOENT"); } };
+    await expect(sambaDiscoverySet({ enabled: true }, { run, files })).rejects.toThrow("Could not install wsdd");
   });
 });
