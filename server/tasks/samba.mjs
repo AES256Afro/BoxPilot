@@ -347,3 +347,84 @@ export async function sambaDiscoverySet({ enabled = true } = {}, { run = fixedRu
   log?.("Windows discovery is on; this server appears under Network in File Explorer", "stdout");
   return { enabled: true, ...(await discoveryState(run, files)), allowed };
 }
+
+/**
+ * Answer "why can't my other computer open this?" in one read-only pass. Every check reports what
+ * was actually observed, because the two ways this fails in practice look identical from the
+ * client side: a share nobody can write to (root-owned folder, no force user) and a share nobody
+ * can find (no WS-Discovery). Neither shows up as an error anywhere on the server.
+ */
+export async function sambaDiagnose(_parameters = {}, { run = fixedRun, files = { readFile, stat, access } } = {}) {
+  const checks = [];
+  const add = (id, state, title, detail, hint = null, share = null) => checks.push({ id, state, title, detail, hint, share });
+
+  const installed = await files.access(binaries.smbd).then(() => true, () => false);
+  if (!installed) {
+    add("installed", "problem", "Samba is not installed", "No /usr/sbin/smbd on this server.", "Install Samba from the Storage page.");
+    return { checks, ok: false };
+  }
+  const active = await run(binaries.systemctl, ["is-active", "smbd"], { timeout: 10_000 }).catch(() => null);
+  const running = active?.stdout.trim() === "active";
+  add("running", running ? "ok" : "problem", running ? "The file server is running" : "The file server is not running",
+    running ? "smbd is active." : `smbd is ${active?.stdout.trim() || "not active"}.`,
+    running ? null : "Apply the shares again to start it.");
+
+  const content = await files.readFile(smbConfPath, "utf8").catch(() => "");
+  const config = parseSmbConf(content);
+  const check = await run(binaries.testparm, ["-s", "--suppress-prompt", smbConfPath], { timeout: 30_000 }).catch(() => null);
+  add("config", check?.ok ? "ok" : "problem", check?.ok ? "The configuration is valid" : "Samba rejects the configuration",
+    check?.ok ? `${config.shares.length} share(s) defined.` : tail(check?.stderr) || "testparm failed.",
+    check?.ok ? null : "Apply the shares again to rewrite smb.conf.");
+
+  // Bound addresses decide who can even reach port 445; a tailnet-only server answering on
+  // 100.x explains a LAN machine timing out, which otherwise looks like a password problem.
+  const listening = await run(binaries.ss, ["-H", "-l", "-n", "-t"], { timeout: 10_000 }).catch(() => null);
+  const bound = listening?.ok ? listening.stdout.split("\n").filter((line) => /:445\s/.test(line)).map((line) => line.trim().split(/\s+/)[3]).filter(Boolean) : [];
+  add("listening", bound.length ? "ok" : "problem", bound.length ? "Listening for connections" : "Not listening on port 445",
+    bound.length ? `Answering on ${bound.join(", ")}.` : "Nothing is bound to port 445.",
+    bound.length ? null : "Apply the shares again.");
+
+  const lan = config.scope === "lan";
+  const firewall = await run(binaries.ufw, ["status"], { timeout: 15_000 }).catch(() => null);
+  if (firewall?.ok && /Status:\s*active/i.test(firewall.stdout)) {
+    const allowed = /(^|\n)\s*445\b|Samba|SMB/i.test(firewall.stdout);
+    add("firewall", allowed || !lan ? "ok" : "problem", allowed ? "The firewall allows file sharing" : "The firewall may block file sharing",
+      allowed ? "A rule for SMB is present." : "The firewall is on and no rule mentions 445 or Samba.",
+      allowed || !lan ? null : "Allow \"Windows file sharing (SMB)\" on the Firewall page.");
+  } else {
+    add("firewall", "info", "The firewall is not filtering", firewall?.ok ? "ufw is inactive." : "Could not read the firewall state.");
+  }
+
+  const discovery = await discoveryState(run, files);
+  add("discovery", discovery.running ? "ok" : lan ? "warn" : "info",
+    discovery.running ? "Windows can find this server" : "Windows will not list this server",
+    discovery.running ? "wsdd is answering discovery." : "Windows browses with WS-Discovery, which Samba does not speak.",
+    discovery.running ? null : lan ? "Turn on \"Show it in Windows\", or type the address instead: it still works." : null);
+
+  const group = await run(binaries.getent, ["group", "sambashare"], { timeout: 10_000 }).catch(() => null);
+  const members = group?.ok && group.stdout ? (group.stdout.trim().split(":")[3] ?? "").split(",").filter(Boolean) : [];
+
+  for (const share of config.shares) {
+    const base = cleanPath(share.path);
+    const info = base ? await files.stat(base).catch(() => null) : null;
+    if (!info) {
+      add(`share.${share.name}.path`, "problem", `${share.name}: the folder is missing`, `${share.path} does not exist or is unreadable.`, "Point the share at a folder that exists, or mount the drive.", share.name);
+      continue;
+    }
+    if (!info.isDirectory()) {
+      add(`share.${share.name}.path`, "problem", `${share.name}: not a folder`, `${share.path} is not a directory.`, null, share.name);
+      continue;
+    }
+    // Root-owned with no force user is the silent one: connecting works, writing fails for all.
+    if (!share.readOnly && info.uid === 0 && !share.forceUser) {
+      add(`share.${share.name}.write`, "problem", `${share.name}: nobody can write to it`, `${share.path} is owned by root, so every user is read-only there however the share is set.`, "Hand the folder to a user from the Storage page, then apply again.", share.name);
+    } else {
+      add(`share.${share.name}.write`, "ok", `${share.name}: ${share.readOnly ? "read-only, as configured" : "writable"}`,
+        share.readOnly ? `${share.path} is shared read-only.` : `Writes land as ${share.forceUser ?? "the connecting user"}.`, null, share.name);
+    }
+    const missing = (share.users ?? []).filter((user) => !members.includes(user));
+    if (missing.length) add(`share.${share.name}.users`, "problem", `${share.name}: allowed users do not exist`, `${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} listed but ${missing.length === 1 ? "is" : "are"} not a file-server user.`, "Add the user, or remove them from the share.", share.name);
+    else if (!share.guest && !(share.users ?? []).length && !members.length) add(`share.${share.name}.users`, "problem", `${share.name}: no one can sign in`, "The share needs a sign-in but no file-server user exists.", "Add a file-server user.", share.name);
+  }
+  return { checks, ok: checks.every((entry) => entry.state !== "problem"), scope: config.scope, discovery };
+}

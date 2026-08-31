@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { parseSmbConf, renderSmbConf, sambaApply, sambaDiscoverySet, sambaRecycleEmpty, sambaUserRemove, sambaUserSet, validateSambaConfig } from "./samba.mjs";
+import { parseSmbConf, renderSmbConf, sambaApply, sambaDiagnose, sambaDiscoverySet, sambaRecycleEmpty, sambaUserRemove, sambaUserSet, validateSambaConfig } from "./samba.mjs";
 
 function fakeRun({ testparmFails = false, lanDevice = "eno1", users = {} } = {}) {
   return vi.fn(async (binary, args) => {
@@ -155,5 +155,78 @@ describe("samba tasks", () => {
     const run = vi.fn(async (binary) => (binary.endsWith("apt-get") ? { ok: false, stdout: "", stderr: "E: Unable to locate package wsdd" } : { ok: true, stdout: "", stderr: "" }));
     const files = { access: async () => { throw new Error("ENOENT"); } };
     await expect(sambaDiscoverySet({ enabled: true }, { run, files })).rejects.toThrow("Could not install wsdd");
+  });
+  describe("sambaDiagnose", () => {
+    const CONF = [
+      "# Managed by BoxPilot", "[global]", "   workgroup = WORKGROUP", "   interfaces = lo tailscale0 eno1",
+      "[the-dump]", "   path = /mnt/the-dump", "   read only = no", "   guest ok = no", "   valid users = chris",
+    ].join("\n");
+    // A server where everything that can be right, is: running, valid, listening, discoverable.
+    function healthyRun({ discovery = true, ufw = "Status: active\n445/tcp ALLOW Anywhere\n", listen = "LISTEN 0 50 0.0.0.0:445 0.0.0.0:*" } = {}) {
+      return vi.fn(async (binary, args) => {
+        if (args?.[0] === "is-active" && args?.[1] === "smbd") return { ok: true, stdout: "active\n", stderr: "" };
+        if (args?.[0] === "is-active" && args?.[1] === "wsdd") return { ok: true, stdout: discovery ? "active\n" : "inactive\n", stderr: "" };
+        if (binary.endsWith("testparm")) return { ok: true, stdout: "", stderr: "" };
+        if (binary.endsWith("/ss")) return { ok: true, stdout: listen, stderr: "" };
+        if (binary.endsWith("ufw")) return { ok: true, stdout: ufw, stderr: "" };
+        if (args?.[0] === "group") return { ok: true, stdout: "sambashare:x:1001:chris\n", stderr: "" };
+        return { ok: true, stdout: "", stderr: "" };
+      });
+    }
+    const filesFor = ({ uid = 1000, exists = true, isDir = true, wsdd = true } = {}) => ({
+      readFile: async () => CONF,
+      stat: async () => { if (!exists) throw new Error("ENOENT"); return { uid, isDirectory: () => isDir }; },
+      access: async (target) => { if (target.includes("wsdd") && !wsdd) throw new Error("ENOENT"); },
+    });
+    const byId = (result) => Object.fromEntries(result.checks.map((check) => [check.id, check]));
+
+    it("reports a healthy server as ok across the board", async () => {
+      const result = await sambaDiagnose({}, { run: healthyRun(), files: filesFor() });
+      expect(result.ok).toBe(true);
+      const checks = byId(result);
+      expect(checks.running.state).toBe("ok");
+      expect(checks.config.state).toBe("ok");
+      expect(checks.listening.detail).toContain("0.0.0.0:445");
+      expect(checks.discovery.state).toBe("ok");
+      expect(checks["share.the-dump.write"].state).toBe("ok");
+    });
+
+    it("names the silent failure: a root-owned folder nobody can write to", async () => {
+      // The qBittorrent/the-dump class of problem - connecting works, writing fails, no error anywhere.
+      const result = await sambaDiagnose({}, { run: healthyRun(), files: filesFor({ uid: 0 }) });
+      const write = byId(result)["share.the-dump.write"];
+      expect(result.ok).toBe(false);
+      expect(write.state).toBe("problem");
+      expect(write.detail).toContain("owned by root");
+      expect(write.hint).toContain("Hand the folder to a user");
+    });
+
+    it("explains an invisible-but-working server, and does not call it broken", async () => {
+      const result = await sambaDiagnose({}, { run: healthyRun({ discovery: false }), files: filesFor({ wsdd: false }) });
+      const discovery = byId(result).discovery;
+      expect(discovery.state).toBe("warn");            // a warning, not a problem: the share does work
+      expect(result.ok).toBe(true);                     // so the overall verdict stays ok
+      expect(discovery.detail).toContain("WS-Discovery");
+      expect(discovery.hint).toContain("type the address");
+    });
+
+    it("catches a missing folder, a blocking firewall, and users that do not exist", async () => {
+      const gone = await sambaDiagnose({}, { run: healthyRun(), files: filesFor({ exists: false }) });
+      expect(byId(gone)["share.the-dump.path"].state).toBe("problem");
+
+      const blocked = await sambaDiagnose({}, { run: healthyRun({ ufw: "Status: active\n22/tcp ALLOW Anywhere\n" }), files: filesFor() });
+      expect(byId(blocked).firewall.state).toBe("problem");
+
+      const noUser = vi.fn(async (binary, args) => (args?.[0] === "group" ? { ok: true, stdout: "sambashare:x:1001:\n", stderr: "" } : healthyRun()(binary, args)));
+      const missing = await sambaDiagnose({}, { run: noUser, files: filesFor() });
+      expect(byId(missing)["share.the-dump.users"].detail).toContain("chris");
+    });
+
+    it("stops at the first thing that makes the rest moot", async () => {
+      const result = await sambaDiagnose({}, { run: healthyRun(), files: { ...filesFor(), access: async () => { throw new Error("ENOENT"); } } });
+      expect(result.ok).toBe(false);
+      expect(result.checks).toHaveLength(1);
+      expect(result.checks[0].id).toBe("installed");
+    });
   });
 });

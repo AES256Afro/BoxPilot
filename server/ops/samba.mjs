@@ -1,6 +1,6 @@
 import { access, readFile } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
-import { discoveryState, parseSmbConf, recycleSizeBytes, sambaUsernamePattern, scopes, shareNamePattern, smbConfPath, validateSambaConfig, workgroupPattern } from "../tasks/samba.mjs";
+import { discoveryState, parseSmbConf, sambaDiagnose, recycleSizeBytes, sambaUsernamePattern, scopes, shareNamePattern, smbConfPath, validateSambaConfig, workgroupPattern } from "../tasks/samba.mjs";
 
 const minutes = (value) => value * 60_000;
 const systemctl = process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl";
@@ -54,6 +54,12 @@ export function sambaOperations() {
         olderThanDays: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 0 && value <= 3650 ? null : "must be a whole number of days between 0 and 3650") },
       } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("samba.recycle.empty", { share: parameters.share, olderThanDays: parameters.olderThanDays ?? 0 }, { timeoutMs: minutes(5), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "samba.diagnose", title: "Check file sharing", risk: "low", readOnly: true, timeoutMs: minutes(2),
+      description: "Checks the file server end to end and says what is actually wrong: whether it is running and listening, whether the firewall allows it, whether Windows can find it, and for each share whether the folder exists, whether anyone can write to it, and whether the users it allows exist.",
+      parameters: { fields: {} },
+      run: (_parameters, { run }) => sambaDiagnose({}, { run }),
     }),
     defineOperation({
       id: "samba.discovery.set", title: "Show this server in Windows", risk: "medium", timeoutMs: minutes(6),
