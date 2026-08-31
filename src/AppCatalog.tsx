@@ -36,6 +36,7 @@ interface LiveState {
   installedImage?: string | null;
   folderProblems?: Array<{ path: string; volume: string; reason: string }>;
   backupVerification?: { verified: boolean; backup: string; reason: string | null; checkedAt: string; history?: Array<{ verified: boolean; backup: string; reason: string | null; checkedAt: string }> } | null;
+  killSwitchDrill?: { held: boolean; leaked: boolean; downForMs: number | null; at: string } | null;
 }
 interface CatalogResponse {
   applications: Array<{ manifest: Manifest; live: LiveState | null }>;
@@ -507,6 +508,15 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                   {killswitch[manifest.id]
                     ? <> · <span className={`status-pill status-${killswitch[manifest.id].overdue || (killswitch[manifest.id].lastResult && !killswitch[manifest.id].lastResult!.startsWith("completed")) ? "warning" : "good"}`}>auto-checked weekly</span>{killswitch[manifest.id].lastRunAt ? ` (last ${new Date(killswitch[manifest.id].lastRunAt!).toLocaleDateString()}${killswitch[manifest.id].lastResult && !killswitch[manifest.id].lastResult!.startsWith("completed") ? ", failed" : ""})` : ""} <button className="text-button" type="button" onClick={() => void unscheduleKillswitch(killswitch[manifest.id].id)}>stop</button></>
                     : <> · <button className="text-button" type="button" onClick={() => void scheduleKillswitch(manifest.id)}>Verify weekly</button></>}
+                </p>
+              )}
+              {/* The drill's own verdict, not just whether one is scheduled. A leak means traffic
+                  escaped the tunnel while it was down, which is the whole thing the kill switch is for. */}
+              {installed && live?.killSwitchDrill && (
+                <p className={live.killSwitchDrill.leaked ? "killswitch-leaked" : "muted app-stats"}>
+                  {live.killSwitchDrill.leaked
+                    ? <><strong>{manifest.name} leaked outside its VPN</strong> during the drill on {new Date(live.killSwitchDrill.at).toLocaleString()}. Traffic escaped while the tunnel was down.</>
+                    : <>Kill switch held on {new Date(live.killSwitchDrill.at).toLocaleString()}{live.killSwitchDrill.downForMs ? ` (tunnel down ${Math.round(live.killSwitchDrill.downForMs / 1000)}s)` : ""}.</>}
                 </p>
               )}
               {installed && stats?.[manifest.id] && (

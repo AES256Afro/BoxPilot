@@ -11,6 +11,8 @@ import { findPortConflicts, listListeners } from "../ports.mjs";
 import { resolveValues } from "../catalog/schema.mjs";
 import { hashPassword, renderAutoinstall, validateAutoinstallInput } from "../autoinstall.mjs";
 import { readTlsStatus } from "../tls-status.mjs";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 
 /**
  * The ports an installed app is already holding, as `port/protocol`, so reconfiguring it does not
@@ -68,9 +70,12 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     // Verdicts from the last restore rehearsal, recorded per app so they outlive job pruning.
     // Carried on the card because that is where the app's backups already are.
     const verifications = state.getSetting("appBackupVerifications", {}) ?? {};
+    // Likewise the kill-switch drill. Recording that an app leaked outside its VPN and then showing
+    // nobody is worse than not drilling: the owner believes it is covered because a drill ran.
+    const drills = state.getSetting("killSwitchDrills", {}) ?? {};
     const applications = manifests.map((manifest) => {
       const entry = live?.applications?.find((row) => row.id === manifest.id) ?? null;
-      return { manifest, live: entry ? { ...entry, backupVerification: verifications[manifest.id] ?? null } : null };
+      return { manifest, live: entry ? { ...entry, backupVerification: verifications[manifest.id] ?? null, killSwitchDrill: drills[manifest.id] ?? null } : null };
     });
     response.json({ applications, // The catalog is read on both sides, so the same file would otherwise be reported twice.
       problems: [...new Map([...problems, ...(live?.problems ?? [])].map((problem) => [problem.file, problem])).values()], liveError, host });
@@ -111,6 +116,21 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
   });
 
   // Capability matrix: booleans, enums, and counts derived from the operation registry (M1.6).
+  /**
+   * The certificate authority BoxPilot signs its own HTTPS certificate with, so a browser on
+   * another machine can be told to trust it. Only ever ca.crt: the filename is fixed here, the
+   * matching ca.key is 0600 and root-owned, and nothing in this process reads it. Installing this
+   * concerns reaching BoxPilot's own web interface over HTTPS - file shares use SMB and no
+   * certificate is involved in opening one.
+   */
+  router.get("/tls/ca.crt", async (_request, response) => {
+    const certificate = await readFile(path.join(tlsDir, "ca.crt"), "utf8").catch(() => null);
+    if (certificate === null) return response.status(404).json({ error: "No certificate has been issued for this server yet", code: "tls_not_provisioned" });
+    response.setHeader("Content-Type", "application/x-x509-ca-cert");
+    response.setHeader("Content-Disposition", 'attachment; filename="boxpilot-ca.crt"');
+    return response.send(certificate);
+  });
+
   router.get("/capabilities", async (_request, response) => {
     const has = (id) => registry.has(id);
     const catalogApps = await catalogService.all().then(({ manifests }) => manifests.length).catch(() => 0);

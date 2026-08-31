@@ -82,3 +82,55 @@ describe("every way to reach the control plane (M18.3)", () => {
     expect(tailnet.encrypted && tailnet.trusted).toBe(true);
   });
 });
+
+describe("GET /tls/ca.crt", () => {
+  // The CA certificate is public and installing it is the whole point; the CA *key* is 0600 and
+  // root-owned and must never be reachable. The filename is fixed in the route for that reason.
+  const setup = async () => {
+    const [{ default: express }, { createHostRouter }, { mkdtemp, writeFile }, os, path] = await Promise.all([
+      import("express"), import("./host.mjs"), import("node:fs/promises"), import("node:os"), import("node:path"),
+    ]);
+    const tlsDir = await mkdtemp(path.default.join(os.default.tmpdir(), "boxpilot-tls-"));
+    await writeFile(path.default.join(tlsDir, "ca.crt"), "-----BEGIN CERTIFICATE-----\nca\n-----END CERTIFICATE-----\n");
+    await writeFile(path.default.join(tlsDir, "ca.key"), "-----BEGIN EC PRIVATE KEY-----\nSECRET\n-----END EC PRIVATE KEY-----\n");
+    const app = express();
+    app.use("/api/v1", createHostRouter({
+      state: { getSetting: (_key, fallback) => fallback }, helper: { request: async () => ({}) },
+      catalogService: { all: async () => ({ manifests: [], problems: [] }) }, inventory: { inspect: async () => ({}) },
+      network: {}, controllerProtection: {}, controllerRetention: {}, githubProvenance: {}, releaseUpdates: {},
+      setup: {}, supportBundle: {}, audit: {}, auth: { requireCsrf: (_q, _s, next) => next(), requireRole: () => (_q, _s, next) => next() },
+      tlsDir,
+    }));
+    const server = app.listen(0);
+    await new Promise((resolve) => server.once("listening", resolve));
+    return { base: `http://127.0.0.1:${server.address().port}`, server, tlsDir };
+  };
+
+  it("serves the certificate as a download and has no path to the private key", async () => {
+    const { base, server } = await setup();
+    try {
+      const response = await fetch(`${base}/api/v1/tls/ca.crt`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-disposition")).toContain("boxpilot-ca.crt");
+      expect(await response.text()).toContain("BEGIN CERTIFICATE");
+      // No route spells any other filename, so the key cannot be requested at all.
+      for (const attempt of ["ca.key", "ca.crt/../ca.key", "..%2Fca.key"]) {
+        const leak = await fetch(`${base}/api/v1/tls/${attempt}`);
+        expect(leak.status).toBe(404);
+        expect(await leak.text()).not.toContain("SECRET");
+      }
+    } finally { server.close(); }
+  });
+
+  it("says so plainly when no certificate has been issued yet", async () => {
+    const { base, server, tlsDir } = await setup();
+    const { rm } = await import("node:fs/promises");
+    const path = (await import("node:path")).default;
+    await rm(path.join(tlsDir, "ca.crt"));
+    try {
+      const response = await fetch(`${base}/api/v1/tls/ca.crt`);
+      expect(response.status).toBe(404);
+      expect((await response.json()).code).toBe("tls_not_provisioned");
+    } finally { server.close(); }
+  });
+});
