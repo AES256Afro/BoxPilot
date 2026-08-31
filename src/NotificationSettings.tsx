@@ -21,11 +21,36 @@ export default function NotificationSettings({ csrfToken }: { csrfToken: string 
   const [busy, setBusy] = useState(false);
 
   const [watch, setWatch] = useState<WatchStatus | null>(null);
+  // A notification server the owner already installed on this box. BoxPilot can send to it over
+  // loopback without anything being exposed, so the target is one click of prefill plus a password.
+  const [localServer, setLocalServer] = useState<{ kind: "ntfy" | "gotify"; name: string; sendUrl: string; reachAddress: string | null } | null>(null);
   const refresh = () => fetch("/api/v1/settings/notifications").then((response) => response.json()).then((body: NotificationState) => setCurrent(body)).catch(() => setError("Could not read the notification settings"));
   useEffect(() => {
     void refresh();
     fetch("/api/v1/settings/watch").then((response) => (response.ok ? response.json() : null)).then((body: WatchStatus | null) => setWatch(body)).catch(() => {});
+    // ntfy and Gotify are both in the catalog and both can be the target; if one is installed and
+    // running, offer to point BoxPilot straight at it rather than making the owner type its address.
+    fetch("/api/v1/catalog").then((response) => (response.ok ? response.json() : null)).then((data: { applications?: Array<{ manifest: { id: string; name: string }; live: { installed: boolean; container: { running: boolean }; urls: Array<{ host: number }> } | null }>; host?: { lanAddress: string | null; tailscaleDnsName: string | null } } | null) => {
+      if (!data?.applications) return;
+      for (const wanted of ["ntfy", "gotify"] as const) {
+        const entry = data.applications.find((app) => app.manifest.id === wanted && app.live?.installed && app.live.container.running);
+        const port = entry?.live?.urls?.[0]?.host;
+        if (entry && port) {
+          setLocalServer({ kind: wanted, name: entry.manifest.name, sendUrl: `http://127.0.0.1:${port}`, reachAddress: data.host?.tailscaleDnsName ?? data.host?.lanAddress ?? null });
+          break;
+        }
+      }
+    }).catch(() => {});
   }, []);
+
+  const useLocalServer = () => {
+    if (!localServer) return;
+    setEditing(true);
+    setKind(localServer.kind);
+    setUrl(localServer.sendUrl);
+    if (localServer.kind === "ntfy") setTopic("boxpilot");
+    setMessage(null); setError(null);
+  };
 
   const save = async (target: { kind: string; url: string; topic?: string; token?: string } | null) => {
     setBusy(true); setError(null); setMessage(null);
@@ -85,6 +110,15 @@ export default function NotificationSettings({ csrfToken }: { csrfToken: string 
               <button className="text-button" type="button" onClick={() => { setEditing(true); setKind(current.kind ?? "ntfy"); setUrl(current.url ?? ""); setTopic(current.topic ?? "boxpilot"); }}>Change</button>
             </div>
           </>
+        )}
+        {localServer && (!current?.configured || editing) && (url !== localServer.sendUrl) && (
+          <div className="notice notification-local-offer">
+            <span><strong>{localServer.name}</strong> is running on this server. Point BoxPilot at it in one step.</span>
+            <button className="secondary-button" type="button" onClick={useLocalServer}>Use the {localServer.name} on this server</button>
+          </div>
+        )}
+        {localServer && url === localServer.sendUrl && (
+          <p className="muted">Alerts will be sent to the {localServer.name} on this server. To get them on your phone, open the {localServer.name} app and subscribe to {kind === "ntfy" ? <>topic <code>{topic || "boxpilot"}</code></> : "this server"}{localServer.reachAddress ? <> at <code>{localServer.reachAddress}</code></> : ""}. If the app is only reachable from this server, publish it on your tailnet first from its catalog card.</p>
         )}
         {(!current?.configured || editing) && (
           <>
