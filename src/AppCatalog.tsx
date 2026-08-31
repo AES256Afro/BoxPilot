@@ -34,6 +34,7 @@ interface LiveState {
   urls: Array<{ id: string; label: string; host: number; exposure: string; path?: string | null }>;
   updateAvailable?: boolean;
   installedImage?: string | null;
+  folderProblems?: Array<{ path: string; volume: string; reason: string }>;
 }
 interface CatalogResponse {
   applications: Array<{ manifest: Manifest; live: LiveState | null }>;
@@ -467,6 +468,14 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                 {statusPill(live)}
               </header>
               <p>{manifest.description}</p>
+              {installed && (live?.folderProblems ?? []).length > 0 && (
+                <div className="app-folder-warning" role="alert">
+                  {live!.folderProblems!.map((problem) => (
+                    <p key={problem.path}><strong>{manifest.name} cannot write to <code>{problem.path}</code></strong> ({problem.volume}: {problem.reason}). Uploads and downloads there will fail.</p>
+                  ))}
+                  <button className="secondary-button" type="button" onClick={() => start({ operationId: "app.reconfigure", title: `Fix folder access for ${manifest.name}`, parameters: { id: manifest.id, values: {} }, preview: <span>Redeploys {manifest.name} with its current settings; the deploy hands its data folders to the app's own user so it can write there. Nothing else changes.</span> })}>Fix folder access</button>
+                </div>
+              )}
               {installed && manifest.networkVia && tunnels[manifest.id]?.exit && tunnels[manifest.id].running && (
                 <p className="muted app-stats">VPN exit: {tunnels[manifest.id].exit?.location ?? "unknown place"} · {tunnels[manifest.id].exit?.ip}{tunnels[manifest.id].forwardedPort ? ` · forwarded port ${tunnels[manifest.id].forwardedPort} (set it under Tools, Options, Connection)` : ""} · <button className="text-button" type="button" onClick={() => start({ operationId: "app.vpn.killswitch.drill", title: `Prove ${manifest.name}'s kill switch`, parameters: { id: manifest.id }, preview: <span>Forces the tunnel down for a few seconds, checks nothing can reach the internet while it is down, then brings it back. Downloads pause briefly and resume by themselves; the result is recorded.</span> })}>Prove the kill switch</button>
                   {killswitch[manifest.id]

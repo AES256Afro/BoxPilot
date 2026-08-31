@@ -396,6 +396,37 @@ export function createAppHelper({
    * One application's public shape. `known` lets a caller that has already established there is no
    * project directory skip both the state read and the container lookup.
    */
+  /**
+   * Why the app's user cannot write to a folder, or null when it can. Mirrors the kernel's basic
+   * owner/group/other check; ACL exotica is out of scope — a false "fine" there just means no badge.
+   */
+  function folderUnwritableReason(info, owner) {
+    if (!info || !owner || !Number.isInteger(owner.uid)) return null;
+    if (info.uid === owner.uid) return null;
+    const mode = info.mode & 0o777;
+    if (info.gid === owner.gid && (mode & 0o020)) return null;
+    if (mode & 0o002) return null;
+    return `owned by user ${info.uid === 0 ? "root" : info.uid}, while the app runs as user ${owner.uid}`;
+  }
+
+  /** Read-write data folders this installed app cannot write into (the silent qBittorrent failure). */
+  async function folderProblems(manifest, state) {
+    if (!state?.installed) return [];
+    const owner = effectiveOwner(manifest) ?? await imageDeclaredOwner(manifest.image.reference).catch(() => null);
+    if (!owner || owner.uid === 0) return [];
+    const problems = [];
+    for (const volume of manifest.volumes) {
+      if (volume.readOnly || (!volume.hostPath && !volume.configurable)) continue;
+      const chosen = state.values?.volumes?.[volume.id] ?? volume.hostPath;
+      if (!chosen || isDeniedHostPath(chosen)) continue;
+      const info = await statPath(chosen).catch(() => null);
+      if (!info) continue; // missing folders are created (and handed over) at the next deploy
+      const reason = folderUnwritableReason(info, owner);
+      if (reason) problems.push({ path: chosen, volume: volume.label, reason });
+    }
+    return problems;
+  }
+
   async function describe(manifest, status = null, known = undefined, batch = null) {
     const state = known ? known.state : await readState(manifest.id);
     if (!status && !known) status = await containerStatus(manifest.id);
@@ -427,6 +458,7 @@ export function createAppHelper({
       })() : [],
       updateAvailable: Boolean(state?.installed && state.image?.reference && state.image.reference !== manifest.image.reference),
       installedImage: state?.image?.reference ?? null,
+      folderProblems: await folderProblems(manifest, state).catch(() => []),
     };
   }
 

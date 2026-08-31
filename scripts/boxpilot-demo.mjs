@@ -695,7 +695,9 @@ const troubleRest = {
   // so instead of a green Running. Immich's database sidecar plays the patient.
   "/catalog": (body) => ({ ...body, applications: body.applications.map((entry) => (entry.manifest.id === "immich" && entry.live?.installed && (entry.live.sidecars ?? []).length
     ? { ...entry, live: { ...entry.live, sidecars: entry.live.sidecars.map((sidecar, index) => (index === 0 ? { ...sidecar, running: true, status: "restarting", restarts: 4 } : sidecar)) } }
-    : entry)) }),
+    : entry.manifest.id === "qbittorrent" && entry.live?.installed
+      ? { ...entry, live: { ...entry.live, folderProblems: [{ path: "/srv/media", volume: "Media folder", reason: "owned by user root, while the app runs as user 1000" }] } }
+      : entry)) }),
   "/jobs/j3": (body) => ({ ...body, job: { ...body.job, state: "failed", error: "apt-get upgrade failed: E: Could not get lock /var/lib/dpkg/lock-frontend" } }),
   "/jobs/j3/output": (body) => ({ ...body, output: "Reading package lists...\nE: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 41283 (unattended-upgr)\nE: Unable to acquire the dpkg frontend lock\n" }),
   "/storage/samba": (body) => ({ ...body, running: false }),

@@ -4479,3 +4479,8 @@ textarea {
 .storage-map-bar span.bar-hot { background: var(--warning, #d29922); }
 .storage-map-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .storage-map-row .eyebrow { margin-right: 2px; }
+
+/* App card: the folder-not-writable warning (silent failure made loud) */
+.app-folder-warning { border-left: 3px solid var(--warning, #d29922); background: color-mix(in srgb, var(--warning, #d29922) 8%, transparent); border-radius: 4px; padding: 8px 12px; display: grid; gap: 6px; font-size: 13px; }
+.app-folder-warning p { margin: 0; }
+.app-folder-warning .secondary-button { justify-self: start; }
