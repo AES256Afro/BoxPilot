@@ -261,7 +261,7 @@ export function createAppHelper({
    * file, which means asking the image. Anything that cannot answer (no `id`, a distroless base)
    * leaves ownership alone rather than guessing, which is the behaviour we had before.
    */
-  async function imageDeclaredOwner(reference) {
+  async function imageDeclaredOwner(reference, { mayRun = true } = {}) {
     if (declaredOwnerCache.has(reference)) return declaredOwnerCache.get(reference);
     let resolved = null;
     const inspected = await docker(["image", "inspect", reference, "--format", "{{.Config.User}}"], { timeout: 30_000 });
@@ -272,6 +272,11 @@ export function createAppHelper({
       if (Number.isInteger(numericUid) && String(numericUid) === rawUser) {
         const numericGid = Number.parseInt(rawGroup ?? "", 10);
         resolved = { uid: numericUid, gid: Number.isInteger(numericGid) ? numericGid : numericUid };
+      } else if (!mayRun) {
+        // Resolving a NAME means starting a container to ask its passwd file. A read-only caller
+        // (the catalog listing) must never do that, and must not poison the cache with "unknown"
+        // either — the next deploy is allowed to ask properly.
+        return null;
       } else {
         const ids = await docker(["run", "--rm", "--entrypoint", "id", reference, "-u"], { timeout: 60_000 }).catch(() => ({ ok: false, stdout: "" }));
         const groupIds = await docker(["run", "--rm", "--entrypoint", "id", reference, "-g"], { timeout: 60_000 }).catch(() => ({ ok: false, stdout: "" }));
@@ -412,7 +417,9 @@ export function createAppHelper({
   /** Read-write data folders this installed app cannot write into (the silent qBittorrent failure). */
   async function folderProblems(manifest, state) {
     if (!state?.installed) return [];
-    const owner = effectiveOwner(manifest) ?? await imageDeclaredOwner(manifest.image.reference).catch(() => null);
+    // mayRun:false — this runs on every catalog listing, which must stay read-only: never start a
+    // container just to render a badge. Deploys resolve fully and warm the cache for later listings.
+    const owner = effectiveOwner(manifest) ?? await imageDeclaredOwner(manifest.image.reference, { mayRun: false }).catch(() => null);
     if (!owner || owner.uid === 0) return [];
     const problems = [];
     for (const volume of manifest.volumes) {
