@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile, realpath } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
 import { devicePattern, labelPattern, logicalVolumePattern, mountNamePattern, parseManagedFstab, uuidPattern } from "../tasks/storage.mjs";
 import { fsSnapshotsInspect, snapshotKinds, snapshotNamePattern as fsSnapshotNamePattern } from "../tasks/fs-snapshots.mjs";
@@ -112,6 +112,25 @@ export function storageOperations() {
         name: { type: "string", maxLength: 32, pattern: fsSnapshotNamePattern },
       } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.fs-snapshot.delete", { kind: parameters.kind, target: parameters.target, name: parameters.name }, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),
+    }),
+    defineOperation({
+      id: "storage.folders", title: "List folders on a drive", risk: "low", readOnly: true, timeoutMs: 30_000,
+      description: "The folders directly inside a mounted drive or share, so a path can be picked instead of typed. Read-only, and confined to /mnt and /srv.",
+      parameters: { fields: { path: { type: "string", maxLength: 512, pattern: /^\/(mnt|srv)(\/[^\0\r\n]*)?$/ } } },
+      run: async (parameters) => {
+        const requested = parameters.path.replace(/\/+$/, "") || "/mnt";
+        if (requested.includes("/../") || requested.endsWith("/..")) throw new Error("Path is invalid");
+        // Resolve first and re-check: a symlink under /mnt must not become a listing of /etc.
+        const base = await realpath(requested).catch(() => requested);
+        if (!/^\/(mnt|srv)(\/|$)/.test(base)) throw new Error(`${parameters.path} resolves outside /mnt and /srv`);
+        const entries = await readdir(base, { withFileTypes: true }).catch(() => []);
+        const folders = entries
+          .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+          .map((entry) => `${base === "/" ? "" : base}/${entry.name}`)
+          .sort()
+          .slice(0, 200);
+        return { path: base, folders, truncated: entries.length > 200 };
+      },
     }),
     defineOperation({
       id: "storage.remount", title: "Reconnect a drive", risk: "medium", timeoutMs: minutes(5),

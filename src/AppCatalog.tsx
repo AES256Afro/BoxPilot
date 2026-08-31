@@ -104,10 +104,21 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
         ...(report.mounts ?? []).map((mount) => mount.target).filter(dataFolder),
         ...(report.fstab ?? []).filter((row) => row.managedName && dataFolder(row.mountpoint)).map((row) => row.mountpoint),
       ].filter(dataFolder);
-      setMountedFolders([...new Set(list)].sort());
+      const roots = [...new Set(list)].sort();
+      setMountedFolders(roots);
+      // Also offer what is directly inside each one. Pointing an app at a subfolder is the normal
+      // case — downloads into their own folder rather than the root of a 15 TB drive — and a path
+      // that has to be typed is a path that gets typed wrong.
+      void Promise.all(roots.slice(0, 8).map((root) => fetch(`/api/v1/operations/storage.folders/run`, {
+        method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { path: root } }),
+      }).then((response) => (response.ok ? response.json() : null)).catch(() => null))).then((results) => {
+        if (!active) return;
+        const nested = results.flatMap((body: { result?: { folders?: string[] } } | null) => body?.result?.folders ?? []);
+        if (nested.length) setMountedFolders([...new Set([...roots, ...nested])].sort());
+      });
     }).catch(() => {});
     return () => { active = false; };
-  }, [hasConfigurableVolumes]);
+  }, [hasConfigurableVolumes, csrfToken]);
   const submit = async () => {
     const compact = compactValues(manifest, values, mode === "reconfigure" ? live?.state?.values : undefined);
     setChecking(true); setProblems([]);

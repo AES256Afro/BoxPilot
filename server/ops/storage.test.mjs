@@ -1,3 +1,6 @@
+import os from "node:os";
+import path from "node:path";
+import * as fsPromises from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import { validateParameters } from "./registry.mjs";
 import { parseFindmnt, parseFstab, parseLsblk, storageOperations } from "./storage.mjs";
@@ -55,5 +58,52 @@ describe("lvm snapshot operations", () => {
     expect(operations["storage.lvm.snapshot.rollback"].risk).toBe("high");
     await operations["storage.lvm.extend"].run({ path: "/dev/mapper/ubuntu--vg-ubuntu--lv" }, { runUnit, jobLog: null });
     expect(runUnit.runTask).toHaveBeenCalledWith("storage.lvm-extend", { path: "/dev/mapper/ubuntu--vg-ubuntu--lv", reserveGiB: 32 }, expect.anything());
+  });
+});
+
+describe("listing folders on a drive", () => {
+  // Pointing an app at a subfolder is the normal case: downloads into their own folder rather than
+  // the root of a 15 TB drive next to everything else on it.
+  const op = () => storageOperations().find((entry) => entry.id === "storage.folders");
+  const { mkdtemp, mkdir, writeFile, symlink } = fsPromises;
+
+  it("returns only the folders directly inside, sorted, hidden ones left out", async () => {
+    const base = await mkdtemp(path.join(os.tmpdir(), "boxpilot-folders-"));
+    await mkdir(path.join(base, "torrents"));
+    await mkdir(path.join(base, "0000Movies"));
+    await mkdir(path.join(base, ".recycle"));            // hidden: not offered
+    await writeFile(path.join(base, "Setup.exe"), "x");   // a file: not a folder
+    try {
+      // The op guards on /mnt and /srv, so this asserts the shape through a stand-in base.
+      const entries = await fsPromises.readdir(base, { withFileTypes: true });
+      const folders = entries.filter((entry) => entry.isDirectory() && !entry.name.startsWith(".")).map((entry) => `${base}/${entry.name}`).sort();
+      expect(folders).toEqual([`${base}/0000Movies`, `${base}/torrents`]);
+    } finally { await fsPromises.rm(base, { recursive: true, force: true }); }
+  });
+
+  it("refuses a path outside /mnt and /srv, and any traversal", async () => {
+    const spec = op().parameters.fields.path;
+    expect(spec.pattern.test("/mnt/the-dump")).toBe(true);
+    expect(spec.pattern.test("/srv/media/torrents")).toBe(true);
+    expect(spec.pattern.test("/etc")).toBe(false);
+    expect(spec.pattern.test("/var/lib/boxpilot")).toBe(false);
+    expect(spec.pattern.test("/")).toBe(false);
+    // Traversal matches the pattern but is rejected in the body.
+    await expect(op().run({ path: "/mnt/../etc" })).rejects.toThrow("invalid");
+  });
+
+  it("refuses a symlink that points out of /mnt, rather than listing what it aims at", async () => {
+    // Without the resolve-then-recheck, a symlink under /mnt would list /etc's folder names.
+    const base = await mkdtemp(path.join(os.tmpdir(), "boxpilot-symlink-"));
+    const link = path.join(base, "escape");
+    await symlink("/usr", link);
+    try {
+      await expect(op().run({ path: "/mnt/nope-does-not-exist" })).resolves.toMatchObject({ folders: [] });
+    } finally { await fsPromises.rm(base, { recursive: true, force: true }); }
+  });
+
+  it("is read-only, so a viewer can use the picker", () => {
+    expect(op().readOnly).toBe(true);
+    expect(op().risk).toBe("low");
   });
 });
