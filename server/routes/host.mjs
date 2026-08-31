@@ -65,7 +65,13 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       const snapshot = await inventory.inspect();
       host = { lanAddress: snapshot?.network?.addresses?.find((entry) => /^\d+\.\d+\.\d+\.\d+$/.test(entry.address))?.address ?? null, tailscaleDnsName: snapshot?.network?.tailscale?.dnsName ?? null };
     } catch { /* host addresses are a convenience only */ }
-    const applications = manifests.map((manifest) => ({ manifest, live: live?.applications?.find((entry) => entry.id === manifest.id) ?? null }));
+    // Verdicts from the last restore rehearsal, recorded per app so they outlive job pruning.
+    // Carried on the card because that is where the app's backups already are.
+    const verifications = state.getSetting("appBackupVerifications", {}) ?? {};
+    const applications = manifests.map((manifest) => {
+      const entry = live?.applications?.find((row) => row.id === manifest.id) ?? null;
+      return { manifest, live: entry ? { ...entry, backupVerification: verifications[manifest.id] ?? null } : null };
+    });
     response.json({ applications, // The catalog is read on both sides, so the same file would otherwise be reported twice.
       problems: [...new Map([...problems, ...(live?.problems ?? [])].map((problem) => [problem.file, problem])).values()], liveError, host });
   });

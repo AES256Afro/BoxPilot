@@ -167,6 +167,12 @@ export function appOperations() {
       run: (parameters, { apps }) => apps.listAppBackups(parameters),
     }),
     defineOperation({
+      id: "app.backup.verify", title: "Rehearse restoring a backup", risk: "medium", timeoutMs: minutes(70),
+      description: "Proves a backup would actually restore: checks it against the checksum recorded when it was written, unpacks the whole archive into scratch space, confirms everything it claims to contain is there and that its compose file is valid, then deletes the scratch copy. The app is never stopped and nothing it holds is changed. Without a backup name, the newest one is checked.",
+      parameters: { fields: { id: idField, backup: { type: "string", optional: true, maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
+      run: (parameters, { apps, progress }) => apps.verifyAppBackup({ id: parameters.id, backup: parameters.backup ?? null }, { progress }),
+    }),
+    defineOperation({
       id: "app.backup.restore", title: "Restore application data from a backup", risk: "high", timeoutMs: minutes(90),
       description: "Checksums the backup, saves the current state as a safety copy, then replaces the app's data and configuration with the backup and starts it.",
       parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },

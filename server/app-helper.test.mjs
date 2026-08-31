@@ -744,6 +744,39 @@ describe("generic app deployer", () => {
     await expect(apps.restoreAppBackupPath({ id: "demo", backup: backupResult.artifact, path: "data/missing.txt" })).rejects.toThrow("is not in");
   });
 
+  it("rehearses a restore against a real archive, and refuses a damaged or truncated one", async () => {
+    // A checksum proves the bytes did not rot; it cannot prove the archive opens or holds the app.
+    // The rehearsal unpacks the whole thing for real, and leaves the live app entirely alone.
+    const { apps, calls, catalogRoot, backupRoot } = await setup();
+    await apps.install({ id: "demo" });
+    await writeFile(path.join(catalogRoot, "demo", "data", "file.txt"), "precious");
+    const made = await apps.backup({ id: "demo" });
+
+    calls.length = 0;
+    const verdict = await apps.verifyAppBackup({ id: "demo" });      // no name: the newest one
+    expect(verdict).toMatchObject({ verified: true, id: "demo", backup: made.artifact, checksumVerified: true, reason: null });
+    expect(verdict.entries).toBeGreaterThan(0);
+    // Never stops the app, and leaves no scratch directory behind.
+    expect(calls.some((entry) => /compose .* (stop|down)$/.test(entry))).toBe(false);
+    expect((await readdir(path.join(backupRoot, "demo"))).some((name) => name.startsWith(".verify-"))).toBe(false);
+    expect(await readFile(path.join(catalogRoot, "demo", "data", "file.txt"), "utf8")).toBe("precious");
+
+    // Bit rot: the archive no longer matches the checksum written beside it.
+    const damaged = await apps.backup({ id: "demo" });
+    await writeFile(path.join(backupRoot, "demo", damaged.artifact), "not a tarball at all");
+    const rotted = await apps.verifyAppBackup({ id: "demo", backup: damaged.artifact });
+    expect(rotted.verified).toBe(false);
+    expect(rotted.reason).toContain("damaged");
+
+    // Corrupt with the checksum removed: the extraction itself has to catch it.
+    await rm(path.join(backupRoot, "demo", damaged.artifact.replace(/\.tar\.gz$/, ".json")), { force: true });
+    const unopenable = await apps.verifyAppBackup({ id: "demo", backup: damaged.artifact });
+    expect(unopenable.verified).toBe(false);
+    expect(unopenable.reason).toContain("could not be unpacked");
+
+    await expect(apps.verifyAppBackup({ id: "demo", backup: "20260101T000000Z.tar.gz" })).rejects.toThrow("does not exist");
+  });
+
   it("backs up, prunes, restores, and deletes app data with a real archive", async () => {
     const { apps, calls, catalogRoot, backupRoot, advance } = await setup();
     await apps.install({ id: "demo" });

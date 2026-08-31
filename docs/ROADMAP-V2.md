@@ -725,8 +725,15 @@ This arc turns them into a policy the owner sets once and a disaster they have a
   visible.
 - **M20.2** **Encrypted cloud destinations, first-class.** B2, S3, and any rclone remote as a
   managed target with its own key, not a hand-edited rclone.conf.
-- **M20.3** **Scheduled restore rehearsals with a verdict.** The restore drill (M6.5) on a cadence,
-  per app, recording pass/fail over time, so "backups work" is a graph, not a hope.
+- ◐ **M20.3** (v1.90.0) **Restore rehearsals with a verdict.** ✅ **The rehearsal.** Per app,
+  "Rehearse restore" proves a backup would actually restore: it checks the archive against the
+  checksum recorded when it was written, unpacks all of it into scratch space to prove it opens and
+  holds what it claims (compose file included, parsed), then deletes the scratch copy. The app is
+  never stopped and nothing it holds is changed, so it is safe to run against anything. The verdict
+  is recorded per app and shown on the card's Backups dialog, so it outlives job pruning.
+  `verifyAppBackup` in `server/app-helper.mjs`, op `app.backup.verify`. **Remaining:** putting it on
+  a cadence (the scheduler already accepts it) and keeping the pass/fail history as a graph rather
+  than only the latest verdict.
 - **M20.4** **One-button disaster recovery.** From a bare machine and an off-box copy to a running
   server, timed, with the machine-snapshot redeploy (M6.4) as its spine.
 

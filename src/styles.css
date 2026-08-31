@@ -4518,3 +4518,7 @@ textarea {
 .diagnose-problem .diagnose-mark { color: var(--danger); }
 .diagnose-warn .diagnose-mark { color: var(--warn); }
 .diagnose-info .diagnose-mark { color: var(--muted); }
+
+/* Restore-rehearsal verdict (M20.3) */
+.backup-verdict-ok { color: var(--accent-light); }
+.backup-verdict-bad { color: var(--danger); font-weight: 600; }
