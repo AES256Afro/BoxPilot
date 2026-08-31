@@ -55,7 +55,7 @@ describe("Repair Center", () => {
     expect(await screen.findByText("Restricted helper")).toBeTruthy();
     expect(screen.getByText("Docker Engine")).toBeTruthy();
     expect(screen.getByText("What you would need, and what you have")).toBeTruthy();
-    expect(screen.getByText("Noticed on this server")).toBeTruthy();
+    expect(screen.getByText("What is not covered yet")).toBeTruthy();
     expect(screen.getByText("Independent BoxPilot database copy")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Download the rebuild steps" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Download the raw data" })).toBeTruthy();

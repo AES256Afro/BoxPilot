@@ -43,6 +43,14 @@ describe("a mount whose drive has gone", () => {
     expect(evaluateHealth(other)).toEqual([]);
   });
 
+  it("does not claim every mount is detached when the device names are not paths", () => {
+    // If lsblk ever stops being called with --paths, the names arrive unusable. Reporting every
+    // drive on the server as detached at once would be worse than reporting nothing.
+    const unusable = structuredClone(detached);
+    unusable.storage.blockDevices.devices = [{ name: "[unavailable]" }, { name: "[unavailable]" }];
+    expect(evaluateHealth(unusable)).toEqual([]);
+  });
+
   it("does not claim every mount is detached when the device list is missing", () => {
     // Without the block-device half, absent evidence would read as "every drive has gone".
     const blind = structuredClone(detached);
