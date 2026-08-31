@@ -1208,6 +1208,58 @@ export function createAppHelper({
     return { id, directory: backupDirectory, backups };
   }
 
+  /**
+   * Rehearse a restore without performing one (M20.3). A checksum proves the bytes are the bytes
+   * that were written; it does not prove the archive can be opened, or that what comes out is the
+   * app. So this unpacks the whole thing into a scratch directory, checks that everything the
+   * backup claims to contain is actually there and that the compose file survived, and throws the
+   * scratch copy away. The live app is never touched and never stopped.
+   */
+  async function verifyAppBackup({ id, backup: backupName = null }, { progress = null } = {}) {
+    const manifest = await ensureManifest(id);
+    const backupDirectory = backupDirFor(id);
+    const names = await readdir(backupDirectory).catch(() => []);
+    const available = names.filter((name) => backupNamePattern.test(name)).sort().reverse();
+    const target = backupName ?? available[0] ?? null;
+    if (!target) throw new Error(`${manifest.name} has no backup to check`);
+    if (!backupNamePattern.test(target)) throw new Error("Backup name is invalid");
+    const artifact = path.join(backupDirectory, target);
+    const info = await stat(artifact).catch(() => null);
+    if (!info) throw new Error(`Backup ${target} does not exist`);
+    const startedAt = clock().getTime();
+    let meta = null;
+    try { meta = JSON.parse(await readFile(path.join(backupDirectory, target.replace(/\.tar\.gz$/, ".json")), "utf8")); } catch { meta = null; }
+
+    const fail = (reason) => ({ verified: false, id, backup: target, checkedAt: clock().toISOString(), sizeBytes: info.size, reason, durationMs: clock().getTime() - startedAt });
+
+    if (meta?.checksumSha256) {
+      progress?.(`Checking the checksum of ${target}...`, "stdout");
+      const actual = await sha256File(artifact);
+      if (actual !== meta.checksumSha256) return fail("The archive does not match the checksum recorded when it was written, so it has been damaged since.");
+    }
+    // Unpack for real, into scratch space that is removed whatever happens. Anything less than a
+    // full extraction would not catch a truncated or corrupt member deep inside the archive.
+    const scratch = path.join(backupDirectory, `.verify-${randomUUID()}`);
+    try {
+      await mkdir(scratch, { recursive: true, mode: 0o700 });
+      progress?.(`$ tar -xzf ${target} (into scratch space, the app is untouched)`, "stdout");
+      const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", scratch], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+      if (!extract.ok) return fail(`The archive could not be unpacked: ${redact(extract.stderr).split("\n").slice(-2).join(" ")}`);
+      const unpacked = await readdir(scratch).catch(() => []);
+      const expected = meta?.contents ?? ["compose.yaml"];
+      const missing = expected.filter((entry) => !unpacked.includes(entry.split("/")[0]));
+      if (missing.length) return fail(`The archive is missing ${missing.join(", ")}, which the backup says it contains.`);
+      const compose = await readFile(path.join(scratch, "compose.yaml"), "utf8").catch(() => null);
+      if (compose === null) return fail("The archive has no compose.yaml, so it could not be redeployed from.");
+      try { YAML.parse(compose); } catch (error) { return fail(`The compose file in the archive is not valid YAML: ${error.message}`); }
+      const durationMs = clock().getTime() - startedAt;
+      progress?.(`${target} unpacked cleanly: ${unpacked.length} top-level entr${unpacked.length === 1 ? "y" : "ies"}, compose.yaml valid`, "stdout");
+      return { verified: true, id, backup: target, checkedAt: clock().toISOString(), sizeBytes: info.size, entries: unpacked.length, contents: expected, checksumVerified: Boolean(meta?.checksumSha256), durationMs, reason: null };
+    } finally {
+      await rm(scratch, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+
   /** Restore a backup over the app directory: checksum check, safety backup, stop, extract, start. */
   async function restoreAppBackup({ id, backup: backupName }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
@@ -1453,5 +1505,5 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { syncHomepage, inspect, reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

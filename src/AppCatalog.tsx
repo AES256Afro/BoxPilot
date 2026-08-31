@@ -35,6 +35,7 @@ interface LiveState {
   updateAvailable?: boolean;
   installedImage?: string | null;
   folderProblems?: Array<{ path: string; volume: string; reason: string }>;
+  backupVerification?: { verified: boolean; backup: string; reason: string | null; checkedAt: string } | null;
 }
 interface CatalogResponse {
   applications: Array<{ manifest: Manifest; live: LiveState | null }>;
@@ -239,7 +240,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [models, setModels] = useState<{ id: string; name: string; available: boolean; reason: string | null; rows: Array<{ name: string; id: string; size: string; modified: string; bytes: number }>; wanted: string; loading: boolean } | null>(null);
   const [effectiveConfig, setEffectiveConfig] = useState<{ id: string; name: string; compose: string | null; env: Array<{ name: string; value: string; secret: boolean }>; directory: string } | null>(null);
   const [composeDraft, setComposeDraft] = useState<string | null>(null);
-  const [appBackups, setAppBackups] = useState<{ id: string; name: string; backups: Array<{ artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; skippedVolumes?: string[]; image: string | null }> } | null>(null);
+  const [appBackups, setAppBackups] = useState<{ id: string; name: string; verification?: LiveState["backupVerification"]; backups: Array<{ artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; skippedVolumes?: string[]; image: string | null }> } | null>(null);
   const [browsing, setBrowsing] = useState<{ backup: string; files: Array<{ path: string; sizeBytes: number; type: string }>; truncated: boolean; filter: string } | null>(null);
   const browseBackup = async (id: string, backup: string) => {
     try {
@@ -372,7 +373,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
     }
   };
 
-  const showBackups = async (manifest: Manifest) => {
+  const showBackups = async (manifest: Manifest, live: LiveState | null) => {
     try {
       const response = await fetch("/api/v1/operations/app.backups.inspect/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id: manifest.id } }) });
       const body = (await response.json().catch(() => ({}))) as { result?: { id: string; backups: Array<{ artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; skippedVolumes?: string[]; image: string | null }> }; error?: string };
@@ -380,7 +381,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
       // Normalised here rather than guarded at each read: the two lines that inspect these arrays
       // sat beside each other and only one of them checked, which is the shape of every crash this
       // interface has produced. The server defaults them; a partial answer no longer costs the dialog.
-      setAppBackups({ id: manifest.id, name: manifest.name, backups: (body.result.backups ?? []).map((backup) => ({ ...backup, skippedVolumes: backup.skippedVolumes ?? [], skippedHostPaths: backup.skippedHostPaths ?? [] })) });
+      setAppBackups({ id: manifest.id, name: manifest.name, verification: live?.backupVerification ?? null, backups: (body.result.backups ?? []).map((backup) => ({ ...backup, skippedVolumes: backup.skippedVolumes ?? [], skippedHostPaths: backup.skippedHostPaths ?? [] })) });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not list backups");
     }
@@ -621,7 +622,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                 {installed && <button className="text-button" type="button" onClick={() => void showEffectiveConfig(manifest.id)}>Config</button>}
                 {installed && <button className="text-button" type="button" onClick={() => start({ operationId: "app.backup", title: `Back up ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Stops {manifest.name} briefly, archives its data and configuration, restarts it, and keeps the newest 5 copies.{manifest.volumes.some((volume) => volume.hostPath) ? <> Your own folders ({manifest.volumes.filter((volume) => volume.hostPath).map((volume) => volume.hostPath).join(", ")}) are <strong>not</strong> included.</> : null}</span> })}>Back up</button>}
                 {installed && manifest.id === "homepage" && <button className="text-button" type="button" onClick={() => start({ operationId: "homepage.sync", title: "Sync Homepage with installed apps", parameters: { host: window.location.hostname }, preview: <span>Writes a <strong>BoxPilot</strong> group into Homepage's <code>services.yaml</code> with every installed app, links via <code>{window.location.hostname}</code>, descriptions, icons, and live container status. Groups you wrote yourself are kept. Repeats by itself after installs and uninstalls.</span> })}>Sync dashboard</button>}
-                {(installed || live?.dataPresent) && <button className="text-button" type="button" onClick={() => void showBackups(manifest)}>Backups</button>}
+                {(installed || live?.dataPresent) && <button className="text-button" type="button" onClick={() => void showBackups(manifest, live)}>Backups</button>}
                 {installed && manifest.signIn && <button className="secondary-button" type="button" onClick={() => showSignIn(manifest)}>Sign in</button>}
                 {installed && manifest.env.some((entry) => entry.secret) && <button className="text-button" type="button" onClick={() => void revealSecrets(manifest)}>Secrets</button>}
                 {installed && <button className="text-button" type="button" onClick={() => start({ operationId: "app.uninstall", title: `Uninstall ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>Stops and removes the container. Data under the app directory is kept so you can reinstall later.</span> })}>Uninstall</button>}
@@ -758,6 +759,13 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
             <header className="modal-header"><div><span className="eyebrow">Backups</span><h2 id="backups-title">{appBackups.name}</h2></div><button className="icon-button" type="button" onClick={() => setAppBackups(null)} aria-label="Close dialog">X</button></header>
             <div className="modal-copy">
               {appBackups.backups.length === 0 && <p>No backups yet. Back up creates a consistent archive of the app's data and configuration.</p>}
+              {appBackups.verification && (
+                <p className={appBackups.verification.verified ? "backup-verdict-ok" : "backup-verdict-bad"}>
+                  {appBackups.verification.verified
+                    ? <>Last rehearsal passed: <code>{appBackups.verification.backup}</code> unpacked cleanly on {new Date(appBackups.verification.checkedAt).toLocaleString()}.</>
+                    : <>Last rehearsal <strong>failed</strong> on {new Date(appBackups.verification.checkedAt).toLocaleString()}: {appBackups.verification.reason}</>}
+                </p>
+              )}
               {browsing && (
                 <div className="backup-browser">
                   <div className="recovery-actions">
@@ -787,6 +795,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                             <div className="recovery-actions">
                               <button className="text-button" type="button" onClick={() => { const target = appBackups; setAppBackups(null); start({ operationId: "app.backup.restore", title: `Restore ${target.name} from ${backup.createdAt ? new Date(backup.createdAt).toLocaleString() : backup.artifact}`, parameters: { id: target.id, backup: backup.artifact }, preview: <span>Saves the current state as a safety copy first, then replaces {target.name}'s data and configuration with this backup and starts it.</span> }); }}>Restore</button>
                               <button className="text-button" type="button" onClick={() => void browseBackup(appBackups.id, backup.artifact)}>Browse</button>
+                              <button className="text-button" type="button" onClick={() => { const target = appBackups; setAppBackups(null); start({ operationId: "app.backup.verify", title: `Rehearse restoring ${target.name}`, parameters: { id: target.id, backup: backup.artifact }, preview: <span>Checks this archive against its recorded checksum, unpacks all of it into scratch space to prove it opens and holds what it claims, then deletes the scratch copy. {target.name} keeps running and nothing it holds is changed.</span> }); }}>Rehearse restore</button>
                               <button className="text-button" type="button" onClick={() => { const target = appBackups; setAppBackups(null); start({ operationId: "app.backup.delete", title: `Delete backup of ${target.name}`, parameters: { id: target.id, backup: backup.artifact }, preview: <span>Deletes the archive from {backup.createdAt ? new Date(backup.createdAt).toLocaleString() : backup.artifact}. This cannot be undone.</span> }); }}>Delete</button>
                             </div>
                           </td>

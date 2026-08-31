@@ -145,6 +145,9 @@ const jobs = createJobService(state, helper, {
     "vm.recovery.create": (job, result) => vmRecoveries.recordOperation(job, result),
     // The drill's verdict outlives job pruning: per app, the latest proof (or leak) with when.
     "app.vpn.killswitch.drill": (job, result) => state.updateSetting("killSwitchDrills", {}, (entries) => ({ value: { ...(entries ?? {}), [result.id]: { held: result.held, leaked: result.leaked, downForMs: result.downForMs, exitAfter: result.exitAfter ?? null, at: new Date().toISOString(), by: job.createdBy } } }), job.createdBy),
+    // "The backups restore" has to be a record, not a hope: keep the last rehearsal verdict per app
+    // so a schedule turns it into a history, and a failure is still visible after the job is pruned.
+    "app.backup.verify": (job, result) => state.updateSetting("appBackupVerifications", {}, (entries) => ({ value: { ...(entries ?? {}), [result.id]: { verified: result.verified, backup: result.backup, reason: result.reason ?? null, sizeBytes: result.sizeBytes ?? null, durationMs: result.durationMs ?? null, checkedAt: result.checkedAt, by: job.createdBy } } }), job.createdBy),
     // Snapshot metadata (origin, size, time) lives here because lvs needs root; the Storage page merges it with lsblk.
     "storage.lvm.snapshot.create": (job, result) => state.updateSetting("lvmSnapshots", [], (entries) => ({ value: [...(entries ?? []).filter((entry) => entry.path !== result.path), { path: result.path, name: result.name, origin: result.origin, volumeGroup: result.volumeGroup, sizeGiB: result.sizeGiB, createdAt: result.createdAt, createdBy: job.createdBy, suffix: job.parameters?.suffix ?? null }] }), job.createdBy),
     // Read and write in one transaction rather than two statements that happen not to interleave.
