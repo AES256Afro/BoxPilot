@@ -12,7 +12,7 @@ import { offBoxVerdict, offBoxWarning } from "./offBox";
  * breaking the page.
  */
 
-interface AppSummary { id: string; name: string; running: boolean; paused: boolean; installed: boolean; health: string; updateAvailable: boolean; url: string | null }
+interface AppSummary { id: string; name: string; running: boolean; paused: boolean; installed: boolean; health: string; updateAvailable: boolean; folderProblems: number; url: string | null }
 interface Tile { updates: number | null; security: number; rebootRequired: boolean }
 interface ChecklistItem { id: string; title: string; detail: string; done: boolean; known?: boolean; optional: boolean; view: ViewName }
 interface Checklist { items: ChecklistItem[]; done: number; total: number; allEssentialDone: boolean; unknown?: number }
@@ -61,7 +61,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
       .catch(() => [] as TailnetServe[]);
     fetch("/api/v1/catalog")
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("catalog unavailable"))))
-      .then(async (data: { applications: Array<{ manifest: { id: string; name: string }; live: { installed: boolean; container: { running: boolean; status?: string; health: string }; updateAvailable?: boolean; urls: Array<{ host: number; exposure: string; path?: string | null }> } | null }>; host: { lanAddress: string | null } }) => {
+      .then(async (data: { applications: Array<{ manifest: { id: string; name: string }; live: { installed: boolean; container: { running: boolean; status?: string; health: string }; updateAvailable?: boolean; folderProblems?: Array<{ path: string }>; urls: Array<{ host: number; exposure: string; path?: string | null }> } | null }>; host: { lanAddress: string | null } }) => {
         const servesSoFar = await servesPromise;
 
         guard(setApps)(data.applications
@@ -75,6 +75,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
             paused: entry.live?.container.status === "paused",
             health: entry.live?.container.health ?? "",
             updateAvailable: entry.live?.updateAvailable ?? false,
+            folderProblems: entry.live?.folderProblems?.length ?? 0,
             url: entry.live?.urls.length ? appUrl(entry.live.urls[0], { lanAddress: data.host.lanAddress, serves: servesSoFar }) : null,
           })));
       })
@@ -182,6 +183,8 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
     // Paused is a choice, not a fault: say so rather than nagging about something deliberate.
     if (app.paused) attention.push({ label: `${app.name} is paused`, view: "catalog" });
     else if (!app.running) attention.push({ label: `${app.name} is not running`, view: "catalog" });
+    // A folder the app cannot write to is a fault happening right now; an update can wait behind it.
+    else if (app.folderProblems > 0) attention.push({ label: `${app.name} cannot write to its data folder`, view: "catalog" });
     else if (app.updateAvailable) attention.push({ label: `${app.name} has an update`, view: "catalog" });
   }
   const failedJob = (jobs ?? []).find((job) => job.state === "failed");

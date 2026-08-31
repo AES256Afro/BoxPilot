@@ -449,7 +449,7 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
         </p>
       </section>
 
-      <SambaPanel start={start} refreshKey={refreshKey} prefill={sharePrefill} onNavigate={onNavigate} folders={[...new Set([...(report?.shares ?? []).map((entry) => entry.mountpoint), ...(report?.fstab ?? []).filter((row) => row.managedName).map((row) => row.mountpoint), "/srv", "/mnt"])]} />
+      <SambaPanel start={start} refreshKey={refreshKey} prefill={sharePrefill} onNavigate={onNavigate} csrfToken={csrfToken} folders={[...new Set([...(report?.shares ?? []).map((entry) => entry.mountpoint), ...(report?.fstab ?? []).filter((row) => row.managedName).map((row) => row.mountpoint), "/srv", "/mnt"])]} />
       <NfsPanel start={start} refreshKey={refreshKey} folders={[...new Set([...(report?.shares ?? []).map((entry) => entry.mountpoint), ...(report?.fstab ?? []).filter((row) => row.managedName).map((row) => row.mountpoint), "/srv", "/mnt"])]} />
 
       <section className="panel">
