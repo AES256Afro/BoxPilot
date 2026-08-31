@@ -212,6 +212,37 @@ describe("generic app deployer", () => {
     expect(chowned.some(([target]) => target === trap || target === "/etc")).toBe(false);
   });
 
+  it("streams the archive listing instead of buffering it, so a many-file backup is not misread as damaged", async () => {
+    // The bug: `tar -tzf` prints one line per file, and an app with hundreds of thousands of files
+    // (a mail store, a photo library) produced enough output to blow a fixed stdout buffer, so a
+    // perfectly good backup verified as corrupt in the weekly rehearsal. The listing must stream.
+    let listingOptions = null;
+    let emitted = 0;
+    const runCommand = vi.fn(async (_binary, args, options = {}) => {
+      if (args[0] === "-tzf") {
+        listingOptions = options;
+        // A backup far larger than any fixed buffer would hold, delivered a line at a time.
+        for (let index = 0; index < 200_000; index += 1) { options.onLine?.(`data/file-${index}`); emitted += 1; }
+        options.onLine?.("compose.yaml");
+        return { ok: true, stdout: "", stderr: "" };
+      }
+      if (args[0] === "-xzOf") return { ok: true, stdout: "services:\n  demo:\n    image: nginx\n", stderr: "" };
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    const { apps, backupRoot } = await setup({ runCommand });
+    await mkdir(path.join(backupRoot, "demo"), { recursive: true });
+    const artifact = "20260101T000000Z.tar.gz";
+    await writeFile(path.join(backupRoot, "demo", artifact), "pretend archive bytes");
+    await writeFile(path.join(backupRoot, "demo", "20260101T000000Z.json"), JSON.stringify({ contents: ["compose.yaml", "data"] }));  // no checksum: skip the sha step
+
+    const verdict = await apps.verifyAppBackup({ id: "demo", backup: artifact });
+    expect(verdict).toMatchObject({ verified: true, members: 200_001 });
+    // The proof of the fix: the listing was streamed line by line, and no fixed stdout cap was set.
+    expect(typeof listingOptions.onLine).toBe("function");
+    expect(listingOptions.maxBuffer).toBeUndefined();
+    expect(emitted).toBe(200_000);
+  });
+
   it("does not persist shared-VPN-profile connection values into per-app state (GET /catalog would leak them)", async () => {
     // The profile is owner-only, but its injected connection env used to land in boxpilot.json and be
     // served by /catalog to any role. With the profile on, those values are re-derived every deploy,

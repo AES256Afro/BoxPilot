@@ -220,11 +220,32 @@ describe("reconnecting a drive that came back under a new name", () => {
       if (binary.endsWith("mount")) { source = "/dev/sdb2"; return { ok: true, stdout: "", stderr: "" }; }
       return { ok: true, stdout: "", stderr: "" };
     });
-    const result = await storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab, exists: async () => false } });
+    const result = await storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab, readable: async () => false } });
     expect(result).toMatchObject({ remounted: true, source: "/dev/sdb2", previousSource: "/dev/sda2", deviceChanged: true });
     expect(calls).toContain("umount /mnt/the-dump");
     expect(calls).toContain("umount -l /mnt/the-dump");     // the fallback the dead device forces
     expect(calls).toContain("mount /mnt/the-dump");
+  });
+
+  it("reconnects a drive that came back under the SAME name but a dead mount", async () => {
+    // The regression the exists() check introduced: a USB drive that drops and returns is usually
+    // handed the same kernel name, so /dev/sdb2 exists again as a new device while the old mount is
+    // still broken. Testing the device name would refuse the exact case this op is for. The mount not
+    // reading is what proves the old device is gone.
+    const calls = [];
+    let source = "/dev/sdb2";   // same name before and after
+    const run = vi.fn(async (binary, args) => {
+      calls.push(`${binary.split("/").pop()} ${args.join(" ")}`);
+      if (binary.endsWith("findmnt")) return { ok: true, stdout: `${source}\n`, stderr: "" };
+      if (binary.endsWith("umount") && !args.includes("-l")) return { ok: false, stdout: "", stderr: "umount: /mnt/the-dump: target is busy" };
+      if (binary.endsWith("umount")) { source = ""; return { ok: true, stdout: "", stderr: "" }; }
+      if (binary.endsWith("mount")) { source = "/dev/sdb2"; return { ok: true, stdout: "", stderr: "" }; }
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    // The device node /dev/sdb2 exists, but the mount does not read (dead filesystem).
+    const result = await storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab, readable: async () => false } });
+    expect(result.remounted).toBe(true);
+    expect(calls).toContain("umount -l /mnt/the-dump");   // it did NOT wrongly refuse
   });
 
   it("refuses to lazily detach a mount that is merely busy", async () => {
@@ -235,7 +256,7 @@ describe("reconnecting a drive that came back under a new name", () => {
       if (binary.endsWith("umount")) return { ok: false, stdout: "", stderr: "umount: /mnt/the-dump: target is busy" };
       return { ok: true, stdout: "", stderr: "" };
     });
-    const files = { readFile: async () => fstab, exists: async () => true };   // the device is still there
+    const files = { readFile: async () => fstab, readable: async () => true };   // the mount still reads, so it is healthy and merely busy
     await expect(storageRemount({ name: "the-dump" }, { run, files })).rejects.toThrow("in use");
     expect(run.mock.calls.some(([binary, callArgs]) => binary.endsWith("umount") && callArgs.includes("-l"))).toBe(false);
   });
@@ -245,15 +266,15 @@ describe("reconnecting a drive that came back under a new name", () => {
     // the pattern and the membership check, but the entry has nothing to do with /mnt/swap.
     const withSwap = "# boxpilot:swap\n/swap.boxpilot none swap sw,nofail 0 0\n";
     const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
-    await expect(storageRemount({ name: "swap" }, { run, files: { readFile: async () => withSwap, exists: async () => true } }))
+    await expect(storageRemount({ name: "swap" }, { run, files: { readFile: async () => withSwap, readable: async () => true } }))
       .rejects.toThrow("not a drive mounted at /mnt/swap");
     expect(run.mock.calls.some(([binary]) => binary.endsWith("umount"))).toBe(false);
   });
 
   it("refuses a mount BoxPilot does not manage, and an invalid name", async () => {
     const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
-    await expect(storageRemount({ name: "not-ours" }, { run, files: { readFile: async () => fstab, exists: async () => false } })).rejects.toThrow("not a BoxPilot-managed mount");
-    await expect(storageRemount({ name: "../etc" }, { run, files: { readFile: async () => fstab, exists: async () => false } })).rejects.toThrow("Name is invalid");
+    await expect(storageRemount({ name: "not-ours" }, { run, files: { readFile: async () => fstab, readable: async () => false } })).rejects.toThrow("not a BoxPilot-managed mount");
+    await expect(storageRemount({ name: "../etc" }, { run, files: { readFile: async () => fstab, readable: async () => false } })).rejects.toThrow("Name is invalid");
     expect(run.mock.calls.some(([binary]) => binary.endsWith("umount"))).toBe(false);
   });
 
@@ -263,6 +284,6 @@ describe("reconnecting a drive that came back under a new name", () => {
       if (binary.endsWith("mount") && !binary.endsWith("umount")) return { ok: false, stdout: "", stderr: "mount: /mnt/the-dump: can't find UUID=0023-7927" };
       return { ok: true, stdout: "", stderr: "" };
     });
-    await expect(storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab, exists: async () => false } })).rejects.toThrow("may be unplugged");
+    await expect(storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab, readable: async () => false } })).rejects.toThrow("may be unplugged");
   });
 });
