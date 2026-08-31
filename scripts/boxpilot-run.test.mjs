@@ -39,6 +39,34 @@ describe("boxpilot-run task runner", () => {
     await expect(runTask("../etc/passwd", { now, taskTable })).rejects.toThrow("UUID");
   });
 
+  it("hands tasks a run that writes every command into the job log, commands only", async () => {
+    const logDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-runlog-"));
+    process.env.BOXPILOT_JOB_LOG_DIRECTORY = logDirectory;
+    vi.resetModules();
+    try {
+      const { runTask } = await import("./boxpilot-run.mjs");
+      const jobId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
+      await writeFile(path.join(directory, `${id}.json`), JSON.stringify({ task: "apt.update", parameters: {}, approvedAt: now().toISOString(), timeoutMs: 5000, logPath: path.join(logDirectory, `${jobId}.log`) }));
+      const taskTable = { "apt.update": async (_parameters, { run }) => {
+        const good = await run("/bin/echo", ["s3cret-on-stdout"]);   // stdout must NOT reach the log
+        const bad = await run("/bin/sh", ["-c", "echo broken >&2; exit 3"]);
+        return { good: good.ok, bad: bad.ok };
+      } };
+      await expect(runTask(id, { now, taskTable })).resolves.toEqual({ ok: true, task: "apt.update", result: { good: true, bad: false } });
+      const logged = await readFile(path.join(logDirectory, `${jobId}.log`), "utf8");
+      expect(logged).toContain("$ echo s3cret-on-stdout");
+      expect(logged).not.toContain("s3cret-on-stdout\n$"); // the command line appears; the stdout does not
+      expect(logged.split("s3cret-on-stdout").length).toBe(2); // exactly once: in the command, never as output
+      expect(logged).toContain("$ sh -c echo broken >&2; exit 3");
+      expect(logged).toContain("(exit 3)");
+      expect(logged).toContain("broken");
+    } finally {
+      delete process.env.BOXPILOT_JOB_LOG_DIRECTORY;
+      await rm(logDirectory, { recursive: true, force: true });
+      vi.resetModules();
+    }
+  });
+
   it("records task failures as a result instead of crashing", async () => {
     const { runTask } = await import("./boxpilot-run.mjs");
     await writeFile(path.join(directory, `${id}.json`), JSON.stringify({ task: "apt.update", parameters: {}, approvedAt: now().toISOString(), timeoutMs: 5000 }));
