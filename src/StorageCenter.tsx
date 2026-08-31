@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { ViewName } from "./data";
 import { appFolders, buildStorageMap, type MapApp, type MapSambaShare, type StorageMapEntry } from "./storageMap";
 import { useTailnetHosts } from "./tailnetHosts";
+import ConnectPaths from "./ConnectPaths";
 import { readJson } from "./http";
 import { validShareName } from "./shareName";
 import { useOperation } from "./ApproveDialog";
@@ -68,6 +69,7 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
   const [mapApps, setMapApps] = useState<MapApp[]>([]);
   const [mapShares, setMapShares] = useState<MapSambaShare[]>([]);
   const tailnetHosts = useTailnetHosts();
+  const [shareHost, setShareHost] = useState<string | null>(null);
   const [fsSnapshots, setFsSnapshots] = useState<{ supported: boolean; btrfs: { filesystems: Array<{ target: string; source: string | null; snapshots: Array<{ name: string; path: string }> }> }; zfs: { datasets: Array<{ name: string; mountpoint: string | null; snapshots: Array<{ name: string; path: string; used?: string | null }> }> } } | null>(null);
   const [fsSnapshotName, setFsSnapshotName] = useState<Record<string, string>>({});
 
@@ -79,7 +81,10 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
       fetch("/api/v1/storage/forecast").then((response) => (response.ok ? response.json() : { forecasts: [] })).then((body: { forecasts?: Forecast[] }) => setForecasts(body.forecasts ?? [])).catch(() => {});
       // For the storage map: which apps mount which folders, and which folders are served as shares.
       fetch("/api/v1/catalog").then((response) => (response.ok ? response.json() : null)).then((body: { applications?: Parameters<typeof appFolders>[0] } | null) => setMapApps(body?.applications ? appFolders(body.applications) : [])).catch(() => {});
-      fetch("/api/v1/storage/samba").then((response) => (response.ok ? response.json() : null)).then((body: { config?: { shares?: MapSambaShare[] } } | null) => setMapShares(body?.config?.shares ?? [])).catch(() => {});
+      fetch("/api/v1/storage/samba").then((response) => (response.ok ? response.json() : null)).then((body: { config?: { shares?: MapSambaShare[]; scope?: string }; lanAddress?: string | null; tailscaleDnsName?: string | null } | null) => {
+        setMapShares(body?.config?.shares ?? []);
+        setShareHost(body ? (body.config?.scope === "lan" ? body.lanAddress ?? body.tailscaleDnsName : body.tailscaleDnsName ?? body.lanAddress) ?? null : null);
+      }).catch(() => {});
       fetch("/api/v1/operations/storage.fs-snapshots.inspect/inspect").then((response) => (response.ok ? response.json() : null)).then((body: { result?: NonNullable<typeof fsSnapshots> } | null) => setFsSnapshots(body?.result ?? null)).catch(() => {});
       setRefreshKey((key) => key + 1);
     } catch (requestError) {
@@ -193,6 +198,18 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
                     {usedShare === null && entry.daysToFull !== null && <p className="muted">Fills in ~{entry.daysToFull} days at the current rate.</p>}
                     <div className="storage-map-row"><span className="eyebrow">Apps</span>{entry.apps.length ? entry.apps.map((app) => <span className="chip" key={app.id + app.path} title={app.path}>{app.name}</span>) : <span className="muted">none yet</span>}</div>
                     <div className="storage-map-row"><span className="eyebrow">Shared as</span>{entry.shares.length ? entry.shares.map((share) => <span className="chip" key={share.name}>{share.name}{share.recycle ? " · recycle bin" : ""}</span>) : <span className="muted">not shared</span>}</div>
+                    {/* The address to type on each machine, right where the share is named. */}
+                    {entry.shares.length > 0 && shareHost && (
+                      <details className="storage-map-connect">
+                        <summary>How to open {entry.shares.length === 1 ? "it" : "these"} from another computer</summary>
+                        {entry.shares.map((share) => (
+                          <div key={share.name}>
+                            {entry.shares.length > 1 && <span className="eyebrow">{share.name}</span>}
+                            <ConnectPaths host={shareHost} share={share.name} compact />
+                          </div>
+                        ))}
+                      </details>
+                    )}
                   </article>
                 );
               })}
