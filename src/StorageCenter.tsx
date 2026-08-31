@@ -26,7 +26,9 @@ function gib(bytes: number | null): string {
   if (bytes === null) return "—";
   return bytes >= 1024 ** 4 ? `${(bytes / 1024 ** 4).toFixed(1)} TiB` : `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
 }
-const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
+// 31, not 32: a share name maxes at 31 chars (shareNamePattern), so a 32-char mount name prefilled
+// into "Share on network" would otherwise disable the form with no hint as to why.
+const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 31);
 /** Backups sync to this exact mount point; see server/machine-snapshot-helper.mjs. */
 const BACKUP_MOUNT_NAME = "boxpilot-backup";
 
@@ -67,7 +69,7 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
   const [mapShares, setMapShares] = useState<MapSambaShare[]>([]);
   const tailnetHosts = useTailnetHosts();
   const [fsSnapshots, setFsSnapshots] = useState<{ supported: boolean; btrfs: { filesystems: Array<{ target: string; source: string | null; snapshots: Array<{ name: string; path: string }> }> }; zfs: { datasets: Array<{ name: string; mountpoint: string | null; snapshots: Array<{ name: string; path: string; used?: string | null }> }> } } | null>(null);
-  const [fsSnapshotName, setFsSnapshotName] = useState("");
+  const [fsSnapshotName, setFsSnapshotName] = useState<Record<string, string>>({});
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -310,13 +312,19 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
                 </ul>
               )}
               <div className="recovery-actions">
-                <input aria-label={`Snapshot name for ${entry.target}`} placeholder="before-upgrade" value={fsSnapshotName} onChange={(event) => setFsSnapshotName(event.target.value)} />
-                <button className="secondary-button" type="button" disabled={!/^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/.test(fsSnapshotName)} onClick={() => start({
-                  operationId: "storage.fs-snapshot.create",
-                  title: `Snapshot ${entry.target}`,
-                  parameters: { kind: entry.kind, target: entry.target, name: fsSnapshotName },
-                  preview: <span>{entry.kind === "btrfs" ? <>Creates a read-only btrfs snapshot at <code>{entry.target}/.boxpilot-snapshots/{fsSnapshotName}</code>.</> : <>Creates the ZFS snapshot <code>{entry.target}@{fsSnapshotName}</code>.</>} Instant, and shares space with the live data until it changes.</span>,
-                })}>Take a snapshot</button>
+                {(() => {
+                  const key = `${entry.kind}:${entry.target}`;
+                  const value = fsSnapshotName[key] ?? "";
+                  return <>
+                    <input aria-label={`Snapshot name for ${entry.target}`} placeholder="before-upgrade" value={value} onChange={(event) => setFsSnapshotName((current) => ({ ...current, [key]: event.target.value }))} />
+                    <button className="secondary-button" type="button" disabled={!/^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/.test(value)} onClick={() => start({
+                      operationId: "storage.fs-snapshot.create",
+                      title: `Snapshot ${entry.target}`,
+                      parameters: { kind: entry.kind, target: entry.target, name: value },
+                      preview: <span>{entry.kind === "btrfs" ? <>Creates a read-only btrfs snapshot at <code>{entry.target}/.boxpilot-snapshots/{value}</code>.</> : <>Creates the ZFS snapshot <code>{entry.target}@{value}</code>.</>} Instant, and shares space with the live data until it changes.</span>,
+                    })}>Take a snapshot</button>
+                  </>;
+                })()}
               </div>
             </div>
           ))}

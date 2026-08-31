@@ -241,7 +241,7 @@ export const inspections = {
   "app.config.inspect": { id: "homepage", name: "Homepage", directory: "/var/lib/boxpilot-managed/catalog/homepage", compose: "name: bp-homepage\nservices:\n  homepage:\n    image: ghcr.io/gethomepage/homepage:v1.5.0\n    restart: unless-stopped\n    ports:\n      - 192.168.1.10:3000:3000\n", env: [{ name: "HOMEPAGE_ALLOWED_HOSTS", value: "*", secret: false }, { name: "PUID", value: "1000", secret: false }, { name: "SECRET", value: "********", secret: true }] },
   // Every dialog the interface can open needs an answer here; see scripts/demo-fixtures.test.mjs.
   "app.vpn.inspect": { id: "qbittorrent", tunneled: true, sidecarId: "vpn", running: true, status: "running", exit: { ip: "203.0.113.7", location: "Netherlands, North Holland, Amsterdam", at: "2026-08-25T03:00:00Z" } },
-  "storage.fs-snapshots.inspect": { supported: true, btrfs: { toolPresent: true, filesystems: [{ target: "/mnt/pool", source: "/dev/sdc1", snapshots: [{ name: "before-reorg", path: "/mnt/pool/.boxpilot-snapshots/before-reorg" }] }] }, zfs: { toolPresent: false, datasets: [] } },
+  "storage.fs-snapshots.inspect": { supported: true, btrfs: { toolPresent: true, filesystems: [{ target: "/mnt/pool", source: "/dev/sdc1", snapshots: [{ name: "before-reorg", path: "/mnt/pool/.boxpilot-snapshots/before-reorg" }] }] }, zfs: { toolPresent: true, datasets: [{ name: "tank/media", mountpoint: "/tank/media", snapshots: [{ name: "nightly", path: "tank/media@nightly", used: "1.2G" }] }] } },
   "compose.project.logs": { name: "old-wordpress", lines: [
     "wordpress_1  | [28-Aug-2026] WordPress database connection failed",
     "db_1         | 2026-08-28  [Warning] Aborted connection to db",

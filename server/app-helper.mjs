@@ -5,7 +5,7 @@
  */
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chown, mkdir, readFile, readdir, rename, rm, stat, writeFile, realpath } from "node:fs/promises";
+import { lchown, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
 import { fixedRun } from "./exec.mjs";
@@ -20,6 +20,28 @@ import { profileConnectionEnv, profileSecurityEnv } from "./vpn-profile.mjs";
 const actions = Object.freeze(["start", "stop", "restart", "pause", "unpause"]);
 const idPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
 export const backupNamePattern = /^\d{8}T\d{6}Z\.tar\.gz$/;
+
+/**
+ * Canonicalise a path for the deny-list check even when its leaf does not exist yet: resolve every
+ * symlink in the longest existing prefix, then re-attach the not-yet-created tail. Without this a
+ * symlink anywhere along the path (`/srv/app/x -> /etc`) would let a root-side mkdir or chown be
+ * walked into a protected location before the string-only deny check ever sees the real target.
+ */
+export async function resolveExisting(target, { realpath: resolve = realpath } = {}) {
+  let current = path.resolve(target);
+  const tail = [];
+  for (;;) {
+    try {
+      const real = await resolve(current);
+      return tail.length ? path.join(real, ...tail) : real;
+    } catch {
+      const parent = path.dirname(current);
+      if (parent === current) return path.resolve(target); // reached the filesystem root unresolved
+      tail.unshift(path.basename(current));
+      current = parent;
+    }
+  }
+}
 
 async function sha256File(target) {
   const hash = createHash("sha256");
@@ -70,8 +92,11 @@ export function createAppHelper({
   clock = () => new Date(),
   lanAddress = "0.0.0.0",
   listDevices = (directory) => readdir(directory),
-  chownDirectory = (target, uid, gid) => chown(target, uid, gid),
+  // lchown, not chown: never follow a final symlink when handing a folder to the app's user. On a
+  // real directory it is identical to chown; on a symlink it touches the link, not its target.
+  chownDirectory = (target, uid, gid) => lchown(target, uid, gid),
   statPath = (target) => stat(target),
+  lstatPath = (target) => lstat(target),
   tailscaleBinary = process.env.BOXPILOT_TAILSCALE_BINARY ?? "/usr/bin/tailscale",
   vpnProfile = null,
 } = {}) {
@@ -200,9 +225,18 @@ export function createAppHelper({
 
   /** What boxpilot.json persists: never secrets, never values the operator cannot change. */
   function storableValues(manifest, values, env) {
+    const profileActive = manifest.usesVpnProfile && env?.USE_VPN_PROFILE === "on";
     return {
       ports: values.ports,
-      env: Object.fromEntries(Object.entries(env).filter(([name]) => !manifest.env.find((entry) => entry.name === name)?.secret)),
+      env: Object.fromEntries(Object.entries(env).filter(([name]) => {
+        const entry = manifest.env.find((field) => field.name === name);
+        if (entry?.secret) return false;
+        // When the shared VPN profile drives this app, its connection values are injected fresh on
+        // every deploy. Persisting them would copy the owner-only profile into per-app state, which
+        // GET /catalog returns to any role, and could leave a stale copy behind. Re-derived, never stored.
+        if (profileActive && entry?.fromVpnProfile) return false;
+        return true;
+      })),
       volumes: Object.fromEntries(Object.entries(values.volumes).filter(([id]) => manifest.volumes.find((volume) => volume.id === id)?.configurable)),
       // Persist the owner's exposure and network-mode choices so the settings form reflects them
       // and a later reconfigure keeps them rather than silently reverting to the manifest default.
@@ -324,21 +358,25 @@ export function createAppHelper({
       const chosen = values.volumes?.[volume.id] ?? volume.hostPath;
       // Only folders meant to hold data: every system mount a manifest declares is on the deny list.
       if (!chosen || isDeniedHostPath(chosen)) continue;
-      const info = await statPath(chosen).catch(() => null);
+      // Resolve symlinks (intermediate ones and a not-yet-created leaf) and re-check the deny list
+      // BEFORE creating or chowning anything. Root must never be walked through a symlink into a
+      // protected location; a curated manifest default that resolves into one is skipped, an
+      // owner-chosen path that does is refused. This is the invariant the subdirectory layout below
+      // already relied on, now enforced for the data folder itself and before any mutation.
+      const real = await resolveExisting(chosen);
+      if (isDeniedHostPath(real)) {
+        if (chosen === volume.hostPath) continue;
+        throw new Error(`${chosen} resolves to ${real}, a protected system location; pick a folder under /srv, /mnt, /media, or your home`);
+      }
+      const info = await lstatPath(chosen).catch(() => null);
       if (!info) {
         await mkdir(chosen, { recursive: true, mode: 0o755 }).catch(() => {});
         if (runsAs) await chownDirectory(chosen, runsAs.uid, runsAs.gid).catch(() => {});
+      } else if (info.isSymbolicLink?.()) {
+        continue; // a symlink where a data folder should be: never claim it, never chown through it
       } else if (runsAs && runsAs.uid !== 0 && !volume.readOnly && info.uid === 0) {
         await chownDirectory(chosen, runsAs.uid, runsAs.gid).catch(() => {});
       }
-    }
-    for (const volume of manifest.volumes) {
-      const hostPath = values.volumes?.[volume.id];
-      // Only paths the owner changed are checked: the manifest's own mounts (e.g. the Docker socket, which
-      // lives under /run) are curated and already carry the app's risk tier.
-      if (!hostPath || hostPath === volume.hostPath) continue;
-      const real = await realpath(hostPath).catch(() => hostPath);
-      if (isDeniedHostPath(real)) throw new Error(`${hostPath} resolves to ${real}, a protected system location; pick a folder under /srv, /mnt, /media, or your home`);
     }
     // The layout the manifest promises inside a data folder (a torrents/ the client writes into,
     // a tv/ the library reads) exists before the first app goes looking for it. This runs after

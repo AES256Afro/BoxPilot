@@ -86,7 +86,7 @@ export function createSchedulerService({ store, jobs, registry = defaultRegistry
 
   /** What the schedule acts on, for the panel to show — the subject, not the whole parameter set. */
   function describeParameters(parameters) {
-    const subject = parameters?.id ?? parameters?.name ?? parameters?.unit ?? parameters?.device ?? null;
+    const subject = parameters?.id ?? parameters?.name ?? parameters?.unit ?? parameters?.device ?? parameters?.share ?? null;
     return subject === null ? {} : { subject: String(subject).slice(0, 64) };
   }
 
