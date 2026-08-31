@@ -54,13 +54,45 @@ describe("Repair Center", () => {
 
     expect(await screen.findByText("Restricted helper")).toBeTruthy();
     expect(screen.getByText("Docker Engine")).toBeTruthy();
-    expect(screen.getByText("Recovery readiness and ordered runbook")).toBeTruthy();
-    expect(screen.getByText("Prioritized evidence and guided next steps")).toBeTruthy();
-    expect(screen.getByText("BoxPilot shows the steps; you decide when to run them.")).toBeTruthy();
+    expect(screen.getByText("What you would need, and what you have")).toBeTruthy();
+    expect(screen.getByText("Noticed on this server")).toBeTruthy();
     expect(screen.getByText("Independent BoxPilot database copy")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Download as JSON" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Verify the helper" }));
+    expect(screen.getByRole("button", { name: "Download the rebuild steps" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download the raw data" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Check it" }));
     expect(await screen.findByText(/version 0.61.0/)).toBeTruthy();
+  });
+
+  it("puts problems first, with the fix each one needs, and stages it on click", async () => {
+    // The failure this page was rebuilt around: a drive that came back under a new kernel name,
+    // leaving the mount pointing at nothing while every other check on the box looked fine.
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+    let staged: unknown = null;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.includes("prerequisites")) return json({ checks: [] });
+      if (url.includes("action-center") || url.includes("recovery-kit")) return json({ error: "unavailable" }, 503);
+      if (url.includes("/remediations")) return json({
+        counts: { critical: 1, warning: 0, info: 1 },
+        findings: [
+          { id: "stale-mount:the-dump", severity: "critical", title: "/mnt/the-dump is mounted from a drive that is gone", detail: "The mount still points at /dev/sda2, which no longer exists.", evidence: ["mounted from /dev/sda2"], fix: { operationId: "storage.remount", parameters: { name: "the-dump" }, label: "Reconnect the drive", preview: "Mounts it again from fstab." }, manual: null },
+          { id: "share-unwritable:media", severity: "info", title: "Nobody can write to the media share", detail: "Owned by root.", evidence: [], fix: null, manual: "Hand the folder to a user on the Storage page." },
+        ],
+      });
+      if (url.includes("/operations/storage.remount/jobs")) { staged = JSON.parse(String(init?.body)); return json({ job: { id: "j1", title: "Reconnect the drive", state: "awaiting_approval", risk: "medium", steps: [], error: null } }); }
+      return json({ jobs: [] });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { unmount } = render(<RepairCenter csrfToken="csrf-token" />);
+
+    expect(await screen.findByText("2 things to fix")).toBeTruthy();
+    expect(screen.getByText("/mnt/the-dump is mounted from a drive that is gone")).toBeTruthy();
+    // A finding with no automatic fix shows what to do by hand instead of an unusable button.
+    expect(screen.getByText("Hand the folder to a user on the Storage page.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect the drive" }));
+    await waitFor(() => expect(staged).toMatchObject({ parameters: { name: "the-dump" } }));
+    unmount();
   });
 
   it("approves a low-risk job with one click and asks for the password only when the policy requires it", async () => {

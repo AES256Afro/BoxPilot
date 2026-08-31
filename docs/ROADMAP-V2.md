@@ -623,6 +623,18 @@ This arc makes local access first-class — reachable and encrypted — without 
   `server/network.mjs` (read-only, unprivileged, keys and endpoints never pass through),
   `GET /api/v1/network/tailnet`, `src/TailnetPanel.tsx`. **Remaining:** turning rows into pickers
   (grant a share to a device, open its address) once a concrete action needs one.
+- ✅ **M6.6** (v1.93.0) **Repair says what is wrong and fixes it.** The page opened with a
+  prerequisite inventory, which is the least urgent thing on it, and offered no repairs at all. It
+  now opens with the problems found on this server, worst first, each with the operation that fixes
+  it staged as a normal job with a preview. Every detector is a failure that actually happened here:
+  a mount whose drive came back under a different name (findmnt and df both still look healthy while
+  every read fails), a container still bound to the filesystem that was mounted when it started, a
+  share nobody can write to, a drive with no permissions of its own mounted without a uid, an app
+  that cannot write its own data folder, a VPN kill switch that leaked, and a backup whose rehearsal
+  failed. Detection is pure (`server/remediations.mjs`) so each is tested against the situation that
+  produced it; the fix for the mount case is the new `storage.remount`. Copy across the page was
+  rewritten from architecture language into what the reader would say.
+
 - ✅ **M22.5** (v1.88.0) **Windows can find the server.** A healthy Samba share is reachable by
   typing `\\host\share` but never appears under Network in Windows File Explorer, because Windows
   browses with WS-Discovery and Samba does not speak it (nmbd's NetBIOS browsing is off by default in

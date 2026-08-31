@@ -77,6 +77,16 @@ interface ActionCenter {
   boundary: { mutationPerformed: boolean; automaticRepair: boolean; persistence: boolean; browserNotifications: boolean; externalDelivery: boolean; credentialsIncluded: boolean; arbitraryLogsIncluded: boolean };
 }
 
+interface Remediation {
+  id: string;
+  severity: "critical" | "warning" | "info";
+  title: string;
+  detail: string;
+  evidence: string[];
+  fix: { operationId: string; parameters: Record<string, unknown>; label: string; preview: string } | null;
+  manual: string | null;
+}
+
 export default function RepairCenter({ csrfToken, onNavigate = () => undefined }: { csrfToken: string; onNavigate?: (view: ViewName) => void }) {
   const [checks, setChecks] = useState<Prerequisite[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -90,6 +100,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
   const [approvalPolicy, setApprovalPolicy] = useState<ApprovalPolicy | null>(null);
   const [pending, setPending] = useState(false);
   const [canaryResult, setCanaryResult] = useState<string | null>(null);
+  const [remediations, setRemediations] = useState<{ findings: Remediation[]; counts: { critical: number; warning: number; info: number } } | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -99,12 +110,15 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
     try {
       // The fetches must start before allSettled sees them, or they run one after another and a
       // dropped connection escapes to the outer catch instead of failing just its own collector.
-      const [prerequisiteResult, jobResult, recoveryResult, actionResult] = await Promise.allSettled([
+      const [prerequisiteResult, jobResult, recoveryResult, actionResult, remediationResult] = await Promise.allSettled([
         fetch("/api/v1/operations/prerequisites").then((response) => readJson<{ checks: Prerequisite[] }>(response)),
         fetch("/api/v1/jobs?limit=25").then((response) => readJson<{ jobs: Job[] }>(response)),
         fetch("/api/v1/operations/recovery-kit").then((response) => readJson<RecoveryKit>(response)),
         fetch("/api/v1/operations/action-center").then((response) => readJson<ActionCenter>(response)),
+        fetch("/api/v1/remediations").then((response) => readJson<{ findings: Remediation[]; counts: { critical: number; warning: number; info: number } }>(response)),
       ]);
+      // A problem sweep that cannot run must not take the page down with it.
+      setRemediations(remediationResult.status === "fulfilled" ? remediationResult.value : null);
       if (actionResult.status === "fulfilled") setActionCenter(actionResult.value);
       else {
         setActionCenter(null);
@@ -239,11 +253,52 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
     setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
+  const problems = remediations?.findings ?? [];
+  const worst = problems[0]?.severity;
+
   return (
     <div className="repair-page">
       <section className="repair-readiness">
-        <div><span className="eyebrow">Live prerequisite inventory</span><strong>{loading ? "Inspecting this server..." : `${ready} of ${checks.length} checks ready`}</strong><p>Missing and conflicting requirements are reported independently, so one failed collector does not hide the others.</p></div>
-        <button className="secondary-button" type="button" onClick={() => void refresh()} disabled={loading}>{loading ? "Inspecting..." : "Run inspection"}</button>
+        <div>
+          <span className="eyebrow">Repair</span>
+          <strong>{loading ? "Checking this server..." : problems.length === 0 ? "Nothing needs fixing" : `${problems.length} thing${problems.length === 1 ? "" : "s"} to fix`}</strong>
+          <p>{problems.length === 0 ? "Everything BoxPilot knows how to check is working. Prerequisites and recovery evidence are below." : "Each one says what is wrong and what fixes it. Nothing runs until you approve it."}</p>
+        </div>
+        <button className="secondary-button" type="button" onClick={() => void refresh()} disabled={loading}>{loading ? "Checking..." : "Check again"}</button>
+      </section>
+
+      {/* Problems first: this page used to open with a prerequisite inventory, which is the least
+          urgent thing on it. Every entry here was a real failure that took a shell to explain. */}
+      {problems.length > 0 && (
+        <section className={`panel repair-problems repair-worst-${worst}`}>
+          <header className="panel-header">
+            <div><strong>Fix these</strong><span>Worst first. Each fix is a normal job: you see exactly what it will do before it runs.</span></div>
+            <div className="action-counts">
+              {remediations!.counts.critical > 0 && <span className="action-critical">{remediations!.counts.critical} serious</span>}
+              {remediations!.counts.warning > 0 && <span className="action-warning">{remediations!.counts.warning} to look at</span>}
+              {remediations!.counts.info > 0 && <span>{remediations!.counts.info} worth knowing</span>}
+            </div>
+          </header>
+          <div className="problem-list">
+            {problems.map((problem) => (
+              <article className={`problem-card problem-${problem.severity}`} key={problem.id}>
+                <div className="problem-heading">
+                  <strong>{problem.title}</strong>
+                  <span className={`status-pill status-${problem.severity === "critical" ? "warning" : problem.severity === "warning" ? "warning" : "neutral"}`}>{problem.severity === "critical" ? "serious" : problem.severity === "warning" ? "look at this" : "worth knowing"}</span>
+                </div>
+                <p>{problem.detail}</p>
+                {problem.evidence.length > 0 && <ul className="problem-evidence">{problem.evidence.map((line) => <li key={line}>{line}</li>)}</ul>}
+                {problem.fix
+                  ? <button className="primary-button" type="button" onClick={() => startOperation({ operationId: problem.fix!.operationId, title: problem.fix!.label, parameters: problem.fix!.parameters, preview: <span>{problem.fix!.preview}</span> })}>{problem.fix.label}</button>
+                  : <p className="problem-manual">{problem.manual}</p>}
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="repair-readiness repair-prereq-header">
+        <div><span className="eyebrow">Prerequisites</span><strong>{loading ? "Checking..." : `${ready} of ${checks.length} ready`}</strong><p>The tools BoxPilot needs installed. Each is checked on its own, so one failure does not hide the rest.</p></div>
       </section>
 
       {error && <div className="auth-error" role="alert">{error}</div>}
@@ -254,7 +309,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       {actionCenter && (
         <section className="panel action-center">
           <header className="panel-header">
-            <div><span className="eyebrow">Local Action Center</span><strong>Prioritized evidence and guided next steps</strong><span>Generated {new Date(actionCenter.generatedAt).toLocaleString()} | {actionCenter.sourceStatus === "ready" ? "Recovery evidence available" : "Evidence unavailable, failed closed"}</span></div>
+            <div><span className="eyebrow">Worth attention</span><strong>Noticed on this server</strong><span>Checked {new Date(actionCenter.generatedAt).toLocaleString()}{actionCenter.sourceStatus === "ready" ? "" : " · some evidence could not be read, so this list may be short"}</span></div>
             <div className="action-counts"><span className="action-critical">{actionCenter.summary.critical} critical</span><span className="action-warning">{actionCenter.summary.warning} warning</span><span>{actionCenter.summary.info} info</span></div>
           </header>
           <div className="action-list">
@@ -262,9 +317,9 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
               <article className={`action-card action-${item.severity}`} key={item.id}>
                 <div className="action-card-heading"><div><span>{item.category}</span><strong>{item.title}</strong></div><span className={`status-pill status-${item.severity === "critical" || item.severity === "warning" ? "warning" : "neutral"}`}>{item.severity}</span></div>
                 <p>{item.summary}</p>
-                <div className="action-evidence"><strong>Why this appears</strong>{item.evidence.map((evidence) => <span key={evidence}>{evidence}</span>)}</div>
+                <div className="action-evidence"><strong>What was seen</strong>{item.evidence.map((evidence) => <span key={evidence}>{evidence}</span>)}</div>
                 <ol>{item.recommendation.steps.map((step) => <li key={step}>{step}</li>)}</ol>
-                <footer><span>BoxPilot shows the steps; you decide when to run them.</span><button className="secondary-button" type="button" onClick={() => onNavigate(item.recommendation.view)}>{item.recommendation.title}</button></footer>
+                <footer><span>Take me to it</span><button className="secondary-button" type="button" onClick={() => onNavigate(item.recommendation.view)}>{item.recommendation.title}</button></footer>
               </article>
             ))}
           </div>
@@ -274,7 +329,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       {recoveryKit && (
         <section className="panel recovery-kit">
           <header className="panel-header">
-            <div><span className="eyebrow">Secret-free disaster recovery kit</span><strong>Recovery readiness and ordered runbook</strong><span>Generated {new Date(recoveryKit.generatedAt).toLocaleString()} | BoxPilot {recoveryKit.product.version}</span></div>
+            <div><span className="eyebrow">If you had to rebuild this server</span><strong>What you would need, and what you have</strong><span>Checked {new Date(recoveryKit.generatedAt).toLocaleString()} · BoxPilot {recoveryKit.product.version} · contains no passwords or keys, so it is safe to keep a copy off the box</span></div>
             <span className={`status-pill status-${recoveryKit.summary.actionRequired > 0 ? "warning" : "neutral"}`}>{recoveryKit.summary.status.replaceAll("-", " ")}</span>
           </header>
           <div className="recovery-summary">
@@ -299,14 +354,13 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
             <span>{recoveryKit.evidence.applications?.length ?? 0} installed apps</span>
             <span>{recoveryKit.evidence.vmBackups?.length ?? 0} VM backups</span>
           </div>
-          <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => downloadRecoveryKit("json")}>Download as JSON</button><button className="secondary-button" type="button" onClick={() => downloadRecoveryKit("markdown")}>Download recovery runbook</button></footer>
+          <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => downloadRecoveryKit("markdown")}>Download the rebuild steps</button><button className="secondary-button" type="button" onClick={() => downloadRecoveryKit("json")}>Download the raw data</button></footer>
         </section>
       )}
 
       <div className="repair-layout">
         <section className="panel repair-checks">
-          <header className="panel-header"><div><strong>Prerequisites</strong><span>What this server has, and what it still needs</span></div></header>
-          {checks.map((item) => (
+                    {checks.map((item) => (
             <article className="repair-check" key={item.id}>
               <span className={`repair-state repair-${item.status}`}>{item.status}</span>
               <div><small>{item.group}</small><strong>{item.name}</strong><p>{item.summary}</p>{item.repair && <em>{item.repair.description}</em>}{item.repair?.kind === "approved" && repairDefinitions[item.id] && <button className="secondary-button repair-plan-button" type="button" onClick={() => void reviewRepair(item.id)} disabled={pending}>Review exact repair</button>}</div>
@@ -316,12 +370,12 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
 
         <aside className="panel helper-canary">
           <span className="eyebrow">{awaitingApproval ? "Approval desk" : "Helper check"}</span>
-          <h3>{awaitingApproval ? awaitingApproval.title : "Is the root helper answering?"}</h3>
-          <p>{awaitingApproval ? "Check what this job will do, then approve it." : "Asks the helper that does root work to identify itself. It changes nothing on the server."}</p>
+          <h3>{awaitingApproval ? awaitingApproval.title : "Can BoxPilot still do root work?"}</h3>
+          <p>{awaitingApproval ? "Check what this job will do, then approve it." : "Asks the part of BoxPilot that runs as root to answer. If it does not, nothing that changes this server will work. Changes nothing itself."}</p>
           {awaitingApproval && <p className="job-recovery"><strong>{awaitingApproval.risk} risk:</strong> {awaitingApproval.recovery?.reason ?? "Follow the recorded recovery instructions if verification fails."}</p>}
           {!awaitingApproval ? (
             <>
-              <button className="primary-button" type="button" onClick={() => void runCanary()} disabled={pending}>{pending ? "Verifying..." : "Verify the helper"}</button>
+              <button className="primary-button" type="button" onClick={() => void runCanary()} disabled={pending}>{pending ? "Checking..." : "Check it"}</button>
               {canaryResult && <p className="good-text">{canaryResult}</p>}
             </>
           ) : (
@@ -346,10 +400,10 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       </div>
 
       <section className="panel job-history">
-        <header className="panel-header"><div><strong>Durable jobs</strong><span>Plans, approvals, execution, and verification survive service restarts</span></div></header>
+        <header className="panel-header"><div><strong>Recent jobs</strong><span>Everything BoxPilot has run, with each step it took. Kept across restarts.</span></div></header>
         {jobs.length === 0 ? <div className="log-empty">No jobs yet.</div> : jobs.map((job) => (
           <details className="job-row" key={job.id} open={job === jobs[0]}>
-            <summary><div><strong>{job.title}</strong><span>{job.risk} risk | {job.steps.length} recorded steps</span></div><span className={`status-pill status-${job.state === "completed" ? "good" : job.state === "failed" ? "warning" : "neutral"}`}>{job.state.replaceAll("_", " ")}</span></summary>
+            <summary><div><strong>{job.title}</strong><span>{job.risk} risk · {job.steps.length} steps</span></div><span className={`status-pill status-${job.state === "completed" ? "good" : job.state === "failed" ? "warning" : "neutral"}`}>{job.state.replaceAll("_", " ")}</span></summary>
             <div className="job-steps">{job.steps.map((step, index) => <div key={`${step.createdAt}-${index}`}><span>{step.state}</span><strong>{step.name}</strong><p>{step.detail}</p></div>)}</div>
             {job.error && <p className="job-error">{job.error}</p>}
             {job.recovery?.manual && <p className="job-recovery"><strong>Recovery:</strong> {job.recovery.manual}</p>}

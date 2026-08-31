@@ -11,6 +11,8 @@ import { findPortConflicts, listListeners } from "../ports.mjs";
 import { resolveValues } from "../catalog/schema.mjs";
 import { hashPassword, renderAutoinstall, validateAutoinstallInput } from "../autoinstall.mjs";
 import { readTlsStatus } from "../tls-status.mjs";
+import { collectStorage } from "../storage-inventory.mjs";
+import { detectRemediations } from "../remediations.mjs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -116,6 +118,55 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
   });
 
   // Capability matrix: booleans, enums, and counts derived from the operation registry (M1.6).
+  /**
+   * Everything wrong with this server right now that BoxPilot knows how to fix, gathered from both
+   * sides: the filesystem facts this process can read, the per-app state the helper reports, and the
+   * verdicts recorded from earlier drills. Read-only — it finds problems and names the operation
+   * that fixes each one; nothing runs until the owner approves it.
+   */
+  router.get("/remediations", async (_request, response) => {
+    const facts = { mounts: [], devices: [], containers: [], shares: [], apps: [], samba: null };
+    const [storage, live, samba] = await Promise.all([
+      collectStorage().catch(() => null),
+      helper.request("app.inspect", {}, { timeoutMs: 30_000 }).catch(() => null),
+      helper.request("samba.inspect", {}, { timeoutMs: 30_000 }).catch(() => null),
+    ]);
+    if (storage) {
+      // findmnt knows what is mounted; fstab knows which of those BoxPilot manages and with what
+      // options. Only managed mounts are offered a fix, so a hand-made entry is never touched.
+      const byMountpoint = new Map((storage.fstab ?? []).map((row) => [row.mountpoint, row]));
+      facts.mounts = (storage.mounts ?? []).map((mount) => {
+        const entry = byMountpoint.get(mount.target);
+        return { ...mount, managedName: entry?.managedName ?? null, options: entry?.options ?? null };
+      });
+      facts.devices = (storage.devices ?? []).filter((device) => device.path).map((device) => ({ path: device.path }));
+    }
+    if (samba?.configured) {
+      const shares = samba.config?.shares ?? [];
+      facts.samba = { configured: true, scope: samba.config?.scope ?? "tailscale", shareCount: shares.length, discoveryRunning: Boolean(samba.discovery?.running) };
+      // A share is unwritable when its folder is root-owned and no force user was resolved for it.
+      facts.shares = shares.map((share) => ({ name: share.name, path: share.path, readOnly: Boolean(share.readOnly), forceUser: share.forceUser ?? null, ownerUid: share.forceUser ? 1000 : 0 }));
+    }
+    const verifications = state.getSetting("appBackupVerifications", {}) ?? {};
+    const drills = state.getSetting("killSwitchDrills", {}) ?? {};
+    const manifests = await catalogService.all().then(({ manifests: all }) => all).catch(() => []);
+    facts.apps = (live?.applications ?? []).filter((app) => app.installed).map((app) => ({
+      id: app.id,
+      name: manifests.find((manifest) => manifest.id === app.id)?.name ?? app.id,
+      folderProblems: app.folderProblems ?? [],
+      backupVerification: verifications[app.id] ?? null,
+      killSwitchDrill: drills[app.id] ?? null,
+    }));
+    // Which folders each installed app has bound, so a remount can say what needs restarting.
+    facts.containers = facts.apps.map((app) => {
+      const manifest = manifests.find((entry) => entry.id === app.id);
+      const stored = live?.applications?.find((entry) => entry.id === app.id)?.state?.values?.volumes ?? {};
+      const binds = (manifest?.volumes ?? []).map((volume) => stored[volume.id] ?? volume.hostPath).filter((bind) => typeof bind === "string" && bind.startsWith("/"));
+      return { name: `bp-${app.id}`, appId: app.id, binds };
+    }).filter((container) => container.binds.length > 0);
+    response.json({ ...detectRemediations(facts), checkedAt: new Date().toISOString() });
+  });
+
   /**
    * The certificate authority BoxPilot signs its own HTTPS certificate with, so a browser on
    * another machine can be told to trust it. Only ever ca.crt: the filename is fixed here, the

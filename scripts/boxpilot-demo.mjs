@@ -583,6 +583,34 @@ api.get("/storage/shares/discover", (_request, response) => json(response, { dev
 api.get("/storage/samba", (_request, response) => json(response, { installed: true, running: true, configured: true, error: null, config: { managed: true, workgroup: "WORKGROUP", scope: "tailscale", interfaces: ["lo", "tailscale0"], shares: [{ name: "Media", path: "/mnt/media", comment: "Films and series", readOnly: true, guest: true, users: [], forceUser: host.owner }, { name: "Documents", path: "/srv/documents", comment: null, readOnly: false, guest: false, users: [host.owner, "sam"], forceUser: host.owner, recycle: true, recycleBytes: 2415919104 }] }, users: [host.owner, "sam"], tailscaleDnsName: host.tailnet, tailscaleAddress: host.tailscaleIp, lanAddress: host.lan, discovery: { installed: false, running: false } }));
 api.get("/storage/nfs", (_request, response) => json(response, { installed: true, running: false, configured: false, error: null, config: { managed: false, scope: "tailscale", exports: [] }, tailscaleDnsName: host.tailnet, tailscaleAddress: host.tailscaleIp, lanAddress: host.lan }));
 api.get("/people", (_request, response) => json(response, { people: [{ id: "owner-demo", username: host.owner, role: "owner", createdAt: ago(900) }, { id: "p2", username: "sam", role: "viewer", createdAt: ago(300) }] }));
+// The Repair page's problem sweep. The trouble world shows the failure that actually happened:
+// a USB drive that came back under a new name, leaving the mount pointing at nothing.
+api.get("/remediations", (request, response) => {
+  const world = scenarioOf(request.get("referer"));
+  if (world !== "trouble") return json(response, { findings: [], counts: { critical: 0, warning: 0, info: 0 }, checkedAt: now().toISOString() });
+  return json(response, {
+    checkedAt: now().toISOString(),
+    counts: { critical: 1, warning: 2, info: 1 },
+    findings: [
+      { id: "stale-mount:media", severity: "critical", title: "/mnt/media is mounted from a drive that is gone",
+        detail: "The mount still points at /dev/sda2, which no longer exists - the drive was disconnected and came back under a different name. Anything reading this folder gets an error or sees it empty, including network shares and any app that uses it.",
+        evidence: ["mounted from /dev/sda2", "/dev/sda2 is not a device on this server", "16 TiB filesystem"],
+        fix: { operationId: "storage.remount", parameters: { name: "media" }, label: "Reconnect the drive", preview: "Detaches the dead mount at /mnt/media and mounts it again from fstab, which finds the drive by its UUID wherever the kernel has put it. Nothing on the drive is touched." }, manual: null },
+      { id: "stale-bind:bp-jellyfin", severity: "warning", title: "bp-jellyfin is still using the old copy of that folder",
+        detail: "Docker attaches a folder when the container starts, so this one is still looking at the filesystem that was mounted then, not the one that is there now. It needs restarting before it sees the files again.",
+        evidence: ["bp-jellyfin uses /mnt/media"],
+        fix: { operationId: "app.action", parameters: { id: "jellyfin", action: "restart" }, label: "Restart bp-jellyfin", preview: "Restarts bp-jellyfin so it picks up the folder as it is mounted now. Its data and settings are untouched." }, manual: null },
+      { id: "app-folder:qbittorrent", severity: "warning", title: "qBittorrent cannot write to its data folder",
+        detail: "/srv/media is owned by user root, while the app runs as user 1000. Downloads, uploads, and anything else this app saves there will fail without saying why.",
+        evidence: ["Media folder: /srv/media", "owned by user root, while the app runs as user 1000"],
+        fix: { operationId: "app.reconfigure", parameters: { id: "qbittorrent", values: {} }, label: "Fix folder access", preview: "Redeploys qBittorrent with its current settings; the deploy hands its data folders to the user the app runs as. Nothing else changes." }, manual: null },
+      { id: "windows-discovery", severity: "info", title: "Windows will not list this server under Network",
+        detail: "Windows finds file servers with WS-Discovery, which Samba does not answer. The shares work if you type the address; they just never appear on their own.",
+        evidence: ["sharing on the LAN", "wsdd is not running"],
+        fix: { operationId: "samba.discovery.set", parameters: { enabled: true }, label: "Show it in Windows", preview: "Installs wsdd, runs it, and allows the two discovery ports (3702/udp, 5357/tcp) so File Explorer lists this server. Shares and permissions are unchanged." }, manual: null },
+    ],
+  });
+});
 api.get("/catalog", async (request, response) => {
   const { manifests, problems } = await loadCatalog();
   const present = installedFor(scenarioOf(request.get("referer")));
