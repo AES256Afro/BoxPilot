@@ -283,4 +283,13 @@ describe("reads that go through the system's own permissions", () => {
       expect(registry.get(id)?.minimumRole, `${id} should need an operator`).toBe("operator");
     }
   });
+
+  it("gates every way of reading a log the same", async () => {
+    // Logs carry tokens, session ids and whatever the application chose to print. Two of these
+    // three were operator and the third was not, which is the kind of gap nobody notices.
+    const { registry } = await import("../ops/index.mjs");
+    for (const id of ["app.logs", "logs.read", "compose.project.logs"]) {
+      expect(registry.get(id)?.minimumRole, `${id} should need an operator`).toBe("operator");
+    }
+  });
 });

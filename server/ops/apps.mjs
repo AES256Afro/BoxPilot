@@ -87,7 +87,10 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.foreignProjectAction({ name: parameters.name, action: parameters.action }, { progress }),
     }),
     defineOperation({
-      id: "compose.project.logs", title: "Read a compose stack's logs", risk: "low", readOnly: true, timeoutMs: 60_000,
+      // operator, like app.logs and logs.read: container logs carry tokens, session ids, addresses
+      // and whatever the application decided to print. These are stacks BoxPilot did not create,
+      // so it has even less idea what is in them than it does for its own.
+      id: "compose.project.logs", title: "Read a compose stack's logs", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
       description: "Tails the logs of a compose stack BoxPilot did not create. Nothing is changed.",
       parameters: { fields: { name: { type: "string", maxLength: 120, pattern: /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/ }, lines: { type: "number", optional: true } } },
       run: (parameters, { apps }) => apps.foreignProjectLogs({ name: parameters.name, lines: parameters.lines ?? 200 }),
