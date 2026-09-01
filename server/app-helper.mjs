@@ -14,6 +14,7 @@ import { createCatalogService } from "./catalog/index.mjs";
 import { parseExit, parseForwardedPort } from "./vpn-exit.mjs";
 import { bindingFor, deployedImages, deviceMatchesPattern, renderCompose, projectNameFor, resolveDevices } from "./catalog/compose.mjs";
 import { isDeniedHostPath } from "./catalog/schema.mjs";
+import { measurableFolders, mountFor } from "./app-data-growth.mjs";
 import { resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
 import { profileConnectionEnv, profileSecurityEnv } from "./vpn-profile.mjs";
 
@@ -1621,5 +1622,49 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { syncHomepage, inspect, reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  /**
+   * How much disk each installed app's data folders are holding (M23.1).
+   *
+   * The forecast can already say a drive is filling; this is what says which app is filling it. The
+   * paths are derived here from the manifests and the stored values, never taken from the request,
+   * so this cannot be pointed at somewhere it should not look.
+   *
+   * `du` walks every inode under a folder, which on a media library is slow and, worse, unbounded.
+   * Each folder therefore gets its own timeout and they are measured one at a time: a nightly
+   * reading that misses one folder is fine, a nightly reading that saturates the disk is not. A
+   * folder that could not be measured comes back as null rather than zero, because "we did not
+   * look" and "it is empty" must not be recorded as the same thing.
+   */
+  async function dataUsage({ timeoutMsPerFolder = 4 * 60_000 } = {}) {
+    const applications = await inspect({});
+    const { manifests } = await catalog.all();
+    const byId = new Map(manifests.map((manifest) => [manifest.id, manifest]));
+    // The mount points that exist, so each folder can be attributed to the drive it sits on.
+    const listed = await runCommand("findmnt", ["--json", "--list", "--output", "TARGET"], { timeout: 15_000 }).catch(() => null);
+    let mounts = [];
+    try { mounts = JSON.parse(listed?.stdout ?? "{}").filesystems?.map((row) => row.target) ?? []; } catch { mounts = []; }
+
+    const entries = [];
+    for (const application of applications.applications ?? []) {
+      const manifest = byId.get(application.id);
+      if (!manifest) continue;
+      for (const folder of measurableFolders({ manifest, live: application })) {
+        // -s one total, -b in bytes, -x without crossing into another filesystem: a bind mount
+        // below a data folder belongs to whatever owns it, not to the app that happens to sit above.
+        const measured = await runCommand("du", ["-sbx", folder.path], { timeout: timeoutMsPerFolder }).catch(() => null);
+        const bytes = measured?.ok ? Number.parseInt(measured.stdout.trim().split(/\s+/)[0], 10) : NaN;
+        entries.push({
+          key: `${folder.appId}:${folder.path}`,
+          appId: folder.appId,
+          label: folder.label,
+          path: folder.path,
+          mount: mountFor(folder.path, mounts),
+          bytes: Number.isFinite(bytes) ? bytes : null,
+        });
+      }
+    }
+    return { measuredAt: clock().toISOString(), entries };
+  }
+
+  return { syncHomepage, inspect, dataUsage, reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

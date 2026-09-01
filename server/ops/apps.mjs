@@ -45,6 +45,11 @@ export function aggregateAppStats(rows, appIds) {
 export function appOperations() {
   return [
     defineOperation({ id: "app.inspect", title: "Inspect catalog applications", risk: "low", readOnly: true, description: "Installed state, container status, and ports for every catalog application.", run: (_p, { apps }) => apps.inspect({}) }),
+    defineOperation({
+      id: "app.data.usage", title: "Measure application data folders", risk: "low", readOnly: true, timeoutMs: 30 * 60_000,
+      description: "How much disk each installed application's data folders are holding, and which drive each one is on. Read-only: it walks the folders the manifests declare and measures them, and takes no paths from the request.",
+      run: (_p, { apps }) => apps.dataUsage(),
+    }),
     defineOperation({ id: "app.updates.inspect", title: "Check application updates", risk: "low", readOnly: true, description: "Compares installed applications with the current catalog.", run: (_p, { apps }) => apps.checkUpdates() }),
     defineOperation({
       id: "app.logs", title: "Read application logs", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,

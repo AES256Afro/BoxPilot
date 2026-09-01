@@ -46,6 +46,7 @@ import { createUpdateNotifier } from "./update-notifier.mjs";
 import { createHealthAlerts } from "./health-alerts.mjs";
 import { createTlsRenewal } from "./tls-renewal.mjs";
 import { createDiskSampler } from "./disk-forecast.mjs";
+import { createAppDataSampler } from "./app-data-growth.mjs";
 import { createSmartSampler } from "./smart-trends.mjs";
 import { registry } from "./ops/index.mjs";
 import { createNotificationService } from "./notifications.mjs";
@@ -215,6 +216,9 @@ createHealthAlerts({ inventory, notifications, store: state, resolveScheduleTitl
 createTlsRenewal({ helper, store: state }).start();
 // Sample free space daily so the disk-fill forecast (M23.1) has a trend to project.
 createDiskSampler({ inventory, store: state }).start();
+// What is filling each drive, not just that it is filling (M23.1). Walks the data folders, so it
+// runs once a day and well after boot rather than alongside everything else that starts here.
+createAppDataSampler({ helper, store: state }).start();
 // Sample SMART numbers daily so a drive going bad is caught before it fails (M23.3).
 createSmartSampler({ inventory, store: state }).start();
 

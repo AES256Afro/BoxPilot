@@ -577,8 +577,13 @@ api.get("/firewall/overview", (_request, response) => json(response, {
 api.get("/firewall/plan", (request, response) => json(response, buildPlan({ profileId: request.query.profile ?? "home-server", serviceIds: typeof request.query.services === "string" && request.query.services ? request.query.services.split(",") : [], replace: request.query.replace === "true", sshRateLimit: request.query.sshRateLimit === "true", webPort: 8787, webHost: "127.0.0.1" })));
 api.get("/storage/overview", (_request, response) => json(response, storageOverview));
 api.get("/storage/forecast", (_request, response) => json(response, { tracking: 2, forecasts: [
-  { target: "/mnt/media", daysToFull: 11, availableBytes: 214 * 1024 ** 3, totalBytes: 4000 * 1024 ** 3, samples: 14 },
-  { target: "/", daysToFull: 63, availableBytes: 41 * 1024 ** 3, totalBytes: 234 * 1024 ** 3, samples: 14 },
+  // A drive filling, and what is filling it: the download client is running away with it while the
+  // library it feeds has barely moved (M23.1).
+  { target: "/mnt/media", daysToFull: 11, availableBytes: 214 * 1024 ** 3, totalBytes: 4000 * 1024 ** 3, samples: 14, filling: [
+    { appId: "qbittorrent", path: "/mnt/media/torrents", mount: "/mnt/media", bytes: 1340 * 1024 ** 3, grewBytes: 246 * 1024 ** 3, days: 7 },
+    { appId: "jellyfin", path: "/mnt/media/library", mount: "/mnt/media", bytes: 2180 * 1024 ** 3, grewBytes: 12 * 1024 ** 3, days: 7 },
+  ] },
+  { target: "/", daysToFull: 63, availableBytes: 41 * 1024 ** 3, totalBytes: 234 * 1024 ** 3, samples: 14, filling: [] },
 ] }));
 api.get("/storage/shares/discover", (_request, response) => json(response, { devices: [{ address: "192.168.50.30", name: "nas.local", smb: true, nfs: true, mac: "02:00:00:aa:00:30", interface: "eno1" }], scanned: 253, interfaces: ["eno1 192.168.50.20/24"] }));
 api.get("/storage/samba", (_request, response) => json(response, { installed: true, running: true, configured: true, error: null, config: { managed: true, workgroup: "WORKGROUP", scope: "tailscale", interfaces: ["lo", "tailscale0"], shares: [{ name: "Media", path: "/mnt/media", comment: "Films and series", readOnly: true, guest: true, users: [], forceUser: host.owner, ownerUid: 1000 }, { name: "Documents", path: "/srv/documents", comment: null, readOnly: false, guest: false, users: [host.owner, "sam"], forceUser: host.owner, ownerUid: 1000, recycle: true, recycleBytes: 2415919104 }] }, users: [host.owner, "sam"], tailscaleDnsName: host.tailnet, tailscaleAddress: host.tailscaleIp, lanAddress: host.lan, discovery: { installed: false, running: false } }));
