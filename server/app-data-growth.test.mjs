@@ -221,3 +221,38 @@ describe("not re-walking the disk on every restart", () => {
     expect(await sampler.sample({ force: true })).toEqual({ sampled: 1 });
   });
 });
+
+describe("saying whether the sweep is actually working", () => {
+  function fakeStore(initial = {}) {
+    const settings = { ...initial };
+    return { settings, getSetting: (key, fallback) => settings[key] ?? fallback, setSetting: (key, value) => { settings[key] = value; } };
+  }
+
+  it("records what the last sweep managed", async () => {
+    const store = fakeStore();
+    const helper = { request: async () => ({ entries: [
+      { key: "a", appId: "a", path: "/mnt/a", mount: "/mnt/a", bytes: GiB },
+      { key: "b", appId: "b", path: "/mnt/b", mount: "/mnt/b", bytes: null },
+    ] }) };
+    await createAppDataSampler({ helper, store, now: () => new Date(day(3)) }).sample();
+    expect(store.settings.appDataUsageLastRun).toEqual({ at: day(3), sampled: 1, unmeasured: 1, error: null });
+  });
+
+  it("records why a sweep failed instead of losing it", async () => {
+    // A sweep failing every night must not look like one that has never had anything to measure.
+    const store = fakeStore();
+    const reported = [];
+    const helper = { request: async () => { throw new Error("helper is down"); } };
+    createAppDataSampler({ helper, store, now: () => new Date(day(3)), report: (message) => reported.push(message), setTimeout: (fn) => { fn(); return {}; }, setInterval: () => ({}) }).start();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(store.settings.appDataUsageLastRun).toMatchObject({ error: "helper is down", sampled: 0 });
+    expect(reported[0]).toContain("could not measure application data folders: helper is down");
+  });
+
+  it("does not let a failure while recording the failure escape the timer", async () => {
+    const store = { getSetting: () => ({}), setSetting: () => { throw new Error("database is locked"); } };
+    const helper = { request: async () => { throw new Error("helper is down"); } };
+    expect(() => createAppDataSampler({ helper, store, now: () => new Date(day(3)), report: () => {}, setTimeout: (fn) => { fn(); return {}; }, setInterval: () => ({}) }).start()).not.toThrow();
+    await new Promise((resolve) => setImmediate(resolve));
+  });
+});

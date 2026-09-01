@@ -114,7 +114,7 @@ export function createStorageRouter({ auth, helper = null, inventory = null, sta
     // than only the drives that are filling: "which app owns what on this drive" is a question
     // worth answering on a drive with room to spare too. One list, so the panel that blames a
     // filling drive and the map that labels every drive cannot disagree about the numbers.
-    response.json({ forecasts, tracking: Object.keys(history).length, usage: growthByApp(usage, { now, windowDays: 7, limit: 200 }) });
+    response.json({ forecasts, tracking: Object.keys(history).length, usage: growthByApp(usage, { now, windowDays: 7, limit: 200 }), lastMeasured: state?.getSetting?.("appDataUsageLastRun", null) ?? null });
   });
 
   // Discover LAN hosts offering SMB (445) or NFS (2049): recent neighbours plus a sweep of each /24.

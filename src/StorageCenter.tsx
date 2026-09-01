@@ -21,6 +21,7 @@ interface ShareRow { name: string; kind: "smb" | "nfs"; source: string; mountpoi
 interface SnapshotRow { path: string; name: string; volumeGroup: string | null; sizeBytes: number; origin?: string; sizeGiB?: number; createdAt?: string; suffix?: string | null }
 interface StorageReport { devices: DeviceRow[]; mounts: MountRow[]; fstab: FstabRow[]; volumeGroups: VolumeGroup[]; snapshots?: SnapshotRow[]; shares: ShareRow[]; tools: { cifs: boolean; nfs: boolean; smbclient: boolean; showmount: boolean } }
 interface Usage { appId: string | null; path: string | null; mount: string | null; bytes: number; grewBytes: number | null; days: number }
+interface LastMeasured { at: string; sampled: number; unmeasured: number; error: string | null }
 interface Forecast { target: string; daysToFull: number; availableBytes: number | null; totalBytes: number | null; samples: number }
 interface Discovered { address: string; name: string | null; smb: boolean; nfs: boolean; mac: string | null; interface: string | null }
 
@@ -68,6 +69,7 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
   const [snapshotLabel, setSnapshotLabel] = useState("");
   const [forecasts, setForecasts] = useState<Forecast[]>([]);
   const [usage, setUsage] = useState<Usage[]>([]);   // what each app's folders hold, from the nightly sweep
+  const [lastMeasured, setLastMeasured] = useState<LastMeasured | null>(null);
   const [mapApps, setMapApps] = useState<MapApp[]>([]);
   const [mapShares, setMapShares] = useState<MapSambaShare[]>([]);
   const tailnetHosts = useTailnetHosts();
@@ -80,7 +82,7 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
     setError(null);
     try {
       setReport(await readJson<StorageReport>(await fetch("/api/v1/storage/overview")));
-      fetch("/api/v1/storage/forecast").then((response) => (response.ok ? response.json() : { forecasts: [] })).then((body: { forecasts?: Forecast[]; usage?: Usage[] }) => { setForecasts(body.forecasts ?? []); setUsage(body.usage ?? []); }).catch(() => {});
+      fetch("/api/v1/storage/forecast").then((response) => (response.ok ? response.json() : { forecasts: [] })).then((body: { forecasts?: Forecast[]; usage?: Usage[]; lastMeasured?: LastMeasured | null }) => { setForecasts(body.forecasts ?? []); setUsage(body.usage ?? []); setLastMeasured(body.lastMeasured ?? null); }).catch(() => {});
       // For the storage map: which apps mount which folders, and which folders are served as shares.
       fetch("/api/v1/catalog").then((response) => (response.ok ? response.json() : null)).then((body: { applications?: Parameters<typeof appFolders>[0] } | null) => setMapApps(body?.applications ? appFolders(body.applications) : [])).catch(() => {});
       fetch("/api/v1/storage/samba").then((response) => (response.ok ? response.json() : null)).then((body: { config?: { shares?: MapSambaShare[]; scope?: string }; lanAddress?: string | null; tailscaleDnsName?: string | null } | null) => {
@@ -181,7 +183,16 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
         if (!map.length) return null;
         return (
           <section className="panel">
-            <header className="panel-header"><div><strong>Storage map</strong><span>Each place data lives, what uses it, and how it is shared, in one picture.</span></div></header>
+            <header className="panel-header"><div><strong>Storage map</strong><span>
+              Each place data lives, what uses it, and how it is shared, in one picture.
+              {/* Whether the sizes below can be trusted. A sweep that has been failing for a
+                  fortnight otherwise looks exactly like one with nothing to measure. */}
+              {lastMeasured?.error
+                ? <> Sizes are out of date: the last attempt on {new Date(lastMeasured.at).toLocaleDateString()} failed ({lastMeasured.error}).</>
+                : lastMeasured
+                  ? <> Sizes measured {new Date(lastMeasured.at).toLocaleDateString()}{lastMeasured.unmeasured > 0 ? `; ${lastMeasured.unmeasured} folder${lastMeasured.unmeasured === 1 ? "" : "s"} took too long to measure` : ""}.</>
+                  : null}
+            </span></div></header>
             <div className="storage-map">
               {map.map((entry) => {
                 const usedShare = entry.sizeBytes && entry.availableBytes !== null ? Math.min(100, Math.round(((entry.sizeBytes - entry.availableBytes) / entry.sizeBytes) * 100)) : null;
