@@ -320,7 +320,7 @@ app.use("/api/v1", (request, response, next) => {
 app.use("/api/v1/people", auth.requireRole("owner"));
 app.use("/api/v1", createPeopleRouter({ state, auth }));
 app.use("/api/v1", createOperationsRouter({ state, helper, jobs, prerequisites, recoveryKit, actionCenter, auth }));
-app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, flows, jobLogReader, auth }));
+app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, flows, helper, jobLogReader, auth }));
 app.use("/api/v1", createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit }));
 app.use("/api/v1", createSettingsRouter({ state, notifications, auth }));
 app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort: port, webHost: host }));

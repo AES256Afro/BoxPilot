@@ -44,6 +44,7 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
   const [flows, setFlows] = useState<Flow[] | null>(null);
   const [palette, setPalette] = useState<PaletteStep[]>([]);
   const [shelf, setShelf] = useState<ShelfItem[]>([]);
+  const [suggestions, setSuggestions] = useState<Record<string, string>>({});   // slug -> why this server wants it
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
@@ -61,6 +62,13 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
       setPalette(body.palette);
       setShelf(body.shelf ?? []);
       setError(null);
+      // Separate, and allowed to fail: it asks the helper what is reclaimable and what needs
+      // updating, and the page is perfectly usable without an argument for anything.
+      fetch("/api/v1/flows/suggestions")
+        .then((suggested) => (suggested.ok ? suggested.json() : { suggestions: [] }))
+        .then((suggestedBody: { suggestions?: Array<{ slug: string; because: string }> }) =>
+          setSuggestions(Object.fromEntries((suggestedBody.suggestions ?? []).map((entry) => [entry.slug, entry.because]))))
+        .catch(() => {});
       return body.flows;
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read automations");
@@ -179,16 +187,23 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
           </div>
         </header>
         <div className="shelf-grid">
-          {shelf.map((item) => (
-            <article key={item.name} className="shelf-item">
+          {/* Suggested ones first. The shelf has always listed all three equally, which reads as a
+              catalogue: no reason to pick one, so nobody picks any. */}
+          {[...shelf].sort((left, right) => Number(Boolean(suggestions[right.slug ?? right.name])) - Number(Boolean(suggestions[left.slug ?? left.name]))).map((item) => {
+            const because = suggestions[item.slug ?? item.name] ?? null;
+            return (
+            <article key={item.name} className={because ? "shelf-item shelf-item-suggested" : "shelf-item"}>
               <strong>{item.name}</strong>
+              {/* Why this server in particular wants it, in facts read from this server. */}
+              {because && <p className="shelf-because">{because}</p>}
               <p className="muted">{item.description}</p>
               <p className="muted shelf-steps">{item.steps.map((step) => titleFor(step.operationId)).join(" → ")}</p>
               {installed.has(item.name)
                 ? <span className="status-pill status-good">on your list</span>
-                : <button className="secondary-button" type="button" onClick={() => void installFromShelf(item)}>Add</button>}
+                : <button className={because ? "primary-button" : "secondary-button"} type="button" onClick={() => void installFromShelf(item)}>Add</button>}
             </article>
-          ))}
+          );
+          })}
         </div>
       </section>
       )}

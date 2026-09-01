@@ -4622,3 +4622,16 @@ textarea {
 .version-history summary { cursor: pointer; color: var(--muted); font-size: 11px; }
 .version-history ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 5px; }
 .version-history li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+
+/* A shelf item BoxPilot is actually arguing for, rather than merely listing. The reason is the
+   loudest line on the card: it is the thing that turns a catalogue into a decision. */
+.shelf-item-suggested {
+  border-color: var(--accent);
+}
+
+.shelf-because {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
