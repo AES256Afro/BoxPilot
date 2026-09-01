@@ -7,7 +7,7 @@ import { shared } from "./cache.mjs";
  * all. Anything that changes the host is absent by design: two identical mutations arriving
  * together are two requests, not one.
  */
-const sharableReads = new Set(["app.inspect", "samba.inspect", "container.docker.inventory"]);
+const sharableReads = new Set(["app.inspect", "samba.inspect", "container.docker.inventory", "app.data.usage"]);
 
 export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock", timeoutMs = 5000 } = {}) {
   function send(operation, parameters = {}, { timeoutMs: requestTimeoutMs = timeoutMs, jobId = null } = {}) {
