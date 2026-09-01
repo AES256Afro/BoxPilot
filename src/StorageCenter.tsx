@@ -270,7 +270,9 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
                     <ul className="filling-blame">
                       {growing.map((entry) => (
                         <li key={`${entry.appId}:${entry.path}`}>
-                          <strong>{entry.appId ?? "Unknown"}</strong> grew <strong>{gib(entry.grewBytes ?? 0)}</strong>
+                          {/* The app's name, not its id: the chips right above say "qBittorrent
+                              (through a VPN)" and this said "qbittorrent". */}
+                          <strong>{mapApps.find((app) => app.id === entry.appId)?.name ?? entry.appId ?? "Unknown"}</strong> grew <strong>{gib(entry.grewBytes ?? 0)}</strong>
                           {entry.days >= 1 ? ` in the last ${Math.round(entry.days)} day${Math.round(entry.days) === 1 ? "" : "s"}` : ""}
                           {" · "}<code>{entry.path}</code> holds {gib(entry.bytes)}
                         </li>
