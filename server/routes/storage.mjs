@@ -107,13 +107,14 @@ export function createStorageRouter({ auth, helper = null, inventory = null, sta
       const days = projectDaysToFull(samples, { now });
       if (days === null) continue;
       const latest = Array.isArray(samples) && samples.length ? samples[samples.length - 1] : null;
-      // What is filling it, alongside when it fills. "/mnt/the-dump fills in nine days" is a
-      // problem; "and the downloads folder grew 240 GB this week" is a decision.
-      const filling = growthByApp(usage, { now, mount: target, windowDays: 7 });
-      forecasts.push({ target, daysToFull: Math.max(0, Math.round(days)), availableBytes: latest?.availableBytes ?? null, totalBytes: latest?.totalBytes ?? null, samples: Array.isArray(samples) ? samples.length : 0, filling });
+      forecasts.push({ target, daysToFull: Math.max(0, Math.round(days)), availableBytes: latest?.availableBytes ?? null, totalBytes: latest?.totalBytes ?? null, samples: Array.isArray(samples) ? samples.length : 0 });
     }
     forecasts.sort((a, b) => a.daysToFull - b.daysToFull);
-    response.json({ forecasts, tracking: Object.keys(history).length });
+    // What each app's data is holding and how fast it is growing, for every measured folder rather
+    // than only the drives that are filling: "which app owns what on this drive" is a question
+    // worth answering on a drive with room to spare too. One list, so the panel that blames a
+    // filling drive and the map that labels every drive cannot disagree about the numbers.
+    response.json({ forecasts, tracking: Object.keys(history).length, usage: growthByApp(usage, { now, windowDays: 7, limit: 200 }) });
   });
 
   // Discover LAN hosts offering SMB (445) or NFS (2049): recent neighbours plus a sweep of each /24.

@@ -20,8 +20,8 @@ interface VolumeGroup { name: string | null; physicalVolumes: string[]; sizeByte
 interface ShareRow { name: string; kind: "smb" | "nfs"; source: string; mountpoint: string; readOnly: boolean; automount: boolean; mounted: boolean; sizeBytes: number | null; usedBytes: number | null; availableBytes: number | null }
 interface SnapshotRow { path: string; name: string; volumeGroup: string | null; sizeBytes: number; origin?: string; sizeGiB?: number; createdAt?: string; suffix?: string | null }
 interface StorageReport { devices: DeviceRow[]; mounts: MountRow[]; fstab: FstabRow[]; volumeGroups: VolumeGroup[]; snapshots?: SnapshotRow[]; shares: ShareRow[]; tools: { cifs: boolean; nfs: boolean; smbclient: boolean; showmount: boolean } }
-interface Filling { appId: string | null; path: string | null; bytes: number; grewBytes: number | null; days: number }
-interface Forecast { target: string; daysToFull: number; availableBytes: number | null; totalBytes: number | null; samples: number; filling?: Filling[] }
+interface Usage { appId: string | null; path: string | null; mount: string | null; bytes: number; grewBytes: number | null; days: number }
+interface Forecast { target: string; daysToFull: number; availableBytes: number | null; totalBytes: number | null; samples: number }
 interface Discovered { address: string; name: string | null; smb: boolean; nfs: boolean; mac: string | null; interface: string | null }
 
 function gib(bytes: number | null): string {
@@ -67,6 +67,7 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
   const [snapshotSize, setSnapshotSize] = useState(10);
   const [snapshotLabel, setSnapshotLabel] = useState("");
   const [forecasts, setForecasts] = useState<Forecast[]>([]);
+  const [usage, setUsage] = useState<Usage[]>([]);   // what each app's folders hold, from the nightly sweep
   const [mapApps, setMapApps] = useState<MapApp[]>([]);
   const [mapShares, setMapShares] = useState<MapSambaShare[]>([]);
   const tailnetHosts = useTailnetHosts();
@@ -79,7 +80,7 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
     setError(null);
     try {
       setReport(await readJson<StorageReport>(await fetch("/api/v1/storage/overview")));
-      fetch("/api/v1/storage/forecast").then((response) => (response.ok ? response.json() : { forecasts: [] })).then((body: { forecasts?: Forecast[] }) => setForecasts(body.forecasts ?? [])).catch(() => {});
+      fetch("/api/v1/storage/forecast").then((response) => (response.ok ? response.json() : { forecasts: [] })).then((body: { forecasts?: Forecast[]; usage?: Usage[] }) => { setForecasts(body.forecasts ?? []); setUsage(body.usage ?? []); }).catch(() => {});
       // For the storage map: which apps mount which folders, and which folders are served as shares.
       fetch("/api/v1/catalog").then((response) => (response.ok ? response.json() : null)).then((body: { applications?: Parameters<typeof appFolders>[0] } | null) => setMapApps(body?.applications ? appFolders(body.applications) : [])).catch(() => {});
       fetch("/api/v1/storage/samba").then((response) => (response.ok ? response.json() : null)).then((body: { config?: { shares?: MapSambaShare[]; scope?: string }; lanAddress?: string | null; tailscaleDnsName?: string | null } | null) => {
@@ -176,7 +177,7 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
       </div>
 
       {(() => {
-        const map = report ? buildStorageMap({ mounts: report.mounts, sambaShares: mapShares, apps: mapApps, forecasts, networkTargets: report.shares.map((entry) => entry.mountpoint) }) : [];
+        const map = report ? buildStorageMap({ mounts: report.mounts, sambaShares: mapShares, apps: mapApps, forecasts, usage, networkTargets: report.shares.map((entry) => entry.mountpoint) }) : [];
         if (!map.length) return null;
         return (
           <section className="panel">
@@ -197,7 +198,25 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
                       </div>
                     )}
                     {usedShare === null && entry.daysToFull !== null && <p className="muted">Fills in ~{entry.daysToFull} days at the current rate.</p>}
-                    <div className="storage-map-row"><span className="eyebrow">Apps</span>{entry.apps.length ? entry.apps.map((app) => <span className="chip" key={app.id + app.path} title={app.path}>{app.name}</span>) : <span className="muted">none yet</span>}</div>
+                    <div className="storage-map-row"><span className="eyebrow">Apps</span>{entry.apps.length ? (() => {
+                      // A media stack has several apps mounting one folder - the download client
+                      // writes where the library reads. Printing that folder's size against each of
+                      // them invites adding them up, which would double the drive. The size belongs
+                      // to the folder, so it is shown once and the others say whose it is.
+                      const counted = new Set<string>();
+                      return entry.apps.map((app) => {
+                        const first = !counted.has(app.path);
+                        counted.add(app.path);
+                        const sharedWith = entry.apps.filter((other) => other.path === app.path && other.id !== app.id);
+                        return (
+                          <span className="chip" key={app.id + app.path} title={sharedWith.length ? `${app.path} — shared with ${sharedWith.map((other) => other.name).join(", ")}` : app.path}>
+                            {app.name}
+                            {app.bytes !== null && first ? <span className="chip-size">{gib(app.bytes)}</span> : null}
+                            {app.bytes !== null && !first ? <span className="chip-size">same folder</span> : null}
+                          </span>
+                        );
+                      });
+                    })() : <span className="muted">none yet</span>}</div>
                     <div className="storage-map-row"><span className="eyebrow">Shared as</span>{entry.shares.length ? entry.shares.map((share) => <span className="chip" key={share.name}>{share.name}{share.recycle ? " · recycle bin" : ""}</span>) : <span className="muted">not shared</span>}</div>
                     {/* The address to type on each machine, right where the share is named. */}
                     {entry.shares.length > 0 && shareHost && (
@@ -234,7 +253,7 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
                     Only folders that actually grew are named - listing the ones holding still just
                     buries the one that is not. */}
                 {(() => {
-                  const growing = (forecast.filling ?? []).filter((entry) => (entry.grewBytes ?? 0) > 0);
+                  const growing = usage.filter((entry) => entry.mount === forecast.target && (entry.grewBytes ?? 0) > 0);
                   if (!growing.length) return null;
                   return (
                     <ul className="filling-blame">
