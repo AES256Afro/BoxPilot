@@ -140,7 +140,7 @@ describe("the nightly sampler", () => {
     const store = fakeStore();
     const helper = { request: async () => ({ entries: [{ key: "a:/mnt/a", appId: "a", path: "/mnt/a", mount: "/mnt/a", bytes: 5 * GiB }] }) };
     const sampler = createAppDataSampler({ helper, store, now: () => new Date(day(3)) });
-    expect(await sampler.sample()).toEqual({ sampled: 1 });
+    expect(await sampler.sample()).toEqual({ sampled: 1, unmeasured: 0 });
     expect(store.settings.appDataUsageHistory["a:/mnt/a"][0].bytes).toBe(5 * GiB);
   });
 
@@ -158,7 +158,7 @@ describe("the nightly sampler", () => {
       { key: "a:/mnt/a", appId: "a", path: "/mnt/a", mount: "/mnt/a", bytes: GiB },
       { key: "b:/mnt/b", appId: "b", path: "/mnt/b", mount: "/mnt/b", bytes: null },
     ] }) };
-    expect(await createAppDataSampler({ helper, store, now: () => new Date(day(3)) }).sample()).toEqual({ sampled: 1 });
+    expect(await createAppDataSampler({ helper, store, now: () => new Date(day(3)) }).sample()).toEqual({ sampled: 1, unmeasured: 1 });
   });
 
   it("lets a failed run through rather than storing anything", async () => {
@@ -204,21 +204,21 @@ describe("not re-walking the disk on every restart", () => {
     const store = fakeStore({ appDataUsageHistory: { "a:/mnt/a": [{ at: "2026-09-02T02:00:00.000Z", bytes: 1 }] } });
     const helper = { request: async () => { asked += 1; return { entries: [{ key: "a:/mnt/a", appId: "a", path: "/mnt/a", mount: "/mnt/a", bytes: 9 }] }; } };
     const sampler = createAppDataSampler({ helper, store, now: () => new Date("2026-09-03T03:00:00.000Z") });
-    expect(await sampler.sample()).toEqual({ sampled: 1 });
+    expect(await sampler.sample()).toEqual({ sampled: 1, unmeasured: 0 });
     expect(asked).toBe(1);
   });
 
   it("sweeps on a server that has never measured anything", async () => {
     const store = fakeStore();
     const helper = { request: async () => ({ entries: [{ key: "a:/mnt/a", appId: "a", path: "/mnt/a", mount: "/mnt/a", bytes: 9 }] }) };
-    expect(await createAppDataSampler({ helper, store, now: () => new Date("2026-09-03T03:00:00.000Z") }).sample()).toEqual({ sampled: 1 });
+    expect(await createAppDataSampler({ helper, store, now: () => new Date("2026-09-03T03:00:00.000Z") }).sample()).toEqual({ sampled: 1, unmeasured: 0 });
   });
 
   it("still sweeps when explicitly asked to", async () => {
     const store = fakeStore({ appDataUsageHistory: { "a:/mnt/a": [{ at: "2026-09-03T02:00:00.000Z", bytes: 1 }] } });
     const helper = { request: async () => ({ entries: [{ key: "a:/mnt/a", appId: "a", path: "/mnt/a", mount: "/mnt/a", bytes: 9 }] }) };
     const sampler = createAppDataSampler({ helper, store, now: () => new Date("2026-09-03T09:00:00.000Z") });
-    expect(await sampler.sample({ force: true })).toEqual({ sampled: 1 });
+    expect(await sampler.sample({ force: true })).toEqual({ sampled: 1, unmeasured: 0 });
   });
 });
 
@@ -254,5 +254,33 @@ describe("saying whether the sweep is actually working", () => {
     const helper = { request: async () => { throw new Error("helper is down"); } };
     expect(() => createAppDataSampler({ helper, store, now: () => new Date(day(3)), report: () => {}, setTimeout: (fn) => { fn(); return {}; }, setInterval: () => ({}) }).start()).not.toThrow();
     await new Promise((resolve) => setImmediate(resolve));
+  });
+});
+
+describe("leaving a trail in the journal", () => {
+  function fakeStore(initial = {}) {
+    const settings = { ...initial };
+    return { settings, getSetting: (key, fallback) => settings[key] ?? fallback, setSetting: (key, value) => { settings[key] = value; } };
+  }
+  const runNow = { setTimeout: (fn) => { fn(); return {}; }, setInterval: () => ({}) };
+
+  it("says what a successful sweep measured", async () => {
+    const reported = [];
+    const helper = { request: async () => ({ entries: [
+      { key: "a", appId: "a", path: "/mnt/a", mount: "/mnt/a", bytes: GiB },
+      { key: "b", appId: "b", path: "/mnt/b", mount: "/mnt/b", bytes: null },
+    ] }) };
+    createAppDataSampler({ helper, store: fakeStore(), now: () => new Date(day(3)), report: (message) => reported.push(message), ...runNow }).start();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(reported[0]).toBe("[boxpilot] measured 1 application data folder(s), 1 not measured");
+  });
+
+  it("stays quiet on a night it correctly had nothing to do", async () => {
+    // A server with no installed apps, or one already measured today, must not log every tick.
+    const reported = [];
+    const store = fakeStore({ appDataUsageHistory: { a: [{ at: day(3), bytes: 1 }] } });
+    createAppDataSampler({ helper: { request: async () => ({ entries: [] }) }, store, now: () => new Date(day(3)), report: (message) => reported.push(message), ...runNow }).start();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(reported).toEqual([]);
   });
 });
