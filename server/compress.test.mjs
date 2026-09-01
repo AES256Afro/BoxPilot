@@ -13,7 +13,17 @@ async function serve(routes, options) {
   for (const [path, body] of Object.entries(routes)) app.get(path, (_request, response) => response.json(body));
   const server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
-  return { base: `http://127.0.0.1:${server.address().port}`, close: () => server.close() };
+  return { base: `http://127.0.0.1:${server.address().port}`, close: () => shutDown(server) };
+}
+
+/**
+ * close() only stops the server accepting: keep-alive sockets fetch left open stay open, and the
+ * server with them. Under a full-suite run that leaks a listener per test, and ports get recycled
+ * underneath them. Drop the connections too, so each test really is finished when it says it is.
+ */
+function shutDown(server) {
+  server.closeAllConnections?.();
+  server.close();
 }
 
 const big = { items: Array.from({ length: 4000 }, (_value, index) => ({ index, name: `entry-${index}` })) };
@@ -88,7 +98,7 @@ async function serveAssets() {
   app.use("/assets", express.static(dir, { index: false, maxAge: "365d", immutable: true }));
   const server = app.listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
-  return { base: `http://127.0.0.1:${server.address().port}`, script, close: () => { server.close(); rmSync(root, { recursive: true, force: true }); } };
+  return { base: `http://127.0.0.1:${server.address().port}`, script, close: () => { shutDown(server); rmSync(root, { recursive: true, force: true }); } };
 }
 
 describe("serving the build's precompressed assets", () => {
@@ -167,7 +177,7 @@ describe("serving the build's precompressed assets", () => {
       expect(response.status).toBe(404);
       expect(response.headers.get("content-encoding")).toBeNull();
       await expect(response.text()).resolves.toBeTypeOf("string"); // decodes at all
-    } finally { server.close(); rmSync(root, { recursive: true, force: true }); }
+    } finally { shutDown(server); rmSync(root, { recursive: true, force: true }); }
   });
 
   it("keeps the immutable caching the static handler was configured with", async () => {
