@@ -26,7 +26,9 @@ async function helperSocket(handler) {
   return socketPath;
 }
 
-afterEach(() => { server?.close(); server = null; if (dir) rmSync(dir, { recursive: true, force: true }); dir = null; });
+// closeAllConnections as well as close: the client's sockets would otherwise keep the server (and
+// its unix socket path) alive past the test that owns them.
+afterEach(() => { server?.closeAllConnections?.(); server?.close(); server = null; if (dir) rmSync(dir, { recursive: true, force: true }); dir = null; });
 
 describe("sharing helper reads", () => {
   it("answers concurrent identical reads from one round trip", async () => {
