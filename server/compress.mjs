@@ -54,7 +54,12 @@ export function precompressedAssets(directory, { exists = (file) => stat(file).t
     if (request.method !== "GET" && request.method !== "HEAD") return next();
     response.setHeader("Vary", "Accept-Encoding");
     if (!/\bgzip\b/.test(request.headers["accept-encoding"] ?? "")) return next();
-    const name = decodeURIComponent(request.path);
+    // A path that is not valid percent-encoding is not a request for a compressed asset; it is a
+    // 404 the static handler is perfectly able to give. Letting decodeURIComponent throw here would
+    // turn that into a 500, which is a worse answer and a new one - the static handler alone never
+    // did that.
+    let name;
+    try { name = decodeURIComponent(request.path); } catch { return next(); }
     const extension = path.extname(name);
     if (!Object.hasOwn(types, extension)) return next();
     // Resolve first and confirm the result is still inside the assets directory, so a crafted path
@@ -66,6 +71,18 @@ export function precompressedAssets(directory, { exists = (file) => stat(file).t
     response.setHeader("Content-Encoding", "gzip");
     response.setHeader("Content-Type", types[extension]);
     request.url = `${request.path}.gz${request.url.slice(request.path.length)}`;
+    // If the file went away between the check and the read - which is what an upgrade swapping the
+    // tree looks like to a browser still fetching the old bundle - something else answers, and the
+    // claim that the body is gzip must not survive onto it. A wrong Content-Encoding is not a
+    // slower response, it is one the browser cannot read at all.
+    const writeHead = response.writeHead.bind(response);
+    response.writeHead = (...parameters) => {
+      if (response.statusCode !== 200) {
+        response.removeHeader("Content-Encoding");
+        response.removeHeader("Content-Type");
+      }
+      return writeHead(...parameters);
+    };
     return next();
   };
 }

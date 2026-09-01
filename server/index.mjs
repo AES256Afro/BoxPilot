@@ -339,6 +339,14 @@ app.use((request, response, next) => {
     next();
     return;
   }
+  // A hashed asset that is not there is missing, not a route into the app. Answering it with the
+  // shell hides the real problem behind a page that cannot work, and during an upgrade - when the
+  // tree is swapped out from under a browser that is still fetching the old bundle - it means
+  // replying to a request for JavaScript with HTML.
+  if (request.path.startsWith("/assets/")) {
+    next();
+    return;
+  }
 
   response.sendFile(path.join(dist, "index.html"));
 });
