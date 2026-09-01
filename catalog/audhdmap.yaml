@@ -7,8 +7,8 @@ description: "Private visual workspace with quick capture, keyboard navigation, 
 website: https://github.com/AES256Afro/AuDHDMAP
 risk: low
 image:
-  reference: ghcr.io/aes256afro/audhdmap:0.6.0
-  version: "0.6.0"
+  reference: ghcr.io/aes256afro/audhdmap:0.6.1
+  version: "0.6.1"
 ports:
   - id: web
     label: Web UI
