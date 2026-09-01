@@ -181,3 +181,43 @@ describe("the nightly sampler", () => {
     expect(timers.filter(([kind]) => kind === "unref")).toHaveLength(2);
   });
 });
+
+describe("not re-walking the disk on every restart", () => {
+  function fakeStore(initial = {}) {
+    const settings = { ...initial };
+    return { settings, getSetting: (key, fallback) => settings[key] ?? fallback, setSetting: (key, value) => { settings[key] = value; } };
+  }
+
+  it("skips a sweep when one already ran recently", async () => {
+    // A deploy restarts the service and re-arms the timer. Several deploys in a day must not mean
+    // several full walks of a 15 TB library.
+    let asked = 0;
+    const store = fakeStore({ appDataUsageHistory: { "a:/mnt/a": [{ at: "2026-09-03T02:00:00.000Z", bytes: 1 }] } });
+    const helper = { request: async () => { asked += 1; return { entries: [] }; } };
+    const sampler = createAppDataSampler({ helper, store, now: () => new Date("2026-09-03T09:00:00.000Z") });
+    expect(await sampler.sample()).toEqual({ sampled: 0, skipped: "measured recently" });
+    expect(asked).toBe(0);
+  });
+
+  it("sweeps once the gap has actually passed", async () => {
+    let asked = 0;
+    const store = fakeStore({ appDataUsageHistory: { "a:/mnt/a": [{ at: "2026-09-02T02:00:00.000Z", bytes: 1 }] } });
+    const helper = { request: async () => { asked += 1; return { entries: [{ key: "a:/mnt/a", appId: "a", path: "/mnt/a", mount: "/mnt/a", bytes: 9 }] }; } };
+    const sampler = createAppDataSampler({ helper, store, now: () => new Date("2026-09-03T03:00:00.000Z") });
+    expect(await sampler.sample()).toEqual({ sampled: 1 });
+    expect(asked).toBe(1);
+  });
+
+  it("sweeps on a server that has never measured anything", async () => {
+    const store = fakeStore();
+    const helper = { request: async () => ({ entries: [{ key: "a:/mnt/a", appId: "a", path: "/mnt/a", mount: "/mnt/a", bytes: 9 }] }) };
+    expect(await createAppDataSampler({ helper, store, now: () => new Date("2026-09-03T03:00:00.000Z") }).sample()).toEqual({ sampled: 1 });
+  });
+
+  it("still sweeps when explicitly asked to", async () => {
+    const store = fakeStore({ appDataUsageHistory: { "a:/mnt/a": [{ at: "2026-09-03T02:00:00.000Z", bytes: 1 }] } });
+    const helper = { request: async () => ({ entries: [{ key: "a:/mnt/a", appId: "a", path: "/mnt/a", mount: "/mnt/a", bytes: 9 }] }) };
+    const sampler = createAppDataSampler({ helper, store, now: () => new Date("2026-09-03T09:00:00.000Z") });
+    expect(await sampler.sample({ force: true })).toEqual({ sampled: 1 });
+  });
+});
