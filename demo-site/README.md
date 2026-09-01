@@ -16,10 +16,15 @@ Nothing here belongs to anybody. Every value is invented, and no request reaches
 ## Publishing
 
 ```sh
-npm run build                    # the front end
-node scripts/demo-bundle.mjs     # the frozen API
+npm run demo:publish             # front end, assets, frozen API
 cd demo-site && npx wrangler deploy
 ```
+
+`demo:publish` is one command because the copy of the built front end into `public/` used to be a
+step people were expected to remember, and the demo has served a page older than the bundle it was
+meant to be showing more than once. The precompressed `.gz` twins the build writes are not copied:
+Cloudflare compresses at its own edge, so uploading them would be a second copy of every asset for
+nothing.
 
 Two things that have already caught me out. A key written after a `[table]` header in TOML belongs
 to that table, so `routes` must come before `[assets]` or it is silently swallowed. And Cloudflare
