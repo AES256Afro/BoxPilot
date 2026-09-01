@@ -838,6 +838,40 @@ describe("generic app deployer", () => {
     expect(stored.pinnedRollback).toBe(true);
   });
 
+  it("steps back more than one release, and forgets the versions it stepped past", async () => {
+    const { apps, catalogRoot, catalogDirectory } = await setup();
+    const manifest = (image) => [
+      "schemaVersion: 2", "id: steps", "name: Steps", "category: T", "description: d",
+      `image:`, `  reference: ${image}`,
+      "ports:", "  - id: web", "    container: 80", "    host: 8080",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n";
+    const publish = async (image) => {
+      await rm(path.join(catalogDirectory, "steps.yaml"), { force: true });
+      await writeFile(path.join(catalogDirectory, "steps.yaml"), manifest(image));
+    };
+
+    await publish("app:1.0"); await apps.install({ id: "steps" });
+    await publish("app:2.0.0"); await apps.update({ id: "steps" });
+    await publish("app:3.0.0.0"); await apps.update({ id: "steps" });
+
+    let stored = JSON.parse(await readFile(path.join(catalogRoot, "steps", "boxpilot.json"), "utf8"));
+    expect(stored.updateHistory.map((entry) => entry.from.steps)).toEqual(["app:2.0.0", "app:1.0"]);
+
+    // Skip straight back to 1.0 by naming the older entry, not the most recent one.
+    const older = stored.updateHistory[1];
+    const back = await apps.rollbackApp({ id: "steps", at: older.at });
+    expect(back.restored).toEqual({ steps: "app:1.0" });
+    expect(await readFile(path.join(catalogRoot, "steps", "compose.yaml"), "utf8")).toContain("app:1.0");
+
+    // The 2.0 entry described a version it is no longer on, so it is not still offered.
+    stored = JSON.parse(await readFile(path.join(catalogRoot, "steps", "boxpilot.json"), "utf8"));
+    expect(stored.updateHistory[0]).toMatchObject({ rolledBack: true, to: { steps: "app:1.0" } });
+    expect(stored.updateHistory.some((entry) => entry.from?.steps === "app:2.0.0")).toBe(false);
+
+    await expect(apps.rollbackApp({ id: "steps", at: "2020-01-01T00:00:00.000Z" })).rejects.toThrow("no recorded version");
+  });
+
   it("refuses to roll back an app that has never been updated", async () => {
     const { apps } = await setup();
     await apps.install({ id: "demo" });

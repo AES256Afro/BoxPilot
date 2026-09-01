@@ -666,15 +666,26 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                   : <button className="primary-button" type="button" onClick={() => start({ operationId: "app.action", title: `Start ${manifest.name}`, parameters: { id: manifest.id, action: "start" } })}>Start</button>)}
                 {installed && <button className="secondary-button" type="button" onClick={() => setConfig({ manifest, live, mode: "reconfigure" })}>Settings</button>}
                 {installed && <button className={live?.updateAvailable ? "primary-button" : "secondary-button"} type="button" onClick={() => start({ operationId: "app.update", title: `Update ${manifest.name}`, parameters: { id: manifest.id }, preview: <span>{live?.updateAvailable ? <>Updates from <code>{live.installedImage}</code> to <code>{manifest.image.reference}</code>. </> : null}Pulls the image and recreates the container. The previous image is restored if the new one fails to become healthy.</span> })}>{live?.updateAvailable ? "Update available" : "Update"}</button>}
-                {/* The update that succeeded and turned out wrong. The version comes from this app's
-                    own history, so this can only ever put back what it was already running. */}
-                {installed && (live?.updateHistory?.[0]?.from?.[manifest.id]) && !live.updateHistory[0].rolledBack && (
-                  <button className="text-button" type="button" onClick={() => start({
-                    operationId: "app.rollback",
-                    title: `Put ${manifest.name} back on ${live.updateHistory![0].from[manifest.id]}`,
-                    parameters: { id: manifest.id },
-                    preview: <span>Takes a checkpoint, then puts {manifest.name} back on <code>{live.updateHistory![0].from[manifest.id]}</code>{Object.keys(live.updateHistory![0].from).length > 1 ? <> along with {Object.entries(live.updateHistory![0].from).filter(([service]) => service !== manifest.id).map(([service, reference]) => <span key={service}> its {service} on <code>{reference}</code></span>)}</> : null}. Your data and settings are untouched; only the versions change.</span>,
-                  })}>Go back to {live.updateHistory[0].from[manifest.id]}</button>
+                {/* The update that succeeded and turned out wrong. Every version comes from this
+                    app's own recorded history, so this can only put back something it already ran. */}
+                {installed && (live?.updateHistory ?? []).some((entry) => entry.from?.[manifest.id]) && (
+                  <details className="version-history">
+                    <summary>Earlier versions</summary>
+                    <ul>
+                      {live!.updateHistory!.filter((entry) => entry.from?.[manifest.id]).map((entry) => (
+                        <li key={entry.at}>
+                          <code>{entry.from[manifest.id]}</code>
+                          <span className="muted">{entry.rolledBack ? "before going back" : "before updating"}, {new Date(entry.at).toLocaleDateString()}</span>
+                          <button className="text-button" type="button" onClick={() => start({
+                            operationId: "app.rollback",
+                            title: `Put ${manifest.name} back on ${entry.from[manifest.id]}`,
+                            parameters: { id: manifest.id, at: entry.at },
+                            preview: <span>Takes a checkpoint, then puts {manifest.name} back on <code>{entry.from[manifest.id]}</code>{Object.keys(entry.from).length > 1 ? <> along with{Object.entries(entry.from).filter(([service]) => service !== manifest.id).map(([service, reference]) => <span key={service}> its {service} on <code>{reference}</code></span>)}</> : null}. Your data and settings are untouched; only the versions change.</span>,
+                          })}>Go back to this</button>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
                 )}
                 {installed && manifest.modelRunner && <button className="secondary-button" type="button" onClick={() => void showModels(manifest)}>Models</button>}
                 {installed && <button className="text-button" type="button" onClick={() => void showLogs(manifest.id)}>Logs</button>}

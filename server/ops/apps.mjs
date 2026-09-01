@@ -147,8 +147,8 @@ export function appOperations() {
     defineOperation({
       id: "app.rollback", title: "Go back to the previous version", risk: "medium", timeoutMs: minutes(40),
       description: "Takes a data checkpoint, then puts the application back on the versions it was running before its last update - the app and any sidecar that moved with it. The version to restore comes from this application's own recorded history, not from the request, so nothing else can be deployed this way. Data and settings are untouched; only the images change.",
-      parameters: { fields: { id: idField, checkpoint: { type: "boolean", optional: true }, devices: devicesField } },
-      run: (parameters, { apps, progress }) => apps.rollbackApp({ id: parameters.id, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true }),
+      parameters: { fields: { id: idField, at: { type: "string", optional: true, maxLength: 32, pattern: /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/ }, checkpoint: { type: "boolean", optional: true }, devices: devicesField } },
+      run: (parameters, { apps, progress }) => apps.rollbackApp({ id: parameters.id, at: parameters.at ?? null, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true }),
     }),
     defineOperation({
       id: "app.backup", title: "Back up application data", risk: "medium", timeoutMs: minutes(70),
