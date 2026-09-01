@@ -28,7 +28,9 @@ export function hostBackupOperations() {
       run: (_parameters, { machineSnapshot }) => machineSnapshot.discover(),
     }),
     defineOperation({
-      id: "host.snapshot.describe", title: "Inspect a machine snapshot", risk: "low", readOnly: true, timeoutMs: 10 * 60_000,
+      // operator, like app.backup.files: reading inside a machine snapshot says what the server
+      // holds, and inflating one to answer is minutes of work per call.
+      id: "host.snapshot.describe", title: "Inspect a machine snapshot", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 10 * 60_000,
       parameters: { fields: { source: { type: "string", enum: ["local", "mirror", "discovered"] }, artifact: { type: "string", pattern: /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/ }, root: { type: "string", maxLength: 4096, optional: true } } },
       run: (parameters, { machineSnapshot }) => machineSnapshot.describe(parameters),
     }),
