@@ -7,8 +7,8 @@ description: "Private visual workspace for freely placed thoughts, connected Mar
 website: https://github.com/AES256Afro/AuDHDMAP
 risk: low
 image:
-  reference: ghcr.io/aes256afro/audhdmap:0.1.0
-  version: "0.1.0"
+  reference: ghcr.io/aes256afro/audhdmap:0.2.0
+  version: "0.2.0"
 ports:
   - id: web
     label: Web UI
