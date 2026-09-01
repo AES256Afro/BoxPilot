@@ -3,12 +3,12 @@ id: audhdmap
 name: AuDHDMAP
 category: Knowledge
 icon: "⌘"
-description: "Private visual workspace with quick capture, keyboard navigation, server recovery points, recoverable trash, connected Markdown notes, project views, portable exports, complete backups, and low-fatigue themes."
+description: "Private visual workspace with quick capture, keyboard navigation, recovery points, recoverable trash, connected Markdown notes, project views, spreadsheet-safe project handoff, previewed JSON import, complete backups, and low-fatigue themes."
 website: https://github.com/AES256Afro/AuDHDMAP
 risk: low
 image:
-  reference: ghcr.io/aes256afro/audhdmap:0.5.0
-  version: "0.5.0"
+  reference: ghcr.io/aes256afro/audhdmap:0.6.0
+  version: "0.6.0"
 ports:
   - id: web
     label: Web UI
@@ -51,4 +51,5 @@ notes: >-
   required. Press Q for multi-line quick capture or Cmd/Ctrl+K to jump to any
   map, thought, or task. Deleted thoughts remain in recoverable trash until
   explicitly purged. Use Export for local recovery points, PDF, SVG, Markdown,
-  plain text, JSON, or a complete restorable ZIP.
+  plain text, project CSV, JSON, or a complete restorable ZIP. JSON import
+  previews every replacement and creates a recovery point before it commits.
