@@ -141,6 +141,35 @@ describe("serving the build's precompressed assets", () => {
     } finally { close(); }
   });
 
+  it("hands a malformed path back to the static handler rather than failing the request", async () => {
+    const { base, close } = await serveAssets();
+    try {
+      // decodeURIComponent throws on this. A 404 is the right answer; a 500 is a new failure mode.
+      for (const malformed of ["/assets/%ZZ.js", "/assets/%.js", "/assets/%E0%A4%A.js"]) {
+        const response = await fetch(`${base}${malformed}`, { headers: { "accept-encoding": "gzip" } });
+        expect(response.status).toBe(404);
+      }
+    } finally { close(); }
+  });
+
+  it("does not claim a body is gzip when the file vanished under it", async () => {
+    // What an upgrade looks like: the tree is swapped while a browser is still fetching the old
+    // bundle. Answering with the wrong encoding is worse than answering 404.
+    const { root, dir } = builtAssets();
+    const app = express();
+    app.use("/assets", precompressedAssets(dir));
+    app.use("/assets", (_request, _response, next) => { rmSync(nodePath.join(dir, "index-abc123.js.gz"), { force: true }); rmSync(nodePath.join(dir, "index-abc123.js"), { force: true }); next(); });
+    app.use("/assets", express.static(dir, { index: false }));
+    const server = app.listen(0);
+    await new Promise((resolve) => server.once("listening", resolve));
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/assets/index-abc123.js`, { headers: { "accept-encoding": "gzip" } });
+      expect(response.status).toBe(404);
+      expect(response.headers.get("content-encoding")).toBeNull();
+      await expect(response.text()).resolves.toBeTypeOf("string"); // decodes at all
+    } finally { server.close(); rmSync(root, { recursive: true, force: true }); }
+  });
+
   it("keeps the immutable caching the static handler was configured with", async () => {
     const { base, close } = await serveAssets();
     try {

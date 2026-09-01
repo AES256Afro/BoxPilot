@@ -88,7 +88,9 @@ export function chooseQuietSlot({ schedules = [], hours = [1, 2, 3, 4, 5], minut
   let best = null;
   for (const candidate of candidates) {
     const at = ((candidate.weekday * 24) + candidate.hour) * 60 + candidate.minute;
-    const room = taken.length ? Math.min(...taken.map((other) => separation(at, other))) : minutesInWeek;
+    // reduce rather than Math.min(...spread): `taken` grows with every hourly schedule, which
+    // occupies a hundred and sixty-eight minutes of the week on its own.
+    const room = taken.reduce((closest, other) => Math.min(closest, separation(at, other)), minutesInWeek);
     const closeness = separation(at, wanted);
     if (best === null || room > best.room || (room === best.room && closeness < best.closeness)) best = { candidate, room, closeness };
   }
