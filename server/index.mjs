@@ -63,6 +63,7 @@ import { createVmRecoveryService } from "./vm-recovery.mjs";
 import { createVmRetentionService } from "./vm-retention.mjs";
 import { createVmRestoreDrillService } from "./vm-restore-drill.mjs";
 import { foldVerdict, verdictFrom } from "./backup-verdicts.mjs";
+import { jsonGzip } from "./compress.mjs";
 
 const app = express();
 const host = process.env.BOXPILOT_HOST ?? "127.0.0.1";
@@ -218,6 +219,7 @@ createDiskSampler({ inventory, store: state }).start();
 createSmartSampler({ inventory, store: state }).start();
 
 app.disable("x-powered-by");
+app.use(jsonGzip());
 app.use(express.json({ limit: "256kb", strict: true }));
 app.use((request, response, next) => {
   response.setHeader("X-Content-Type-Options", "nosniff");
