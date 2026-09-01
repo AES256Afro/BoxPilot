@@ -50,6 +50,16 @@ env:
     type: boolean
     default: false
     description: Turn on once your accounts exist; existing users keep signing in.
+  - name: KEEL_TRUST_PROXY
+    label: Published through a reverse proxy
+    type: boolean
+    default: false
+    description: >-
+      Turn on when Keel is reached through Tailscale Serve or another proxy, so
+      it reads the caller's real address from the forwarded headers. Left off,
+      Keel refuses to guess: it treats every proxied caller as unidentified and
+      leans on its per-account limits instead of per-address ones, which is safe
+      but blunter.
   - name: KEEL_BACKUP_PASSPHRASE
     label: Backup passphrase
     type: password
