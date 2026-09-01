@@ -175,8 +175,8 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, jobLogR
 
   router.post("/schedules", auth.requireCsrf, async (request, response) => {
     try {
-      const { operationId, parameters, frequency, minute, hour, weekday } = request.body ?? {};
-      const schedule = await scheduler.create({ operationId, parameters: parameters ?? {}, frequency, minute, hour: hour ?? null, weekday: weekday ?? null, createdBy: request.boxpilotSession.owner.id });
+      const { operationId, parameters, frequency, minute, hour, weekday, spread } = request.body ?? {};
+      const schedule = await scheduler.create({ operationId, parameters: parameters ?? {}, frequency, minute, hour: hour ?? null, weekday: weekday ?? null, spread: spread === true, createdBy: request.boxpilotSession.owner.id });
       response.status(201).json({ schedule });
     } catch (error) {
       response.status(400).json({ error: error.message, code: "schedule_rejected" });

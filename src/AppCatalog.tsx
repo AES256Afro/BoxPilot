@@ -241,7 +241,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [tunnels, setTunnels] = useState<Record<string, { running: boolean; exit: { ip: string; location: string | null } | null; forwardedPort: number | null }>>({});
   // The weekly kill-switch verification schedule per VPN app, if the owner turned it on.
   const [killswitch, setKillswitch] = useState<Record<string, { id: string; overdue: boolean; lastRunAt: string | null; lastResult: string | null }>>({});
-  const [rehearsal, setRehearsal] = useState<Record<string, string>>({});   // app id -> schedule id
+  const [rehearsal, setRehearsal] = useState<Record<string, { id: string; cadence: string }>>({});   // app id -> its schedule
   const [foreign, setForeign] = useState<Array<{ name: string; status: string; configFiles: string[] }> | null>(null);
   const [foreignLogs, setForeignLogs] = useState<{ name: string; lines: string[] } | null>(null);
   useEffect(() => {
@@ -315,13 +315,13 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   // Which VPN apps have the kill-switch drill running on a schedule, and how the last run went.
   const loadKillswitch = useCallback(async () => {
     try {
-      const body = (await fetch("/api/v1/schedules").then((response) => (response.ok ? response.json() : { schedules: [] }))) as { schedules: Array<{ id: string; operationId: string; parameters?: { subject?: string }; overdue?: boolean; lastRunAt?: string | null; lastResult?: string | null }> };
+      const body = (await fetch("/api/v1/schedules").then((response) => (response.ok ? response.json() : { schedules: [] }))) as { schedules: Array<{ id: string; operationId: string; cadence: string; parameters?: { subject?: string }; overdue?: boolean; lastRunAt?: string | null; lastResult?: string | null }> };
       const map: Record<string, { id: string; overdue: boolean; lastRunAt: string | null; lastResult: string | null }> = {};
-      const rehearsals: Record<string, string> = {};
+      const rehearsals: Record<string, { id: string; cadence: string }> = {};
       for (const schedule of body.schedules ?? []) {
         const subject = schedule.parameters?.subject;
         if (schedule.operationId === "app.vpn.killswitch.drill" && subject) map[subject] = { id: schedule.id, overdue: Boolean(schedule.overdue), lastRunAt: schedule.lastRunAt ?? null, lastResult: schedule.lastResult ?? null };
-        if (schedule.operationId === "app.backup.verify" && subject) rehearsals[subject] = schedule.id;
+        if (schedule.operationId === "app.backup.verify" && subject) rehearsals[subject] = { id: schedule.id, cadence: schedule.cadence };
       }
       setKillswitch(map);
       setRehearsal(rehearsals);
@@ -331,7 +331,10 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   // A rehearsal on a cadence is what turns "the backups restore" from a one-off into a record.
   const scheduleRehearsal = async (appId: string) => {
     try {
-      await fetch("/api/v1/schedules", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ operationId: "app.backup.verify", parameters: { id: appId }, frequency: "weekly", minute: 30, hour: 3, weekday: 1 }) });
+      // spread: one server can have twenty of these, and twenty archives decompressing in the same
+      // minute is not a rehearsal, it is an outage. The server puts it somewhere quiet near here.
+      await fetch("/api/v1/schedules", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
+        body: JSON.stringify({ operationId: "app.backup.verify", parameters: { id: appId }, frequency: "weekly", minute: 30, hour: 3, weekday: 1, spread: true }) });
       await loadKillswitch();
     } catch { /* a failure leaves the button as it was */ }
   };
@@ -343,7 +346,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   };
   const scheduleKillswitch = async (appId: string) => {
     try {
-      await fetch("/api/v1/schedules", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ operationId: "app.vpn.killswitch.drill", parameters: { id: appId }, frequency: "weekly", minute: 0, hour: 4, weekday: 0 }) });
+      await fetch("/api/v1/schedules", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ operationId: "app.vpn.killswitch.drill", parameters: { id: appId }, frequency: "weekly", minute: 0, hour: 4, weekday: 0, spread: true }) });
       await loadKillswitch();
     } catch { /* a failure leaves the button as it was */ }
   };
@@ -848,7 +851,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                   </p>
                 )}
                 {appBackups.backups.length > 0 && (rehearsal[appBackups.id]
-                  ? <p className="muted">Rehearsed automatically every week. <button className="text-button" type="button" onClick={() => void unscheduleRehearsal(rehearsal[appBackups.id])}>stop</button></p>
+                  ? <p className="muted">Rehearsed automatically {rehearsal[appBackups.id].cadence}. <button className="text-button" type="button" onClick={() => void unscheduleRehearsal(rehearsal[appBackups.id].id)}>stop</button></p>
                   : <p className="muted">Nothing checks these on their own. <button className="text-button" type="button" onClick={() => void scheduleRehearsal(appBackups.id)}>Rehearse weekly</button></p>)}
               </div>
               {browsing && (
