@@ -195,7 +195,11 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.restoreAppBackup(parameters, { progress }),
     }),
     defineOperation({
-      id: "app.backup.files", title: "List the files in an application backup", risk: "low", readOnly: true, timeoutMs: minutes(10),
+      // operator: this lists what is inside a backup - every filename in the app's config and data,
+      // which is more revealing than the folder listing storage.folders already gates. Its only
+      // caller is the restore-a-single-file dialog, which is medium risk and so beyond a viewer
+      // anyway. It also inflates a whole archive to answer, so it is not a cheap thing to invite.
+      id: "app.backup.files", title: "List the files in an application backup", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: minutes(10),
       description: "Paths, sizes, and kinds inside one backup archive, so a single file or folder can be restored.",
       parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
       run: (parameters, { apps }) => apps.listAppBackupFiles({ id: parameters.id, backup: parameters.backup }),

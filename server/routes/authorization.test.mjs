@@ -272,3 +272,15 @@ describe("bad requests", () => {
     expect((await oversized.json()).code).toBe("request_too_large");
   });
 });
+
+describe("reads that go through the system's own permissions", () => {
+  it("are all closed to viewers together", async () => {
+    // These three run in the root helper and read past the permissions the caller has: the folders
+    // on a drive, the filenames inside an app backup, and the sizes of every app's data. Gating one
+    // and not the others is the failure mode worth a test - app.data.usage shipped without it.
+    const { registry } = await import("../ops/index.mjs");
+    for (const id of ["storage.folders", "app.backup.files", "app.data.usage", "host.snapshot.describe"]) {
+      expect(registry.get(id)?.minimumRole, `${id} should need an operator`).toBe("operator");
+    }
+  });
+});
