@@ -4565,3 +4565,9 @@ textarea {
 /* One-click notification target from an installed app (M8.6) */
 .notification-local-offer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
 .notification-local-offer > span { flex: 1 1 20ch; }
+
+/* Earlier versions an app can be put back on (M22.2) */
+.version-history { margin-top: 4px; }
+.version-history summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+.version-history ul { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 5px; }
+.version-history li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }

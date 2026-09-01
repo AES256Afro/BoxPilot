@@ -834,8 +834,11 @@ fully looks after."
   recorded history rather than the request, so the operation can only ever restore what that app was
   already running, and catalog references are version tags (never `latest`), so the old image is
   re-pullable after a prune has removed it locally. `rollbackApp` in `server/app-helper.mjs`,
-  `deployedImages` in `server/catalog/compose.mjs`, op `app.rollback`. **Remaining:** channels
-  (stable vs latest) and stepping back more than one release.
+  `deployedImages` in `server/catalog/compose.mjs`, op `app.rollback`. ✅ **Stepping back further**
+  (v1.101.0): every recorded version is offered, not only the most recent. `at` names one of the
+  app's own recorded updates, so a jump of several releases is still only ever a version it actually
+  ran; entries newer than the one undone are dropped rather than left ahead of the current state.
+  **Remaining:** channels (stable vs latest).
   of image versions installed, and a one-click return to any previous one, on top of the checkpoint
   machinery already there.
 - **M22.3** **App bundles.** A named set of apps installed and wired together in one approved run —

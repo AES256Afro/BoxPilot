@@ -677,11 +677,15 @@ export function createAppHelper({
    * previous version and nothing else. Catalog references are version tags, never `latest`, so the
    * old image is re-pullable even after an unused-image prune has removed it locally.
    */
-  async function rollbackApp({ id, devices = null }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
+  async function rollbackApp({ id, at = null, devices = null }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
-    const last = (state.updateHistory ?? [])[0];
+    const history = state.updateHistory ?? [];
+    // `at` names one of this app's own recorded updates, so stepping back several releases is still
+    // only ever a version it actually ran. Without it, the most recent update is the one undone.
+    const last = at ? history.find((entry) => entry.at === at) : history[0];
+    if (at && !last) throw new Error(`${manifest.name} has no recorded version from ${at} to go back to`);
     if (!last || !Object.keys(last.from ?? {}).length) throw new Error(`${manifest.name} has not been updated since it was installed, so there is nothing to go back to`);
 
     const { values, errors } = resolveValues(manifest, sanitizeStoredValues(manifest, state.values ?? {}));
@@ -694,6 +698,10 @@ export function createAppHelper({
       sidecars: (manifest.sidecars ?? []).map((sidecar) => (last.from[sidecar.id] ? { ...sidecar, image: last.from[sidecar.id] } : sidecar)),
     };
     const saved = takeCheckpoint ? await checkpoint({ id, reason: "going back a version" }, { progress }) : null;
+    // What is deployed right now, which is what this rollback moves away from. Stepping back several
+    // releases means the entry being undone describes an older hop, so its `to` is not where the app
+    // actually is — reading the deployed file is the only answer that stays true at any depth.
+    const runningBefore = deployedImages(await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => ""));
     const restoring = Object.entries(last.from).map(([service, reference]) => `${service} to ${reference}`).join(", ");
     progress?.(`Putting ${manifest.name} back: ${restoring}`, "stdout");
     await writeProject(pinned, values, { existingEnv: await readEnv(id), devices });
@@ -704,16 +712,19 @@ export function createAppHelper({
     if (!up.ok) throw new Error(`${manifest.name} would not start on the previous version: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
     const status = await waitHealthy(manifest, progress);
     // The rollback is itself an entry, so going back twice steps back twice rather than ping-ponging.
-    const entry = { at: clock().toISOString(), from: last.to ?? {}, to: last.from, rolledBack: true };
+    const movedFrom = Object.fromEntries(Object.keys(last.from).map((service) => [service, runningBefore[service] ?? last.to?.[service] ?? null]));
+    const entry = { at: clock().toISOString(), from: movedFrom, to: last.from, rolledBack: true };
     await writeState(id, {
       ...state,
       updatedAt: clock().toISOString(),
       image: { reference: last.from[id] ?? state.image?.reference ?? null, id: status.image },
       pinnedRollback: true,
-      updateHistory: [entry, ...(state.updateHistory ?? []).slice(1)].slice(0, updateHistoryLimit),
+      // Entries newer than the one undone describe versions this app is no longer on, so they are
+      // dropped rather than left ahead of the current state where "go back" would offer them again.
+      updateHistory: [entry, ...history.slice(history.indexOf(last) + 1)].slice(0, updateHistoryLimit),
     });
     progress?.(`${manifest.name} is back on ${last.from[id] ?? "its previous version"}`, "stdout");
-    return { rolledBack: true, id, restored: last.from, from: last.to ?? {}, checkpoint: saved };
+    return { rolledBack: true, id, restored: last.from, from: movedFrom, checkpoint: saved };
   }
 
   async function reconfigure({ id, values: rawValues = {}, devices = null }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
