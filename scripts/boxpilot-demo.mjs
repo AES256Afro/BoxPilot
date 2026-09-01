@@ -532,6 +532,12 @@ api.get("/virtualization/foundation", (_request, response) => json(response, {
   conflicts: [], planAvailable: false, changes: [],
   boundary: { mutationPerformed: false, browserResourceAccepted: false },
 }));
+// Which automation this server in particular should have, with the evidence for it (M24.1).
+// Only what is not already on the list: suggestFlows filters out anything the owner has, so a
+// suggestion sitting next to "on your list" would be a shape the real thing cannot produce.
+api.get("/flows/suggestions", (_request, response) => json(response, { suggestions: [
+  { slug: "tidy-docker", name: "Tidy Docker", description: "Reclaim orphaned image layers and build cache.", because: "9 GB of Docker layers and build cache nothing is using. It comes back on its own if it is ever needed." },
+] }));
 api.get("/flows", (_request, response) => json(response, {
   flows: [
     { id: "flow-1", name: "Update night", steps: [{ operationId: "host.snapshot.create", parameters: {} }, { operationId: "apt.refresh", parameters: {} }, { operationId: "apt.upgrade", parameters: {} }],

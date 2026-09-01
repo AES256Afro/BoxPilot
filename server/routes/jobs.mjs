@@ -3,8 +3,9 @@
  * Activity-drawer event stream, and operation schedules. Mounted at /api/v1 behind the session.
  */
 import { Router } from "express";
+import { suggestFlows, suggestionFacts } from "../flow-suggestions.mjs";
 
-export function createJobsRouter({ state, jobs, scheduler, flows = null, jobLogReader, auth }) {
+export function createJobsRouter({ state, jobs, scheduler, flows = null, helper = null, jobLogReader, auth }) {
   const router = Router();
 
   /** Everyone sees their own jobs; the owner sees the whole box. */
@@ -107,6 +108,28 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, jobLogR
   router.get("/flows", (_request, response) => {
     if (!flows) return response.status(503).json({ error: "Flows are not available", code: "flows_unavailable" });
     response.json({ flows: flows.list(), palette: flows.stepPalette(), shelf: flows.shelf() });
+  });
+
+  // Which automation this server in particular should have, and why (M24.1). Nothing is created:
+  // this is the argument for pressing a button that was already on the shelf.
+  router.get("/flows/suggestions", async (_request, response) => {
+    if (!flows) return response.status(503).json({ error: "Flows are not available", code: "flows_unavailable" });
+    // Three of the four facts are database reads and free. The other two ask the helper, and a
+    // fact that cannot be read simply means that argument is not made today rather than an error:
+    // a suggestion nobody can justify should not be offered at all.
+    const [housekeeping, updates] = await Promise.all([
+      helper ? helper.request("housekeeping.inspect", {}, { timeoutMs: 20_000 }).catch(() => null) : null,
+      helper ? helper.request("apt.upgradable.inspect", {}, { timeoutMs: 20_000 }).catch(() => null) : null,
+    ]);
+    const packages = Array.isArray(updates?.packages) ? updates.packages : [];
+    const facts = suggestionFacts({
+      backups: state.listBackups(50),
+      offBoxDestination: state.getSetting("backupDestination", null),
+      offBoxLastSyncAt: state.getSetting("backupDestinationLastSync", null)?.completedAt ?? null,
+      housekeeping,
+      updates: { total: packages.length, security: packages.filter((entry) => entry?.security).length },
+    });
+    response.json({ suggestions: suggestFlows({ shelf: flows.shelf(), flows: flows.list(), facts }) });
   });
 
   router.post("/flows", auth.requireCsrf, async (request, response) => {

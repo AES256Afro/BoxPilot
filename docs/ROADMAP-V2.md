@@ -895,9 +895,18 @@ time, or the filesystem features a home server leans on.
 M13 gave flows a solid, consent-respecting engine. This arc makes the product suggest and reason,
 not just execute.
 
-- **M24.1** **Suggested automations.** From what is installed and what has gone wrong, propose flows
-  worth having — "you have qBittorrent and Sonarr; want the finished-files sweep?" — as one-click
-  additions to the shelf, never auto-created.
+- ◐ **M24.1** (v1.107.0) **Suggested automations.** ✅ **The argument.** The shelf listed all three
+  built-in flows equally, which reads as a catalogue: no reason to pick one, so nobody picks any. A
+  suggestion is the same shelf item with the evidence attached — "12 backups are on this box and the
+  off-box destination has never been used" — which is what turns a list into a decision. Suggested
+  items sort first and carry the reason above the description. Nothing is ever created: a suggestion
+  is an argument for pressing a button that was already there. Every one cites a fact read from this
+  server, and one whose evidence goes away stops being made; a flow already on the shelf is never
+  suggested again, matched on what its steps do rather than its name, so renaming a copy does not
+  restart the recommendation. `server/flow-suggestions.mjs` (pure), `GET /flows/suggestions`.
+  **Remaining:** suggestions from what has *gone wrong* (a job that keeps failing, an app that keeps
+  restarting) rather than only from standing facts, and app-pairing recipes ("you have qBittorrent
+  and Sonarr") once the library has flows that span two apps.
 - **M24.2** **Anomaly notices from the metrics.** A quiet watch over the time series that says "this
   is unusual for your box" — a memory climb, a nightly job that got slower — grounded in the data,
   not a model's guess.
