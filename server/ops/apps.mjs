@@ -46,7 +46,12 @@ export function appOperations() {
   return [
     defineOperation({ id: "app.inspect", title: "Inspect catalog applications", risk: "low", readOnly: true, description: "Installed state, container status, and ports for every catalog application.", run: (_p, { apps }) => apps.inspect({}) }),
     defineOperation({
-      id: "app.data.usage", title: "Measure application data folders", risk: "low", readOnly: true, timeoutMs: 30 * 60_000,
+      // operator, for the same reason as storage.folders: this runs in the root helper and reads
+      // through directory permissions, so it would tell a viewer the path and size of every app's
+      // data. And it is the longest read the helper has - a folder walk, minutes rather than
+      // milliseconds - so leaving it open to anyone signed in means eight concurrent calls can hold
+      // every read slot and stop the rest of the product reading anything at all.
+      id: "app.data.usage", title: "Measure application data folders", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 30 * 60_000,
       description: "How much disk each installed application's data folders are holding, and which drive each one is on. Read-only: it walks the folders the manifests declare and measures them, and takes no paths from the request.",
       run: (_p, { apps }) => apps.dataUsage(),
     }),
