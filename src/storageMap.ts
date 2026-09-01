@@ -11,6 +11,8 @@ export interface MapMount { target: string; source: string; fstype: string; size
 export interface MapSambaShare { name: string; path: string; recycle?: boolean; recycleBytes?: number | null }
 export interface MapApp { id: string; name: string; paths: string[] }
 export interface MapForecast { target: string; daysToFull: number }
+/** What a measured app folder holds, from the nightly sweep (M23.1). */
+export interface MapUsage { appId: string | null; path: string | null; bytes: number }
 
 export interface StorageMapEntry {
   id: string;
@@ -21,7 +23,7 @@ export interface StorageMapEntry {
   sizeBytes: number | null;
   availableBytes: number | null;
   daysToFull: number | null;
-  apps: Array<{ id: string; name: string; path: string }>;
+  apps: Array<{ id: string; name: string; path: string; bytes: number | null }>;
   shares: Array<{ name: string; recycle: boolean; recycleBytes: number | null }>;
 }
 
@@ -44,9 +46,10 @@ export function appFolders(applications: Array<{ manifest: { id: string; name: s
   return apps;
 }
 
-export function buildStorageMap({ mounts = [], sambaShares = [], apps = [], forecasts = [], networkTargets = [] }: {
-  mounts?: MapMount[]; sambaShares?: MapSambaShare[]; apps?: MapApp[]; forecasts?: MapForecast[]; networkTargets?: string[];
+export function buildStorageMap({ mounts = [], sambaShares = [], apps = [], forecasts = [], networkTargets = [], usage = [] }: {
+  mounts?: MapMount[]; sambaShares?: MapSambaShare[]; apps?: MapApp[]; forecasts?: MapForecast[]; networkTargets?: string[]; usage?: MapUsage[];
 }): StorageMapEntry[] {
+  const measured = new Map(usage.filter((entry) => entry.path).map((entry) => [entry.path!.replace(/\/+$/, ""), entry.bytes]));
   const network = new Set(networkTargets);
   const dataMounts = mounts.filter((mount) => isDataTarget(mount.target));
   const entries: StorageMapEntry[] = dataMounts.map((mount) => ({
@@ -75,8 +78,11 @@ export function buildStorageMap({ mounts = [], sambaShares = [], apps = [], fore
   };
   for (const app of apps) for (const path of app.paths) {
     const home = homeFor(path);
-    if (!home.apps.some((existing) => existing.id === app.id && existing.path === path)) home.apps.push({ id: app.id, name: app.name, path });
+    if (!home.apps.some((existing) => existing.id === app.id && existing.path === path)) home.apps.push({ id: app.id, name: app.name, path, bytes: measured.get(path) ?? null });
   }
+  // Biggest first, so a glance at a drive says what is actually on it. Folders never measured keep
+  // their place at the end rather than being read as empty.
+  for (const entry of [...entries, system]) entry.apps.sort((left, right) => (right.bytes ?? -1) - (left.bytes ?? -1) || left.name.localeCompare(right.name));
   for (const share of sambaShares) {
     const path = share.path.replace(/\/+$/, "");
     if (!isDataTarget(path)) continue;

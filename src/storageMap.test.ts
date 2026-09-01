@@ -34,7 +34,9 @@ describe("storage map", () => {
     });
     expect(map.map((entry) => `${entry.kind}:${entry.label}`)).toEqual(["network:/mnt/nas-media", "drive:/mnt/the-dump", "system:System disk"]);
     const dump = map[1];
-    expect(dump.apps.map((app) => app.id)).toEqual(["qbittorrent", "plex"]); // subfolder attaches to the containing drive
+    // Both attach to the containing drive, the subfolder included. With nothing measured they come
+    // back in name order rather than catalog order, which is arbitrary to whoever is reading it.
+    expect(dump.apps.map((app) => app.id).sort()).toEqual(["plex", "qbittorrent"]);
     expect(dump.shares).toEqual([{ name: "the-dump", recycle: true, recycleBytes: 512 }]);
     expect(dump.daysToFull).toBe(11);
     const system = map[2];
@@ -46,5 +48,44 @@ describe("storage map", () => {
   it("skips the system card when nothing lives there and no forecast exists", () => {
     const map = buildStorageMap({ mounts: [{ target: "/mnt/x", source: "/dev/sdb1", fstype: "ext4", sizeBytes: 1, availableBytes: 1 }] });
     expect(map).toHaveLength(1);
+  });
+});
+
+describe("sizing what is on each drive", () => {
+  const mounts = [{ target: "/mnt/the-dump", source: "/dev/sda1", fstype: "ext4", sizeBytes: 16e12, availableBytes: 2e12 }];
+  const apps = [
+    { id: "jellyfin", name: "Jellyfin", paths: ["/mnt/the-dump/media"] },
+    { id: "qbittorrent", name: "qBittorrent", paths: ["/mnt/the-dump/torrents"] },
+    { id: "nextcloud", name: "Nextcloud", paths: ["/mnt/the-dump/files"] },
+  ];
+
+  it("puts the biggest folder first, so a glance says what is on the drive", () => {
+    const usage = [
+      { appId: "jellyfin", path: "/mnt/the-dump/media", bytes: 2_100e9 },
+      { appId: "qbittorrent", path: "/mnt/the-dump/torrents", bytes: 1_300e9 },
+      { appId: "nextcloud", path: "/mnt/the-dump/files", bytes: 40e9 },
+    ];
+    const [drive] = buildStorageMap({ mounts, apps, usage });
+    expect(drive.apps.map((app) => app.id)).toEqual(["jellyfin", "qbittorrent", "nextcloud"]);
+    expect(drive.apps[0].bytes).toBe(2_100e9);
+  });
+
+  it("leaves a folder that was never measured unsized rather than calling it empty", () => {
+    const usage = [{ appId: "jellyfin", path: "/mnt/the-dump/media", bytes: 2_100e9 }];
+    const [drive] = buildStorageMap({ mounts, apps, usage });
+    expect(drive.apps[0].id).toBe("jellyfin");
+    // Unmeasured folders keep their place at the end; showing them as 0 would read as empty.
+    expect(drive.apps.slice(1).every((app) => app.bytes === null)).toBe(true);
+  });
+
+  it("ignores a trailing slash when matching a measured folder to an app", () => {
+    const usage = [{ appId: "jellyfin", path: "/mnt/the-dump/media/", bytes: 500e9 }];
+    const [drive] = buildStorageMap({ mounts, apps, usage });
+    expect(drive.apps.find((app) => app.id === "jellyfin")?.bytes).toBe(500e9);
+  });
+
+  it("adds nothing when no sweep has run yet", () => {
+    const [drive] = buildStorageMap({ mounts, apps });
+    expect(drive.apps.every((app) => app.bytes === null)).toBe(true);
   });
 });

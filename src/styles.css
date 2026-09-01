@@ -1583,6 +1583,14 @@ main {
   color: var(--text-primary);
 }
 
+/* The measured size rides inside the app chip, dimmer than the name: the name is what is being
+   pointed at, the size is why it is first in the list. */
+.chip-size {
+  margin-left: 6px;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+
 .filling-blame code {
   font-size: 10px;
   word-break: break-all;
