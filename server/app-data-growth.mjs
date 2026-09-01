@@ -105,12 +105,27 @@ export function mountFor(path, mounts) {
  * a comparison that cannot be made, which the growth window already handles, and is far better than
  * a fabricated reading.
  */
-export function createAppDataSampler({ helper, store, now = () => new Date(), intervalMs = 24 * 60 * 60 * 1000, initialDelayMs = 20 * 60 * 1000, maxDays = 30, timeoutMs = 40 * 60_000, setInterval: schedule = globalThis.setInterval, setTimeout: delay = globalThis.setTimeout, clearInterval: unschedule = globalThis.clearInterval, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
-  async function sample() {
+export function createAppDataSampler({ helper, store, now = () => new Date(), intervalMs = 24 * 60 * 60 * 1000, initialDelayMs = 20 * 60 * 1000, minimumGapMs = 20 * 60 * 60 * 1000, maxDays = 30, timeoutMs = 40 * 60_000, setInterval: schedule = globalThis.setInterval, setTimeout: delay = globalThis.setTimeout, clearInterval: unschedule = globalThis.clearInterval, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
+  /** The newest reading anywhere in the history, so a restart cannot start the clock over. */
+  function lastSampledAt(history) {
+    let newest = null;
+    for (const samples of Object.values(history ?? {})) {
+      const at = Date.parse(Array.isArray(samples) ? samples.at(-1)?.at : null);
+      if (Number.isFinite(at) && (newest === null || at > newest)) newest = at;
+    }
+    return newest;
+  }
+
+  async function sample({ force = false } = {}) {
+    // The owner restarts this service several times on a day they are updating, and each restart
+    // re-arms the timer below. Walking every data folder on the disk once per deploy is not what
+    // "once a day" means, so the history itself decides whether it is due.
+    const history = store.getSetting("appDataUsageHistory", {}) ?? {};
+    const previous = lastSampledAt(history);
+    if (!force && previous !== null && now().getTime() - previous < minimumGapMs) return { sampled: 0, skipped: "measured recently" };
     const usage = await helper.request("app.data.usage", {}, { timeoutMs });
     const entries = usage?.entries ?? [];
     if (!entries.length) return { sampled: 0 };
-    const history = store.getSetting("appDataUsageHistory", {}) ?? {};
     const next = appendUsageSample(history, { at: now().toISOString(), entries }, { maxDays });
     store.setSetting("appDataUsageHistory", next, { updatedBy: null });
     return { sampled: entries.filter((entry) => Number.isFinite(entry.bytes)).length };
