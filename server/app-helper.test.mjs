@@ -222,8 +222,11 @@ describe("generic app deployer", () => {
       if (args[0] === "-tzf") {
         listingOptions = options;
         // A backup far larger than any fixed buffer would hold, delivered a line at a time.
-        for (let index = 0; index < 200_000; index += 1) { options.onLine?.(`data/file-${index}`); emitted += 1; }
-        options.onLine?.("compose.yaml");
+        // streamRun always passes the stream name (server/exec.mjs), so the mock must too.
+        for (let index = 0; index < 200_000; index += 1) { options.onLine?.(`data/file-${index}`, "stdout"); emitted += 1; }
+        options.onLine?.("compose.yaml", "stdout");
+        // tar writes warnings to stderr and still exits 0; a warning is not an archive member.
+        options.onLine?.("tar: Ignoring unknown extended header keyword", "stderr");
         return { ok: true, stdout: "", stderr: "" };
       }
       if (args[0] === "-xzOf") return { ok: true, stdout: "services:\n  demo:\n    image: nginx\n", stderr: "" };
@@ -236,7 +239,7 @@ describe("generic app deployer", () => {
     await writeFile(path.join(backupRoot, "demo", "20260101T000000Z.json"), JSON.stringify({ contents: ["compose.yaml", "data"] }));  // no checksum: skip the sha step
 
     const verdict = await apps.verifyAppBackup({ id: "demo", backup: artifact });
-    expect(verdict).toMatchObject({ verified: true, members: 200_001 });
+    expect(verdict).toMatchObject({ verified: true, members: 200_001 });   // the stderr warning is not counted
     // The proof of the fix: the listing was streamed line by line, and no fixed stdout cap was set.
     expect(typeof listingOptions.onLine).toBe("function");
     expect(listingOptions.maxBuffer).toBeUndefined();
@@ -870,6 +873,62 @@ describe("generic app deployer", () => {
     expect(stored.updateHistory.some((entry) => entry.from?.steps === "app:2.0.0")).toBe(false);
 
     await expect(apps.rollbackApp({ id: "steps", at: "2020-01-01T00:00:00.000Z" })).rejects.toThrow("no recorded version");
+  });
+
+  it("does not move forward when asked to go back a second time", async () => {
+    // history[0] after a rollback describes the version just left behind. Choosing it would
+    // redeploy exactly what the owner was escaping and call it a success.
+    const { apps, catalogRoot, catalogDirectory } = await setup();
+    const manifest = (image) => [
+      "schemaVersion: 2", "id: pong", "name: Pong", "category: T", "description: d",
+      `image:`, `  reference: ${image}`,
+      "ports:", "  - id: web", "    container: 80", "    host: 8080",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n";
+    const publish = async (image) => {
+      await rm(path.join(catalogDirectory, "pong.yaml"), { force: true });
+      await writeFile(path.join(catalogDirectory, "pong.yaml"), manifest(image));
+    };
+    await publish("app:1.0"); await apps.install({ id: "pong" });
+    await publish("app:2.0.0"); await apps.update({ id: "pong" });
+
+    expect((await apps.rollbackApp({ id: "pong" })).restored).toEqual({ pong: "app:1.0" });
+    expect(await readFile(path.join(catalogRoot, "pong", "compose.yaml"), "utf8")).toContain("app:1.0");
+
+    // Already on the oldest version it remembers: refuse, rather than redeploying 2.0.0.
+    await expect(apps.rollbackApp({ id: "pong" })).rejects.toThrow("nothing to go back to");
+    expect(await readFile(path.join(catalogRoot, "pong", "compose.yaml"), "utf8")).toContain("app:1.0");
+  });
+
+  it("refuses a recorded version that names a service the app no longer has", async () => {
+    // An update that moved only a sidecar, and a later release that dropped that sidecar. Pinning
+    // nothing and reporting success would leave the app on the release being escaped.
+    const { apps, catalogRoot, catalogDirectory } = await setup();
+    const withSidecar = [
+      "schemaVersion: 2", "id: shed", "name: Shed", "category: T", "description: d",
+      "image:", "  reference: app:1.0",
+      "ports:", "  - id: web", "    container: 80", "    host: 8080",
+      "sidecars:", "  - id: cache", "    image: redis:6",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n";
+    const sidecarMoved = withSidecar.replace("redis:6", "redis:7");
+    const sidecarGone = [
+      "schemaVersion: 2", "id: shed", "name: Shed", "category: T", "description: d",
+      "image:", "  reference: app:1.0",
+      "ports:", "  - id: web", "    container: 80", "    host: 8080",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n";
+    const publish = async (text) => {
+      await rm(path.join(catalogDirectory, "shed.yaml"), { force: true });
+      await writeFile(path.join(catalogDirectory, "shed.yaml"), text);
+    };
+    await publish(withSidecar); await apps.install({ id: "shed" });
+    await publish(sidecarMoved); await apps.update({ id: "shed" });     // only the sidecar moved
+    let stored = JSON.parse(await readFile(path.join(catalogRoot, "shed", "boxpilot.json"), "utf8"));
+    expect(stored.updateHistory[0].from).toEqual({ cache: "redis:6" });
+
+    await publish(sidecarGone);                                        // the catalog drops the sidecar
+    await expect(apps.rollbackApp({ id: "shed" })).rejects.toThrow("no recorded version that still matches");
   });
 
   it("refuses to roll back an app that has never been updated", async () => {

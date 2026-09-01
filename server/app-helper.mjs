@@ -310,7 +310,11 @@ export function createAppHelper({
       await docker(["pull", reference], { timeout: 15 * 60_000 }).catch(() => null);
       inspected = await docker(["image", "inspect", reference, "--format", "{{.Config.User}}"], { timeout: 30_000 });
     }
-    const declared = inspected.ok ? inspected.stdout.trim() : "";
+    // Never cache "could not read it". The cache is keyed on the reference alone, so a read-only
+    // catalog listing that ran before the image was pulled would otherwise store null and the next
+    // deploy would take that cache hit instead of pulling — re-arming the very bug the pull fixes.
+    if (!inspected.ok) return null;
+    const declared = inspected.stdout.trim();
     if (declared && declared !== "root" && declared !== "0") {
       const [rawUser, rawGroup] = declared.split(":");
       const numericUid = Number.parseInt(rawUser, 10);
@@ -683,10 +687,19 @@ export function createAppHelper({
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
     const history = state.updateHistory ?? [];
     // `at` names one of this app's own recorded updates, so stepping back several releases is still
-    // only ever a version it actually ran. Without it, the most recent update is the one undone.
-    const last = at ? history.find((entry) => entry.at === at) : history[0];
+    // only ever a version it actually ran. Without it, take the newest *update* — never a rollback.
+    // After a rollback, history[0] describes the version just left behind, so choosing it would
+    // redeploy exactly what the owner was escaping and report that as success.
+    const last = at ? history.find((entry) => entry.at === at) : history.find((entry) => !entry.rolledBack);
     if (at && !last) throw new Error(`${manifest.name} has no recorded version from ${at} to go back to`);
     if (!last || !Object.keys(last.from ?? {}).length) throw new Error(`${manifest.name} has not been updated since it was installed, so there is nothing to go back to`);
+
+    // Only services this manifest still builds can be pinned. A recorded version naming a sidecar
+    // the catalog has since dropped would otherwise redeploy the current images and report the old
+    // ones restored, leaving the app on the release being escaped with a success message.
+    const restoreTo = Object.fromEntries(Object.entries(last.from).filter(([service, reference]) =>
+      typeof reference === "string" && reference && (service === id || (manifest.sidecars ?? []).some((sidecar) => sidecar.id === service))));
+    if (!Object.keys(restoreTo).length) throw new Error(`${manifest.name} has no recorded version that still matches how it is built today, so there is nothing to go back to`);
 
     const { values, errors } = resolveValues(manifest, sanitizeStoredValues(manifest, state.values ?? {}));
     if (errors.length) throw new Error(`Stored settings no longer match the manifest: ${errors.join("; ")}`);
@@ -694,15 +707,15 @@ export function createAppHelper({
     // database is how a rollback reports success and leaves the app unable to read its own data.
     const pinned = {
       ...manifest,
-      ...(last.from[id] ? { image: { ...manifest.image, reference: last.from[id] } } : {}),
-      sidecars: (manifest.sidecars ?? []).map((sidecar) => (last.from[sidecar.id] ? { ...sidecar, image: last.from[sidecar.id] } : sidecar)),
+      ...(restoreTo[id] ? { image: { ...manifest.image, reference: restoreTo[id] } } : {}),
+      sidecars: (manifest.sidecars ?? []).map((sidecar) => (restoreTo[sidecar.id] ? { ...sidecar, image: restoreTo[sidecar.id] } : sidecar)),
     };
     const saved = takeCheckpoint ? await checkpoint({ id, reason: "going back a version" }, { progress }) : null;
     // What is deployed right now, which is what this rollback moves away from. Stepping back several
     // releases means the entry being undone describes an older hop, so its `to` is not where the app
     // actually is — reading the deployed file is the only answer that stays true at any depth.
     const runningBefore = deployedImages(await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => ""));
-    const restoring = Object.entries(last.from).map(([service, reference]) => `${service} to ${reference}`).join(", ");
+    const restoring = Object.entries(restoreTo).map(([service, reference]) => `${service} to ${reference}`).join(", ");
     progress?.(`Putting ${manifest.name} back: ${restoring}`, "stdout");
     await writeProject(pinned, values, { existingEnv: await readEnv(id), devices });
     // Pull explicitly: the previous image is unused after an update, so a prune may have removed it.
@@ -712,19 +725,19 @@ export function createAppHelper({
     if (!up.ok) throw new Error(`${manifest.name} would not start on the previous version: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
     const status = await waitHealthy(manifest, progress);
     // The rollback is itself an entry, so going back twice steps back twice rather than ping-ponging.
-    const movedFrom = Object.fromEntries(Object.keys(last.from).map((service) => [service, runningBefore[service] ?? last.to?.[service] ?? null]));
-    const entry = { at: clock().toISOString(), from: movedFrom, to: last.from, rolledBack: true };
+    const movedFrom = Object.fromEntries(Object.keys(restoreTo).map((service) => [service, runningBefore[service] ?? last.to?.[service] ?? null]));
+    const entry = { at: clock().toISOString(), from: movedFrom, to: restoreTo, rolledBack: true };
     await writeState(id, {
       ...state,
       updatedAt: clock().toISOString(),
-      image: { reference: last.from[id] ?? state.image?.reference ?? null, id: status.image },
+      image: { reference: restoreTo[id] ?? state.image?.reference ?? null, id: status.image },
       pinnedRollback: true,
       // Entries newer than the one undone describe versions this app is no longer on, so they are
       // dropped rather than left ahead of the current state where "go back" would offer them again.
       updateHistory: [entry, ...history.slice(history.indexOf(last) + 1)].slice(0, updateHistoryLimit),
     });
-    progress?.(`${manifest.name} is back on ${last.from[id] ?? "its previous version"}`, "stdout");
-    return { rolledBack: true, id, restored: last.from, from: movedFrom, checkpoint: saved };
+    progress?.(`${manifest.name} is back on ${restoreTo[id] ?? "its previous version"}`, "stdout");
+    return { rolledBack: true, id, restored: restoreTo, from: movedFrom, checkpoint: saved };
   }
 
   async function reconfigure({ id, values: rawValues = {}, devices = null }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
@@ -1337,7 +1350,8 @@ export function createAppHelper({
     let memberCount = 0;
     const listed = await runCommand(tarBinary, ["-tzf", artifact], {
       timeout: 60 * 60_000,
-      onLine: (line) => {
+      onLine: (line, stream) => {
+        if (stream !== "stdout") return;   // tar warns on stderr; a warning is not an archive member
         const name = String(line ?? "").trim();
         if (!name) return;
         memberCount += 1;
