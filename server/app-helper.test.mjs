@@ -1179,3 +1179,27 @@ describe("measuring what each app's data folders hold", () => {
     expect(seen).toContain("/mnt/the-dump/elsewhere");
   });
 });
+
+describe("keeping the data sweep inside its budget", () => {
+  const twoFolders = "schemaVersion: 2\nid: pair\nname: Pair\ncategory: Downloads\ndescription: d\nimage:\n  reference: x/pair:1\nvolumes:\n  - id: one\n    label: One\n    container: /one\n    hostPath: /mnt/drive/one\n  - id: two\n    label: Two\n    container: /two\n    hostPath: /mnt/drive/two\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n";
+
+  it("keeps what it measured and marks the rest unmeasured rather than losing the night's work", async () => {
+    // The first folder eats the whole budget. The second must come back unmeasured, and the first
+    // must survive - throwing both away after spending the time is the outcome worth avoiding.
+    let measured = 0;
+    let advanceClock = () => {};
+    const runCommand = async (binary, args) => {
+      if (binary === "findmnt") return { ok: true, stdout: JSON.stringify({ filesystems: [{ target: "/mnt/drive" }] }), stderr: "" };
+      if (binary === "du") { measured += 1; advanceClock(30 * 60_000); return { ok: true, stdout: `77\t${args[1]}\n`, stderr: "" }; }
+      return { ok: false, stdout: "", stderr: "" };
+    };
+    const context = await setup({ runCommand });
+    advanceClock = context.advance;
+    await writeFile(path.join(context.catalogDirectory, "pair.yaml"), twoFolders);
+    await context.apps.install({ id: "pair" });
+
+    const usage = await context.apps.dataUsage({ budgetMs: 60_000 });
+    expect(measured).toBe(1); // the second was never started
+    expect(usage.entries.map((entry) => entry.bytes)).toEqual([77, null]);
+  });
+});

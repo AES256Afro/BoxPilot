@@ -1635,7 +1635,12 @@ export function createAppHelper({
    * folder that could not be measured comes back as null rather than zero, because "we did not
    * look" and "it is empty" must not be recorded as the same thing.
    */
-  async function dataUsage({ timeoutMsPerFolder = 4 * 60_000 } = {}) {
+  async function dataUsage({ timeoutMsPerFolder = 4 * 60_000, budgetMs = 25 * 60_000 } = {}) {
+    // Twenty-five folders each allowed four minutes is longer than the operation's own budget, so
+    // without a deadline a slow night ends with the connection timing out and every reading thrown
+    // away after doing all of the work. Folders past the deadline come back unmeasured instead,
+    // which the history already knows how to skip, and the ones that were measured are kept.
+    const deadline = clock().getTime() + budgetMs;
     const applications = await inspect({});
     const { manifests } = await catalog.all();
     const byId = new Map(manifests.map((manifest) => [manifest.id, manifest]));
@@ -1651,7 +1656,9 @@ export function createAppHelper({
       for (const folder of measurableFolders({ manifest, live: application })) {
         // -s one total, -b in bytes, -x without crossing into another filesystem: a bind mount
         // below a data folder belongs to whatever owns it, not to the app that happens to sit above.
-        const measured = await runCommand("du", ["-sbx", folder.path], { timeout: timeoutMsPerFolder }).catch(() => null);
+        const remaining = deadline - clock().getTime();
+        const measured = remaining <= 0 ? null
+          : await runCommand("du", ["-sbx", folder.path], { timeout: Math.min(timeoutMsPerFolder, remaining) }).catch(() => null);
         const bytes = measured?.ok ? Number.parseInt(measured.stdout.trim().split(/\s+/)[0], 10) : NaN;
         entries.push({
           key: `${folder.appId}:${folder.path}`,
