@@ -102,3 +102,36 @@ an effect no single step has.
   source; the run itself goes through the same door as a scheduled one, with the same refusals
   (creator demoted, always-ask mode, already running), recorded and notified the same way.
   Health alerts and device events as triggers remain future work, but they now have a template.
+
+## ADR-003: a read that sees past the caller's own permissions needs an operator
+
+**Status:** accepted (v1.107.0).
+
+Risk tiers (ADR-001) decide what it takes to *change* the machine. They say nothing about reading,
+and the assumption that reading is free is where this went wrong: five read-only operations were
+gated by role and fifty were not, with no principle separating them. `storage.folders` had required
+an operator since it shipped, with the reasoning written in its own comment. `app.backup.files` --
+which lists every filename inside an application's backup, config and data alike -- did not.
+`compose.project.logs` did not, while `app.logs` and `logs.read` next to it did. And
+`app.data.usage` shipped in v1.105.0 with no gate at all.
+
+The rule, applied to all of them:
+
+> A read-only operation needs `minimumRole: "operator"` when it runs in the root helper **and**
+> returns something the caller could not have read themselves -- a directory listing, the contents
+> of an archive, a log, the size of somebody else's data.
+
+Everything else stays open to a viewer, which is most of it, and deliberately: a viewer is a
+person who is allowed to look at the server. `app.config.inspect` stays open on exactly this
+basis -- it masks every value the manifest marks secret, and revealing them is a separate
+operation with its own gate.
+
+Two things fall out of it. The refusal must name what was refused; it used to say "not read raw
+system logs" whatever had been asked for, which is baffling when what you asked for was a backup's
+contents. And these reads are also the slowest ones -- inflating an archive, walking a folder tree,
+minutes rather than milliseconds -- against a helper that serves reads eight at a time. Leaving one
+open to anyone signed in is a way to stop the product reading anything at all, so the gate is a
+throughput protection as much as a disclosure one.
+
+`server/routes/authorization.test.mjs` holds the four together, because shipping one without the
+gate is precisely what happened.
