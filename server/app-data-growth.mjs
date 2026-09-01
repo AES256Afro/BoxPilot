@@ -105,7 +105,7 @@ export function mountFor(path, mounts) {
  * a comparison that cannot be made, which the growth window already handles, and is far better than
  * a fabricated reading.
  */
-export function createAppDataSampler({ helper, store, now = () => new Date(), intervalMs = 24 * 60 * 60 * 1000, initialDelayMs = 20 * 60 * 1000, minimumGapMs = 20 * 60 * 60 * 1000, maxDays = 30, timeoutMs = 40 * 60_000, setInterval: schedule = globalThis.setInterval, setTimeout: delay = globalThis.setTimeout, clearInterval: unschedule = globalThis.clearInterval, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
+export function createAppDataSampler({ helper, store, now = () => new Date(), intervalMs = 24 * 60 * 60 * 1000, initialDelayMs = 20 * 60 * 1000, minimumGapMs = 20 * 60 * 60 * 1000, maxDays = 30, timeoutMs = 40 * 60_000, report = (message) => console.warn(message), setInterval: schedule = globalThis.setInterval, setTimeout: delay = globalThis.setTimeout, clearInterval: unschedule = globalThis.clearInterval, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
   /** The newest reading anywhere in the history, so a restart cannot start the clock over. */
   function lastSampledAt(history) {
     let newest = null;
@@ -128,10 +128,19 @@ export function createAppDataSampler({ helper, store, now = () => new Date(), in
     if (!entries.length) return { sampled: 0 };
     const next = appendUsageSample(history, { at: now().toISOString(), entries }, { maxDays });
     store.setSetting("appDataUsageHistory", next, { updatedBy: null });
-    return { sampled: entries.filter((entry) => Number.isFinite(entry.bytes)).length };
+    const sampled = entries.filter((entry) => Number.isFinite(entry.bytes)).length;
+    // What happened last night, kept where the page can show it. A sweep that has been failing for
+    // a fortnight otherwise looks exactly like one that has never had anything to measure.
+    store.setSetting("appDataUsageLastRun", { at: now().toISOString(), sampled, unmeasured: entries.length - sampled, error: null }, { updatedBy: null });
+    return { sampled };
   }
   function start() {
-    const safeSample = () => sample().catch(() => {});
+    const safeSample = () => sample().catch((error) => {
+      // Never throw out of a timer, but never swallow it either: the owner is told on the Storage
+      // page and the reason goes to the journal, so a sweep failing every night is findable.
+      try { store.setSetting("appDataUsageLastRun", { at: now().toISOString(), sampled: 0, unmeasured: 0, error: error.message }, { updatedBy: null }); } catch { /* the failure itself must not fail */ }
+      report(`[boxpilot] could not measure application data folders: ${error.message}`);
+    });
     const first = delay(safeSample, initialDelayMs);
     first.unref?.();
     const timer = schedule(safeSample, intervalMs);
