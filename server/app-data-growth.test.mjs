@@ -105,6 +105,13 @@ describe("choosing which folders to measure", () => {
     expect(folders[0].path).toBe("/mnt/the-dump/torrents");
   });
 
+  it("survives a manifest that is not shaped the way the schema promises", () => {
+    // A sampler that throws is a sampler that silently stops running.
+    expect(measurableFolders({ manifest: { id: "x", volumes: "not a list" }, live: { installed: true } })).toEqual([]);
+    expect(measurableFolders({ manifest: { id: "x", volumes: [null] }, live: { installed: true } })).toEqual([]);
+    expect(measurableFolders({ manifest: { id: "x" }, live: { installed: true } })).toEqual([]);
+  });
+
   it("measures nothing for an app that is not installed", () => {
     expect(measurableFolders({ manifest, live: { installed: false } })).toEqual([]);
   });
