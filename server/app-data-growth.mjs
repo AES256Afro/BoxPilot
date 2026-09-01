@@ -76,8 +76,10 @@ export function measurableFolders(application) {
   if (!live?.installed || !manifest) return [];
   const chosen = live?.state?.values?.volumes ?? {};
   const seen = new Set();
-  return (manifest.volumes ?? [])
-    .filter((volume) => !volume.readOnly)
+  // The catalog schema guarantees a list, but this is exported and called from two places, and a
+  // sampler that throws is a sampler that silently stops.
+  return (Array.isArray(manifest.volumes) ? manifest.volumes : [])
+    .filter((volume) => volume && !volume.readOnly)
     .map((volume) => ({ appId: manifest.id, label: volume.label ?? volume.id, path: chosen[volume.id] ?? volume.hostPath }))
     // Only the drives the owner put data on. An app's config directory is small, always on the root
     // filesystem, and never the answer to "what filled my media drive".
