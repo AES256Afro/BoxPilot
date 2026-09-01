@@ -859,7 +859,15 @@ time, or the filesystem features a home server leans on.
   fill within three months, amber inside two weeks), and a filesystem projected to fill soon becomes a
   health alert to the phone, earlier than the 90% threshold that arrives with little runway.
   `server/disk-forecast.mjs` (pure fit + sampler), `GET /storage/forecast`, wired into `health-alerts`.
-  **Remaining:** the per-app "where the space is going" breakdown (which app's data grew).
+  ✅ **The attribution** (v1.105.0). Knowing a drive fills in nine days is a problem; knowing the
+  downloads folder grew 246 GB this week is a decision. A nightly sampler measures each installed
+  app's data folders (`du -sbx`, per-folder timeout, one at a time — a reading that misses a folder
+  is fine, one that saturates the disk is not) and the "Filling up" panel names the apps growing on
+  each drive, biggest grower first. The paths are derived from the manifests and the owner's stored
+  values inside the helper, never taken from the request. A folder that could not be measured is
+  recorded as unmeasured rather than zero, so a slow library never draws a collapse that did not
+  happen. `server/app-data-growth.mjs` (pure + sampler), `apps.dataUsage()` in the helper,
+  `app.data.usage` operation, carried on `GET /storage/forecast`.
 - ◐ **M23.2** (v1.86.0) **Filesystem snapshots as a first-class thing.** Where btrfs filesystems or
   ZFS datasets exist, a Storage panel lists their snapshots and offers take (read-only btrfs snapshot
   under a managed `.boxpilot-snapshots` folder; `zfs snapshot`) and delete (typed confirmation).

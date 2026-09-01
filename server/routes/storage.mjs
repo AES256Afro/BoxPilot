@@ -11,6 +11,7 @@ import net from "node:net";
 import dns from "node:dns/promises";
 import { fixedRun } from "../exec.mjs";
 import { collectStorage } from "../storage-inventory.mjs";
+import { growthByApp } from "../app-data-growth.mjs";
 import { projectDaysToFull } from "../disk-forecast.mjs";
 import { parseNeighbors } from "../network.mjs";
 import { credentialPattern, hostPattern } from "../tasks/shares.mjs";
@@ -99,13 +100,17 @@ export function createStorageRouter({ auth, helper = null, inventory = null, sta
   // When each filesystem is on track to fill, from the sampled free-space history (M23.1).
   router.get("/storage/forecast", async (_request, response) => {
     const history = state?.getSetting?.("diskUsageHistory", {}) ?? {};
+    const usage = state?.getSetting?.("appDataUsageHistory", {}) ?? {};
     const now = Date.now();
     const forecasts = [];
     for (const [target, samples] of Object.entries(history)) {
       const days = projectDaysToFull(samples, { now });
       if (days === null) continue;
       const latest = Array.isArray(samples) && samples.length ? samples[samples.length - 1] : null;
-      forecasts.push({ target, daysToFull: Math.max(0, Math.round(days)), availableBytes: latest?.availableBytes ?? null, totalBytes: latest?.totalBytes ?? null, samples: Array.isArray(samples) ? samples.length : 0 });
+      // What is filling it, alongside when it fills. "/mnt/the-dump fills in nine days" is a
+      // problem; "and the downloads folder grew 240 GB this week" is a decision.
+      const filling = growthByApp(usage, { now, mount: target, windowDays: 7 });
+      forecasts.push({ target, daysToFull: Math.max(0, Math.round(days)), availableBytes: latest?.availableBytes ?? null, totalBytes: latest?.totalBytes ?? null, samples: Array.isArray(samples) ? samples.length : 0, filling });
     }
     forecasts.sort((a, b) => a.daysToFull - b.daysToFull);
     response.json({ forecasts, tracking: Object.keys(history).length });

@@ -20,7 +20,8 @@ interface VolumeGroup { name: string | null; physicalVolumes: string[]; sizeByte
 interface ShareRow { name: string; kind: "smb" | "nfs"; source: string; mountpoint: string; readOnly: boolean; automount: boolean; mounted: boolean; sizeBytes: number | null; usedBytes: number | null; availableBytes: number | null }
 interface SnapshotRow { path: string; name: string; volumeGroup: string | null; sizeBytes: number; origin?: string; sizeGiB?: number; createdAt?: string; suffix?: string | null }
 interface StorageReport { devices: DeviceRow[]; mounts: MountRow[]; fstab: FstabRow[]; volumeGroups: VolumeGroup[]; snapshots?: SnapshotRow[]; shares: ShareRow[]; tools: { cifs: boolean; nfs: boolean; smbclient: boolean; showmount: boolean } }
-interface Forecast { target: string; daysToFull: number; availableBytes: number | null; totalBytes: number | null; samples: number }
+interface Filling { appId: string | null; path: string | null; bytes: number; grewBytes: number | null; days: number }
+interface Forecast { target: string; daysToFull: number; availableBytes: number | null; totalBytes: number | null; samples: number; filling?: Filling[] }
 interface Discovered { address: string; name: string | null; smb: boolean; nfs: boolean; mac: string | null; interface: string | null }
 
 function gib(bytes: number | null): string {
@@ -223,9 +224,30 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
           <header className="panel-header"><div><strong>Filling up</strong><span>At the rate free space has been dropping, these fill within three months. The estimate needs a few days of history and updates as the trend changes.</span></div></header>
           <div className="workload-list">
             {forecasts.filter((forecast) => forecast.daysToFull <= 90).map((forecast) => (
-              <div className="workload" key={forecast.target}>
-                <div><strong>{forecast.target}</strong><span>{forecast.availableBytes !== null ? `${gib(forecast.availableBytes)} free now` : ""}</span></div>
-                <span className={`status-pill status-${forecast.daysToFull <= 14 ? "warning" : "neutral"}`}>{forecast.daysToFull <= 0 ? "full very soon" : `~${forecast.daysToFull} day${forecast.daysToFull === 1 ? "" : "s"} left`}</span>
+              <div className="workload workload-stacked" key={forecast.target}>
+                <div className="workload-row">
+                  <div><strong>{forecast.target}</strong><span>{forecast.availableBytes !== null ? `${gib(forecast.availableBytes)} free now` : ""}</span></div>
+                  <span className={`status-pill status-${forecast.daysToFull <= 14 ? "warning" : "neutral"}`}>{forecast.daysToFull <= 0 ? "full very soon" : `~${forecast.daysToFull} day${forecast.daysToFull === 1 ? "" : "s"} left`}</span>
+                </div>
+                {/* Which app is filling it. Knowing a drive fills in nine days is a problem; knowing
+                    the downloads folder grew 240 GB this week is something the owner can act on.
+                    Only folders that actually grew are named - listing the ones holding still just
+                    buries the one that is not. */}
+                {(() => {
+                  const growing = (forecast.filling ?? []).filter((entry) => (entry.grewBytes ?? 0) > 0);
+                  if (!growing.length) return null;
+                  return (
+                    <ul className="filling-blame">
+                      {growing.map((entry) => (
+                        <li key={`${entry.appId}:${entry.path}`}>
+                          <strong>{entry.appId ?? "Unknown"}</strong> grew <strong>{gib(entry.grewBytes ?? 0)}</strong>
+                          {entry.days >= 1 ? ` in the last ${Math.round(entry.days)} day${Math.round(entry.days) === 1 ? "" : "s"}` : ""}
+                          {" · "}<code>{entry.path}</code> holds {gib(entry.bytes)}
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                })()}
               </div>
             ))}
           </div>

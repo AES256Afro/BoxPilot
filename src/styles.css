@@ -1545,6 +1545,49 @@ main {
   border-bottom: 0;
 }
 
+/* A drive that is filling carries the apps filling it underneath, so the row keeps its own layout
+   and the blame list runs the full width rather than being squeezed into the first column. */
+.workload-stacked {
+  display: block;
+}
+
+.workload-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+}
+
+/* The stacked row is no longer a direct child of .workload, so it needs the label/detail stacking
+   that .workload > div was giving it - without this the mount point and its free space run together. */
+.workload-row > div {
+  display: grid;
+  gap: 3px;
+}
+
+.filling-blame {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+}
+
+.filling-blame li {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.filling-blame strong {
+  color: var(--text-primary);
+}
+
+.filling-blame code {
+  font-size: 10px;
+  word-break: break-all;
+}
+
 .workload > div {
   display: grid;
   gap: 3px;

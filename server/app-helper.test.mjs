@@ -1114,3 +1114,68 @@ describe("inspecting the whole catalog", () => {
     expect(inspects[0].split(" ").filter((argument) => argument.startsWith("bp-"))).toEqual(["bp-demo"]);
   });
 });
+
+describe("measuring what each app's data folders hold", () => {
+  /** A manifest with a data folder on a drive and a config folder that is not worth walking. */
+  const withData = "schemaVersion: 2\nid: grabber\nname: Grabber\ncategory: Downloads\ndescription: d\nimage:\n  reference: x/grabber:1\nvolumes:\n  - id: downloads\n    label: Downloads\n    container: /downloads\n    hostPath: /mnt/the-dump/torrents\n    configurable: true\n  - id: media\n    label: Media\n    container: /media\n    hostPath: /mnt/the-dump/media\n    readOnly: true\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n";
+
+  const mounts = { ok: true, stdout: JSON.stringify({ filesystems: [{ target: "/" }, { target: "/mnt/the-dump" }] }), stderr: "" };
+
+  it("measures the installed app's writable data folders and says which drive they are on", async () => {
+    const seen = [];
+    const runCommand = vi.fn(async (binary, args) => {
+      if (binary === "findmnt") return mounts;
+      if (binary === "du") { seen.push(args); return { ok: true, stdout: `1288490188800\t${args[1]}\n`, stderr: "" }; }
+      return { ok: false, stdout: "", stderr: "" };
+    });
+    const context = await setup({ runCommand });
+    await writeFile(path.join(context.catalogDirectory, "grabber.yaml"), withData);
+    await context.apps.install({ id: "grabber" });
+
+    const usage = await context.apps.dataUsage();
+    const folder = usage.entries.find((entry) => entry.appId === "grabber");
+    expect(folder).toMatchObject({ path: "/mnt/the-dump/torrents", mount: "/mnt/the-dump", bytes: 1288490188800 });
+    // -x so a bind mount underneath belongs to whoever owns it, not to whatever sits above it.
+    expect(seen).toContainEqual(["-sbx", "/mnt/the-dump/torrents"]);
+    // A read-only mount is somebody else's data; walking it would blame this app for it.
+    expect(usage.entries.some((entry) => entry.path === "/mnt/the-dump/media")).toBe(false);
+  });
+
+  it("records a folder it could not measure as unmeasured, never as empty", async () => {
+    // du on a cold 15 TB library can outlast its timeout. Writing that down as zero would show the
+    // owner a collapse that did not happen, and a fictional recovery the next night.
+    const runCommand = vi.fn(async (binary) => {
+      if (binary === "findmnt") return mounts;
+      if (binary === "du") throw new Error("timed out");
+      return { ok: false, stdout: "", stderr: "" };
+    });
+    const context = await setup({ runCommand });
+    await writeFile(path.join(context.catalogDirectory, "grabber.yaml"), withData);
+    await context.apps.install({ id: "grabber" });
+
+    const usage = await context.apps.dataUsage();
+    expect(usage.entries.find((entry) => entry.appId === "grabber").bytes).toBeNull();
+  });
+
+  it("measures nothing for an app that is not installed", async () => {
+    const runCommand = vi.fn(async (binary) => (binary === "findmnt" ? mounts : { ok: false, stdout: "", stderr: "" }));
+    const context = await setup({ runCommand });
+    await writeFile(path.join(context.catalogDirectory, "grabber.yaml"), withData);
+    const usage = await context.apps.dataUsage();
+    expect(usage.entries.some((entry) => entry.appId === "grabber")).toBe(false);
+  });
+
+  it("follows the folder the owner chose rather than the manifest's default", async () => {
+    const seen = [];
+    const runCommand = vi.fn(async (binary, args) => {
+      if (binary === "findmnt") return mounts;
+      if (binary === "du") { seen.push(args[1]); return { ok: true, stdout: "42\tx\n", stderr: "" }; }
+      return { ok: false, stdout: "", stderr: "" };
+    });
+    const context = await setup({ runCommand });
+    await writeFile(path.join(context.catalogDirectory, "grabber.yaml"), withData);
+    await context.apps.install({ id: "grabber", values: { volumes: { downloads: "/mnt/the-dump/elsewhere" } } });
+    await context.apps.dataUsage();
+    expect(seen).toContain("/mnt/the-dump/elsewhere");
+  });
+});
