@@ -300,7 +300,16 @@ export function createAppHelper({
   async function imageDeclaredOwner(reference, { mayRun = true } = {}) {
     if (declaredOwnerCache.has(reference)) return declaredOwnerCache.get(reference);
     let resolved = null;
-    const inspected = await docker(["image", "inspect", reference, "--format", "{{.Config.User}}"], { timeout: 30_000 });
+    let inspected = await docker(["image", "inspect", reference, "--format", "{{.Config.User}}"], { timeout: 30_000 });
+    // On a first install the image is not here yet: the project is written before anything is
+    // pulled, so inspect finds nothing and the app's user cannot be read. Every app that declares
+    // PUID answers from its manifest and never reaches this, which is why it stayed hidden until an
+    // app arrived whose only statement of identity is the image's own USER. Without the pull, its
+    // data folder is left owned by root and the container crash-loops on its first mkdir.
+    if (!inspected.ok && mayRun) {
+      await docker(["pull", reference], { timeout: 15 * 60_000 }).catch(() => null);
+      inspected = await docker(["image", "inspect", reference, "--format", "{{.Config.User}}"], { timeout: 30_000 });
+    }
     const declared = inspected.ok ? inspected.stdout.trim() : "";
     if (declared && declared !== "root" && declared !== "0") {
       const [rawUser, rawGroup] = declared.split(":");
