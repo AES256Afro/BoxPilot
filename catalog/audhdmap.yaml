@@ -3,12 +3,12 @@ id: audhdmap
 name: AuDHDMAP
 category: Knowledge
 icon: "⌘"
-description: "Private visual workspace for freely placed thoughts, connected Markdown notes, branch focus, editable outlines, task boards, timelines, Gantt views, attachments, and low-fatigue themes."
+description: "Private visual workspace for freely placed thoughts, connected Markdown notes, branch focus, project views, attachments, portable exports, complete backups, and low-fatigue themes."
 website: https://github.com/AES256Afro/AuDHDMAP
 risk: low
 image:
-  reference: ghcr.io/aes256afro/audhdmap:0.2.0
-  version: "0.2.0"
+  reference: ghcr.io/aes256afro/audhdmap:0.3.0
+  version: "0.3.0"
 ports:
   - id: web
     label: Web UI
@@ -40,7 +40,7 @@ signIn:
   port: web
   usernameEnv: AUDHDMAP_ADMIN_USERNAME
   passwordEnv: AUDHDMAP_ADMIN_PASSWORD
-  note: BoxPilot generates the owner password during installation. AuDHDMAP stores maps and attachments under the one managed data directory included in app backups.
+  note: BoxPilot generates the owner password during installation. AuDHDMAP stores maps and attachments under the one managed data directory included in app backups. Its Export panel can also create a portable ZIP with attachment integrity checks.
 health:
   kind: healthcheck
   timeoutSeconds: 180
@@ -48,4 +48,5 @@ notes: >-
   Use Quiet Canvas for the neutral default or switch to Signal Garden, Amber
   Operator, Workstation 84, or Paper Atlas under Visual settings. Keep the app
   on your LAN or behind BoxPilot's Tailscale reach option; no cloud account is
-  required.
+  required. Use Export for PDF, SVG, Markdown, plain text, JSON, or a complete
+  restorable ZIP.
