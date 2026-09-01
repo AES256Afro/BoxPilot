@@ -23,7 +23,8 @@
     "demo": "node scripts/boxpilot-demo.mjs",
     "demo:screenshots": "node scripts/demo-screenshots.mjs",
     "version": "node scripts/sync-version.mjs && git add docker-compose.yml README.md",
-    "demo:sweep": "node scripts/demo-sweep.mjs"
+    "demo:sweep": "node scripts/demo-sweep.mjs",
+    "demo:publish": "npm run build && node scripts/demo-assets.mjs && node scripts/demo-bundle.mjs && cp demo-site/demo-data.json demo-site/public/demo-data.json"
   },
   "dependencies": {
     "express": "5.2.1",
