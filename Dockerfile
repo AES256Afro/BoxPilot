@@ -7,6 +7,7 @@ COPY index.html tsconfig.json tsconfig.app.json tsconfig.node.json vite.config.t
 COPY src ./src
 # The bundle does not import the catalog, but the build counts it for one line of copy.
 COPY catalog ./catalog
+COPY scripts/precompress-assets.mjs ./scripts/precompress-assets.mjs
 COPY scripts/boxpilot-web-dist-permissions.mjs ./scripts/boxpilot-web-dist-permissions.mjs
 RUN npm run build
 

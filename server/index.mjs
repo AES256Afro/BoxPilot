@@ -63,7 +63,7 @@ import { createVmRecoveryService } from "./vm-recovery.mjs";
 import { createVmRetentionService } from "./vm-retention.mjs";
 import { createVmRestoreDrillService } from "./vm-restore-drill.mjs";
 import { foldVerdict, verdictFrom } from "./backup-verdicts.mjs";
-import { jsonGzip } from "./compress.mjs";
+import { jsonGzip, precompressedAssets } from "./compress.mjs";
 
 const app = express();
 const host = process.env.BOXPILOT_HOST ?? "127.0.0.1";
@@ -330,7 +330,9 @@ app.use("/api/v1", createOidcAdminRouter({ oidc, auth }));
 // and userinfo are public by design, and /oidc/authorize reads the owner's session itself.
 app.use(createOidcRouter({ oidc, auth, store: state }));
 
-app.use("/assets", express.static(path.join(dist, "assets"), { index: false, maxAge: "365d", immutable: true }));
+const assets = path.join(dist, "assets");
+app.use("/assets", precompressedAssets(assets));
+app.use("/assets", express.static(assets, { index: false, maxAge: "365d", immutable: true }));
 app.use(express.static(dist, { index: false }));
 app.use((request, response, next) => {
   if (request.method !== "GET" || request.path.startsWith("/api/")) {

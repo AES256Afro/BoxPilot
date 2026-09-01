@@ -61,14 +61,17 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
 
   // Catalog: manifests come from the working tree; live state comes from the helper (tolerated when unavailable).
   router.get("/catalog", async (_request, response) => {
-    const { manifests, problems } = await catalogService.all();
-    let live = null; let liveError = null;
-    try { live = await helper.request("app.inspect", {}, { timeoutMs: 30_000 }); } catch (error) { liveError = error.message; }
-    let host = { lanAddress: null, tailscaleDnsName: null };
-    try {
-      const snapshot = await inventory.inspect();
-      host = { lanAddress: snapshot?.network?.addresses?.find((entry) => /^\d+\.\d+\.\d+\.\d+$/.test(entry.address))?.address ?? null, tailscaleDnsName: snapshot?.network?.tailscale?.dnsName ?? null };
-    } catch { /* host addresses are a convenience only */ }
+    // Three unrelated questions - what is in the catalog, what is running, and how to reach this
+    // box - so they are asked at once. Only the first is required; the other two degrade.
+    const [catalog, liveResult, snapshotResult] = await Promise.all([
+      catalogService.all(),
+      helper.request("app.inspect", {}, { timeoutMs: 30_000 }).then((value) => ({ value }), (error) => ({ error: error.message })),
+      inventory.inspect().catch(() => null),
+    ]);
+    const { manifests, problems } = catalog;
+    const live = liveResult.error ? null : liveResult.value;
+    const liveError = liveResult.error ?? null;
+    const host = { lanAddress: snapshotResult?.network?.addresses?.find((entry) => /^\d+\.\d+\.\d+\.\d+$/.test(entry.address))?.address ?? null, tailscaleDnsName: snapshotResult?.network?.tailscale?.dnsName ?? null };
     // Verdicts from the last restore rehearsal, recorded per app so they outlive job pruning.
     // Carried on the card because that is where the app's backups already are.
     const verifications = state.getSetting("appBackupVerifications", {}) ?? {};
