@@ -131,11 +131,16 @@ export function createAppDataSampler({ helper, store, now = () => new Date(), in
     const sampled = entries.filter((entry) => Number.isFinite(entry.bytes)).length;
     // What happened last night, kept where the page can show it. A sweep that has been failing for
     // a fortnight otherwise looks exactly like one that has never had anything to measure.
-    store.setSetting("appDataUsageLastRun", { at: now().toISOString(), sampled, unmeasured: entries.length - sampled, error: null }, { updatedBy: null });
-    return { sampled };
+    const unmeasured = entries.length - sampled;
+    store.setSetting("appDataUsageLastRun", { at: now().toISOString(), sampled, unmeasured, error: null }, { updatedBy: null });
+    return { sampled, unmeasured };
   }
   function start() {
-    const safeSample = () => sample().catch((error) => {
+    // One line a night, on success as well as failure. "Did last night's sweep run?" is a question
+    // the journal should be able to answer without anyone opening a page or a database.
+    const safeSample = () => sample().then((result) => {
+      if (result.sampled) report(`[boxpilot] measured ${result.sampled} application data folder(s)${result.unmeasured ? `, ${result.unmeasured} not measured` : ""}`);
+    }).catch((error) => {
       // Never throw out of a timer, but never swallow it either: the owner is told on the Storage
       // page and the reason goes to the journal, so a sweep failing every night is findable.
       try { store.setSetting("appDataUsageLastRun", { at: now().toISOString(), sampled: 0, unmeasured: 0, error: error.message }, { updatedBy: null }); } catch { /* the failure itself must not fail */ }
