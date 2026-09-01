@@ -775,6 +775,26 @@ describe("generic app deployer", () => {
     await expect(apps.restoreAppBackupPath({ id: "demo", backup: backupResult.artifact, path: "data/missing.txt" })).rejects.toThrow("is not in");
   });
 
+  it("pulls before reading the image's USER, so a first install can hand over its data folder", async () => {
+    // AuDHDMAP's first install crash-looped on `mkdir /data/attachments` with EACCES. Its manifest
+    // declares no PUID, so the app's user can only come from the image's own USER directive - and
+    // the project is written before anything is pulled, so `image inspect` had nothing to read and
+    // the folder was left owned by root. Every other non-root app answers from PUID and never
+    // reached this path, which is why it stayed hidden until an app arrived without one.
+    const { apps, calls, catalogDirectory } = await setup();
+    await writeFile(path.join(catalogDirectory, "byuser.yaml"), [
+      "schemaVersion: 2", "id: byuser", "name: ByUser", "category: T", "description: d",
+      "image:", "  reference: ghcr.io/example/byuser:1.0",
+      "ports:", "  - id: web", "    container: 3010", "    host: 3010",
+      "volumes:", "  - id: data", "    container: /data", "    path: data",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n");
+    await apps.install({ id: "byuser" });
+    // `image inspect` cannot answer for an image that is not here yet, so the deployer fetches it
+    // rather than silently giving up on the ownership and leaving the folder to root.
+    expect(calls).toContainEqual("pull ghcr.io/example/byuser:1.0");
+  });
+
   it("remembers what an update moved from, and can put the app and its sidecar back", async () => {
     // The update that succeeds and turns out wrong two days later. The failure path already knows
     // how to redeploy a pinned image; this is the same move made deliberately, and it has to bring
