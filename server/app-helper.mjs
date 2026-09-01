@@ -1659,6 +1659,11 @@ export function createAppHelper({
         const remaining = deadline - clock().getTime();
         const measured = remaining <= 0 ? null
           : await runCommand("du", ["-sbx", folder.path], { timeout: Math.min(timeoutMsPerFolder, remaining) }).catch(() => null);
+        // Only a clean exit counts. du that hit a subtree it could not read exits non-zero and
+        // still prints a total - a total missing everything it could not see. Measured on this
+        // server: an unreadable folder yields "0" and exit 1. Reading that number would record the
+        // folder as having emptied overnight, which is why the exit code is checked and not just
+        // the output.
         const bytes = measured?.ok ? Number.parseInt(measured.stdout.trim().split(/\s+/)[0], 10) : NaN;
         entries.push({
           key: `${folder.appId}:${folder.path}`,

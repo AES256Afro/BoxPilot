@@ -1141,6 +1141,22 @@ describe("measuring what each app's data folders hold", () => {
     expect(usage.entries.some((entry) => entry.path === "/mnt/the-dump/media")).toBe(false);
   });
 
+  it("ignores a total du printed alongside a failure", async () => {
+    // du that could not read part of a tree exits non-zero and still prints a total - one missing
+    // everything it could not see. On this server that is "0", which would read as the folder
+    // having emptied overnight.
+    const runCommand = vi.fn(async (binary) => {
+      if (binary === "findmnt") return mounts;
+      if (binary === "du") return { ok: false, code: 1, stdout: "0\t/mnt/the-dump/torrents\n", stderr: "du: cannot read directory" };
+      return { ok: false, stdout: "", stderr: "" };
+    });
+    const context = await setup({ runCommand });
+    await writeFile(path.join(context.catalogDirectory, "grabber.yaml"), withData);
+    await context.apps.install({ id: "grabber" });
+    const usage = await context.apps.dataUsage();
+    expect(usage.entries.find((entry) => entry.appId === "grabber").bytes).toBeNull();
+  });
+
   it("records a folder it could not measure as unmeasured, never as empty", async () => {
     // du on a cold 15 TB library can outlast its timeout. Writing that down as zero would show the
     // owner a collapse that did not happen, and a fictional recovery the next night.
