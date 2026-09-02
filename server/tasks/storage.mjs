@@ -9,6 +9,20 @@ import { fixedRun } from "../exec.mjs";
  */
 
 export const mountNamePattern = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+/**
+ * Names the mount ops must not touch. Shares are `# boxpilot:share-<name>` entries and the swap
+ * file is `# boxpilot:swap`, all in the same fstab under the same marker scheme, and
+ * mountNamePattern admits both spellings. storage.unmount "share-nas" found no mount at
+ * /mnt/share-nas, so it skipped the umount and deleted the share's fstab line anyway - leaving the
+ * share mounted with nothing to remount it at boot and its credential file orphaned. "swap" would
+ * have removed the swap entry without swapoff. Each of those has its own operation.
+ */
+function assertPlainMountName(name) {
+  if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name is invalid");
+  if (name.startsWith("share-")) throw new Error(`${name} is a network share; use the share operations for it`);
+  if (name === "swap") throw new Error("swap is the swap file, not a mount; use the swap file operation for it");
+}
 export const uuidPattern = /^[0-9a-fA-F][0-9a-fA-F-]{3,40}$/;
 export const devicePattern = /^\/dev\/[a-z][a-z0-9/]{1,30}$/;
 export const labelPattern = /^[A-Za-z0-9_-]{1,16}$/;
@@ -181,7 +195,7 @@ export async function storageMount({ uuid, name, fstype = "auto", readOnly = fal
 
 /** Unmount and remove a BoxPilot-managed fstab entry. Foreign entries are refused. */
 export async function storageUnmount({ name } = {}, { run = fixedRun, log = null, files = { readFile, writeFile } } = {}) {
-  if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name is invalid");
+  assertPlainMountName(name);
   const content = await files.readFile(fstabPath, "utf8");
   const without = removeManagedEntry(content, name);
   if (without === null) throw new Error(`${name} is not a BoxPilot-managed mount; edit fstab yourself for entries you created`);
@@ -355,7 +369,7 @@ export async function storageLvmSnapshotRollback({ path: snapshot } = {}, { run 
  * resolve the UUID afresh and land on the device that is really there.
  */
 export async function storageRemount({ name } = {}, { run = fixedRun, log = null, files = { readFile, readable: (target) => readdir(target).then(() => true, () => false) } } = {}) {
-  if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name is invalid");
+  assertPlainMountName(name);
   const content = await files.readFile(fstabPath, "utf8");
   const entry = parseManagedFstab(content).find((row) => row.name === name);   // parseManagedFstab returns { name, line, markerIndex }
   if (!entry) throw new Error(`${name} is not a BoxPilot-managed mount; remount it yourself for entries you created`);

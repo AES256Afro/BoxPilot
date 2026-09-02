@@ -23,7 +23,8 @@ export function hostBackupOperations() {
       run: (_parameters, { machineSnapshot }) => machineSnapshot.sources(),
     }),
     defineOperation({
-      id: "host.snapshot.discover", title: "Find machine snapshots on mounted drives", risk: "low", readOnly: true, timeoutMs: 2 * 60_000,
+      // operator (ADR-003): walks every mounted filesystem as root on a two-minute budget - the throughput case ADR-003 names.
+      id: "host.snapshot.discover", title: "Find machine snapshots on mounted drives", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 2 * 60_000,
       description: "Looks for machine snapshots on every drive and share this server has mounted, including ones BoxPilot did not write. This is how a rebuilt server finds the snapshot of the one it replaces.",
       run: (_parameters, { machineSnapshot }) => machineSnapshot.discover(),
     }),

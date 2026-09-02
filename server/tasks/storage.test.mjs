@@ -267,7 +267,7 @@ describe("reconnecting a drive that came back under a new name", () => {
     const withSwap = "# boxpilot:swap\n/swap.boxpilot none swap sw,nofail 0 0\n";
     const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
     await expect(storageRemount({ name: "swap" }, { run, files: { readFile: async () => withSwap, readable: async () => true } }))
-      .rejects.toThrow("not a drive mounted at /mnt/swap");
+      .rejects.toThrow("swap is the swap file, not a mount");
     expect(run.mock.calls.some(([binary]) => binary.endsWith("umount"))).toBe(false);
   });
 
@@ -285,5 +285,24 @@ describe("reconnecting a drive that came back under a new name", () => {
       return { ok: true, stdout: "", stderr: "" };
     });
     await expect(storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab, readable: async () => false } })).rejects.toThrow("may be unplugged");
+  });
+});
+
+
+describe("mount names that belong to other operations", () => {
+  const fstab = "UUID=1 / ext4 defaults 0 1\n# boxpilot:share-nas\n//nas/public /mnt/share-nas cifs credentials=/etc/boxpilot/secrets/share-nas.cred,nofail 0 0\n# boxpilot:swap\n/swap.boxpilot none swap sw 0 0\n";
+  const files = { readFile: async () => fstab, writeFile: vi.fn(async () => {}), readable: async () => true };
+  const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
+
+  it("refuses to unmount a share by its marker name, so the share's fstab line survives", async () => {
+    // It found nothing mounted at /mnt/share-nas, skipped the umount, and deleted the entry anyway.
+    await expect(storageUnmount({ name: "share-nas" }, { run, files })).rejects.toThrow(/network share; use the share operations/);
+    expect(files.writeFile).not.toHaveBeenCalled();
+  });
+
+  it("refuses to treat the swap file as a mount", async () => {
+    await expect(storageUnmount({ name: "swap" }, { run, files })).rejects.toThrow(/swap file/);
+    await expect(storageRemount({ name: "swap" }, { run, files })).rejects.toThrow(/swap file/);
+    expect(files.writeFile).not.toHaveBeenCalled();
   });
 });

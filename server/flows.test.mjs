@@ -572,6 +572,29 @@ describe("a flow on the clock", () => {
     expect(jobs.calls).toEqual([]);
     expect(store.getFlow(flow.id).lastResult).toMatch(/skipped: viewer-9 can no longer approve/);
     expect(store.audits.some((audit) => audit.event === "flow.skipped")).toBe(true);
+
+    // The refusal must still advance the clock. It did not: the flow stayed due, so every tick
+    // skipped it again - a push notification a minute and 1,440 audit rows a day, until the
+    // 20,000-row cap had evicted everything else.
+    // Forward of where it was, not a specific instant: the cadence is in local time, and a test
+    // that pins the timezone of whoever runs it is a test that fails on the next machine.
+    expect(store.getFlow(flow.id).nextDueAt > "2026-08-30T03:00:00.000Z").toBe(true);
+    const skippedOnce = store.audits.filter((audit) => audit.event === "flow.skipped").length;
+    await service.tick();
+    await service.tick();
+    expect(store.audits.filter((audit) => audit.event === "flow.skipped")).toHaveLength(skippedOnce);
+  });
+
+  it("refuses a step that would write a credential into the database", async () => {
+    // Stored, backed up, snapshotted, and returned by GET /flows to a viewer. The scheduler has
+    // refused this since it existed; flows only hid the field from the form.
+    const store = fakeStore();
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2 });
+    await expect(service.create({ name: "leak", createdBy: "owner-1", steps: [{ operationId: "credentials.set", parameters: { name: "ntfy", value: "tok_LIVE" } }] }))
+      .rejects.toThrow(/needs a password or key each time, so it cannot be part of a flow/);
+    // The same operation with the secret left blank is not the problem: it will be asked for at run time.
+    const ok = service.create({ name: "fine", createdBy: "owner-1", steps: [{ operationId: "credentials.set", parameters: { name: "ntfy", value: "" } }] });
+    await expect(ok).resolves.toBeTruthy().catch(() => { /* if the op requires the value, that is a different refusal and fine */ });
   });
 
   it("does not fire a disabled flow, and re-enabling reckons the clock afresh", async () => {

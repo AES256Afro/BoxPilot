@@ -1,10 +1,11 @@
+import { constants as fsConstants } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { sshPasswordAuthSet, userAdd, userKeysImport, userSudoSet, validKeyLines } from "./users.mjs";
 
 const ED_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKk3Fake0000000000000000000000000000000000 laptop";
 const RSA_KEY = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCfake+key/lines== work";
 
-function fakeFiles(contents = {}) {
+function fakeFiles(contents = {}, { links = {}, owners = {}, directories = new Set() } = {}) {
   const written = {};
   const removed = [];
   return {
@@ -17,6 +18,14 @@ function fakeFiles(contents = {}) {
     }),
     writeFile: vi.fn(async (path, content) => { written[path] = content; }),
     unlink: vi.fn(async (path) => { removed.push(path); delete written[path]; }),
+    // Everything under a home is a plain file or directory owned by that user unless a test says
+    // otherwise via `links` (path -> true) or `owners` (path -> uid).
+    lstat: vi.fn(async (path) => {
+      if (links[path]) return { isSymbolicLink: () => true, isDirectory: () => false, isFile: () => false, uid: owners[path] ?? 1001 };
+      if (!(path in written) && !(path in contents) && !directories.has(path)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      const directory = directories.has(path);
+      return { isSymbolicLink: () => false, isDirectory: () => directory, isFile: () => !directory, uid: owners[path] ?? 1001 };
+    }),
   };
 }
 
@@ -124,5 +133,42 @@ describe("turning password logins off", () => {
   it("refuses when the effective configuration cannot be read at all", async () => {
     const run = vi.fn(async () => ({ ok: false, stdout: "", stderr: "sshd: no hostkeys available" }));
     await expect(sshPasswordAuthSet({ enabled: false }, { run, files })).rejects.toThrow(/Nothing was changed/);
+  });
+});
+
+
+describe("importing keys into a home the user controls", () => {
+  const users = { mallory: { uid: 1001, home: "/home/mallory" } };
+
+  it("refuses when authorized_keys is a symbolic link, whatever it points at", async () => {
+    // ~/.ssh/authorized_keys -> /etc/passwd: root would read /etc/passwd, write it back with the
+    // keys appended, and chown it to mallory, who then gives themself uid 0.
+    const run = fakeRun({ users });
+    const files = fakeFiles({}, { links: { "/home/mallory/.ssh/authorized_keys": true }, directories: new Set(["/home/mallory/.ssh"]) });
+    await expect(userKeysImport({ username: "mallory", keys: ED_KEY }, { run, files })).rejects.toThrow(/symbolic link; refusing/);
+    expect(files.writeFile).not.toHaveBeenCalled();
+  });
+
+  it("refuses when .ssh itself is a symbolic link", async () => {
+    // ~/.ssh -> /etc would have had install -d chown /etc to the user.
+    const run = fakeRun({ users });
+    const files = fakeFiles({}, { links: { "/home/mallory/.ssh": true } });
+    await expect(userKeysImport({ username: "mallory", keys: ED_KEY }, { run, files })).rejects.toThrow(/symbolic link; refusing/);
+    expect(run).not.toHaveBeenCalledWith("/usr/bin/install", expect.anything(), expect.anything());
+  });
+
+  it("refuses a file the user does not own", async () => {
+    const run = fakeRun({ users });
+    const files = fakeFiles({ "/home/mallory/.ssh/authorized_keys": "" }, { owners: { "/home/mallory/.ssh/authorized_keys": 0 }, directories: new Set(["/home/mallory/.ssh"]) });
+    await expect(userKeysImport({ username: "mallory", keys: ED_KEY }, { run, files })).rejects.toThrow(/owned by uid 0/);
+  });
+
+  it("still imports into a plain, user-owned file, without following links at write time", async () => {
+    const run = fakeRun({ users });
+    const files = fakeFiles({ "/home/mallory/.ssh/authorized_keys": "" }, { directories: new Set(["/home/mallory/.ssh"]) });
+    await userKeysImport({ username: "mallory", keys: ED_KEY }, { run, files });
+    const [, , options] = files.writeFile.mock.calls[0];
+    expect(options.flag & fsConstants.O_NOFOLLOW).toBeTruthy();
+    expect(run).toHaveBeenCalledWith("/usr/bin/chown", ["-h", "1001:1001", "/home/mallory/.ssh/authorized_keys"], expect.anything());
   });
 });
