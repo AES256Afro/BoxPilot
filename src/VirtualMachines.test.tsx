@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, configure, fireEvent, getConfig, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import VirtualMachines from "./VirtualMachines";
 
@@ -34,7 +34,18 @@ describe("Virtual Machines", () => {
     expect(screen.queryByText("Virtualization status is unavailable")).toBeNull();
   });
 
+  // This test chains fifteen sequential findBy* waits, each with testing-library's one-second budget,
+  // through eight open-and-close dialog cycles. Under CPU saturation - eighteen cores pinned plus a
+  // concurrent full-suite run, the shape of `npm run check` on a loaded machine - it failed 2 times
+  // in about 255 runs, at different assertions each time, and never in 17 unloaded full-suite runs.
+  // In 120 of those runs the moment of each click was instrumented: the button was never disabled and
+  // the dialog was in the DOM synchronously every time, so the state transitions are sound and what
+  // ran out was the one-second wait on a starved worker. The budget below is scoped to this test,
+  // so a genuinely slow render anywhere else still fails at one second.
   it("renders live libvirt readiness and discovered domains", async () => {
+    const previousAsyncUtilTimeout = getConfig().asyncUtilTimeout;
+    configure({ asyncUtilTimeout: 5000 });
+    try {
     const status = {
       platform: "linux",
       architecture: "x64",
@@ -196,5 +207,8 @@ describe("Virtual Machines", () => {
       { operationId: "vm.backup.restore-drill", parameters: { backupId: protection.backups[0].id } },
       { operationId: "vm.recovery.create", parameters: { backupId: protection.backups[1].id, targetDomainName: "protected-lab-recovery" } },
     ]);
-  });
+    } finally {
+      configure({ asyncUtilTimeout: previousAsyncUtilTimeout });
+    }
+  }, 20_000);   // vitest's own 5 s test budget would otherwise be the next thing a loaded machine trips
 });
