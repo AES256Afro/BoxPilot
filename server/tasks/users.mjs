@@ -1,4 +1,5 @@
-import { readFile, unlink, writeFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { lstat, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fixedRun } from "../exec.mjs";
 
@@ -35,19 +36,41 @@ async function defaultFetchKeys(githubUser) {
   return response.text();
 }
 
+/**
+ * Refuse to touch a path in the user's home unless it is a plain file or directory they own.
+ *
+ * This runs as root and the user owns everything under their home, so every component here is
+ * theirs to replace. Before this check, `~/.ssh/authorized_keys -> /etc/passwd` made a routine
+ * "Import SSH keys" read /etc/passwd, write it back with the keys appended, and chown it to the
+ * user - who then edits their own uid to 0. `~/.ssh -> /etc` did the same to the directory. sshd's
+ * StrictModes refuses the same shapes for the same reason. A path that does not exist yet is fine:
+ * it is about to be created, by root, as a real file.
+ */
+async function assertOwnedAndReal(files, target, entry, kind) {
+  const info = await files.lstat(target).catch((error) => { if (error?.code === "ENOENT") return null; throw error; });
+  if (info === null) return;
+  if (info.isSymbolicLink()) throw new Error(`${target} is a symbolic link; refusing to follow it as root`);
+  if (kind === "directory" ? !info.isDirectory() : !info.isFile()) throw new Error(`${target} is not a ${kind}`);
+  if (info.uid !== entry.uid) throw new Error(`${target} is owned by uid ${info.uid}, not ${entry.name}; refusing to change it`);
+}
+
 /** Append new keys to <home>/.ssh/authorized_keys with correct ownership and modes. */
 async function appendAuthorizedKeys(run, log, files, entry, keys) {
   const sshDirectory = path.join(entry.home, ".ssh");
   const target = path.join(sshDirectory, "authorized_keys");
+  await assertOwnedAndReal(files, sshDirectory, entry, "directory");
   const install = await run("/usr/bin/install", ["-d", "-m", "700", "-o", String(entry.uid), "-g", String(entry.gid), sshDirectory], { timeout: 10_000 });
   if (!install.ok) throw new Error(`Could not prepare ${sshDirectory}: ${install.stderr}`);
+  await assertOwnedAndReal(files, target, entry, "file");
   const existing = await files.readFile(target, "utf8").catch(() => "");
   const current = new Set(validKeyLines(existing));
   const added = keys.filter((key) => !current.has(key));
   if (added.length > 0) {
     const content = `${existing.replace(/\n*$/, existing ? "\n" : "")}${added.join("\n")}\n`;
-    await files.writeFile(target, content, { mode: 0o600 });
-    const chown = await run("/usr/bin/chown", [`${entry.uid}:${entry.gid}`, target], { timeout: 10_000 });
+    // O_NOFOLLOW closes the window between the check above and this write: a link planted in
+    // between is refused by the kernel rather than followed. -h on chown for the same reason.
+    await files.writeFile(target, content, { mode: 0o600, flag: fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW });
+    const chown = await run("/usr/bin/chown", ["-h", `${entry.uid}:${entry.gid}`, target], { timeout: 10_000 });
     if (!chown.ok) throw new Error(`Could not chown ${target}: ${chown.stderr}`);
     await run("/usr/bin/chmod", ["600", target], { timeout: 10_000 });
   }
@@ -55,7 +78,7 @@ async function appendAuthorizedKeys(run, log, files, entry, keys) {
   return { added: added.length, total: current.size + added.length };
 }
 
-export async function userAdd({ username, githubUser = null } = {}, { run = fixedRun, log = null, files = { readFile, writeFile }, fetchKeys = defaultFetchKeys } = {}) {
+export async function userAdd({ username, githubUser = null } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, lstat }, fetchKeys = defaultFetchKeys } = {}) {
   assertUsername(username);
   if (githubUser !== null && (typeof githubUser !== "string" || !githubUserPattern.test(githubUser))) throw new Error("GitHub username is invalid");
   if (await userEntry(run, username)) throw new Error(`User ${username} already exists`);
@@ -73,7 +96,7 @@ export async function userAdd({ username, githubUser = null } = {}, { run = fixe
   return { username, uid: entry.uid, home: entry.home, passwordLoginDisabled: true, importedKeys };
 }
 
-export async function userKeysImport({ username, githubUser = null, keys = null } = {}, { run = fixedRun, log = null, files = { readFile, writeFile }, fetchKeys = defaultFetchKeys } = {}) {
+export async function userKeysImport({ username, githubUser = null, keys = null } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, lstat }, fetchKeys = defaultFetchKeys } = {}) {
   assertUsername(username);
   if (username === "root") throw new Error("Keys are never added for root; give an administrator account sudo instead");
   const entry = await userEntry(run, username);

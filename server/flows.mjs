@@ -9,6 +9,7 @@
  * nothing attempts an automatic unwind — a half-done flow the owner can read beats a rollback
  * that guesses.
  */
+import { secretFields } from "./ops/registry.mjs";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { registry as defaultRegistry, validateParameters } from "./ops/index.mjs";
 import { computeNextRun, validateCadence } from "./scheduler.mjs";
@@ -48,6 +49,12 @@ export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
     if (operation.risk === "high") return `${label}: ${operation.title} is high risk and cannot be part of a flow (ADR-002)`;
     const parameters = step.parameters ?? {};
     if (typeof parameters !== "object" || Array.isArray(parameters)) return `${label}: parameters must be an object`;
+    // A flow is stored, so a credential written into a step would sit in the database, in every
+    // controller backup and machine snapshot, and come back out of GET /flows - which a viewer can
+    // read. The scheduler has refused this since it existed; flows never did, and the palette that
+    // hides secret fields from the form is a hint the API does not enforce.
+    const secrets = secretFields(operation.parameters).filter((name) => parameters[name] !== undefined && parameters[name] !== null && parameters[name] !== "");
+    if (secrets.length) return `${label}: ${operation.title} needs a password or key each time, so it cannot be part of a flow`;
     if (step.name !== undefined && step.name !== null) {
       if (typeof step.name !== "string" || !stepNamePattern.test(step.name)) return `${label}: a step name is lowercase letters, digits and dashes, 24 characters at most`;
       if (namesSoFar.has(step.name)) return `${label}: another step is already named ${step.name}`;
@@ -436,11 +443,16 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
         // Advance the clock before running, so a slow flow cannot fire twice.
         const nextDueAt = computeNextRun(flow, now()).toISOString();
         if (running.has(flow.id)) { store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy }); continue; }
+        // Advanced BEFORE the refusals below, not after. When the creator had been demoted, the
+        // refusal threw first and the clock never moved, so the flow was due again on the very next
+        // tick: a "did not run" push to the owner's phone every sixty seconds, and 1,440 skipped
+        // rows a day into an audit log capped at 20,000 - which evicts every other record in a
+        // fortnight. The scheduler had always advanced first; this now does the same.
+        store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy });
         const creator = store.findOwnerById?.(flow.createdBy) ?? null;
         try {
           if (!creator) throw new Error("the flow's creator no longer exists");
           if (["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
-          store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy });
           await run(flow.id, flow.createdBy, { role: creator.role });
           store.recordAudit("flow.scheduled-run", { actorId: flow.createdBy, subjectId: flow.id, details: { nextDueAt } });
         } catch (error) {

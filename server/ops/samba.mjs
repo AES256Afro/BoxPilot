@@ -12,7 +12,8 @@ const systemctl = process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl";
 export function sambaOperations() {
   return [
     defineOperation({
-      id: "samba.inspect", title: "Read file-server state", risk: "low", readOnly: true, timeoutMs: 30_000,
+      // operator (ADR-003): sizes each share's 0770 recycle bin and stats its owner as root - the size of somebody else's data.
+      id: "samba.inspect", title: "Read file-server state", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 30_000,
       description: "Whether Samba is installed and running, the shares BoxPilot manages, and the Samba users.",
       run: async (_parameters, { run }) => {
         const installed = await access("/usr/sbin/smbd").then(() => true, () => false);

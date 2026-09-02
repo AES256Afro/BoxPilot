@@ -9,6 +9,7 @@
  */
 import express, { Router } from "express";
 import { OidcError } from "../oidc.mjs";
+import { securityInternals } from "../security.mjs";
 
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]));
@@ -69,7 +70,13 @@ export function createOidcRouter({ oidc, auth, store }) {
     } catch (error) {
       return renderAuthorizationError(response, error);
     }
-    response.status(200).type("html").setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; img-src 'self' data:; base-uri 'none'");
+    // form-action names the client's origin as well as our own. Approving posts to /oidc/authorize,
+    // which answers with a redirect to the client's redirect_uri - and Chrome checks form-action
+    // against the redirect target, not only the form's action. With 'self' alone, Chrome and Edge
+    // blocked that redirect and left the person on this page after approving; Firefox follows the
+    // spec and did not, which is how it went unnoticed. Measured in Chrome before this change.
+    const clientOrigin = new URL(validated.redirectUri).origin;
+    response.status(200).type("html").setHeader("Content-Security-Policy", `default-src 'none'; style-src 'unsafe-inline'; form-action 'self' ${clientOrigin}; img-src 'self' data:; base-uri 'none'`);
     response.send(consentPage({ session, validated, query: request.query }));
   });
 
@@ -78,7 +85,8 @@ export function createOidcRouter({ oidc, auth, store }) {
     const session = auth.requestSession(request);
     if (!session) return response.status(401).type("html").send(simplePage("Session expired", "Sign in to BoxPilot again, then retry from the app."));
     const body = request.body ?? {};
-    if (!body.csrf || body.csrf !== session.csrfToken) return response.status(403).type("html").send(simplePage("Could not confirm the request", "Go back to the app and try signing in again."));
+    // Constant-time, like auth.requireCsrf: the one CSRF comparison in the product that was not.
+    if (!body.csrf || typeof body.csrf !== "string" || !securityInternals.safeEqual(body.csrf, session.csrfToken)) return response.status(403).type("html").send(simplePage("Could not confirm the request", "Go back to the app and try signing in again."));
     let validated;
     try {
       validated = oidc.validateAuthorization(body);

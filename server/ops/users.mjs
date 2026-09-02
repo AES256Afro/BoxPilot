@@ -38,7 +38,8 @@ const githubUserField = { type: "string", optional: true, nullable: true, maxLen
 export function userOperations() {
   return [
     defineOperation({
-      id: "users.inspect", title: "List users and SSH access", risk: "low", readOnly: true, timeoutMs: 60_000,
+      // operator (ADR-003): reads every user's ~/.ssh/authorized_keys and sshd -T as root - files a viewer cannot open.
+      id: "users.inspect", title: "List users and SSH access", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
       description: "Human accounts, their sudo membership and key counts, and the effective sshd settings.",
       run: async (_parameters, { run }) => {
         const [passwd, group] = await Promise.all([

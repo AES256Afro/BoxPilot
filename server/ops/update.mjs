@@ -26,7 +26,8 @@ export function updateOutcome(units, lines) {
 export function updateOperations() {
   return [
     defineOperation({
-      id: "system.update.status", title: "Read BoxPilot update status", risk: "low", readOnly: true, timeoutMs: 30_000,
+      // operator (ADR-003): returns up to eighty raw journal lines as root; every other journal read needs an operator.
+      id: "system.update.status", title: "Read BoxPilot update status", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 30_000,
       description: "The most recent self-update units and the upgrade log they wrote.",
       run: async (_parameters, { run }) => {
         const [units, journal] = await Promise.all([

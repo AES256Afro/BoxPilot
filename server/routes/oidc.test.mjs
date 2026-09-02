@@ -64,6 +64,19 @@ describe("OIDC endpoints", () => {
     expect(decodeURIComponent(response.headers.get("location"))).toContain("/oidc/authorize");
   });
 
+  it("lets the browser follow the post-consent redirect to the client (form-action names its origin)", async () => {
+    // Chrome checks form-action against the redirect a form POST ends in, not only the form's own
+    // action. With 'self' alone, approving consent left the person stuck on the consent page.
+    const session = await signIn();
+    const params = new URLSearchParams({ client_id: client.id, redirect_uri: redirectUri, response_type: "code", scope: "openid", code_challenge: "abc", code_challenge_method: "S256" });
+    const consent = await fetch(`${base}/oidc/authorize?${params}`, { headers: { Cookie: session.cookie } });
+    expect(consent.status).toBe(200);
+    const csp = consent.headers.get("content-security-policy") ?? "";
+    expect(csp).toContain(`form-action 'self' ${new URL(redirectUri).origin}`);
+    // And nothing else has crept in: the client origin is the only addition.
+    expect(csp).not.toContain("'unsafe-inline'; form-action 'self';");
+  });
+
   it("runs the full consent -> code -> token -> userinfo flow with PKCE", async () => {
     const session = await signIn();
     const verifier = randomBytes(32).toString("base64url");
