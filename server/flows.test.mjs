@@ -612,3 +612,36 @@ describe("a flow on the clock", () => {
     expect(await service.tick()).toBe(0);
   });
 });
+
+
+describe("starting a flow without waiting for it", () => {
+  it("returns as soon as the run has begun, and the run still finishes on its own", async () => {
+    // A proxy that gives up on a long request must not make the page say the run was refused.
+    const store = fakeStore();
+    const jobs = fakeJobs(store);
+    const service = createFlowService({ store, jobs, pollMs: 2 });
+    const flow = await service.create({ name: "long", steps: goodSteps, createdBy: "owner-1" });
+    const started = service.launch(flow.id, "owner-1", { role: "owner" });
+    expect(started).toEqual({ started: true, id: flow.id, name: "long" });
+    expect(store.getFlow(flow.id).running ?? true).toBeTruthy(); // the run is underway, not awaited
+    // Give it a moment: it records its own outcome without anyone awaiting it.
+    for (let attempt = 0; attempt < 400 && !/completed|failed|stopped/.test(store.getFlow(flow.id).lastResult ?? ""); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(store.getFlow(flow.id).lastResult).toMatch(/completed/);
+  });
+
+  it("still refuses what run() refuses, at once and with the same message", async () => {
+    const store = fakeStore();
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2 });
+    const flow = await service.create({ name: "x", steps: goodSteps, createdBy: "owner-1" });
+    expect(() => service.launch("nope", "owner-1", { role: "owner" })).toThrow("Flow not found");
+    expect(() => service.launch(flow.id, "viewer-1", { role: "viewer" })).toThrow(/Viewers cannot run flows/);
+  });
+
+  it("refuses a second start while the first is still running", async () => {
+    const store = fakeStore();
+    const service = createFlowService({ store, jobs: fakeJobs(store, { neverFinish: "job-1" }), pollMs: 2 });
+    const flow = await service.create({ name: "slow", steps: goodSteps, createdBy: "owner-1" });
+    service.launch(flow.id, "owner-1", { role: "owner" });
+    expect(() => service.launch(flow.id, "owner-1", { role: "owner" })).toThrow(/already running/);
+  });
+});

@@ -94,7 +94,7 @@ export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
   return null;
 }
 
-export function createFlowService({ store, jobs, registry = defaultRegistry, pollMs = 1000, maxStepMs = null, retryDelayMs = 30_000, now = () => new Date(), notify = null, library = [] }) {
+export function createFlowService({ store, jobs, registry = defaultRegistry, pollMs = 1000, maxStepMs = null, retryDelayMs = 30_000, now = () => new Date(), notify = null, library = [], report = (message) => console.warn(message) }) {
   const running = new Set(); // flow ids mid-run; a flow must not lap itself
 
   function assertMayManage(flow, actorId, role) {
@@ -203,7 +203,8 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
    * Run a flow now, under the authority of the person who asked. Sequential on purpose: a stopped
    * chain is diagnosable, and step three may depend on step two having actually happened.
    */
-  async function run(id, actorId, { role = "owner", chainDepth = 0 } = {}) {
+  /** Everything that can refuse a run, checked before anything starts. Shared by run() and launch(). */
+  function preflight(id, role) {
     const flow = store.getFlow(id);
     if (!flow) throw new Error("Flow not found");
     if (["viewer", "disabled"].includes(role)) throw new Error("Viewers cannot run flows");
@@ -213,6 +214,28 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
     if (store.getSetting?.("approvalMode", null) === "always-password") {
       throw new Error("Approval mode is set to always ask, so flows cannot run: each step would need its own password. Change the approval mode to run flows.");
     }
+    return flow;
+  }
+
+  /**
+   * Refuse or begin, and return at once. The HTTP route used to await run() itself, holding the
+   * response open for the whole flow: fine on a direct connection, but a proxy that gives up on a
+   * long request - long before apt does - made the page show "the run was refused" while the flow
+   * was still running. The page has treated the flow list as the truth since then; this makes the
+   * route honest about it. Every refusal still throws here, synchronously, with the same message.
+   * The run itself records its own outcome on the flow; only a failure before it can do that is
+   * reported, so nothing is lost by not being awaited.
+   */
+  function launch(id, actorId, { role = "owner" } = {}) {
+    const flow = preflight(id, role);
+    run(id, actorId, { role }).catch((error) => {
+      if (!recordedRunFailure.test(error.message)) report(`[boxpilot] flow ${flow.name} could not be run: ${error.message}`);
+    });
+    return { started: true, id, name: flow.name };
+  }
+
+  async function run(id, actorId, { role = "owner", chainDepth = 0 } = {}) {
+    const flow = preflight(id, role);
 
     running.add(id);
     let completedRun = false;
@@ -526,5 +549,5 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
       }));
   }
 
-  return { create, list, update, remove, run, tick, start, recover, stepPalette, shelf, mintWebhook, clearWebhook, fireWebhook };
+  return { create, list, update, remove, run, launch, tick, start, recover, stepPalette, shelf, mintWebhook, clearWebhook, fireWebhook };
 }
