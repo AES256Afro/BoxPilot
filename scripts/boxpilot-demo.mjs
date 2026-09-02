@@ -22,6 +22,7 @@ import { cloudProviders } from "../server/backup-cloud.mjs";
 import { buildChecklist } from "../server/setup-checklist.mjs";
 import { setupProfiles } from "../server/setup-profiles.mjs";
 import { productVersion } from "../server/version.mjs";
+import { securityHeaders } from "../server/security-headers.mjs";
 import { humanBytes } from "../server/housekeeping.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -348,6 +349,12 @@ export const inspections = {
 // ---------- server ----------
 if (!existsSync(dist)) { console.error("dist/ is missing: run `npm run build` first"); process.exit(1); }
 const app = express();
+// The same headers and Content-Security-Policy the real server sends, so the demo shows the app
+// exactly as it behaves - including a policy that would refuse an inline script it did not expect.
+// Registered here so it runs before the routes, assigned once the shell and the world switcher
+// exist below, since the hashes come from the HTML that is actually served.
+let headers = (_request, _response, next) => next();
+app.use((request, response, next) => headers(request, response, next));
 app.use(express.json());
 const api = express.Router();
 /**
@@ -862,6 +869,9 @@ export const switcher = (current) => `<style>
 </script>`;
 
 const indexHtml = await readFile(path.join(dist, "index.html"), "utf8");
+// The switcher's script and style bodies do not vary with the world (only its links do), so the
+// default world's shell carries every inline piece any world will serve.
+headers = securityHeaders({ html: indexHtml.replace("</body>", `${switcher("default")}</body>`) });
 app.get("/{*rest}", (request, response) => {
   const current = scenarioNames.includes(request.query.scenario) ? request.query.scenario : "default";
   response.type("html").send(indexHtml.replace("</body>", `${switcher(current)}</body>`));

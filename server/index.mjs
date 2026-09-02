@@ -1,6 +1,6 @@
 import express from "express";
 import { randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createReadStream, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createDeviceResolver } from "./catalog/devices.mjs";
 import path from "node:path";
@@ -65,6 +65,7 @@ import { createVmRetentionService } from "./vm-retention.mjs";
 import { createVmRestoreDrillService } from "./vm-restore-drill.mjs";
 import { foldVerdict, verdictFrom } from "./backup-verdicts.mjs";
 import { jsonGzip, precompressedAssets } from "./compress.mjs";
+import { securityHeaders } from "./security-headers.mjs";
 
 const app = express();
 const host = process.env.BOXPILOT_HOST ?? "127.0.0.1";
@@ -225,18 +226,12 @@ createSmartSampler({ inventory, store: state }).start();
 app.disable("x-powered-by");
 app.use(jsonGzip());
 app.use(express.json({ limit: "256kb", strict: true }));
-app.use((request, response, next) => {
-  response.setHeader("X-Content-Type-Options", "nosniff");
-  response.setHeader("X-Frame-Options", "DENY");
-  response.setHeader("Referrer-Policy", "no-referrer");
-  response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  response.setHeader(
-    "Content-Security-Policy",
-    "default-src 'self'; base-uri 'none'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'",
-  );
-  if (request.path.startsWith("/api/")) response.setHeader("Cache-Control", "no-store");
-  next();
-});
+// The policy's script hash comes from the shell as built, so the theme bootstrap that has always
+// been inline is allowed by its own digest rather than blocked - which is what `script-src 'self'`
+// alone had been doing to it.
+let shell = "";
+try { shell = readFileSync(path.join(dist, "index.html"), "utf8"); } catch { /* no build yet: a strict policy with no inline allowances is the right answer */ }
+app.use(securityHeaders({ html: shell }));
 
 app.get("/api/v1/health", (_request, response) => {
   response.json({
