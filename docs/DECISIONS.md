@@ -135,3 +135,12 @@ throughput protection as much as a disclosure one.
 
 `server/routes/authorization.test.mjs` holds the four together, because shipping one without the
 gate is precisely what happened.
+
+**Addendum (v1.108.0): a second pass over every read-only operation found five more.**
+`system.update.status` returned up to eighty raw journal lines while every other journal read was
+operator-gated; `users.inspect` read every account's `~/.ssh/authorized_keys` and `sshd -T`;
+`samba.inspect` sized each share's 0770 recycle bin; `dns.blocker.clients` returned which device
+asked for what; `host.snapshot.discover` walked every mounted filesystem on a two-minute budget. All
+five are operator now, and the test holds nine. The lesson of the first four had been applied to
+the four, not to the rule: the audit that should have followed writing the rule down came a release
+late.
