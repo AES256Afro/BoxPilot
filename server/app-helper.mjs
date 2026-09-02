@@ -1653,7 +1653,7 @@ export function createAppHelper({
     for (const application of applications.applications ?? []) {
       const manifest = byId.get(application.id);
       if (!manifest) continue;
-      for (const folder of measurableFolders({ manifest, live: application })) {
+      for (const folder of measurableFolders({ manifest, live: application }, { directory: dirFor(manifest.id) })) {
         // -s one total, -b in bytes, -x without crossing into another filesystem: a bind mount
         // below a data folder belongs to whatever owns it, not to the app that happens to sit above.
         const remaining = deadline - clock().getTime();

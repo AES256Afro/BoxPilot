@@ -91,34 +91,60 @@ describe("naming what is filling a drive", () => {
 describe("choosing which folders to measure", () => {
   const manifest = { id: "qbittorrent", volumes: [
     { id: "downloads", label: "Downloads", hostPath: "/mnt/dump/torrents", configurable: true },
-    { id: "config", label: "Config", hostPath: "/srv/boxpilot/qbittorrent/config" },
+    { id: "config", label: "Config", path: "config" },
     { id: "media", label: "Media", hostPath: "/mnt/dump/media", readOnly: true },
   ] };
+  const installed = { installed: true, state: { values: { volumes: {} } } };
+  const where = { directory: "/var/lib/boxpilot-managed/catalog/qbittorrent" };
 
-  it("measures the owner's data folders and leaves read-only mounts alone", () => {
-    const folders = measurableFolders({ manifest, live: { installed: true, state: { values: { volumes: {} } } } });
-    expect(folders.map((folder) => folder.path)).toEqual(["/mnt/dump/torrents", "/srv/boxpilot/qbittorrent/config"]);
+  it("measures each drive folder the owner pointed the app at", () => {
+    const folders = measurableFolders({ manifest, live: installed }, where);
+    expect(folders.find((folder) => folder.path === "/mnt/dump/torrents")).toBeTruthy();
+  });
+
+  it("measures the managed data as one folder, since most of the catalog keeps its data there", () => {
+    // Two hundred and three managed volumes against fifty-nine external ones: measuring only the
+    // external ones answered "what is filling this drive" with one folder on an eighteen-app server.
+    const folders = measurableFolders({ manifest, live: installed }, where);
+    expect(folders.find((folder) => folder.managed)?.path).toBe(where.directory);
+    // One walk for all of them, not one each - the same bytes for a fraction of the work.
+    expect(folders.filter((folder) => folder.managed)).toHaveLength(1);
+  });
+
+  it("leaves a read-only mount alone, because that is somebody else's data", () => {
+    const folders = measurableFolders({ manifest, live: installed }, where);
+    expect(folders.some((folder) => folder.path === "/mnt/dump/media")).toBe(false);
   });
 
   it("follows the folder the owner actually chose, not the manifest default", () => {
-    const folders = measurableFolders({ manifest, live: { installed: true, state: { values: { volumes: { downloads: "/mnt/the-dump/torrents" } } } } });
+    const folders = measurableFolders({ manifest, live: { installed: true, state: { values: { volumes: { downloads: "/mnt/the-dump/torrents" } } } } }, where);
     expect(folders[0].path).toBe("/mnt/the-dump/torrents");
   });
 
-  it("survives a manifest that is not shaped the way the schema promises", () => {
-    // A sampler that throws is a sampler that silently stops running.
-    expect(measurableFolders({ manifest: { id: "x", volumes: "not a list" }, live: { installed: true } })).toEqual([]);
-    expect(measurableFolders({ manifest: { id: "x", volumes: [null] }, live: { installed: true } })).toEqual([]);
-    expect(measurableFolders({ manifest: { id: "x" }, live: { installed: true } })).toEqual([]);
+  it("claims no managed folder for an app that keeps nothing there", () => {
+    const external = { id: "x", volumes: [{ id: "a", hostPath: "/mnt/one" }] };
+    expect(measurableFolders({ manifest: external, live: installed }, where).some((folder) => folder.managed)).toBe(false);
+  });
+
+  it("measures nothing without being told where the app lives", () => {
+    const managedOnly = { id: "x", volumes: [{ id: "a", path: "data" }] };
+    expect(measurableFolders({ manifest: managedOnly, live: installed })).toEqual([]);
   });
 
   it("measures nothing for an app that is not installed", () => {
-    expect(measurableFolders({ manifest, live: { installed: false } })).toEqual([]);
+    expect(measurableFolders({ manifest, live: { installed: false } }, where)).toEqual([]);
   });
 
   it("does not measure the same folder twice when two volumes point at it", () => {
     const shared = { id: "app", volumes: [{ id: "a", hostPath: "/mnt/one" }, { id: "b", hostPath: "/mnt/one" }] };
-    expect(measurableFolders({ manifest: shared, live: { installed: true } })).toHaveLength(1);
+    expect(measurableFolders({ manifest: shared, live: installed }, where)).toHaveLength(1);
+  });
+
+  it("survives a manifest that is not shaped the way the schema promises", () => {
+    // A sampler that throws is a sampler that silently stops running.
+    expect(measurableFolders({ manifest: { id: "x", volumes: "not a list" }, live: installed }, where)).toEqual([]);
+    expect(measurableFolders({ manifest: { id: "x", volumes: [null] }, live: installed }, where)).toEqual([]);
+    expect(measurableFolders({ manifest: { id: "x" }, live: installed }, where)).toEqual([]);
   });
 });
 
