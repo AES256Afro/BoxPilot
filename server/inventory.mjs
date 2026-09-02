@@ -46,10 +46,24 @@ export function createInventoryService({
   ups = createUpsService(),
   now = () => new Date(),
 } = {}) {
-  async function inspectService(unit) {
-    const result = await runCommand("systemctl", ["show", unit, "--property=Id,LoadState,ActiveState,SubState,UnitFileState", "--no-pager"]);
-    const values = parseKeyValues(result.stdout);
-    return { unit, load: values.LoadState ?? (result.ok ? "unknown" : "unavailable"), active: values.ActiveState ?? "unknown", sub: values.SubState ?? "unknown", enabled: values.UnitFileState ?? "unknown" };
+  /**
+   * One `systemctl show` for every unit rather than one per unit. systemctl answers several units in
+   * a single call, separating them with a blank line and naming each with Id=, so six processes
+   * become one - on every Overview, Apps, Storage and Repair load, and every fifteen minutes from
+   * the health check. A unit systemctl did not answer for comes back as it always did when its own
+   * call failed: unavailable.
+   */
+  async function inspectServices(units) {
+    const result = await runCommand("systemctl", ["show", ...units, "--property=Id,LoadState,ActiveState,SubState,UnitFileState", "--no-pager"]);
+    const answered = new Map();
+    for (const block of String(result.stdout ?? "").split(/\n\s*\n/)) {
+      const values = parseKeyValues(block);
+      if (values.Id) answered.set(values.Id, values);
+    }
+    return units.map((unit) => {
+      const values = answered.get(unit) ?? {};
+      return { unit, load: values.LoadState ?? (result.ok ? "unknown" : "unavailable"), active: values.ActiveState ?? "unknown", sub: values.SubState ?? "unknown", enabled: values.UnitFileState ?? "unknown" };
+    });
   }
 
   async function inspectTailscale() {
@@ -90,7 +104,7 @@ export function createInventoryService({
     let docker = { available: false, containers: [], images: [], networks: [], volumes: [], projects: [] };
     try { docker = await helper.request("container.docker.inventory", {}); } catch { docker = { ...docker, error: "Docker inventory is unavailable through the restricted helper" }; }
     const [services, tailscale, blockResult, smartResult, maintenanceResult, upsResult] = await Promise.all([
-      Promise.all(serviceUnits.map(inspectService)),
+      inspectServices(serviceUnits),
       inspectTailscale(),
       runCommand("lsblk", ["--json", "--bytes", "--paths", "--output", "NAME,TYPE,FSTYPE,SIZE,MOUNTPOINTS,ROTA,RO,TRAN,MODEL"]),
       readStorageHealth().then((contents) => ({ ok: true, contents })).catch(() => ({ ok: false, contents: "" })),
