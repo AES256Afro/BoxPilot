@@ -55,7 +55,7 @@ describe("samba tasks", () => {
   });
 
   it("renders a recycle bin for a share, and empties it by share name only", async () => {
-    const conf = renderSmbConf({ scope: "lan", lanInterface: "eno1", shares: [{ name: "dump", path: "/mnt/the-dump", readOnly: false, guest: false, users: ["bigbox"], recycle: true }], forceUsers: { dump: "bigbox" } });
+    const conf = renderSmbConf({ scope: "lan", lanInterface: "eno1", shares: [{ name: "dump", path: "/mnt/the-dump", readOnly: false, guest: false, users: ["homebox"], recycle: true }], forceUsers: { dump: "homebox" } });
     expect(conf).toContain("vfs objects = fruit streams_xattr recycle");
     expect(conf).toContain("recycle:repository = .recycle");
     expect(parseSmbConf(conf).shares[0].recycle).toBe(true);

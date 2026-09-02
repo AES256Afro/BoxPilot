@@ -1043,7 +1043,7 @@ export function createAppHelper({
     return address;
   }
 
-  /** This server's tailnet machine name (bigbox.tail...ts.net), or null without Tailscale. */
+  /** This server's tailnet machine name (homebox.tail...ts.net), or null without Tailscale. */
   let tailnetDnsNameCache;
   async function tailnetDnsName() {
     if (tailnetDnsNameCache !== undefined) return tailnetDnsNameCache;

@@ -207,7 +207,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
   bound to it (v1.56.0), verified importing cleanly on a real Grafana. Install Prometheus and
   Grafana and the graphs are drawn. cAdvisor (per-container metrics) ships too (v1.57.0),
   running unprivileged with read-only host mounts and /dev/kmsg, verified live scraping UP on
-  bigbox's cgroup v2. Remaining: the libvirt exporter and a per-container dashboard.
+  the server's cgroup v2. Remaining: the libvirt exporter and a per-container dashboard.
 - ◐ **M8.4** Failed-job push notifications: `server/notifications.mjs` subscribes to the job-event stream and sends one push per failed job to ntfy, Gotify, or a webhook (both servers are catalog apps, so alerts can stay on-host); Settings panel with password-gated target + test button; deliveries and failures audited. Remaining triggers: updates available, backup stale, disk >90%, SMART, UPS. Host-health alerting stays with the ops CLI per HANDOFF.md. ✅ (v2) **Health alerts** (`server/health-alerts.mjs`): a 15-minute watcher over the sanitized inventory pushes once when a condition appears and once when it clears. Root/mounted disk ≥ 85–90 % full, SMART problems, UPS on battery/low, failed services, reboot required, unhealthy containers; state in the `healthAlertsState` setting so restarts do not re-send.
 - ✅ **M8.5** Log viewer: registry ops `logs.sources` (journal groups, every systemd unit, every container) and `logs.read` (tail any of them with a time window and text filter, redacted). The Logs page offers group tabs, a unit finder, a container picker, follow mode, and download; the support bundle reads through the same op. The fixed-four-sources route and `system.logs.inspect` legacy op are deleted.
 

@@ -53,7 +53,7 @@ describe("a sign-in page off the root", () => {
 
 describe("every way to reach an app, not one guess", () => {
   const web = { host: 8096, exposure: "lan" as const, path: null };
-  const options = { lanAddress: "192.168.8.10", tailnetDnsName: "homebox.tail0a1b.ts.net", browserHost: "192.168.8.10" };
+  const options = { lanAddress: "192.168.1.10", tailnetDnsName: "homebox.tail0a1b.ts.net", browserHost: "192.168.1.10" };
 
   it("offers the LAN address and the short tailnet name, labelled", () => {
     // The full …ts.net name is on the browsers' HSTS preload list: a plain http link on it is
@@ -61,7 +61,7 @@ describe("every way to reach an app, not one guess", () => {
     // bypass. Every plain port therefore links the short MagicDNS name instead.
     const found = appAddresses(web, options);
     expect(found.map((address) => [address.kind, address.url])).toEqual([
-      ["lan", "http://192.168.8.10:8096"],
+      ["lan", "http://192.168.1.10:8096"],
       ["tailnet", "http://homebox:8096"],
     ]);
     expect(found[0].caveat).toBeNull();
@@ -71,7 +71,7 @@ describe("every way to reach an app, not one guess", () => {
   it("never offers a plain-http link on the full ts.net name, even as the arrival route", () => {
     // Reached over Serve's HTTPS, the same hostname on an app's plain port is a dead link.
     const overTailnet = appAddresses(web, { ...options, browserHost: "homebox.tail0a1b.ts.net" });
-    expect(overTailnet.map((address) => address.url)).toEqual(["http://192.168.8.10:8096", "http://homebox:8096"]);
+    expect(overTailnet.map((address) => address.url)).toEqual(["http://192.168.1.10:8096", "http://homebox:8096"]);
     expect(overTailnet.find((address) => address.reachedThisPageBy)?.url).toBe("http://homebox:8096");
     expect(appUrl(web, { ...options, browserHost: "homebox.tail0a1b.ts.net" })).toBe("http://homebox:8096");
   });
@@ -105,14 +105,14 @@ describe("every way to reach an app, not one guess", () => {
 
   it("keeps the app's own path, so the link lands on the sign-in page", () => {
     const found = appAddresses({ host: 80, exposure: "lan", path: "/admin/" }, options);
-    expect(found[0].url).toBe("http://192.168.8.10:80/admin/");
+    expect(found[0].url).toBe("http://192.168.1.10:80/admin/");
   });
 
   it("keeps a route that is neither the LAN address nor the tailnet name", () => {
     // Reached through a hostname, an mDNS name or a reverse proxy: that route provably works, so
     // dropping it in favour of two addresses that may not is the wrong trade.
-    const found = appAddresses(web, { ...options, browserHost: "bigbox.local" });
-    expect(found[0]).toMatchObject({ url: "http://bigbox.local:8096", reachedThisPageBy: true });
+    const found = appAddresses(web, { ...options, browserHost: "homebox.local" });
+    expect(found[0]).toMatchObject({ url: "http://homebox.local:8096", reachedThisPageBy: true });
     expect(found.map((address) => address.kind)).toContain("lan");
   });
 });
@@ -122,7 +122,7 @@ describe("browsing BoxPilot from the server itself", () => {
     // Sitting at the server says nothing about how the rest of the network gets to the app, so
     // 127.0.0.1 must not head a list whose whole purpose is reaching it from somewhere else.
     const found = appAddresses({ host: 8096, exposure: "lan", path: null }, {
-      lanAddress: "192.168.8.10", tailnetDnsName: "homebox.tail0a1b.ts.net", browserHost: "127.0.0.1",
+      lanAddress: "192.168.1.10", tailnetDnsName: "homebox.tail0a1b.ts.net", browserHost: "127.0.0.1",
     });
     expect(found.map((address) => address.kind)).toEqual(["lan", "tailnet"]);
     expect(found.some((address) => address.url.includes("127.0.0.1"))).toBe(false);
