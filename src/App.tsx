@@ -1,28 +1,11 @@
 import PageErrorBoundary from "./PageErrorBoundary";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   navItems,
   viewLabel,
   type ViewName,
 } from "./data";
 import AuthScreen from "./AuthScreen";
-import BackupCenter from "./BackupCenter";
-import GitHubCenter from "./GitHubCenter";
-import HomeDashboard from "./HomeDashboard";
-import SetupWizard from "./SetupWizard";
-import HostOverview from "./HostOverview";
-import NetworkCenter from "./NetworkCenter";
-import RepairCenter from "./RepairCenter";
-import SystemLogs from "./SystemLogs";
-import UpdatesCenter from "./UpdatesCenter";
-import AppCatalog from "./AppCatalog";
-import AutomationsCenter from "./AutomationsCenter";
-import ServicesCenter from "./ServicesCenter";
-import SystemCenter from "./SystemCenter";
-import PerformanceCenter from "./PerformanceCenter";
-import UsersCenter from "./UsersCenter";
-import FirewallCenter from "./FirewallCenter";
-import StorageCenter from "./StorageCenter";
 import ActivityDrawer from "./ActivityDrawer";
 import ApprovalSettings from "./ApprovalSettings";
 import NotificationSettings from "./NotificationSettings";
@@ -36,7 +19,29 @@ import PasswordSettings from "./PasswordSettings";
 import ThemeSettings from "./ThemeSettings";
 import { useTheme } from "./useTheme";
 import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
-import VirtualMachines from "./VirtualMachines";
+
+// Every page is its own chunk, fetched the first time it is opened. All eighteen used to ride in
+// the one bundle: 688 KB of JavaScript to show the Overview, about sixty percent of it pages the
+// visitor might never reach. Now the shell is what first paint waits for; each page arrives on
+// navigation, once, and the immutable asset cache keeps it after that.
+const BackupCenter = lazy(() => import("./BackupCenter"));
+const GitHubCenter = lazy(() => import("./GitHubCenter"));
+const HomeDashboard = lazy(() => import("./HomeDashboard"));
+const SetupWizard = lazy(() => import("./SetupWizard"));
+const HostOverview = lazy(() => import("./HostOverview"));
+const NetworkCenter = lazy(() => import("./NetworkCenter"));
+const RepairCenter = lazy(() => import("./RepairCenter"));
+const SystemLogs = lazy(() => import("./SystemLogs"));
+const UpdatesCenter = lazy(() => import("./UpdatesCenter"));
+const AppCatalog = lazy(() => import("./AppCatalog"));
+const AutomationsCenter = lazy(() => import("./AutomationsCenter"));
+const ServicesCenter = lazy(() => import("./ServicesCenter"));
+const SystemCenter = lazy(() => import("./SystemCenter"));
+const PerformanceCenter = lazy(() => import("./PerformanceCenter"));
+const UsersCenter = lazy(() => import("./UsersCenter"));
+const FirewallCenter = lazy(() => import("./FirewallCenter"));
+const StorageCenter = lazy(() => import("./StorageCenter"));
+const VirtualMachines = lazy(() => import("./VirtualMachines"));
 
 const viewCopy: Record<ViewName, { title: string; description: string; action?: string }> = {
   setup: {
@@ -333,7 +338,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
             <ul className="feature-list">{viewFeatures[view].map((feature) => <li key={feature}>{feature}</li>)}</ul>
           </section>
           {bundleError && <div className="auth-error" role="alert">{bundleError}</div>}
-          <PageErrorBoundary pageName={viewLabel(view)} resetKey={view}>{pageContent}</PageErrorBoundary>
+          <PageErrorBoundary pageName={viewLabel(view)} resetKey={view}><Suspense fallback={<p className="muted page-loading">Loading…</p>}>{pageContent}</Suspense></PageErrorBoundary>
         </div>
       </main>
 
