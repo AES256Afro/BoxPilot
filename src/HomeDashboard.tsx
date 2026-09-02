@@ -59,7 +59,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
     const servesPromise = inspectOperation<{ available: boolean; serves: TailnetServe[] }>("app.serve.inspect")
       .then(({ result }) => (result.available ? result.serves : []))
       .catch(() => [] as TailnetServe[]);
-    fetch("/api/v1/catalog")
+    fetch("/api/v1/catalog?view=summary")
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("catalog unavailable"))))
       .then(async (data: { applications: Array<{ manifest: { id: string; name: string }; live: { installed: boolean; container: { running: boolean; status?: string; health: string }; updateAvailable?: boolean; folderProblems?: Array<{ path: string }>; killSwitchDrill?: { leaked: boolean } | null; urls: Array<{ host: number; exposure: string; path?: string | null }> } | null }>; host: { lanAddress: string | null } }) => {
         const servesSoFar = await servesPromise;

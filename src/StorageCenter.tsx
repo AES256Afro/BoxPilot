@@ -84,7 +84,7 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
       setReport(await readJson<StorageReport>(await fetch("/api/v1/storage/overview")));
       fetch("/api/v1/storage/forecast").then((response) => (response.ok ? response.json() : { forecasts: [] })).then((body: { forecasts?: Forecast[]; usage?: Usage[]; lastMeasured?: LastMeasured | null }) => { setForecasts(body.forecasts ?? []); setUsage(body.usage ?? []); setLastMeasured(body.lastMeasured ?? null); }).catch(() => {});
       // For the storage map: which apps mount which folders, and which folders are served as shares.
-      fetch("/api/v1/catalog").then((response) => (response.ok ? response.json() : null)).then((body: { applications?: Parameters<typeof appFolders>[0] } | null) => setMapApps(body?.applications ? appFolders(body.applications) : [])).catch(() => {});
+      fetch("/api/v1/catalog?view=summary").then((response) => (response.ok ? response.json() : null)).then((body: { applications?: Parameters<typeof appFolders>[0] } | null) => setMapApps(body?.applications ? appFolders(body.applications) : [])).catch(() => {});
       fetch("/api/v1/storage/samba").then((response) => (response.ok ? response.json() : null)).then((body: { config?: { shares?: MapSambaShare[]; scope?: string }; lanAddress?: string | null; tailscaleDnsName?: string | null } | null) => {
         setMapShares(body?.config?.shares ?? []);
         setShareHost(body ? (body.config?.scope === "lan" ? body.lanAddress ?? body.tailscaleDnsName : body.tailscaleDnsName ?? body.lanAddress) ?? null : null);

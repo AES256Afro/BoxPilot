@@ -60,7 +60,7 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
   const router = Router();
 
   // Catalog: manifests come from the working tree; live state comes from the helper (tolerated when unavailable).
-  router.get("/catalog", async (_request, response) => {
+  router.get("/catalog", async (request, response) => {
     // Three unrelated questions - what is in the catalog, what is running, and how to reach this
     // box - so they are asked at once. Only the first is required; the other two degrade.
     const [catalog, liveResult, snapshotResult] = await Promise.all([
@@ -78,9 +78,20 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     // Likewise the kill-switch drill. Recording that an app leaked outside its VPN and then showing
     // nobody is worse than not drilling: the owner believes it is covered because a drill ran.
     const drills = state.getSetting("killSwitchDrills", {}) ?? {};
+    // Six pages fetch this and five of them read id, name, category, icon and the volumes' host
+    // paths - of 442 KB, most of it env definitions, notes and install steps only the catalog page
+    // itself shows. ?view=summary hands those five what they use: about a tenth of the bytes, on
+    // every Overview and Storage load. The catalog page keeps the whole manifest.
+    const summary = request.query.view === "summary";
+    const project = (manifest) => (summary ? {
+      id: manifest.id, name: manifest.name, category: manifest.category, icon: manifest.icon ?? null, website: manifest.website ?? null,
+      description: manifest.description, image: { version: manifest.image?.version ?? null },
+      ports: (manifest.ports ?? []).map((port) => ({ id: port.id, label: port.label, host: port.host, protocol: port.protocol, exposure: port.exposure })),
+      volumes: (manifest.volumes ?? []).map((volume) => ({ id: volume.id, label: volume.label ?? null, hostPath: volume.hostPath ?? null, configurable: Boolean(volume.configurable), readOnly: Boolean(volume.readOnly) })),
+    } : manifest);
     const applications = manifests.map((manifest) => {
       const entry = live?.applications?.find((row) => row.id === manifest.id) ?? null;
-      return { manifest, live: entry ? { ...entry, backupVerification: verifications[manifest.id] ?? null, killSwitchDrill: drills[manifest.id] ?? null } : null };
+      return { manifest: project(manifest), live: entry ? { ...entry, backupVerification: verifications[manifest.id] ?? null, killSwitchDrill: drills[manifest.id] ?? null } : null };
     });
     response.json({ applications, // The catalog is read on both sides, so the same file would otherwise be reported twice.
       problems: [...new Map([...problems, ...(live?.problems ?? [])].map((problem) => [problem.file, problem])).values()], liveError, host });
