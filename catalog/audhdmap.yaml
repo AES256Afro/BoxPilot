@@ -7,8 +7,8 @@ description: "Self-hosted mind maps and Markdown notes with Canvas, Outline, tas
 website: https://github.com/AES256Afro/AuDHDMAP
 risk: low
 image:
-  reference: ghcr.io/aes256afro/audhdmap:0.7.2
-  version: "0.7.2"
+  reference: ghcr.io/aes256afro/audhdmap:0.8.0
+  version: "0.8.0"
 ports:
   - id: web
     label: Web UI
