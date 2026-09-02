@@ -78,7 +78,7 @@ describe("shares and drives nobody can write to", () => {
   });
 
   it("accepts a share with a force user, and a read-only one", () => {
-    expect(unwritableShares({ shares: [{ name: "a", path: "/mnt/a", readOnly: false, ownerUid: 0, forceUser: "bigbox" }] })).toEqual([]);
+    expect(unwritableShares({ shares: [{ name: "a", path: "/mnt/a", readOnly: false, ownerUid: 0, forceUser: "homebox" }] })).toEqual([]);
     expect(unwritableShares({ shares: [{ name: "b", path: "/mnt/b", readOnly: true, ownerUid: 0, forceUser: null }] })).toEqual([]);
   });
 
