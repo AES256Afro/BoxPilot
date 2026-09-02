@@ -7,7 +7,20 @@ import { shared } from "./cache.mjs";
  * all. Anything that changes the host is absent by design: two identical mutations arriving
  * together are two requests, not one.
  */
-const sharableReads = new Set(["app.inspect", "samba.inspect", "container.docker.inventory", "app.data.usage"]);
+const sharableReads = new Set([
+  "app.inspect", "samba.inspect", "container.docker.inventory", "app.data.usage",
+  // The rest of what one Overview or Repair load asks for from several routes at once.
+  "apt.unattended.inspect", "firewall.inspect", "nfs.inspect", "host.snapshot.inspect", "app.backups.counts",
+  "prerequisite.docker.inspect", "prerequisite.restic.inspect", "prerequisite.smartmontools.inspect", "prerequisite.virtualization.inspect",
+  "virtualization.foundation.inspect",
+]);
+
+/**
+ * How long a shared read is allowed underneath. Callers keep their own deadlines (below), so this
+ * only has to be at least as long as the longest any of them asks for - it is the ceiling, not the
+ * wait. Thirty seconds is what the slowest caller in the codebase asks for.
+ */
+const sharedReadCeilingMs = 30_000;
 
 export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock", timeoutMs = 5000 } = {}) {
   function send(operation, parameters = {}, { timeoutMs: requestTimeoutMs = timeoutMs, jobId = null } = {}) {
@@ -55,13 +68,23 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
   const sharedReads = new Map();
   function request(operation, parameters = {}, options = {}) {
     const { timeoutMs: requestTimeoutMs = timeoutMs, jobId = null } = options;
-    // Only an argument-free read with no job attached, and only against callers who asked for the
-    // same deadline: a caller must never be made to wait longer than the timeout it chose, nor be
-    // failed earlier than it allowed, just because it arrived alongside someone else.
+    // Only an argument-free read with no job attached is shared.
     if (!sharableReads.has(operation) || jobId || Object.keys(parameters).length) return send(operation, parameters, options);
-    const key = `${operation}@${requestTimeoutMs}`;
-    if (!sharedReads.has(key)) sharedReads.set(key, shared(() => send(operation, {}, { timeoutMs: requestTimeoutMs })));
-    return sharedReads.get(key)();
+    // One round trip per operation, whatever deadlines the callers brought. The first version keyed
+    // this on the timeout as well, so that nobody would wait past their own deadline - and since the
+    // routes ask with 15 and 30 seconds, the one Overview load ran app.inspect twice, which is the
+    // duplicate this exists to remove. Instead the read underneath runs to a ceiling long enough for
+    // everyone, and each caller races it against the deadline they actually asked for: a 15-second
+    // caller is told "timed out" at 15 seconds while the 30-second caller alongside still gets the
+    // answer. Nobody waits longer than they allowed; nobody is failed earlier.
+    if (!sharedReads.has(operation)) sharedReads.set(operation, shared(() => send(operation, {}, { timeoutMs: Math.max(sharedReadCeilingMs, requestTimeoutMs) })));
+    const underlying = sharedReads.get(operation)();
+    if (requestTimeoutMs >= sharedReadCeilingMs) return underlying;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("Helper request timed out")), requestTimeoutMs);
+      timer.unref?.();
+      underlying.then((value) => { clearTimeout(timer); resolve(value); }, (error) => { clearTimeout(timer); reject(error); });
+    });
   }
 
   return { socketPath, request };

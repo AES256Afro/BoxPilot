@@ -55,7 +55,9 @@ describe("sharing helper reads", () => {
     expect(await client.request("app.inspect")).toEqual({ calls: 2 });
   });
 
-  it("does not make a caller inherit someone else's deadline", async () => {
+  it("shares one round trip across callers with different deadlines", async () => {
+    // The routes ask for app.inspect with 15 and with 30 seconds. Keying on the deadline as well
+    // meant one page load made the read twice - the exact duplicate this exists to remove.
     let calls = 0;
     let release;
     const held = new Promise((resolve) => { release = resolve; });
@@ -66,8 +68,22 @@ describe("sharing helper reads", () => {
       client.request("app.inspect", {}, { timeoutMs: 30_000 }),
     ]);
     release();
-    await all;
-    expect(calls).toBe(2);
+    expect(await all).toEqual([{ calls: 1 }, { calls: 1 }]);
+    expect(calls).toBe(1);
+  });
+
+  it("still holds each caller to the deadline it asked for", async () => {
+    // Sharing must not mean the short-deadline caller waits for the long one. It is told "timed
+    // out" on its own clock; the other caller, still inside its allowance, gets the answer.
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const socketPath = await helperSocket(async () => { await held; return { slow: true }; });
+    const client = createHelperClient({ socketPath });
+    const impatient = client.request("app.inspect", {}, { timeoutMs: 40 });
+    const patient = client.request("app.inspect", {}, { timeoutMs: 30_000 });
+    await expect(impatient).rejects.toThrow("Helper request timed out");
+    release();
+    await expect(patient).resolves.toEqual({ slow: true });
   });
 
   it("never shares a write", async () => {

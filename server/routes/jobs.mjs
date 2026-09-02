@@ -5,6 +5,18 @@
 import { Router } from "express";
 import { suggestFlows, suggestionFacts } from "../flow-suggestions.mjs";
 
+/**
+ * The part of a job's persisted output the stream has not sent yet, given how many BYTES of the
+ * live log were already sent. Null when there is nothing to add - including when the persisted
+ * copy is shorter than what was streamed, which means it was truncated to its last 2 MiB and is a
+ * suffix whose offsets no longer line up with the file's.
+ */
+export function outputTailFrom(final, sentBytes) {
+  const bytes = Buffer.from(final, "utf8");
+  if (bytes.length <= sentBytes) return null;
+  return bytes.subarray(sentBytes).toString("utf8");
+}
+
 export function createJobsRouter({ state, jobs, scheduler, flows = null, helper = null, jobLogReader, auth }) {
   const router = Router();
 
@@ -57,7 +69,14 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, helper 
       const current = state.getJob(initial.id);
       if (!current || ["completed", "failed", "cancelled"].includes(current.state)) {
         const final = state.getJobOutput(initial.id);
-        if (final !== null && final.length > offset) send("output", { text: final.slice(offset) });
+        // `offset` counts bytes read from the log file; `final` is a string. Slicing a string by a
+        // byte count drops the tail whenever the log holds anything outside ASCII - compose's "✔"
+        // is three bytes and one character. Compare and cut in bytes. And the persisted copy keeps
+        // only the last 2 MiB, so if it is shorter than what has already been streamed it is a
+        // suffix, not the whole, and offsets from the start no longer mean anything: send nothing
+        // rather than a slice from the wrong place.
+        const tail = final === null ? null : outputTailFrom(final, offset);
+        if (tail) send("output", { text: tail });
         send("state", { state: current?.state ?? "unknown", error: current?.error ?? null });
         break;
       }
