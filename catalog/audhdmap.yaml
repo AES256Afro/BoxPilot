@@ -3,12 +3,12 @@ id: audhdmap
 name: AuDHDMAP
 category: Knowledge
 icon: "⌘"
-description: "Private visual workspace with quick capture, keyboard navigation, recovery points, recoverable trash, connected Markdown notes, project views, spreadsheet-safe project handoff, previewed JSON import, complete backups, and low-fatigue themes."
+description: "Self-hosted mind maps and Markdown notes with Canvas, Outline, task views, file export, backup, and restore."
 website: https://github.com/AES256Afro/AuDHDMAP
 risk: low
 image:
-  reference: ghcr.io/aes256afro/audhdmap:0.6.10
-  version: "0.6.10"
+  reference: ghcr.io/aes256afro/audhdmap:0.7.2
+  version: "0.7.2"
 ports:
   - id: web
     label: Web UI
@@ -40,16 +40,12 @@ signIn:
   port: web
   usernameEnv: AUDHDMAP_ADMIN_USERNAME
   passwordEnv: AUDHDMAP_ADMIN_PASSWORD
-  note: BoxPilot generates the owner password during installation. AuDHDMAP stores maps, recoverable trash, attachments, and up to 10 server recovery points under the one managed data directory included in app backups. Its Export panel can also create a portable ZIP with attachment integrity checks.
+  note: BoxPilot generates the owner password. Maps, attachments, trash, and up to 10 recovery points are stored in the managed data directory.
 health:
   kind: healthcheck
   timeoutSeconds: 180
 notes: >-
-  Use Quiet Canvas for the neutral default or switch to Signal Garden, Amber
-  Operator, Workstation 84, or Paper Atlas under Visual settings. Keep the app
-  on your LAN or behind BoxPilot's Tailscale reach option; no cloud account is
-  required. Press Q for multi-line quick capture or Cmd/Ctrl+K to jump to any
-  map, thought, or task. Deleted thoughts remain in recoverable trash until
-  explicitly purged. Use Export for local recovery points, PDF, SVG, Markdown,
-  plain text, project CSV, JSON, or a complete restorable ZIP. JSON import
-  previews every replacement and creates a recovery point before it commits.
+  Use Visual settings to choose a theme. Press Q for multi-line capture and
+  Cmd/Ctrl+K to search maps, thoughts, and tasks. Export supports PDF, SVG,
+  Markdown, text, CSV, JSON, and complete ZIP backup. JSON import shows a
+  preview before replacement.
