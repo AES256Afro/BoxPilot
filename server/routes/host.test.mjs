@@ -48,7 +48,7 @@ describe("the ports an app already holds", () => {
 });
 
 describe("every way to reach the control plane (M18.3)", () => {
-  const tls = { provisioned: true, port: 8443, names: ["boxpilot.lan", "bigbox"], ipAddresses: ["192.168.50.20"] };
+  const tls = { provisioned: true, port: 8443, names: ["boxpilot.lan", "homebox"], ipAddresses: ["192.168.50.20"] };
 
   it("shows only loopback when bound to localhost and Serve is not publishing us", () => {
     const result = buildReachability({ webHost: "127.0.0.1", webPort: 8787, lanIp: "192.168.50.20", dnsName: "homebox.example.ts.net", tls: { provisioned: false }, servePublished: false });
@@ -69,7 +69,7 @@ describe("every way to reach the control plane (M18.3)", () => {
     expect(off.ways.some((way) => way.id.startsWith("lan-https"))).toBe(false); // loopback bind: no LAN HTTPS
     const on = buildReachability({ webHost: "0.0.0.0", webPort: 8787, lanIp: "192.168.50.20", dnsName: null, tls, servePublished: false });
     const https = on.ways.filter((way) => way.id.startsWith("lan-https"));
-    expect(https.map((way) => way.url)).toEqual(["https://boxpilot.lan:8443", "https://bigbox:8443", "https://192.168.50.20:8443"]);
+    expect(https.map((way) => way.url)).toEqual(["https://boxpilot.lan:8443", "https://homebox:8443", "https://192.168.50.20:8443"]);
     expect(https.every((way) => way.encrypted && !way.trusted)).toBe(true);
   });
 
@@ -132,5 +132,50 @@ describe("GET /tls/ca.crt", () => {
       expect(response.status).toBe(404);
       expect((await response.json()).code).toBe("tls_not_provisioned");
     } finally { server.close(); }
+  });
+});
+
+
+describe("the catalog summary view", () => {
+  const manifest = { id: "qbittorrent", name: "qBittorrent", category: "Downloads", icon: "qb", website: "https://x", description: "d", image: { reference: "x:1", version: "1" },
+    ports: [{ id: "web", label: "Web", host: 8080, protocol: "tcp", exposure: "lan", container: 8080 }],
+    volumes: [{ id: "data", label: "Data", hostPath: "/mnt/dump", configurable: true, container: "/data" }, { id: "config", container: "/config", path: "config" }],
+    env: [{ name: "BIG", default: "x".repeat(2000) }], notes: "long".repeat(500), setup: [{ step: 1 }], files: [{ path: "a" }], sha256: "f".repeat(64) };
+
+  const serve = async () => {
+    const [{ default: express }, { createHostRouter }] = await Promise.all([import("express"), import("./host.mjs")]);
+    const app = express();
+    app.use("/api/v1", createHostRouter({
+      state: { getSetting: (_key, fallback) => fallback }, helper: { request: async () => ({ applications: [] }) },
+      catalogService: { all: async () => ({ manifests: [manifest], problems: [] }) }, inventory: { inspect: async () => ({}) },
+      network: {}, controllerProtection: {}, controllerRetention: {}, githubProvenance: {}, releaseUpdates: {},
+      setup: {}, supportBundle: {}, audit: {}, auth: { requireCsrf: (_q, _s, next) => next(), requireRole: () => (_q, _s, next) => next() },
+    }));
+    const server = app.listen(0);
+    await new Promise((resolve) => server.once("listening", resolve));
+    return { base: `http://127.0.0.1:${server.address().port}`, close: () => { server.closeAllConnections?.(); server.close(); } };
+  };
+
+  it("keeps what the five non-catalog pages read and drops the rest", async () => {
+    const { base, close } = await serve();
+    try {
+      const full = await (await fetch(`${base}/api/v1/catalog`)).json();
+      const summary = await (await fetch(`${base}/api/v1/catalog?view=summary`)).json();
+      expect(full.applications[0].manifest.env).toBeTruthy();
+      const slim = summary.applications[0].manifest;
+      expect(slim).toMatchObject({ id: "qbittorrent", name: "qBittorrent", category: "Downloads", icon: "qb", image: { version: "1" } });
+      expect(slim.volumes).toEqual([{ id: "data", label: "Data", hostPath: "/mnt/dump", configurable: true, readOnly: false }, { id: "config", label: null, hostPath: null, configurable: false, readOnly: false }]);
+      expect(slim.ports[0]).toEqual({ id: "web", label: "Web", host: 8080, protocol: "tcp", exposure: "lan" });
+      for (const dropped of ["env", "notes", "setup", "files", "sha256"]) expect(slim[dropped]).toBeUndefined();
+      expect(JSON.stringify(summary).length).toBeLessThan(JSON.stringify(full).length / 4);
+    } finally { close(); }
+  });
+
+  it("leaves the full manifest alone when no view is asked for", async () => {
+    const { base, close } = await serve();
+    try {
+      const full = await (await fetch(`${base}/api/v1/catalog?view=everything-else`)).json();
+      expect(full.applications[0].manifest.notes).toBeTruthy();
+    } finally { close(); }
   });
 });

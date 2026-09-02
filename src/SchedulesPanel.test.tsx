@@ -18,7 +18,7 @@ describe("Schedules panel", () => {
       const url = input.toString();
       if (url.endsWith("/api/v1/schedules") && init?.method === "POST") { created = init.body as string; return json({ schedule }, 201); }
       if (url.endsWith("/api/v1/schedules")) return json({ schedules: [schedule] });
-      if (url.endsWith("/api/v1/catalog")) return json({ applications: [{ manifest: { id: "jellyfin", name: "Jellyfin" }, live: { installed: true } }], host: {} });
+      if (url.includes("/api/v1/catalog")) return json({ applications: [{ manifest: { id: "jellyfin", name: "Jellyfin" }, live: { installed: true } }], host: {} });
       return json({ error: `unexpected ${url}` }, 500);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -39,7 +39,7 @@ describe("Schedules panel", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url.endsWith("/api/v1/schedules")) return json({ schedules: [blocked] });
-      if (url.endsWith("/api/v1/catalog")) return json({ applications: [], host: {} });
+      if (url.includes("/api/v1/catalog")) return json({ applications: [], host: {} });
       return json({ error: `unexpected ${url}` }, 500);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -52,7 +52,7 @@ describe("Schedules panel", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
       if (url.endsWith("/api/v1/schedules")) return json({ schedules: [overdue] });
-      if (url.endsWith("/api/v1/catalog")) return json({ applications: [], host: {} });
+      if (url.includes("/api/v1/catalog")) return json({ applications: [], host: {} });
       return json({ error: `unexpected ${url}` }, 500);
     });
     vi.stubGlobal("fetch", fetchMock);

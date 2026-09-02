@@ -46,7 +46,7 @@ export default function SchedulesPanel({ csrfToken, serverTimezone = null }: { c
 
   useEffect(() => {
     void refresh();
-    fetch("/api/v1/catalog")
+    fetch("/api/v1/catalog?view=summary")
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("catalog unavailable"))))
       .then((data: { applications: Array<{ manifest: { id: string; name: string }; live: { installed: boolean } | null }> }) => {
         setInstalledApps(data.applications.filter((entry) => entry.live?.installed).map((entry) => ({ id: entry.manifest.id, name: entry.manifest.name })));

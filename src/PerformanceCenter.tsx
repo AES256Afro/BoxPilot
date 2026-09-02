@@ -48,7 +48,7 @@ export default function PerformanceCenter({ csrfToken }: { csrfToken: string }) 
 
   // Names, icons and categories change only on install/uninstall, so fetch them once.
   useEffect(() => {
-    fetch("/api/v1/catalog")
+    fetch("/api/v1/catalog?view=summary")
       .then((response) => readJson<{ applications: Array<{ manifest: { id: string; name: string; icon: string | null; category: string } }> }>(response))
       .then((data) => setMeta(Object.fromEntries((data.applications ?? []).map((entry) => [entry.manifest.id, { name: entry.manifest.name, icon: entry.manifest.icon, category: entry.manifest.category }]))))
       .catch(() => setMeta({}));

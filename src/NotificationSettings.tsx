@@ -30,7 +30,7 @@ export default function NotificationSettings({ csrfToken }: { csrfToken: string 
     fetch("/api/v1/settings/watch").then((response) => (response.ok ? response.json() : null)).then((body: WatchStatus | null) => setWatch(body)).catch(() => {});
     // ntfy and Gotify are both in the catalog and both can be the target; if one is installed and
     // running, offer to point BoxPilot straight at it rather than making the owner type its address.
-    fetch("/api/v1/catalog").then((response) => (response.ok ? response.json() : null)).then((data: { applications?: Array<{ manifest: { id: string; name: string }; live: { installed: boolean; container: { running: boolean }; urls: Array<{ host: number }> } | null }>; host?: { lanAddress: string | null; tailscaleDnsName: string | null } } | null) => {
+    fetch("/api/v1/catalog?view=summary").then((response) => (response.ok ? response.json() : null)).then((data: { applications?: Array<{ manifest: { id: string; name: string }; live: { installed: boolean; container: { running: boolean }; urls: Array<{ host: number }> } | null }>; host?: { lanAddress: string | null; tailscaleDnsName: string | null } } | null) => {
       if (!data?.applications) return;
       for (const wanted of ["ntfy", "gotify"] as const) {
         const entry = data.applications.find((app) => app.manifest.id === wanted && app.live?.installed && app.live.container.running);
