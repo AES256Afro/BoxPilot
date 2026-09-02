@@ -62,13 +62,6 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
       setPalette(body.palette);
       setShelf(body.shelf ?? []);
       setError(null);
-      // Separate, and allowed to fail: it asks the helper what is reclaimable and what needs
-      // updating, and the page is perfectly usable without an argument for anything.
-      fetch("/api/v1/flows/suggestions")
-        .then((suggested) => (suggested.ok ? suggested.json() : { suggestions: [] }))
-        .then((suggestedBody: { suggestions?: Array<{ slug: string; because: string }> }) =>
-          setSuggestions(Object.fromEntries((suggestedBody.suggestions ?? []).map((entry) => [entry.slug, entry.because]))))
-        .catch(() => {});
       return body.flows;
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read automations");
@@ -77,14 +70,31 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
 
+  // Suggestions are read once, and again when a run finishes - not inside refresh(). refresh() is
+  // polled every three seconds while anything runs, and this asks the helper what is reclaimable
+  // and what needs updating: five directory walks, docker system df, apt list. Polled, that was
+  // two root reads every three seconds for the length of a backup, competing with the very job
+  // being watched. Allowed to fail: the page is perfectly usable without an argument for anything.
+  const anyRunning = (flows ?? []).some((flow) => flow.running);
+  useEffect(() => {
+    if (anyRunning) return;
+    let cancelled = false;
+    fetch("/api/v1/flows/suggestions")
+      .then((suggested) => (suggested.ok ? suggested.json() : { suggestions: [] }))
+      .then((suggestedBody: { suggestions?: Array<{ slug: string; because: string }> }) => {
+        if (!cancelled) setSuggestions(Object.fromEntries((suggestedBody.suggestions ?? []).map((entry) => [entry.slug, entry.because])));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [anyRunning]);
+
   // A run can outlive its own HTTP response (a proxy may give up on a long request long before
   // apt does), so the list is the source of truth while anything is running.
   useEffect(() => {
-    const anyRunning = (flows ?? []).some((flow) => flow.running);
     if (anyRunning && !pollTimer.current) pollTimer.current = setInterval(() => void refresh(), 3000);
     if (!anyRunning && pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null; }
     return () => { if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null; } };
-  }, [flows, refresh]);
+  }, [anyRunning, refresh]);
 
   const titleFor = (operationId: string) => palette.find((step) => step.operationId === operationId)?.title ?? operationId;
 
