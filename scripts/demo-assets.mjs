@@ -47,5 +47,8 @@ async function sync(relative = "") {
 }
 
 await sync();
-const bundle = (await readdir(path.join(to, "assets"))).find((name) => name.endsWith(".js"));
+// The entry chunk, now that pages are their own chunks: "first .js" would name whichever page
+// sorts first, which is not what anyone reading the log wants to know.
+const names = await readdir(path.join(to, "assets"));
+const bundle = names.find((name) => /^index-.*\.js$/.test(name)) ?? names.find((name) => name.endsWith(".js"));
 console.log(`demo assets synced from dist (${bundle})`);
