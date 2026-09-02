@@ -53,12 +53,17 @@ export function contentSecurityPolicy({ scripts = [], styles = [] } = {}) {
  */
 export function securityHeaders({ html = "" } = {}) {
   const policy = contentSecurityPolicy(inlineSources(html));
-  return function setSecurityHeaders(_request, response, next) {
+  return function setSecurityHeaders(request, response, next) {
     response.setHeader("X-Content-Type-Options", "nosniff");
     response.setHeader("X-Frame-Options", "DENY");
     response.setHeader("Referrer-Policy", "no-referrer");
     response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
     response.setHeader("Content-Security-Policy", policy);
+    // API answers are the state of this server right now, for the person signed in right now. They
+    // must not sit in a disk cache or the back-forward cache to be shown again later, or to someone
+    // else on a shared machine. This was set before the headers moved here and was lost in the move;
+    // the review of that release caught it.
+    if (request.path.startsWith("/api/")) response.setHeader("Cache-Control", "no-store");
     next();
   };
 }

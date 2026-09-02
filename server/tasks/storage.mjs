@@ -136,6 +136,7 @@ export const permissionlessFilesystems = Object.freeze(["exfat", "vfat", "ntfs",
 export async function storageMount({ uuid, name, fstype = "auto", readOnly = false, appWritable = false, uid = appUserId, gid = appUserId } = {}, { run = fixedRun, log = null, files = { readFile, writeFile, mkdir } } = {}) {
   if (typeof uuid !== "string" || !uuidPattern.test(uuid)) throw new Error("UUID is invalid");
   if (typeof name !== "string" || !mountNamePattern.test(name)) throw new Error("Name must be lower-case letters, digits, and hyphens (max 32)");
+  assertPlainMountName(name);   // and not swap or share-*: creating one would plant a marker swapFileSet and shareUnmount act on as their own
   if (typeof fstype !== "string" || !/^[a-z0-9]{2,12}$/.test(fstype)) throw new Error("Filesystem type is invalid");
   if (![uid, gid].every((value) => Number.isInteger(value) && value >= 0 && value <= 65_535)) throw new Error("Owner uid/gid are invalid");
   const device = await run(binaries.blkid, ["-U", uuid], { timeout: 15_000 });
