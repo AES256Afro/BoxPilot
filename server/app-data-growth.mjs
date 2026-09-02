@@ -70,21 +70,41 @@ export function growthByApp(history, { now, mount = null, windowDays = 7, limit 
     .slice(0, limit);
 }
 
-/** The folders worth measuring for one installed app: owner-facing data, not its config directory. */
-export function measurableFolders(application) {
+/**
+ * The folders worth measuring for one installed app.
+ *
+ * Two kinds, and the first attempt only had one of them. A volume with a `hostPath` points at a
+ * drive the owner chose, and each of those is measured on its own. Everything else the manifest
+ * declares is a managed volume living inside the app's own directory - which is where most of the
+ * catalog puts its data: two hundred and three managed volumes against fifty-nine external ones.
+ * Measuring only the external ones answered "what is filling this drive" with one folder on a
+ * server running eighteen apps.
+ *
+ * The managed ones are measured together, as the app's directory, rather than one walk each. It is
+ * the same bytes for a fraction of the work, and "Immich is holding 400 GB" is the sentence worth
+ * having - which of its own subfolders that sits in is not a question the owner is asking.
+ */
+export function measurableFolders(application, { directory = null } = {}) {
   const { manifest, live } = application ?? {};
   if (!live?.installed || !manifest) return [];
   const chosen = live?.state?.values?.volumes ?? {};
   const seen = new Set();
+  const folders = [];
   // The catalog schema guarantees a list, but this is exported and called from two places, and a
   // sampler that throws is a sampler that silently stops.
-  return (Array.isArray(manifest.volumes) ? manifest.volumes : [])
-    .filter((volume) => volume && !volume.readOnly)
-    .map((volume) => ({ appId: manifest.id, label: volume.label ?? volume.id, path: chosen[volume.id] ?? volume.hostPath }))
-    // Only the drives the owner put data on. An app's config directory is small, always on the root
-    // filesystem, and never the answer to "what filled my media drive".
-    .filter((entry) => typeof entry.path === "string" && (entry.path.startsWith("/mnt/") || entry.path.startsWith("/srv/")))
-    .filter((entry) => (seen.has(entry.path) ? false : seen.add(entry.path)));
+  const volumes = (Array.isArray(manifest.volumes) ? manifest.volumes : []).filter((volume) => volume && !volume.readOnly);
+  for (const volume of volumes) {
+    const external = chosen[volume.id] ?? volume.hostPath;
+    if (typeof external !== "string" || !external) continue;
+    if (seen.has(external)) continue;
+    seen.add(external);
+    folders.push({ appId: manifest.id, label: volume.label ?? volume.id, path: external });
+  }
+  // One entry for everything managed, if the app has any and we were told where it lives.
+  if (directory && volumes.some((volume) => typeof volume.path === "string" && !(chosen[volume.id] ?? volume.hostPath)) && !seen.has(directory)) {
+    folders.push({ appId: manifest.id, label: "Managed data", path: directory, managed: true });
+  }
+  return folders;
 }
 
 /** Which mount a path sits on: the longest mount point it starts with. */
