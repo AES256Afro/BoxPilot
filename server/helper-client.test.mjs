@@ -125,3 +125,32 @@ describe("sharing helper reads", () => {
     expect(calls).toBe(2);
   });
 });
+
+
+describe("deadlines on shared reads", () => {
+  it("holds every caller to its own deadline, however long", async () => {
+    // Callers with a long deadline used to be handed the underlying read itself, so they inherited
+    // whatever ceiling it had. Now each one races it against its own clock.
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const socketPath = await helperSocket(async () => { await held; return { late: true }; });
+    const client = createHelperClient({ socketPath });
+    const quick = client.request("app.inspect", {}, { timeoutMs: 40 });
+    const longer = client.request("app.inspect", {}, { timeoutMs: 45_000 });
+    await expect(quick).rejects.toThrow("Helper request timed out");
+    release();
+    await expect(longer).resolves.toEqual({ late: true });
+  });
+
+  it("lets a later read choose its own ceiling rather than inheriting the first caller's", async () => {
+    // First read: a 15-second caller. Second read (after the first settled): a 60-second caller.
+    // The second must not be cut to the first's ceiling - observable here as the second caller
+    // still being served after the first's would-be deadline has passed.
+    const answers = [];
+    const socketPath = await helperSocket(async () => { const n = answers.push(Date.now()); return { n }; });
+    const client = createHelperClient({ socketPath });
+    expect(await client.request("app.inspect", {}, { timeoutMs: 15_000 })).toEqual({ n: 1 });
+    expect(await client.request("app.inspect", {}, { timeoutMs: 60_000 })).toEqual({ n: 2 });
+    expect(answers).toHaveLength(2);
+  });
+});

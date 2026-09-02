@@ -300,6 +300,15 @@ describe("mount names that belong to other operations", () => {
     expect(files.writeFile).not.toHaveBeenCalled();
   });
 
+  it("refuses to create a mount under a reserved name, so the collision cannot be made in the first place", async () => {
+    // Unmount and remount refuse these names; creating one would have produced a marker that
+    // swapFileSet and shareUnmount then act on as their own.
+    for (const name of ["swap", "share-nas"]) {
+      await expect(storageMount({ uuid: "12345678-1234-1234-1234-123456789abc", name, fstype: "ext4" }, { run, files })).rejects.toThrow(/swap file|network share/);
+    }
+    expect(files.writeFile).not.toHaveBeenCalled();
+  });
+
   it("refuses to treat the swap file as a mount", async () => {
     await expect(storageUnmount({ name: "swap" }, { run, files })).rejects.toThrow(/swap file/);
     await expect(storageRemount({ name: "swap" }, { run, files })).rejects.toThrow(/swap file/);

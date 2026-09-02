@@ -38,6 +38,23 @@ describe("the policy", () => {
 });
 
 describe("the middleware", () => {
+  it("forbids caching API answers, and only API answers", async () => {
+    // Lost once when the headers moved into this module: every authenticated JSON answer became
+    // cacheable by the browser and any proxy. The shell and the immutable assets keep their caching.
+    const app = express();
+    app.use(securityHeaders({ html: "" }));
+    app.get("/api/v1/thing", (_request, response) => response.json({ ok: true }));
+    app.get("/", (_request, response) => response.type("html").send("<p>shell</p>"));
+    const server = app.listen(0);
+    await new Promise((resolve) => server.once("listening", resolve));
+    try {
+      const base = `http://127.0.0.1:${server.address().port}`;
+      expect((await fetch(`${base}/api/v1/thing`)).headers.get("cache-control")).toBe("no-store");
+      expect((await fetch(`${base}/`)).headers.get("cache-control")).toBeNull();
+    } finally { server.closeAllConnections?.(); server.close(); }
+  });
+
+
   it("sets every header, with hashes drawn from the served shell", async () => {
     const shell = `<!doctype html><html><head><script>\n  boot();\n</script></head><body></body></html>`;
     const app = express();

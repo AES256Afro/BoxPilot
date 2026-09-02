@@ -77,9 +77,16 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
     // everyone, and each caller races it against the deadline they actually asked for: a 15-second
     // caller is told "timed out" at 15 seconds while the 30-second caller alongside still gets the
     // answer. Nobody waits longer than they allowed; nobody is failed earlier.
-    if (!sharedReads.has(operation)) sharedReads.set(operation, shared(() => send(operation, {}, { timeoutMs: Math.max(sharedReadCeilingMs, requestTimeoutMs) })));
-    const underlying = sharedReads.get(operation)();
-    if (requestTimeoutMs >= sharedReadCeilingMs) return underlying;
+    // The ceiling is decided by whoever STARTS each read, not by whoever first asked in the life of
+    // the process: the first version closed over that first caller's timeout for good, so a
+    // 15-second checklist read arriving before a 60-second Backups read pinned the snapshot listing
+    // to 30 seconds forever - and the reverse order made a later 30-second caller wait 60. What
+    // remains, and is documented rather than hidden: a caller who joins a read already in flight
+    // shares its ceiling, so a longer deadline than the read's can still be cut short by it.
+    if (!sharedReads.has(operation)) sharedReads.set(operation, shared((ceilingMs) => send(operation, {}, { timeoutMs: ceilingMs })));
+    const underlying = sharedReads.get(operation)(Math.max(sharedReadCeilingMs, requestTimeoutMs));
+    // Every caller races the read against its own deadline - including the long ones, who were
+    // previously handed the read itself and so inherited whatever ceiling it happened to have.
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("Helper request timed out")), requestTimeoutMs);
       timer.unref?.();
