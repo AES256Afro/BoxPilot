@@ -906,7 +906,12 @@ not just execute.
   restart the recommendation. `server/flow-suggestions.mjs` (pure), `GET /flows/suggestions`.
   **Remaining:** suggestions from what has *gone wrong* (a job that keeps failing, an app that keeps
   restarting) rather than only from standing facts, and app-pairing recipes ("you have qBittorrent
-  and Sonarr") once the library has flows that span two apps.
+  and Sonarr") once the library has flows that span two apps. **Not started, deliberately (2026-09-02):**
+  the facts are cheap (failed jobs from the job table, restart counts from `app.inspect`), but the
+  library holds three flows - mirror the backups, tidy Docker, update night - and none of them is
+  what you do about a restarting container or a failing backup. A suggestion with nothing to press
+  is a complaint. The order is: write the remediation flows first (restart-and-watch, re-run the
+  last failed backup, roll an app back), then suggest them from the evidence.
 - **M24.2** **Anomaly notices from the metrics.** A quiet watch over the time series that says "this
   is unusual for your box" — a memory climb, a nightly job that got slower — grounded in the data,
   not a model's guess.
