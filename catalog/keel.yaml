@@ -1,0 +1,89 @@
+schemaVersion: 2
+id: keel
+name: Keel
+category: Knowledge
+icon: "⛵"
+description: "Self-hosted notebook: pages with wikilinks and backlinks, databases with table, board, timeline and mind-map views, daily notes, full-text search, and a graph of how everything connects."
+website: https://keelnotes.com
+risk: low
+image:
+  reference: ghcr.io/aes256afro/keel:1.2.7
+  version: "1.2.7"
+ports:
+  - id: web
+    label: Web UI
+    container: 3000
+    host: 3080
+    exposure: lan
+volumes:
+  # One volume on purpose: the database, its backups and uploaded attachments
+  # live together under /data, so a single copy of this folder is a whole
+  # notebook and nothing important sits outside the thing that gets backed up.
+  - id: data
+    label: Notebook, backups, and attachments
+    container: /data
+    path: data
+env:
+  - name: TZ
+    label: Time zone
+    type: timezone
+    default: Etc/UTC
+    description: Used for daily notes and timestamps.
+  - name: KEEL_PUBLIC_URL
+    label: Public URL
+    description: >-
+      The address you actually reach Keel at, for example
+      https://box.tailnet.ts.net:3080. Set this whenever Keel sits behind
+      Tailscale Serve or a reverse proxy: sign-in redirects and copied links are
+      built from it, and without it they point at the container's own hostname.
+  - name: KEEL_OWNER_EMAIL
+    label: Owner email
+    description: The account that owns the workspace. The first sign-up with this address becomes the owner.
+  - name: KEEL_ALLOWED_EMAILS
+    label: Allowed emails
+    description: >-
+      Optional comma-separated allow-list. Anyone not on it is refused, which is
+      what makes a Keel reachable from the internet still private. Include the
+      owner email, and for Google sign-in include the Google address too.
+  - name: KEEL_DISABLE_SIGNUP
+    label: Close registration
+    type: boolean
+    default: false
+    description: Turn on once your accounts exist; existing users keep signing in.
+  - name: KEEL_TRUST_PROXY
+    label: Published through a reverse proxy
+    type: boolean
+    default: false
+    description: >-
+      Turn on when Keel is reached through Tailscale Serve or another proxy, so
+      it reads the caller's real address from the forwarded headers. Left off,
+      Keel refuses to guess: it treats every proxied caller as unidentified and
+      leans on its per-account limits instead of per-address ones, which is safe
+      but blunter.
+  - name: KEEL_BACKUP_PASSPHRASE
+    label: Backup passphrase
+    type: password
+    description: >-
+      Optional. Set it and scheduled backups are encrypted with it. Keep a copy
+      somewhere else: without this passphrase an encrypted backup cannot be
+      restored, by you or by anyone.
+  - name: KEEL_MAX_ATTACHMENT_MB
+    label: Largest single attachment (MB)
+    type: number
+    default: 50
+  - name: KEEL_ATTACHMENT_QUOTA_MB
+    label: Attachment storage limit (MB)
+    type: number
+    default: 2048
+    description: Total across all attachments in the workspace.
+health:
+  # The image carries its own HEALTHCHECK against /api/health, which is
+  # unauthenticated and touches no database — so this reports the app serving,
+  # not merely the process existing.
+  kind: healthcheck
+  timeoutSeconds: 240
+notes: >-
+  Open the address above and register — the first account owns the workspace.
+  Set a Public URL and an allow-list before letting Keel off your LAN. Backups
+  are configured in Keel's own Settings and are written inside the data volume,
+  so BoxPilot's backup of this app captures them too.
