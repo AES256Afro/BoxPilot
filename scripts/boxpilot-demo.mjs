@@ -22,6 +22,7 @@ import { cloudProviders } from "../server/backup-cloud.mjs";
 import { buildChecklist } from "../server/setup-checklist.mjs";
 import { setupProfiles } from "../server/setup-profiles.mjs";
 import { productVersion } from "../server/version.mjs";
+import { securityHeaders } from "../server/security-headers.mjs";
 import { humanBytes } from "../server/housekeeping.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -348,6 +349,12 @@ export const inspections = {
 // ---------- server ----------
 if (!existsSync(dist)) { console.error("dist/ is missing: run `npm run build` first"); process.exit(1); }
 const app = express();
+// The same headers and Content-Security-Policy the real server sends, so the demo shows the app
+// exactly as it behaves - including a policy that would refuse an inline script it did not expect.
+// Registered here so it runs before the routes, assigned once the shell and the world switcher
+// exist below, since the hashes come from the HTML that is actually served.
+let headers = (_request, _response, next) => next();
+app.use((request, response, next) => headers(request, response, next));
 app.use(express.json());
 const api = express.Router();
 /**
@@ -532,6 +539,12 @@ api.get("/virtualization/foundation", (_request, response) => json(response, {
   conflicts: [], planAvailable: false, changes: [],
   boundary: { mutationPerformed: false, browserResourceAccepted: false },
 }));
+// Which automation this server in particular should have, with the evidence for it (M24.1).
+// Only what is not already on the list: suggestFlows filters out anything the owner has, so a
+// suggestion sitting next to "on your list" would be a shape the real thing cannot produce.
+api.get("/flows/suggestions", (_request, response) => json(response, { suggestions: [
+  { slug: "tidy-docker", name: "Tidy Docker", description: "Reclaim orphaned image layers and build cache.", because: "9 GB of Docker layers and build cache nothing is using. It comes back on its own if it is ever needed." },
+] }));
 api.get("/flows", (_request, response) => json(response, {
   flows: [
     { id: "flow-1", name: "Update night", steps: [{ operationId: "host.snapshot.create", parameters: {} }, { operationId: "apt.refresh", parameters: {} }, { operationId: "apt.upgrade", parameters: {} }],
@@ -579,7 +592,13 @@ api.get("/storage/overview", (_request, response) => json(response, storageOverv
 api.get("/storage/forecast", (_request, response) => json(response, { tracking: 2, forecasts: [
   { target: "/mnt/media", daysToFull: 11, availableBytes: 214 * 1024 ** 3, totalBytes: 4000 * 1024 ** 3, samples: 14 },
   { target: "/", daysToFull: 63, availableBytes: 41 * 1024 ** 3, totalBytes: 234 * 1024 ** 3, samples: 14 },
-] }));
+// What each app's folders hold and how fast they are growing (M23.1). The download client is
+// running away with the drive while the library it feeds has barely moved.
+], usage: [
+  { appId: "qbittorrent", path: "/srv/media/torrents", mount: "/", bytes: 1340 * 1024 ** 3, grewBytes: 246 * 1024 ** 3, days: 7 },
+  { appId: "jellyfin", path: "/srv/media", mount: "/", bytes: 2180 * 1024 ** 3, grewBytes: 12 * 1024 ** 3, days: 7 },
+  { appId: "nextcloud", path: "/srv/documents", mount: "/", bytes: 48 * 1024 ** 3, grewBytes: 0, days: 7 },
+], lastMeasured: { at: ago(9), sampled: 3, unmeasured: 0, error: null } }));   // ago() is hours: last night's sweep
 api.get("/storage/shares/discover", (_request, response) => json(response, { devices: [{ address: "192.168.50.30", name: "nas.local", smb: true, nfs: true, mac: "02:00:00:aa:00:30", interface: "eno1" }], scanned: 253, interfaces: ["eno1 192.168.50.20/24"] }));
 api.get("/storage/samba", (_request, response) => json(response, { installed: true, running: true, configured: true, error: null, config: { managed: true, workgroup: "WORKGROUP", scope: "tailscale", interfaces: ["lo", "tailscale0"], shares: [{ name: "Media", path: "/mnt/media", comment: "Films and series", readOnly: true, guest: true, users: [], forceUser: host.owner, ownerUid: 1000 }, { name: "Documents", path: "/srv/documents", comment: null, readOnly: false, guest: false, users: [host.owner, "sam"], forceUser: host.owner, ownerUid: 1000, recycle: true, recycleBytes: 2415919104 }] }, users: [host.owner, "sam"], tailscaleDnsName: host.tailnet, tailscaleAddress: host.tailscaleIp, lanAddress: host.lan, discovery: { installed: false, running: false } }));
 api.get("/storage/nfs", (_request, response) => json(response, { installed: true, running: false, configured: false, error: null, config: { managed: false, scope: "tailscale", exports: [] }, tailscaleDnsName: host.tailnet, tailscaleAddress: host.tailscaleIp, lanAddress: host.lan }));
@@ -622,7 +641,7 @@ api.get("/catalog", async (request, response) => {
   json(response, {
     applications: manifests.map((manifest) => {
       const port = present[manifest.id];
-      const live = { id: manifest.id, installed: Boolean(port), dataPresent: Boolean(port), state: port ? { installedAt: ago(19 * 24), updatedAt: ago(50), manifestSha256: manifest.sha256, image: { reference: manifest.image.reference, id: "sha256:demo" }, values: { ports: {}, env: {}, volumes: {}, setup: [] }, pinnedRollback: false, uninstalledAt: null } : null, container: port ? { exists: true, running: true, status: manifest.id === "open-webui" ? "paused" : "running", health: manifest.health.kind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:demo" } : { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, sidecars: port ? (manifest.sidecars ?? []).map((entry) => ({ id: entry.id, running: true, status: "running", restarts: 0 })) : [], urls: port ? manifest.ports.filter((entry) => entry.protocol === "tcp").map((entry) => ({ id: entry.id, label: entry.label, host: entry.host, exposure: entry.exposure })) : [], updateAvailable: manifest.id === "jellyfin", installedImage: port ? manifest.image.reference : null, updateHistory: port && manifest.id === "pi-hole" ? [{ at: ago(30), from: { "pi-hole": "pihole/pihole:2025.07.1" }, to: { "pi-hole": manifest.image.reference } }] : [], backupVerification: port && manifest.id === "jellyfin" ? { verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11), history: [{ verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11) }, { verified: true, backup: "20260818T031400Z.tar.gz", reason: null, checkedAt: ago(11 + 168) }, { verified: false, backup: "20260811T031400Z.tar.gz", reason: "The archive could not be unpacked: unexpected end of file", checkedAt: ago(11 + 336) }] } : null };
+      const live = { id: manifest.id, installed: Boolean(port), dataPresent: Boolean(port), state: port ? { installedAt: ago(19 * 24), updatedAt: ago(50), manifestSha256: manifest.sha256, image: { reference: manifest.image.reference, id: "sha256:demo" }, values: { ports: {}, env: {}, volumes: {}, setup: [] }, pinnedRollback: false, uninstalledAt: null } : null, container: port ? { exists: true, running: true, status: manifest.id === "open-webui" ? "paused" : "running", health: manifest.health.kind === "healthcheck" ? "healthy" : "none", restarts: 0, image: "sha256:demo" } : { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, sidecars: port ? (manifest.sidecars ?? []).map((entry) => ({ id: entry.id, running: true, status: "running", restarts: 0 })) : [], urls: port ? manifest.ports.filter((entry) => entry.protocol === "tcp").map((entry) => ({ id: entry.id, label: entry.label, host: entry.host, exposure: entry.exposure })) : [], updateAvailable: manifest.id === "jellyfin", installedImage: port ? manifest.image.reference : null, updateHistory: port && manifest.id === "pi-hole" ? [{ at: ago(30), from: { "pi-hole": "pihole/pihole:2025.07.1" }, to: { "pi-hole": manifest.image.reference } }, { at: ago(30 * 24), from: { "pi-hole": "pihole/pihole:2025.05.0" }, to: { "pi-hole": "pihole/pihole:2025.07.1" } }] : [], backupVerification: port && manifest.id === "jellyfin" ? { verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11), history: [{ verified: true, backup: "20260825T031400Z.tar.gz", reason: null, checkedAt: ago(11) }, { verified: true, backup: "20260818T031400Z.tar.gz", reason: null, checkedAt: ago(11 + 168) }, { verified: false, backup: "20260811T031400Z.tar.gz", reason: "The archive could not be unpacked: unexpected end of file", checkedAt: ago(11 + 336) }] } : null };
       return { manifest, live };
     }),
     problems, liveError: null, host: { lanAddress: host.lan, tailscaleDnsName: host.tailnet },
@@ -850,6 +869,9 @@ export const switcher = (current) => `<style>
 </script>`;
 
 const indexHtml = await readFile(path.join(dist, "index.html"), "utf8");
+// The switcher's script and style bodies do not vary with the world (only its links do), so the
+// default world's shell carries every inline piece any world will serve.
+headers = securityHeaders({ html: indexHtml.replace("</body>", `${switcher("default")}</body>`) });
 app.get("/{*rest}", (request, response) => {
   const current = scenarioNames.includes(request.query.scenario) ? request.query.scenario : "default";
   response.type("html").send(indexHtml.replace("</body>", `${switcher(current)}</body>`));

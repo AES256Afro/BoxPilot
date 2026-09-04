@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { computeNextRun, createSchedulerService, describeCadence, validateCadence } from "./scheduler.mjs";
+import { computeNextRun, createSchedulerService, describeCadence, validateCadence, chooseQuietSlot } from "./scheduler.mjs";
 import { createStateStore } from "./state.mjs";
 
 const directories = [];
@@ -166,5 +166,54 @@ describe("schedules and secrets", () => {
     expect(() => scheduler.setEnabled(ownerSchedule.id, false, helper.id)).toThrow("not found");
     expect(() => scheduler.remove(ownerSchedule.id, helper.id)).toThrow("not found");
     expect(() => scheduler.setEnabled(ownerSchedule.id, false, owner.id)).not.toThrow();
+  });
+});
+
+describe("placing a heavy weekly job", () => {
+  it("keeps the first one where it was asked for", () => {
+    const slot = chooseQuietSlot({ schedules: [], preferred: { weekday: 1, hour: 3, minute: 30 } });
+    expect(slot).toEqual({ frequency: "weekly", weekday: 1, hour: 3, minute: 30 });
+  });
+
+  it("does not stack eighteen rehearsals on one minute", () => {
+    const schedules = [];
+    for (let index = 0; index < 18; index += 1) {
+      const slot = chooseQuietSlot({ schedules, preferred: { weekday: 1, hour: 3, minute: 30 } });
+      schedules.push(slot);
+    }
+    const stamps = schedules.map((slot) => `${slot.weekday}:${slot.hour}:${slot.minute}`);
+    expect(new Set(stamps).size).toBe(18);
+  });
+
+  it("keeps clear of the nightly backup and the off-box mirror", () => {
+    // The two that already run in these hours on a set-up server.
+    const schedules = [
+      { operationId: "controller.backup.create", frequency: "daily", hour: 3, minute: 15 },
+      { operationId: "host.snapshot.sync", frequency: "daily", hour: 4, minute: 15 },
+    ];
+    for (let index = 0; index < 18; index += 1) {
+      const slot = chooseQuietSlot({ schedules, preferred: { weekday: 1, hour: 3, minute: 30 } });
+      expect(`${slot.hour}:${slot.minute}`).not.toBe("3:15");
+      expect(`${slot.hour}:${slot.minute}`).not.toBe("4:15");
+      schedules.push(slot);
+    }
+  });
+
+  it("counts a daily job as occupying every day, not just one", () => {
+    const schedules = [{ operationId: "controller.backup.create", frequency: "daily", hour: 3, minute: 30 }];
+    for (let weekday = 0; weekday < 7; weekday += 1) {
+      const slot = chooseQuietSlot({ schedules, preferred: { weekday, hour: 3, minute: 30 } });
+      expect(`${slot.hour}:${slot.minute}`).not.toBe("3:30");
+    }
+  });
+
+  it("stays inside the quiet hours", () => {
+    const schedules = [];
+    for (let index = 0; index < 30; index += 1) {
+      const slot = chooseQuietSlot({ schedules, preferred: { weekday: 1, hour: 3, minute: 30 } });
+      expect(slot.hour).toBeGreaterThanOrEqual(1);
+      expect(slot.hour).toBeLessThanOrEqual(5);
+      schedules.push(slot);
+    }
   });
 });

@@ -71,8 +71,19 @@ describe("native systemd network boundaries", () => {
     const normalizer = await readFile("scripts/boxpilot-web-dist-permissions.mjs", "utf8");
     const metadata = await stat("scripts/boxpilot-web-dist-permissions.mjs");
     expect(metadata.mode & 0o111).not.toBe(0);
-    expect(packageDefinition).toContain("vite build && node scripts/boxpilot-web-dist-permissions.mjs");
-    expect(await readFile("Dockerfile", "utf8")).toContain("COPY scripts/boxpilot-web-dist-permissions.mjs ./scripts/boxpilot-web-dist-permissions.mjs");
+    // Order is what matters, not the exact spelling of the build line: everything that writes into
+    // dist must run before the normalizer, or its output keeps whatever permissions it was born
+    // with. The precompressed assets are written by the build too, so they are covered by this.
+    const build = JSON.parse(packageDefinition).scripts.build;
+    const dockerfile = await readFile("Dockerfile", "utf8");
+    for (const step of ["scripts/precompress-assets.mjs", "scripts/boxpilot-web-dist-permissions.mjs"]) {
+      expect(build).toContain(`node ${step}`);
+      expect(build.indexOf("vite build")).toBeLessThan(build.indexOf(step));
+      // The image builds the web distribution, so every script that build runs has to be in it.
+      expect(dockerfile).toContain(`COPY ${step} ./${step}`);
+      expect(dockerfile.indexOf(`COPY ${step}`)).toBeLessThan(dockerfile.indexOf("RUN npm run build"));
+    }
+    expect(build.indexOf("precompress-assets")).toBeLessThan(build.indexOf("boxpilot-web-dist-permissions"));
     expect(normalizer).toContain("process.argv.length !== 2");
     expect(normalizer).toContain("metadata.isSymbolicLink()");
     expect(normalizer).toContain("metadata.nlink !== 1");

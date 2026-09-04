@@ -9,6 +9,7 @@
  * nothing attempts an automatic unwind — a half-done flow the owner can read beats a rollback
  * that guesses.
  */
+import { secretFields } from "./ops/registry.mjs";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { registry as defaultRegistry, validateParameters } from "./ops/index.mjs";
 import { computeNextRun, validateCadence } from "./scheduler.mjs";
@@ -48,6 +49,12 @@ export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
     if (operation.risk === "high") return `${label}: ${operation.title} is high risk and cannot be part of a flow (ADR-002)`;
     const parameters = step.parameters ?? {};
     if (typeof parameters !== "object" || Array.isArray(parameters)) return `${label}: parameters must be an object`;
+    // A flow is stored, so a credential written into a step would sit in the database, in every
+    // controller backup and machine snapshot, and come back out of GET /flows - which a viewer can
+    // read. The scheduler has refused this since it existed; flows never did, and the palette that
+    // hides secret fields from the form is a hint the API does not enforce.
+    const secrets = secretFields(operation.parameters).filter((name) => parameters[name] !== undefined && parameters[name] !== null && parameters[name] !== "");
+    if (secrets.length) return `${label}: ${operation.title} needs a password or key each time, so it cannot be part of a flow`;
     if (step.name !== undefined && step.name !== null) {
       if (typeof step.name !== "string" || !stepNamePattern.test(step.name)) return `${label}: a step name is lowercase letters, digits and dashes, 24 characters at most`;
       if (namesSoFar.has(step.name)) return `${label}: another step is already named ${step.name}`;
@@ -87,7 +94,7 @@ export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
   return null;
 }
 
-export function createFlowService({ store, jobs, registry = defaultRegistry, pollMs = 1000, maxStepMs = null, retryDelayMs = 30_000, now = () => new Date(), notify = null, library = [] }) {
+export function createFlowService({ store, jobs, registry = defaultRegistry, pollMs = 1000, maxStepMs = null, retryDelayMs = 30_000, now = () => new Date(), notify = null, library = [], report = (message) => console.warn(message) }) {
   const running = new Set(); // flow ids mid-run; a flow must not lap itself
 
   function assertMayManage(flow, actorId, role) {
@@ -196,7 +203,8 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
    * Run a flow now, under the authority of the person who asked. Sequential on purpose: a stopped
    * chain is diagnosable, and step three may depend on step two having actually happened.
    */
-  async function run(id, actorId, { role = "owner", chainDepth = 0 } = {}) {
+  /** Everything that can refuse a run, checked before anything starts. Shared by run() and launch(). */
+  function preflight(id, role) {
     const flow = store.getFlow(id);
     if (!flow) throw new Error("Flow not found");
     if (["viewer", "disabled"].includes(role)) throw new Error("Viewers cannot run flows");
@@ -206,6 +214,28 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
     if (store.getSetting?.("approvalMode", null) === "always-password") {
       throw new Error("Approval mode is set to always ask, so flows cannot run: each step would need its own password. Change the approval mode to run flows.");
     }
+    return flow;
+  }
+
+  /**
+   * Refuse or begin, and return at once. The HTTP route used to await run() itself, holding the
+   * response open for the whole flow: fine on a direct connection, but a proxy that gives up on a
+   * long request - long before apt does - made the page show "the run was refused" while the flow
+   * was still running. The page has treated the flow list as the truth since then; this makes the
+   * route honest about it. Every refusal still throws here, synchronously, with the same message.
+   * The run itself records its own outcome on the flow; only a failure before it can do that is
+   * reported, so nothing is lost by not being awaited.
+   */
+  function launch(id, actorId, { role = "owner" } = {}) {
+    const flow = preflight(id, role);
+    run(id, actorId, { role }).catch((error) => {
+      if (!recordedRunFailure.test(error.message)) report(`[boxpilot] flow ${flow.name} could not be run: ${error.message}`);
+    });
+    return { started: true, id, name: flow.name };
+  }
+
+  async function run(id, actorId, { role = "owner", chainDepth = 0 } = {}) {
+    const flow = preflight(id, role);
 
     running.add(id);
     let completedRun = false;
@@ -436,11 +466,16 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
         // Advance the clock before running, so a slow flow cannot fire twice.
         const nextDueAt = computeNextRun(flow, now()).toISOString();
         if (running.has(flow.id)) { store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy }); continue; }
+        // Advanced BEFORE the refusals below, not after. When the creator had been demoted, the
+        // refusal threw first and the clock never moved, so the flow was due again on the very next
+        // tick: a "did not run" push to the owner's phone every sixty seconds, and 1,440 skipped
+        // rows a day into an audit log capped at 20,000 - which evicts every other record in a
+        // fortnight. The scheduler had always advanced first; this now does the same.
+        store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy });
         const creator = store.findOwnerById?.(flow.createdBy) ?? null;
         try {
           if (!creator) throw new Error("the flow's creator no longer exists");
           if (["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
-          store.updateFlow(flow.id, { nextDueAt }, { actorId: flow.createdBy });
           await run(flow.id, flow.createdBy, { role: creator.role });
           store.recordAudit("flow.scheduled-run", { actorId: flow.createdBy, subjectId: flow.id, details: { nextDueAt } });
         } catch (error) {
@@ -514,5 +549,5 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
       }));
   }
 
-  return { create, list, update, remove, run, tick, start, recover, stepPalette, shelf, mintWebhook, clearWebhook, fireWebhook };
+  return { create, list, update, remove, run, launch, tick, start, recover, stepPalette, shelf, mintWebhook, clearWebhook, fireWebhook };
 }

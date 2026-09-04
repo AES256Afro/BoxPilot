@@ -52,9 +52,18 @@ export function createStateStore({
   now = () => new Date(),
   tokenBytes = randomBytes,
 } = {}) {
-  const resolvedStateDirectory = path.resolve(stateDirectory);
-  mkdirSync(resolvedStateDirectory, { recursive: true, mode: 0o700 });
-  const resolvedDatabasePath = databasePath ?? path.join(resolvedStateDirectory, "boxpilot.sqlite3");
+  // Create the directory the database actually needs, and nothing else. A caller that says where
+  // the database goes has answered the question; also creating the default state directory is work
+  // nobody asked for, and on Linux that default is /var/lib/boxpilot, which an unprivileged process
+  // cannot create. Tests pass a temp path and were still reaching for it — passing on macOS, where
+  // the default lives under the temp dir, and failing on every Linux machine including CI.
+  // `:memory:` and `file:` URIs are SQLite's own, not filesystem paths: resolving one turns it into
+  // a real file, and an in-memory database needs no directory at all.
+  const inMemory = databasePath === ":memory:" || String(databasePath ?? "").startsWith("file:");
+  const resolvedDatabasePath = !databasePath
+    ? path.join(path.resolve(stateDirectory), "boxpilot.sqlite3")
+    : inMemory ? databasePath : path.resolve(databasePath);
+  if (!inMemory) mkdirSync(path.dirname(resolvedDatabasePath), { recursive: true, mode: 0o700 });
   const database = new DatabaseSync(resolvedDatabasePath);
   // Every query here used to compile its SQL on each call. The statements are fixed strings,
   // so they are compiled once and reused; `prepare` below is that cache, not the raw method.

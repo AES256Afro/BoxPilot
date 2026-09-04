@@ -11,6 +11,7 @@ import net from "node:net";
 import dns from "node:dns/promises";
 import { fixedRun } from "../exec.mjs";
 import { collectStorage } from "../storage-inventory.mjs";
+import { growthByApp } from "../app-data-growth.mjs";
 import { projectDaysToFull } from "../disk-forecast.mjs";
 import { parseNeighbors } from "../network.mjs";
 import { credentialPattern, hostPattern } from "../tasks/shares.mjs";
@@ -99,6 +100,7 @@ export function createStorageRouter({ auth, helper = null, inventory = null, sta
   // When each filesystem is on track to fill, from the sampled free-space history (M23.1).
   router.get("/storage/forecast", async (_request, response) => {
     const history = state?.getSetting?.("diskUsageHistory", {}) ?? {};
+    const usage = state?.getSetting?.("appDataUsageHistory", {}) ?? {};
     const now = Date.now();
     const forecasts = [];
     for (const [target, samples] of Object.entries(history)) {
@@ -108,7 +110,11 @@ export function createStorageRouter({ auth, helper = null, inventory = null, sta
       forecasts.push({ target, daysToFull: Math.max(0, Math.round(days)), availableBytes: latest?.availableBytes ?? null, totalBytes: latest?.totalBytes ?? null, samples: Array.isArray(samples) ? samples.length : 0 });
     }
     forecasts.sort((a, b) => a.daysToFull - b.daysToFull);
-    response.json({ forecasts, tracking: Object.keys(history).length });
+    // What each app's data is holding and how fast it is growing, for every measured folder rather
+    // than only the drives that are filling: "which app owns what on this drive" is a question
+    // worth answering on a drive with room to spare too. One list, so the panel that blames a
+    // filling drive and the map that labels every drive cannot disagree about the numbers.
+    response.json({ forecasts, tracking: Object.keys(history).length, usage: growthByApp(usage, { now, windowDays: 7, limit: 200 }), lastMeasured: state?.getSetting?.("appDataUsageLastRun", null) ?? null });
   });
 
   // Discover LAN hosts offering SMB (445) or NFS (2049): recent neighbours plus a sweep of each /24.

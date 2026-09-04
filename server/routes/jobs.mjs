@@ -3,8 +3,21 @@
  * Activity-drawer event stream, and operation schedules. Mounted at /api/v1 behind the session.
  */
 import { Router } from "express";
+import { suggestFlows, suggestionFacts } from "../flow-suggestions.mjs";
 
-export function createJobsRouter({ state, jobs, scheduler, flows = null, jobLogReader, auth }) {
+/**
+ * The part of a job's persisted output the stream has not sent yet, given how many BYTES of the
+ * live log were already sent. Null when there is nothing to add - including when the persisted
+ * copy is shorter than what was streamed, which means it was truncated to its last 2 MiB and is a
+ * suffix whose offsets no longer line up with the file's.
+ */
+export function outputTailFrom(final, sentBytes) {
+  const bytes = Buffer.from(final, "utf8");
+  if (bytes.length <= sentBytes) return null;
+  return bytes.subarray(sentBytes).toString("utf8");
+}
+
+export function createJobsRouter({ state, jobs, scheduler, flows = null, helper = null, jobLogReader, auth }) {
   const router = Router();
 
   /** Everyone sees their own jobs; the owner sees the whole box. */
@@ -56,7 +69,14 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, jobLogR
       const current = state.getJob(initial.id);
       if (!current || ["completed", "failed", "cancelled"].includes(current.state)) {
         const final = state.getJobOutput(initial.id);
-        if (final !== null && final.length > offset) send("output", { text: final.slice(offset) });
+        // `offset` counts bytes read from the log file; `final` is a string. Slicing a string by a
+        // byte count drops the tail whenever the log holds anything outside ASCII - compose's "✔"
+        // is three bytes and one character. Compare and cut in bytes. And the persisted copy keeps
+        // only the last 2 MiB, so if it is shorter than what has already been streamed it is a
+        // suffix, not the whole, and offsets from the start no longer mean anything: send nothing
+        // rather than a slice from the wrong place.
+        const tail = final === null ? null : outputTailFrom(final, offset);
+        if (tail) send("output", { text: tail });
         send("state", { state: current?.state ?? "unknown", error: current?.error ?? null });
         break;
       }
@@ -109,6 +129,28 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, jobLogR
     response.json({ flows: flows.list(), palette: flows.stepPalette(), shelf: flows.shelf() });
   });
 
+  // Which automation this server in particular should have, and why (M24.1). Nothing is created:
+  // this is the argument for pressing a button that was already on the shelf.
+  router.get("/flows/suggestions", async (_request, response) => {
+    if (!flows) return response.status(503).json({ error: "Flows are not available", code: "flows_unavailable" });
+    // Three of the four facts are database reads and free. The other two ask the helper, and a
+    // fact that cannot be read simply means that argument is not made today rather than an error:
+    // a suggestion nobody can justify should not be offered at all.
+    const [housekeeping, updates] = await Promise.all([
+      helper ? helper.request("housekeeping.inspect", {}, { timeoutMs: 20_000 }).catch(() => null) : null,
+      helper ? helper.request("apt.upgradable.inspect", {}, { timeoutMs: 20_000 }).catch(() => null) : null,
+    ]);
+    const packages = Array.isArray(updates?.packages) ? updates.packages : [];
+    const facts = suggestionFacts({
+      backups: state.listBackups(50),
+      offBoxDestination: state.getSetting("backupDestination", null),
+      offBoxLastSyncAt: state.getSetting("backupDestinationLastSync", null)?.completedAt ?? null,
+      housekeeping,
+      updates: { total: packages.length, security: packages.filter((entry) => entry?.security).length },
+    });
+    response.json({ suggestions: suggestFlows({ shelf: flows.shelf(), flows: flows.list(), facts }) });
+  });
+
   router.post("/flows", auth.requireCsrf, async (request, response) => {
     try {
       const flow = await flows.create({ name: request.body?.name, steps: request.body?.steps, cadence: request.body?.cadence ?? null, triggerFlowId: typeof request.body?.triggerFlowId === "string" ? request.body.triggerFlowId : null, createdBy: request.boxpilotSession.owner.id });
@@ -157,10 +199,13 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, jobLogR
     }
   });
 
-  router.post("/flows/:id/run", auth.requireCsrf, async (request, response) => {
+  // 202: the run has started, not finished. It used to await the whole flow, and a proxy that gave
+  // up on a long request made the page report a refusal while the flow was still running. The
+  // flow list is the source of truth for progress; every refusal still comes back with its status.
+  router.post("/flows/:id/run", auth.requireCsrf, (request, response) => {
     try {
-      const result = await flows.run(request.params.id, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
-      response.json({ run: result });
+      const started = flows.launch(request.params.id, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
+      response.status(202).json({ started });
     } catch (error) {
       const status = error.message.includes("not found") ? 404 : /Viewers|always ask/.test(error.message) ? 403 : 409;
       response.status(status).json({ error: error.message, code: "flow_run_failed" });
@@ -175,8 +220,8 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, jobLogR
 
   router.post("/schedules", auth.requireCsrf, async (request, response) => {
     try {
-      const { operationId, parameters, frequency, minute, hour, weekday } = request.body ?? {};
-      const schedule = await scheduler.create({ operationId, parameters: parameters ?? {}, frequency, minute, hour: hour ?? null, weekday: weekday ?? null, createdBy: request.boxpilotSession.owner.id });
+      const { operationId, parameters, frequency, minute, hour, weekday, spread } = request.body ?? {};
+      const schedule = await scheduler.create({ operationId, parameters: parameters ?? {}, frequency, minute, hour: hour ?? null, weekday: weekday ?? null, spread: spread === true, createdBy: request.boxpilotSession.owner.id });
       response.status(201).json({ schedule });
     } catch (error) {
       response.status(400).json({ error: error.message, code: "schedule_rejected" });

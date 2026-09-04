@@ -45,6 +45,16 @@ export function aggregateAppStats(rows, appIds) {
 export function appOperations() {
   return [
     defineOperation({ id: "app.inspect", title: "Inspect catalog applications", risk: "low", readOnly: true, description: "Installed state, container status, and ports for every catalog application.", run: (_p, { apps }) => apps.inspect({}) }),
+    defineOperation({
+      // operator, for the same reason as storage.folders: this runs in the root helper and reads
+      // through directory permissions, so it would tell a viewer the path and size of every app's
+      // data. And it is the longest read the helper has - a folder walk, minutes rather than
+      // milliseconds - so leaving it open to anyone signed in means eight concurrent calls can hold
+      // every read slot and stop the rest of the product reading anything at all.
+      id: "app.data.usage", title: "Measure application data folders", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 30 * 60_000,
+      description: "How much disk each installed application's data folders are holding, and which drive each one is on. Read-only: it walks the folders the manifests declare and measures them, and takes no paths from the request.",
+      run: (_p, { apps }) => apps.dataUsage(),
+    }),
     defineOperation({ id: "app.updates.inspect", title: "Check application updates", risk: "low", readOnly: true, description: "Compares installed applications with the current catalog.", run: (_p, { apps }) => apps.checkUpdates() }),
     defineOperation({
       id: "app.logs", title: "Read application logs", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
@@ -77,7 +87,10 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.foreignProjectAction({ name: parameters.name, action: parameters.action }, { progress }),
     }),
     defineOperation({
-      id: "compose.project.logs", title: "Read a compose stack's logs", risk: "low", readOnly: true, timeoutMs: 60_000,
+      // operator, like app.logs and logs.read: container logs carry tokens, session ids, addresses
+      // and whatever the application decided to print. These are stacks BoxPilot did not create,
+      // so it has even less idea what is in them than it does for its own.
+      id: "compose.project.logs", title: "Read a compose stack's logs", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
       description: "Tails the logs of a compose stack BoxPilot did not create. Nothing is changed.",
       parameters: { fields: { name: { type: "string", maxLength: 120, pattern: /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/ }, lines: { type: "number", optional: true } } },
       run: (parameters, { apps }) => apps.foreignProjectLogs({ name: parameters.name, lines: parameters.lines ?? 200 }),
@@ -147,8 +160,8 @@ export function appOperations() {
     defineOperation({
       id: "app.rollback", title: "Go back to the previous version", risk: "medium", timeoutMs: minutes(40),
       description: "Takes a data checkpoint, then puts the application back on the versions it was running before its last update - the app and any sidecar that moved with it. The version to restore comes from this application's own recorded history, not from the request, so nothing else can be deployed this way. Data and settings are untouched; only the images change.",
-      parameters: { fields: { id: idField, checkpoint: { type: "boolean", optional: true }, devices: devicesField } },
-      run: (parameters, { apps, progress }) => apps.rollbackApp({ id: parameters.id, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true }),
+      parameters: { fields: { id: idField, at: { type: "string", optional: true, maxLength: 32, pattern: /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/ }, checkpoint: { type: "boolean", optional: true }, devices: devicesField } },
+      run: (parameters, { apps, progress }) => apps.rollbackApp({ id: parameters.id, at: parameters.at ?? null, devices: parameters.devices ?? null }, { progress, checkpoint: parameters.checkpoint ?? true }),
     }),
     defineOperation({
       id: "app.backup", title: "Back up application data", risk: "medium", timeoutMs: minutes(70),
@@ -185,7 +198,11 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.restoreAppBackup(parameters, { progress }),
     }),
     defineOperation({
-      id: "app.backup.files", title: "List the files in an application backup", risk: "low", readOnly: true, timeoutMs: minutes(10),
+      // operator: this lists what is inside a backup - every filename in the app's config and data,
+      // which is more revealing than the folder listing storage.folders already gates. Its only
+      // caller is the restore-a-single-file dialog, which is medium risk and so beyond a viewer
+      // anyway. It also inflates a whole archive to answer, so it is not a cheap thing to invite.
+      id: "app.backup.files", title: "List the files in an application backup", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: minutes(10),
       description: "Paths, sizes, and kinds inside one backup archive, so a single file or folder can be restored.",
       parameters: { fields: { id: idField, backup: { type: "string", maxLength: 40, pattern: /^\d{8}T\d{6}Z\.tar\.gz$/ } } },
       run: (parameters, { apps }) => apps.listAppBackupFiles({ id: parameters.id, backup: parameters.backup }),

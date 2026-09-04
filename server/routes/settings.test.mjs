@@ -48,7 +48,7 @@ describe("GET /settings/watch", () => {
 
 describe("GET /settings/vpn-profile role gate", () => {
   it("serves the owner but refuses viewer and operator (it names the VPN account and exempted LAN ranges)", async () => {
-    settings.set("vpnProfile", { configured: true, provider: "protonvpn", openvpnUser: "acct-9931", outboundSubnets: "192.168.8.0/24" });
+    settings.set("vpnProfile", { configured: true, provider: "protonvpn", openvpnUser: "acct-9931", outboundSubnets: "192.168.1.0/24" });
     const at = (role) => fetch(`${base}/api/v1/settings/vpn-profile`, { headers: { "x-test-role": role } });
     expect((await at("viewer")).status).toBe(403);
     expect((await at("operator")).status).toBe(403);

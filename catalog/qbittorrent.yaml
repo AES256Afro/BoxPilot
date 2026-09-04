@@ -124,7 +124,7 @@ sidecars:
       TZ: ${TZ}
       FIREWALL_OUTBOUND_SUBNETS: 192.168.0.0/16,10.0.0.0/8,172.16.0.0/12,100.64.0.0/10
       # Gluetun's firewall drops inbound connections it was not told about, which locked the
-      # web UI to the box itself: reachable from bigbox, a timeout from every other machine.
+      # web UI to the box itself: reachable from the server itself, a timeout from every other machine.
       FIREWALL_INPUT_PORTS: ${PORT_WEB}
       VPN_PORT_FORWARDING: ${VPN_PORT_FORWARDING}
       # Written where the mounted volume is, so the log stops carrying a permission-denied ERROR

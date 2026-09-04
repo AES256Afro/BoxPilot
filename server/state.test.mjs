@@ -467,3 +467,46 @@ describe("flows storage", () => {
     await rm(directory, { recursive: true, force: true });
   });
 });
+
+describe("where the store puts its files", () => {
+  // CI was red for four days over this. The store always created its default state directory, and
+  // that default is under the temp directory on macOS but /var/lib/boxpilot on Linux — so every
+  // test passing its own database path still reached for a system location, passing here and
+  // failing on every Linux machine with EACCES.
+  it("creates only the directory the given database path needs", async () => {
+    const { mkdtempSync, existsSync, rmSync } = await import("node:fs");
+    const os = (await import("node:os")).default;
+    const path = (await import("node:path")).default;
+    const dir = mkdtempSync(path.join(os.tmpdir(), "boxpilot-statedir-"));
+    const unreachable = path.join(dir, "never-create-me");
+    try {
+      const store = createStateStore({ databasePath: path.join(dir, "state.sqlite3"), stateDirectory: unreachable });
+      try {
+        expect(existsSync(path.join(dir, "state.sqlite3"))).toBe(true);
+        expect(existsSync(unreachable)).toBe(false);   // the default was never wanted, so never made
+      } finally { store.close(); }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+
+  it("treats :memory: as SQLite's own, not a path to resolve", async () => {
+    // Resolving it produces a real file called ":memory:" in the working directory, which two
+    // suites then share — the second fails with "An owner already exists".
+    const { existsSync } = await import("node:fs");
+    const store = createStateStore({ databasePath: ":memory:" });
+    try {
+      expect(store.databasePath).toBe(":memory:");
+      expect(existsSync(":memory:")).toBe(false);
+    } finally { store.close(); }
+  });
+
+  it("still uses the default directory when no database path is given", async () => {
+    const { mkdtempSync, rmSync } = await import("node:fs");
+    const os = (await import("node:os")).default;
+    const path = (await import("node:path")).default;
+    const dir = mkdtempSync(path.join(os.tmpdir(), "boxpilot-statedefault-"));
+    try {
+      const store = createStateStore({ stateDirectory: path.join(dir, "state") });
+      try { expect(store.databasePath).toBe(path.join(dir, "state", "boxpilot.sqlite3")); } finally { store.close(); }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+});

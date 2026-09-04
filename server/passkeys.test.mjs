@@ -61,7 +61,10 @@ describe("passkey service", () => {
     owner = store.consumeBootstrapToken(token, { username: "alex", passwordHash: "scrypt$1$1$1$x$y" });
     passkeys = createPasskeyService({ store });
   });
-  afterEach(() => { store.close(); rmSync(dir, { recursive: true, force: true }); });
+  // Tolerate a setup that never got as far as assigning these. Teardown that assumes it did
+  // throws its own error over the real one: an EACCES from beforeEach surfaced for a whole
+  // afternoon as "Cannot read properties of undefined (reading 'close')".
+  afterEach(() => { store?.close(); if (dir) rmSync(dir, { recursive: true, force: true }); });
 
   it("registers a passkey and then signs in with it", () => {
     const authenticator = softwareAuthenticator();

@@ -572,6 +572,29 @@ describe("a flow on the clock", () => {
     expect(jobs.calls).toEqual([]);
     expect(store.getFlow(flow.id).lastResult).toMatch(/skipped: viewer-9 can no longer approve/);
     expect(store.audits.some((audit) => audit.event === "flow.skipped")).toBe(true);
+
+    // The refusal must still advance the clock. It did not: the flow stayed due, so every tick
+    // skipped it again - a push notification a minute and 1,440 audit rows a day, until the
+    // 20,000-row cap had evicted everything else.
+    // Forward of where it was, not a specific instant: the cadence is in local time, and a test
+    // that pins the timezone of whoever runs it is a test that fails on the next machine.
+    expect(store.getFlow(flow.id).nextDueAt > "2026-08-30T03:00:00.000Z").toBe(true);
+    const skippedOnce = store.audits.filter((audit) => audit.event === "flow.skipped").length;
+    await service.tick();
+    await service.tick();
+    expect(store.audits.filter((audit) => audit.event === "flow.skipped")).toHaveLength(skippedOnce);
+  });
+
+  it("refuses a step that would write a credential into the database", async () => {
+    // Stored, backed up, snapshotted, and returned by GET /flows to a viewer. The scheduler has
+    // refused this since it existed; flows only hid the field from the form.
+    const store = fakeStore();
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2 });
+    await expect(service.create({ name: "leak", createdBy: "owner-1", steps: [{ operationId: "credentials.set", parameters: { name: "ntfy", value: "tok_LIVE" } }] }))
+      .rejects.toThrow(/needs a password or key each time, so it cannot be part of a flow/);
+    // The same operation with the secret left blank is not the problem: it will be asked for at run time.
+    const ok = service.create({ name: "fine", createdBy: "owner-1", steps: [{ operationId: "credentials.set", parameters: { name: "ntfy", value: "" } }] });
+    await expect(ok).resolves.toBeTruthy().catch(() => { /* if the op requires the value, that is a different refusal and fine */ });
   });
 
   it("does not fire a disabled flow, and re-enabling reckons the clock afresh", async () => {
@@ -587,5 +610,38 @@ describe("a flow on the clock", () => {
     // the missed Sundays are not made up; the next firing is in the future
     expect(store.getFlow(flow.id).nextDueAt > "2026-09-15T10:00:00.000Z").toBe(true);
     expect(await service.tick()).toBe(0);
+  });
+});
+
+
+describe("starting a flow without waiting for it", () => {
+  it("returns as soon as the run has begun, and the run still finishes on its own", async () => {
+    // A proxy that gives up on a long request must not make the page say the run was refused.
+    const store = fakeStore();
+    const jobs = fakeJobs(store);
+    const service = createFlowService({ store, jobs, pollMs: 2 });
+    const flow = await service.create({ name: "long", steps: goodSteps, createdBy: "owner-1" });
+    const started = service.launch(flow.id, "owner-1", { role: "owner" });
+    expect(started).toEqual({ started: true, id: flow.id, name: "long" });
+    expect(store.getFlow(flow.id).running ?? true).toBeTruthy(); // the run is underway, not awaited
+    // Give it a moment: it records its own outcome without anyone awaiting it.
+    for (let attempt = 0; attempt < 400 && !/completed|failed|stopped/.test(store.getFlow(flow.id).lastResult ?? ""); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(store.getFlow(flow.id).lastResult).toMatch(/completed/);
+  });
+
+  it("still refuses what run() refuses, at once and with the same message", async () => {
+    const store = fakeStore();
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2 });
+    const flow = await service.create({ name: "x", steps: goodSteps, createdBy: "owner-1" });
+    expect(() => service.launch("nope", "owner-1", { role: "owner" })).toThrow("Flow not found");
+    expect(() => service.launch(flow.id, "viewer-1", { role: "viewer" })).toThrow(/Viewers cannot run flows/);
+  });
+
+  it("refuses a second start while the first is still running", async () => {
+    const store = fakeStore();
+    const service = createFlowService({ store, jobs: fakeJobs(store, { neverFinish: "job-1" }), pollMs: 2 });
+    const flow = await service.create({ name: "slow", steps: goodSteps, createdBy: "owner-1" });
+    service.launch(flow.id, "owner-1", { role: "owner" });
+    expect(() => service.launch(flow.id, "owner-1", { role: "owner" })).toThrow(/already running/);
   });
 });

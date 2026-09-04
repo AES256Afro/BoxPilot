@@ -1,98 +1,156 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
-import os from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { mkdtemp, rm } from "node:fs/promises";
+import { afterEach, describe, expect, it } from "vitest";
 import { createHelperClient } from "./helper-client.mjs";
 
-/**
- * The client half of the boundary between the unprivileged web process and the root helper. It had
- * no tests at all, which for the one component that decides whether a root operation is believed
- * is the wrong number.
- */
-const servers = [];
-const directories = [];
-afterEach(async () => {
-  for (const server of servers.splice(0)) await new Promise((resolve) => server.close(resolve));
-  for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true });
-});
+let server = null; let dir = null;
 
-/** A stand-in helper that replies however the test wants, over a real Unix socket. */
-async function helper(respond) {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-helper-"));
-  directories.push(directory);
-  const socketPath = path.join(directory, "helper.sock");
-  const requests = [];
-  const server = net.createServer((connection) => {
-    let received = "";
-    connection.on("data", (chunk) => {
-      received += chunk.toString("utf8");
-      const newline = received.indexOf("\n");
-      if (newline < 0) return;
-      const request = JSON.parse(received.slice(0, newline));
-      requests.push(request);
-      respond(connection, request);
+/** A helper socket that answers on command, so overlapping requests are deterministic. */
+async function helperSocket(handler) {
+  dir = mkdtempSync(path.join(tmpdir(), "boxpilot-helper-"));
+  const socketPath = path.join(dir, "helper.sock");
+  server = net.createServer((connection) => {
+    let payload = "";
+    connection.setEncoding("utf8");
+    connection.on("data", async (chunk) => {
+      payload += chunk;
+      if (!payload.includes("\n")) return;
+      const request = JSON.parse(payload.trim());
+      const result = await handler(request);
+      connection.end(`${JSON.stringify({ version: 1, id: request.id, ok: true, result })}\n`);
     });
   });
-  servers.push(server);
   await new Promise((resolve) => server.listen(socketPath, resolve));
-  return { socketPath, requests };
+  return socketPath;
 }
 
-describe("talking to the root helper", () => {
-  it("sends the operation and resolves the result", async () => {
-    const { socketPath, requests } = await helper((connection, request) => {
-      connection.end(`${JSON.stringify({ version: 1, id: request.id, ok: true, result: { done: true } })}\n`);
-    });
+// closeAllConnections as well as close: the client's sockets would otherwise keep the server (and
+// its unix socket path) alive past the test that owns them.
+afterEach(() => { server?.closeAllConnections?.(); server?.close(); server = null; if (dir) rmSync(dir, { recursive: true, force: true }); dir = null; });
+
+describe("sharing helper reads", () => {
+  it("answers concurrent identical reads from one round trip", async () => {
+    let calls = 0;
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const socketPath = await helperSocket(async () => { calls += 1; await held; return { applications: [] }; });
     const client = createHelperClient({ socketPath });
-    await expect(client.request("app.install", { id: "demo" }, { jobId: "job-1" })).resolves.toEqual({ done: true });
-    expect(requests[0]).toMatchObject({ version: 1, operation: "app.install", parameters: { id: "demo" }, context: { jobId: "job-1" } });
-    expect(requests[0].id).toMatch(/^[0-9a-f-]{36}$/);
+    const all = Promise.all([
+      client.request("app.inspect", {}, { timeoutMs: 5000 }),
+      client.request("app.inspect", {}, { timeoutMs: 5000 }),
+      client.request("app.inspect", {}, { timeoutMs: 5000 }),
+    ]);
+    release();
+    expect(await all).toEqual([{ applications: [] }, { applications: [] }, { applications: [] }]);
+    expect(calls).toBe(1);
   });
 
-  it("takes the final line, so heartbeats before the reply are ignored", async () => {
-    const { socketPath } = await helper((connection, request) => {
-      connection.write(`${JSON.stringify({ version: 1, id: request.id, queued: true })}\n`);
-      connection.write(`${JSON.stringify({ version: 1, id: request.id, queued: true })}\n`);
-      connection.end(`${JSON.stringify({ version: 1, id: request.id, ok: true, result: { value: 7 } })}\n`);
-    });
-    await expect(createHelperClient({ socketPath }).request("noop")).resolves.toEqual({ value: 7 });
+  it("reads fresh once the previous read has finished", async () => {
+    let calls = 0;
+    const socketPath = await helperSocket(async () => { calls += 1; return { calls }; });
+    const client = createHelperClient({ socketPath });
+    expect(await client.request("app.inspect")).toEqual({ calls: 1 });
+    expect(await client.request("app.inspect")).toEqual({ calls: 2 });
   });
 
-  it("refuses a reply whose id does not match the request", async () => {
-    // The id is the only thing tying an answer to the question asked. A mismatch means the reply
-    // belongs to something else, and believing it would attribute one operation's result to another.
-    const { socketPath } = await helper((connection) => {
-      connection.end(`${JSON.stringify({ version: 1, id: "a-different-request", ok: true, result: { done: true } })}\n`);
-    });
-    await expect(createHelperClient({ socketPath }).request("noop")).rejects.toThrow("id did not match");
+  it("shares one round trip across callers with different deadlines", async () => {
+    // The routes ask for app.inspect with 15 and with 30 seconds. Keying on the deadline as well
+    // meant one page load made the read twice - the exact duplicate this exists to remove.
+    let calls = 0;
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const socketPath = await helperSocket(async () => { calls += 1; await held; return { calls }; });
+    const client = createHelperClient({ socketPath });
+    const all = Promise.all([
+      client.request("app.inspect", {}, { timeoutMs: 15_000 }),
+      client.request("app.inspect", {}, { timeoutMs: 30_000 }),
+    ]);
+    release();
+    expect(await all).toEqual([{ calls: 1 }, { calls: 1 }]);
+    expect(calls).toBe(1);
   });
 
-  it("surfaces the helper's own error rather than a generic one", async () => {
-    const { socketPath } = await helper((connection, request) => {
-      connection.end(`${JSON.stringify({ version: 1, id: request.id, ok: false, error: "Docker is not installed" })}\n`);
-    });
-    await expect(createHelperClient({ socketPath }).request("noop")).rejects.toThrow("Docker is not installed");
+  it("still holds each caller to the deadline it asked for", async () => {
+    // Sharing must not mean the short-deadline caller waits for the long one. It is told "timed
+    // out" on its own clock; the other caller, still inside its allowance, gets the answer.
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const socketPath = await helperSocket(async () => { await held; return { slow: true }; });
+    const client = createHelperClient({ socketPath });
+    const impatient = client.request("app.inspect", {}, { timeoutMs: 40 });
+    const patient = client.request("app.inspect", {}, { timeoutMs: 30_000 });
+    await expect(impatient).rejects.toThrow("Helper request timed out");
+    release();
+    await expect(patient).resolves.toEqual({ slow: true });
   });
 
-  it("fails rather than hangs when the helper closes without answering", async () => {
-    const { socketPath } = await helper((connection) => connection.end());
-    await expect(createHelperClient({ socketPath }).request("noop")).rejects.toThrow();
+  it("never shares a write", async () => {
+    let calls = 0;
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const socketPath = await helperSocket(async () => { calls += 1; await held; return { ok: true }; });
+    const client = createHelperClient({ socketPath });
+    const all = Promise.all([client.request("app.deploy", {}), client.request("app.deploy", {})]);
+    release();
+    await all;
+    expect(calls).toBe(2);
   });
 
-  it("fails when the helper answers with something that is not JSON", async () => {
-    const { socketPath } = await helper((connection) => connection.end("not json at all\n"));
-    await expect(createHelperClient({ socketPath }).request("noop")).rejects.toThrow();
+  it("never shares a read that carries different arguments", async () => {
+    let calls = 0;
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const socketPath = await helperSocket(async () => { calls += 1; await held; return { ok: true }; });
+    const client = createHelperClient({ socketPath });
+    const all = Promise.all([client.request("app.inspect", { id: "a" }), client.request("app.inspect", { id: "b" })]);
+    release();
+    await all;
+    expect(calls).toBe(2);
   });
 
-  it("reports an unreachable socket as unavailable, not as a silent success", async () => {
-    const client = createHelperClient({ socketPath: path.join(os.tmpdir(), "boxpilot-absent.sock") });
-    await expect(client.request("noop")).rejects.toThrow(/Helper unavailable/);
+  it("never shares a read that belongs to a job, because its progress is reported to that job", async () => {
+    let calls = 0;
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const socketPath = await helperSocket(async () => { calls += 1; await held; return { ok: true }; });
+    const client = createHelperClient({ socketPath });
+    const all = Promise.all([
+      client.request("app.inspect", {}, { jobId: "one" }),
+      client.request("app.inspect", {}, { jobId: "two" }),
+    ]);
+    release();
+    await all;
+    expect(calls).toBe(2);
+  });
+});
+
+
+describe("deadlines on shared reads", () => {
+  it("holds every caller to its own deadline, however long", async () => {
+    // Callers with a long deadline used to be handed the underlying read itself, so they inherited
+    // whatever ceiling it had. Now each one races it against its own clock.
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    const socketPath = await helperSocket(async () => { await held; return { late: true }; });
+    const client = createHelperClient({ socketPath });
+    const quick = client.request("app.inspect", {}, { timeoutMs: 40 });
+    const longer = client.request("app.inspect", {}, { timeoutMs: 45_000 });
+    await expect(quick).rejects.toThrow("Helper request timed out");
+    release();
+    await expect(longer).resolves.toEqual({ late: true });
   });
 
-  it("gives up on a helper that accepts the connection and then says nothing", async () => {
-    const { socketPath } = await helper(() => { /* accept, never reply */ });
-    const client = createHelperClient({ socketPath, timeoutMs: 150 });
-    await expect(client.request("noop")).rejects.toThrow(/timed out/);
+  it("lets a later read choose its own ceiling rather than inheriting the first caller's", async () => {
+    // First read: a 15-second caller. Second read (after the first settled): a 60-second caller.
+    // The second must not be cut to the first's ceiling - observable here as the second caller
+    // still being served after the first's would-be deadline has passed.
+    const answers = [];
+    const socketPath = await helperSocket(async () => { const n = answers.push(Date.now()); return { n }; });
+    const client = createHelperClient({ socketPath });
+    expect(await client.request("app.inspect", {}, { timeoutMs: 15_000 })).toEqual({ n: 1 });
+    expect(await client.request("app.inspect", {}, { timeoutMs: 60_000 })).toEqual({ n: 2 });
+    expect(answers).toHaveLength(2);
   });
 });

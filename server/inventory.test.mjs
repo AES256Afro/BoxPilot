@@ -94,3 +94,29 @@ describe("sanitized host inventory", () => {
     }
   });
 });
+
+describe("reading the service units", () => {
+  it("asks systemctl once for every unit and reads each answer back by its Id", async () => {
+    const calls = [];
+    const stdout = [
+      "Id=boxpilot.service\nLoadState=loaded\nActiveState=active\nSubState=running\nUnitFileState=enabled",
+      "Id=docker.service\nLoadState=loaded\nActiveState=inactive\nSubState=dead\nUnitFileState=disabled",
+    ].join("\n\n");
+    const runCommand = async (binary, args) => {
+      calls.push([binary, args]);
+      if (binary === "systemctl" && args[0] === "show") return { ok: true, stdout, stderr: "" };
+      return { ok: false, stdout: "", stderr: "" };
+    };
+    const inventory = createInventoryService({ helper: { request: async () => ({}) }, runCommand, readOsRelease: async () => "", getFilesystem: async () => ({ bsize: 1, blocks: 1, bfree: 1, bavail: 1 }), getNetworkInterfaces: () => ({}), readStorageHealth: async () => { throw new Error("none"); }, maintenance: { inspect: async () => ({}) }, ups: { inspect: async () => ({}) } });
+    const snapshot = await inventory.inspect();
+    const shows = calls.filter(([binary, args]) => binary === "systemctl" && args[0] === "show");
+    expect(shows).toHaveLength(1);                         // one call, not one per unit
+    expect(shows[0][1]).toContain("boxpilot.service");
+    expect(shows[0][1]).toContain("docker.service");
+    const byUnit = Object.fromEntries(snapshot.services.map((service) => [service.unit, service]));
+    expect(byUnit["boxpilot.service"]).toMatchObject({ active: "active", sub: "running", enabled: "enabled" });
+    expect(byUnit["docker.service"]).toMatchObject({ active: "inactive", sub: "dead" });
+    // A unit systemctl said nothing about is unknown, not invented.
+    expect(byUnit["tailscaled.service"]).toMatchObject({ active: "unknown", load: "unknown" });
+  });
+});

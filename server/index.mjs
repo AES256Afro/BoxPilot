@@ -1,6 +1,6 @@
 import express from "express";
 import { randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
+import { createReadStream, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createDeviceResolver } from "./catalog/devices.mjs";
 import path from "node:path";
@@ -46,6 +46,7 @@ import { createUpdateNotifier } from "./update-notifier.mjs";
 import { createHealthAlerts } from "./health-alerts.mjs";
 import { createTlsRenewal } from "./tls-renewal.mjs";
 import { createDiskSampler } from "./disk-forecast.mjs";
+import { createAppDataSampler } from "./app-data-growth.mjs";
 import { createSmartSampler } from "./smart-trends.mjs";
 import { registry } from "./ops/index.mjs";
 import { createNotificationService } from "./notifications.mjs";
@@ -63,6 +64,8 @@ import { createVmRecoveryService } from "./vm-recovery.mjs";
 import { createVmRetentionService } from "./vm-retention.mjs";
 import { createVmRestoreDrillService } from "./vm-restore-drill.mjs";
 import { foldVerdict, verdictFrom } from "./backup-verdicts.mjs";
+import { jsonGzip, precompressedAssets } from "./compress.mjs";
+import { securityHeaders } from "./security-headers.mjs";
 
 const app = express();
 const host = process.env.BOXPILOT_HOST ?? "127.0.0.1";
@@ -214,23 +217,21 @@ createHealthAlerts({ inventory, notifications, store: state, resolveScheduleTitl
 createTlsRenewal({ helper, store: state }).start();
 // Sample free space daily so the disk-fill forecast (M23.1) has a trend to project.
 createDiskSampler({ inventory, store: state }).start();
+// What is filling each drive, not just that it is filling (M23.1). Walks the data folders, so it
+// runs once a day and well after boot rather than alongside everything else that starts here.
+createAppDataSampler({ helper, store: state }).start();
 // Sample SMART numbers daily so a drive going bad is caught before it fails (M23.3).
 createSmartSampler({ inventory, store: state }).start();
 
 app.disable("x-powered-by");
+app.use(jsonGzip());
 app.use(express.json({ limit: "256kb", strict: true }));
-app.use((request, response, next) => {
-  response.setHeader("X-Content-Type-Options", "nosniff");
-  response.setHeader("X-Frame-Options", "DENY");
-  response.setHeader("Referrer-Policy", "no-referrer");
-  response.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  response.setHeader(
-    "Content-Security-Policy",
-    "default-src 'self'; base-uri 'none'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; img-src 'self' data:; object-src 'none'; script-src 'self'; style-src 'self'",
-  );
-  if (request.path.startsWith("/api/")) response.setHeader("Cache-Control", "no-store");
-  next();
-});
+// The policy's script hash comes from the shell as built, so the theme bootstrap that has always
+// been inline is allowed by its own digest rather than blocked - which is what `script-src 'self'`
+// alone had been doing to it.
+let shell = "";
+try { shell = readFileSync(path.join(dist, "index.html"), "utf8"); } catch { /* no build yet: a strict policy with no inline allowances is the right answer */ }
+app.use(securityHeaders({ html: shell }));
 
 app.get("/api/v1/health", (_request, response) => {
   response.json({
@@ -314,7 +315,7 @@ app.use("/api/v1", (request, response, next) => {
 app.use("/api/v1/people", auth.requireRole("owner"));
 app.use("/api/v1", createPeopleRouter({ state, auth }));
 app.use("/api/v1", createOperationsRouter({ state, helper, jobs, prerequisites, recoveryKit, actionCenter, auth }));
-app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, flows, jobLogReader, auth }));
+app.use("/api/v1", createJobsRouter({ state, jobs, scheduler, flows, helper, jobLogReader, auth }));
 app.use("/api/v1", createVirtualizationRouter({ libvirt, libvirtFoundation, vmPlanner, vmMedia, vmCreation, vmExports, vmProtection, vmRetention, vmRecoveries, audit }));
 app.use("/api/v1", createSettingsRouter({ state, notifications, auth }));
 app.use("/api/v1", createFirewallRouter({ state, helper, catalogService, webPort: port, webHost: host }));
@@ -328,10 +329,20 @@ app.use("/api/v1", createOidcAdminRouter({ oidc, auth }));
 // and userinfo are public by design, and /oidc/authorize reads the owner's session itself.
 app.use(createOidcRouter({ oidc, auth, store: state }));
 
-app.use("/assets", express.static(path.join(dist, "assets"), { index: false, maxAge: "365d", immutable: true }));
+const assets = path.join(dist, "assets");
+app.use("/assets", precompressedAssets(assets));
+app.use("/assets", express.static(assets, { index: false, maxAge: "365d", immutable: true }));
 app.use(express.static(dist, { index: false }));
 app.use((request, response, next) => {
   if (request.method !== "GET" || request.path.startsWith("/api/")) {
+    next();
+    return;
+  }
+  // A hashed asset that is not there is missing, not a route into the app. Answering it with the
+  // shell hides the real problem behind a page that cannot work, and during an upgrade - when the
+  // tree is swapped out from under a browser that is still fetching the old bundle - it means
+  // replying to a request for JavaScript with HTML.
+  if (request.path.startsWith("/assets/")) {
     next();
     return;
   }

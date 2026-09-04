@@ -46,6 +46,10 @@ export async function httpRequest(parameters = {}, { credentials = createCredent
     // is returned as-is for the caller to read rather than chased to an attacker's host.
     response = await fetcher(url, { method, headers, ...(body !== null && method !== "GET" && method !== "HEAD" ? { body } : {}), redirect: carriesCredential ? "manual" : "follow", signal: controller.signal });
   } catch (error) {
+    // Clear it here too: the finally that clears it belongs to the body read below, which a
+    // connection refused never reaches. An armed timer keeps the task process, and so the
+    // oneshot unit and the flow step waiting on it, alive for the full timeout after failing.
+    clearTimeout(timer);
     throw new Error(error.name === "AbortError" ? `No answer within ${Math.round(timeoutMs / 1000)}s` : `The request failed: ${error.cause?.code ?? error.message}`);
   }
   // Read the body under the same abort deadline and stop at the excerpt cap, so a server that

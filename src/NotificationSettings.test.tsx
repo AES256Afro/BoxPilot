@@ -34,7 +34,7 @@ describe("Notification settings", () => {
       if (url.endsWith("/settings/notifications") && init?.method === "PUT") { saved = init.body as string; return json({ configured: true, kind: "ntfy", url: "http://127.0.0.1:8093", topic: "boxpilot", hasToken: false }); }
       if (url.endsWith("/settings/notifications")) return json({ configured: false, kind: null, url: null, topic: null, hasToken: false });
       if (url.endsWith("/settings/watch")) return json({ targetConfigured: false, activeCount: 0, conditions: [] });
-      if (url.endsWith("/catalog")) return json({ applications: [{ manifest: { id: "ntfy", name: "ntfy" }, live: { installed: true, container: { running: true }, urls: [{ host: 8093 }] } }], host: { lanAddress: "192.168.8.10", tailscaleDnsName: "homebox.tail0a1b.ts.net" } });
+      if (url.includes("/api/v1/catalog")) return json({ applications: [{ manifest: { id: "ntfy", name: "ntfy" }, live: { installed: true, container: { running: true }, urls: [{ host: 8093 }] } }], host: { lanAddress: "192.168.1.10", tailscaleDnsName: "homebox.tail0a1b.ts.net" } });
       return json({ error: `unexpected ${url}` }, 500);
     });
     vi.stubGlobal("fetch", fetchMock);

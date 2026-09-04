@@ -272,3 +272,28 @@ describe("bad requests", () => {
     expect((await oversized.json()).code).toBe("request_too_large");
   });
 });
+
+describe("reads that go through the system's own permissions", () => {
+  it("are all closed to viewers together", async () => {
+    // These three run in the root helper and read past the permissions the caller has: the folders
+    // on a drive, the filenames inside an app backup, and the sizes of every app's data. Gating one
+    // and not the others is the failure mode worth a test - app.data.usage shipped without it.
+    const { registry } = await import("../ops/index.mjs");
+    for (const id of ["storage.folders", "app.backup.files", "app.data.usage", "host.snapshot.describe",
+      // Found by a second pass over every read-only operation: each runs in the root helper and
+      // answers something the caller could not have read - a journal, authorized_keys, a 0770
+      // recycle bin, a query log, every mounted filesystem.
+      "system.update.status", "users.inspect", "samba.inspect", "dns.blocker.clients", "host.snapshot.discover"]) {
+      expect(registry.get(id)?.minimumRole, `${id} should need an operator`).toBe("operator");
+    }
+  });
+
+  it("gates every way of reading a log the same", async () => {
+    // Logs carry tokens, session ids and whatever the application chose to print. Two of these
+    // three were operator and the third was not, which is the kind of gap nobody notices.
+    const { registry } = await import("../ops/index.mjs");
+    for (const id of ["app.logs", "logs.read", "compose.project.logs"]) {
+      expect(registry.get(id)?.minimumRole, `${id} should need an operator`).toBe("operator");
+    }
+  });
+});

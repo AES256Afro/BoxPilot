@@ -35,21 +35,32 @@ async function defaultFetchKeys(githubUser) {
   return response.text();
 }
 
-/** Append new keys to <home>/.ssh/authorized_keys with correct ownership and modes. */
-async function appendAuthorizedKeys(run, log, files, entry, keys) {
-  const sshDirectory = path.join(entry.home, ".ssh");
-  const target = path.join(sshDirectory, "authorized_keys");
-  const install = await run("/usr/bin/install", ["-d", "-m", "700", "-o", String(entry.uid), "-g", String(entry.gid), sshDirectory], { timeout: 10_000 });
-  if (!install.ok) throw new Error(`Could not prepare ${sshDirectory}: ${install.stderr}`);
-  const existing = await files.readFile(target, "utf8").catch(() => "");
-  const current = new Set(validKeyLines(existing));
+/**
+ * Append new keys to <home>/.ssh/authorized_keys - as the user, not as root.
+ *
+ * This task runs as root and the target user owns everything under their home, which makes every
+ * path component theirs to replace. An earlier version read and wrote the file as root and checked
+ * for symlinks first; the review of that version found the check could not close the window - the
+ * user swaps `~/.ssh` for a link to `/root/.ssh` between the check and the write, and root has just
+ * written their key into root's own authorized_keys and handed the file to them. Every variant of
+ * root-touches-a-user-owned-path has some version of that window. sshd's answer is StrictModes;
+ * ours is simpler: do the whole thing as the user. A symlink can then only lead somewhere the user
+ * could already write, and there is nothing left for root to get wrong.
+ *
+ * Two runs as the user: one to read what is already there, one to append what is new, with the key
+ * lines on stdin so they never touch argv. The home comes from passwd, not from $HOME, because
+ * runuser without -l keeps the caller's environment.
+ */
+async function appendAuthorizedKeys(run, log, _files, entry, keys) {
+  const asUser = (script, options = {}) => run("/usr/sbin/runuser", ["-u", entry.name, "--", "/bin/sh", "-c", script, "sh", entry.home], { timeout: 15_000, ...options });
+  // `mkdir -p` first so a home with no .ssh yet reads as empty rather than failing; both as the user.
+  const existing = await asUser('umask 077; mkdir -p "$1/.ssh" && cat "$1/.ssh/authorized_keys" 2>/dev/null; exit 0');
+  if (!existing.ok) throw new Error(`Could not read ${entry.name}'s authorized keys as ${entry.name}: ${existing.stderr}`);
+  const current = new Set(validKeyLines(existing.stdout));
   const added = keys.filter((key) => !current.has(key));
   if (added.length > 0) {
-    const content = `${existing.replace(/\n*$/, existing ? "\n" : "")}${added.join("\n")}\n`;
-    await files.writeFile(target, content, { mode: 0o600 });
-    const chown = await run("/usr/bin/chown", [`${entry.uid}:${entry.gid}`, target], { timeout: 10_000 });
-    if (!chown.ok) throw new Error(`Could not chown ${target}: ${chown.stderr}`);
-    await run("/usr/bin/chmod", ["600", target], { timeout: 10_000 });
+    const written = await asUser('umask 077; mkdir -p "$1/.ssh" && chmod 700 "$1/.ssh" && cat >> "$1/.ssh/authorized_keys" && chmod 600 "$1/.ssh/authorized_keys"', { input: `${added.join("\n")}\n` });
+    if (!written.ok) throw new Error(`Could not write ${entry.name}'s authorized keys as ${entry.name}: ${written.stderr}`);
   }
   log?.(`${added.length} key(s) added for ${entry.name}; ${current.size} already present`, "stdout");
   return { added: added.length, total: current.size + added.length };
