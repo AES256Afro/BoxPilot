@@ -13,7 +13,7 @@ Install updates, add apps from a catalog, open only the ports you mean to, mount
 On a fresh Ubuntu Server (22.04 or newer):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh -s -- --ref v1.110.2
+curl -fsSL https://raw.githubusercontent.com/AES256Afro/BoxPilot/main/scripts/boxpilot-install.sh | sudo sh -s -- --ref v1.110.3
 ```
 
 It installs Node 24, builds BoxPilot under `/opt/boxpilot`, enables the `boxpilot` and `boxpilot-helper` services, and prints the URL with a one-time owner token. Create the owner account, pick a setup profile (home server, DNS appliance, hypervisor, dev box, media server, smart home, observability, or just the essentials), and follow the checklist on the Overview. BoxPilot tells you when a new release is out; applying it is a one-click job that needs your password and rolls back by itself if the new version fails its health check.
@@ -26,7 +26,7 @@ It installs Node 24, builds BoxPilot under `/opt/boxpilot`, enables the `boxpilo
 | --- | --- |
 | **Overview** | Health at a glance, a setup checklist, what needs attention, your installed apps. |
 | **Updates & packages** | Install APT updates (all or selected), automatic security updates, restart hints, one-click common tools. |
-| **App catalog** | 163 self-hosted apps and game servers: search, install, configure, update, back up, restore, uninstall. Each has a Sign in panel with its address and credentials, a Performance page with live CPU, memory and disk per app, and one switch to choose LAN or Tailscale-only reach with HTTPS. Details below. |
+| **App catalog** | 165 self-hosted apps and game servers: search, install, configure, update, back up, restore, uninstall. Each has a Sign in panel with its address and credentials, a Performance page with live CPU, memory and disk per app, and one switch to choose LAN or Tailscale-only reach with HTTPS. Details below. |
 | **Services** | systemd units and timers: start, stop, restart, enable, disable, journal. |
 | **System** | Hostname, time zone, language, swap, trim, UPS monitoring, schedules, BoxPilot self-update. Housekeeping finds what nothing needs any more, such as old releases, unused images and stale backups, and clears only what you tick. |
 | **Users & SSH** | Accounts, sudo, SSH keys (import from GitHub), password-login policy. |
