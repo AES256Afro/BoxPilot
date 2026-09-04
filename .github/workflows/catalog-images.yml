@@ -24,5 +24,12 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
+          cache: npm
+      # The check loads the catalog through server/catalog/index.mjs, which
+      # imports `yaml`. Without an install this job cannot start, and it has
+      # been failing that way on every scheduled run rather than reporting on
+      # any tag: a check that cannot run looks exactly like a check that passes
+      # nothing, and it went unnoticed for weeks.
+      - run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Every pinned tag still exists
         run: node scripts/catalog-check-images.mjs
