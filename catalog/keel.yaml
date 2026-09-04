@@ -7,8 +7,8 @@ description: "Self-hosted notebook: pages with wikilinks and backlinks, database
 website: https://keelnotes.com
 risk: low
 image:
-  reference: ghcr.io/aes256afro/keel:1.2.6
-  version: "1.2.6"
+  reference: ghcr.io/aes256afro/keel:1.2.7
+  version: "1.2.7"
 ports:
   - id: web
     label: Web UI
