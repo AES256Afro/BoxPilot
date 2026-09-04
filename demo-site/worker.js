@@ -43,7 +43,9 @@ async function api(request, env, url) {
 
   const operation = route.match(/^\/operations\/([a-z][\w.-]+)\/(inspect|run)$/);
   if (operation) {
-    const result = world.operations[operation[1]];
+    // Own properties only: "__proto__" and "constructor" are not demo operations, however they
+    // match the pattern, and looking them up on a plain object would answer 200 with junk.
+    const result = Object.hasOwn(world.operations, operation[1]) ? world.operations[operation[1]] : undefined;
     if (result === undefined) return json({ error: "Not in the demo", code: "demo_missing" }, 404);
     return json({ operation: operation[1], result });
   }
@@ -61,7 +63,7 @@ async function api(request, env, url) {
     if (route.endsWith("/precheck") && request.method === "POST") return json({ ok: true, errors: [], conflicts: [] });
   }
 
-  const body = world.rest[route];
+  const body = Object.hasOwn(world.rest, route) ? world.rest[route] : undefined;
   if (body !== undefined) return json(body);
   return json({ error: "Not part of the demo", code: "demo_missing" }, 404);
 }

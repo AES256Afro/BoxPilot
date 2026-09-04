@@ -103,12 +103,12 @@ describe("naming the apps on this server", () => {
 
 describe("who is actually using the blocker", () => {
   const log = [
-    "Aug 26 13:18:54 dnsmasq[52]: query[A] ipv6.msftconnecttest.com from 192.168.8.129",
+    "Aug 26 13:18:54 dnsmasq[52]: query[A] ipv6.msftconnecttest.com from 192.168.1.129",
     "Aug 26 13:18:54 dnsmasq[52]: cached ipv6.msftconnecttest.com is <CNAME>",
-    "Aug 26 13:18:56 dnsmasq[52]: query[A] example.com from 192.168.8.129",
-    "Aug 26 13:19:01 dnsmasq[52]: query[A] example.com from 192.168.8.10",
+    "Aug 26 13:18:56 dnsmasq[52]: query[A] example.com from 192.168.1.129",
+    "Aug 26 13:19:01 dnsmasq[52]: query[A] example.com from 192.168.1.10",
     "Aug 26 13:19:02 dnsmasq[52]: query[A] doubleclick.net from 127.0.0.1",
-    "Aug 26 13:19:40 dnsmasq[52]: query[A] github.com from 192.168.8.55",
+    "Aug 26 13:19:40 dnsmasq[52]: query[A] github.com from 192.168.1.55",
   ].join("\n");
 
   it("names the devices and leaves out this server's own checks", async () => {
@@ -116,8 +116,8 @@ describe("who is actually using the blocker", () => {
     // those would report a blocker as busy on the strength of its own health checks.
     const { service, runDocker } = await fixture();
     runDocker.mockResolvedValue({ ok: true, stdout: log, stderr: "" });
-    const report = await service.clients({ selfAddress: "192.168.8.10" });
-    expect(report.clients).toEqual([{ address: "192.168.8.129", queries: 2 }, { address: "192.168.8.55", queries: 1 }]);
+    const report = await service.clients({ selfAddress: "192.168.1.10" });
+    expect(report.clients).toEqual([{ address: "192.168.1.129", queries: 2 }, { address: "192.168.1.55", queries: 1 }]);
     expect(report.self).toBe(2);
     expect(runDocker.mock.calls[0][1]).toEqual(["exec", "bp-pi-hole", "tail", "-n", "4000", "/var/log/pihole/pihole.log"]);
   });
@@ -126,7 +126,7 @@ describe("who is actually using the blocker", () => {
     // Healthy, answering, blocking — and every device on the network still pointed somewhere else.
     const { service, runDocker } = await fixture();
     runDocker.mockResolvedValue({ ok: true, stdout: "Aug 26 13:19:02 dnsmasq[52]: query[A] example.com from 127.0.0.1", stderr: "" });
-    const report = await service.clients({ selfAddress: "192.168.8.10" });
+    const report = await service.clients({ selfAddress: "192.168.1.10" });
     expect(report).toMatchObject({ available: true, clients: [], self: 1 });
   });
 

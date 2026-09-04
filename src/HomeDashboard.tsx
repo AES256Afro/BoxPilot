@@ -59,7 +59,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
     const servesPromise = inspectOperation<{ available: boolean; serves: TailnetServe[] }>("app.serve.inspect")
       .then(({ result }) => (result.available ? result.serves : []))
       .catch(() => [] as TailnetServe[]);
-    fetch("/api/v1/catalog")
+    fetch("/api/v1/catalog?view=summary")
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("catalog unavailable"))))
       .then(async (data: { applications: Array<{ manifest: { id: string; name: string }; live: { installed: boolean; container: { running: boolean; status?: string; health: string }; updateAvailable?: boolean; folderProblems?: Array<{ path: string }>; killSwitchDrill?: { leaked: boolean } | null; urls: Array<{ host: number; exposure: string; path?: string | null }> } | null }>; host: { lanAddress: string | null } }) => {
         const servesSoFar = await servesPromise;
@@ -116,11 +116,18 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
         return { ok: false, destination: null, lastSync: null };
       }
     };
+    // Both the off-box warning and the backup card want the backup list and the machine's mirror
+    // state. They are the same two reads, so they are made once and shared rather than twice each.
+    type BackupList = { backups: Array<{ applicationId: string; createdAt: string }> } | null;
+    const backupsOnce: Promise<BackupList> = fetch("/api/v1/backups")
+      .then((response) => (response.ok ? (response.json() as Promise<NonNullable<BackupList>>) : null)).catch(() => null);
+    const machineOnce = inspectOperation<{ sync: { mount: { mounted: boolean }; lastSync: { completedAt: string } | null } }>("host.snapshot.inspect").catch(() => null);
+
     Promise.all([
       destination("/api/v1/settings/cloud-destination"),
       destination("/api/v1/settings/backup-destination"),
-      inspectOperation<{ sync: { mount: { mounted: boolean }; lastSync: { completedAt: string } | null } }>("host.snapshot.inspect").catch(() => null),
-      fetch("/api/v1/backups").then((response) => (response.ok ? (response.json() as Promise<{ backups: Array<{ createdAt: string }> }>) : null)).catch(() => null),
+      machineOnce,
+      backupsOnce,
     ]).then(([cloud, ssh, machine, backupList]) => {
       if (!cloud.ok && !ssh.ok && !machine) return;
       const at = (value: unknown) => (typeof value === "string" ? value : (value as { completedAt?: string } | null)?.completedAt ?? null);
@@ -133,11 +140,9 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
         drive: { configured: machine?.result.sync.mount.mounted ?? false, lastSyncAt: machine?.result.sync.lastSync?.completedAt ?? null },
       }, { newestLocalBackupAt })));
     }).catch(() => {});
-    Promise.all([
-      fetch("/api/v1/backups").then((response) => (response.ok ? response.json() : Promise.reject(new Error("backups unavailable")))),
-      inspectOperation<{ sync: { mount: { mounted: boolean }; lastSync: { completedAt: string } | null } }>("host.snapshot.inspect").catch(() => null),
-    ])
-      .then(([list, machine]: [{ backups: Array<{ applicationId: string; createdAt: string }> }, { result: { sync: { mount: { mounted: boolean }; lastSync: { completedAt: string } | null } } } | null]) => {
+    Promise.all([backupsOnce, machineOnce])
+      .then(([list, machine]) => {
+        if (!list) return; // no list, no card: an empty one would read as "no backups yet"
         guard(setBackups)({
           lastBackupAt: list.backups.find((backup) => backup.applicationId === "boxpilot-controller")?.createdAt ?? null,
           lastSyncAt: machine?.result.sync.lastSync?.completedAt ?? null,

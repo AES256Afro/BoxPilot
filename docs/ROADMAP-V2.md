@@ -207,7 +207,7 @@ Grouped by phase; each has a "done when". Phases 0–3 are the pivot; 4+ are gro
   bound to it (v1.56.0), verified importing cleanly on a real Grafana. Install Prometheus and
   Grafana and the graphs are drawn. cAdvisor (per-container metrics) ships too (v1.57.0),
   running unprivileged with read-only host mounts and /dev/kmsg, verified live scraping UP on
-  bigbox's cgroup v2. Remaining: the libvirt exporter and a per-container dashboard.
+  the server's cgroup v2. Remaining: the libvirt exporter and a per-container dashboard.
 - ◐ **M8.4** Failed-job push notifications: `server/notifications.mjs` subscribes to the job-event stream and sends one push per failed job to ntfy, Gotify, or a webhook (both servers are catalog apps, so alerts can stay on-host); Settings panel with password-gated target + test button; deliveries and failures audited. Remaining triggers: updates available, backup stale, disk >90%, SMART, UPS. Host-health alerting stays with the ops CLI per HANDOFF.md. ✅ (v2) **Health alerts** (`server/health-alerts.mjs`): a 15-minute watcher over the sanitized inventory pushes once when a condition appears and once when it clears. Root/mounted disk ≥ 85–90 % full, SMART problems, UPS on battery/low, failed services, reboot required, unhealthy containers; state in the `healthAlertsState` setting so restarts do not re-send.
 - ✅ **M8.5** Log viewer: registry ops `logs.sources` (journal groups, every systemd unit, every container) and `logs.read` (tail any of them with a time window and text filter, redacted). The Logs page offers group tabs, a unit finder, a container picker, follow mode, and download; the support bundle reads through the same op. The fixed-four-sources route and `system.logs.inspect` legacy op are deleted.
 
@@ -834,8 +834,11 @@ fully looks after."
   recorded history rather than the request, so the operation can only ever restore what that app was
   already running, and catalog references are version tags (never `latest`), so the old image is
   re-pullable after a prune has removed it locally. `rollbackApp` in `server/app-helper.mjs`,
-  `deployedImages` in `server/catalog/compose.mjs`, op `app.rollback`. **Remaining:** channels
-  (stable vs latest) and stepping back more than one release.
+  `deployedImages` in `server/catalog/compose.mjs`, op `app.rollback`. ✅ **Stepping back further**
+  (v1.101.0): every recorded version is offered, not only the most recent. `at` names one of the
+  app's own recorded updates, so a jump of several releases is still only ever a version it actually
+  ran; entries newer than the one undone are dropped rather than left ahead of the current state.
+  **Remaining:** channels (stable vs latest).
   of image versions installed, and a one-click return to any previous one, on top of the checkpoint
   machinery already there.
 - **M22.3** **App bundles.** A named set of apps installed and wired together in one approved run —
@@ -856,7 +859,15 @@ time, or the filesystem features a home server leans on.
   fill within three months, amber inside two weeks), and a filesystem projected to fill soon becomes a
   health alert to the phone, earlier than the 90% threshold that arrives with little runway.
   `server/disk-forecast.mjs` (pure fit + sampler), `GET /storage/forecast`, wired into `health-alerts`.
-  **Remaining:** the per-app "where the space is going" breakdown (which app's data grew).
+  ✅ **The attribution** (v1.105.0). Knowing a drive fills in nine days is a problem; knowing the
+  downloads folder grew 246 GB this week is a decision. A nightly sampler measures each installed
+  app's data folders (`du -sbx`, per-folder timeout, one at a time — a reading that misses a folder
+  is fine, one that saturates the disk is not) and the "Filling up" panel names the apps growing on
+  each drive, biggest grower first. The paths are derived from the manifests and the owner's stored
+  values inside the helper, never taken from the request. A folder that could not be measured is
+  recorded as unmeasured rather than zero, so a slow library never draws a collapse that did not
+  happen. `server/app-data-growth.mjs` (pure + sampler), `apps.dataUsage()` in the helper,
+  `app.data.usage` operation, carried on `GET /storage/forecast`.
 - ◐ **M23.2** (v1.86.0) **Filesystem snapshots as a first-class thing.** Where btrfs filesystems or
   ZFS datasets exist, a Storage panel lists their snapshots and offers take (read-only btrfs snapshot
   under a managed `.boxpilot-snapshots` folder; `zfs snapshot`) and delete (typed confirmation).
@@ -884,9 +895,23 @@ time, or the filesystem features a home server leans on.
 M13 gave flows a solid, consent-respecting engine. This arc makes the product suggest and reason,
 not just execute.
 
-- **M24.1** **Suggested automations.** From what is installed and what has gone wrong, propose flows
-  worth having — "you have qBittorrent and Sonarr; want the finished-files sweep?" — as one-click
-  additions to the shelf, never auto-created.
+- ◐ **M24.1** (v1.107.0) **Suggested automations.** ✅ **The argument.** The shelf listed all three
+  built-in flows equally, which reads as a catalogue: no reason to pick one, so nobody picks any. A
+  suggestion is the same shelf item with the evidence attached — "12 backups are on this box and the
+  off-box destination has never been used" — which is what turns a list into a decision. Suggested
+  items sort first and carry the reason above the description. Nothing is ever created: a suggestion
+  is an argument for pressing a button that was already there. Every one cites a fact read from this
+  server, and one whose evidence goes away stops being made; a flow already on the shelf is never
+  suggested again, matched on what its steps do rather than its name, so renaming a copy does not
+  restart the recommendation. `server/flow-suggestions.mjs` (pure), `GET /flows/suggestions`.
+  **Remaining:** suggestions from what has *gone wrong* (a job that keeps failing, an app that keeps
+  restarting) rather than only from standing facts, and app-pairing recipes ("you have qBittorrent
+  and Sonarr") once the library has flows that span two apps. **Not started, deliberately (2026-09-02):**
+  the facts are cheap (failed jobs from the job table, restart counts from `app.inspect`), but the
+  library holds three flows - mirror the backups, tidy Docker, update night - and none of them is
+  what you do about a restarting container or a failing backup. A suggestion with nothing to press
+  is a complaint. The order is: write the remediation flows first (restart-and-watch, re-run the
+  last failed backup, roll an app back), then suggest them from the evidence.
 - **M24.2** **Anomaly notices from the metrics.** A quiet watch over the time series that says "this
   is unusual for your box" — a memory climb, a nightly job that got slower — grounded in the data,
   not a model's guess.

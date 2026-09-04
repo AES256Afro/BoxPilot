@@ -283,3 +283,19 @@ describe("restricted helper protocol", () => {
     await expect(executeHelperOperation(request({ operation: "vm.recovery.create", parameters: recoveryParameters() }), { vmRecovery })).resolves.toMatchObject({ ok: true, result: { created: true, domain: "ubuntu-recovered", persistent: true } });
   });
 });
+
+describe("the nightly data sweep reaches the helper", () => {
+  it("is registered read-only under the name the sampler asks for", async () => {
+    // The sampler swallows its own errors so a bad night is quiet. That makes a wiring mistake -
+    // an operation id that does not resolve, or one that is not read-only and so queues behind a
+    // deploy - silent for as long as nobody looks. This is the check that it is wired.
+    const apps = { dataUsage: async () => ({ measuredAt: "2026-09-01T03:00:00.000Z", entries: [{ key: "a:/mnt/a", appId: "a", path: "/mnt/a", mount: "/mnt/a", bytes: 42 }] }) };
+    await expect(executeHelperOperation(request({ operation: "app.data.usage", parameters: {} }), { apps }))
+      .resolves.toMatchObject({ ok: true, result: { entries: [{ appId: "a", bytes: 42 }] } });
+  });
+
+  it("is one of the reads, so a running deploy never delays it into the next night", async () => {
+    const { registry } = await import("./ops/index.mjs");
+    expect(registry.readOnlyIds()).toContain("app.data.usage");
+  });
+});

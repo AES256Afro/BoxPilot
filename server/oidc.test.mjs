@@ -30,7 +30,10 @@ describe("OIDC provider", () => {
     keys = { privateKey: pair.privateKey, publicKey, kid: "test-kid" };
     oidc = createOidcService({ store, keys });
   });
-  afterEach(() => { store.close(); rmSync(dir, { recursive: true, force: true }); });
+  // Tolerate a setup that never got as far as assigning these. Teardown that assumes it did
+  // throws its own error over the real one: an EACCES from beforeEach surfaced for a whole
+  // afternoon as "Cannot read properties of undefined (reading 'close')".
+  afterEach(() => { store?.close(); if (dir) rmSync(dir, { recursive: true, force: true }); });
 
   it("publishes discovery and a JWKS with only the public key", () => {
     const meta = oidc.metadata(issuer);

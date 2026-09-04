@@ -46,8 +46,59 @@ export function validateCadence({ frequency, minute, hour = null, weekday = null
   return null;
 }
 
+const minutesInWeek = 7 * 24 * 60;
+
+/** Every minute of the week a schedule occupies: a daily one lands on all seven days, hourly on all. */
+function occupiedMinutes(schedule) {
+  const minute = schedule.minute ?? 0;
+  if (schedule.frequency === "hourly") return Array.from({ length: 7 * 24 }, (_value, index) => index * 60 + minute);
+  const hour = schedule.hour ?? 0;
+  if (schedule.frequency === "daily") return Array.from({ length: 7 }, (_value, day) => (day * 24 + hour) * 60 + minute);
+  return [((schedule.weekday ?? 0) * 24 + hour) * 60 + minute];
+}
+
+/** How far apart two minutes of the week are, going the short way round. */
+function separation(left, right) {
+  const gap = Math.abs(left - right) % minutesInWeek;
+  return Math.min(gap, minutesInWeek - gap);
+}
+
+/**
+ * Put a heavy weekly job where it will not land on top of another one.
+ *
+ * Restore rehearsals were all being created at Monday 03:30, so a server with eighteen apps
+ * downloaded and decompressed eighteen full archives in the same minute - inside the window the
+ * nightly database backup and the off-box mirror already run in. They are weekly jobs with ten
+ * thousand minutes to choose from; there is no reason for them to queue up on one.
+ *
+ * Every candidate in the quiet hours is scored by how far it sits from the nearest thing already
+ * scheduled, and the roomiest wins. Existing schedules are the only thing avoided, which means the
+ * backup at 03:15 and the mirror at 04:15 are avoided for free, without naming them here and
+ * without going stale when the owner moves them.
+ */
+export function chooseQuietSlot({ schedules = [], hours = [1, 2, 3, 4, 5], minutes = [0, 15, 30, 45], preferred = null } = {}) {
+  const taken = schedules.flatMap(occupiedMinutes);
+  const candidates = [];
+  for (let weekday = 0; weekday < 7; weekday += 1) {
+    for (const hour of hours) for (const minute of minutes) candidates.push({ weekday, hour, minute });
+  }
+  // Preferring the requested slot keeps the first one where the owner asked for it, and makes the
+  // choice deterministic rather than dependent on which app happened to be scheduled first.
+  const wanted = preferred ? ((preferred.weekday ?? 0) * 24 + (preferred.hour ?? 0)) * 60 + (preferred.minute ?? 0) : 0;
+  let best = null;
+  for (const candidate of candidates) {
+    const at = ((candidate.weekday * 24) + candidate.hour) * 60 + candidate.minute;
+    // reduce rather than Math.min(...spread): `taken` grows with every hourly schedule, which
+    // occupies a hundred and sixty-eight minutes of the week on its own.
+    const room = taken.reduce((closest, other) => Math.min(closest, separation(at, other)), minutesInWeek);
+    const closeness = separation(at, wanted);
+    if (best === null || room > best.room || (room === best.room && closeness < best.closeness)) best = { candidate, room, closeness };
+  }
+  return { frequency: "weekly", ...best.candidate };
+}
+
 export function createSchedulerService({ store, jobs, registry = defaultRegistry, now = () => new Date() }) {
-  async function create({ operationId, parameters = {}, frequency, minute, hour = null, weekday = null, createdBy }) {
+  async function create({ operationId, parameters = {}, frequency, minute, hour = null, weekday = null, spread = false, createdBy }) {
     const operation = registry.get(operationId);
     if (!operation) throw new Error("Operation is not registered");
     if (operation.readOnly) throw new Error("Read-only operations run on demand; they are not scheduled");
@@ -63,6 +114,11 @@ export function createSchedulerService({ store, jobs, registry = defaultRegistry
     const prepared = typeof jobs.prepareParameters === "function" ? await jobs.prepareParameters(operationId, parameters ?? {}) : parameters ?? {};
     const parameterError = registry.validate(operationId, prepared);
     if (parameterError) throw new Error(parameterError);
+    // `spread` means "somewhere quiet near here" rather than "exactly here": the caller is creating
+    // one of many identical heavy jobs and does not care about the minute, only the night.
+    if (spread && frequency === "weekly") {
+      ({ minute, hour, weekday } = chooseQuietSlot({ schedules: store.listSchedules(), preferred: { weekday, hour, minute } }));
+    }
     const cadenceError = validateCadence({ frequency, minute, hour, weekday });
     if (cadenceError) throw new Error(cadenceError);
     const nextDueAt = computeNextRun({ frequency, minute, hour, weekday }, now()).toISOString();

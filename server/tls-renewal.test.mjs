@@ -14,7 +14,7 @@ describe("shouldRenew", () => {
 });
 
 describe("the renewal check", () => {
-  const provisioned = (notAfter) => ({ provisioned: true, notAfter, names: ["boxpilot.lan", "bigbox"], ipAddresses: ["192.168.50.20"] });
+  const provisioned = (notAfter) => ({ provisioned: true, notAfter, names: ["boxpilot.lan", "homebox"], ipAddresses: ["192.168.50.20"] });
 
   it("does nothing when TLS is not set up", async () => {
     const helper = { request: vi.fn() };
@@ -34,8 +34,8 @@ describe("the renewal check", () => {
     const helper = { request: vi.fn(async () => ({ restartScheduled: true })) };
     const recordAudit = vi.fn();
     const renewal = createTlsRenewal({ helper, store: { listActiveJobs: () => [], recordAudit }, readStatus: async () => provisioned(inDays(10)), now: () => now });
-    expect(await renewal.check()).toMatchObject({ renewed: true, names: ["boxpilot.lan", "bigbox"] });
-    expect(helper.request).toHaveBeenCalledWith("system.web.tls.provision", { names: ["boxpilot.lan", "bigbox"], ipAddresses: ["192.168.50.20"] }, expect.objectContaining({ timeoutMs: expect.any(Number) }));
+    expect(await renewal.check()).toMatchObject({ renewed: true, names: ["boxpilot.lan", "homebox"] });
+    expect(helper.request).toHaveBeenCalledWith("system.web.tls.provision", { names: ["boxpilot.lan", "homebox"], ipAddresses: ["192.168.50.20"] }, expect.objectContaining({ timeoutMs: expect.any(Number) }));
     expect(recordAudit).toHaveBeenCalledWith("tls.renewed", expect.anything());
   });
 

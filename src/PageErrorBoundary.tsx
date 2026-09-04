@@ -12,6 +12,12 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
  * usable while it does.
  */
 interface Props { children: ReactNode; pageName: string; resetKey: string }
+
+/** The shapes browsers give a dynamic import() that could not be fetched - Chrome, Firefox, Safari, and Vite's preload. */
+export function isChunkLoadFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  return /Failed to fetch dynamically imported module|Importing a module script failed|error loading dynamically imported module|Unable to preload CSS|Loading (?:CSS )?chunk .* failed/i.test(message);
+}
 interface State { error: Error | null }
 
 export default class PageErrorBoundary extends Component<Props, State> {
@@ -32,6 +38,25 @@ export default class PageErrorBoundary extends Component<Props, State> {
   render() {
     const { error } = this.state;
     if (!error) return this.props.children;
+    // Every page is its own chunk, fetched when first opened. If BoxPilot was upgraded while this
+    // tab was open, the chunk the shell asks for no longer exists on the server and the import
+    // rejects. That is not a fault in the page, and "try again" cannot help - React remembers a
+    // failed import - so the honest offer is the one that works: reload, and get the new version.
+    if (isChunkLoadFailure(error)) {
+      return (
+        <section className="panel" data-page-error={this.props.pageName} data-page-error-kind="stale-chunk">
+          <header className="panel-header">
+            <div>
+              <strong>BoxPilot was updated while this tab was open</strong>
+              <span>The {this.props.pageName} page belongs to the version that was running when you opened BoxPilot, and that version is gone from the server now. Reloading picks up the new one; nothing on this server is affected.</span>
+            </div>
+          </header>
+          <div className="recovery-actions">
+            <button className="primary-button" type="button" onClick={() => window.location.reload()}>Reload BoxPilot</button>
+          </div>
+        </section>
+      );
+    }
     return (
       <section className="panel" data-page-error={this.props.pageName}>
         <header className="panel-header">

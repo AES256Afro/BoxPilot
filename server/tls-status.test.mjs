@@ -7,8 +7,8 @@ import { fixedRun } from "./exec.mjs";
 
 describe("parsing subject alternative names", () => {
   it("splits DNS names from IP addresses", () => {
-    expect(parseSubjectAltNames("DNS:boxpilot.lan, DNS:bigbox, IP Address:192.168.50.20"))
-      .toEqual({ dnsNames: ["boxpilot.lan", "bigbox"], ipAddresses: ["192.168.50.20"] });
+    expect(parseSubjectAltNames("DNS:boxpilot.lan, DNS:homebox, IP Address:192.168.50.20"))
+      .toEqual({ dnsNames: ["boxpilot.lan", "homebox"], ipAddresses: ["192.168.50.20"] });
     expect(parseSubjectAltNames("")).toEqual({ dnsNames: [], ipAddresses: [] });
   });
 });
@@ -29,13 +29,13 @@ describe("reading the certificate state", () => {
     await fixedRun("openssl", [
       "req", "-x509", "-new", "-nodes", "-key", key, "-days", "10", "-out", crt,
       "-subj", "/CN=boxpilot.lan",
-      "-addext", "subjectAltName=DNS:boxpilot.lan,DNS:bigbox,IP:192.168.50.20",
+      "-addext", "subjectAltName=DNS:boxpilot.lan,DNS:homebox,IP:192.168.50.20",
     ]);
     await writeFile(path.join(dir, "ca.crt"), await fixedRun("openssl", ["x509", "-in", crt]).then((r) => r.stdout));
 
     const status = await readTlsStatus({ dir });
     expect(status.provisioned).toBe(true);
-    expect(status.names).toEqual(expect.arrayContaining(["boxpilot.lan", "bigbox"]));
+    expect(status.names).toEqual(expect.arrayContaining(["boxpilot.lan", "homebox"]));
     expect(status.ipAddresses).toContain("192.168.50.20");
     expect(status.fingerprint).toMatch(/^[0-9A-F:]+$/i);
     expect(status.notAfter).toBeTruthy();

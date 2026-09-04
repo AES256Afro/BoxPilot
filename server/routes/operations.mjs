@@ -18,7 +18,9 @@ export function createOperationsRouter({ state, helper, jobs, prerequisites, rec
   function refuseRead(request, response, operation) {
     const role = request.boxpilotSession?.owner?.role ?? "owner";
     if (operation.minimumRole === "owner" && role !== "owner") { response.status(403).json({ error: "Only the owner can read this", code: "forbidden" }); return true; }
-    if (operation.minimumRole === "operator" && !["owner", "operator"].includes(role)) { response.status(403).json({ error: "Viewers can look at the pages, but not read raw system logs", code: "forbidden" }); return true; }
+    // Name what was refused. This used to say "not read raw system logs" for every operator-gated
+    // read, which is baffling when what you asked for was the contents of a backup.
+    if (operation.minimumRole === "operator" && !["owner", "operator"].includes(role)) { response.status(403).json({ error: `Viewers can look at the pages, but "${operation.title}" reads through the system's own permissions, so it needs an operator`, code: "forbidden" }); return true; }
     if (!operation.elevatedOnly) return false;
     if (role === "viewer") { response.status(403).json({ error: "Viewers can look but not reveal secrets", code: "forbidden" }); return true; }
     const elevatedUntil = request.boxpilotSession.elevatedUntil ? Date.parse(request.boxpilotSession.elevatedUntil) : Number.NaN;

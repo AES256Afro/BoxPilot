@@ -84,3 +84,17 @@ describe("app serve operations", () => {
     await expect(operations["app.serve.inspect"].run({}, { run: down })).resolves.toEqual({ available: false, serves: [] });
   });
 });
+
+describe("who may measure the data folders", () => {
+  const find = (id) => appOperations().find((operation) => operation.id === id);
+
+  it("is not open to viewers", () => {
+    // It reads through root's permissions, so it would hand a viewer the path and size of every
+    // app's data - and each call is a folder walk holding a helper read slot for minutes.
+    expect(find("app.data.usage").minimumRole).toBe("operator");
+  });
+
+  it("changes nothing, so it can never queue behind a deploy", () => {
+    expect(find("app.data.usage").readOnly).toBe(true);
+  });
+});

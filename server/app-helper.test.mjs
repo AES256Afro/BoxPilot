@@ -222,8 +222,11 @@ describe("generic app deployer", () => {
       if (args[0] === "-tzf") {
         listingOptions = options;
         // A backup far larger than any fixed buffer would hold, delivered a line at a time.
-        for (let index = 0; index < 200_000; index += 1) { options.onLine?.(`data/file-${index}`); emitted += 1; }
-        options.onLine?.("compose.yaml");
+        // streamRun always passes the stream name (server/exec.mjs), so the mock must too.
+        for (let index = 0; index < 200_000; index += 1) { options.onLine?.(`data/file-${index}`, "stdout"); emitted += 1; }
+        options.onLine?.("compose.yaml", "stdout");
+        // tar writes warnings to stderr and still exits 0; a warning is not an archive member.
+        options.onLine?.("tar: Ignoring unknown extended header keyword", "stderr");
         return { ok: true, stdout: "", stderr: "" };
       }
       if (args[0] === "-xzOf") return { ok: true, stdout: "services:\n  demo:\n    image: nginx\n", stderr: "" };
@@ -236,7 +239,7 @@ describe("generic app deployer", () => {
     await writeFile(path.join(backupRoot, "demo", "20260101T000000Z.json"), JSON.stringify({ contents: ["compose.yaml", "data"] }));  // no checksum: skip the sha step
 
     const verdict = await apps.verifyAppBackup({ id: "demo", backup: artifact });
-    expect(verdict).toMatchObject({ verified: true, members: 200_001 });
+    expect(verdict).toMatchObject({ verified: true, members: 200_001 });   // the stderr warning is not counted
     // The proof of the fix: the listing was streamed line by line, and no fixed stdout cap was set.
     expect(typeof listingOptions.onLine).toBe("function");
     expect(listingOptions.maxBuffer).toBeUndefined();
@@ -775,6 +778,26 @@ describe("generic app deployer", () => {
     await expect(apps.restoreAppBackupPath({ id: "demo", backup: backupResult.artifact, path: "data/missing.txt" })).rejects.toThrow("is not in");
   });
 
+  it("pulls before reading the image's USER, so a first install can hand over its data folder", async () => {
+    // AuDHDMAP's first install crash-looped on `mkdir /data/attachments` with EACCES. Its manifest
+    // declares no PUID, so the app's user can only come from the image's own USER directive - and
+    // the project is written before anything is pulled, so `image inspect` had nothing to read and
+    // the folder was left owned by root. Every other non-root app answers from PUID and never
+    // reached this path, which is why it stayed hidden until an app arrived without one.
+    const { apps, calls, catalogDirectory } = await setup();
+    await writeFile(path.join(catalogDirectory, "byuser.yaml"), [
+      "schemaVersion: 2", "id: byuser", "name: ByUser", "category: T", "description: d",
+      "image:", "  reference: ghcr.io/example/byuser:1.0",
+      "ports:", "  - id: web", "    container: 3010", "    host: 3010",
+      "volumes:", "  - id: data", "    container: /data", "    path: data",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n");
+    await apps.install({ id: "byuser" });
+    // `image inspect` cannot answer for an image that is not here yet, so the deployer fetches it
+    // rather than silently giving up on the ownership and leaving the folder to root.
+    expect(calls).toContainEqual("pull ghcr.io/example/byuser:1.0");
+  });
+
   it("remembers what an update moved from, and can put the app and its sidecar back", async () => {
     // The update that succeeds and turns out wrong two days later. The failure path already knows
     // how to redeploy a pinned image; this is the same move made deliberately, and it has to bring
@@ -816,6 +839,96 @@ describe("generic app deployer", () => {
     stored = JSON.parse(await readFile(path.join(catalogRoot, "pair", "boxpilot.json"), "utf8"));
     expect(stored.updateHistory[0]).toMatchObject({ rolledBack: true, to: { pair: "app:1.0" } });
     expect(stored.pinnedRollback).toBe(true);
+  });
+
+  it("steps back more than one release, and forgets the versions it stepped past", async () => {
+    const { apps, catalogRoot, catalogDirectory } = await setup();
+    const manifest = (image) => [
+      "schemaVersion: 2", "id: steps", "name: Steps", "category: T", "description: d",
+      `image:`, `  reference: ${image}`,
+      "ports:", "  - id: web", "    container: 80", "    host: 8080",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n";
+    const publish = async (image) => {
+      await rm(path.join(catalogDirectory, "steps.yaml"), { force: true });
+      await writeFile(path.join(catalogDirectory, "steps.yaml"), manifest(image));
+    };
+
+    await publish("app:1.0"); await apps.install({ id: "steps" });
+    await publish("app:2.0.0"); await apps.update({ id: "steps" });
+    await publish("app:3.0.0.0"); await apps.update({ id: "steps" });
+
+    let stored = JSON.parse(await readFile(path.join(catalogRoot, "steps", "boxpilot.json"), "utf8"));
+    expect(stored.updateHistory.map((entry) => entry.from.steps)).toEqual(["app:2.0.0", "app:1.0"]);
+
+    // Skip straight back to 1.0 by naming the older entry, not the most recent one.
+    const older = stored.updateHistory[1];
+    const back = await apps.rollbackApp({ id: "steps", at: older.at });
+    expect(back.restored).toEqual({ steps: "app:1.0" });
+    expect(await readFile(path.join(catalogRoot, "steps", "compose.yaml"), "utf8")).toContain("app:1.0");
+
+    // The 2.0 entry described a version it is no longer on, so it is not still offered.
+    stored = JSON.parse(await readFile(path.join(catalogRoot, "steps", "boxpilot.json"), "utf8"));
+    expect(stored.updateHistory[0]).toMatchObject({ rolledBack: true, to: { steps: "app:1.0" } });
+    expect(stored.updateHistory.some((entry) => entry.from?.steps === "app:2.0.0")).toBe(false);
+
+    await expect(apps.rollbackApp({ id: "steps", at: "2020-01-01T00:00:00.000Z" })).rejects.toThrow("no recorded version");
+  });
+
+  it("does not move forward when asked to go back a second time", async () => {
+    // history[0] after a rollback describes the version just left behind. Choosing it would
+    // redeploy exactly what the owner was escaping and call it a success.
+    const { apps, catalogRoot, catalogDirectory } = await setup();
+    const manifest = (image) => [
+      "schemaVersion: 2", "id: pong", "name: Pong", "category: T", "description: d",
+      `image:`, `  reference: ${image}`,
+      "ports:", "  - id: web", "    container: 80", "    host: 8080",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n";
+    const publish = async (image) => {
+      await rm(path.join(catalogDirectory, "pong.yaml"), { force: true });
+      await writeFile(path.join(catalogDirectory, "pong.yaml"), manifest(image));
+    };
+    await publish("app:1.0"); await apps.install({ id: "pong" });
+    await publish("app:2.0.0"); await apps.update({ id: "pong" });
+
+    expect((await apps.rollbackApp({ id: "pong" })).restored).toEqual({ pong: "app:1.0" });
+    expect(await readFile(path.join(catalogRoot, "pong", "compose.yaml"), "utf8")).toContain("app:1.0");
+
+    // Already on the oldest version it remembers: refuse, rather than redeploying 2.0.0.
+    await expect(apps.rollbackApp({ id: "pong" })).rejects.toThrow("nothing to go back to");
+    expect(await readFile(path.join(catalogRoot, "pong", "compose.yaml"), "utf8")).toContain("app:1.0");
+  });
+
+  it("refuses a recorded version that names a service the app no longer has", async () => {
+    // An update that moved only a sidecar, and a later release that dropped that sidecar. Pinning
+    // nothing and reporting success would leave the app on the release being escaped.
+    const { apps, catalogRoot, catalogDirectory } = await setup();
+    const withSidecar = [
+      "schemaVersion: 2", "id: shed", "name: Shed", "category: T", "description: d",
+      "image:", "  reference: app:1.0",
+      "ports:", "  - id: web", "    container: 80", "    host: 8080",
+      "sidecars:", "  - id: cache", "    image: redis:6",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n";
+    const sidecarMoved = withSidecar.replace("redis:6", "redis:7");
+    const sidecarGone = [
+      "schemaVersion: 2", "id: shed", "name: Shed", "category: T", "description: d",
+      "image:", "  reference: app:1.0",
+      "ports:", "  - id: web", "    container: 80", "    host: 8080",
+      "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+    ].join("\n") + "\n";
+    const publish = async (text) => {
+      await rm(path.join(catalogDirectory, "shed.yaml"), { force: true });
+      await writeFile(path.join(catalogDirectory, "shed.yaml"), text);
+    };
+    await publish(withSidecar); await apps.install({ id: "shed" });
+    await publish(sidecarMoved); await apps.update({ id: "shed" });     // only the sidecar moved
+    let stored = JSON.parse(await readFile(path.join(catalogRoot, "shed", "boxpilot.json"), "utf8"));
+    expect(stored.updateHistory[0].from).toEqual({ cache: "redis:6" });
+
+    await publish(sidecarGone);                                        // the catalog drops the sidecar
+    await expect(apps.rollbackApp({ id: "shed" })).rejects.toThrow("no recorded version that still matches");
   });
 
   it("refuses to roll back an app that has never been updated", async () => {
@@ -999,5 +1112,110 @@ describe("inspecting the whole catalog", () => {
     const inspects = calls.filter((call) => call.startsWith("inspect "));
     expect(inspects).toHaveLength(1);
     expect(inspects[0].split(" ").filter((argument) => argument.startsWith("bp-"))).toEqual(["bp-demo"]);
+  });
+});
+
+describe("measuring what each app's data folders hold", () => {
+  /** A manifest with a data folder on a drive and a config folder that is not worth walking. */
+  const withData = "schemaVersion: 2\nid: grabber\nname: Grabber\ncategory: Downloads\ndescription: d\nimage:\n  reference: x/grabber:1\nvolumes:\n  - id: downloads\n    label: Downloads\n    container: /downloads\n    hostPath: /mnt/the-dump/torrents\n    configurable: true\n  - id: media\n    label: Media\n    container: /media\n    hostPath: /mnt/the-dump/media\n    readOnly: true\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n";
+
+  const mounts = { ok: true, stdout: JSON.stringify({ filesystems: [{ target: "/" }, { target: "/mnt/the-dump" }] }), stderr: "" };
+
+  it("measures the installed app's writable data folders and says which drive they are on", async () => {
+    const seen = [];
+    const runCommand = vi.fn(async (binary, args) => {
+      if (binary === "findmnt") return mounts;
+      if (binary === "du") { seen.push(args); return { ok: true, stdout: `1288490188800\t${args[1]}\n`, stderr: "" }; }
+      return { ok: false, stdout: "", stderr: "" };
+    });
+    const context = await setup({ runCommand });
+    await writeFile(path.join(context.catalogDirectory, "grabber.yaml"), withData);
+    await context.apps.install({ id: "grabber" });
+
+    const usage = await context.apps.dataUsage();
+    const folder = usage.entries.find((entry) => entry.appId === "grabber");
+    expect(folder).toMatchObject({ path: "/mnt/the-dump/torrents", mount: "/mnt/the-dump", bytes: 1288490188800 });
+    // -x so a bind mount underneath belongs to whoever owns it, not to whatever sits above it.
+    expect(seen).toContainEqual(["-sbx", "/mnt/the-dump/torrents"]);
+    // A read-only mount is somebody else's data; walking it would blame this app for it.
+    expect(usage.entries.some((entry) => entry.path === "/mnt/the-dump/media")).toBe(false);
+  });
+
+  it("ignores a total du printed alongside a failure", async () => {
+    // du that could not read part of a tree exits non-zero and still prints a total - one missing
+    // everything it could not see. On this server that is "0", which would read as the folder
+    // having emptied overnight.
+    const runCommand = vi.fn(async (binary) => {
+      if (binary === "findmnt") return mounts;
+      if (binary === "du") return { ok: false, code: 1, stdout: "0\t/mnt/the-dump/torrents\n", stderr: "du: cannot read directory" };
+      return { ok: false, stdout: "", stderr: "" };
+    });
+    const context = await setup({ runCommand });
+    await writeFile(path.join(context.catalogDirectory, "grabber.yaml"), withData);
+    await context.apps.install({ id: "grabber" });
+    const usage = await context.apps.dataUsage();
+    expect(usage.entries.find((entry) => entry.appId === "grabber").bytes).toBeNull();
+  });
+
+  it("records a folder it could not measure as unmeasured, never as empty", async () => {
+    // du on a cold 15 TB library can outlast its timeout. Writing that down as zero would show the
+    // owner a collapse that did not happen, and a fictional recovery the next night.
+    const runCommand = vi.fn(async (binary) => {
+      if (binary === "findmnt") return mounts;
+      if (binary === "du") throw new Error("timed out");
+      return { ok: false, stdout: "", stderr: "" };
+    });
+    const context = await setup({ runCommand });
+    await writeFile(path.join(context.catalogDirectory, "grabber.yaml"), withData);
+    await context.apps.install({ id: "grabber" });
+
+    const usage = await context.apps.dataUsage();
+    expect(usage.entries.find((entry) => entry.appId === "grabber").bytes).toBeNull();
+  });
+
+  it("measures nothing for an app that is not installed", async () => {
+    const runCommand = vi.fn(async (binary) => (binary === "findmnt" ? mounts : { ok: false, stdout: "", stderr: "" }));
+    const context = await setup({ runCommand });
+    await writeFile(path.join(context.catalogDirectory, "grabber.yaml"), withData);
+    const usage = await context.apps.dataUsage();
+    expect(usage.entries.some((entry) => entry.appId === "grabber")).toBe(false);
+  });
+
+  it("follows the folder the owner chose rather than the manifest's default", async () => {
+    const seen = [];
+    const runCommand = vi.fn(async (binary, args) => {
+      if (binary === "findmnt") return mounts;
+      if (binary === "du") { seen.push(args[1]); return { ok: true, stdout: "42\tx\n", stderr: "" }; }
+      return { ok: false, stdout: "", stderr: "" };
+    });
+    const context = await setup({ runCommand });
+    await writeFile(path.join(context.catalogDirectory, "grabber.yaml"), withData);
+    await context.apps.install({ id: "grabber", values: { volumes: { downloads: "/mnt/the-dump/elsewhere" } } });
+    await context.apps.dataUsage();
+    expect(seen).toContain("/mnt/the-dump/elsewhere");
+  });
+});
+
+describe("keeping the data sweep inside its budget", () => {
+  const twoFolders = "schemaVersion: 2\nid: pair\nname: Pair\ncategory: Downloads\ndescription: d\nimage:\n  reference: x/pair:1\nvolumes:\n  - id: one\n    label: One\n    container: /one\n    hostPath: /mnt/drive/one\n  - id: two\n    label: Two\n    container: /two\n    hostPath: /mnt/drive/two\nhealth:\n  kind: running\n  stableSeconds: 1\n  timeoutSeconds: 10\n";
+
+  it("keeps what it measured and marks the rest unmeasured rather than losing the night's work", async () => {
+    // The first folder eats the whole budget. The second must come back unmeasured, and the first
+    // must survive - throwing both away after spending the time is the outcome worth avoiding.
+    let measured = 0;
+    let advanceClock = () => {};
+    const runCommand = async (binary, args) => {
+      if (binary === "findmnt") return { ok: true, stdout: JSON.stringify({ filesystems: [{ target: "/mnt/drive" }] }), stderr: "" };
+      if (binary === "du") { measured += 1; advanceClock(30 * 60_000); return { ok: true, stdout: `77\t${args[1]}\n`, stderr: "" }; }
+      return { ok: false, stdout: "", stderr: "" };
+    };
+    const context = await setup({ runCommand });
+    advanceClock = context.advance;
+    await writeFile(path.join(context.catalogDirectory, "pair.yaml"), twoFolders);
+    await context.apps.install({ id: "pair" });
+
+    const usage = await context.apps.dataUsage({ budgetMs: 60_000 });
+    expect(measured).toBe(1); // the second was never started
+    expect(usage.entries.map((entry) => entry.bytes)).toEqual([77, null]);
   });
 });

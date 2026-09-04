@@ -80,29 +80,25 @@ chown -R root:root "$STAGING"
 chmod 0755 "$STAGING"
 
 # 3. Swap
-HAD_PREVIOUS=0
-if [ -d "$INSTALL_DIR" ]; then
-  OLD_VERSION="$("$NODE_BIN" -p 'try { require(process.argv[1]).version } catch { "unknown" }' "${INSTALL_DIR}/package.json" 2>/dev/null || echo unknown)"
-  log "stopping services and replacing ${INSTALL_DIR} (${OLD_VERSION} -> ${NEW_VERSION})"
-  systemctl stop boxpilot.service 2>/dev/null || true
-  mv "$INSTALL_DIR" "$PREVIOUS"; HAD_PREVIOUS=1
-else
-  log "no existing ${INSTALL_DIR}; installing fresh"
-fi
-mv "$STAGING" "$INSTALL_DIR"
-
+#
 # Units this run replaced, so a rollback can put the old ones back with the old tree.
 REPLACED_UNITS=""
 
+# Put the old BoxPilot back. Safe to fire at any point from the moment the service is stopped: if
+# the swap has not happened yet, the current tree IS the old one and is left where it is; if the
+# old tree has been moved aside, it is moved back; if the new tree is in place, it is kept as
+# evidence and the old one restored.
 rollback() {
   trap - EXIT
   log "rolling back to previous tree"
   systemctl stop boxpilot.service 2>/dev/null || true
-  if [ -d "$INSTALL_DIR" ]; then
-    rm -rf "${INSTALL_DIR}.failed.${STAMP}"
-    mv "$INSTALL_DIR" "${INSTALL_DIR}.failed.${STAMP}"
+  if [ -d "$PREVIOUS" ]; then
+    if [ -d "$INSTALL_DIR" ]; then
+      rm -rf "${INSTALL_DIR}.failed.${STAMP}"
+      mv "$INSTALL_DIR" "${INSTALL_DIR}.failed.${STAMP}"
+    fi
+    mv "$PREVIOUS" "$INSTALL_DIR"
   fi
-  [ -d "$PREVIOUS" ] && mv "$PREVIOUS" "$INSTALL_DIR"
   # Old code under new unit files would keep failing for the same reason the upgrade did.
   for name in $REPLACED_UNITS; do
     [ -f "/etc/systemd/system/${name}.pre-${STAMP}" ] || continue
@@ -112,12 +108,29 @@ rollback() {
   systemctl daemon-reload 2>/dev/null || true
   systemctl restart boxpilot-helper.service 2>/dev/null || true
   systemctl restart boxpilot.service 2>/dev/null || true
-  fail "upgrade failed; previous tree restored (failed tree kept at ${INSTALL_DIR}.failed.${STAMP})"
+  if [ -d "${INSTALL_DIR}.failed.${STAMP}" ]; then
+    fail "upgrade failed; previous tree restored (failed tree kept at ${INSTALL_DIR}.failed.${STAMP})"
+  fi
+  fail "upgrade failed before the new tree was in place; the previous BoxPilot was left as it was"
 }
 
-# From here until the health check passes, any failure must put the old BoxPilot back rather than
-# leave the service stopped. Without this a read-only /etc or a full disk stops BoxPilot for good.
-if [ "$HAD_PREVIOUS" -eq 1 ]; then trap 'rollback' EXIT; fi
+HAD_PREVIOUS=0
+if [ -d "$INSTALL_DIR" ]; then
+  OLD_VERSION="$("$NODE_BIN" -p 'try { require(process.argv[1]).version } catch { "unknown" }' "${INSTALL_DIR}/package.json" 2>/dev/null || echo unknown)"
+  log "stopping services and replacing ${INSTALL_DIR} (${OLD_VERSION} -> ${NEW_VERSION})"
+  HAD_PREVIOUS=1
+  # Armed BEFORE the service is stopped and the tree moved, not after. It used to be armed only
+  # once the new tree was in place, which left a window - the old tree moved aside, the new one not
+  # yet moved in - where a failure exited with no /opt/boxpilot at all and the service stopped,
+  # and nothing to put it back. From here until the health check passes, any failure must restore
+  # the old BoxPilot rather than leave the box without one.
+  trap 'rollback' EXIT
+  systemctl stop boxpilot.service 2>/dev/null || true
+  mv "$INSTALL_DIR" "$PREVIOUS"
+else
+  log "no existing ${INSTALL_DIR}; installing fresh"
+fi
+mv "$STAGING" "$INSTALL_DIR"
 
 # 4. Units (only when changed; keep a copy of the old one)
 UNITS_CHANGED=0

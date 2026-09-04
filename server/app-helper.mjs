@@ -14,6 +14,7 @@ import { createCatalogService } from "./catalog/index.mjs";
 import { parseExit, parseForwardedPort } from "./vpn-exit.mjs";
 import { bindingFor, deployedImages, deviceMatchesPattern, renderCompose, projectNameFor, resolveDevices } from "./catalog/compose.mjs";
 import { isDeniedHostPath } from "./catalog/schema.mjs";
+import { measurableFolders, mountFor } from "./app-data-growth.mjs";
 import { resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
 import { profileConnectionEnv, profileSecurityEnv } from "./vpn-profile.mjs";
 
@@ -300,8 +301,21 @@ export function createAppHelper({
   async function imageDeclaredOwner(reference, { mayRun = true } = {}) {
     if (declaredOwnerCache.has(reference)) return declaredOwnerCache.get(reference);
     let resolved = null;
-    const inspected = await docker(["image", "inspect", reference, "--format", "{{.Config.User}}"], { timeout: 30_000 });
-    const declared = inspected.ok ? inspected.stdout.trim() : "";
+    let inspected = await docker(["image", "inspect", reference, "--format", "{{.Config.User}}"], { timeout: 30_000 });
+    // On a first install the image is not here yet: the project is written before anything is
+    // pulled, so inspect finds nothing and the app's user cannot be read. Every app that declares
+    // PUID answers from its manifest and never reaches this, which is why it stayed hidden until an
+    // app arrived whose only statement of identity is the image's own USER. Without the pull, its
+    // data folder is left owned by root and the container crash-loops on its first mkdir.
+    if (!inspected.ok && mayRun) {
+      await docker(["pull", reference], { timeout: 15 * 60_000 }).catch(() => null);
+      inspected = await docker(["image", "inspect", reference, "--format", "{{.Config.User}}"], { timeout: 30_000 });
+    }
+    // Never cache "could not read it". The cache is keyed on the reference alone, so a read-only
+    // catalog listing that ran before the image was pulled would otherwise store null and the next
+    // deploy would take that cache hit instead of pulling — re-arming the very bug the pull fixes.
+    if (!inspected.ok) return null;
+    const declared = inspected.stdout.trim();
     if (declared && declared !== "root" && declared !== "0") {
       const [rawUser, rawGroup] = declared.split(":");
       const numericUid = Number.parseInt(rawUser, 10);
@@ -668,12 +682,25 @@ export function createAppHelper({
    * previous version and nothing else. Catalog references are version tags, never `latest`, so the
    * old image is re-pullable even after an unused-image prune has removed it locally.
    */
-  async function rollbackApp({ id, devices = null }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
+  async function rollbackApp({ id, at = null, devices = null }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
-    const last = (state.updateHistory ?? [])[0];
+    const history = state.updateHistory ?? [];
+    // `at` names one of this app's own recorded updates, so stepping back several releases is still
+    // only ever a version it actually ran. Without it, take the newest *update* — never a rollback.
+    // After a rollback, history[0] describes the version just left behind, so choosing it would
+    // redeploy exactly what the owner was escaping and report that as success.
+    const last = at ? history.find((entry) => entry.at === at) : history.find((entry) => !entry.rolledBack);
+    if (at && !last) throw new Error(`${manifest.name} has no recorded version from ${at} to go back to`);
     if (!last || !Object.keys(last.from ?? {}).length) throw new Error(`${manifest.name} has not been updated since it was installed, so there is nothing to go back to`);
+
+    // Only services this manifest still builds can be pinned. A recorded version naming a sidecar
+    // the catalog has since dropped would otherwise redeploy the current images and report the old
+    // ones restored, leaving the app on the release being escaped with a success message.
+    const restoreTo = Object.fromEntries(Object.entries(last.from).filter(([service, reference]) =>
+      typeof reference === "string" && reference && (service === id || (manifest.sidecars ?? []).some((sidecar) => sidecar.id === service))));
+    if (!Object.keys(restoreTo).length) throw new Error(`${manifest.name} has no recorded version that still matches how it is built today, so there is nothing to go back to`);
 
     const { values, errors } = resolveValues(manifest, sanitizeStoredValues(manifest, state.values ?? {}));
     if (errors.length) throw new Error(`Stored settings no longer match the manifest: ${errors.join("; ")}`);
@@ -681,11 +708,15 @@ export function createAppHelper({
     // database is how a rollback reports success and leaves the app unable to read its own data.
     const pinned = {
       ...manifest,
-      ...(last.from[id] ? { image: { ...manifest.image, reference: last.from[id] } } : {}),
-      sidecars: (manifest.sidecars ?? []).map((sidecar) => (last.from[sidecar.id] ? { ...sidecar, image: last.from[sidecar.id] } : sidecar)),
+      ...(restoreTo[id] ? { image: { ...manifest.image, reference: restoreTo[id] } } : {}),
+      sidecars: (manifest.sidecars ?? []).map((sidecar) => (restoreTo[sidecar.id] ? { ...sidecar, image: restoreTo[sidecar.id] } : sidecar)),
     };
     const saved = takeCheckpoint ? await checkpoint({ id, reason: "going back a version" }, { progress }) : null;
-    const restoring = Object.entries(last.from).map(([service, reference]) => `${service} to ${reference}`).join(", ");
+    // What is deployed right now, which is what this rollback moves away from. Stepping back several
+    // releases means the entry being undone describes an older hop, so its `to` is not where the app
+    // actually is — reading the deployed file is the only answer that stays true at any depth.
+    const runningBefore = deployedImages(await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => ""));
+    const restoring = Object.entries(restoreTo).map(([service, reference]) => `${service} to ${reference}`).join(", ");
     progress?.(`Putting ${manifest.name} back: ${restoring}`, "stdout");
     await writeProject(pinned, values, { existingEnv: await readEnv(id), devices });
     // Pull explicitly: the previous image is unused after an update, so a prune may have removed it.
@@ -695,16 +726,19 @@ export function createAppHelper({
     if (!up.ok) throw new Error(`${manifest.name} would not start on the previous version: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
     const status = await waitHealthy(manifest, progress);
     // The rollback is itself an entry, so going back twice steps back twice rather than ping-ponging.
-    const entry = { at: clock().toISOString(), from: last.to ?? {}, to: last.from, rolledBack: true };
+    const movedFrom = Object.fromEntries(Object.keys(restoreTo).map((service) => [service, runningBefore[service] ?? last.to?.[service] ?? null]));
+    const entry = { at: clock().toISOString(), from: movedFrom, to: restoreTo, rolledBack: true };
     await writeState(id, {
       ...state,
       updatedAt: clock().toISOString(),
-      image: { reference: last.from[id] ?? state.image?.reference ?? null, id: status.image },
+      image: { reference: restoreTo[id] ?? state.image?.reference ?? null, id: status.image },
       pinnedRollback: true,
-      updateHistory: [entry, ...(state.updateHistory ?? []).slice(1)].slice(0, updateHistoryLimit),
+      // Entries newer than the one undone describe versions this app is no longer on, so they are
+      // dropped rather than left ahead of the current state where "go back" would offer them again.
+      updateHistory: [entry, ...history.slice(history.indexOf(last) + 1)].slice(0, updateHistoryLimit),
     });
-    progress?.(`${manifest.name} is back on ${last.from[id] ?? "its previous version"}`, "stdout");
-    return { rolledBack: true, id, restored: last.from, from: last.to ?? {}, checkpoint: saved };
+    progress?.(`${manifest.name} is back on ${restoreTo[id] ?? "its previous version"}`, "stdout");
+    return { rolledBack: true, id, restored: restoreTo, from: movedFrom, checkpoint: saved };
   }
 
   async function reconfigure({ id, values: rawValues = {}, devices = null }, { progress = null, checkpoint: takeCheckpoint = true } = {}) {
@@ -1009,7 +1043,7 @@ export function createAppHelper({
     return address;
   }
 
-  /** This server's tailnet machine name (bigbox.tail...ts.net), or null without Tailscale. */
+  /** This server's tailnet machine name (homebox.tail...ts.net), or null without Tailscale. */
   let tailnetDnsNameCache;
   async function tailnetDnsName() {
     if (tailnetDnsNameCache !== undefined) return tailnetDnsNameCache;
@@ -1317,7 +1351,8 @@ export function createAppHelper({
     let memberCount = 0;
     const listed = await runCommand(tarBinary, ["-tzf", artifact], {
       timeout: 60 * 60_000,
-      onLine: (line) => {
+      onLine: (line, stream) => {
+        if (stream !== "stdout") return;   // tar warns on stderr; a warning is not an archive member
         const name = String(line ?? "").trim();
         if (!name) return;
         memberCount += 1;
@@ -1587,5 +1622,61 @@ export function createAppHelper({
     return { applications: results };
   }
 
-  return { syncHomepage, inspect, reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  /**
+   * How much disk each installed app's data folders are holding (M23.1).
+   *
+   * The forecast can already say a drive is filling; this is what says which app is filling it. The
+   * paths are derived here from the manifests and the stored values, never taken from the request,
+   * so this cannot be pointed at somewhere it should not look.
+   *
+   * `du` walks every inode under a folder, which on a media library is slow and, worse, unbounded.
+   * Each folder therefore gets its own timeout and they are measured one at a time: a nightly
+   * reading that misses one folder is fine, a nightly reading that saturates the disk is not. A
+   * folder that could not be measured comes back as null rather than zero, because "we did not
+   * look" and "it is empty" must not be recorded as the same thing.
+   */
+  async function dataUsage({ timeoutMsPerFolder = 4 * 60_000, budgetMs = 25 * 60_000 } = {}) {
+    // Twenty-five folders each allowed four minutes is longer than the operation's own budget, so
+    // without a deadline a slow night ends with the connection timing out and every reading thrown
+    // away after doing all of the work. Folders past the deadline come back unmeasured instead,
+    // which the history already knows how to skip, and the ones that were measured are kept.
+    const deadline = clock().getTime() + budgetMs;
+    const applications = await inspect({});
+    const { manifests } = await catalog.all();
+    const byId = new Map(manifests.map((manifest) => [manifest.id, manifest]));
+    // The mount points that exist, so each folder can be attributed to the drive it sits on.
+    const listed = await runCommand("findmnt", ["--json", "--list", "--output", "TARGET"], { timeout: 15_000 }).catch(() => null);
+    let mounts = [];
+    try { mounts = JSON.parse(listed?.stdout ?? "{}").filesystems?.map((row) => row.target) ?? []; } catch { mounts = []; }
+
+    const entries = [];
+    for (const application of applications.applications ?? []) {
+      const manifest = byId.get(application.id);
+      if (!manifest) continue;
+      for (const folder of measurableFolders({ manifest, live: application }, { directory: dirFor(manifest.id) })) {
+        // -s one total, -b in bytes, -x without crossing into another filesystem: a bind mount
+        // below a data folder belongs to whatever owns it, not to the app that happens to sit above.
+        const remaining = deadline - clock().getTime();
+        const measured = remaining <= 0 ? null
+          : await runCommand("du", ["-sbx", folder.path], { timeout: Math.min(timeoutMsPerFolder, remaining) }).catch(() => null);
+        // Only a clean exit counts. du that hit a subtree it could not read exits non-zero and
+        // still prints a total - a total missing everything it could not see. Measured on this
+        // server: an unreadable folder yields "0" and exit 1. Reading that number would record the
+        // folder as having emptied overnight, which is why the exit code is checked and not just
+        // the output.
+        const bytes = measured?.ok ? Number.parseInt(measured.stdout.trim().split(/\s+/)[0], 10) : NaN;
+        entries.push({
+          key: `${folder.appId}:${folder.path}`,
+          appId: folder.appId,
+          label: folder.label,
+          path: folder.path,
+          mount: mountFor(folder.path, mounts),
+          bytes: Number.isFinite(bytes) ? bytes : null,
+        });
+      }
+    }
+    return { measuredAt: clock().toISOString(), entries };
+  }
+
+  return { syncHomepage, inspect, dataUsage, reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

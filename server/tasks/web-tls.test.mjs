@@ -8,7 +8,7 @@ import { fixedRun } from "../exec.mjs";
 describe("name and address validation", () => {
   it("accepts real DNS names and IPv4 addresses, rejects the rest", () => {
     expect(isDnsName("boxpilot.lan")).toBe(true);
-    expect(isDnsName("bigbox")).toBe(true);
+    expect(isDnsName("homebox")).toBe(true);
     expect(isDnsName("a.b.c.example")).toBe(true);
     expect(isDnsName("bad_name")).toBe(false);
     expect(isDnsName("-nope.lan")).toBe(false);
@@ -20,8 +20,8 @@ describe("name and address validation", () => {
 
 describe("the leaf extension file", () => {
   it("lists every name and address as a SAN and marks a server, non-CA certificate", () => {
-    const text = buildExtFile({ dnsNames: ["boxpilot.lan", "bigbox"], ipAddresses: ["192.168.50.20"] });
-    expect(text).toContain("subjectAltName = DNS:boxpilot.lan, DNS:bigbox, IP:192.168.50.20");
+    const text = buildExtFile({ dnsNames: ["boxpilot.lan", "homebox"], ipAddresses: ["192.168.50.20"] });
+    expect(text).toContain("subjectAltName = DNS:boxpilot.lan, DNS:homebox, IP:192.168.50.20");
     expect(text).toContain("basicConstraints = CA:FALSE");
     expect(text).toContain("extendedKeyUsage = serverAuth");
   });
@@ -55,10 +55,10 @@ describe("provisioning against a mocked host", () => {
     const run = vi.fn(async () => ({ ok: true, stdout: "sha256 Fingerprint=11:22\nnotAfter=Jan  1 00:00:00 2027 GMT", stderr: "" }));
     const files = mockFiles({ "/etc/boxpilot/boxpilot.env": "BOXPILOT_HOST=0.0.0.0\n" });
     const result = await webTlsProvision(
-      { names: ["boxpilot.lan", "bigbox"], ipAddresses: ["192.168.50.20"], port: 8443 },
+      { names: ["boxpilot.lan", "homebox"], ipAddresses: ["192.168.50.20"], port: 8443 },
       { run, files, dir: "/etc/boxpilot/tls", envPath: "/etc/boxpilot/boxpilot.env" },
     );
-    expect(result).toMatchObject({ names: ["boxpilot.lan", "bigbox"], port: 8443, restartScheduled: true });
+    expect(result).toMatchObject({ names: ["boxpilot.lan", "homebox"], port: 8443, restartScheduled: true });
 
     const calls = run.mock.calls.map(([binary, args]) => `${binary} ${(args ?? []).join(" ")}`);
     // The CA was generated and self-signed, then a leaf key, CSR and signature.
@@ -115,7 +115,7 @@ describe("provisioning end to end with real openssl", () => {
     const files = { readFile, writeFile, mkdir, chmod, rm };
 
     const result = await webTlsProvision(
-      { names: ["boxpilot.lan", "bigbox"], ipAddresses: ["192.168.50.20"], port: 8443 },
+      { names: ["boxpilot.lan", "homebox"], ipAddresses: ["192.168.50.20"], port: 8443 },
       { run, files, dir, envPath },
     );
     expect(result.leafFingerprint).toMatch(/^[0-9A-F:]+$/i);
@@ -129,7 +129,7 @@ describe("provisioning end to end with real openssl", () => {
     // The SANs made it into the certificate.
     const dump = await fixedRun("openssl", ["x509", "-in", path.join(dir, "leaf.crt"), "-noout", "-text"]);
     expect(dump.stdout).toContain("DNS:boxpilot.lan");
-    expect(dump.stdout).toContain("DNS:bigbox");
+    expect(dump.stdout).toContain("DNS:homebox");
     expect(dump.stdout).toContain("IP Address:192.168.50.20");
 
     // The temporary CSR and ext file are cleaned up; keys and certs remain.

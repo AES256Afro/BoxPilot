@@ -1,6 +1,6 @@
 {
   "name": "boxpilot",
-  "version": "1.99.0",
+  "version": "1.110.2",
   "private": true,
   "description": "Point-and-click setup and management for an Ubuntu home server.",
   "type": "module",
@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "tsc -b && vite build && node scripts/boxpilot-web-dist-permissions.mjs",
+    "build": "tsc -b && vite build && node scripts/precompress-assets.mjs && node scripts/boxpilot-web-dist-permissions.mjs",
     "doctor": "sh scripts/boxpilot-doctor.sh",
     "helper": "node server/helper-server.mjs",
     "agent": "node scripts/boxpilot-agent.mjs",
@@ -23,7 +23,8 @@
     "demo": "node scripts/boxpilot-demo.mjs",
     "demo:screenshots": "node scripts/demo-screenshots.mjs",
     "version": "node scripts/sync-version.mjs && git add docker-compose.yml README.md",
-    "demo:sweep": "node scripts/demo-sweep.mjs"
+    "demo:sweep": "node scripts/demo-sweep.mjs",
+    "demo:publish": "npm run build && node scripts/demo-assets.mjs && node scripts/demo-bundle.mjs && cp demo-site/demo-data.json demo-site/public/demo-data.json"
   },
   "dependencies": {
     "express": "5.2.1",
