@@ -4,7 +4,7 @@
  * web service can tail it and stream it to the browser. The web service persists and removes the
  * file when the job finishes.
  */
-import { appendFile, chown, mkdir, open, rm, stat } from "node:fs/promises";
+import { appendFile, chmod, chown, mkdir, open, rm, stat } from "node:fs/promises";
 import path from "node:path";
 
 export const defaultJobLogDirectory = process.env.BOXPILOT_JOB_LOG_DIRECTORY ?? "/run/boxpilot/logs";
@@ -27,6 +27,13 @@ export function createJobLogWriter({ jobId, directory = defaultJobLogDirectory, 
     const handle = await open(target, "a", 0o640);
     await handle.close();
     if (gid !== null) await chown(target, 0, gid).catch(() => {});
+    // The modes above are requests, and the process umask edits them: the helper runs with
+    // UMask=0077, which turned 0640 into 0600 and 0750 into 0700, and the web service - a member
+    // of the group, never root - could not read a log the helper wrote. Every job the helper ran
+    // itself (installs, backups, restores) ended "recorded no output" while the file sat there,
+    // full, until the next restart. chmod is not subject to the umask.
+    await chmod(directory, 0o750).catch(() => {});
+    await chmod(target, 0o640).catch(() => {});
     try { bytes = (await stat(target)).size; } catch { bytes = 0; }
   }
   async function append(line, stream = "stdout") {

@@ -206,3 +206,14 @@ describe("reclaiming", () => {
     expect(removed).not.toContain("jellyfin/jellyfin:10.11.11");
   });
 });
+
+
+describe("where housekeeping looks for job logs", () => {
+  it("is the directory the writer actually uses, not a second copy of the path", async () => {
+    const { defaultJobLogDirectory } = await import("./job-log.mjs");
+    const source = await import("node:fs/promises").then((fs) => fs.readFile("server/housekeeping.mjs", "utf8"));   // vitest runs from the repo root
+    expect(source).toContain("defaultJobLogDirectory");
+    expect(source).not.toContain("/var/lib/boxpilot/job-logs");
+    expect(defaultJobLogDirectory).toBe("/run/boxpilot/logs");
+  });
+});

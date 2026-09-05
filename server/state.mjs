@@ -1513,8 +1513,8 @@ export function createStateStore({
   }
 
   function recoverInterruptedJobs() {
-    const interrupted = database.prepare("SELECT id FROM jobs WHERE state IN ('applying', 'verifying')").all();
-    if (!interrupted.length) return 0;
+    const interrupted = database.prepare("SELECT id, title FROM jobs WHERE state IN ('applying', 'verifying')").all();
+    if (!interrupted.length) return [];
     // One transaction: a crash during startup recovery would otherwise leave some jobs marked
     // failed with no step saying why.
     database.exec("BEGIN IMMEDIATE");
@@ -1531,7 +1531,8 @@ export function createStateStore({
       try { database.exec("ROLLBACK"); } catch { /* nothing of ours was open */ }
       throw error;
     }
-    return interrupted.length;
+    // The callers used to get a count. The jobs themselves are what a notification needs.
+    return interrupted;
   }
 
   function close() {

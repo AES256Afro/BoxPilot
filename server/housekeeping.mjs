@@ -11,6 +11,9 @@
  * would roll back to, the newest backups — is never a candidate, and says so.
  */
 import { readdir, rm, stat } from "node:fs/promises";
+// The writer decides where job logs live; a second copy of that path here is the one that drifts.
+// This category spent a month scanning a directory nothing had ever written to.
+import { defaultJobLogDirectory } from "./job-log.mjs";
 import path from "node:path";
 import { fixedRun } from "./exec.mjs";
 
@@ -88,7 +91,7 @@ export function createHousekeepingService({
   currentTree = "/opt/boxpilot",
   catalogRoot = process.env.BOXPILOT_CATALOG_ROOT ?? "/var/lib/boxpilot-managed/catalog",
   applicationBackupRoot = path.join(process.env.BOXPILOT_APPLICATION_BACKUP_ROOT ?? "/var/lib/boxpilot-managed/backups", "catalog"),
-  jobLogDirectory = process.env.BOXPILOT_JOB_LOG_DIRECTORY ?? "/var/lib/boxpilot/job-logs",
+  jobLogDirectory = process.env.BOXPILOT_JOB_LOG_DIRECTORY ?? defaultJobLogDirectory,
   apps = null,
   runUnit = null,
   keepBackupsPerApp = 3,

@@ -143,3 +143,20 @@ describe("terminal control codes in progress output", () => {
     expect(stripTerminalCodes(null)).toBe("");
   });
 });
+
+
+describe("a command BoxPilot stopped for taking too long", () => {
+  it("says so, instead of reading as the command's own failure", async () => {
+    const result = await fixedRun(process.execPath, ["-e", "setTimeout(() => {}, 10000)"], { timeout: 150 });
+    expect(result.ok).toBe(false);
+    expect(result.stderr.startsWith("timed out after 150 ms")).toBe(true);
+  });
+
+  it("says so on the streaming path too, keeping what the command did say", async () => {
+    const lines = [];
+    const result = await fixedRun(process.execPath, ["-e", "console.error('still going'); setTimeout(() => {}, 10000)"], { timeout: 300, onLine: (line) => lines.push(line) });
+    expect(result.ok).toBe(false);
+    expect(result.stderr.startsWith("timed out after 300 ms")).toBe(true);
+    expect(result.stderr).toContain("still going");
+  });
+});

@@ -138,23 +138,26 @@ export function followJobOutput(
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let startTimer: ReturnType<typeof setTimeout> | null = null;
   let stopped = false;
+  // Set when a poll sees the job finished. `stopped` belongs to the consumer; this belongs to the
+  // job, and a timer that had already fired when the job finished used to re-arm the poll anyway.
+  let finished = false;
 
   const stopPolling = () => { if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; } if (startTimer) { clearTimeout(startTimer); startTimer = null; } };
 
   const poll = async () => {
-    if (stopped || streamWon()) return;
+    if (stopped || finished || streamWon()) return;
     try {
       const response = await fetch(`/api/v1/jobs/${encoded}/output`);
       if (!response.ok) return;
       const body = (await response.json()) as { output?: string; state?: string; error?: string | null };
-      if (stopped || streamWon()) return;
+      if (stopped || finished || streamWon()) return;
       if (typeof body.output === "string" && body.output.length > 0) {
         race.winner = "poll";
         onOutput(body.output, false);  // the whole log so far, so the dialog replaces rather than appends
       }
       if (body.state && ["completed", "failed", "cancelled"].includes(body.state)) {
         onState({ state: body.state, error: body.error ?? null });
-        stopPolling();
+        finished = true; stopPolling();
       }
     } catch { /* the job poller still finishes the job; output is best-effort */ }
   };
@@ -164,7 +167,7 @@ export function followJobOutput(
     source.addEventListener("output", (event) => {
       if (race.winner === "poll") return;
       race.winner = "stream";
-      stopPolling();
+      finished = true; stopPolling();
       try { onOutput((JSON.parse((event as MessageEvent).data) as { text: string }).text, true); } catch { /* ignore malformed */ }
     });
     source.addEventListener("state", (event) => {
@@ -178,7 +181,7 @@ export function followJobOutput(
   // growing file thousands of times. The gap widens towards a ceiling: quick while the owner is
   // watching the first lines appear, unhurried once an install has been running for a while.
   const scheduleNextPoll = (delay: number) => {
-    if (stopped || streamWon()) return;
+    if (stopped || finished || streamWon()) return;
     pollTimer = setTimeout(async () => {
       await poll();
       scheduleNextPoll(Math.min(Math.round(delay * 1.4), maxPollEveryMs));

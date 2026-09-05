@@ -44,7 +44,7 @@ interface ApprovalPolicy { confirmText?: string | null;
 const tierCopy: Record<ApprovalPolicy["tier"], { label: string; description: string }> = {
   low: { label: "Low risk", description: "One click. The action is audited and reversible." },
   medium: { label: "Medium risk", description: "Confirm to run. Review the preflight and recovery steps below first." },
-  high: { label: "High risk", description: "Re-enter your owner password. It is verified in memory and never stored in the job." },
+  high: { label: "High risk", description: "Enter your owner password to run this." },
 };
 
 interface RecoveryKit {
@@ -122,7 +122,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       if (actionResult.status === "fulfilled") setActionCenter(actionResult.value);
       else {
         setActionCenter(null);
-        setActionError(actionResult.reason instanceof Error ? actionResult.reason.message : "Action Center unavailable");
+        setActionError(actionResult.reason instanceof Error ? actionResult.reason.message : "Could not check what is not covered yet");
       }
       if (prerequisiteResult.status === "rejected") throw prerequisiteResult.reason;
       if (jobResult.status === "rejected") throw jobResult.reason;
@@ -131,7 +131,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       if (recoveryResult.status === "fulfilled") setRecoveryKit(recoveryResult.value);
       else {
         setRecoveryKit(null);
-        setRecoveryError(recoveryResult.reason instanceof Error ? recoveryResult.reason.message : "Recovery kit unavailable");
+        setRecoveryError(recoveryResult.reason instanceof Error ? recoveryResult.reason.message : "Could not build the rebuild checklist");
       }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to inspect prerequisites");
@@ -143,12 +143,27 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
   useEffect(() => { void refresh(); }, [refresh]);
 
 
+  // While a job runs, the only thing that changes is the job list. Refreshing everything every ten
+  // seconds re-ran the prerequisite checks, the host inventory and the recovery kit each time -
+  // forty-odd child processes a poll, because both server caches are also ten seconds - to learn
+  // nothing new. Poll the jobs alone, and refresh the rest once when the run is over.
+  const running = jobs.some((job) => ["applying", "verifying"].includes(job.state));
   useEffect(() => {
-    if (!jobs.some((job) => ["applying", "verifying"].includes(job.state))) return undefined;
+    if (!running) return undefined;
     let busy = false;
-    const interval = window.setInterval(() => { if (busy) return; busy = true; void refresh().finally(() => { busy = false; }); }, 10_000);
+    const interval = window.setInterval(() => {
+      if (busy) return;
+      busy = true;
+      fetch("/api/v1/jobs?limit=25").then((response) => (response.ok ? response.json() : null)).then((body: { jobs?: typeof jobs } | null) => { if (body?.jobs) setJobs(body.jobs); }).catch(() => {}).finally(() => { busy = false; });
+    }, 10_000);
     return () => window.clearInterval(interval);
-  }, [jobs, refresh]);
+  }, [running]);
+  // The moment the last running job finishes, one full refresh picks up what it changed.
+  const [wasRunning, setWasRunning] = useState(false);
+  useEffect(() => {
+    if (running) { setWasRunning(true); return; }
+    if (wasRunning) { setWasRunning(false); void refresh(); }
+  }, [running, wasRunning, refresh]);
 
   const awaitingApproval = useMemo(() => jobs.find((job) => job.state === "awaiting_approval"), [jobs]);
 
@@ -303,8 +318,8 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
 
       {error && <div className="auth-error" role="alert">{error}</div>}
       {operationDialog}
-      {recoveryError && <div className="notice warning-notice" role="status"><strong>Recovery kit unavailable</strong><span>{recoveryError}. Prerequisite checks and durable jobs remain available.</span></div>}
-      {actionError && <div className="notice warning-notice" role="status"><strong>Action Center unavailable</strong><span>{actionError}. No all-clear state is being claimed.</span></div>}
+      {recoveryError && <div className="notice warning-notice" role="status"><strong>Could not build the rebuild checklist</strong><span>{recoveryError}. The rest of this page still works.</span></div>}
+      {actionError && <div className="notice warning-notice" role="status"><strong>Could not check what is not covered yet</strong><span>{actionError}. Press Check again in a moment.</span></div>}
 
       {actionCenter && (
         <section className="panel action-center">
@@ -401,7 +416,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
 
       <section className="panel job-history">
         <header className="panel-header"><div><strong>Recent jobs</strong><span>Everything BoxPilot has run, with each step it took. Kept across restarts.</span></div></header>
-        {jobs.length === 0 ? <div className="log-empty">No jobs yet.</div> : jobs.map((job) => (
+        {jobs.length === 0 ? <div className="log-empty">Nothing has run yet. Every change you approve appears here with its steps.</div> : jobs.map((job) => (
           <details className="job-row" key={job.id} open={job === jobs[0]}>
             <summary><div><strong>{job.title}</strong><span>{job.risk} risk · {job.steps.length} steps</span></div><span className={`status-pill status-${job.state === "completed" ? "good" : job.state === "failed" ? "warning" : "neutral"}`}>{job.state.replaceAll("_", " ")}</span></summary>
             <div className="job-steps">{job.steps.map((step, index) => <div key={`${step.createdAt}-${index}`}><span>{step.state}</span><strong>{step.name}</strong><p>{step.detail}</p></div>)}</div>

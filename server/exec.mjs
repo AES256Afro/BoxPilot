@@ -25,8 +25,10 @@ export async function fixedRun(binary, args = [], { timeout = 30_000, maxBuffer 
       code: typeof error.code === "number" ? error.code : null,
       stdout: typeof error.stdout === "string" ? error.stdout.trim() : "",
       // A command that never started (ENOENT, EACCES) has an empty stderr; without the message
-      // the job log would say nothing at all about why it failed.
-      stderr: (typeof error.stderr === "string" && error.stderr.trim()) || error.message || "",
+      // the job log would say nothing at all about why it failed. And a command BoxPilot itself
+      // stopped for taking too long must say so: otherwise a pull that hit the 15-minute budget
+      // reads as a Docker error, and the owner goes looking for a fault that is not there.
+      stderr: `${error.killed ? `timed out after ${timeout} ms` : ""}${error.killed && (error.stderr ?? "").trim() ? "\n" : ""}${(typeof error.stderr === "string" && error.stderr.trim()) || (error.killed ? "" : error.message) || ""}`,
     };
   }
 }
@@ -73,7 +75,8 @@ export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, 
     const partial = { stdout: "", stderr: "" };
     const lastRedrawAt = { stdout: 0, stderr: 0 };
     let settled = false;
-    const timer = setTimeout(() => { try { child.kill("SIGTERM"); } catch { /* ignore */ } setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* ignore */ } }, 5000).unref?.(); }, timeout);
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; try { child.kill("SIGTERM"); } catch { /* ignore */ } setTimeout(() => { try { child.kill("SIGKILL"); } catch { /* ignore */ } }, 5000).unref?.(); }, timeout);
     const deliver = (stream, line) => {
       const clean = stripTerminalCodes(line).trimEnd();
       // A blank line is still output: it goes into the tail the caller reads, even though there is
@@ -108,7 +111,7 @@ export function streamRun(binary, args = [], { timeout = 30_000, env = {}, cwd, 
     const finish = (code, error) => {
       if (settled) return; settled = true; clearTimeout(timer);
       for (const stream of ["stdout", "stderr"]) if (partial[stream]) { consume(stream, "\n"); }
-      resolve({ ok: code === 0 && !error, code: typeof code === "number" ? code : null, stdout: tails.stdout.trim(), stderr: (error ? `${error.message}\n` : "") + tails.stderr.trim() });
+      resolve({ ok: code === 0 && !error, code: typeof code === "number" ? code : null, stdout: tails.stdout.trim(), stderr: `${timedOut ? `timed out after ${timeout} ms\n` : ""}${error ? `${error.message}\n` : ""}${tails.stderr.trim()}`.trim() });
     };
     child.on("error", (error) => finish(null, error));
     child.on("close", (code) => finish(code, null));

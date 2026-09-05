@@ -288,6 +288,8 @@ export function createAppHelper({
   }
 
   const declaredOwnerCache = new Map();
+
+  const declaredUserCache = new Map();   // reference -> raw Config.User from the last successful inspect
   /**
    * The uid/gid the *image itself* says it runs as, for the many apps that neither declare `user:`
    * nor read PUID — AnythingLLM runs as `anythingllm`, Wiki.js as `node`, Firefly as `www-data`.
@@ -301,13 +303,21 @@ export function createAppHelper({
   async function imageDeclaredOwner(reference, { mayRun = true } = {}) {
     if (declaredOwnerCache.has(reference)) return declaredOwnerCache.get(reference);
     let resolved = null;
-    let inspected = await docker(["image", "inspect", reference, "--format", "{{.Config.User}}"], { timeout: 30_000 });
+    // What the image itself says its USER is, remembered from the last successful inspect. A named
+    // user (node, www-data) cannot be turned into ids without starting a container, which a
+    // read-only caller must never do - so it used to return null and spawn `docker image inspect`
+    // again on every listing, for every such app, on every page that lists apps. The string is
+    // cheap to keep; it only changes when the image is pulled, and the pull sites clear it.
+    let inspected = declaredUserCache.has(reference)
+      ? { ok: true, stdout: declaredUserCache.get(reference) }
+      : await docker(["image", "inspect", reference, "--format", "{{.Config.User}}"], { timeout: 30_000 });
     // On a first install the image is not here yet: the project is written before anything is
     // pulled, so inspect finds nothing and the app's user cannot be read. Every app that declares
     // PUID answers from its manifest and never reaches this, which is why it stayed hidden until an
     // app arrived whose only statement of identity is the image's own USER. Without the pull, its
     // data folder is left owned by root and the container crash-loops on its first mkdir.
     if (!inspected.ok && mayRun) {
+      declaredUserCache.delete(reference); declaredOwnerCache.delete(reference);
       await docker(["pull", reference], { timeout: 15 * 60_000 }).catch(() => null);
       inspected = await docker(["image", "inspect", reference, "--format", "{{.Config.User}}"], { timeout: 30_000 });
     }
@@ -315,6 +325,7 @@ export function createAppHelper({
     // catalog listing that ran before the image was pulled would otherwise store null and the next
     // deploy would take that cache hit instead of pulling — re-arming the very bug the pull fixes.
     if (!inspected.ok) return null;
+    declaredUserCache.set(reference, inspected.stdout);
     const declared = inspected.stdout.trim();
     if (declared && declared !== "root" && declared !== "0") {
       const [rawUser, rawGroup] = declared.split(":");
@@ -640,6 +651,7 @@ export function createAppHelper({
     // state carries the app's own image but never its sidecars'.
     const runningBefore = deployedImages(await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => ""));
     await writeProject(manifest, values, { existingEnv: await readEnv(id), devices }); // picks up manifest changes (new image tag)
+    declaredUserCache.delete(manifest.image.reference); declaredOwnerCache.delete(manifest.image.reference);   // a pull can change the image's USER
     const pull = await compose(id, ["pull"], { timeout: 30 * 60_000, progress });
     if (!pull.ok) throw new Error(`docker compose pull failed: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
     const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
@@ -720,6 +732,7 @@ export function createAppHelper({
     progress?.(`Putting ${manifest.name} back: ${restoring}`, "stdout");
     await writeProject(pinned, values, { existingEnv: await readEnv(id), devices });
     // Pull explicitly: the previous image is unused after an update, so a prune may have removed it.
+    declaredUserCache.delete(manifest.image.reference); declaredOwnerCache.delete(manifest.image.reference);   // a pull can change the image's USER
     const pull = await compose(id, ["pull"], { timeout: 30 * 60_000, progress });
     if (!pull.ok) throw new Error(`Could not fetch the previous version: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
     const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
@@ -1678,5 +1691,12 @@ export function createAppHelper({
     return { measuredAt: clock().toISOString(), entries };
   }
 
-  return { syncHomepage, inspect, dataUsage, reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  /** Ids of the apps installed here: one directory read and one small state file each, no docker. */
+  async function installedIds() {
+    const ids = await presentIds();
+    const states = await Promise.all(ids.map(async (id) => ({ id, state: await readState(id) })));
+    return states.filter(({ state }) => state?.installed).map(({ id }) => id);
+  }
+
+  return { syncHomepage, inspect, installedIds, dataUsage, reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { imageDeclaredOwner, parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

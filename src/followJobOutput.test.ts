@@ -106,4 +106,22 @@ describe("not hammering the server for a long operation", () => {
     expect(later).toBeGreaterThan(early);
     stop();
   });
+
+  it("also stops when the job finishes on a later poll, not only the first", async () => {
+    // The timer that fired the terminal poll had already been scheduled; its callback used to
+    // re-arm the next poll regardless, so a finished job was refetched every few seconds for as
+    // long as the view stayed open.
+    vi.useFakeTimers();
+    withFakes({ output: "working\n", state: "applying", error: null });
+    const states: string[] = [];
+    const stop = followJobOutput("job-4", { onOutput: () => {}, onState: (s) => states.push(s.state) });
+    await vi.advanceTimersByTimeAsync(2600);          // first poll: still running
+    withFakes({ output: "working\ndone\n", state: "completed", error: null });
+    await vi.advanceTimersByTimeAsync(6000);          // a later poll sees it finished
+    const callsAfterFinish = (fetch as unknown as { mock: { calls: unknown[] } }).mock.calls.length;
+    await vi.advanceTimersByTimeAsync(20000);
+    expect(states.at(-1)).toBe("completed");
+    expect((fetch as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(callsAfterFinish);
+    stop();
+  });
 });

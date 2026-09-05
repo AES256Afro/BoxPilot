@@ -62,3 +62,24 @@ describe("following a job log", () => {
     expect(await reader.read(jobId, next.offset + 10_000)).toMatchObject({ text: "" });
   });
 });
+
+
+describe("log files under the helper's umask", () => {
+  it("are readable by the service group whatever umask the process runs with", async () => {
+    // boxpilot-helper.service runs with UMask=0077. A mode passed to open() is only a request; the
+    // umask edits it, and 0640 became 0600 - a log root wrote and the web service could not read.
+    const previous = process.umask(0o077);
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-joblog-umask-"));
+    try {
+      const writer = createJobLogWriter({ jobId: "11111111-1111-4111-8111-111111111111", directory: path.join(directory, "logs"), gid: null });
+      await writer.append("hello", "stdout");
+      const file = (await stat(path.join(directory, "logs", "11111111-1111-4111-8111-111111111111.log"))).mode & 0o777;
+      const dir = (await stat(path.join(directory, "logs"))).mode & 0o777;
+      expect(file).toBe(0o640);
+      expect(dir).toBe(0o750);
+    } finally {
+      process.umask(previous);
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});

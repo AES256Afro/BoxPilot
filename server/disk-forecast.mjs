@@ -24,8 +24,20 @@ export function appendSample(history, { at, entries }, { maxDays = 30 } = {}) {
     kept.push({ at, availableBytes: entry.availableBytes, totalBytes: Number.isFinite(entry.totalBytes) ? entry.totalBytes : null });
     next[entry.target] = kept.slice(-maxDays);
   }
-  return next;
+  // A mount that is gone for good used to keep its samples for the life of the database, and every
+  // sample rewrote them. One that is briefly unmounted keeps its history: only silence past the
+  // window drops a key.
+  return dropStaleKeys(next, cutoff);
 }
+/** Keys nothing has reported for longer than the history is kept - a renamed disk, an unmounted target, an uninstalled app - are dropped rather than carried forever. */
+function dropStaleKeys(history, cutoff) {
+  for (const [key, samples] of Object.entries(history)) {
+    const newest = Array.isArray(samples) ? samples.at(-1)?.at : null;
+    if (!Number.isFinite(Date.parse(newest)) || Date.parse(newest) < cutoff) delete history[key];
+  }
+  return history;
+}
+
 
 /**
  * Days until free space reaches zero at the recent fill rate, or null when it is not filling (or
