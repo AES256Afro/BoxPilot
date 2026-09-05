@@ -13,7 +13,8 @@ const minutes = (value) => value * 60_000;
 export function routerOperations() {
   return [
     defineOperation({
-      id: "router.inspect", title: "Read the router connection", risk: "low", readOnly: true, timeoutMs: minutes(2),
+      // operator, like router.leases: it uses the stored credential to read the router.
+      id: "router.inspect", title: "Read the router connection", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: minutes(2),
       description: "Whether a router is connected, and whether the stored credential still works.",
       run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("router.inspect", {}, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),
     }),
@@ -30,7 +31,8 @@ export function routerOperations() {
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("router.connect", parameters, { timeoutMs: minutes(2), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
-      id: "router.leases", title: "Read the devices the router knows", risk: "low", readOnly: true, timeoutMs: minutes(2),
+      // operator (ADR-003): signs into the router with the owner's stored credential and returns every device on the LAN - names, addresses, MACs. Not something a viewer could read themselves.
+      id: "router.leases", title: "Read the devices the router knows", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: minutes(2),
       description: "Every device the router has given an address to, with the name it reported and whether the address is reserved.",
       run: (_parameters, { runUnit, jobLog }) => runUnit.runTask("router.leases", {}, { timeoutMs: minutes(1), logPath: jobLog?.path ?? null }),
     }),

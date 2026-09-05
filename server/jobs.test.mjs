@@ -50,7 +50,7 @@ describe("durable job executor", () => {
     const { store, owner, jobs } = await setup(helper);
     const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
 
-    await expect(jobs.approveAndRun(job.id, owner.id, "wrong password")).rejects.toThrow("reauthentication failed");
+    await expect(jobs.approveAndRun(job.id, owner.id, "wrong password")).rejects.toThrow("Wrong password");
     expect(helper.request).not.toHaveBeenCalled();
     expect(store.getJob(job.id).state).toBe("awaiting_approval");
     store.close();
@@ -62,7 +62,7 @@ describe("durable job executor", () => {
     const session = store.getSession(store.createSession(owner.id).token);
     expect(jobs.describeApproval((await jobs.createOperationJob("apt.refresh", {}, owner.id)).id, session)).toMatchObject({ tier: "low", passwordRequired: false, mode: "tiered" });
     const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
-    await expect(jobs.approveAndRun(job.id, owner.id, { password: "wrong password", session })).rejects.toThrow("reauthentication failed");
+    await expect(jobs.approveAndRun(job.id, owner.id, { password: "wrong password", session })).rejects.toThrow("Wrong password");
     const completed = await jobs.approveAndRun(job.id, owner.id, { session });
     expect(completed.state).toBe("completed");
     expect(completed.approvals[0]).toMatchObject({ ownerId: owner.id, method: "confirm", tier: "low" });
@@ -78,7 +78,7 @@ describe("durable job executor", () => {
     const session = store.getSession(token);
     const job = store.createJob({ type: "application.pi-hole.deploy", title: "high", parameters: {}, recovery: {}, createdBy: owner.id });
     expect(jobs.describeApproval(job.id, session)).toMatchObject({ tier: "high", passwordRequired: true, elevated: false });
-    await expect(jobs.approveAndRun(job.id, owner.id, { session })).rejects.toThrow("reauthentication required: high-risk");
+    await expect(jobs.approveAndRun(job.id, owner.id, { session })).rejects.toThrow("Enter the owner password");
     expect(store.getJob(job.id).state).toBe("awaiting_approval");
     // A password on a low-risk job elevates the session...
     const canary = await jobs.createOperationJob("apt.refresh", {}, owner.id);
@@ -97,7 +97,7 @@ describe("durable job executor", () => {
     const session = store.getSession(store.createSession(owner.id).token);
     const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
     expect(jobs.describeApproval(job.id, session)).toMatchObject({ mode: "always-password", passwordRequired: true });
-    await expect(jobs.approveAndRun(job.id, owner.id, { session })).rejects.toThrow("reauthentication required");
+    await expect(jobs.approveAndRun(job.id, owner.id, { session })).rejects.toThrow("Enter the owner password");
     const completed = await jobs.approveAndRun(job.id, owner.id, { password: "correct horse battery", session });
     expect(completed.approvals[0]).toMatchObject({ method: "password", tier: "low" });
     expect(store.getSetting("approvalMode")).toBe("always-password");
@@ -268,5 +268,66 @@ describe("cancelling staged jobs", () => {
     await expect(jobs.approveAndRun(job.id, owner.id, { session: store.getSession(store.createSession(owner.id).token) })).rejects.toThrow();
     expect(helper.request).not.toHaveBeenCalled();
     store.close();
+  });
+});
+
+describe("an app's own secrets, typed into the install form", () => {
+  // The registry can only flag top-level fields. A tunnel token or API key arrives nested inside
+  // values.env, and before this it was written to the jobs table in clear - and from there into
+  // every controller backup and machine snapshot while the row was retained.
+  async function withManifestSecret() {
+    const seen = [];
+    const helper = { request: async (operation, parameters) => { seen.push({ operation, parameters }); return { installed: true }; } };
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-jobs-"));
+    directories.push(directory);
+    const store = createStateStore({ stateDirectory: directory });
+    const bootstrap = store.createBootstrapToken();
+    const owner = store.consumeBootstrapToken(bootstrap.token, { username: "operator", passwordHash: await hashPassword("correct horse battery") });
+    const jobs = createJobService(store, helper, { secretEnvNamesFor: async (id) => (id === "cloudflared" ? ["TUNNEL_TOKEN"] : []) });
+    return { store, owner, jobs, seen };
+  }
+
+  it("keeps the token out of the job record and hands the real one to the helper", async () => {
+    const { store, owner, jobs, seen } = await withManifestSecret();
+    const job = await jobs.createOperationJob("app.install", { id: "cloudflared", values: { env: { TUNNEL_TOKEN: "eyJ-very-secret", TUNNEL_NAME: "home" } } }, owner.id);
+    expect(store.getJob(job.id).parameters.values.env).toEqual({ TUNNEL_TOKEN: "[secret]", TUNNEL_NAME: "home" });   // the record
+    expect(JSON.stringify(store.getJob(job.id))).not.toContain("eyJ-very-secret");
+    await jobs.approveAndRun(job.id, owner.id, { password: "correct horse battery" });
+    const install = seen.find((call) => call.operation === "app.install");
+    expect(install.parameters.values.env.TUNNEL_TOKEN).toBe("eyJ-very-secret");   // the helper gets the real one
+  });
+
+  it("leaves an app with no secret env alone", async () => {
+    const { store, owner, jobs } = await withManifestSecret();
+    const job = await jobs.createOperationJob("app.install", { id: "jellyfin", values: { env: { TZ: "UTC" } } }, owner.id);
+    expect(store.getJob(job.id).parameters.values.env).toEqual({ TZ: "UTC" });
+  });
+
+  it("refuses to install with the placeholder when the staged copy is gone", async () => {
+    // A restart empties the in-memory staging. Installing with the literal text "[secret]" as the
+    // token would be worse than failing.
+    const { store, owner, jobs } = await withManifestSecret();
+    const job = await jobs.createOperationJob("app.install", { id: "cloudflared", values: { env: { TUNNEL_TOKEN: "eyJ-very-secret" } } }, owner.id);
+    const fresh = createJobService(store, { request: async () => ({}) }, { secretEnvNamesFor: async () => ["TUNNEL_TOKEN"] });
+    await expect(fresh.approveAndRun(job.id, owner.id, { password: "correct horse battery" })).rejects.toThrow("no longer available");
+  });
+});
+
+describe("staged secrets whose job is finished with them", () => {
+  it("are dropped by the prune, while a job still awaiting approval keeps its own", async () => {
+    // A job abandoned by closing the tab is pruned from the database after thirty days; its
+    // password sat in this process's memory for as long as the process lived.
+    const seen = [];
+    const helper = { request: async (operation, parameters) => { seen.push({ operation, parameters }); return { mounted: true }; } };
+    const { store, owner, jobs } = await setup(helper);
+    const waiting = await jobs.createOperationJob("share.mount", { kind: "smb", host: "nas", share: "Public", name: "nas-a", username: "jamie", password: "hunter2 hunter2" }, owner.id);
+    const abandoned = await jobs.createOperationJob("share.mount", { kind: "smb", host: "nas", share: "Public", name: "nas-b", username: "jamie", password: "hunter2 hunter2" }, owner.id);
+    // Another service on the same database cancels it - the way a prune or a second process would
+    // change the row without this process's map hearing about it.
+    createJobService(store, helper).cancelJob(abandoned.id, owner.id, { role: "owner" });
+    expect(jobs.pruneStagedSecrets()).toBe(1);
+    expect(jobs.pruneStagedSecrets()).toBe(0);
+    await jobs.approveAndRun(waiting.id, owner.id, { password: "correct horse battery" });
+    expect(seen.find((call) => call.operation === "share.mount")?.parameters.password).toBe("hunter2 hunter2");
   });
 });

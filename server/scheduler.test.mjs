@@ -84,7 +84,8 @@ describe("operation scheduler", () => {
   it("records a skipped run instead of forcing one when approvals demand a password", async () => {
     let clock = new Date("2026-08-20T03:00:30");
     const { store, jobs, scheduler, owner } = await setup({ now: () => clock });
-    jobs.approveAndStart.mockRejectedValueOnce(new Error("Approval reauthentication required: medium-risk job needs the owner password"));
+    // The job layer marks a password-gated approval with a code; the scheduler reads the code, not the prose.
+    jobs.approveAndStart.mockRejectedValueOnce(Object.assign(new Error("Enter the owner password: medium-risk job needs the owner password"), { code: "password_required" }));
     const schedule = await scheduler.create({ operationId: "apt.refresh", parameters: {}, frequency: "hourly", minute: 0, createdBy: owner.id });
     clock = new Date("2026-08-20T04:00:30");
     await scheduler.tick();
@@ -215,5 +216,17 @@ describe("placing a heavy weekly job", () => {
       expect(slot.hour).toBeLessThanOrEqual(5);
       schedules.push(slot);
     }
+  });
+});
+
+describe("a schedule that would store an app's secret", () => {
+  it("is refused, like a schedule carrying a top-level password", async () => {
+    // values.env is where an app's token lives; a stored schedule would keep it in the database.
+    const { store, owner } = await setup();
+    const jobs = { approveAndStart: vi.fn(), prepareParameters: async (_id, parameters) => parameters };
+    const scheduler = createSchedulerService({ store, jobs, secretEnvNamesFor: async () => ["CLOUDFLARE_API_TOKEN"] });
+    await expect(scheduler.create({ operationId: "app.reconfigure", parameters: { id: "cloudflare-ddns", values: { env: { CLOUDFLARE_API_TOKEN: "cf-token" } } }, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id }))
+      .rejects.toThrow("needs a password or key each time");
+    expect(store.listSchedules()).toHaveLength(0);
   });
 });

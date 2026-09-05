@@ -97,7 +97,7 @@ export function chooseQuietSlot({ schedules = [], hours = [1, 2, 3, 4, 5], minut
   return { frequency: "weekly", ...best.candidate };
 }
 
-export function createSchedulerService({ store, jobs, registry = defaultRegistry, now = () => new Date() }) {
+export function createSchedulerService({ store, jobs, secretEnvNamesFor = async () => [], registry = defaultRegistry, now = () => new Date() }) {
   async function create({ operationId, parameters = {}, frequency, minute, hour = null, weekday = null, spread = false, createdBy }) {
     const operation = registry.get(operationId);
     if (!operation) throw new Error("Operation is not registered");
@@ -105,6 +105,8 @@ export function createSchedulerService({ store, jobs, registry = defaultRegistry
     if (operation.risk === "high") throw new Error(`${operation.title} is high risk and cannot run unattended`);
     if (operation.minimumRole === "owner" && (store.findOwnerById?.(createdBy)?.role ?? "owner") !== "owner") throw new Error(`Only the owner can schedule ${operation.title}`);
     // A schedule is stored, so a credential given to it would sit in the database and in every backup.
+    // An app password or token nested in values.env is a secret too, and a stored one would sit in the database.
+    if (["app.install", "app.reconfigure"].includes(operationId) && (await secretEnvNamesFor(parameters?.id)).some((name) => typeof parameters?.values?.env?.[name] === "string" && parameters.values.env[name])) throw new Error(`${operation.title} needs a password or key each time, so it cannot run unattended`);
     const secrets = secretFields(operation.parameters).filter((name) => parameters?.[name] !== undefined && parameters?.[name] !== null && parameters?.[name] !== "");
     if (secrets.length) throw new Error(`${operation.title} needs a password or key each time, so it cannot run unattended`);
     // A typed confirmation is a person promising they meant it; a schedule cannot make that promise.
@@ -198,7 +200,7 @@ export function createSchedulerService({ store, jobs, registry = defaultRegistry
         const creator = store.findOwnerById?.(schedule.createdBy) ?? null;
         if (creator && ["viewer", "disabled"].includes(creator.role)) throw new Error(`${creator.username} can no longer approve jobs`);
         const creatorRole = creator?.role ?? "owner";
-        if (jobs.approvalPolicy && store.getSetting?.("approvalMode", null) === "always-password") throw new Error("Approval reauthentication required: approvals are set to always ask");
+        if (jobs.approvalPolicy && store.getSetting?.("approvalMode", null) === "always-password") throw new Error("Enter the owner password to run this: approvals are set to always ask");
         job = await jobs.createOperationJob(schedule.operationId, schedule.parameters ?? {}, schedule.createdBy, { role: creatorRole });
         await jobs.approveAndStart(job.id, schedule.createdBy, {});
         store.markScheduleRun(schedule.id, { jobId: job.id, result: "started", nextDueAt });
@@ -206,7 +208,9 @@ export function createSchedulerService({ store, jobs, registry = defaultRegistry
       } catch (error) {
         // A job that was staged but could not start is withdrawn rather than left awaiting approval forever.
         if (job && typeof jobs.cancelJob === "function") { try { jobs.cancelJob(job.id, schedule.createdBy, { role: "owner", reason: `Scheduled run could not start: ${error.message}`.slice(0, 200) }); } catch { /* already moved on */ } }
-        const blocked = /reauthentication/i.test(error.message);
+        // A password-gated approval is a condition, not a sentence: test the code the job layer
+        // attaches, so rewording the message for the owner cannot turn a skip into a forced run.
+        const blocked = error?.code === "password_required" || error?.code === "wrong_password";
         // Keep the pointer to the last real job: it is what the "still running" guard reads next tick.
         store.markScheduleRun(schedule.id, { jobId: job?.id ?? schedule.lastJobId ?? null, result: blocked ? "blocked-by-approval-mode" : `error: ${error.message}`.slice(0, 200), nextDueAt });
         store.recordAudit("schedule.skipped", { actorId: schedule.createdBy, subjectId: schedule.id, details: { operationId: schedule.operationId, reason: blocked ? "always-password approval mode" : error.message } });
