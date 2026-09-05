@@ -73,7 +73,7 @@ function collectorNotice() {
     category: "Cannot tell",
     title: "This list could not be built",
     summary: "BoxPilot could not read what it needs to say whether this server is protected, so it is not claiming that it is.",
-    evidence: ["The recovery check did not return a complete answer."],
+    evidence: ["The rebuild checklist could not be built."],
     recommendation: {
       view: "repairs",
       title: "Check again",
@@ -116,7 +116,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
         category: fixed.category,
         title: item.title,
         summary: item.action,
-        evidence: [item.evidence, `Recovery evidence state: ${item.state}.`],
+        evidence: [item.evidence, `Check state: ${item.state}.`],
         recommendation: {
           view: fixed.view,
           title: `Open ${fixed.view === "repairs" ? "Repair Center" : fixed.view[0].toUpperCase() + fixed.view.slice(1)}`,
@@ -170,10 +170,10 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
           id: "storage.inventory-unavailable",
           severity: "warning",
           category: "Storage health",
-          title: "Storage evidence is unavailable",
-          summary: "BoxPilot will not claim storage readiness without the fixed mount and device collectors.",
-          evidence: ["The sanitized storage inventory did not return a complete result."],
-          recommendation: { view: "overview", title: "Open Overview", steps: ["Refresh Overview and confirm real-mount inventory.", "Check the BoxPilot service if storage evidence remains unavailable.", "Do not begin a storage-sensitive operation until current evidence returns."] },
+          title: "Could not read the drives",
+          summary: "BoxPilot could not read this server's mounts just now, so it cannot say whether the drives are healthy.",
+          evidence: ["The mount list could not be read."],
+          recommendation: { view: "overview", title: "Open Overview", steps: ["Open the Overview and press Refresh.", "If it still fails, check the BoxPilot service on the Services page."] },
           boundary: boundary(),
         });
       } else {
@@ -185,9 +185,9 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
             severity: critical ? "critical" : "warning",
             category: "Storage health",
             title: critical ? "A filesystem is critically full" : "A filesystem is approaching capacity",
-            summary: "Review the exact sanitized mount evidence before creating backups, applications, or virtual-machine disks.",
+            summary: "Look at which drive it is on the Storage page before adding backups, apps, or VM disks to it.",
             evidence: [`${filesystemSummary.critical ?? 0} critical and ${filesystemSummary.warning ?? 0} warning filesystem capacity state(s) were reported.`],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Identify the reported mount and verify its capacity at the server console.", "Pause storage-producing jobs and preserve current backups.", "Use a separately reviewed cleanup or expansion procedure; Action Center performs no deletion."] },
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Open the Storage page: the drive is marked with how full it is and what is filling it.", "Free space on it, or point new data somewhere else, before creating anything large."] },
             boundary: boundary(),
           });
         }
@@ -199,9 +199,9 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
             severity: critical ? "critical" : "warning",
             category: "Storage health",
             title: critical ? "An ext4 filesystem has recorded kernel errors" : "An ext4 error counter is unavailable",
-            summary: critical ? "Preserve current data and inspect the exact filesystem from the server console before storage-producing work." : "BoxPilot cannot make a filesystem-error all-clear claim for every supported ext4 mount.",
+            summary: critical ? "The kernel has logged errors on this filesystem. Keep a copy of what matters on it before doing anything that writes to it." : "BoxPilot could not read this filesystem's error counter, so it cannot say whether it is healthy.",
             evidence: [`${filesystemErrors.critical ?? 0} ext4 critical and ${filesystemErrors.unavailable ?? 0} ext4 unavailable error-counter state(s) were reported.`],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Identify the exact sanitized mount and review its recorded counter state.", "Use local console access to inspect kernel and filesystem evidence without unmounting or repairing automatically.", "Prepare and verify a backup before any separately reviewed fsck, unmount, or repair procedure."] },
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Open the Storage page to see which drive it is.", "Check the drive from the server console before writing to it again; if it keeps logging errors, replace it."] },
             boundary: boundary(),
           });
         } else if ((filesystemErrors?.unsupported ?? 0) > 0) {
@@ -209,10 +209,10 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
             id: "storage.filesystem-errors-unsupported",
             severity: "info",
             category: "Storage health",
-            title: "Some filesystems lack error-counter coverage",
-            summary: "BoxPilot reports unsupported filesystem types explicitly and does not convert missing counters into healthy evidence.",
-            evidence: [`${filesystemErrors.unsupported} mounted filesystem(s) have no allowlisted error-counter collector.`],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Review which sanitized mounts are marked unsupported.", "Use the filesystem vendor's read-only inspection guidance at the server console if that mount matters to recovery.", "Do not run fsck or a repair from Action Center; preserve current data first."] },
+            title: "Some drives cannot report errors to BoxPilot",
+            summary: "Their filesystem type does not keep an error counter BoxPilot can read, so they are listed as unchecked rather than assumed healthy.",
+            evidence: [`${filesystemErrors.unsupported} mounted drive(s) have no error counter BoxPilot can read.`],
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Open the Storage page to see which drives these are.", "Rely on the drive's own SMART health for these, which BoxPilot checks separately."] },
             boundary: boundary(),
           });
         }
@@ -225,10 +225,10 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
             id: "storage.smart-evidence",
             severity: critical ? "critical" : "warning",
             category: "Storage health",
-            title: critical ? "SMART evidence reports a critical disk" : smart?.status === "stale" ? "SMART evidence is stale" : smart?.available ? "SMART evidence needs review" : "SMART evidence is unavailable",
-            summary: critical ? "Protect data and inspect the affected physical disk before continuing storage work." : "BoxPilot has no current all-clear SMART evidence for every discovered physical disk.",
-            evidence: [`SMART evidence state: ${smart?.status ?? "unavailable"}. Reason: ${smart?.reason ?? "storage-scan-unavailable"}.`],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Review the fixed storage-evidence timestamp and per-disk state.", "Use the server console to verify the timer and separately reviewed smartmontools package.", "Do not replace a disk or delete data from Action Center; prepare a verified backup and hardware recovery plan first."] },
+            title: critical ? "A drive is reporting problems" : smart?.status === "stale" ? "The drive health reading is out of date" : smart?.available ? "A drive health reading needs a look" : "Drive health has not been checked",
+            summary: critical ? "A drive is reporting problems in its own health data. Keep a copy of what matters on it now." : "BoxPilot has no current drive health reading, so it cannot say the drives are fine.",
+            evidence: [`Drive health check: ${smart?.status ?? "unavailable"}. Reason: ${smart?.reason ?? "storage-scan-unavailable"}.`],
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Open the Overview: the drive and its health numbers are on the Disks panel.", "If a drive is failing, copy its data off before anything else, then replace it."] },
             boundary: boundary(),
           });
         }
@@ -240,10 +240,10 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
             id: "power.ups-not-configured",
             severity: "info",
             category: "Power protection",
-            title: "No local UPS evidence is configured",
-            summary: "BoxPilot has no read-only NUT localhost evidence and will not claim power-loss protection.",
-            evidence: [ups.installed ? "The NUT client is installed, but no single local UPS was enumerated." : "The NUT client is not installed on this server."],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Decide whether this server needs UPS protection before enabling critical workloads.", "Install and configure NUT separately at the server console if compatible hardware is present.", "Return to Overview and confirm one locally enumerated UPS reports current evidence."] },
+            title: "No battery backup is set up",
+            summary: "BoxPilot is not reading a UPS, so a power cut will stop this server without warning.",
+            evidence: [ups.installed ? "The UPS software is installed, but no UPS is connected to it." : "The NUT client is not installed on this server."],
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Decide whether this server needs one; a UPS lets it shut down cleanly when the power goes.", "Set it up on the System page once it is plugged in."] },
             boundary: boundary(),
           });
         } else if (!ups.available || ["on-battery", "bypass", "offline"].includes(ups.state)) {
@@ -251,10 +251,10 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
             id: ups.state === "on-battery" ? "power.ups-on-battery" : "power.ups-unavailable",
             severity: "warning",
             category: "Power protection",
-            title: ups.state === "on-battery" ? "The local UPS is on battery" : "Local UPS evidence needs review",
-            summary: ups.state === "on-battery" ? "Preserve service and prepare for a bounded shutdown if utility power does not return." : "BoxPilot cannot make a current UPS protection claim for the configured local device.",
+            title: ups.state === "on-battery" ? "The power is out; the server is on battery" : "Could not read the UPS clearly",
+            summary: ups.state === "on-battery" ? "The power is out and the server is running on its battery." : "BoxPilot cannot read the UPS clearly right now.",
             evidence: [`Local UPS state: ${ups.state}.`],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Review the bounded charge, runtime, load, and status evidence.", "Inspect the physical UPS and local NUT service from the server console.", "Preserve active work and follow a separately reviewed shutdown procedure if power protection is not stable."] },
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Check the mains power and the UPS itself.", "If the power does not come back, stop anything that is writing and let the server shut down cleanly."] },
             boundary: boundary(),
           });
         } else if (["low-battery", "forced-shutdown"].includes(ups.state)) {
@@ -263,9 +263,9 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
             severity: "critical",
             category: "Power protection",
             title: ups.state === "low-battery" ? "The local UPS battery is low" : "The local UPS reports forced shutdown",
-            summary: "Protect current data and use the server's separately configured shutdown policy or local console procedure now.",
+            summary: "The battery is nearly gone. Anything still writing is about to lose power.",
             evidence: [`Local UPS state: ${ups.state}.`],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Confirm utility power and the physical UPS state immediately.", "Stop storage-producing work and preserve current data.", "Use the separately configured NUT or console shutdown procedure; Action Center cannot issue a power command."] },
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Stop what you can now.", "The server will shut itself down; let it."] },
             boundary: boundary(),
           });
         }
@@ -277,10 +277,10 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
             id: "maintenance.package-manager-interrupted",
             severity: "critical",
             category: "Host maintenance",
-            title: "Package-manager state is interrupted",
-            summary: "Do not start another package operation until dpkg state is inspected and recovered from the server console.",
-            evidence: [`${maintenance.packageManager.pendingUpdateFragments ?? "Unknown"} bounded pending update fragment(s) were detected.`],
-            recommendation: { view: "repairs", title: "Open Repair Center", steps: ["Pause BoxPilot package repairs and other package operations.", "Inspect dpkg and APT state from the local server console using Ubuntu recovery guidance.", "Return to Overview and confirm package-manager state is ready before retrying a separately reviewed operation."] },
+            title: "A package install was interrupted",
+            summary: "Ubuntu's package system was left mid-operation. Nothing else can install until it is put right.",
+            evidence: [`${maintenance.packageManager.pendingUpdateFragments ?? "Unknown"} pending update(s) were detected.`],
+            recommendation: { view: "repairs", title: "Open Repair Center", steps: ["Do not start another install or update until this is fixed.", "Open Repair: BoxPilot offers to finish the interrupted operation."] },
             boundary: boundary(),
           });
         }
@@ -290,9 +290,9 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
             severity: "warning",
             category: "Host maintenance",
             title: "Ubuntu reports that a reboot is required",
-            summary: "Plan a maintenance window and preserve active workloads before rebooting from a separately controlled console.",
-            evidence: ["The fixed reboot-required marker is present; its text and package names are excluded."],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Review active applications, jobs, backups, and virtual machines.", "Confirm local or Tailscale recovery access before the maintenance window.", "Reboot through a separately reviewed console procedure; Action Center cannot restart the host."] },
+            summary: "An update installed something that only takes effect after a restart.",
+            evidence: ["Ubuntu has flagged that a reboot is needed."],
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Pick a quiet moment; running apps and VMs will be stopped while it restarts.", "Restart from the System page."] },
             boundary: boundary(),
           });
         }
@@ -301,10 +301,10 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
             id: "maintenance.system-degraded",
             severity: "warning",
             category: "Host maintenance",
-            title: "Systemd reports degraded service state",
-            summary: "Inspect failed services at the server console before relying on the host for a high-impact operation.",
-            evidence: [`${maintenance.system.failedServiceCount ?? "Unknown"} failed service(s) were counted; unit names are excluded.`],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Review the bounded system state and failed-service count.", "Identify and inspect failed units from the server console without restarting them automatically.", "Verify affected workloads and recovery access before applying a separately reviewed repair."] },
+            title: "Some system services have failed",
+            summary: "At least one service on this server is not running as it should.",
+            evidence: [`${maintenance.system.failedServiceCount ?? "Unknown"} failed service(s) were counted.`],
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Open the Services page to see which ones and why.", "Fix or restart them before relying on this server for anything important."] },
             boundary: boundary(),
           });
         }
@@ -314,10 +314,10 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
             id: "maintenance.evidence-unavailable",
             severity: "warning",
             category: "Host maintenance",
-            title: "Host-maintenance evidence is incomplete",
-            summary: "BoxPilot will not claim maintenance readiness without system, reboot, and package-manager evidence.",
-            evidence: ["At least one fixed host-maintenance collector is unavailable."],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Refresh the Overview and confirm which bounded state is unavailable.", "Inspect BoxPilot service permissions and the corresponding Ubuntu state at the server console.", "Do not begin a package or reboot workflow until current evidence returns."] },
+            title: "Could not read the server's update state",
+            summary: "BoxPilot could not read whether updates, a reboot, or failed services are pending.",
+            evidence: ["One of the update checks could not be read."],
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Open the Overview and press Refresh.", "If it still cannot read them, check the BoxPilot service on the Services page."] },
             boundary: boundary(),
           });
         }
@@ -326,10 +326,10 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
             id: "maintenance.apt-metadata-stale",
             severity: "info",
             category: "Host maintenance",
-            title: "APT metadata evidence is stale",
-            summary: "Package decisions should not rely on repository metadata older than seven days.",
+            title: "The package lists are out of date",
+            summary: "Ubuntu's list of available updates is more than a week old, so what it shows may be stale.",
             evidence: [`APT metadata age: ${maintenance.aptMetadata.ageHours ?? "unknown"} hours.`],
-            recommendation: { view: "repairs", title: "Open Repair Center", steps: ["Confirm internet and repository availability from the server console.", "Refresh package metadata through a separately reviewed console procedure.", "Re-run BoxPilot inspection before planning an exact package repair."] },
+            recommendation: { view: "repairs", title: "Open Repair Center", steps: ["Check the server is online.", "Refresh the package lists from the Updates page."] },
             boundary: boundary(),
           });
         }
@@ -340,10 +340,10 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
             id: "maintenance.security-updates",
             severity: "info",
             category: "Host maintenance",
-            title: "Automatic security updates need operator review",
-            summary: "The fixed unattended-upgrades unit is not both enabled and active.",
+            title: "Security updates are not installing on their own",
+            summary: "Unattended upgrades are not both enabled and running, so security fixes wait for someone to install them.",
             evidence: [`Automatic security update state: ${maintenance.automaticSecurityUpdates.state}.`],
-            recommendation: { view: "overview", title: "Open Overview", steps: ["Review the current fixed unattended-upgrades unit state.", "Confirm the intended Ubuntu update policy and maintenance window at the server console.", "Apply any policy change separately; BoxPilot does not enable or start the service."] },
+            recommendation: { view: "overview", title: "Open Overview", steps: ["Turn them on from the Updates page.", "If you prefer to install updates yourself, do it weekly."] },
             boundary: boundary(),
           });
         }
@@ -354,13 +354,13 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
       id: "action-center.no-current-actions",
       severity: "info",
       category: "Readiness",
-      title: "No current action-required evidence",
+      title: "Nothing needs your attention right now",
       summary: "All mapped recovery checks are verified or not applicable in the latest read-only collection.",
       evidence: [`${kit.checks.length} recovery checks were evaluated.`],
       recommendation: {
         view: "repairs",
-        title: "Review evidence",
-        steps: ["Keep independent backups and recovery access current.", "Inspect again before a high-impact change.", "Use the recovery kit for the complete evidence boundary."],
+        title: "Look anyway",
+        steps: ["Keep a second copy of your backups current.", "Check again before a big change.", "Use the recovery kit for the complete evidence boundary."],
       },
       boundary: boundary(),
     });
@@ -371,8 +371,8 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
         severity: "warning",
         category: "Readiness",
         title: "Nothing could be read from this host",
-        summary: "Disk health, power protection and maintenance evidence were all unavailable, so none of them is being reported either way.",
-        evidence: ["The host inventory collector returned nothing."],
+        summary: "Disk health, power protection and update state could not be read, so none of them is being reported either way.",
+        evidence: ["The server inventory could not be read."],
         recommendation: { view: "overview", title: "Open Overview", steps: ["Refresh the Overview page.", "Check that the BoxPilot helper service is running.", "Read this page again once evidence returns."] },
         boundary: boundary(),
       });
