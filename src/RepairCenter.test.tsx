@@ -157,8 +157,8 @@ describe("Repair Center", () => {
     render(<RepairCenter csrfToken="csrf-token" />);
 
     expect(await screen.findByText("Restricted helper")).toBeTruthy();
-    expect(screen.getByText("Recovery kit unavailable")).toBeTruthy();
-    expect(screen.getByText(/Prerequisite checks and durable jobs remain available/)).toBeTruthy();
+    expect(screen.getByText("Could not build the rebuild checklist")).toBeTruthy();
+    expect(screen.getByText(/The rest of this page still works/)).toBeTruthy();
   });
 
   it("reviews a pinned repair through the registry inspect and stages it in the shared dialog", async () => {

@@ -69,7 +69,7 @@ export default function GitHubCenter() {
       setStatus(await readJson<GithubStatus>(await fetch("/api/v1/integrations/github")));
       setError(null);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "GitHub provenance is unavailable");
+      setError(caught instanceof Error ? caught.message : "Could not reach GitHub");
     } finally {
       setLoading(false);
     }
@@ -102,7 +102,7 @@ export default function GitHubCenter() {
           <CommitLine label="Release tag commit" commit={repository.latestRelease.commit} />
           <div className="github-release-meta"><span>Published {formatDate(repository.latestRelease.publishedAt)}</span><span>{repository.latestRelease.assetsWithGithubReportedDigest}/{repository.latestRelease.assets.length} assets have a GitHub-reported digest</span><span>{repository.latestRelease.immutable ? "GitHub marks release immutable" : "GitHub does not mark release immutable"}</span></div>
           <div className="table-scroll"><table><thead><tr><th>Asset metadata</th><th>Size</th><th>GitHub-reported digest</th><th>Verified locally</th></tr></thead><tbody>{repository.latestRelease.assets.length ? repository.latestRelease.assets.map((asset) => <tr key={asset.name}><td>{asset.name}</td><td>{formatBytes(asset.sizeBytes)}</td><td><code>{asset.digest ? `${asset.digest.slice(0, 23)}...` : "Not reported"}</code></td><td className="warning-text">No</td></tr>) : <tr><td colSpan={4}>No uploaded release assets were reported.</td></tr>}</tbody></table></div>
-        </section> : <div className="github-no-release"><strong>No GitHub release</strong><span>This repository has no latest release. Branch metadata is not an installable artifact.</span></div>}
+        </section> : <div className="github-no-release"><strong>No GitHub release</strong><span>This repository has no latest release. This repository has no release yet, so there is nothing to install.</span></div>}
       </>}
     </article>)}</div>
 

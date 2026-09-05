@@ -58,7 +58,7 @@ describe("VM planner", () => {
     fireEvent.change(screen.getByLabelText("VM name"), { target: { value: "ubuntu-lab" } });
     fireEvent.click(screen.getByRole("button", { name: "Generate reviewed plan" }));
 
-    expect(await screen.findByText("Validated and ready for approval")).toBeTruthy();
+    expect(await screen.findByText("Ready to create")).toBeTruthy();
     expect(screen.getByText("virt-install --name ubuntu-lab")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Continue to approval" }));
     expect(onStage).toHaveBeenCalledWith(plan.input);

@@ -265,7 +265,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
       </div>
 
       <section className="panel">
-        <header className="panel-header"><div><strong>Database snapshots</strong><span>Each snapshot passed an isolated restore drill before it was recorded. Protect copies one into the encrypted restic repository.</span></div></header>
+        <header className="panel-header"><div><strong>Database snapshots</strong><span>Every backup here was test-restored before it was recorded. Protect keeps an encrypted second copy as well.</span></div></header>
         <div className="table-scroll">
           <table>
             <thead><tr><th>Created</th><th>Size</th><th>Drill</th><th>Independent copy</th><th aria-label="Actions" /></tr></thead>
@@ -287,7 +287,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
         {retention?.policy && (
           <div className="recovery-actions">
             <span className="muted">Retention keeps at least {retention.policy.minimumCopies ?? 3} independent copies; {retention.candidates?.length ?? 0} snapshot(s) currently eligible for forgetting.</span>
-            {(retention.candidates?.length ?? 0) > 0 && <button className="secondary-button" type="button" onClick={() => start({ operationId: "controller.backup.retention.apply", title: "Apply controller backup retention", parameters: {}, preview: <span>Removes the record of old backups that are safe to let go, then checks the store is still intact. The files themselves are not deleted and no space is reclaimed yet, so nothing recent is ever at risk.</span> })}>Apply retention</button>}
+            {(retention.candidates?.length ?? 0) > 0 && <button className="secondary-button" type="button" onClick={() => start({ operationId: "controller.backup.retention.apply", title: "Let go of old database backups", parameters: {}, preview: <span>Removes the record of old backups that are safe to let go, then checks the store is still intact. The files themselves are not deleted and no space is reclaimed yet, so nothing recent is ever at risk.</span> })}>Apply retention</button>}
           </div>
         )}
       </section>

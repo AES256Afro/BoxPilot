@@ -31,14 +31,14 @@ describe("VM media library", () => {
       if (url === "/api/v1/operations/vm.media.import/jobs") {
         staged = init?.body as string;
         return new Response(JSON.stringify({
-          job: { id: "job-one", type: "op:vm.media.import", title: "Import a staged ISO", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] },
+          job: { id: "job-one", type: "op:vm.media.import", title: "Add an uploaded ISO to the library", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] },
           approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" },
         }), { status: 201, headers: { "Content-Type": "application/json" } });
       }
       return new Response(JSON.stringify({ error: "unexpected request" }), { status: 404 });
     }));
     render(<VmMediaLibrary csrfToken="csrf-one" />);
-    expect(await screen.findByText("Awaiting import approval")).toBeTruthy();
+    expect(await screen.findByText("Uploaded, not yet added")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Import" }));
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { filename: "ubuntu.iso" } });
@@ -65,6 +65,6 @@ describe("VM media library", () => {
     fireEvent.change(screen.getByLabelText("Select ISO"), { target: { files: [file] } });
     fireEvent.click(screen.getByRole("button", { name: "Upload to staging" }));
     expect(await screen.findByText(/Uploaded ubuntu\.iso/)).toBeTruthy();
-    expect(await screen.findByText("Awaiting import approval")).toBeTruthy();
+    expect(await screen.findByText("Uploaded, not yet added")).toBeTruthy();
   });
 });

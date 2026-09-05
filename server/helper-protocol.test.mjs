@@ -132,7 +132,7 @@ describe("restricted helper protocol", () => {
 
   it("rejects arbitrary operation names and parameters", () => {
     expect(validateHelperRequest(request({ operation: "shell.exec" }))).toBe("Operation is not allowlisted");
-    expect(validateHelperRequest(request({ parameters: { command: "id" } }))).toBe("Helper canary accepts no parameters");
+    expect(validateHelperRequest(request({ parameters: { command: "id" } }))).toBe("Check that BoxPilot can do root work accepts no parameters");
   });
 
   it("returns only the Docker server availability and version", async () => {

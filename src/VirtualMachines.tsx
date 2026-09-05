@@ -168,7 +168,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
   const initializeFoundation = () => {
     startOperation({
       operationId: "vm.foundation.initialize",
-      title: "Initialize the libvirt foundation",
+      title: "Set up the default VM network and storage",
       parameters: {},
       preview: <span>Defines, starts, and autostarts only the missing canonical default NAT network and default storage pool. Failure rolls back only this job's changes.</span>,
     });
@@ -396,9 +396,9 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
           </div>
         </div>
         {foundation?.ready ? (
-          <div className="vm-control-lock"><div><strong>VM creation foundation verified</strong><span>Both canonical resources are persistent, active, compatible, and enabled at boot. Other networks and pools remain untouched.</span></div><button type="button" className="secondary-button" onClick={() => void refresh()} disabled={pending !== null}>Refresh</button></div>
+          <div className="vm-control-lock"><div><strong>Ready to create VMs</strong><span>The default network and storage pool are set up and start at boot.</span></div><button type="button" className="secondary-button" onClick={() => void refresh()} disabled={pending !== null}>Refresh</button></div>
         ) : foundation?.planAvailable ? (
-          <div className="vm-control-lock"><div><strong>Guided initialization is available</strong><span>{(foundation.changes ?? []).join(" | ")}. The job accepts no resource names or paths and rolls back only its own changes.</span></div><button type="button" className="primary-button" onClick={() => initializeFoundation()} disabled={pending !== null}>{pending === "foundation-plan" ? "Inspecting..." : "Review setup plan"}</button></div>
+          <div className="vm-control-lock"><div><strong>Set up the default network and storage pool</strong><span>{(foundation.changes ?? []).join(" | ")}. The job accepts no resource names or paths and rolls back only its own changes.</span></div><button type="button" className="primary-button" onClick={() => initializeFoundation()} disabled={pending !== null}>{pending === "foundation-plan" ? "Inspecting..." : "Review setup plan"}</button></div>
         ) : (
           <div className="vm-plan-warnings"><strong>Setup is blocked</strong>{(foundation?.conflicts ?? []).map((conflict) => <span key={conflict}>{conflict}</span>)}<button type="button" className="secondary-button" onClick={onOpenRepair}>Open prerequisite repairs</button></div>
         )}
@@ -413,10 +413,10 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       </section>
 
       <section className="panel vm-resources-panel">
-        <header className="panel-header"><div><strong>VM integrity exports</strong><span>Local artifacts, not protected backups</span></div><span className={`status-pill ${protectedBackups.length ? "status-good" : "status-warning"}`}>{protectedBackups.length ? `${protectedBackups.length} protected` : "Protection pending"}</span></header>
+        <header className="panel-header"><div><strong>Exported VMs</strong><span>Copies on this server only. Keep a second copy to protect them.</span></div><span className={`status-pill ${protectedBackups.length ? "status-good" : "status-warning"}`}>{protectedBackups.length ? `${protectedBackups.length} protected` : "Protection pending"}</span></header>
         {unread.length > 0 && <div className="vm-plan-warnings"><strong>Not everything on this page could be read</strong><span>BoxPilot could not read {sentenceList(unread)} just now, so what is shown for those is not a complete picture. Refresh in a moment.</span></div>}
         <div className="vm-control-lock">
-          <div><strong>Encrypted independent destination</strong><span>{protectionDestination?.ready ? `Ready with restic ${protectionDestination.resticVersion ?? "detected"} on ${protectionDestination.mount?.sourceType ?? "mounted storage"}` : "Setup is required before local exports can move toward protection"}</span></div>
+          <div><strong>Encrypted backup store</strong><span>{protectionDestination?.ready ? `Ready with restic ${protectionDestination.resticVersion ?? "detected"} on ${protectionDestination.mount?.sourceType ?? "mounted storage"}` : "Set it up on the Backups page to keep second copies"}</span></div>
           <span className={`status-pill status-${protectionDestination?.ready ? "good" : "warning"}`}>{protectionDestination?.ready ? "ready" : "setup required"}</span>
         </div>
         <div className="vm-control-lock">

@@ -122,7 +122,7 @@ export default function VmPlanner({ onClose, onStage, csrfToken = "" }: { onClos
                 <div className="vm-plan-placeholder"><span>01</span><strong>Complete the plan</strong><p>BoxPilot will validate every field on the server and render the exact argument array.</p></div>
               ) : (
                 <>
-                  <div className="vm-plan-ready"><span className="eyebrow">Plan revision {plan.revision}</span><strong>{plan.stageable ? "Validated and ready for approval" : "Validated with an execution gate"}</strong><p>Planning did not invoke virt-install, define a domain, or create a disk. The plan is revalidated against the live host when you approve.</p></div>
+                  <div className="vm-plan-ready"><span className="eyebrow">Plan revision {plan.revision}</span><strong>{plan.stageable ? "Ready to create" : "Cannot create yet"}</strong><p>Planning did not invoke virt-install, define a domain, or create a disk. The plan is revalidated against the live host when you approve.</p></div>
                   <dl className="vm-plan-summary">
                     <div><dt>Guest</dt><dd>{plan.input.name}</dd></div>
                     <div><dt>Profile</dt><dd>{plan.profile.label}</dd></div>
@@ -130,9 +130,9 @@ export default function VmPlanner({ onClose, onStage, csrfToken = "" }: { onClos
                     <div><dt>Media</dt><dd>{plan.media.name}</dd></div>
                   </dl>
                   {plan.warnings.length > 0 && <div className="vm-plan-warnings"><strong>Warnings</strong>{plan.warnings.map((warning) => <span key={warning}>{warning}</span>)}</div>}
-                  <div className="vm-command-preview"><strong>Fixed helper execution preview</strong><code>{plan.command.display}</code></div>
+                  <div className="vm-command-preview"><strong>Command that will run</strong><code>{plan.command.display}</code></div>
                   <div className="vm-plan-gates"><strong>Guardrails</strong><ol>{plan.gates.map((gate) => <li key={gate}>{gate}</li>)}</ol></div>
-                  <button type="button" className="primary-button" disabled={!plan.stageable} onClick={() => onStage(plan.input)} title={plan.stageable ? "Continue to password approval" : "This operating-system profile needs additional host capability checks"}>{plan.stageable ? "Continue to approval" : "Apply remains locked"}</button>
+                  <button type="button" className="primary-button" disabled={!plan.stageable} onClick={() => onStage(plan.input)} title={plan.stageable ? "Continue" : "This operating-system profile needs additional host capability checks"}>{plan.stageable ? "Continue to approval" : "Cannot create this VM yet"}</button>
                 </>
               )}
             </aside>

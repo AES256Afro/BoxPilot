@@ -90,7 +90,7 @@ describe("VM backup retention service", () => {
     // The blocker names the snapshots and the way out, because there is one now.
     const blocked = result.blockers.join(" ");
     expect(blocked).toContain("have no local record");
-    expect(blocked).toContain("Forget an unrecorded snapshot");
+    expect(blocked).toContain("Remove a backup that failed its check");
   });
 
   it("records only exact helper evidence after execution", async () => {

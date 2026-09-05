@@ -24,7 +24,7 @@ function validIsoTimestamp(value) {
 export function prerequisiteOperations() {
   return [
     defineOperation({
-      id: "canary.verify", title: "Helper canary", risk: "low", readOnly: true, parameters: noParameters,
+      id: "canary.verify", title: "Check that BoxPilot can do root work", risk: "low", readOnly: true, parameters: noParameters,
       description: "Confirms the helper socket answers and reports its version.",
       run: async () => ({ verified: true, helperVersion: productVersion, mutationPerformed: false }),
     }),

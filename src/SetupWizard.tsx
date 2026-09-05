@@ -51,7 +51,7 @@ export default function SetupWizard({ csrfToken, onDone }: { csrfToken: string; 
     if (!step.job) return "done";
     const staged = await fetch(`/api/v1/operations/${encodeURIComponent(step.job.operationId)}/jobs`, { method: "POST", headers, body: JSON.stringify({ parameters: step.job.parameters }) });
     const stagedBody = (await staged.json().catch(() => ({}))) as { job?: { id: string }; error?: string };
-    if (!staged.ok || !stagedBody.job) { mark(step.id, { state: "failed", error: stagedBody.error ?? `Could not stage (${staged.status})` }); return "failed"; }
+    if (!staged.ok || !stagedBody.job) { mark(step.id, { state: "failed", error: stagedBody.error ?? `Could not prepare this step (server error ${staged.status})` }); return "failed"; }
     const approve = await fetch(`/api/v1/jobs/${stagedBody.job.id}/approve`, { method: "POST", headers, body: JSON.stringify(passwordRef.current ? { password: passwordRef.current } : {}) });
     if (approve.status === 401) return "password";
     if (!approve.ok) { const body = (await approve.json().catch(() => ({}))) as { error?: string }; mark(step.id, { state: "failed", error: body.error ?? `Approval failed (${approve.status})` }); return "failed"; }
