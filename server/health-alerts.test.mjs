@@ -210,3 +210,43 @@ describe("health alerts with missing evidence", () => {
     expect((await alerts.check()).sent).toEqual(["resolved:schedule.overdue:sch-1"]);
   });
 });
+
+
+describe("a filesystem that turned itself read-only", () => {
+  // The 2026-09-05 incident as the storage scan recorded it: the-dump still mounted from the device
+  // that had gone, and exFAT holding it read-only after errors. Saving from another computer failed
+  // with an I/O error while every listing still showed the folder.
+  const snapshot = {
+    storage: {
+      filesystems: { available: true, mounts: [
+        { target: "/", source: "/dev/mapper/ubuntu--vg-ubuntu--lv", readOnly: false, optionNames: ["rw", "relatime"] },
+        { target: "/mnt/the-dump", source: "/dev/sdb2", readOnly: true, optionNames: ["ro", "relatime", "uid=1000", "errors=remount-ro"] },
+      ] },
+      blockDevices: { available: true, devices: [{ name: "/dev/mapper/ubuntu--vg-ubuntu--lv" }, { name: "/dev/sdb2" }] },
+    },
+  };
+
+  it("is a high alert that says what to do", () => {
+    const alerts = evaluateHealth(snapshot).filter((alert) => alert.key.startsWith("storage.mount.readonly"));
+    expect(alerts.map((alert) => alert.key)).toEqual(["storage.mount.readonly:/mnt/the-dump"]);
+    expect(alerts[0].priority).toBe("high");
+    expect(alerts[0].message).toContain("Repair");
+  });
+
+  it("does not report a filesystem that was mounted read-only on purpose", () => {
+    const deliberate = structuredClone(snapshot);
+    deliberate.storage.filesystems.mounts[1].optionNames = ["ro", "relatime", "uid=1000"];   // no errors= policy: fstab asked for ro
+    expect(evaluateHealth(deliberate).some((alert) => alert.key.startsWith("storage.mount.readonly"))).toBe(false);
+  });
+
+  it("clears once the mount is read-write again", () => {
+    const fixed = structuredClone(snapshot);
+    fixed.storage.filesystems.mounts[1] = { ...fixed.storage.filesystems.mounts[1], readOnly: false, optionNames: ["rw", "relatime", "uid=1000", "errors=remount-ro"] };
+    expect(evaluateHealth(fixed).some((alert) => alert.key.startsWith("storage.mount.readonly"))).toBe(false);
+  });
+
+  it("is only evaluated when the mount list is actually available", () => {
+    expect(collectorAvailability(snapshot)["storage.mount.readonly"]).toBe(true);
+    expect(collectorAvailability({ storage: { filesystems: { available: false, mounts: [] } } })["storage.mount.readonly"]).toBe(false);
+  });
+});

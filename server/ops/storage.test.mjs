@@ -27,7 +27,7 @@ describe("storage operations", () => {
       { device: "UUID=x", mountpoint: "/mnt/media", fstype: "ext4", options: "defaults,nofail", managedName: "media" },
     ]);
     expect(parseFindmnt(JSON.stringify({ filesystems: [{ target: "/", source: "/dev/sda1", fstype: "ext4", size: "100", used: "40", avail: "60" }] })))
-      .toEqual([{ target: "/", source: "/dev/sda1", fstype: "ext4", sizeBytes: 100, usedBytes: 40, availableBytes: 60 }]);
+      .toEqual([{ target: "/", source: "/dev/sda1", fstype: "ext4", sizeBytes: 100, usedBytes: 40, availableBytes: 60, options: [], readOnly: false }]);
   });
 
   it("stages mutations as root tasks and enforces parameter shapes", async () => {
@@ -108,5 +108,36 @@ describe("listing folders on a drive", () => {
     expect(op().readOnly).toBe(true);
     expect(op().risk).toBe("low");
     expect(op().minimumRole).toBe("operator");
+  });
+});
+
+
+describe("reading what findmnt says about a mount", () => {
+  it("reports the live options and whether the kernel has it read-only", () => {
+    const [mount] = parseFindmnt(JSON.stringify({ filesystems: [{ target: "/mnt/the-dump", source: "/dev/sdb2", fstype: "exfat", size: "16000000000000", used: "2000", avail: "1000", options: "ro,relatime,uid=1000,errors=remount-ro" }] }));
+    expect(mount.readOnly).toBe(true);
+    expect(mount.options).toContain("errors=remount-ro");
+  });
+
+  it("treats a mount without an options column as read-write rather than guessing", () => {
+    const [mount] = parseFindmnt(JSON.stringify({ filesystems: [{ target: "/mnt/x", source: "/dev/sdc1", fstype: "ext4" }] }));
+    expect(mount.readOnly).toBe(false);
+    expect(mount.options).toEqual([]);
+  });
+});
+
+
+describe("findmnt's tree", () => {
+  it("returns every mount, not just the root filesystem", () => {
+    // findmnt -J nests each mount under its parent. This is the shape captured on the real server
+    // during the 2026-09-05 incident, trimmed: the-dump sits inside "/"'s children, read-only. The
+    // old parser returned only "/", so nothing downstream had ever seen a data drive.
+    const tree = { filesystems: [{ target: "/", source: "/dev/mapper/vg-lv", fstype: "ext4", size: "1", used: "1", avail: "0", options: "rw,relatime", children: [
+      { target: "/boot", source: "/dev/nvme0n1p2", fstype: "ext4", options: "rw,relatime", children: [{ target: "/boot/efi", source: "/dev/nvme0n1p1", fstype: "vfat", options: "rw" }] },
+      { target: "/mnt/the-dump", source: "/dev/sdb2", fstype: "exfat", options: "ro,relatime,uid=1000,errors=remount-ro" },
+    ] }] };
+    const mounts = parseFindmnt(JSON.stringify(tree));
+    expect(mounts.map((mount) => mount.target)).toEqual(["/", "/boot", "/boot/efi", "/mnt/the-dump"]);
+    expect(mounts.find((mount) => mount.target === "/mnt/the-dump")).toMatchObject({ source: "/dev/sdb2", readOnly: true });
   });
 });

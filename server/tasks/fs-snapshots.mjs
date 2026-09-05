@@ -33,7 +33,10 @@ async function btrfsMounts(run) {
   const result = await run(binaries.findmnt, ["-t", "btrfs", "--json", "-o", "TARGET,SOURCE"], { timeout: 15_000 });
   if (!result.ok) return [];
   try {
-    return (JSON.parse(result.stdout).filesystems ?? [])
+    // findmnt -J is a tree, and btrfs is the filesystem most likely to nest: a subvolume mounted
+    // under the volume it belongs to sits in its parent's "children" and would otherwise be missed.
+    const flatten = (nodes) => (nodes ?? []).flatMap((node) => [node, ...flatten(node.children)]);
+    return flatten(JSON.parse(result.stdout).filesystems)
       .filter((entry) => typeof entry?.target === "string" && entry.target.startsWith("/"))
       .map((entry) => ({ target: entry.target, source: entry.source ?? null }));
   } catch { return []; }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { containersOnStaleMounts, detectRemediations, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, staleMounts, unwritableShares, vpnLeaks, windowsCannotDiscover } from "./remediations.mjs";
+import { containersOnStaleMounts, detectRemediations, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, staleMounts, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing } from "./remediations.mjs";
 
 /**
  * The situation each of these was written from, on a real server:
@@ -213,5 +213,47 @@ describe("a watcher with nowhere to send anything", () => {
 
   it("does not nag a server with nothing installed on it yet", () => {
     expect(nothingCanReachYou({ notifications: { configured: false }, apps: [] })).toEqual([]);
+  });
+});
+
+
+describe("a mount the kernel turned read-only", () => {
+  // The BlackBox incident of 2026-09-05: the-dump dropped off USB for eight seconds, came back as a
+  // different device, and exFAT remounted the dead mount read-only. Saving from another computer
+  // failed with an I/O error while the folder still appeared in every listing.
+  const dump = { target: "/mnt/the-dump", source: "/dev/sdb2", fstype: "exfat", managedName: "the-dump", readOnly: true, options: "defaults,nofail,uid=1000,gid=1000" };
+
+  it("is a critical finding with the reconnect as its fix", () => {
+    const [found] = readOnlyRemounts({ mounts: [dump] });
+    expect(found).toMatchObject({ id: "read-only-remount:the-dump", severity: "critical", fix: { operationId: "storage.remount", parameters: { name: "the-dump" } } });
+    expect(found.title).toBe("/mnt/the-dump has gone read-only");
+  });
+
+  it("is not a finding when fstab itself asked for read-only", () => {
+    expect(readOnlyRemounts({ mounts: [{ ...dump, options: "ro,nofail" }] })).toEqual([]);
+  });
+
+  it("leaves mounts BoxPilot does not manage alone", () => {
+    expect(readOnlyRemounts({ mounts: [{ ...dump, managedName: null }] })).toEqual([]);
+  });
+
+  it("lists the containers bound to it for a restart, since the fix replaces the filesystem under them", () => {
+    const { findings } = detectRemediations({ mounts: [dump], devices: [{ path: "/dev/sdb2" }], containers: [{ name: "bp-plex", appId: "plex", binds: ["/mnt/the-dump"] }, { name: "bp-ntfy", appId: "ntfy", binds: ["/srv/ntfy"] }] });
+    expect(findings.map((entry) => entry.id)).toEqual(["read-only-remount:the-dump", "stale-bind:bp-plex"]);
+  });
+});
+
+describe("a server that cannot check its exFAT drives", () => {
+  const exfat = { target: "/mnt/the-dump", source: "/dev/sda2", fstype: "exfat", managedName: "the-dump", readOnly: false, options: "defaults" };
+
+  it("offers to install the checker when an exFAT drive is mounted and fsck.exfat is absent", () => {
+    const [found] = exfatCheckerMissing({ mounts: [exfat], tools: { fsckExfat: false } });
+    expect(found).toMatchObject({ id: "exfat-checker-missing", severity: "warning", fix: { operationId: "apt.install", parameters: { packages: ["exfatprogs"] } } });
+  });
+
+  it("says nothing when the checker is present, when there is no exFAT, or when it does not know", () => {
+    expect(exfatCheckerMissing({ mounts: [exfat], tools: { fsckExfat: true } })).toEqual([]);
+    expect(exfatCheckerMissing({ mounts: [{ ...exfat, fstype: "ext4" }], tools: { fsckExfat: false } })).toEqual([]);
+    expect(exfatCheckerMissing({ mounts: [exfat] })).toEqual([]);
   });
 });

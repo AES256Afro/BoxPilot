@@ -13,7 +13,7 @@ import { hashPassword, renderAutoinstall, validateAutoinstallInput } from "../au
 import { readTlsStatus } from "../tls-status.mjs";
 import { collectStorage } from "../storage-inventory.mjs";
 import { detectRemediations } from "../remediations.mjs";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 
 /**
@@ -154,6 +154,9 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
         return { ...mount, managedName: entry?.managedName ?? null, options: entry?.options ?? null };
       });
       facts.devices = (storage.devices ?? []).filter((device) => device.path).map((device) => ({ path: device.path }));
+      // Whether the exFAT checker exists here at all; asked of the filesystem, not of apt.
+      const present = await Promise.all(["/usr/sbin/fsck.exfat", "/sbin/fsck.exfat"].map((file) => access(file).then(() => true, () => false)));
+      facts.tools = { fsckExfat: present.some(Boolean) };
     }
     if (samba?.configured) {
       const shares = samba.config?.shares ?? [];

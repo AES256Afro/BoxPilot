@@ -44,6 +44,56 @@ export function staleMounts({ mounts = [], devices = [] } = {}) {
 }
 
 /**
+ * A managed mount the kernel has turned read-only on its own. exFAT and ext4 both do this when the
+ * device throws I/O errors (errors=remount-ro): the drive dropped off USB for a few seconds, or the
+ * cable is marginal. The mount stays listed, df still prints numbers from cache, and every write
+ * from a share or a container fails - the owner sees "I/O error" on their laptop and nothing at
+ * all on the server. A mount fstab itself asked to be read-only is not this.
+ */
+export function readOnlyRemounts({ mounts = [] } = {}) {
+  return mounts
+    .filter((mount) => mount.managedName && mount.readOnly === true && !(mount.options ?? "").split(",").includes("ro"))
+    .map((mount) => finding({
+      id: `read-only-remount:${mount.managedName}`,
+      severity: "critical",
+      title: `${mount.target} has gone read-only`,
+      detail: `The filesystem hit errors and protected itself by refusing every write since. That is what a drive dropping off USB for a moment does, and it is why saving to this folder from another computer fails with an I/O error while the folder still appears to be there. Reconnecting it mounts the drive again as it is now; if it keeps happening, the cable, port or enclosure is the thing to change.`,
+      evidence: [`mounted from ${mount.source} with ro`, `fstab asks for it read-write`, ...(mount.fstype ? [`${mount.fstype} filesystem`] : [])],
+      fix: {
+        operationId: "storage.remount",
+        parameters: { name: mount.managedName },
+        label: "Reconnect the drive",
+        preview: `Detaches the read-only mount at ${mount.target} and mounts it again from fstab, read-write, finding the drive by its UUID wherever the kernel has put it. Nothing on the drive is touched. Containers using this folder are listed separately and need a restart afterwards.`,
+      },
+    }));
+}
+
+/**
+ * An exFAT drive on a server with no way to check it. exFAT is what every large external drive
+ * ships with, and after an unclean disconnect it is the filesystem most worth checking before it
+ * is written to again - but Ubuntu does not install fsck.exfat by default, so "check the drive"
+ * is not something this server can do until it has exfatprogs.
+ */
+export function exfatCheckerMissing({ mounts = [], tools = null } = {}) {
+  if (!tools || tools.fsckExfat !== false) return [];
+  const exfat = mounts.filter((mount) => mount.fstype === "exfat");
+  if (!exfat.length) return [];
+  return [finding({
+    id: "exfat-checker-missing",
+    severity: "warning",
+    title: "This server cannot check its exFAT drives",
+    detail: `${exfat.map((mount) => mount.target).join(", ")} ${exfat.length === 1 ? "is" : "are"} exFAT, and fsck.exfat is not installed. After a drive drops off and comes back, a check before writing to it again is the difference between a scare and a corrupted folder table. Installing exfatprogs adds the checker; it changes nothing on the drives.`,
+    evidence: [`${exfat.length} exFAT mount${exfat.length === 1 ? "" : "s"}`, "fsck.exfat not found in /usr/sbin or /sbin"],
+    fix: {
+      operationId: "apt.install",
+      parameters: { packages: ["exfatprogs"] },
+      label: "Install the exFAT checker",
+      preview: "Installs the exfatprogs package (fsck.exfat, tune.exfat). No drive is touched or checked by this step.",
+    },
+  })];
+}
+
+/**
  * A container still bound to a mount that has since been re-attached. Docker resolves a bind at
  * start; remounting underneath it leaves the container looking at the old, empty filesystem, so
  * fixing the mount appears not to have worked.
@@ -247,9 +297,16 @@ export function nothingCanReachYou({ notifications = null, apps = [] } = {}) {
 
 /** Everything, worst first, with a stable order inside a severity so the list does not shuffle. */
 export function detectRemediations(facts = {}) {
-  const staleTargets = staleMounts(facts).map((entry) => entry.id.replace("stale-mount:", "")).map((name) => `/mnt/${name}`);
+  // Containers bound to a dead OR read-only mount are on a filesystem that will be replaced by the
+  // fix, so both kinds feed the "restart this container" findings.
+  const staleTargets = [
+    ...staleMounts(facts).map((entry) => entry.id.replace("stale-mount:", "")),
+    ...readOnlyRemounts(facts).map((entry) => entry.id.replace("read-only-remount:", "")),
+  ].map((name) => `/mnt/${name}`);
   const findings = [
     ...staleMounts(facts),
+    ...readOnlyRemounts(facts),
+    ...exfatCheckerMissing(facts),
     ...containersOnStaleMounts({ ...facts, staleTargets }),
     ...vpnLeaks(facts),
     ...failedRehearsals(facts),
