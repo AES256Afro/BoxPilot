@@ -931,3 +931,162 @@ first-class place to approve, glance, and act.
 - **M25.3** **A today view.** What ran overnight, what needs attention, what is off-box and current —
   the morning glance, on the lock screen.
 
+
+---
+
+## Next milestones (written 2026-09-05, after the second the-dump incident and four review sweeps)
+
+Each of these came out of something that actually happened or was actually measured this week,
+not from a wish list. They are ordered by what the owner would notice first.
+
+### M26 — Drive resilience: a drive that drops must never be a mystery again
+
+Twice in five days the USB drive dropped for eight seconds, came back under another name, and the
+old mount stayed - the second time exFAT turned it read-only and another computer saw I/O errors.
+BoxPilot now detects the dead mount, the read-only remount, and the missing exFAT checker (v1.111.0),
+but detection is the floor.
+
+- **M26.1 Reconnect in one fix.** Today the owner clicks "Reconnect the drive" and then restarts
+  each bound container from separate findings. One remediation should remount and restart every
+  container bound to it, in order, with the verification (a real read of the mount) in between.
+- **M26.2 Check before writing.** After a reconnect of an exFAT/ext4 drive that hit errors, offer
+  `fsck -n` (read-only) as a job, show its verdict on the drive card, and only then offer the
+  repairing run. Requires exfatprogs, which M26.3 installs.
+- **M26.3 Setup checklist item: "This server can check its drives."** exfatprogs and smartmontools
+  present, SMART enabled for USB enclosures where the bridge allows (`-d sat`).
+- **M26.4 Say why it dropped.** Correlate the kernel's USB disconnect with what BoxPilot knows:
+  same port, same vendor:product, how many times in 30 days, whether a power fault was logged. A
+  drive that has dropped twice earns a standing Repair notice naming the cable, port or enclosure
+  as the thing to change. The evidence is already in the journal; nothing reads it.
+- **M26.5 Auto-reconnect, opt-in.** A flow the owner can arm: when a managed mount goes dead or
+  read-only, reconnect it and restart bound containers, then notify. Off by default; the
+  scheduler's consent rules apply.
+
+### M27 — Silent-failure audit: nothing BoxPilot knows may be shown to nobody
+
+Both incidents were known to BoxPilot and announced to no one. Three separate causes were found
+this week (a tree the parser did not walk, alerts hidden without a notification target, job logs
+the web service could not read). There will be more.
+
+- **M27.1 Every recorded verdict has a reader.** Audit every `setSetting` and record hook: for each
+  key, name the page that reads it. The kill-switch drill verdict was recorded for a month and read
+  by nothing (v1.92.0); `healthAlertsState` was read by one route that filtered out the unannounced
+  half (v1.111.0). Turn the audit into a test that fails when a new key has no consumer.
+- **M27.2 "Not announced" is a state the owner can see.** Done for health alerts; extend to failed
+  schedules, failed flows, and record-hook failures. One "BoxPilot could not tell you about N
+  things" line on the Overview when no notification target is set.
+- **M27.3 Run the detectors against captured reality.** Keep a fixture directory of real
+  `findmnt -J`, `lsblk -J`, fstab, `docker inspect` output from the real server (scrubbed), and run
+  every Repair detector and health rule over it in CI. The findmnt tree bug would have failed on
+  the first such fixture.
+- **M27.4 The helper's own health.** A canary that writes a job log as the helper and reads it as
+  the web service, run at startup; the umask bug would have been caught the day it shipped.
+
+### M28 — Copy and naming: one voice, one name per thing
+
+The readability sweep produced a table of things called two names on two pages and fourteen
+Repair notices written in the refusal voice CLAUDE.md forbids. About forty strings were fixed in
+v1.112.0; the structural half remains.
+
+- **M28.1 The action-center notices.** Move the 14 inline notice literals into the guidance table
+  the same file already has, then rewrite them: "Could not read the drives" rather than "Storage
+  evidence is unavailable ... BoxPilot will not claim storage readiness without the fixed mount
+  and device collectors." Strip evidence / collector / bounded / sanitized / fixed / separately
+  reviewed / the "performs no deletion" tails.
+- **M28.2 One name per thing.** Adopt the table: *second copy* (not off-box / independent /
+  mirror as the owner word); *drive* for the thing you plug in, *disk* only for a VM's virtual
+  disk, never "block device" or "filesystem" as a heading; *machine snapshot* for the redeploy
+  archive and *database backup* for the database's; rename the Overview's "Housekeeping" panel
+  (it collides with disk-space housekeeping); delete "Action Center" and "controller" from copy;
+  *Activity* everywhere ("Recent jobs" goes).
+- **M28.3 Boundary slugs out of API responses.** `boundary: {...}` and `mode:
+  "read-only-local-action-guidance"` ride on a dozen responses and are rendered by nothing; one
+  (`prerequisites.mjs` reading `mutationPerformed`) is load-bearing and needs a named field.
+- **M28.4 Extract the long JSX.** HostOverview has a 1,147-character line; the ext4 label is a
+  four-way ternary. `mountErrorLabel()` / `smartHeadline()` helpers give the strings one home and
+  make M28.1-style edits copy edits rather than code edits.
+
+### M29 — Secrets hygiene, finished
+
+The registry masks top-level secret fields; an app's token nested in `values.env` was stored in
+clear until v1.112.0. The lesson generalises.
+
+- **M29.1 Secrets are a shape, not a flag.** A single `secretPaths(operation, parameters)` used by
+  jobs, scheduler, flows and the audit log, so a new nesting cannot be missed three times.
+- **M29.2 Staged secrets expire.** Thirty minutes unapproved and the staged copy is dropped, with
+  the dialog saying so; today they live until the daily prune.
+- **M29.3 Backups never carry a secret.** A test that stages every operation with a secret in the
+  registry, writes a controller backup, and greps the archive.
+
+### M30 — BoxPilot watching BoxPilot
+
+- **M30.1 Job logs are verified readable** at write time (M27.4's canary, made permanent).
+- **M30.2 Interrupted jobs are announced** - done in v1.112.0 - and *retried where safe*: a
+  read-only or idempotent operation cut off by a self-update should simply run again.
+- **M30.3 Timeouts are a first-class result**, not a stderr prefix: the job record says the budget
+  and what was reached, and the dialog offers "try again with more time" for pulls.
+- **M30.4 A weekly self-report** to the notification target: what ran, what failed, what was
+  skipped and why, what is not covered yet. The morning glance M25.3 promised, from the server side.
+
+### M31 — Storage and data, next steps (continues M23)
+
+- **M31.1** btrfs/ZFS snapshot rollback and browse-and-restore, still deliberately gated on a real
+  filesystem to verify against.
+- **M31.2** Per-disk SMART trend chart in the UI (the sampler and alert exist).
+- **M31.3** Guided array/mount setup from bare disk to mounted-and-backed-up (M23.4).
+- **M31.4** "Where the space went" over time: the app-data sampler's history as a chart, so a
+  download folder growing 240 GB a week is a slope the owner can see, not only a sentence.
+
+## App catalogue candidates
+
+Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing
+entry. Each names the gap it fills. Risk tiers follow the existing convention; anything that needs
+host networking or a capability is marked.
+
+**Fills a real gap on this server**
+- **Unbound** (DNS) - a recursive resolver to sit behind Pi-hole/AdGuard so DNS does not depend on
+  a third party; the catalog has three blockers and no resolver. Low risk.
+- **CrowdSec** (Security) - collaborative intrusion prevention for the services the server exposes;
+  fail2ban is host-level and BoxPilot-managed, CrowdSec covers the apps. Medium (reads Docker logs).
+- **Authelia** or **Authentik** (Security) - a full SSO/2FA gateway for apps that cannot use
+  "Sign in with BoxPilot" (M19); Pocket-ID covers OIDC-capable apps only. Medium.
+- **Caddy** or **Traefik** (Network) - an alternative reverse proxy to Nginx Proxy Manager with
+  automatic certificates and labels-based routing; NPM is the only proxy offered. Medium.
+- **Gatus** (Monitoring) - status page + health checks with a config file that can be
+  BoxPilot-generated from the catalog's installed apps; complements Uptime Kuma's UI-driven model.
+  Low.
+- **Borgmatic** (Backup) - Borg-based deduplicated backups with a declarative config, the common
+  alternative to restic for people who already have a Borg repository. Low.
+- **Rclone (web GUI)** (Backup) - the owner already mirrors to the cloud through BoxPilot's own
+  rclone; exposing rclone's browser for ad-hoc cloud file management fills a gap the CLI leaves.
+  Medium (holds cloud credentials).
+- **Headscale** (Network) - self-hosted Tailscale control server, for owners who want the tailnet
+  without the SaaS; BoxPilot already leans on Tailscale everywhere. Medium.
+- **Copyparty** or **Dufs** (Files) - a zero-config file server for "just give me a URL to drop a
+  file on" moments; Filebrowser and Pingvin cover adjacent needs, neither is this. Low.
+- **Seafile** (Files) - the heavyweight sync alternative to Nextcloud for owners who want speed
+  over the app ecosystem. Medium.
+
+**Rounds out an existing category**
+- **Kokoro / Speaches** (AI) - local text-to-speech to pair with Whisper's speech-to-text; the AI
+  category has STT and LLMs but no TTS. Low, GPU optional.
+- **Woodpecker CI** (Developer) - lightweight CI that pairs with Forgejo, which is already in the
+  catalog with no CI beside it. Medium (runs containers).
+- **Docuseal** (Files) - self-hosted document signing; Paperless and Stirling handle documents in,
+  nothing handles signatures. Low.
+- **Homarr** or **Dashy** (Monitoring) - alternative dashboards for owners who find Homepage's
+  YAML or Glance's layout limiting. Low.
+- **Ghostfolio** (Finance) - portfolio tracking beside Actual/Firefly's budgeting. Low.
+- **Umami** or **Plausible** (Monitoring) - privacy-respecting web analytics for anything the owner
+  hosts publicly through Cloudflared. Low.
+- **Ntfy is present; add Gotify's sibling "Apprise API"** - already present. No action.
+- **Immich is present; add "Photoview"** - only if a read-only, folder-based gallery is wanted for
+  the-dump's media without an import step. Low.
+
+**Deliberately not suggested**
+- **Wazuh / Graylog / full ELK** - far heavier than a home server's monitoring should be; Loki +
+  Grafana are already there.
+- **Anything requiring `privileged: true`** beyond what the eight already-privileged monitoring/HA
+  entries need.
+- **A second download client or indexer manager** - the media-automation category is complete for
+  the *arr stack.
