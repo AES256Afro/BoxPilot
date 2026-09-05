@@ -39,6 +39,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
   const [unprotected, setUnprotected] = useState<string | null>(null);
   const [offBox, setOffBox] = useState<string | null>(null);
   const [setup, setSetup] = useState<{ firstRun: boolean; installedApps: number } | null>(null);
+  const [watch, setWatch] = useState<Array<{ title: string; announced: boolean }>>([]);
   const [rebuild, setRebuild] = useState<{ count: number; source: string } | null>(null);
   const [checklist, setChecklist] = useState<Checklist | null>(null);
 
@@ -151,6 +152,12 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
       })
       .catch(() => {});
 
+    fetch("/api/v1/settings/watch")
+      .then((response) => (response.ok ? response.json() : { conditions: [] }))
+      .then((data: { conditions?: Array<{ active: boolean; details: Array<{ title: string; announced?: boolean }> }> }) =>
+        guard(setWatch)((data.conditions ?? []).filter((condition) => condition.active).flatMap((condition) => condition.details.map((detail) => ({ title: detail.title, announced: detail.announced !== false })))))
+      .catch(() => {});
+
     fetch("/api/v1/setup")
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error("setup unavailable"))))
       .then((data: { firstRun: boolean; installedApps: number }) => guard(setSetup)({ firstRun: data.firstRun, installedApps: data.installedApps }))
@@ -182,6 +189,9 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
   }, [setup?.firstRun]);
 
   const attention: Array<{ label: string; view: ViewName }> = [];
+  // What the health watcher currently sees, announced or not. Without a notification target these
+  // conditions used to exist only in a setting nobody read; the owner found out from an I/O error.
+  for (const alert of watch) attention.push({ label: alert.announced ? alert.title : `${alert.title} (no alert target is set, so only this page knows)`, view: "repairs" });
   if (updates?.rebootRequired) attention.push({ label: "A reboot is pending", view: "updates" });
   if ((updates?.updates ?? 0) > 0) attention.push({ label: `${updates?.updates} update${updates?.updates === 1 ? "" : "s"} available${updates?.security ? ` (${updates.security} security)` : ""}`, view: "updates" });
   if ((failedServices ?? 0) > 0) attention.push({ label: `${failedServices} failed service${failedServices === 1 ? "" : "s"}`, view: "services" });

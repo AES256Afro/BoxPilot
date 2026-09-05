@@ -50,3 +50,19 @@ describe("filesystem snapshots", () => {
     expect(run.mock.calls.some(([binary, args]) => binary.endsWith("/zfs") && args[0] === "destroy" && !args[1].includes("@"))).toBe(false);
   });
 });
+
+
+describe("finding btrfs mounts in findmnt's tree", () => {
+  it("sees a subvolume nested under its volume", async () => {
+    const { fsSnapshotsInspect } = await import("./fs-snapshots.mjs");
+    const run = async (binary) => {
+      if (binary.endsWith("findmnt")) return { ok: true, stdout: JSON.stringify({ filesystems: [{ target: "/mnt/pool", source: "/dev/sdc1", children: [{ target: "/mnt/pool/photos", source: "/dev/sdc1[/photos]" }] }] }), stderr: "" };
+      if (binary.endsWith("zfs")) return { ok: false, stdout: "", stderr: "not installed" };
+      if (binary.endsWith("btrfs")) return { ok: true, stdout: "", stderr: "" };
+      return { ok: true, stdout: "", stderr: "" };
+    };
+    const result = await fsSnapshotsInspect({}, { run, files: { access: async () => undefined } });   // btrfs tool counts as present
+    const targets = JSON.stringify(result);
+    expect(targets).toContain("/mnt/pool/photos");
+  });
+});

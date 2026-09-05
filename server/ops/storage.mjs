@@ -49,10 +49,26 @@ export function parseFstab(content) {
 export function parseFindmnt(json) {
   let parsed;
   try { parsed = JSON.parse(json); } catch { return []; }
-  return (parsed.filesystems ?? []).map((entry) => ({
-    target: entry.target, source: entry.source, fstype: entry.fstype,
-    sizeBytes: Number(entry.size) || null, usedBytes: Number(entry.used) || null, availableBytes: Number(entry.avail) || null,
-  }));
+  // findmnt -J is a TREE: every mount other than / is nested under its parent's "children". This
+  // used to map only the top level, which on a real machine is the root filesystem alone - so
+  // /mnt/the-dump was never in this list, the stale-mount finding could never fire for it, and
+  // the detached-drive alert had nothing to compare. Found by running the detector over the
+  // findmnt output captured during the 2026-09-05 incident. Walk the whole tree.
+  const flat = [];
+  const walk = (entry) => { flat.push(entry); for (const child of entry.children ?? []) walk(child); };
+  for (const entry of parsed.filesystems ?? []) walk(entry);
+  return flat.map((entry) => {
+    const options = typeof entry.options === "string" ? entry.options.split(",") : [];
+    return {
+      target: entry.target, source: entry.source, fstype: entry.fstype,
+      sizeBytes: Number(entry.size) || null, usedBytes: Number(entry.used) || null, availableBytes: Number(entry.avail) || null,
+      // The options the kernel is using now, not the ones fstab asked for. A filesystem that hit
+      // errors on a flaky cable turns itself read-only (errors=remount-ro) and stays mounted, and
+      // without this column nothing in BoxPilot could see the difference from a healthy mount.
+      options,
+      readOnly: options.includes("ro"),
+    };
+  });
 }
 
 export function storageOperations() {
@@ -63,7 +79,7 @@ export function storageOperations() {
       run: async (_parameters, { run }) => {
         const [tree, mounts] = await Promise.all([
           run(lsblk, ["-J", "-b", "-o", "PATH,TYPE,SIZE,FSTYPE,UUID,LABEL,MODEL,TRAN,MOUNTPOINTS,RO,RM"], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }),
-          run(findmnt, ["--real", "-J", "-b", "-o", "TARGET,SOURCE,FSTYPE,SIZE,USED,AVAIL"], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }),
+          run(findmnt, ["--real", "-J", "-b", "-o", "TARGET,SOURCE,FSTYPE,SIZE,USED,AVAIL,OPTIONS"], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }),
         ]);
         const fstab = await readFile("/etc/fstab", "utf8").catch(() => "");
         return {

@@ -35,9 +35,12 @@ export function createSettingsRouter({ state, notifications, auth }) {
     const active = state.getSetting("healthAlertsState", {}) ?? {};
     const byFamily = {};
     for (const [key, entry] of Object.entries(active)) {
-      if (!entry || entry.notified === false) continue; // recorded but not yet announced
+      if (!entry) continue;
+      // A condition that is live but was never announced - because no notification target is set -
+      // is still live. Hiding it here as well meant a drive that dropped off USB was known to
+      // BoxPilot and shown to nobody, on any page, until the owner happened to read a folder.
       const family = key.split(":")[0];
-      (byFamily[family] ??= []).push({ title: entry.title ?? key, since: entry.since ?? null });
+      (byFamily[family] ??= []).push({ title: entry.title ?? key, since: entry.since ?? null, announced: entry.notified !== false });
     }
     const conditions = Object.entries(healthConditions).map(([key, label]) => ({ key, label, active: Boolean(byFamily[key]?.length), details: byFamily[key] ?? [] }));
     response.json({ targetConfigured: notifications.describe().configured === true, activeCount: Object.values(byFamily).reduce((sum, list) => sum + list.length, 0), conditions });

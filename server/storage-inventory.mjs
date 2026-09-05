@@ -192,7 +192,7 @@ export function sharesFrom(fstab, mounts) {
 export async function collectStorage({ run = fixedRun, readFile = readFileDefault, exists = (file) => access(file).then(() => true, () => false) } = {}) {
   const [lsblkResult, findmntResult, fstabContent, cifs, nfs, smbclient, showmount] = await Promise.all([
     run(lsblkBinary, ["-J", "-b", "-o", lsblkColumns], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }),
-    run(findmntBinary, ["--real", "-J", "-b", "-o", "TARGET,SOURCE,FSTYPE,SIZE,USED,AVAIL"], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }),
+    run(findmntBinary, ["--real", "-J", "-b", "-o", "TARGET,SOURCE,FSTYPE,SIZE,USED,AVAIL,OPTIONS"], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }),
     readFile("/etc/fstab", "utf8").catch(() => ""),
     exists("/sbin/mount.cifs"),
     exists("/sbin/mount.nfs"),

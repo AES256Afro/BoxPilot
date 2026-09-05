@@ -15,6 +15,7 @@ export const healthConditions = Object.freeze({
   "storage.mount.full": "A mounted filesystem is nearly full",
   "storage.smart": "A disk reports SMART problems",
   "storage.mount.detached": "A drive was disconnected and its folder is now empty",
+  "storage.mount.readonly": "A filesystem hit errors and has gone read-only",
   "power.ups": "UPS on battery or low",
   "system.services": "System services have failed",
   "system.reboot": "A reboot is required",
@@ -50,6 +51,16 @@ export function evaluateHealth(inventory) {
       if (!mount.source?.startsWith("/dev/") || present.has(mount.source)) continue;
       alerts.push({ key: `storage.mount.detached:${mount.target}`, priority: "high", title: `${mount.target} lost its drive`, message: `It is still mounted from ${mount.source}, which is no longer a device on this server — the drive was disconnected, and may have come back under a different name. Anything reading that folder now sees it empty, including network shares. Reconnect it from the Repair page.` });
     }
+  }
+  // A filesystem the kernel turned read-only after I/O errors. exFAT and ext4 mounted with
+  // errors=remount-ro do this when the device stumbles - a drive dropping off USB for a moment is
+  // the usual cause - and from then on every write from a share or a container fails while the
+  // folder still appears in every listing. The owner learns of it as an I/O error on another
+  // computer. Limited to mounts carrying errors=remount-ro, so a filesystem fstab deliberately
+  // mounted read-only (which would not normally carry that policy) is not reported as a fault.
+  for (const mount of inventory?.storage?.filesystems?.mounts ?? []) {
+    if (!mount.readOnly || !mount.source?.startsWith("/dev/") || !(mount.optionNames ?? []).includes("errors=remount-ro")) continue;
+    alerts.push({ key: `storage.mount.readonly:${mount.target}`, priority: "high", title: `${mount.target} has gone read-only`, message: `The filesystem on ${mount.source} hit errors and is refusing every write since. Saving to it from another computer fails with an I/O error. Open Repair to reconnect it; if it keeps happening, the cable, port or enclosure is the thing to change.` });
   }
   for (const disk of inventory?.storage?.smart?.disks ?? []) {
     if (["healthy", "unavailable"].includes(disk.health)) continue;
@@ -88,6 +99,7 @@ export function collectorAvailability(inventory) {
   return {
     "storage.root.full": Boolean(storage?.root && Number.isFinite(storage.root.usedPercent)),
     "storage.mount.full": storage?.filesystems?.available !== false && Array.isArray(storage?.filesystems?.mounts),
+    "storage.mount.readonly": storage?.filesystems?.available !== false && Array.isArray(storage?.filesystems?.mounts),
     "storage.smart": storage?.smart?.available !== false && Array.isArray(storage?.smart?.disks) && storage.smart.disks.length > 0,
     // Needs both halves: without the device list every mount would look detached.
     "storage.mount.detached": storage?.filesystems?.available !== false && Array.isArray(storage?.filesystems?.mounts) && storage?.blockDevices?.available === true && (storage.blockDevices.devices?.length ?? 0) > 0,

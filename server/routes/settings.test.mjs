@@ -30,15 +30,19 @@ describe("GET /settings/watch", () => {
     settings.set("healthAlertsState", {
       "storage.smart:/dev/sda": { title: "Disk /dev/sda reports SMART problems", since: "2026-08-27T00:00:00Z", notified: true },
       "smart.errors:/dev/sda": { title: "/dev/sda is developing errors", since: "2026-08-28T00:00:00Z", notified: true },
-      "schedule.overdue:s1": { title: "not yet announced", notified: false }, // recorded but unannounced: not shown active
+      "schedule.overdue:s1": { title: "not yet announced", notified: false }, // live, but never sent anywhere
     });
     const body = await (await fetch(`${base}/api/v1/settings/watch`)).json();
     expect(body.targetConfigured).toBe(true);
-    expect(body.activeCount).toBe(2); // the two announced ones
+    // All three are live conditions. The unannounced one used to be hidden here too, which meant a
+    // condition BoxPilot knew about was shown to nobody until the owner stumbled on its effect.
+    expect(body.activeCount).toBe(3);
     const byKey = Object.fromEntries(body.conditions.map((condition) => [condition.key, condition]));
     expect(byKey["storage.smart"].active).toBe(true);
+    expect(byKey["storage.smart"].details[0].announced).toBe(true);
     expect(byKey["smart.errors"].active).toBe(true);
-    expect(byKey["schedule.overdue"].active).toBe(false); // unannounced does not count
+    expect(byKey["schedule.overdue"].active).toBe(true);
+    expect(byKey["schedule.overdue"].details[0].announced).toBe(false); // live, and the page can say it was never sent
     expect(byKey["docker.unhealthy"].active).toBe(false); // nothing wrong
     expect(byKey["storage.smart"].details[0].title).toContain("/dev/sda");
     // Every condition family from the watcher is present.
