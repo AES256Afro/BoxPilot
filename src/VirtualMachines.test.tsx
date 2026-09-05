@@ -160,7 +160,7 @@ describe("Virtual Machines", () => {
     expect(screen.getByText("RAM 2.0 GiB / 4.0 GiB")).toBeTruthy();
     expect(screen.getByText("Libvirt resources")).toBeTruthy();
     expect(screen.getByText("Default VM foundation")).toBeTruthy();
-    expect(screen.getByText("VM creation foundation verified")).toBeTruthy();
+    expect(screen.getByText("Ready to create VMs")).toBeTruthy();
     expect(screen.getByText("No web console handoff is active.")).toBeTruthy();
     expect(screen.getByText(/80 GiB/)).toBeTruthy();
     expect((screen.getByRole("button", { name: "Reboot" }) as HTMLButtonElement).disabled).toBe(false);

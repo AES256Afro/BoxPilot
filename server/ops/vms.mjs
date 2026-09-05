@@ -73,7 +73,7 @@ export function vmOperations() {
       run: (parameters, { vmCloud, runUnit, progress, jobLog }) => vmCloud.create(parameters, { progress, runUnit, jobLog }),
     }),
     defineOperation({
-      id: "vm.media.import", title: "Import a staged ISO", risk: "medium", timeoutMs: 6 * 60 * 60_000,
+      id: "vm.media.import", title: "Add an uploaded ISO to the library", risk: "medium", timeoutMs: 6 * 60 * 60_000,
       description: "Copies the staged upload into the managed media library, verifying its SHA-256 end to end. Nothing is overwritten.",
       parameters: { exact: false, fields: { filename: { type: "string", maxLength: 128 } } },
       run: (parameters, { vmMedia }) => vmMedia.importMedia(parameters),
@@ -91,7 +91,7 @@ export function vmOperations() {
       run: (parameters, { virtualization }) => virtualization.createExport(parameters),
     }),
     defineOperation({
-      id: "vm.export.protect", title: "Protect a VM export independently", risk: "medium", timeoutMs: 12 * 60 * 60_000,
+      id: "vm.export.protect", title: "Keep an encrypted copy of a VM export", risk: "medium", timeoutMs: 12 * 60 * 60_000,
       description: "Writes the verified export into the encrypted independent restic repository and reads the whole repository back. Nothing is pruned.",
       parameters: { exact: false, fields: { exportId: { type: "string", maxLength: 40 } } },
       run: (parameters, { vmProtection, progress }) => vmProtection.createBackup(parameters, { progress }),
@@ -103,7 +103,7 @@ export function vmOperations() {
       run: ({ candidates: _candidates, expectedBeforeCount: _expectedBeforeCount, ...parameters }, { vmRetention }) => vmRetention.apply(parameters),
     }),
     defineOperation({
-      id: "vm.backup.snapshot.forget", title: "Forget an unrecorded snapshot", risk: "high", timeoutMs: 2 * 60 * 60_000,
+      id: "vm.backup.snapshot.forget", title: "Remove a backup that failed its check", risk: "high", timeoutMs: 2 * 60 * 60_000,
       description: "Removes one snapshot the encrypted repository holds and BoxPilot has no record of, normally a backup that was written and then failed its verification. Nothing that has a local record can be removed this way, and nothing is pruned.",
       minimumRole: "owner",
       parameters: { fields: { snapshotId: { type: "string", maxLength: 64, pattern: /^[a-f0-9]{64}$/ }, knownSnapshotIds: { type: "array", optional: true } } },
@@ -111,7 +111,7 @@ export function vmOperations() {
       run: (parameters, { vmRetention }) => vmRetention.forgetUnrecorded(parameters),
     }),
     defineOperation({
-      id: "vm.backup.restore-drill", title: "Run an isolated VM restore drill", risk: "medium", timeoutMs: 12 * 60 * 60_000,
+      id: "vm.backup.restore-drill", title: "Test-restore a VM backup", risk: "medium", timeoutMs: 12 * 60 * 60_000,
       description: "Restores the exact snapshot into a no-network transient domain, requires guest-agent health, then cleans up. A pass promotes the backup to protected.",
       parameters: { exact: false, fields: { backupId: { type: "string", maxLength: 40 } } },
       run: (parameters, { vmRestoreDrill, progress }) => vmRestoreDrill.runDrill(parameters, { progress }),
@@ -123,7 +123,7 @@ export function vmOperations() {
       run: (parameters, { vmRecovery, progress }) => vmRecovery.createRecovery(parameters, { progress }),
     }),
     defineOperation({
-      id: "vm.foundation.initialize", title: "Initialize the libvirt foundation", risk: "medium", timeoutMs: 5 * 60_000,
+      id: "vm.foundation.initialize", title: "Set up the default VM network and storage", risk: "medium", timeoutMs: 5 * 60_000,
       description: "Defines, starts, and autostarts only the canonical default NAT network and default storage pool where missing. Failure rolls back only this job's changes.",
       parameters: { exact: false, fields: { foundationId: { type: "string", optional: true } } },
       run: (parameters, { foundation }) => foundation.initialize(parameters),

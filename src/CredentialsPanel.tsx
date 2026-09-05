@@ -24,7 +24,7 @@ export default function CredentialsPanel({ csrfToken }: { csrfToken: string }) {
     <section className="panel">
       <header className="panel-header"><div><strong>Credentials</strong><span>Tokens the Send-an-HTTP-request operation uses by name to reach webhooks and APIs. Values live in a root-owned file on this server and are never shown again.</span></div></header>
       {error && <div className="auth-error" role="alert">{error}</div>}
-      {credentials === null ? <p className="muted">Reading…</p> : credentials.length === 0 ? <p className="muted">Nothing saved yet.</p> : (
+      {credentials === null ? <p className="muted">Reading…</p> : credentials.length === 0 ? <p className="muted">No credentials yet. Save a token below and HTTP-request steps can use it by name.</p> : (
         <ul className="credential-list">
           {credentials.map((credential) => (
             <li key={credential.name}>

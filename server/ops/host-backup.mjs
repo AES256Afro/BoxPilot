@@ -36,7 +36,8 @@ export function hostBackupOperations() {
       run: (parameters, { machineSnapshot }) => machineSnapshot.describe(parameters),
     }),
     defineOperation({
-      id: "host.snapshot.restores", title: "List what restores left for review", risk: "low", readOnly: true, timeoutMs: 60_000,
+      // operator (ADR-003): inlines the contents of root-only files a restore staged for review - netplan (which can carry Wi-Fi passwords), fstab, VM definitions.
+      id: "host.snapshot.restores", title: "List what restores left for review", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
       description: "The network, firewall, fstab, and VM definitions a restore staged rather than applied, with their contents, so they can actually be reviewed.",
       run: (_parameters, { machineSnapshot }) => machineSnapshot.listRestores(),
     }),
@@ -82,7 +83,7 @@ export function hostBackupOperations() {
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("backup.remote.sync", parameters, { timeoutMs: 6 * 60 * 60_000 - 60_000, logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
-      id: "backup.sync", title: "Mirror local backups to the independent destination", risk: "medium", timeoutMs: 6 * 60 * 60_000,
+      id: "backup.sync", title: "Copy backups to the backup drive", risk: "medium", timeoutMs: 6 * 60 * 60_000,
       description: "Copies the local backup roots (controller backups, application backups, machine snapshots) onto the independent backup mount with hash verification. Nothing is ever deleted from the destination.",
       run: (_parameters, { machineSnapshot }) => machineSnapshot.sync(),
     }),

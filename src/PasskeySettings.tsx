@@ -83,7 +83,7 @@ export default function PasskeySettings({ csrfToken }: { csrfToken: string }) {
                   </div>
                 ))}
               </div>
-            ) : <p className="muted">No passkeys yet.</p>}
+            ) : <p className="muted">No passkeys yet. Add one to sign in with your fingerprint, face, or a security key.</p>}
 
             <div className="approval-option" style={{ cursor: "default" }}><span aria-hidden="true">🎟️</span><div>
               <strong>Recovery codes</strong>

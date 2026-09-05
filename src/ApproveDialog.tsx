@@ -49,7 +49,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
     let cancelled = false;
     stageOperation(operationId, parameters, csrfToken)
       .then((staged) => { if (cancelled) return; setJob(staged.job); setPolicy(staged.approval); setPhase("ready"); })
-      .catch((stageError: unknown) => { if (cancelled) return; setError(stageError instanceof Error ? stageError.message : "Could not stage the operation"); setPhase("error"); });
+      .catch((stageError: unknown) => { if (cancelled) return; setError(stageError instanceof Error ? stageError.message : "Could not prepare this action"); setPhase("error"); });
     return () => { cancelled = true; };
   }, [operationId, parameters, csrfToken]);
 

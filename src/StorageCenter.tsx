@@ -403,7 +403,7 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
       )}
 
       <section className="panel">
-        <header className="panel-header"><div><strong>Block devices</strong><span>Mount a drive so your apps and network shares can use it: a nofail fstab entry, verified first, and by default handed to your apps so they can write to it. Format erases the device and asks you to type its name. The system disk and LVM members are never offered.</span></div>
+        <header className="panel-header"><div><strong>Drives</strong><span>Mount a drive so your apps and shares can use it. It is checked first and mounts again at every boot; a missing drive never stops the server from starting. Format erases everything on it. The system drive is never offered.</span></div>
           <button className="secondary-button" type="button" disabled={loading} onClick={() => void refresh()}>Refresh</button>
         </header>
         <div className="table-scroll">

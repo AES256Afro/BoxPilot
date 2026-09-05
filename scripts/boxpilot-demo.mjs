@@ -564,7 +564,7 @@ api.get("/flows", (_request, response) => json(response, {
     { operationId: "apt.refresh", title: "Refresh package lists", risk: "low", description: "", fields: [] },
     { operationId: "apt.upgrade", title: "Install package updates", risk: "medium", description: "", fields: [] },
     { operationId: "controller.backup.create", title: "Back up the BoxPilot database", risk: "low", description: "", fields: [] },
-    { operationId: "backup.sync", title: "Mirror local backups to the independent destination", risk: "medium", description: "", fields: [] },
+    { operationId: "backup.sync", title: "Copy backups to the backup drive", risk: "medium", description: "", fields: [] },
     { operationId: "docker.prune", title: "Clean up Docker disk space", risk: "medium", description: "", fields: [] },
     { operationId: "homepage.sync", title: "Sync Homepage with installed apps", risk: "low", description: "", fields: [{ name: "host", type: "string", optional: true, enum: null, default: null }] },
     { operationId: "http.request", title: "Send an HTTP request", risk: "medium", description: "Call a webhook or API from this server.", fields: [

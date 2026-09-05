@@ -86,7 +86,7 @@ export default function OidcSettings({ csrfToken }: { csrfToken: string }) {
               </div>
             ))}
           </div>
-        ) : view ? <p className="muted">No apps registered yet.</p> : null}
+        ) : view ? <p className="muted">No apps use "Sign in with BoxPilot" yet. Register one below.</p> : null}
 
         {message && <p className="good-text">{message}</p>}
         {error && <div className="auth-error" role="alert">{error}</div>}

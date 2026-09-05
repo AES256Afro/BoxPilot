@@ -60,7 +60,7 @@ describe("Network Center", () => {
     expect(screen.getByText("Edge router")).toBeTruthy();
     expect(screen.getByText("Access point")).toBeTruthy();
     expect(document.querySelectorAll(".router-entry a")).toHaveLength(0);
-    fireEvent.click(screen.getByRole("button", { name: "Generate no-change assessment" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check this plan" }));
     expect(await screen.findByText("Change window blocked")).toBeTruthy();
     expect(screen.getByText("One router at the edge, everything else as access points.")).toBeTruthy();
     expect(screen.getAllByText("Router writes locked").length).toBeGreaterThan(0);

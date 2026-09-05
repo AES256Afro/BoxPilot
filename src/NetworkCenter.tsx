@@ -151,7 +151,7 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
   return (
     <div className="network-center">
       <section className="readiness">
-        <div><strong>{topology.defaultRoutes[0]?.gateway ?? "No default gateway"}</strong><span>{topology.defaultRoutes[0] ? `Live default route on ${topology.defaultRoutes[0].interface}` : "Route collector did not find a usable IPv4 gateway"}</span></div>
+        <div><strong>{topology.defaultRoutes[0]?.gateway ?? "No default gateway"}</strong><span>{topology.defaultRoutes[0] ? `Live default route on ${topology.defaultRoutes[0].interface}` : "No default gateway found"}</span></div>
         <div className="readiness-actions"><span className={`status-pill status-${collectorCount === collectorTotal ? "good" : "warning"}`}>{collectorCount}/{collectorTotal} collectors</span><button className="secondary-button" type="button" onClick={() => void refresh()} disabled={loading}>{loading ? "Refreshing..." : "Refresh"}</button></div>
       </section>
 
@@ -159,7 +159,7 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
       {error && <p className="form-error" role="alert">{error}</p>}
       <div className="network-summary-grid">
         <article className="panel network-summary"><span className="eyebrow">Server LAN</span><strong>{topology.eligibleLanAddresses[0]?.address ?? "Unavailable"}</strong><span>{topology.eligibleLanAddresses[0]?.cidr ?? "No eligible LAN address"}</span></article>
-        <article className="panel network-summary"><span className="eyebrow">Default resolvers</span><strong>{topology.defaultResolvers.join(" + ") || "Unavailable"}</strong><span>Observed from systemd-resolved, not router configuration</span></article>
+        <article className="panel network-summary"><span className="eyebrow">Default resolvers</span><strong>{topology.defaultResolvers.join(" + ") || "Unavailable"}</strong><span>What this server is using right now</span></article>
         <article className="panel network-summary"><span className="eyebrow">Tailscale DNS path</span><strong>{topology.tailscale.defaultDnsObserved ? "Default resolver observed" : "Split resolver only"}</strong><span>{topology.tailscale.dnsName ?? "No tailnet DNS name"}</span></article>
       </div>
 
@@ -289,7 +289,7 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
           <label><input type="checkbox" checked={secondDeviceReady} onChange={(event) => { setSecondDeviceReady(event.target.checked); setPlan(null); }} /> Second LAN device ready for DNS testing</label>
           <label><input type="checkbox" checked={tailscaleDnsOverride} onChange={(event) => { declarationTouched.current = true; setTailscaleDnsOverride(event.target.checked); setPlan(null); }} /> Tailscale DNS override is enabled</label>
         </div>
-        <div className="network-plan-actions"><button className="primary-button" type="button" onClick={() => void generatePlan()} disabled={submitting}>{submitting ? "Rechecking live topology..." : "Generate no-change assessment"}</button><span>No credentials, router sessions, network probes, or settings are accepted.</span></div>
+        <div className="network-plan-actions"><button className="primary-button" type="button" onClick={() => void generatePlan()} disabled={submitting}>{submitting ? "Rechecking live topology..." : "Check this plan"}</button><span>Nothing on your network is changed.</span></div>
       </section>
 
       {plan && <section className="panel network-plan-result">

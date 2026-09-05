@@ -111,7 +111,7 @@ export default function SystemLogs({ csrfToken = "" }: { csrfToken?: string }) {
           </div>
         </div>
         {error && <div className="auth-error" role="alert">{error}</div>}
-        <pre ref={pre} className="app-logs log-output" aria-label="Log output">{entries.length ? entries.join("\n") : loading ? "Loading…" : "No entries."}</pre>
+        <pre ref={pre} className="app-logs log-output" aria-label="Log output">{entries.length ? entries.join("\n") : loading ? "Loading…" : "No log lines for this source in the chosen range."}</pre>
       </section>
     </div>
   );

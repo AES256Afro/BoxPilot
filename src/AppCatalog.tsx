@@ -170,7 +170,7 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
           {(manifest.networkModes?.length ?? 0) > 1 && <fieldset><legend>Network</legend>
             <label>How Pi-hole and friends see your devices
               <select value={values.networkMode ?? manifest.networkModes?.[0]} onChange={(event) => setValues((current) => ({ ...current, networkMode: event.target.value }))} aria-label="Network mode">
-                {manifest.networkModes?.map((networkMode) => <option key={networkMode} value={networkMode}>{networkMode === "host" ? "Host: sees each device on your network by address and name" : "Bridge: isolated, every device appears as one client"}</option>)}
+                {manifest.networkModes?.map((networkMode) => <option key={networkMode} value={networkMode}>{networkMode === "host" ? "Host: sees each device on your network by address and name" : "Bridge: the app sees your whole network as one device (the usual choice)"}</option>)}
               </select>
               <span className="muted">{(values.networkMode ?? manifest.networkModes?.[0]) === "host"
                 ? "Shares this server's network, so the app sees real client addresses. Its ports become this server's ports (the admin UI moves to port 80), and it cannot use a bundled recursive resolver."

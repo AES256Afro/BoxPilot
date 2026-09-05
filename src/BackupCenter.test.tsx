@@ -65,7 +65,7 @@ describe("Backup Center", () => {
       if (url.endsWith("/api/v1/backups")) return json({ backups: [backup] });
       if (url.endsWith("/controller-backup-protection")) return json({ destination: { ready: true, encrypted: true, repositoryId: "restic-controller", blockers: [] }, protections: [] });
       if (url.endsWith("/controller-backup-retention")) return json({});
-      if (url.endsWith("/operations/controller.backup.protect/jobs")) { staged = init?.body as string; return json({ job: { id: "job-p", type: "op:controller.backup.protect", title: "Protect a database backup independently", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201); }
+      if (url.endsWith("/operations/controller.backup.protect/jobs")) { staged = init?.body as string; return json({ job: { id: "job-p", type: "op:controller.backup.protect", title: "Keep an encrypted copy of a database backup", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium risk" } }, 201); }
       return json({ error: `unexpected ${url}` }, 500);
     });
     vi.stubGlobal("fetch", fetchMock);
