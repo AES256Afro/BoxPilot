@@ -6,8 +6,8 @@ import { createVpnProfileStore } from "./vpn-profile.mjs";
 import { createAppHelper } from "./app-helper.mjs";
 import { createHostInspectHelper } from "./host-inspect-helper.mjs";
 import { createVmCloudHelper } from "./vm-cloud.mjs";
-import { createJobLogWriter, jobIdPattern } from "./job-log.mjs";
-import { readFileSync } from "node:fs";
+import { createJobLogWriter, serviceGroupId, jobIdPattern } from "./job-log.mjs";
+export { serviceGroupId };
 import { createVmHelper } from "./vm-helper.mjs";
 import { createVmMediaHelper } from "./vm-media-helper.mjs";
 import { validateDomainName } from "./libvirt.mjs";
@@ -33,17 +33,7 @@ export const helperOperations = new Set([...registry.ids(), ...legacyHelperOpera
 const vmRestoreDrillKeys = ["backupId", "domainName", "domainUuid", "drillId", "expectedDestinationRevision", "expectedManifestChecksumSha256", "expectedSizeBytes", "exportId", "repositoryId", "snapshotId"];
 const vmRecoveryKeys = ["backupId", "expectedDestinationRevision", "expectedManifestChecksumSha256", "expectedSizeBytes", "exportId", "repositoryId", "restoreDrillId", "restoreId", "snapshotId", "sourceDomainName", "sourceDomainUuid", "targetDomainName"];
 
-let cachedServiceGroupId = null;
 /** gid of the unprivileged web service group (boxpilot) so job logs are group-readable; null when unknown. */
-export function serviceGroupId() {
-  if (cachedServiceGroupId !== null) return cachedServiceGroupId === -1 ? null : cachedServiceGroupId;
-  try {
-    const line = readFileSync("/etc/group", "utf8").split("\n").find((entry) => entry.startsWith("boxpilot:"));
-    const gid = line ? Number.parseInt(line.split(":")[2], 10) : Number.NaN;
-    cachedServiceGroupId = Number.isInteger(gid) ? gid : -1;
-  } catch { cachedServiceGroupId = -1; }
-  return cachedServiceGroupId === -1 ? null : cachedServiceGroupId;
-}
 
 export function validateHelperRequest(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return "Request must be an object";

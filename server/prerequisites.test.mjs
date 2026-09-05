@@ -1,3 +1,6 @@
+import { mkdtemp } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createPrerequisiteService, port53Occupied } from "./prerequisites.mjs";
 
@@ -117,5 +120,41 @@ describe("collecting prerequisite evidence", () => {
     expect(helper.request).toHaveBeenCalledTimes(6); // not eighteen
     expect(second).toBe(first);
     expect(third).toBe(first);
+  });
+});
+
+
+describe("the root helper check reads back what the helper writes", () => {
+  function helperAnswering(canaryValue) {
+    return { request: async (operation) => (operation === "canary.verify" ? canaryValue : { installed: false, candidateVersion: "1.0-1", mutationPerformed: false }) };
+  }
+  const probe = { verified: true, mutationPerformed: false, helperVersion: "9.9.9", jobLog: { path: "/run/boxpilot/logs/probe.log", mode: 0o600 } };
+
+  it("is a conflict when the helper's job log cannot be read, and says what that would look like", async () => {
+    // Three weeks of installs and backups ending "recorded no output" - the umask had made every
+    // helper-written log 0600 - and nothing said so. This is the check that now does.
+    const service = createPrerequisiteService({ stateDirectory: await mkdtemp(path.join(os.tmpdir(), "boxpilot-prereq-")), helper: helperAnswering(probe), runCommand: async () => ({ ok: false, stdout: "", stderr: "" }), readProbe: async () => { throw Object.assign(new Error("EACCES"), { code: "EACCES" }); } });
+    const { checks } = await service.inspect();
+    const helperCheck = checks.find((entry) => entry.id === "helper.boundary");
+    expect(helperCheck.status).toBe("conflict");
+    expect(helperCheck.summary).toContain("not readable by BoxPilot");
+    expect(helperCheck.summary).toContain("600");
+    expect(helperCheck.repair.description).toContain("UMask");
+  });
+
+  it("is ready when the probe reads back", async () => {
+    const service = createPrerequisiteService({ stateDirectory: await mkdtemp(path.join(os.tmpdir(), "boxpilot-prereq-")), helper: helperAnswering({ ...probe, jobLog: { path: "/x", mode: 0o640 } }), runCommand: async () => ({ ok: false, stdout: "", stderr: "" }), readProbe: async () => "canary" });
+    const { checks } = await service.inspect();
+    const helperCheck = checks.find((entry) => entry.id === "helper.boundary");
+    expect(helperCheck.status).toBe("ready");
+    expect(helperCheck.summary).toContain("job logs are readable");
+  });
+
+  it("stays ready for an older helper that writes no probe", async () => {
+    let probed = 0;
+    const service = createPrerequisiteService({ stateDirectory: await mkdtemp(path.join(os.tmpdir(), "boxpilot-prereq-")), helper: helperAnswering({ verified: true, mutationPerformed: false, helperVersion: "1.0.0" }), runCommand: async () => ({ ok: false, stdout: "", stderr: "" }), readProbe: async () => { probed += 1; return ""; } });
+    const { checks } = await service.inspect();
+    expect(checks.find((entry) => entry.id === "helper.boundary").status).toBe("ready");
+    expect(probed).toBe(0);
   });
 });
