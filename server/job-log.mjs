@@ -5,9 +5,22 @@
  * file when the job finishes.
  */
 import { appendFile, chmod, chown, mkdir, open, rm, stat } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 
 export const defaultJobLogDirectory = process.env.BOXPILOT_JOB_LOG_DIRECTORY ?? "/run/boxpilot/logs";
+let cachedServiceGroupId = null;
+/** The service group's id, for handing a root-written log to the web service. */
+export function serviceGroupId() {
+  if (cachedServiceGroupId !== null) return cachedServiceGroupId === -1 ? null : cachedServiceGroupId;
+  try {
+    const line = readFileSync("/etc/group", "utf8").split("\n").find((entry) => entry.startsWith("boxpilot:"));
+    const gid = line ? Number.parseInt(line.split(":")[2], 10) : Number.NaN;
+    cachedServiceGroupId = Number.isInteger(gid) ? gid : -1;
+  } catch { cachedServiceGroupId = -1; }
+  return cachedServiceGroupId === -1 ? null : cachedServiceGroupId;
+}
+
 export const jobIdPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const maxLogBytes = 4 * 1024 * 1024;
 

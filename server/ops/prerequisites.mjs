@@ -1,4 +1,6 @@
+import { stat } from "node:fs/promises";
 import { productVersion } from "../version.mjs";
+import { createJobLogWriter, jobLogPath, serviceGroupId } from "../job-log.mjs";
 import { defineOperation } from "./registry.mjs";
 
 const debianVersion = /^[0-9A-Za-z.+:~_-]{1,64}$/;
@@ -26,7 +28,17 @@ export function prerequisiteOperations() {
     defineOperation({
       id: "canary.verify", title: "Check that BoxPilot can do root work", risk: "low", readOnly: true, parameters: noParameters,
       description: "Confirms the helper socket answers and reports its version.",
-      run: async () => ({ verified: true, helperVersion: productVersion, mutationPerformed: false }),
+      // Answering the socket is half the check. The other half is the one that was missing when the
+      // helper's umask made every job log unreadable to the web service for three weeks: write a
+      // line as the helper does, and let the caller - the web service - prove it can read it back.
+      run: async () => {
+        const jobId = "00000000-0000-4000-8000-00000000c0de";   // one fixed probe, rewritten each time
+        const writer = createJobLogWriter({ jobId, gid: serviceGroupId() });
+        await writer.append(`canary ${new Date().toISOString()}`, "stdout");
+        const path = jobLogPath(jobId);
+        const mode = await stat(path).then((entry) => entry.mode & 0o777, () => null);
+        return { verified: true, helperVersion: productVersion, mutationPerformed: false, jobLog: { path, mode } };
+      },
     }),
     defineOperation({ id: "prerequisite.smartmontools.inspect", title: "Inspect smartmontools", risk: "low", readOnly: true, parameters: noParameters, run: (_p, { prerequisites }) => prerequisites.inspectSmartmontools() }),
     defineOperation({ id: "prerequisite.smartmontools.install", title: "Install smartmontools", risk: "medium", description: "Installs smartmontools from Ubuntu's archive, which is what reads a disk's SMART health.", timeoutMs: minutes(15), parameters: exactVersion, run: (parameters, { prerequisites }) => prerequisites.installSmartmontools(parameters) }),

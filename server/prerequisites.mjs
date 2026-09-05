@@ -1,5 +1,5 @@
 import { constants as fsConstants } from "node:fs";
-import { access, statfs } from "node:fs/promises";
+import { access, readFile, statfs } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -36,7 +36,7 @@ export function port53Occupied(text) {
   });
 }
 
-export function createPrerequisiteService({ stateDirectory, helper, runCommand = fixedCommand, checkAccess = access, getFilesystem = statfs } = {}) {
+export function createPrerequisiteService({ stateDirectory, helper, runCommand = fixedCommand, checkAccess = access, getFilesystem = statfs, readProbe = (file) => readFile(file, "utf8") } = {}) {
   /**
    * The six helper inspections this page needs are independent of each other, so they are sent
    * together: the page waits for the slowest, not for the sum. The helper caps concurrent
@@ -87,13 +87,21 @@ export function createPrerequisiteService({ stateDirectory, helper, runCommand =
       const canary = await pending.canary;
       if (!canary.ok) throw canary.error;
       const result = canary.value;
+      // The helper answered. Can this process read what it writes? For three weeks it could not -
+      // the helper's umask made every job log 0600 - and nothing said so until installs and backups
+      // all ended "recorded no output".
+      let logsReadable = null;
+      if (result?.verified && result?.jobLog?.path) logsReadable = await readProbe(result.jobLog.path).then(() => true, () => false);
+      const ready = result?.verified && result?.mutationPerformed === false && logsReadable !== false;
       checks.push(check(
         "helper.boundary",
         "BoxPilot",
-        "Restricted helper",
-        result?.verified && result?.mutationPerformed === false ? "ready" : "conflict",
-        result?.verified ? `Typed protocol ${result.helperVersion} responded without host mutation` : "Helper response failed validation",
-        result?.verified ? null : { kind: "guided", description: "Restart the restricted helper and verify its socket permissions" },
+        "Root helper",
+        ready ? "ready" : "conflict",
+        !result?.verified ? "The helper's answer was not what BoxPilot expected"
+          : logsReadable === false ? `The helper answers, but the logs it writes are not readable by BoxPilot (mode ${result.jobLog.mode?.toString(8) ?? "unknown"}), so every install and backup would report no output`
+          : `The helper answers (version ${result.helperVersion})${logsReadable ? " and its job logs are readable" : ""}`,
+        ready ? null : { kind: "guided", description: logsReadable === false ? "The helper's job-log files must be group-readable: check UMask in boxpilot-helper.service and restart the helper" : "Restart the helper and check its socket permissions" },
       ));
     } catch {
       checks.push(check("helper.boundary", "BoxPilot", "Restricted helper", "repairable", "The local helper socket is unavailable", { kind: "guided", description: "Start or repair boxpilot-helper.service" }));
