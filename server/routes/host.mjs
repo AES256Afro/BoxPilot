@@ -140,11 +140,13 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
    */
   router.get("/remediations", async (_request, response) => {
     const facts = { mounts: [], devices: [], containers: [], shares: [], apps: [], samba: null };
-    const [storage, live, samba] = await Promise.all([
+    const [storage, live, samba, usb] = await Promise.all([
       collectStorage().catch(() => null),
       helper.request("app.inspect", {}, { timeoutMs: 30_000 }).catch(() => null),
       helper.request("samba.inspect", {}, { timeoutMs: 30_000 }).catch(() => null),
+      helper.request("storage.usb.events", {}, { timeoutMs: 45_000 }).catch(() => null),
     ]);
+    facts.usb = usb;
     if (storage) {
       // findmnt knows what is mounted; fstab knows which of those BoxPilot manages and with what
       // options. Only managed mounts are offered a fix, so a hand-made entry is never touched.

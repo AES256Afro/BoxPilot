@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { containersOnStaleMounts, detectRemediations, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, staleMounts, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing } from "./remediations.mjs";
+import { containersOnStaleMounts, detectRemediations, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, staleMounts, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives } from "./remediations.mjs";
 
 /**
  * The situation each of these was written from, on a real server:
@@ -255,5 +255,29 @@ describe("a server that cannot check its exFAT drives", () => {
     expect(exfatCheckerMissing({ mounts: [exfat], tools: { fsckExfat: true } })).toEqual([]);
     expect(exfatCheckerMissing({ mounts: [{ ...exfat, fstype: "ext4" }], tools: { fsckExfat: false } })).toEqual([]);
     expect(exfatCheckerMissing({ mounts: [exfat] })).toEqual([]);
+  });
+});
+
+
+describe("a drive that keeps dropping off USB", () => {
+  const twice = { available: true, days: 30, ports: [{ port: "6-1", product: "Expansion HDD", vendorId: "0bc2", productId: "2038", drops: ["2026-09-01T06:46:02.000Z", "2026-09-05T16:01:11.000Z"], returns: [], powerFaults: 0, resets: 0, lastDropAt: "2026-09-05T16:01:11.000Z" }] };
+
+  it("is named after the second drop, with the cable as the first suspect when no power fault was logged", () => {
+    const [found] = flakyDrives({ usb: twice });
+    expect(found.title).toBe("Expansion HDD keeps dropping off USB port 6-1");
+    expect(found.detail).toContain("cable");
+    expect(found.severity).toBe("warning");
+    expect(found.fix).toBeNull();   // nothing BoxPilot can run fixes a cable
+  });
+
+  it("blames power when the port reported a fault", () => {
+    const [found] = flakyDrives({ usb: { ...twice, ports: [{ ...twice.ports[0], powerFaults: 2 }] } });
+    expect(found.detail).toContain("powered hub");
+  });
+
+  it("says nothing after a single drop, or when the kernel log could not be read", () => {
+    expect(flakyDrives({ usb: { ...twice, ports: [{ ...twice.ports[0], drops: ["2026-09-05T16:01:11.000Z"] }] } })).toEqual([]);
+    expect(flakyDrives({ usb: { available: false, ports: [] } })).toEqual([]);
+    expect(flakyDrives({})).toEqual([]);
   });
 });

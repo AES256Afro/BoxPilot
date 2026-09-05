@@ -38,7 +38,7 @@ export function staleMounts({ mounts = [], devices = [] } = {}) {
         operationId: "storage.remount",
         parameters: { name: mount.managedName },
         label: "Reconnect the drive",
-        preview: `Detaches the dead mount at ${mount.target} and mounts it again from fstab, which finds the drive by its UUID wherever the kernel has put it. Nothing on the drive is touched.`,
+        preview: `Detaches the dead mount at ${mount.target} and mounts it again from fstab, which finds the drive by its UUID wherever the kernel has put it, then restarts the containers using this folder. Nothing on the drive is touched.`,
       },
     }));
 }
@@ -63,7 +63,7 @@ export function readOnlyRemounts({ mounts = [] } = {}) {
         operationId: "storage.remount",
         parameters: { name: mount.managedName },
         label: "Reconnect the drive",
-        preview: `Detaches the read-only mount at ${mount.target} and mounts it again from fstab, read-write, finding the drive by its UUID wherever the kernel has put it. Nothing on the drive is touched. Containers using this folder are listed separately and need a restart afterwards.`,
+        preview: `Detaches the read-only mount at ${mount.target} and mounts it again from fstab, read-write, finding the drive by its UUID wherever the kernel has put it. Nothing on the drive is touched, and the containers using this folder are restarted so they see it again.`,
       },
     }));
 }
@@ -91,6 +91,23 @@ export function exfatCheckerMissing({ mounts = [], tools = null } = {}) {
       preview: "Installs the exfatprogs package (fsck.exfat, tune.exfat). No drive is touched or checked by this step.",
     },
   })];
+}
+
+/**
+ * A drive that keeps dropping off USB. One drop is a knock; two in a month on the same port is a
+ * cable, a port, or an enclosure that cannot hold the bus - and each one leaves a dead mount behind
+ * until somebody notices. The kernel names the port and the device; this says it before the third.
+ */
+export function flakyDrives({ usb = null } = {}) {
+  if (!usb?.available || !Array.isArray(usb.ports)) return [];
+  return usb.ports.filter((entry) => entry.drops.length >= 2).map((entry) => finding({
+    id: `flaky-drive:${entry.port}`,
+    severity: "warning",
+    title: `${entry.product ?? "A USB drive"} keeps dropping off USB port ${entry.port}`,
+    detail: `It disconnected ${entry.drops.length} times in the last ${usb.days ?? 30} days, most recently ${new Date(entry.lastDropAt).toLocaleString()}, and came back on its own each time. Every drop leaves whatever was mounted from it pointing at nothing until it is reconnected. ${entry.powerFaults ? "The port reported a power fault, so the enclosure is drawing more than it can supply: use a powered hub or a different port." : "No power fault was logged, which points at the cable or the port: try a different, shorter cable first, then a port directly on the motherboard."}`,
+    evidence: [`${entry.drops.length} disconnects on port ${entry.port}`, ...(entry.vendorId ? [`device ${entry.vendorId}:${entry.productId}`] : []), ...(entry.powerFaults ? [`${entry.powerFaults} over-current event(s)`] : []), ...(entry.resets ? [`${entry.resets} bus reset(s)`] : [])],
+    fix: null,
+  }));
 }
 
 /**
@@ -307,6 +324,7 @@ export function detectRemediations(facts = {}) {
     ...staleMounts(facts),
     ...readOnlyRemounts(facts),
     ...exfatCheckerMissing(facts),
+    ...flakyDrives(facts),
     ...containersOnStaleMounts({ ...facts, staleTargets }),
     ...vpnLeaks(facts),
     ...failedRehearsals(facts),
