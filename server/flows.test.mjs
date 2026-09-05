@@ -645,3 +645,16 @@ describe("starting a flow without waiting for it", () => {
     expect(() => service.launch(flow.id, "owner-1", { role: "owner" })).toThrow(/already running/);
   });
 });
+
+
+describe("a flow step that would store an app's secret", () => {
+  it("is refused, like a step carrying a top-level password", async () => {
+    // values.env is where an app's token lives; a stored flow would keep it in the database and in
+    // every backup of it, and hand it back out of GET /flows.
+    const store = fakeStore();
+    const jobs = fakeJobs(store);
+    const flows = createFlowService({ store, jobs, pollMs: 2, secretEnvNamesFor: async () => ["CLOUDFLARE_API_TOKEN"] });
+    await expect(flows.create({ name: "Re-key DDNS", steps: [{ operationId: "app.reconfigure", parameters: { id: "cloudflare-ddns", values: { env: { CLOUDFLARE_API_TOKEN: "cf-token" } } } }], createdBy: "owner-1" }))
+      .rejects.toThrow("needs a password or key each time");
+  });
+});

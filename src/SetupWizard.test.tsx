@@ -53,7 +53,7 @@ describe("setup wizard", () => {
       const url = input.toString();
       if (url.endsWith("/api/v1/setup")) return json(setupState);
       if (url.endsWith("/operations/app.install/jobs")) return json({ job: { id: "job-1" } }, 201);
-      if (url.endsWith("/jobs/job-1/approve")) { approvals += 1; const body = JSON.parse(String(init?.body)); return body.password ? json({ job: { id: "job-1" } }, 202) : json({ error: "Approval reauthentication required" }, 401); }
+      if (url.endsWith("/jobs/job-1/approve")) { approvals += 1; const body = JSON.parse(String(init?.body)); return body.password ? json({ job: { id: "job-1" } }, 202) : json({ error: "Enter the owner password to run this" }, 401); }
       if (url.endsWith("/jobs/job-1")) return json({ job: { id: "job-1", state: "completed", error: null } });
       if (url.endsWith("/api/v1/schedules")) return json({ schedule: { id: "s1" } }, 201);
       return json({ error: `unexpected ${url}` }, 500);

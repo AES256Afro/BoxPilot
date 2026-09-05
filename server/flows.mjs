@@ -94,7 +94,7 @@ export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
   return null;
 }
 
-export function createFlowService({ store, jobs, registry = defaultRegistry, pollMs = 1000, maxStepMs = null, retryDelayMs = 30_000, now = () => new Date(), notify = null, library = [], report = (message) => console.warn(message) }) {
+export function createFlowService({ store, jobs, secretEnvNamesFor = async () => [], registry = defaultRegistry, pollMs = 1000, maxStepMs = null, retryDelayMs = 30_000, now = () => new Date(), notify = null, library = [], report = (message) => console.warn(message) }) {
   const running = new Set(); // flow ids mid-run; a flow must not lap itself
 
   function assertMayManage(flow, actorId, role) {
@@ -151,6 +151,16 @@ export function createFlowService({ store, jobs, registry = defaultRegistry, pol
   const withoutHash = ({ webhookHash: _webhookHash, ...flow }) => flow;
 
   async function create({ name, steps, createdBy, cadence = null, triggerFlowId = null }) {
+    // An app password or token typed into an install form sits inside values.env, which the
+    // registry's field flags cannot see. A flow is stored, so it would sit in the database and in
+    // every backup of it. Asked of the manifest here, in the one place that can await it.
+    for (const step of Array.isArray(steps) ? steps : []) {
+      if (!["app.install", "app.reconfigure"].includes(step?.operationId)) continue;
+      const env = step?.parameters?.values?.env;
+      if (!env || typeof env !== "object") continue;
+      const named = await secretEnvNamesFor(step.parameters?.id);
+      if (named.some((key) => typeof env[key] === "string" && env[key])) throw new Error(`${registry.get?.(step.operationId)?.title ?? step.operationId} needs a password or key each time, so it cannot be part of a flow`);
+    }
     const problem = validateFlow({ name, steps }, registry);
     if (problem) throw new Error(problem);
     const triggerProblem = checkTrigger(triggerFlowId);
