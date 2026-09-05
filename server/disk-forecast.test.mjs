@@ -83,3 +83,17 @@ describe("the sampler", () => {
     expect(settings.get("diskUsageHistory")["/"]).toHaveLength(1);
   });
 });
+
+describe("a mount that is gone", () => {
+  it("drops out of the history once nothing has reported it for the whole window", () => {
+    const old = { "/mnt/old": [{ at: "2026-07-01T03:00:00.000Z", availableBytes: 1, totalBytes: 2 }] };
+    const next = appendSample(old, { at: "2026-09-01T03:00:00.000Z", entries: [{ target: "/", availableBytes: 5, totalBytes: 9 }] }, { maxDays: 30 });
+    expect(Object.keys(next)).toEqual(["/"]);
+  });
+
+  it("keeps a mount that merely missed one sample", () => {
+    const recent = { "/mnt/the-dump": [{ at: "2026-08-31T03:00:00.000Z", availableBytes: 1, totalBytes: 2 }] };
+    const next = appendSample(recent, { at: "2026-09-01T03:00:00.000Z", entries: [{ target: "/", availableBytes: 5, totalBytes: 9 }] }, { maxDays: 30 });
+    expect(Object.keys(next).sort()).toEqual(["/", "/mnt/the-dump"]);
+  });
+});

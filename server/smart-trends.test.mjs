@@ -72,3 +72,12 @@ describe("the sampler", () => {
     expect(settings.get("smartHistory")["/dev/sda"]).toHaveLength(1);
   });
 });
+
+
+describe("a disk that came back under another name", () => {
+  it("stops being tracked under the old name once that name has been silent for the whole window", () => {
+    const old = { "/dev/sdb": [{ at: "2026-07-01T03:00:00.000Z", reallocated: 1 }] };
+    const next = appendSmartSample(old, { at: "2026-09-01T03:00:00.000Z", entries: [{ device: "/dev/sda", reallocated: 1 }] }, { maxDays: 30 });
+    expect(Object.keys(next)).toEqual(["/dev/sda"]);
+  });
+});

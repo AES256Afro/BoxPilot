@@ -1219,3 +1219,32 @@ describe("keeping the data sweep inside its budget", () => {
     expect(usage.entries.map((entry) => entry.bytes)).toEqual([77, null]);
   });
 });
+
+describe("remembering what an image says its user is", () => {
+  it("asks docker once for a named user, not once per listing", async () => {
+    // A read-only caller cannot resolve a NAME to ids (that means starting a container), but it can
+    // remember what inspect said, so the next listing does not spawn inspect again for every such app.
+    let inspects = 0;
+    const runDocker = vi.fn(async (binaryOrArgs, maybeArgs) => {
+      const args = Array.isArray(binaryOrArgs) ? binaryOrArgs : maybeArgs;
+      if (args[0] === "image" && args[1] === "inspect") { inspects += 1; return { ok: true, stdout: "node\n", stderr: "" }; }
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    const catalog = createCatalogService({ directory: await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")), ttlMs: 0 });
+    const apps = createAppHelper({ catalogRoot: await mkdtemp(path.join(os.tmpdir(), "boxpilot-owner-")), runDocker, catalog, wait: async () => {}, clock: () => new Date() });
+    expect(await apps.internals.imageDeclaredOwner("x/app:1", { mayRun: false })).toBeNull();
+    expect(await apps.internals.imageDeclaredOwner("x/app:1", { mayRun: false })).toBeNull();
+    expect(await apps.internals.imageDeclaredOwner("x/app:1", { mayRun: false })).toBeNull();
+    expect(inspects).toBe(1);
+  });
+
+  it("still does not remember a failed inspect", async () => {
+    let inspects = 0;
+    const runDocker = vi.fn(async (binaryOrArgs, maybeArgs) => { const args = Array.isArray(binaryOrArgs) ? binaryOrArgs : maybeArgs; if (args[0] === "image") { inspects += 1; return { ok: false, stdout: "", stderr: "No such image" }; } return { ok: true, stdout: "", stderr: "" }; });
+    const catalog = createCatalogService({ directory: await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")), ttlMs: 0 });
+    const apps = createAppHelper({ catalogRoot: await mkdtemp(path.join(os.tmpdir(), "boxpilot-owner-")), runDocker, catalog, wait: async () => {}, clock: () => new Date() });
+    await apps.internals.imageDeclaredOwner("x/missing:1", { mayRun: false });
+    await apps.internals.imageDeclaredOwner("x/missing:1", { mayRun: false });
+    expect(inspects).toBe(2);
+  });
+});

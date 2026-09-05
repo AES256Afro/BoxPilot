@@ -128,7 +128,9 @@ function markProfileEdited(job) {
   state.setSetting("firewallProfile", { ...current, editedAt: new Date().toISOString() }, { updatedBy: job.createdBy });
 }
 
+const secretEnvNamesFor = async (appId) => ((await catalogService.get(appId))?.env ?? []).filter((entry) => entry.secret || entry.type === "password").map((entry) => entry.name);
 const jobs = createJobService(state, helper, {
+  secretEnvNamesFor,
   jobLog: jobLogReader,
   // Registry ops whose results become durable evidence rows.
   operationRecordHooks: {
@@ -200,14 +202,20 @@ const jobs = createJobService(state, helper, {
 });
 state.deleteExpiredSessions();
 const interruptedJobs = state.recoverInterruptedJobs();
-const scheduler = createSchedulerService({ store: state, jobs });
+const scheduler = createSchedulerService({ store: state, jobs, secretEnvNamesFor });
 const notifications = createNotificationService({ store: state });
 notifications.start();
+// A job cut off by a restart - a crash, or BoxPilot updating itself mid-install - was marked failed
+// in silence: recovery ran before the notifier existed, so the one failure that happens while the
+// owner is away was the one never announced.
+for (const job of interruptedJobs) {
+  notifications.send({ title: `BoxPilot: ${job.title ?? "a job"} was interrupted`, message: "BoxPilot restarted while it was running, so it is marked failed. The operation may still have finished on its own; check what it changed before retrying.", priority: "high" }).catch(() => {});
+}
 // A flow failure that never produced a job has no failed-job push to carry the news; the flow
 // sends its own. Failed step jobs stay covered by the ordinary failed-job notifications.
 const { library: flowLibrary, problems: flowLibraryProblems } = await loadFlowLibrary().catch(() => ({ library: [], problems: [] }));
 if (flowLibraryProblems.length) console.warn(`[boxpilot] flow library problems: ${flowLibraryProblems.map((problem) => `${problem.file}: ${problem.errors.join("; ")}`).join(" | ")}`);
-const flows = createFlowService({ store: state, jobs, library: flowLibrary, notify: (message) => { notifications.send({ title: "Automation", message, priority: "high" }).catch(() => {}); } });
+const flows = createFlowService({ store: state, jobs, secretEnvNamesFor, library: flowLibrary, notify: (message) => { notifications.send({ title: "Automation", message, priority: "high" }).catch(() => {}); } });
 flows.start();
 scheduler.start();
 const setup = createSetupService({ helper, scheduler });
@@ -370,13 +378,13 @@ app.use((error, request, response, _next) => {
 });
 
 // Keep history bounded: finished jobs older than 90 days beyond the newest 500, audit beyond the newest 20,000 rows.
-const pruneHistory = () => { try { state.pruneHistory(); } catch (error) { console.warn(`History pruning failed: ${error.message}`); } };
+const pruneHistory = () => { try { state.pruneHistory(); jobs.pruneStagedSecrets?.(); } catch (error) { console.warn(`History pruning failed: ${error.message}`); } };
 setTimeout(pruneHistory, 2 * 60_000).unref?.();
 setInterval(pruneHistory, 24 * 3600_000).unref?.();
 
 app.listen(port, host, () => {
   console.log(`BoxPilot ${productVersion} listening on http://${host}:${port}`);
-  if (interruptedJobs) console.warn(`${interruptedJobs} interrupted job(s) marked failed for operator review.`);
+  if (interruptedJobs.length) console.warn(`${interruptedJobs.length} interrupted job(s) marked failed for operator review.`);
 });
 
 // The encrypted LAN listener (M18.2), if a certificate has been provisioned. Never fatal: the HTTP

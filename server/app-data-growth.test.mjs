@@ -317,3 +317,11 @@ describe("leaving a trail in the journal", () => {
     expect(reported).toEqual([]);
   });
 });
+
+describe("an app that was uninstalled", () => {
+  it("drops out of the usage history once nothing has measured it for the whole window", () => {
+    const old = { "gone:/mnt/a": [{ at: "2026-07-01T03:00:00.000Z", bytes: 1 }] };
+    const next = appendUsageSample(old, { at: "2026-09-01T03:00:00.000Z", entries: [{ key: "keep:/mnt/b", bytes: 2 }] }, { maxDays: 30 });
+    expect(Object.keys(next)).toEqual(["keep:/mnt/b"]);
+  });
+});

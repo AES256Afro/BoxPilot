@@ -66,12 +66,15 @@ export function appOperations() {
       description: "Live CPU and memory per installed app (sidecars included), from docker stats.",
       run: async (_parameters, { run, apps }) => {
         const docker = process.env.BOXPILOT_DOCKER_BINARY ?? "/usr/bin/docker";
-        const [{ applications }, stats] = await Promise.all([
-          apps.inspect({}),
+        // Only the ids are needed to group the stats rows. The full inspection - a docker inspect
+        // of every container plus an image inspect per app - ran here as well, on every Apps page
+        // load, alongside the one /catalog had already paid for.
+        const [ids, stats] = await Promise.all([
+          typeof apps.installedIds === "function" ? apps.installedIds() : apps.inspect({}).then(({ applications }) => applications.map((application) => application.id)),
           run(docker, ["stats", "--no-stream", "--format", "json"], { timeout: 30_000, maxBuffer: 2 * 1024 * 1024 }),
         ]);
         if (!stats.ok) return { available: false, stats: {} };
-        return { available: true, stats: aggregateAppStats(parseDockerStats(stats.stdout), applications.map((application) => application.id)) };
+        return { available: true, stats: aggregateAppStats(parseDockerStats(stats.stdout), ids) };
       },
     }),
     defineOperation({
@@ -226,7 +229,7 @@ export function appOperations() {
       run: (parameters, { apps, progress }) => apps.editCompose({ id: parameters.id, compose: parameters.compose }, { progress, checkpoint: parameters.checkpoint ?? true }),
     }),
     defineOperation({
-      id: "app.config.inspect", title: "Read effective application configuration", risk: "low", readOnly: true, timeoutMs: 30_000,
+      id: "app.config.inspect", title: "Show an app's settings", risk: "low", readOnly: true, timeoutMs: 30_000,
       description: "The compose.yaml and .env BoxPilot wrote for the app. Secret values are masked; Reveal secrets shows them.",
       parameters: { fields: { id: idField } },
       run: (parameters, { apps }) => apps.config(parameters),

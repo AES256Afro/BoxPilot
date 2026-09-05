@@ -27,8 +27,18 @@ export function appendUsageSample(history, { at, entries }, { maxDays = 30 } = {
     kept.push({ at, bytes: entry.bytes, appId: entry.appId ?? null, path: entry.path ?? null, mount: entry.mount ?? null });
     next[entry.key] = kept.slice(-maxDays);
   }
-  return next;
+  // An uninstalled app's folders drop out once nothing has measured them for the whole window.
+  return dropStaleKeys(next, cutoff);
 }
+/** Keys nothing has reported for longer than the history is kept - a renamed disk, an unmounted target, an uninstalled app - are dropped rather than carried forever. */
+function dropStaleKeys(history, cutoff) {
+  for (const [key, samples] of Object.entries(history)) {
+    const newest = Array.isArray(samples) ? samples.at(-1)?.at : null;
+    if (!Number.isFinite(Date.parse(newest)) || Date.parse(newest) < cutoff) delete history[key];
+  }
+  return history;
+}
+
 
 /**
  * How much a folder has grown across the window: the newest reading minus the oldest one still

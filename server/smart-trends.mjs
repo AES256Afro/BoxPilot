@@ -37,7 +37,9 @@ export function appendSmartSample(history, { at, entries }, { maxDays = 45 } = {
     kept.push({ at, mediaErrors: entry.mediaErrors, percentageUsed: entry.percentageUsed, temperatureCelsius: entry.temperatureCelsius });
     next[entry.device] = kept.slice(-maxDays);
   }
-  return next;
+  // A renamed disk (/dev/sdb that came back as /dev/sda) was evaluated under both names for a month
+  // and could raise the same SMART alert twice. Silence past the window drops the old name.
+  return dropStaleKeys(next, cutoff);
 }
 
 /** Least-squares change-per-day of a numeric field across samples, or null if too little data. */
@@ -117,4 +119,13 @@ export function createSmartSampler({ inventory, store, now = () => new Date(), i
     return () => { cancel(first); unschedule(timer); };
   }
   return { sample, start };
+}
+
+/** Keys nothing has reported for longer than the history is kept - a renamed disk, an unmounted target, an uninstalled app - are dropped rather than carried forever. */
+function dropStaleKeys(history, cutoff) {
+  for (const [key, samples] of Object.entries(history)) {
+    const newest = Array.isArray(samples) ? samples.at(-1)?.at : null;
+    if (!Number.isFinite(Date.parse(newest)) || Date.parse(newest) < cutoff) delete history[key];
+  }
+  return history;
 }

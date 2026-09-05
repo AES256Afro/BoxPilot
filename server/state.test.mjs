@@ -315,7 +315,7 @@ describe("BoxPilot state store", () => {
     const job = store.createJob({ type: "helper.canary.verify", title: "Verify helper", createdBy: owner.id });
     store.transitionJob(job.id, "awaiting_approval", "applying");
 
-    expect(store.recoverInterruptedJobs()).toBe(1);
+    expect(store.recoverInterruptedJobs()).toHaveLength(1);
     expect(store.getJob(job.id)).toMatchObject({ state: "failed", error: expect.stringContaining("restarted") });
     store.close();
   });
