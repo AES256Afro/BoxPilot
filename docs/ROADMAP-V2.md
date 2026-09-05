@@ -946,7 +946,7 @@ old mount stayed - the second time exFAT turned it read-only and another compute
 BoxPilot now detects the dead mount, the read-only remount, and the missing exFAT checker (v1.111.0),
 but detection is the floor.
 
-- **M26.1 Reconnect in one fix.** Today the owner clicks "Reconnect the drive" and then restarts
+- ✅ **M26.1 Reconnect in one fix** (v1.113.0). Today the owner clicks "Reconnect the drive" and then restarts
   each bound container from separate findings. One remediation should remount and restart every
   container bound to it, in order, with the verification (a real read of the mount) in between.
 - **M26.2 Check before writing.** After a reconnect of an exFAT/ext4 drive that hit errors, offer
@@ -954,7 +954,7 @@ but detection is the floor.
   repairing run. Requires exfatprogs, which M26.3 installs.
 - **M26.3 Setup checklist item: "This server can check its drives."** exfatprogs and smartmontools
   present, SMART enabled for USB enclosures where the bridge allows (`-d sat`).
-- **M26.4 Say why it dropped.** Correlate the kernel's USB disconnect with what BoxPilot knows:
+- ✅ **M26.4 Say why it dropped** (v1.113.0; the real log showed four drops in thirty days, not two). Correlate the kernel's USB disconnect with what BoxPilot knows:
   same port, same vendor:product, how many times in 30 days, whether a power fault was logged. A
   drive that has dropped twice earns a standing Repair notice naming the cable, port or enclosure
   as the thing to change. The evidence is already in the journal; nothing reads it.
@@ -979,7 +979,7 @@ the web service could not read). There will be more.
   `findmnt -J`, `lsblk -J`, fstab, `docker inspect` output from the real server (scrubbed), and run
   every Repair detector and health rule over it in CI. The findmnt tree bug would have failed on
   the first such fixture.
-- **M27.4 The helper's own health.** A canary that writes a job log as the helper and reads it as
+- ✅ **M27.4 The helper's own health** (v1.113.0). A canary that writes a job log as the helper and reads it as
   the web service, run at startup; the umask bug would have been caught the day it shipped.
 
 ### M28 — Copy and naming: one voice, one name per thing
@@ -988,7 +988,7 @@ The readability sweep produced a table of things called two names on two pages a
 Repair notices written in the refusal voice CLAUDE.md forbids. About forty strings were fixed in
 v1.112.0; the structural half remains.
 
-- **M28.1 The action-center notices.** Move the 14 inline notice literals into the guidance table
+- ✅ **M28.1 The action-center notices** (v1.113.0; rewritten in place, the table move is still open). Move the 14 inline notice literals into the guidance table
   the same file already has, then rewrite them: "Could not read the drives" rather than "Storage
   evidence is unavailable ... BoxPilot will not claim storage readiness without the fixed mount
   and device collectors." Strip evidence / collector / bounded / sanitized / fixed / separately
