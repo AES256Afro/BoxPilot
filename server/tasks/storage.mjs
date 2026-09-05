@@ -36,6 +36,7 @@ const binaries = {
   mount: "/usr/bin/mount",
   umount: "/usr/bin/umount",
   systemctl: process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl",
+  docker: process.env.BOXPILOT_DOCKER_BINARY ?? "/usr/bin/docker",
   wipefs: "/usr/sbin/wipefs",
   mkfsExt4: "/usr/sbin/mkfs.ext4",
   fallocate: "/usr/bin/fallocate",
@@ -409,6 +410,30 @@ export async function storageRemount({ name } = {}, { run = fixedRun, log = null
   if (!mounted.ok) throw new Error(`Could not mount ${mountpoint} again: ${tail(mounted.stderr)}. The drive may be unplugged; check it is connected and try again.`);
   const after = await sourceOf();
   if (!after) throw new Error(`${mountpoint} did not come back after remounting. The drive may be unplugged.`);
-  log?.(`${mountpoint} is mounted from ${after}${before && before !== after ? ` (it was ${before}, which no longer exists)` : ""}`, "stdout");
-  return { remounted: true, name, mountpoint, source: after, previousSource: before, deviceChanged: Boolean(before && before !== after) };
+  // findmnt saying it is mounted is the same evidence that lied during the incident. A real read
+  // is the test: a filesystem that answers a listing is one that works.
+  if (!(await files.readable(mountpoint))) throw new Error(`${mountpoint} mounted from ${after} but does not read. The drive may be failing; check its cable and its SMART health before trying again.`);
+  log?.(`${mountpoint} is mounted from ${after}${before && before !== after ? ` (it was ${before}, which no longer exists)` : ""} and reads`, "stdout");
+  // Docker resolves a bind when a container starts, so anything bound to this folder is still
+  // looking at the filesystem that was mounted then - the dead one. Remounting without restarting
+  // them is the fix that appears not to have worked: Plex kept showing an empty library after the
+  // owner had reconnected the drive. They were listed as separate findings; now they are part of
+  // the fix, and each one is restarted with the folder as it is mounted now.
+  const restarted = []; const failed = [];
+  for (const container of await containersBoundTo(run, mountpoint)) {
+    log?.(`$ docker restart ${container}`, "stdout");
+    const result = await run(binaries.docker, ["restart", container], { timeout: 120_000 });
+    if (result.ok) restarted.push(container); else { failed.push(container); log?.(`could not restart ${container}: ${tail(result.stderr)}`, "stderr"); }
+  }
+  return { remounted: true, name, mountpoint, source: after, previousSource: before, deviceChanged: Boolean(before && before !== after), restarted, restartFailed: failed };
+}
+
+/** Running containers with a bind at or under the mountpoint. A prefix is not a parent: /mnt/x-backup is not under /mnt/x. */
+async function containersBoundTo(run, mountpoint) {
+  const ids = await run(binaries.docker, ["ps", "-q"], { timeout: 15_000 });
+  if (!ids.ok || !ids.stdout.trim()) return [];
+  const listed = await run(binaries.docker, ["inspect", "--format", "{{.Name}}\t{{range .Mounts}}{{.Source}}\t{{end}}", ...ids.stdout.trim().split(/\s+/)], { timeout: 30_000 });
+  if (!listed.ok) return [];
+  const under = (source) => source === mountpoint || source.startsWith(`${mountpoint}/`);
+  return listed.stdout.split("\n").filter(Boolean).map((line) => line.split("\t")).filter(([, ...sources]) => sources.some(under)).map(([name]) => name.replace(/^\//, ""));
 }

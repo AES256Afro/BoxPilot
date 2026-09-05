@@ -71,6 +71,38 @@ export function parseFindmnt(json) {
   });
 }
 
+
+/**
+ * What the kernel has said about USB devices, per port, from `journalctl -k -o short-iso`.
+ *
+ * A drive that drops off the bus for eight seconds and comes back is the incident this server has
+ * now had twice. The evidence was in the kernel log both times - "USB disconnect, device number 5"
+ * and, eight seconds later, "new SuperSpeed USB device" on the same port, with the vendor and product
+ * ids that name the enclosure - and nothing read it. Lines are grouped by port so two drops of one
+ * drive are one story, and an over-current or reset line on that port is kept beside them, because
+ * it is the difference between "change the cable" and "the port cannot power this".
+ */
+export function parseUsbEvents(text, { now = () => new Date(), days = 30 } = {}) {
+  const cutoff = now().getTime() - days * 24 * 60 * 60 * 1000;
+  const ports = new Map();
+  const port = (id) => { if (!ports.has(id)) ports.set(id, { port: id, drops: [], returns: [], powerFaults: 0, resets: 0, product: null, vendorId: null, productId: null }); return ports.get(id); };
+  for (const line of String(text ?? "").split("\n")) {
+    const m = line.match(/^(\S+)\s+\S+\s+kernel:\s+usb (\d+-[\d.]+): (.*)$/);
+    if (!m) continue;
+    const at = Date.parse(m[1]);
+    if (!Number.isFinite(at) || at < cutoff) continue;
+    const entry = port(m[2]); const rest = m[3];
+    if (/^USB disconnect/.test(rest)) entry.drops.push(new Date(at).toISOString());
+    else if (/^new .*USB device number/.test(rest)) entry.returns.push(new Date(at).toISOString());
+    else if (/over-?current/i.test(rest)) entry.powerFaults += 1;
+    else if (/^reset /.test(rest)) entry.resets += 1;
+    else if (/^New USB device found, idVendor=([0-9a-f]{4}), idProduct=([0-9a-f]{4})/.test(rest)) { const ids = rest.match(/idVendor=([0-9a-f]{4}), idProduct=([0-9a-f]{4})/); entry.vendorId = ids[1]; entry.productId = ids[2]; }
+    else if (/^Product: /.test(rest)) entry.product = rest.slice("Product: ".length).trim();
+  }
+  // Only ports that lost something matter; the enumeration of a keyboard at boot is not an event.
+  return { days, ports: [...ports.values()].filter((entry) => entry.drops.length > 0).map((entry) => ({ ...entry, lastDropAt: entry.drops.at(-1) })) };
+}
+
 export function storageOperations() {
   return [
     defineOperation({
@@ -160,8 +192,19 @@ export function storageOperations() {
       },
     }),
     defineOperation({
+      // operator (ADR-003): a kernel-log read.
+      id: "storage.usb.events", title: "Read what the kernel says about USB drives", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
+      description: "Disconnects, returns, resets and power faults per USB port over the last thirty days, from the kernel log. Read-only. This is how a drive that keeps dropping off is named before it takes a folder with it.",
+      run: async (_parameters, { run }) => {
+        const journalctl = process.env.BOXPILOT_JOURNALCTL_BINARY ?? "/usr/bin/journalctl";
+        const result = await run(journalctl, ["-k", "--since", "-30days", "-o", "short-iso", "--no-pager", "-g", "usb [0-9]"], { timeout: 45_000, maxBuffer: 16 * 1024 * 1024 });
+        if (!result.ok && !result.stdout) return { available: false, days: 30, ports: [] };
+        return { available: true, ...parseUsbEvents(result.stdout) };
+      },
+    }),
+    defineOperation({
       id: "storage.remount", title: "Reconnect a drive", risk: "medium", timeoutMs: minutes(5),
-      description: "Detaches a managed mount and mounts it again from its fstab entry, which finds the drive by UUID wherever the kernel has put it. This is the fix when a drive was unplugged for a moment and came back under a different name, leaving the old mount pointing at nothing. The fstab entry and everything on the drive are unchanged.",
+      description: "Detaches a managed mount and mounts it again from its fstab entry, which finds the drive by UUID wherever the kernel has put it. This is the fix when a drive was unplugged for a moment and came back under a different name, leaving the old mount pointing at nothing. The fstab entry and everything on the drive are unchanged. Containers using the folder are restarted afterwards, since Docker attaches a folder when a container starts and would otherwise keep the dead one.",
       parameters: { fields: { name: { type: "string", maxLength: 32, pattern: mountNamePattern } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.remount", { name: parameters.name }, { timeoutMs: minutes(4), logPath: jobLog?.path ?? null }),
     }),

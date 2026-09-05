@@ -217,10 +217,11 @@ describe("reconnecting a drive that came back under a new name", () => {
       if (binary.endsWith("findmnt")) return { ok: true, stdout: `${source}\n`, stderr: "" };
       if (binary.endsWith("umount") && !args.includes("-l")) return { ok: false, stdout: "", stderr: "umount: /mnt/the-dump: target is busy" };
       if (binary.endsWith("umount")) { source = ""; return { ok: true, stdout: "", stderr: "" }; }
-      if (binary.endsWith("mount")) { source = "/dev/sdb2"; return { ok: true, stdout: "", stderr: "" }; }
+      if (binary.endsWith("mount")) { source = "/dev/sdb2"; mounted = true; return { ok: true, stdout: "", stderr: "" }; }
       return { ok: true, stdout: "", stderr: "" };
     });
-    const result = await storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab, readable: async () => false } });
+    let mounted = false;   // dead until mount runs; the real-read check after mount must then pass
+    const result = await storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab, readable: async () => mounted } });
     expect(result).toMatchObject({ remounted: true, source: "/dev/sdb2", previousSource: "/dev/sda2", deviceChanged: true });
     expect(calls).toContain("umount /mnt/the-dump");
     expect(calls).toContain("umount -l /mnt/the-dump");     // the fallback the dead device forces
@@ -239,11 +240,12 @@ describe("reconnecting a drive that came back under a new name", () => {
       if (binary.endsWith("findmnt")) return { ok: true, stdout: `${source}\n`, stderr: "" };
       if (binary.endsWith("umount") && !args.includes("-l")) return { ok: false, stdout: "", stderr: "umount: /mnt/the-dump: target is busy" };
       if (binary.endsWith("umount")) { source = ""; return { ok: true, stdout: "", stderr: "" }; }
-      if (binary.endsWith("mount")) { source = "/dev/sdb2"; return { ok: true, stdout: "", stderr: "" }; }
+      if (binary.endsWith("mount")) { source = "/dev/sdb2"; mounted = true; return { ok: true, stdout: "", stderr: "" }; }
       return { ok: true, stdout: "", stderr: "" };
     });
-    // The device node /dev/sdb2 exists, but the mount does not read (dead filesystem).
-    const result = await storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab, readable: async () => false } });
+    // The device node /dev/sdb2 exists, but the mount does not read (dead filesystem) - until remounted.
+    let mounted = false;
+    const result = await storageRemount({ name: "the-dump" }, { run, files: { readFile: async () => fstab, readable: async () => mounted } });
     expect(result.remounted).toBe(true);
     expect(calls).toContain("umount -l /mnt/the-dump");   // it did NOT wrongly refuse
   });
@@ -313,5 +315,49 @@ describe("mount names that belong to other operations", () => {
     await expect(storageUnmount({ name: "swap" }, { run, files })).rejects.toThrow(/swap file/);
     await expect(storageRemount({ name: "swap" }, { run, files })).rejects.toThrow(/swap file/);
     expect(files.writeFile).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("reconnecting a drive is one fix, containers included", () => {
+  const fstab = "# boxpilot:the-dump\nUUID=0023-7927 /mnt/the-dump exfat defaults,nofail,uid=1000,gid=1000 0 0\n";
+  function remountFakes({ restartFails = null } = {}) {
+    const calls = []; let source = "/dev/sda2"; let mounted = false;
+    const run = vi.fn(async (binary, args) => {
+      calls.push(`${binary.split("/").pop()} ${args.join(" ")}`);
+      if (binary.endsWith("findmnt")) return { ok: true, stdout: `${source}\n`, stderr: "" };
+      if (binary.endsWith("umount")) { source = ""; return { ok: true, stdout: "", stderr: "" }; }
+      if (binary.endsWith("mount")) { source = "/dev/sdb2"; mounted = true; return { ok: true, stdout: "", stderr: "" }; }
+      if (binary.endsWith("docker") && args[0] === "ps") return { ok: true, stdout: "aaa\nbbb\nccc\n", stderr: "" };
+      if (binary.endsWith("docker") && args[0] === "inspect") return { ok: true, stdout: "/bp-plex\t/mnt/the-dump\t/srv/plex\t\n/bp-qbittorrent\t/mnt/the-dump/torrents\t\n/bp-backup\t/mnt/the-dump-backup\t\n", stderr: "" };
+      if (binary.endsWith("docker") && args[0] === "restart") return restartFails === args[1] ? { ok: false, stdout: "", stderr: "Error response from daemon: cannot restart" } : { ok: true, stdout: "", stderr: "" };
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    return { run, calls, files: { readFile: async () => fstab, readable: async () => mounted } };
+  }
+
+  it("restarts every container bound at or under the folder, and no other", async () => {
+    // Docker attaches a folder when a container starts. After the drive came back, Plex kept
+    // showing the empty library from the dead mount until it was restarted by hand.
+    const { run, calls, files } = remountFakes();
+    const result = await storageRemount({ name: "the-dump" }, { run, files });
+    expect(result.restarted).toEqual(["bp-plex", "bp-qbittorrent"]);
+    expect(calls).toContain("docker restart bp-plex");
+    expect(calls).not.toContain("docker restart bp-backup");   // /mnt/the-dump-backup is a prefix, not a parent
+  });
+
+  it("reports a container that would not restart rather than failing the reconnect", async () => {
+    const { run, files } = remountFakes({ restartFails: "bp-qbittorrent" });
+    const result = await storageRemount({ name: "the-dump" }, { run, files });
+    expect(result.remounted).toBe(true);
+    expect(result.restarted).toEqual(["bp-plex"]);
+    expect(result.restartFailed).toEqual(["bp-qbittorrent"]);
+  });
+
+  it("does not call a mount that came back but does not read a success", async () => {
+    // findmnt listing it is the same evidence that lied during the incident.
+    const { run, files } = remountFakes();
+    await expect(storageRemount({ name: "the-dump" }, { run, files: { ...files, readable: async () => false } })).rejects.toThrow("does not read");
+    expect(run.mock.calls.some(([binary, args]) => binary.endsWith("docker") && args[0] === "restart")).toBe(false);
   });
 });
