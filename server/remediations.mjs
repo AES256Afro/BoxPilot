@@ -110,6 +110,31 @@ export function flakyDrives({ usb = null } = {}) {
   }));
 }
 
+
+/**
+ * A USB drive that has dropped since it was last checked. The drop is in the kernel log, the last
+ * check (if any) in the recorded verdicts; a drop newer than the last clean check earns the offer.
+ * A drive that has never been checked after a drop is exactly the case where the directory table
+ * is worth reading before anything writes to it again.
+ */
+export function drivesNeedingCheck({ mounts = [], devices = [], usb = null, driveChecks = {} } = {}) {
+  if (!usb?.available || !Array.isArray(usb.ports) || !usb.ports.length) return [];
+  const lastDrop = usb.ports.reduce((latest, port) => (port.lastDropAt && (!latest || port.lastDropAt > latest) ? port.lastDropAt : latest), null);
+  if (!lastDrop) return [];
+  const onUsb = new Set(devices.filter((device) => device.transport === "usb").map((device) => device.path));
+  return mounts
+    .filter((mount) => mount.managedName && mount.source?.startsWith("/dev/") && (onUsb.size === 0 || onUsb.has(mount.source) || [...onUsb].some((disk) => mount.source.startsWith(disk))))
+    .filter((mount) => { const last = driveChecks?.[mount.managedName]; return !(last?.clean && last.checkedAt > lastDrop); })
+    .map((mount) => finding({
+      id: `drive-check:${mount.managedName}`,
+      severity: "warning",
+      title: `${mount.target} has not been checked since its drive dropped`,
+      detail: `A drive that drops off USB mid-write can be left with a damaged directory table that only shows up later, as files that vanish or a folder that will not open. The filesystem's own checker can read the whole table without changing anything. The apps using the drive are paused for the check and started again after it.`,
+      evidence: [`last drop ${new Date(lastDrop).toLocaleString()}`, driveChecks?.[mount.managedName] ? `last check ${new Date(driveChecks[mount.managedName].checkedAt).toLocaleString()}${driveChecks[mount.managedName].clean ? " (clean)" : " (problems found)"}` : "never checked"],
+      fix: { operationId: "storage.check", parameters: { name: mount.managedName }, label: "Check the drive", preview: `Stops the containers using ${mount.target}, unmounts it, runs the read-only checker, mounts it again and starts them. Nothing is repaired or written.` },
+    }));
+}
+
 /**
  * A container still bound to a mount that has since been re-attached. Docker resolves a bind at
  * start; remounting underneath it leaves the container looking at the old, empty filesystem, so
@@ -325,6 +350,7 @@ export function detectRemediations(facts = {}) {
     ...readOnlyRemounts(facts),
     ...exfatCheckerMissing(facts),
     ...flakyDrives(facts),
+    ...drivesNeedingCheck(facts),
     ...containersOnStaleMounts({ ...facts, staleTargets }),
     ...vpnLeaks(facts),
     ...failedRehearsals(facts),

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { assertNotProtected, parseManagedFstab, removeManagedEntry, storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageUnmount, swapFileSet, storageRemount } from "./storage.mjs";
+import { assertNotProtected, parseManagedFstab, removeManagedEntry, storageFormat, storageLvmExtend, storageLvmSnapshotCreate, storageLvmSnapshotDelete, storageLvmSnapshotRollback, storageMount, storageUnmount, swapFileSet, storageRemount, storageCheck } from "./storage.mjs";
 
 const BASE_FSTAB = "# /etc/fstab\nUUID=root-uuid / ext4 defaults 0 1\n";
 
@@ -359,5 +359,54 @@ describe("reconnecting a drive is one fix, containers included", () => {
     const { run, files } = remountFakes();
     await expect(storageRemount({ name: "the-dump" }, { run, files: { ...files, readable: async () => false } })).rejects.toThrow("does not read");
     expect(run.mock.calls.some(([binary, args]) => binary.endsWith("docker") && args[0] === "restart")).toBe(false);
+  });
+});
+
+describe("checking a drive without changing it", () => {
+  const fstab = "# boxpilot:the-dump\nUUID=0023-7927 /mnt/the-dump exfat defaults,nofail,uid=1000,gid=1000 0 0\n";
+  function checkFakes({ fstype = "exfat", exit = 0, umountBusy = false } = {}) {
+    const calls = [];
+    const run = vi.fn(async (binary, args, options) => {
+      const name = binary.split("/").pop(); calls.push(`${name} ${args.join(" ")}`);
+      if (name === "findmnt") return { ok: true, stdout: `/dev/sda2 ${fstype}\n`, stderr: "" };
+      if (name === "docker" && args[0] === "ps") return { ok: true, stdout: "a\nb\n", stderr: "" };
+      if (name === "docker" && args[0] === "inspect") return { ok: true, stdout: "/bp-plex\t/mnt/the-dump\t\n/bp-ntfy\t/srv/ntfy\t\n", stderr: "" };
+      if (name === "umount") return umountBusy ? { ok: false, stdout: "", stderr: "target is busy" } : { ok: true, stdout: "", stderr: "" };
+      if (name === "fsck.exfat" || name === "e2fsck") { options?.onLine?.("checking directory tree", "stdout"); return { ok: exit === 0, code: exit, stdout: exit === 0 ? "the-dump: clean. directories 51, files 1200" : "ERROR: invalid cluster chain\n", stderr: "" }; }
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    return { run, calls, files: { readFile: async () => fstab, readable: async () => true } };
+  }
+
+  it("pauses the containers, unmounts, runs the read-only checker, mounts, and starts them again", async () => {
+    const { run, calls, files } = checkFakes();
+    const result = await storageCheck({ name: "the-dump" }, { run, files });
+    expect(result).toMatchObject({ checked: true, clean: true, fstype: "exfat", checker: "fsck.exfat", device: "/dev/sda2", restarted: ["bp-plex"] });
+    expect(calls.indexOf("docker stop bp-plex")).toBeLessThan(calls.indexOf("umount /mnt/the-dump"));
+    expect(calls).toContain("fsck.exfat -n /dev/sda2");   // -n: report, never repair
+    expect(calls.indexOf("mount /mnt/the-dump")).toBeLessThan(calls.indexOf("docker start bp-plex"));
+    expect(calls).not.toContain("docker stop bp-ntfy");    // not on that drive
+  });
+
+  it("reports problems as problems, with the checker's own words", async () => {
+    const { run, files } = checkFakes({ exit: 1 });
+    const result = await storageCheck({ name: "the-dump" }, { run, files });
+    expect(result.clean).toBe(false);
+    expect(result.summary).toContain("invalid cluster chain");
+  });
+
+  it("uses e2fsck for ext4 and refuses a filesystem it has no read-only checker for", async () => {
+    const ext = checkFakes({ fstype: "ext4" });
+    expect((await storageCheck({ name: "the-dump" }, { run: ext.run, files: ext.files })).checker).toBe("e2fsck");
+    expect(ext.calls).toContain("e2fsck -fn /dev/sda2");
+    const odd = checkFakes({ fstype: "ntfs" });
+    await expect(storageCheck({ name: "the-dump" }, { run: odd.run, files: odd.files })).rejects.toThrow("no read-only checker for ntfs");
+  });
+
+  it("starts the containers again and says why when the drive cannot be unmounted", async () => {
+    const { run, calls, files } = checkFakes({ umountBusy: true });
+    await expect(storageCheck({ name: "the-dump" }, { run, files })).rejects.toThrow("still in use");
+    expect(calls).toContain("docker start bp-plex");
+    expect(calls.some((call) => call.startsWith("fsck.exfat"))).toBe(false);
   });
 });

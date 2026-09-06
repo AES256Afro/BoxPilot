@@ -147,6 +147,7 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
       helper.request("storage.usb.events", {}, { timeoutMs: 45_000 }).catch(() => null),
     ]);
     facts.usb = usb;
+    facts.driveChecks = state.getSetting("driveChecks", {}) ?? {};
     if (storage) {
       // findmnt knows what is mounted; fstab knows which of those BoxPilot manages and with what
       // options. Only managed mounts are offered a fix, so a hand-made entry is never touched.
@@ -155,7 +156,7 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
         const entry = byMountpoint.get(mount.target);
         return { ...mount, managedName: entry?.managedName ?? null, options: entry?.options ?? null };
       });
-      facts.devices = (storage.devices ?? []).filter((device) => device.path).map((device) => ({ path: device.path }));
+      facts.devices = (storage.devices ?? []).filter((device) => device.path).map((device) => ({ path: device.path, transport: device.transport ?? device.tran ?? null }));
       // Whether the exFAT checker exists here at all; asked of the filesystem, not of apt.
       const present = await Promise.all(["/usr/sbin/fsck.exfat", "/sbin/fsck.exfat"].map((file) => access(file).then(() => true, () => false)));
       facts.tools = { fsckExfat: present.some(Boolean) };
