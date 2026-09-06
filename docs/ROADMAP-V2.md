@@ -949,7 +949,7 @@ but detection is the floor.
 - ✅ **M26.1 Reconnect in one fix** (v1.113.0). Today the owner clicks "Reconnect the drive" and then restarts
   each bound container from separate findings. One remediation should remount and restart every
   container bound to it, in order, with the verification (a real read of the mount) in between.
-- **M26.2 Check before writing.** After a reconnect of an exFAT/ext4 drive that hit errors, offer
+- ✅ **M26.2 Check before writing** (v1.114.0): `storage.check` pauses the containers on the drive, unmounts, runs the filesystem's own read-only checker, remounts and restarts them; Repair offers it for any USB drive that has dropped since its last clean check. After a reconnect of an exFAT/ext4 drive that hit errors, offer
   `fsck -n` (read-only) as a job, show its verdict on the drive card, and only then offer the
   repairing run. Requires exfatprogs, which M26.3 installs.
 - **M26.3 Setup checklist item: "This server can check its drives."** exfatprogs and smartmontools
@@ -968,7 +968,7 @@ Both incidents were known to BoxPilot and announced to no one. Three separate ca
 this week (a tree the parser did not walk, alerts hidden without a notification target, job logs
 the web service could not read). There will be more.
 
-- **M27.1 Every recorded verdict has a reader.** Audit every `setSetting` and record hook: for each
+- ✅ **M27.1 Every recorded verdict has a reader** (v1.114.0): `server/settings-audit.test.mjs` walks the source and fails when a setting is written and never read. Audit every `setSetting` and record hook: for each
   key, name the page that reads it. The kill-switch drill verdict was recorded for a month and read
   by nothing (v1.92.0); `healthAlertsState` was read by one route that filtered out the unannounced
   half (v1.111.0). Turn the audit into a test that fails when a new key has no consumer.
@@ -993,7 +993,7 @@ v1.112.0; the structural half remains.
   evidence is unavailable ... BoxPilot will not claim storage readiness without the fixed mount
   and device collectors." Strip evidence / collector / bounded / sanitized / fixed / separately
   reviewed / the "performs no deletion" tails.
-- **M28.2 One name per thing.** Adopt the table: *second copy* (not off-box / independent /
+- ◐ **M28.2 One name per thing** (v1.114.0): off-box/independent → second copy, disk/block device → drive, controller backup → database backup, Recent jobs → Activity, the box/the host → this server in owner copy; the Overview's second "Housekeeping" is now "Updates and reboots". Left by design: "the host" where it means the host of a VM, and code comments. Adopt the table: *second copy* (not off-box / independent /
   mirror as the owner word); *drive* for the thing you plug in, *disk* only for a VM's virtual
   disk, never "block device" or "filesystem" as a heading; *machine snapshot* for the redeploy
   archive and *database backup* for the database's; rename the Overview's "Housekeeping" panel

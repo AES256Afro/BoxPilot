@@ -1,4 +1,5 @@
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { fixedRun } from "../exec.mjs";
 
 /**
@@ -37,6 +38,9 @@ const binaries = {
   umount: "/usr/bin/umount",
   systemctl: process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl",
   docker: process.env.BOXPILOT_DOCKER_BINARY ?? "/usr/bin/docker",
+  fsckFat: "/usr/sbin/fsck.fat",
+  e2fsck: "/usr/sbin/e2fsck",
+  fsckExfat: "/usr/sbin/fsck.exfat",
   wipefs: "/usr/sbin/wipefs",
   mkfsExt4: "/usr/sbin/mkfs.ext4",
   fallocate: "/usr/bin/fallocate",
@@ -426,6 +430,60 @@ export async function storageRemount({ name } = {}, { run = fixedRun, log = null
     if (result.ok) restarted.push(container); else { failed.push(container); log?.(`could not restart ${container}: ${tail(result.stderr)}`, "stderr"); }
   }
   return { remounted: true, name, mountpoint, source: after, previousSource: before, deviceChanged: Boolean(before && before !== after), restarted, restartFailed: failed };
+}
+
+
+/**
+ * Check a drive's filesystem without changing a byte of it.
+ *
+ * After a drive drops off USB and comes back, the honest next step is a check before anything
+ * writes to it again - exFAT in particular keeps its whole directory table in one place. A check
+ * while mounted read-write can report damage that is only a write in progress, so the drive is
+ * unmounted for it: the containers bound to it are stopped first and started again afterwards,
+ * the way an operator would do it by hand. The checker runs with -n: it reports, it never repairs.
+ * Repairing is a separate decision with the report in hand.
+ */
+export async function storageCheck({ name } = {}, { run = fixedRun, log = null, files = { readFile, readable: (target) => readdir(target).then(() => true, () => false) } } = {}) {
+  assertPlainMountName(name);
+  const content = await files.readFile(fstabPath, "utf8");
+  const entry = parseManagedFstab(content).find((row) => row.name === name);
+  if (!entry) throw new Error(`${name} is not a BoxPilot-managed mount`);
+  const mountpoint = entry.line.trim().split(/\s+/)[1] ?? "";
+  if (mountpoint !== `/mnt/${name}`) throw new Error(`The ${name} entry is not a drive mounted at /mnt/${name}; nothing was changed`);
+  const where = await run(binaries.findmnt, ["-n", "-o", "SOURCE,FSTYPE", mountpoint], { timeout: 15_000 });
+  const [device, fstype] = where.ok ? where.stdout.trim().split(/\s+/) : [];
+  if (!device) throw new Error(`${mountpoint} is not mounted, so there is nothing to check yet. Reconnect the drive first.`);
+  const checker = { exfat: [binaries.fsckExfat, ["-n", device]], ext4: [binaries.e2fsck, ["-fn", device]], ext3: [binaries.e2fsck, ["-fn", device]], ext2: [binaries.e2fsck, ["-fn", device]], vfat: [binaries.fsckFat, ["-n", device]] }[fstype];
+  if (!checker) throw new Error(`BoxPilot has no read-only checker for ${fstype} filesystems`);
+
+  const bound = await containersBoundTo(run, mountpoint);
+  for (const container of bound) { log?.(`$ docker stop ${container}`, "stdout"); await run(binaries.docker, ["stop", container], { timeout: 120_000 }); }
+  const started = []; const restartFailed = [];
+  const restart = async () => {
+    for (const container of bound) {
+      log?.(`$ docker start ${container}`, "stdout");
+      const result = await run(binaries.docker, ["start", container], { timeout: 120_000 });
+      if (result.ok) started.push(container); else { restartFailed.push(container); log?.(`could not start ${container}: ${tail(result.stderr)}`, "stderr"); }
+    }
+  };
+  log?.(`$ umount ${mountpoint}`, "stdout");
+  const unmounted = await run(binaries.umount, [mountpoint], { timeout: 60_000 });
+  if (!unmounted.ok) { await restart(); throw new Error(`${mountpoint} is still in use, so it was not checked: ${tail(unmounted.stderr)}. Stop whatever is using it - a share, a copy in progress - and try again.`); }
+  let checked;
+  try {
+    log?.(`$ ${path.basename(checker[0])} ${checker[1].join(" ")}`, "stdout");
+    checked = await run(checker[0], checker[1], { timeout: 25 * 60_000, onLine: (line, stream) => log?.(line, stream) });
+  } finally {
+    log?.(`$ mount ${mountpoint}`, "stdout");
+    const mounted = await run(binaries.mount, [mountpoint], { timeout: 120_000 });
+    if (!mounted.ok) log?.(`could not mount ${mountpoint} again: ${tail(mounted.stderr)}`, "stderr");
+    await restart();
+  }
+  // fsck exit codes: 0 clean, 1 errors found (and would have been corrected without -n), 4 errors left, 8 operational error.
+  const clean = checked.ok;
+  const summary = (checked.stdout + "\n" + checked.stderr).split("\n").filter(Boolean).slice(-4).join(" ").slice(0, 400);
+  log?.(clean ? `${mountpoint} checked clean` : `${mountpoint}: the checker found problems (exit ${checked.code})`, clean ? "stdout" : "stderr");
+  return { checked: true, name, mountpoint, device, fstype, checker: path.basename(checker[0]), clean, exitCode: checked.code, summary, restarted: started, restartFailed, checkedAt: new Date().toISOString() };
 }
 
 /** Running containers with a bind at or under the mountpoint. A prefix is not a parent: /mnt/x-backup is not under /mnt/x. */

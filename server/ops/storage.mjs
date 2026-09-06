@@ -107,7 +107,7 @@ export function storageOperations() {
   return [
     defineOperation({
       id: "storage.inspect", title: "Read disks and mounts", risk: "low", readOnly: true, timeoutMs: 60_000,
-      description: "Block devices with filesystems and UUIDs, the fstab entries, and mounted filesystems with usage.",
+      description: "Drives with filesystems and UUIDs, the fstab entries, and mounted filesystems with usage.",
       run: async (_parameters, { run }) => {
         const [tree, mounts] = await Promise.all([
           run(lsblk, ["-J", "-b", "-o", "PATH,TYPE,SIZE,FSTYPE,UUID,LABEL,MODEL,TRAN,MOUNTPOINTS,RO,RM"], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }),
@@ -201,6 +201,12 @@ export function storageOperations() {
         if (!result.ok && !result.stdout) return { available: false, days: 30, ports: [] };
         return { available: true, ...parseUsbEvents(result.stdout) };
       },
+    }),
+    defineOperation({
+      id: "storage.check", title: "Check a drive", risk: "medium", timeoutMs: minutes(35),
+      description: "Runs the filesystem's own read-only checker on a mounted drive and reports what it finds. Containers using the drive are stopped, the drive is unmounted for the check, then mounted again and the containers started. Nothing is repaired or written; that is a separate decision with the report in hand.",
+      parameters: { fields: { name: { type: "string", maxLength: 32, pattern: mountNamePattern } } },
+      run: (parameters, { runUnit, jobLog }) => runUnit.runTask("storage.check", { name: parameters.name }, { timeoutMs: minutes(33), logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "storage.remount", title: "Reconnect a drive", risk: "medium", timeoutMs: minutes(5),

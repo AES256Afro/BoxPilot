@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { containersOnStaleMounts, detectRemediations, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, staleMounts, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives } from "./remediations.mjs";
+import { containersOnStaleMounts, detectRemediations, mountFor, nothingCanReachYou, splitDataFolders, failedRehearsals, permissionlessMounts, staleMounts, unwritableShares, vpnLeaks, windowsCannotDiscover, readOnlyRemounts, exfatCheckerMissing, flakyDrives, drivesNeedingCheck } from "./remediations.mjs";
 
 /**
  * The situation each of these was written from, on a real server:
@@ -279,5 +279,32 @@ describe("a drive that keeps dropping off USB", () => {
     expect(flakyDrives({ usb: { ...twice, ports: [{ ...twice.ports[0], drops: ["2026-09-05T16:01:11.000Z"] }] } })).toEqual([]);
     expect(flakyDrives({ usb: { available: false, ports: [] } })).toEqual([]);
     expect(flakyDrives({})).toEqual([]);
+  });
+});
+
+describe("a USB drive that dropped and has not been checked since", () => {
+  const mounts = [{ target: "/mnt/the-dump", source: "/dev/sda2", fstype: "exfat", managedName: "the-dump", readOnly: false, options: "defaults" }];
+  const devices = [{ path: "/dev/sda", transport: "usb" }, { path: "/dev/sda2", transport: "usb" }, { path: "/dev/nvme0n1", transport: "nvme" }];
+  const usb = { available: true, days: 30, ports: [{ port: "6-1", drops: ["2026-09-05T16:01:11.000Z"], lastDropAt: "2026-09-05T16:01:11.000Z", powerFaults: 0, resets: 0, returns: [] }] };
+
+  it("offers the read-only check after a drop with no check on record", () => {
+    const [found] = drivesNeedingCheck({ mounts, devices, usb, driveChecks: {} });
+    expect(found).toMatchObject({ id: "drive-check:the-dump", severity: "warning", fix: { operationId: "storage.check", parameters: { name: "the-dump" } } });
+    expect(found.evidence).toContain("never checked");
+  });
+
+  it("is satisfied by a clean check newer than the drop", () => {
+    expect(drivesNeedingCheck({ mounts, devices, usb, driveChecks: { "the-dump": { checkedAt: "2026-09-05T20:00:00.000Z", clean: true } } })).toEqual([]);
+  });
+
+  it("asks again after a check that found problems, or one older than the latest drop", () => {
+    expect(drivesNeedingCheck({ mounts, devices, usb, driveChecks: { "the-dump": { checkedAt: "2026-09-05T20:00:00.000Z", clean: false } } })).toHaveLength(1);
+    expect(drivesNeedingCheck({ mounts, devices, usb, driveChecks: { "the-dump": { checkedAt: "2026-09-01T00:00:00.000Z", clean: true } } })).toHaveLength(1);
+  });
+
+  it("says nothing when no drive has dropped, and leaves non-USB drives alone", () => {
+    expect(drivesNeedingCheck({ mounts, devices, usb: { available: true, ports: [] } })).toEqual([]);
+    const internal = [{ ...mounts[0], source: "/dev/nvme0n1p3", managedName: "fast" }];
+    expect(drivesNeedingCheck({ mounts: internal, devices, usb })).toEqual([]);
   });
 });
