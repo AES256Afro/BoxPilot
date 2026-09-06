@@ -363,8 +363,8 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
             ))}
           </div>
           <div className="recovery-evidence-strip">
-            <span>{recoveryKit.evidence.controllerBackups.length} controller backups</span>
-            <span>{recoveryKit.evidence.controllerProtections?.length ?? 0} independently protected</span>
+            <span>{recoveryKit.evidence.controllerBackups.length} database backups</span>
+            <span>{recoveryKit.evidence.controllerProtections?.length ?? 0} with an encrypted second copy</span>
             <span>{recoveryKit.evidence.controllerRetentionRuns?.length ?? 0} controller retention runs</span>
             <span>{recoveryKit.evidence.applications?.length ?? 0} installed apps</span>
             <span>{recoveryKit.evidence.vmBackups?.length ?? 0} VM backups</span>
@@ -415,7 +415,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       </div>
 
       <section className="panel job-history">
-        <header className="panel-header"><div><strong>Recent jobs</strong><span>Everything BoxPilot has run, with each step it took. Kept across restarts.</span></div></header>
+        <header className="panel-header"><div><strong>Activity on this server</strong><span>Everything BoxPilot has run, with each step it took. Kept across restarts.</span></div></header>
         {jobs.length === 0 ? <div className="log-empty">Nothing has run yet. Every change you approve appears here with its steps.</div> : jobs.map((job) => (
           <details className="job-row" key={job.id} open={job === jobs[0]}>
             <summary><div><strong>{job.title}</strong><span>{job.risk} risk · {job.steps.length} steps</span></div><span className={`status-pill status-${job.state === "completed" ? "good" : job.state === "failed" ? "warning" : "neutral"}`}>{job.state.replaceAll("_", " ")}</span></summary>

@@ -92,7 +92,7 @@ const viewCopy: Record<ViewName, { title: string; description: string; action?: 
   },
   backups: {
     title: "Backups",
-    description: "BoxPilot's own database, machine snapshots, and off-box copies.",
+    description: "BoxPilot's own database, machine snapshots, and second copies kept elsewhere.",
   },
   github: {
     title: "GitHub",
@@ -124,7 +124,7 @@ const viewFeatures: Record<ViewName, string[]> = {
   network: ["Gateway and resolvers", "DNS listeners", "Devices on your LAN", "Wake-on-LAN", "Tailscale exit node", "Subnet router"],
   repairs: ["Find what is broken", "Reconnect a drive that dropped out", "Fix a folder nothing can write to", "See what a job did, step by step", "Rebuild-from-scratch checklist"],
   virtualization: ["QEMU/KVM setup", "VMs from cloud images or ISOs", "Start, stop, snapshots", "Encrypted exports", "Restore drills", "Recover as a clone"],
-  backups: ["Database backups with restore drills", "Encrypted independent copies", "Retention", "Machine snapshots", "Mirrors to a drive, SSH host, or cloud", "Restore from a snapshot"],
+  backups: ["Database backups with restore drills", "Encrypted second copies", "Retention", "Machine snapshots", "Mirrors to a drive, SSH host, or cloud", "Restore from a snapshot"],
   github: ["Release and commit metadata", "Asset digests", "No token needed"],
   logs: ["Any unit, container, or journal group", "Tail and follow", "Filter", "Download", "Support bundle"],
   settings: ["Approval mode", "Alerts: ntfy, Gotify, webhook", "GitHub sign-in", "Tailscale sign-in", "People", "Password", "Theme"],

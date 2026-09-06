@@ -717,7 +717,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
     <div className="app-catalog">
       {foreign !== null && foreign.length > 0 && (
         <section className="panel">
-          <header className="panel-header"><div><strong>Also on this server</strong><span>Compose stacks started outside BoxPilot. Their compose files stay theirs; BoxPilot lists them so this page tells the whole truth about the machine.</span></div></header>
+          <header className="panel-header"><div><strong>Also on this server</strong><span>Compose stacks started outside BoxPilot. Their compose files stay theirs; BoxPilot lists them so this page tells the whole truth about this server.</span></div></header>
           <ul className="foreign-projects">
             {foreign.map((project) => {
               // compose reports a compound status ("running(1), exited(1)"); count the stack as

@@ -177,7 +177,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
 
   /** Give every configured destination a nightly copy, after the app backups have been taken. */
   const mirrorNightly = async (operations: string[]) => {
-    setProtecting("Scheduling the nightly off-box copy…");
+    setProtecting("Scheduling the nightly second copy…");
     let created = 0;
     const failures: string[] = [];
     for (const [index, operationId] of operations.entries()) {
@@ -194,7 +194,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
         failures.push(`${operationId}: ${requestError instanceof Error ? requestError.message : "failed"}`);
       }
     }
-    setProtecting(failures.length ? `Scheduled ${created} of ${operations.length}. ${failures.join("; ")}` : `Nightly off-box copy scheduled. The first runs tonight.`);
+    setProtecting(failures.length ? `Scheduled ${created} of ${operations.length}. ${failures.join("; ")}` : `Nightly second copy scheduled. The first runs tonight.`);
     await loadProtection();
   };
 
@@ -286,7 +286,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
         </div>
         {retention?.policy && (
           <div className="recovery-actions">
-            <span className="muted">Retention keeps at least {retention.policy.minimumCopies ?? 3} independent copies; {retention.candidates?.length ?? 0} snapshot(s) currently eligible for forgetting.</span>
+            <span className="muted">Retention keeps at least {retention.policy.minimumCopies ?? 3} encrypted copies; {retention.candidates?.length ?? 0} snapshot(s) currently eligible for forgetting.</span>
             {(retention.candidates?.length ?? 0) > 0 && <button className="secondary-button" type="button" onClick={() => start({ operationId: "controller.backup.retention.apply", title: "Let go of old database backups", parameters: {}, preview: <span>Removes the record of old backups that are safe to let go, then checks the store is still intact. The files themselves are not deleted and no space is reclaimed yet, so nothing recent is ever at risk.</span> })}>Apply retention</button>}
           </div>
         )}
@@ -294,7 +294,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
 
       <section className="panel">
         <header className="panel-header">
-          <div><strong>Machine snapshot</strong><span>One archive to redeploy this box: the database, every app's settings and secrets, network and firewall config, and each VM's definition. The data itself stays in the per-app backups, so an app with no backup comes back installed and empty. "With their data" below is how many would come back whole.</span></div>
+          <div><strong>Machine snapshot</strong><span>One archive to redeploy this server: the database, every app's settings and secrets, network and firewall config, and each VM's definition. The data itself stays in the per-app backups, so an app with no backup comes back installed and empty. "With their data" below is how many would come back whole.</span></div>
           <button className="primary-button" type="button" disabled={loading} onClick={() => start({ operationId: "host.snapshot.create", title: "Create a machine snapshot", parameters: {}, preview: <span>Takes a fresh verified database backup and bundles it with every installed app's compose project (settings and secrets), netplan, firewall rules, fstab, and VM definitions. The archive contains secrets. Keep copies only on encrypted or physically controlled media. The newest {machine?.keep ?? 3} snapshots are kept.</span> })}>Create machine snapshot</button>
         </header>
         <div className="table-scroll">
@@ -324,7 +324,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
               <button className="secondary-button" type="button" onClick={() => start({ operationId: "backup.sync", title: "Mirror local backups to the backup drive", parameters: {}, preview: <span>Copies the local backup folders (database backups, app backups, machine snapshots) onto the independent backup drive and verifies every copied file's hash. Nothing on the drive is ever deleted.</span> })}>Sync to backup drive</button>
             </>
           ) : (
-            <span className="muted">{machine?.sync.mount.blocker ?? "Mount an independent backup drive (Storage page) to enable the off-box mirror."}</span>
+            <span className="muted">{machine?.sync.mount.blocker ?? "Mount a backup drive (Storage page) to keep a second copy there."}</span>
           )}
           <span className="muted">Recurring snapshots and syncs can be scheduled on the System page.</span>
         </div>
@@ -339,7 +339,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
             </div>
             {mirrorOperations(offBox.inputs).length > 0 && !offBox.scheduled && (
               <button className="primary-button" type="button" disabled={Boolean(protecting)} onClick={() => void mirrorNightly(mirrorOperations(offBox.inputs))}>
-                Copy off-box nightly
+                Keep a second copy nightly
               </button>
             )}
           </header>
@@ -406,7 +406,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
         <div className="recovery-actions">
           {remote?.keyReady
             ? <span className="muted">Mirror key ready{remote.fingerprint ? ` (${remote.fingerprint})` : ""}. Add this public key to <code>~/.ssh/authorized_keys</code> for the destination user:</span>
-            : <><span className="muted">Step 1. Create the mirror key on this server.</span><button className="secondary-button" type="button" onClick={() => start({ operationId: "backup.remote.setup", title: "Create the off-box mirror key", parameters: {}, preview: <span>Generates an ed25519 key pair under <code>/etc/boxpilot/secrets</code>. The private key never leaves this server.</span> })}>Create key</button></>}
+            : <><span className="muted">Step 1. Create the mirror key on this server.</span><button className="secondary-button" type="button" onClick={() => start({ operationId: "backup.remote.setup", title: "Create the second copy key", parameters: {}, preview: <span>Generates an ed25519 key pair under <code>/etc/boxpilot/secrets</code>. The private key never leaves this server.</span> })}>Create key</button></>}
         </div>
         {remote?.publicKey && <pre className="app-logs" aria-label="Mirror public key">{remote.publicKey}</pre>}
         <form className="recovery-actions" onSubmit={(event) => { event.preventDefault(); void saveDestination(); }}>
@@ -423,9 +423,9 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
           {remoteSettings?.destination
             ? <span className="muted">Destination <code>{remoteSettings.destination.user}@{remoteSettings.destination.host}:{remoteSettings.destination.path}</code>{remoteSettings.lastSync ? `, last mirrored ${new Date(remoteSettings.lastSync.completedAt).toLocaleString()} (${countOf(remoteSettings.lastSync.filesTransferred, "file")})` : ", never mirrored"}.</span>
             : <span className="muted">Step 2. Save where the backups should go.</span>}
-          {remoteSettings?.destination && remote?.keyReady && <button className="secondary-button" type="button" onClick={() => start({ operationId: "backup.remote.test", title: "Test the off-box destination", parameters: {}, preview: <span>Connects as <code>{remoteSettings.destination!.user}@{remoteSettings.destination!.host}</code>, creates <code>{remoteSettings.destination!.path}</code> if needed, checks it is writable, and pins the destination's host key on first use.</span> })}>Test connection</button>}
+          {remoteSettings?.destination && remote?.keyReady && <button className="secondary-button" type="button" onClick={() => start({ operationId: "backup.remote.test", title: "Test the second copy destination", parameters: {}, preview: <span>Connects as <code>{remoteSettings.destination!.user}@{remoteSettings.destination!.host}</code>, creates <code>{remoteSettings.destination!.path}</code> if needed, checks it is writable, and pins the destination's host key on first use.</span> })}>Test connection</button>}
           {remoteSettings?.destination && remote?.keyReady && (remote.rsyncInstalled
-            ? <button className="primary-button" type="button" disabled={remote.hostKeysPinned === 0} title={remote.hostKeysPinned === 0 ? "Test the connection first" : undefined} onClick={() => start({ operationId: "backup.remote.sync", title: "Mirror backups off-box", parameters: {}, preview: <span>rsync pushes the database backups, app backups, and machine snapshots to <code>{remoteSettings.destination!.host}</code> with checksum verification. Nothing on the destination is deleted. Schedule it on the System page to keep it current.</span> })}>Mirror now</button>
+            ? <button className="primary-button" type="button" disabled={remote.hostKeysPinned === 0} title={remote.hostKeysPinned === 0 ? "Test the connection first" : undefined} onClick={() => start({ operationId: "backup.remote.sync", title: "Mirror backups second copy", parameters: {}, preview: <span>rsync pushes the database backups, app backups, and machine snapshots to <code>{remoteSettings.destination!.host}</code> with checksum verification. Nothing on the destination is deleted. Schedule it on the System page to keep it current.</span> })}>Mirror now</button>
             : <button className="secondary-button" type="button" onClick={() => start({ operationId: "apt.install", title: "Install rsync", parameters: { packages: ["rsync"] }, preview: <span>Installs the <code>rsync</code> package from Ubuntu's repositories; the mirror needs it on this server.</span> })}>Install rsync</button>)}
         </div>
       </section>

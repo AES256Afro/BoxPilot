@@ -78,13 +78,13 @@ export function hostBackupOperations() {
     }),
     defineOperation({
       id: "backup.remote.sync", title: "Mirror local backups to the off-box SSH destination", risk: "medium", timeoutMs: 6 * 60 * 60_000,
-      description: "rsync pushes the controller backups, application backups, and machine snapshots to the destination with checksum verification. Nothing is ever deleted there.",
+      description: "rsync pushes the database backups, application backups, and machine snapshots to the destination with checksum verification. Nothing is ever deleted there.",
       parameters: { fields: { host: { type: "string", pattern: destinationPatterns.host }, port: { type: "number", validate: (value) => (Number.isInteger(value) && value >= 1 && value <= 65535 ? null : "must be 1-65535") }, user: { type: "string", pattern: destinationPatterns.user }, path: { type: "string", pattern: destinationPatterns.path } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("backup.remote.sync", parameters, { timeoutMs: 6 * 60 * 60_000 - 60_000, logPath: jobLog?.path ?? null }),
     }),
     defineOperation({
       id: "backup.sync", title: "Copy backups to the backup drive", risk: "medium", timeoutMs: 6 * 60 * 60_000,
-      description: "Copies the local backup roots (controller backups, application backups, machine snapshots) onto the independent backup mount with hash verification. Nothing is ever deleted from the destination.",
+      description: "Copies the local backups (database backups, application backups, machine snapshots) onto the backup drive with hash verification. Nothing is ever deleted from the destination.",
       run: (_parameters, { machineSnapshot }) => machineSnapshot.sync(),
     }),
   ];

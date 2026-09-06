@@ -52,7 +52,7 @@ export function backupCloudOperations() {
     }),
     defineOperation({
       id: "backup.cloud.sync", title: "Mirror local backups to the cloud destination", risk: "medium", minimumRole: "owner", timeoutMs: 6 * 60 * 60_000,
-      description: "rclone copies the controller backups, application backups, and machine snapshots to the destination with checksum verification. Nothing is ever deleted there.",
+      description: "rclone copies the database backups, application backups, and machine snapshots to the destination with checksum verification. Nothing is ever deleted there.",
       parameters: { fields: { ...destinationFields, provider: { ...destinationFields.provider, validate: (_value, parameters) => validate(parameters) } } },
       run: (parameters, { runUnit, jobLog }) => runUnit.runTask("backup.cloud.sync", pick(parameters), { timeoutMs: 6 * 60 * 60_000 - 60_000, logPath: jobLog?.path ?? null }),
     }),

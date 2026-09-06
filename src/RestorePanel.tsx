@@ -84,7 +84,7 @@ export default function RestorePanel({ csrfToken, start }: { csrfToken: string; 
   return (
     <section className="panel">
       <header className="panel-header">
-        <div><strong>Restore from a machine snapshot</strong><span>Rebuild this box's apps from a snapshot taken here or carried over on the backup drive. Apps are reinstalled with their saved settings and secrets, then their newest data archive is restored.</span></div>
+        <div><strong>Restore from a machine snapshot</strong><span>Rebuild this server's apps from a snapshot taken here or carried over on the backup drive. Apps are reinstalled with their saved settings and secrets, then their newest data archive is restored.</span></div>
         <button className="text-button" type="button" onClick={() => void refresh()}>Refresh</button>
       </header>
       <div className="approval-settings">
