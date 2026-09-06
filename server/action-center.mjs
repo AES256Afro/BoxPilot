@@ -152,7 +152,7 @@ export function createActionCenterService({ recoveryKit, inventory = null, now =
       recommendation: {
         view: "repairs",
         title: "See the jobs",
-        steps: ["Open the failed job under Recent jobs below.", "It records the error and what to do about it.", "Fix the cause before starting the same job again."],
+        steps: ["Open the failed job under Activity below.", "It records the error and what to do about it.", "Fix the cause before starting the same job again."],
       },
       boundary: boundary(),
     });

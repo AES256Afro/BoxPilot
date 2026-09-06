@@ -220,7 +220,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
   const startProtection = (artifact: VmExportArtifact) => {
     startOperation({
       operationId: "vm.export.protect",
-      title: `Back up ${artifact.domainName} independently`,
+      title: `Keep an encrypted copy of ${artifact.domainName}`,
       parameters: { exportId: artifact.id },
       preview: <span>Re-checks the local copy, writes an encrypted copy to the separate destination, and reads the whole thing back to prove it arrived intact. It only counts as backed up once a test restore has opened it, which is the next step.</span>,
     });

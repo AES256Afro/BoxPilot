@@ -45,7 +45,7 @@ export default function LocalNamesPanel({ csrfToken, start, lanAddress }: { csrf
       <header className="panel-header">
         <div>
           <strong>Local names for your apps</strong>
-          <span>Reach them as <code>jellyfin.{domain}</code> instead of an address to remember. Served by the DNS server on this box; records you added yourself are in a different file and are never touched.</span>
+          <span>Reach them as <code>jellyfin.{domain}</code> instead of an address to remember. Served by the DNS server running here; records you added yourself are in a different file and are never touched.</span>
         </div>
         {report.available && lanAddress && (
           <button className="primary-button" type="button" onClick={() => start({

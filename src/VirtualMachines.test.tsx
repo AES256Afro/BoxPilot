@@ -180,7 +180,7 @@ describe("Virtual Machines", () => {
     expect(screen.getByText(/not yet a backup kept somewhere else/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
     fireEvent.click(screen.getByRole("button", { name: "Keep a second copy" }));
-    expect(await screen.findByText("Back up snapshot-lab independently")).toBeTruthy();
+    expect(await screen.findByText("Keep an encrypted copy of snapshot-lab")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
     fireEvent.click(screen.getByRole("button", { name: "Apply retention" }));
     expect(await screen.findByText("Apply VM backup retention")).toBeTruthy();

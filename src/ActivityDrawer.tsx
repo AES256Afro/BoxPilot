@@ -76,8 +76,8 @@ export function ActivityDrawer() {
           <aside className="activity-drawer" aria-label="Activity" onMouseDown={(event) => event.stopPropagation()}>
             <header className="activity-header">
               <div>
-                <span className="eyebrow">Activity</span>
-                <h2>{runningCount > 0 ? `${runningCount} job${runningCount === 1 ? "" : "s"} running` : "Recent jobs"}</h2>
+                <span className="eyebrow">Latest</span>
+                <h2>{runningCount > 0 ? `${runningCount} job${runningCount === 1 ? "" : "s"} running` : "Activity"}</h2>
               </div>
               <button className="icon-button" type="button" aria-label="Close activity" onClick={() => setOpen(false)}>X</button>
             </header>

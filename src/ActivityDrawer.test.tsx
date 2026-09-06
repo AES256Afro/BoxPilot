@@ -57,7 +57,7 @@ describe("Activity drawer", () => {
 
     act(() => source?.emit("job", { job: job({ state: "completed" }) }));
     expect(screen.queryByLabelText("1 running")).toBeNull();
-    expect(screen.getByText("Recent jobs")).toBeTruthy();
+    expect(screen.getByText("Latest")).toBeTruthy();
     expect(screen.getByText("Completed")).toBeTruthy();
   });
 

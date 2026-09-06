@@ -45,7 +45,7 @@ export default function TailnetPanel() {
   return (
     <section className="panel">
       <header className="panel-header">
-        <div><strong>Devices on your tailnet</strong><span>Every machine signed into your Tailscale network. New devices show up here as you add them.</span></div>
+        <div><strong>Devices on your tailnet</strong><span>Every machine signed into your tailnet. New devices show up here as you add them.</span></div>
         <span className={`status-pill ${online > 0 ? "status-good" : "status-neutral"}`}>{tailnet === null ? "…" : `${online} of ${nodes.length} online`}</span>
       </header>
       {tailnet === null ? <p className="muted">Reading…</p> : (

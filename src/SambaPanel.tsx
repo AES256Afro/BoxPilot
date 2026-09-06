@@ -70,7 +70,7 @@ export default function SambaPanel({ start, folders, refreshKey, prefill, onNavi
 
   useEffect(() => { void refresh(); }, [refresh, refreshKey]);
 
-  // "Share on network" on a drive over in the Block devices table prefills this form and scrolls
+  // "Share on network" on a drive over in the Drives table prefills this form and scrolls
   // here, so adding a mounted drive as a share is one click rather than a hunt for the right path.
   useEffect(() => {
     if (!prefill) return;
