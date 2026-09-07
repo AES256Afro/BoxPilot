@@ -28,6 +28,14 @@ The approval dialog shows the deadline and disables expired approvals. Close the
 
 Tests cover 10,000 queue heartbeats without retained frame growth, oversized and malformed replies, an overall deadline while queue heartbeats arrive, slow-reader disconnects, connection-budget cleanup, Unicode log chunking, clock-controlled secret expiry and restart refusal, missing cgroup data, and separation of heap from file cache. These checks establish bounded behavior for the tested paths, not a production soak-test pass.
 
+### Repeatable runtime retention check
+
+Run `npm run check:retention` with Node 24 or newer. It starts temporary local Unix and HTTP sockets and uses synthetic accounts and signing keys. It never contacts or changes an installed BoxPilot host. The default runs two warmup batches followed by 12 measured batches of 250 cycles each. Each cycle shares a helper read between two callers, closes or abandons an event stream, exchanges an SSO grant and churns the bounded login throttle.
+
+After each batch it collects garbage and verifies that helper requests, helper connections, event-stream reservations and pending authorization grants have returned to zero. The throttle must remain within 64 entries. JSON output includes heap, external buffers, RSS and active resource counts. The largest retained-heap increase after warmup must stay within an 8 MiB regression budget under a 128 MiB V8 heap limit. RSS is recorded, not judged as a leak by itself. Hosted CI runs six measured batches of 100 cycles; `--batches` and `--iterations` can increase the local workload.
+
+This is a short synthetic regression test. It does not cover browser mount/unmount, representative disk contention, production load or a 24-72 hour soak, and a pass is not proof that the whole application has no memory leaks.
+
 Job output also has independent bounds: each writer limits lines to 64 KiB and its accumulated output to 4 MiB, while a read of a damaged or old oversized file allocates at most 4 MiB plus three UTF-8 boundary bytes. This is not a shared inter-process file-size lock; separate producers can overlap. The fixed canary replaces its previous output and reports failure if a new probe cannot be written.
 
 After a successful job, BoxPilot saves its output in SQLite and asks the helper to release the live cache. The helper opens the existing database read-only and compares the entire bounded log with the saved bytes. Only a completed job with an identical copy is eligible. Missing copies, failed jobs, oversized or changed logs, symlinks and unexpected ownership retain the file. Root producers flush pending output before reporting completion. The web account gains no directory write permission, and cleanup uses a separate helper lane so it does not wait behind a long package operation. Existing housekeeping remains responsible for old retained logs; this is not a bulk deletion of historical output.

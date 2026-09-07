@@ -136,3 +136,9 @@ The cfc26c1 CI retry passed after the Docker Hub outage, and native installation
 Housekeeping now streams directory entries with a shared 100,000-entry, 60-second cooperative budget and a depth limit of 64. It skips symbolic links and different filesystem devices. Missing install roots remain normal empty inventories; invalid or unreadable roots are unavailable. A failed or budget-limited category is disabled and excluded from the advertised reclaimable total, while other categories still finish. Cleanup independently repeats its inventory and refuses categories it cannot fully inspect. Full check passed with 1,587 tests across 231 files. The time budget is checked between filesystem operations; it is not a kernel-level deadline for a stalled filesystem call.
 
 Hosted CI and native install smoke passed for 10471fc and 7c35d41.
+
+## Repeatable retained-memory regression
+
+Added a temporary local socket workload covering shared helper reads, event-stream close/abort, SSO grant exchange and throttle churn. After garbage collection it asserts zero outstanding helper requests/connections, stream reservations and pending grants, plus the throttle capacity. It records heap, RSS, buffers and resource counts and enforces an 8 MiB peak retained-heap growth budget after warmup under a 128 MiB V8 heap cap. The 3,500-cycle local run retained about 78 KiB additional heap; the shorter 800-cycle CI workload retained about 143 KiB. Neither result is a full application leak or production-load pass. Full check passed with 1,587 tests across 231 files. CI now runs the shorter workload.
+
+Hosted CI and native install smoke both passed for 5ec14d0.

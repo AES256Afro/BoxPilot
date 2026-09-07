@@ -17,6 +17,7 @@
     "start": "node server/index.mjs",
     "test": "vitest run",
     "check:shell": "for f in scripts/*.sh deploy/*.sh; do [ -e \"$f\" ] || continue; sh -n \"$f\" || exit 1; done",
+    "check:retention": "node --expose-gc --max-old-space-size=128 scripts/check-runtime-retention.mjs",
     "lint": "eslint server scripts eslint.config.mjs",
     "check": "npm run build && npm run test && npm run check:syntax && npm run lint && npm run check:shell",
     "check:syntax": "find server scripts -name '*.mjs' -not -path '*/node_modules/*' -print0 | xargs -0 -n 1 node --check",
