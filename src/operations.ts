@@ -117,13 +117,78 @@ export async function waitForJob(jobId: string, { intervalMs = 2000, timeoutMs =
  * Follow all job activity for the Activity drawer: `onSnapshot` with recent jobs on (re)connect,
  * then `onJob` with a fresh snapshot of each job as it changes. Returns a function that stops.
  */
-export function followJobs({ onSnapshot, onJob }: { onSnapshot: (jobs: Job[]) => void; onJob: (job: Job) => void }): () => void {
-  if (typeof EventSource === "undefined") return () => {};
-  const source = new EventSource("/api/v1/events");
-  source.addEventListener("snapshot", (event) => { try { onSnapshot((JSON.parse((event as MessageEvent).data) as { jobs: Job[] }).jobs); } catch { /* ignore malformed */ } });
-  source.addEventListener("job", (event) => { try { onJob((JSON.parse((event as MessageEvent).data) as { job: Job }).job); } catch { /* ignore malformed */ } });
-  source.onerror = () => { /* EventSource reconnects on its own; each reconnect re-sends the snapshot */ };
-  return () => source.close();
+export type JobFeedStatus = "loading" | "live" | "polling" | "unavailable";
+
+function readableJob(value: unknown): value is Job {
+  return Boolean(value && typeof value === "object" && "id" in value && typeof value.id === "string" && "title" in value && typeof value.title === "string" && "state" in value && typeof value.state === "string" && "steps" in value && Array.isArray(value.steps));
+}
+
+export function followJobs({ onSnapshot, onJob, onStatus = () => {}, pollAfterMs = 2500, pollEveryMs = 5000 }:
+  { onSnapshot: (jobs: Job[]) => void; onJob: (job: Job) => void; onStatus?: (status: JobFeedStatus) => void; pollAfterMs?: number; pollEveryMs?: number }): () => void {
+  let stopped = false;
+  let polling = false;
+  let source: EventSource | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let request: AbortController | null = null;
+  let failures = 0;
+  onStatus("loading");
+  const clearTimer = () => { if (timer !== null) clearTimeout(timer); timer = null; };
+  const validSnapshot = (value: unknown): Job[] => {
+    if (!Array.isArray(value) || !value.every(readableJob)) throw new Error("Job history was incomplete");
+    return value.slice(0, 50);
+  };
+  const read = async () => {
+    if (stopped || request) return;
+    clearTimer();
+    const controller = new AbortController(); request = controller;
+    const deadline = setTimeout(() => controller.abort(), 15_000);
+    let terminalRefusal = false;
+    try {
+      const response = await fetch("/api/v1/jobs?limit=50", { signal: controller.signal });
+      terminalRefusal = response.status === 401 || response.status === 403;
+      const body = await readJson<{ jobs: unknown }>(response);
+      const snapshot = validSnapshot(body.jobs);
+      if (stopped) return;
+      failures = 0; onSnapshot(snapshot); onStatus("polling");
+    } catch {
+      if (!stopped) { failures += 1; onStatus("unavailable"); }
+    } finally {
+      clearTimeout(deadline); request = null;
+      if (!stopped && !terminalRefusal) {
+        const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+        const interval = hidden ? 30_000 : Math.min(30_000, pollEveryMs * 2 ** Math.min(failures, 3));
+        timer = setTimeout(() => void read(), interval);
+      }
+    }
+  };
+  const startPolling = () => {
+    if (stopped || polling) return;
+    polling = true; clearTimer(); source?.close(); source = null;
+    void read();
+  };
+  const visible = () => {
+    if (!stopped && polling && document.visibilityState === "visible" && timer !== null) { clearTimer(); void read(); }
+  };
+  if (typeof document !== "undefined") document.addEventListener("visibilitychange", visible);
+  try {
+    if (typeof EventSource === "undefined") startPolling();
+    else {
+      source = new EventSource("/api/v1/events");
+      source.addEventListener("snapshot", (event) => {
+        if (stopped || polling) return;
+        try { const snapshot = validSnapshot((JSON.parse((event as MessageEvent).data) as { jobs: unknown }).jobs); onSnapshot(snapshot); clearTimer(); onStatus("live"); }
+        catch { startPolling(); }
+      });
+      source.addEventListener("job", (event) => {
+        if (stopped || polling) return;
+        try { const job: unknown = (JSON.parse((event as MessageEvent).data) as { job: unknown }).job; if (!readableJob(job)) throw new Error("Invalid job event"); onJob(job); }
+        catch { startPolling(); }
+      });
+      source.onerror = startPolling;
+      timer = setTimeout(startPolling, pollAfterMs);
+    }
+  } catch { startPolling(); }
+  return () => { stopped = true; clearTimer(); request?.abort(); source?.close(); if (typeof document !== "undefined") document.removeEventListener("visibilitychange", visible); };
 }
 
 /**

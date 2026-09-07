@@ -1,10 +1,10 @@
 import { useEffect, type RefObject } from "react";
 
 /** Contain keyboard focus while a modal is open, then return it to its opener. */
-export function useDialogFocus(ref: RefObject<HTMLElement | null>) {
+export function useDialogFocus(ref: RefObject<HTMLElement | null>, enabled = true) {
   useEffect(() => {
     const dialog = ref.current;
-    if (!dialog) return;
+    if (!enabled || !dialog) return;
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialog.focus();
     const focusable = () => Array.from(dialog.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')).filter((element) => {
@@ -34,5 +34,5 @@ export function useDialogFocus(ref: RefObject<HTMLElement | null>) {
       document.removeEventListener("focusin", onFocus);
       if (opener?.isConnected) opener.focus();
     };
-  }, [ref]);
+  }, [ref, enabled]);
 }

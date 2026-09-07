@@ -6,5 +6,5 @@ export function jobWarnings(result: unknown): string[] {
 
 export function JobWarnings({ result }: { result: unknown }) {
   const warnings = jobWarnings(result);
-  return warnings.length > 0 ? <div className="notice" role="status"><strong>Follow-up needed</strong><ul>{warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></div> : null;
+  return warnings.length > 0 ? <div className="notice warning-notice job-warning" role="status"><strong>Follow-up needed</strong><ul>{warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul></div> : null;
 }

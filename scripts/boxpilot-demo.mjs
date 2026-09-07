@@ -747,6 +747,7 @@ const troubleRest = {
     ? { ...job, state: "failed", error: "rsync: connection unexpectedly closed by nas.local" }
     : index === 1 ? backupNotice(job) : job)) }),
   "/jobs/d2": (body) => ({ ...body, job: backupNotice(body.job) }),
+  "/jobs/d2/output": () => ({ output: "" }),
   // A mirror that keeps failing does not record an error anywhere; it just stops being recent,
   // which is the thing the interface has to notice on the owner's behalf.
   "/settings/backup-destination": (body) => ({ ...body, lastSync: { ...body.lastSync, completedAt: ago(24 * 34) } }),

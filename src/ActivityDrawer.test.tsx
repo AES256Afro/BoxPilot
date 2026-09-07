@@ -41,6 +41,15 @@ function job(overrides: Partial<Job>): Job {
 }
 
 describe("Activity drawer", () => {
+  it("focuses the drawer and returns to its opener when Escape closes it", () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    render(<ActivityDrawer />);
+    const opener = screen.getByRole("button", { name: "Activity" }); opener.focus(); fireEvent.click(opener);
+    expect(document.activeElement).toBe(screen.getByRole("dialog", { name: "Activity" }));
+    fireEvent.keyDown(document, { key: "Tab" }); expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close activity" }));
+    fireEvent.keyDown(document, { key: "Escape" }); expect(screen.queryByRole("dialog")).toBeNull(); expect(document.activeElement).toBe(opener);
+  });
+
   it("shows a running badge from the snapshot and clears it when the job finishes", async () => {
     vi.stubGlobal("EventSource", FakeEventSource);
     render(<ActivityDrawer />);
@@ -87,5 +96,21 @@ describe("Activity drawer", () => {
     fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
     expect(screen.getByText("Completed with notice").className).toContain("status-warning");
     expect(screen.queryByText("Completed")).toBeNull();
+  });
+
+  it("distinguishes unread history, failed refresh and a confirmed empty history", async () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("fetch", vi.fn(async () => json({ error: "Unavailable" }, 503)));
+    render(<ActivityDrawer />);
+    fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
+    expect(screen.getByText("Reading job history...")).toBeTruthy();
+    expect(screen.queryByText(/No jobs are visible/)).toBeNull();
+    act(() => FakeEventSource.instances.at(-1)?.onerror?.());
+    expect(await screen.findByText(/Job history is unavailable/)).toBeTruthy();
+    expect(screen.queryByText(/No jobs are visible/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try refreshing Activity" }));
+    act(() => FakeEventSource.instances.at(-1)?.emit("snapshot", { jobs: [] }));
+    expect(screen.getByText(/No jobs are visible to this account/)).toBeTruthy();
+    expect(screen.queryByText(/Job history is unavailable/)).toBeNull();
   });
 });

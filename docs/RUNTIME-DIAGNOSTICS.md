@@ -18,6 +18,8 @@ The browser also cancels observation when an approval dialog is removed, includi
 
 Approval and Activity terminals retain at most 256 Ki UTF-16 code units plus a short truncation notice. Earlier text is hidden in that view, while server-side output retention keeps its separate limits. Completed-log and individual-job reads have 15-second deadlines and abort on unmount. A failed read offers retry and does not claim the job recorded no output.
 
+Activity's job-history stream has a separate fallback. If a valid initial snapshot does not arrive within 2.5 seconds, or the stream disconnects or sends malformed data, it closes that stream and fetches up to 50 jobs through ordinary requests. Requests are sequential, have a 15-second deadline and normally repeat after five seconds. Hidden tabs use 30 seconds; failures back off to 30 seconds; session refusals stop automatic requests. Removing the observer releases its request, timers and visibility listener. A healthy stream performs no polling. The drawer distinguishes loading, unavailable or stale history and a confirmed empty account history, with manual retry.
+
 ## Credentials awaiting approval
 
 An operation staged with credentials receives a 30-minute approval deadline, stored as non-secret recovery metadata. The actual secret stays in memory. Approval checks the deadline even if the periodic sweep has not run or the service has restarted. A minute sweep removes expired secret records and cancels their pending jobs; expiry is enforced at exactly the deadline, and physical cleanup occurs on the next sweep, at most about a minute later while the process is responsive. Operations without staged secrets do not acquire this deadline.
