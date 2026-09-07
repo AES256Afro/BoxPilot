@@ -246,9 +246,9 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
 
       <div className="metric-grid">
         <article className="panel">
-          <span className="eyebrow">BoxPilot database</span>
+          <span className="eyebrow">Recorded database snapshots</span>
           <strong>{loading ? "…" : backups.length}</strong>
-          <span>{latest ? `latest ${new Date(latest.createdAt).toLocaleString()}` : "verified local snapshots"}</span>
+          <span>{latest ? `latest ${new Date(latest.createdAt).toLocaleString()}` : "backup history"}</span>
           <div className="recovery-actions">
             <button className="primary-button" type="button" disabled={loading} onClick={() => start({ operationId: "controller.backup.create", title: "Back up the BoxPilot database", parameters: {}, preview: <span>Snapshots the live database with <code>VACUUM INTO</code> (no downtime) and restore-drills the copy before recording it.</span> })}>Back up now</button>
           </div>
@@ -265,7 +265,7 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
       </div>
 
       <section className="panel">
-        <header className="panel-header"><div><strong>Database snapshots</strong><span>Every backup here was test-restored before it was recorded. Protect keeps an encrypted second copy as well.</span></div></header>
+        <header className="panel-header"><div><strong>Database snapshot history</strong><span>Drill results describe verification when each backup was created. Local retention can remove older files while keeping these records. Protect checks the source before making an encrypted second copy.</span></div></header>
         <div className="table-scroll">
           <table>
             <thead><tr><th>Created</th><th>Size</th><th>Drill</th><th>Independent copy</th><th aria-label="Actions" /></tr></thead>
