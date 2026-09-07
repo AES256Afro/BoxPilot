@@ -39,7 +39,14 @@ async function restartStaleServices(run, log = null) {
   const others = listed.filter((unit) => !own.includes(unit));
   const restarted = [];
   for (const unit of others) {
-    const result = await run(systemctl, ["restart", unit], { timeout: 120_000 });
+    // needrestart also emits script markers, which are not systemd unit names.
+    const args = unit === "systemd-manager" ? ["daemon-reexec"]
+      : /^[A-Za-z0-9:._@\\-]{1,200}\.service$/.test(unit) ? ["restart", unit] : null;
+    if (!args) {
+      log?.(`${unit} needs attention; reboot the server to refresh remaining processes.`, "stderr");
+      continue;
+    }
+    const result = await run(systemctl, args, { timeout: 120_000 });
     if (result.ok) { restarted.push(unit); log?.(`Restarted ${unit}, which was running pre-upgrade libraries`, "stdout"); }
     else log?.(`Could not restart ${unit}: ${result.stderr.split("\n").slice(-1)[0]}`, "stderr");
   }

@@ -142,6 +142,14 @@ describe("taking over needrestart's job without inheriting its timing", () => {
     expect(log.mock.calls.some(([line]) => /restarts in 30 seconds/.test(line))).toBe(true);
   });
 
+  it("re-executes the manager and leaves unknown restart scripts for manual attention", async () => {
+    const { run, calls } = sweepRun({ listed: "NEEDRESTART-SVC: systemd-manager\nNEEDRESTART-SVC: systemd-user\nNEEDRESTART-SVC: cron.service\n" });
+    const result = await aptUpgrade({ packages: null, refreshFirst: false }, { run });
+    expect(calls.filter((call) => call.binary === "/usr/bin/systemctl").map((call) => call.args)).toEqual([["restart", "cron.service"], ["daemon-reexec"]]);
+    expect(result.servicesRestarted).toEqual(["cron.service", "systemd-manager"]);
+    expect(result.servicesNeedingRestart).toContain("systemd-user");
+  });
+
   it("restarts nothing on a failed scan, rather than guessing", async () => {
     const { run, calls } = sweepRun({ scanOk: false });
     const result = await aptUpgrade({ packages: null, refreshFirst: false }, { run });

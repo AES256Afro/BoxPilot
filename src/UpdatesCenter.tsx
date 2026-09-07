@@ -114,7 +114,11 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
         <section className="panel">
           <header className="panel-header"><div><strong>Services running old libraries</strong><span>These kept the pre-upgrade code in memory. Restart them when convenient, or reboot to refresh everything.</span></div></header>
           <div className="recovery-actions">
-            {report.servicesNeedingRestart.map((unit) => (
+            {report.servicesNeedingRestart.map((unit) => unit === "systemd-manager" ? (
+              <button key={unit} className="secondary-button" type="button" onClick={() => start({ operationId: "system.manager.reexec", title: "Refresh systemd manager", parameters: {}, preview: <span>Re-executes the system manager to load updated libraries while preserving its state. Runs <code>systemctl daemon-reexec</code>.</span> })}>Refresh systemd manager</button>
+            ) : !/^[A-Za-z0-9:._@\\-]{1,200}\.service$/.test(unit) ? (
+              <span key={unit}>{unit}: reboot the server to refresh this process.</span>
+            ) : (
               <button key={unit} className="secondary-button" type="button" onClick={() => start({ operationId: "service.action", title: `Restart ${unit}`, parameters: { unit, action: "restart" }, preview: <span><code>systemctl restart {unit}</code></span> })}>Restart {unit}</button>
             ))}
           </div>
