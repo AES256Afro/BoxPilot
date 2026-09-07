@@ -11,6 +11,15 @@ const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
 
 describe("manifest schema", () => {
+  it("keeps password fields private even if a manifest explicitly says secret false", () => {
+    const { manifest, errors } = validateManifest({ ...base, env: [{ name: "PASSWORD", type: "password", secret: false }] });
+    expect(errors).toEqual([]); expect(manifest.env[0].secret).toBe(true);
+    const { values } = resolveValues(manifest, { env: { PASSWORD: "private-fixture-value" } });
+    const rendered = renderCompose(manifest, values);
+    expect(rendered.composeYaml).not.toContain("private-fixture-value");
+    expect(rendered.envFile).toContain("private-fixture-value");
+  });
+
   it("accepts a minimal manifest and fills defaults", () => {
     const { manifest, errors } = validateManifest(base);
     expect(errors).toEqual([]);

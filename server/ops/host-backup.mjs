@@ -7,7 +7,7 @@ import { destinationPatterns } from "../backup-destination.mjs";
 export function hostBackupOperations() {
   return [
     defineOperation({
-      id: "host.snapshot.inspect", title: "List machine snapshots", risk: "low", readOnly: true, timeoutMs: 60_000,
+      id: "host.snapshot.inspect", title: "List machine snapshots", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
       description: "Recorded machine snapshots plus the off-box mirror destination state.",
       run: (_parameters, { machineSnapshot }) => machineSnapshot.inspect(),
     }),
@@ -18,7 +18,7 @@ export function hostBackupOperations() {
       run: ({ snapshotId }, { machineSnapshot }) => machineSnapshot.create({ snapshotId: snapshotId ?? randomUUID() }),
     }),
     defineOperation({
-      id: "host.snapshot.sources", title: "List restorable machine snapshots", risk: "low", readOnly: true, timeoutMs: 60_000,
+      id: "host.snapshot.sources", title: "List restorable machine snapshots", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 60_000,
       description: "Machine snapshots in the local store and on the off-box mirror.",
       run: (_parameters, { machineSnapshot }) => machineSnapshot.sources(),
     }),

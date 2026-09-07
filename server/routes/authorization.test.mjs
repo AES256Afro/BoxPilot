@@ -123,6 +123,16 @@ afterAll(async () => {
 });
 
 describe("role boundaries", () => {
+  it("keeps raw Compose behind owner elevation while masked configuration stays viewer-readable", async () => {
+    const viewer = await signIn("viewer"); const operator = await signIn("operator"); const owner = await signIn("owner");
+    const body = { parameters: { id: "jellyfin" } };
+    expect((await api("POST", "/api/v1/operations/app.config.inspect/run", { session: viewer, body })).status).toBe(200);
+    for (const session of [viewer, operator]) expect((await api("POST", "/api/v1/operations/app.compose.inspect/run", { session, body })).status).toBe(403);
+    expect((await api("POST", "/api/v1/operations/app.compose.inspect/run", { session: owner, body })).body.code).toBe("elevation_required");
+    expect((await api("POST", "/api/v1/auth/elevate", { session: owner, body: { password } })).status).toBe(200);
+    expect((await api("POST", "/api/v1/operations/app.compose.inspect/run", { session: owner, body })).status).toBe(200);
+  });
+
   it("limits the full recovery export to the owner, including alternate path casing", async () => {
     for (const role of ["viewer", "operator", "owner"]) {
       const session = await signIn(role);
@@ -282,6 +292,15 @@ describe("bad requests", () => {
 });
 
 describe("reads that go through the system's own permissions", () => {
+  it("protects root-side backup inventories and application model names and sizes at both HTTP methods", async () => {
+    const viewer = await signIn("viewer"); const operator = await signIn("operator");
+    for (const [id, parameters] of [["app.backups.inspect", { id: "jellyfin" }], ["app.models.inspect", { id: "open-webui" }], ["host.snapshot.inspect", {}], ["host.snapshot.sources", {}]]) {
+      expect((await api("POST", `/api/v1/operations/${id}/run`, { session: viewer, body: { parameters } })).status).toBe(403);
+      expect((await api("GET", `/api/v1/operations/${id}/inspect`, { session: viewer })).status).toBe(403);
+      expect((await api("POST", `/api/v1/operations/${id}/run`, { session: operator, body: { parameters } })).status).toBe(200);
+    }
+  });
+
   it("are all closed to viewers together", async () => {
     // These three run in the root helper and read past the permissions the caller has: the folders
     // on a drive, the filenames inside an app backup, and the sizes of every app's data. Gating one

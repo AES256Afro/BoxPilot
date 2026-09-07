@@ -144,3 +144,16 @@ asked for what; `host.snapshot.discover` walked every mounted filesystem on a tw
 five are operator now, and the test holds nine. The lesson of the first four had been applied to
 the four, not to the rule: the audit that should have followed writing the rule down came a release
 late.
+
+**Addendum (2026-09-07): raw configuration and remaining private inventories.** The configuration
+inspector's raw Compose text could contain credentials from a manual edit, and an undeclared `.env`
+entry could be a secret removed from the current manifest. Masked environment settings remain
+viewer-readable; unknown entries are now masked. Raw Compose is a separate `app.compose.inspect`
+read requiring an elevated owner session and an audit event, like secret revelation. Compose edits
+use temporary secret parameters so inline credentials are not persisted in job metadata. Password
+fields remain secret even if their manifest mistakenly says `secret: false`.
+
+`app.backups.inspect`, `host.snapshot.inspect` and `host.snapshot.sources` enumerate private backup
+directories; `app.models.inspect` returns an application's model names and data sizes through root
+Docker access. These now require an operator. Aggregate backup counts and declared public app
+settings remain available to viewers. HTTP tests cover both run and inspect routes.

@@ -109,6 +109,19 @@ describe("durable job executor", () => {
     await expect(freshService.approveAndRun(orphan.id, owner.id, { password: "correct horse battery" })).rejects.toThrow("no longer available");
   });
 
+  it("keeps raw Compose credentials out of persisted jobs while delivering the approved edit", async () => {
+    const helper = { request: vi.fn(async () => ({ edited: true })) };
+    const { store, owner, jobs } = await setup(helper);
+    const compose = "services:\n  demo:\n    environment:\n      TOKEN: private-compose-fixture\n";
+    try {
+      const job = await jobs.createOperationJob("app.compose.edit", { id: "demo", compose }, owner.id);
+      expect(store.getJob(job.id).parameters.compose).toBe("[secret]");
+      await jobs.approveAndRun(job.id, owner.id, { password: "correct horse battery" });
+      expect(helper.request).toHaveBeenCalledWith("app.compose.edit", expect.objectContaining({ compose }), expect.anything());
+      expect(JSON.stringify(store.getJob(job.id))).not.toContain("private-compose-fixture");
+    } finally { store.close(); }
+  });
+
   it("requires password reauthentication before invoking the helper", async () => {
     const helper = { request: vi.fn() };
     const { store, owner, jobs } = await setup(helper);

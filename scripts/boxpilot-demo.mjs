@@ -242,7 +242,8 @@ export const inspections = {
     { id: "open-webui", name: "Open WebUI + Ollama", protectable: true, backups: 1, newestAt: ago(5) },
     { id: "homepage", name: "Homepage", protectable: true, backups: 0, newestAt: null },
   ] },
-  "app.config.inspect": { id: "homepage", name: "Homepage", directory: "/var/lib/boxpilot-managed/catalog/homepage", compose: "name: bp-homepage\nservices:\n  homepage:\n    image: ghcr.io/gethomepage/homepage:v1.5.0\n    restart: unless-stopped\n    ports:\n      - 192.168.1.10:3000:3000\n", env: [{ name: "HOMEPAGE_ALLOWED_HOSTS", value: "*", secret: false }, { name: "PUID", value: "1000", secret: false }, { name: "SECRET", value: "********", secret: true }] },
+  "app.config.inspect": { id: "homepage", name: "Homepage", directory: "/var/lib/boxpilot-managed/catalog/homepage", compose: null, composeProtected: true, env: [{ name: "HOMEPAGE_ALLOWED_HOSTS", value: "*", secret: false }, { name: "PUID", value: "1000", secret: false }, { name: "SECRET", value: "********", secret: true }] },
+  "app.compose.inspect": { id: "homepage", compose: "name: bp-homepage\nservices:\n  homepage:\n    image: ghcr.io/gethomepage/homepage:v1.5.0\n    restart: unless-stopped\n    ports:\n      - 192.168.1.10:3000:3000\n" },
   // Every dialog the interface can open needs an answer here; see scripts/demo-fixtures.test.mjs.
   "app.vpn.inspect": { id: "qbittorrent", tunneled: true, sidecarId: "vpn", running: true, status: "running", exit: { ip: "203.0.113.7", location: "Netherlands, North Holland, Amsterdam", at: "2026-08-25T03:00:00Z" } },
   "samba.diagnose": { ok: true, scope: "tailscale", discovery: { installed: false, running: false }, checks: [

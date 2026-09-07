@@ -85,6 +85,33 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
 }
 
 describe("generic app deployer", () => {
+  it("keeps manual inline credentials and undeclared environment values out of the public configuration", async () => {
+    const { apps, catalogRoot } = await setup();
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const compose = "services:\n  demo:\n    image: nginx:1.27\n    environment:\n      UNUSUAL_VALUE: inline-private-value\n";
+    await writeFile(path.join(catalogRoot, "demo", "compose.yaml"), compose);
+    await writeFile(path.join(catalogRoot, "demo", ".env"), "LEGACY_KEY='undeclared-private-value'\nADMIN_PASSWORD='known-private-value'\nTZ='Etc/UTC'\n");
+    const visible = await apps.config({ id: "demo" });
+    expect(visible).toMatchObject({ compose: null, composeProtected: true });
+    expect(JSON.stringify(visible)).not.toContain("private-value");
+    expect(visible.env).toContainEqual({ name: "TZ", value: "Etc/UTC", secret: false });
+    expect(visible.env).toContainEqual({ name: "LEGACY_KEY", value: "••••••••", secret: true });
+    expect((await apps.readComposeConfig({ id: "demo" })).compose).toBe(compose);
+    expect(await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8")).toBe(compose);
+  });
+
+  it("bounds configuration reads and refuses symlink files", async () => {
+    const { apps, catalogRoot } = await setup();
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const file = path.join(catalogRoot, "demo", "compose.yaml");
+    await writeFile(file, "x".repeat(64 * 1024 + 1));
+    await expect(apps.readComposeConfig({ id: "demo" })).rejects.toThrow("64 KiB");
+    await rm(file); await symlink(path.join(catalogRoot, "demo", ".env"), file);
+    await expect(apps.readComposeConfig({ id: "demo" })).rejects.toMatchObject({ code: "ELOOP" });
+    const envFile = path.join(catalogRoot, "demo", ".env"); await rm(envFile); await symlink(path.join(catalogRoot, "demo", "boxpilot.json"), envFile);
+    await expect(apps.config({ id: "demo" })).rejects.toMatchObject({ code: "ELOOP" });
+  });
+
   it("lists installed ids from the directory set without Docker calls or restore leftovers", async () => {
     const { apps, catalogRoot, calls } = await setup();
     expect(await apps.installedIds()).toEqual([]);
@@ -579,7 +606,9 @@ describe("generic app deployer", () => {
     expect(logs.lines.join("\n")).toContain("password=[REDACTED]");
 
     const effective = await apps.config({ id: "demo" });
-    expect(effective.compose).toContain("ADMIN_PASSWORD: ${ADMIN_PASSWORD}");
+    expect(effective.compose).toBeNull();
+    expect(effective.composeProtected).toBe(true);
+    expect((await apps.readComposeConfig({ id: "demo" })).compose).toContain("ADMIN_PASSWORD: ${ADMIN_PASSWORD}");
     expect(effective.env).toContainEqual({ name: "ADMIN_PASSWORD", value: "••••••••", secret: true });
     expect(JSON.stringify(effective)).not.toContain(env.trim().split("=")[1]); // masked, never the real secret
 

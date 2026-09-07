@@ -4,8 +4,8 @@
  * Layout per app: <catalogRoot>/<id>/{compose.yaml,.env,boxpilot.json,<managed volume dirs>}.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream } from "node:fs";
-import { lchown, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile, realpath } from "node:fs/promises";
+import { constants as fsConstants, createReadStream } from "node:fs";
+import { lchown, lstat, mkdir, open, readFile, readdir, rename, rm, stat, writeFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import YAML from "yaml";
 import { fixedRun } from "./exec.mjs";
@@ -1017,17 +1017,43 @@ export function createAppHelper({
     return { name, lines: redact(`${result.stdout}\n${result.stderr}`).split("\n").filter((line) => line.length).slice(-1000) };
   }
 
-  /** Effective compose.yaml and .env for an installed app. Secret values are masked here; app.secrets (elevated) reveals them. */
+  async function readConfigurationFile(id, name) {
+    const directory = await lstat(dirFor(id));
+    if (!directory.isDirectory() || directory.isSymbolicLink()) throw new Error("Application configuration requires a real project directory");
+    const handle = await open(path.join(dirFor(id), name), fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
+    try {
+      const metadata = await handle.stat();
+      const limit = 64 * 1024;
+      if (!metadata.isFile() || metadata.size > limit) throw new Error("Configuration must be a regular file no larger than 64 KiB");
+      const buffer = Buffer.alloc(limit + 1);
+      let total = 0;
+      while (total < buffer.length) {
+        const { bytesRead } = await handle.read(buffer, total, buffer.length - total, total);
+        if (!bytesRead) break;
+        total += bytesRead;
+      }
+      if (total > limit) throw new Error("Configuration exceeded its 64 KiB read limit");
+      return buffer.subarray(0, total).toString("utf8");
+    } finally { await handle.close(); }
+  }
+
+  /** Raw Compose can contain arbitrary inline credentials, so only the elevated owner operation calls this. */
+  async function readComposeConfig({ id }) {
+    const manifest = await ensureManifest(id);
+    if (!(await readState(id))?.installed) throw new Error(`${manifest.name} is not installed`);
+    return { id, compose: await readConfigurationFile(id, "compose.yaml") };
+  }
+
+  /** Viewer-readable settings. Unknown .env entries are private; raw Compose has a separate owner read. */
   async function config({ id }) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
-    let compose = null;
-    try { compose = await readFile(path.join(dirFor(id), "compose.yaml"), "utf8"); } catch { compose = null; }
-    const env = await readEnv(id);
-    const secretNames = new Set(manifest.env.filter((entry) => entry.secret).map((entry) => entry.name));
-    const entries = Object.keys(env).sort().map((name) => ({ name, value: secretNames.has(name) ? "••••••••" : env[name], secret: secretNames.has(name) }));
-    return { id, name: manifest.name, compose, env: entries, directory: dirFor(id) };
+    const text = await readConfigurationFile(id, ".env").catch((error) => { if (error.code === "ENOENT") return ""; throw error; });
+    const env = parseEnvFile(text);
+    const publicNames = new Set(manifest.env.filter((entry) => !entry.secret && entry.type !== "password").map((entry) => entry.name));
+    const entries = Object.keys(env).sort().map((name) => ({ name, value: publicNames.has(name) ? env[name] : "••••••••", secret: !publicNames.has(name) }));
+    return { id, name: manifest.name, compose: null, composeProtected: true, env: entries, directory: dirFor(id) };
   }
 
   /**
@@ -1721,5 +1747,5 @@ export function createAppHelper({
     return installed;
   }
 
-  return { syncHomepage, inspect, installedIds, dataUsage: shared(dataUsage), reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { imageDeclaredOwner, parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, installedIds, dataUsage: shared(dataUsage), reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, readComposeConfig, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { imageDeclaredOwner, parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }
