@@ -1,8 +1,8 @@
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, open, readdir, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createJobLogReader, createJobLogWriter, jobLogPath } from "./job-log.mjs";
+import { createJobLogReader, createJobLogWriter, jobLogPath, maxJobLogBytes, maxJobLogLineBytes } from "./job-log.mjs";
 
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
@@ -81,5 +81,38 @@ describe("log files under the helper's umask", () => {
       process.umask(previous);
       await rm(directory, { recursive: true, force: true });
     }
+  });
+});
+
+describe("bounded log storage and reads", () => {
+  it("bounds a single oversized Unicode line and a burst of concurrent writes", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-log-budget-")); directories.push(directory);
+    const writer = createJobLogWriter({ jobId, directory });
+    await writer.append("😀".repeat(100_000));
+    const reader = createJobLogReader({ directory });
+    const first = await reader.read(jobId);
+    expect(Buffer.byteLength(first.text)).toBeLessThanOrEqual(maxJobLogLineBytes);
+    expect(first.text).toContain("[output truncated]");
+    expect(first.text).not.toContain("�");
+    await Promise.all(Array.from({ length: 100 }, () => writer.append("x".repeat(100_000))));
+    expect((await stat(writer.path)).size).toBeLessThanOrEqual(maxJobLogBytes);
+  });
+  it("caps allocations when an old or damaged log file is unexpectedly large", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-log-sparse-")); directories.push(directory);
+    const handle = await open(jobLogPath(jobId, directory), "w");
+    await handle.truncate(512 * 1024 ** 2); await handle.close();
+    const result = await createJobLogReader({ directory }).read(jobId);
+    expect(result.offset).toBe(maxJobLogBytes);
+    expect(Buffer.byteLength(result.text)).toBe(maxJobLogBytes);
+  });
+  it("replaces the fixed canary probe so old capped evidence cannot masquerade as a fresh write", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-log-probe-")); directories.push(directory);
+    const first = createJobLogWriter({ jobId, directory });
+    await first.append("old probe");
+    const next = createJobLogWriter({ jobId, directory, replaceExisting: true });
+    expect(await next.append("fresh probe")).toBe(true);
+    const result = await createJobLogReader({ directory }).read(jobId);
+    expect(result.text).toContain("fresh probe");
+    expect(result.text).not.toContain("old probe");
   });
 });

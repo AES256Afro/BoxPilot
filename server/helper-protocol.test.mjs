@@ -53,8 +53,12 @@ function retentionParameters(overrides = {}) {
 
 describe("restricted helper protocol", () => {
   it("executes the no-mutation canary", async () => {
-    const result = await executeHelperOperation(request());
+    const result = await executeHelperOperation(request(), { createProbeWriter: () => ({ append: async () => true }), inspectProbe: async () => ({ mode: 0o640 }) });
     expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: productVersion, mutationPerformed: false } });
+  });
+
+  it("does not report a fresh canary when diagnostic output could not be written", async () => {
+    await expect(executeHelperOperation(request(), { createProbeWriter: () => ({ append: async () => false }) })).rejects.toThrow("fresh diagnostic log evidence");
   });
 
   it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
