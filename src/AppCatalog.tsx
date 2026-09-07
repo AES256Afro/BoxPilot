@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { strandedServes } from "./strandedServes";
 import { useOperation } from "./ApproveDialog";
+import { useDialogFocus } from "./useDialogFocus";
 import { inspectOperation } from "./operations";
 import { appUrl, appAddresses } from "./appLinks";
 
@@ -86,6 +87,8 @@ function compactValues(manifest: Manifest, values: Values, baseline?: Values): V
 }
 
 function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure"; csrfToken: string; onSubmit: (values: Values) => void; onCancel: () => void }) {
+  const dialogRef = useRef<HTMLElement | null>(null);
+  useDialogFocus(dialogRef);
   const [values, setValues] = useState<Values>(() => initialValues(manifest, live));
   const [checking, setChecking] = useState(false);
   const [problems, setProblems] = useState<string[]>([]);
@@ -163,7 +166,7 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
   const editableVolumes = manifest.volumes.filter((volume) => volume.configurable);
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onCancel}>
-      <section className="modal" role="dialog" aria-modal="true" aria-labelledby="config-title" onMouseDown={(event) => event.stopPropagation()}>
+      <section ref={dialogRef} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="config-title" onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); onCancel(); } }} onMouseDown={(event) => event.stopPropagation()}>
         <header className="modal-header"><div><span className="eyebrow">{mode === "install" ? "Install" : "Settings"}</span><h2 id="config-title">{manifest.name}</h2></div><button className="icon-button" type="button" onClick={onCancel} aria-label="Close dialog">X</button></header>
         <form className="modal-copy app-config-form" onSubmit={(event) => { event.preventDefault(); void submit(); }}>
           {problems.length > 0 && <div className="auth-error" role="alert">{problems.map((problem) => <div key={problem}>{problem}</div>)}</div>}
@@ -256,6 +259,8 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [composeDraft, setComposeDraft] = useState<string | null>(null);
   const [composeAccess, setComposeAccess] = useState({ needsPassword: false, password: "", busy: false, error: null as string | null });
   const composeRead = useRef<AbortController | null>(null);
+  const effectiveConfigRef = useRef<HTMLElement | null>(null);
+  useDialogFocus(effectiveConfigRef, Boolean(effectiveConfig));
   useEffect(() => () => { composeRead.current?.abort(); composeRead.current = null; }, [effectiveConfig?.id]);
   const closeEffectiveConfig = () => {
     composeRead.current?.abort(); composeRead.current = null;
@@ -945,7 +950,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
 
       {effectiveConfig && (
         <div className="modal-backdrop" role="presentation" onMouseDown={closeEffectiveConfig}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="config-title" onMouseDown={(event) => event.stopPropagation()}>
+          <section ref={effectiveConfigRef} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="config-title" onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); closeEffectiveConfig(); } }} onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Effective configuration</span><h2 id="config-title">{effectiveConfig.name}</h2></div><button className="icon-button" type="button" onClick={closeEffectiveConfig} aria-label="Close dialog">X</button></header>
             <div className="modal-copy">
               <p>Configuration under <code>{effectiveConfig.directory}</code>. Private environment values are masked. The raw Compose file is available after owner verification because it may contain credentials.</p>

@@ -168,3 +168,7 @@ Hosted CI and native install smoke both passed for 0fdee34.
 A data-usage pass now scans each exact writable path once across installed apps, including reuse of failed readings within the pass. The next pass retries normally. It reports scan/reuse counts and preserves shared-folder attribution in history. Storage displays shared growth once and names the apps using the folder without identifying one as the writer. Invalid, negative or inexact byte totals remain unmeasured.
 
 A valid empty inventory records success, clears old failure/deferral status, expires old history and respects the minimum interval across service restarts. Malformed inventories fail without replacing history. Full check passed with 1,621 tests across 232 files; the built browser confirmed one shared growth row. Exact path matching does not eliminate aliases or overlapping parent/child trees. Hosted CI and native install smoke both passed for 4f9c7db.
+
+## Configuration keyboard access
+
+App setup/settings and effective configuration now contain keyboard focus, close on Escape and restore their opener. Closing a raw Compose read also aborts it and clears transient password state. Full check passed with 1,622 tests across 232 files; regressions cover the setup focus cycle and Escape during a pending raw read.
