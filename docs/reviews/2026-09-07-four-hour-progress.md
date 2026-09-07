@@ -148,3 +148,9 @@ Hosted CI and native install smoke both passed for 5ec14d0.
 Controller backup retention previously recorded a directory as removed even when deletion failed, and always reported that no retention occurred. It now reports only successful removals, bounds its inventory, refuses pruning after an incomplete inventory and validates the configured keep count. A failed cleanup preserves the new verified backup and records a follow-up notice with bounded error metadata. Machine snapshots carry through the same notice. Approval and Activity show these notices even after live logs are released; a completed job with a notice has a distinct status. Full check passed with 1,593 tests across 231 files, including injected deletion denial and actual successful pruning. The browser follow-up exposed that Activity has no history fallback if its event stream never connects; that separate issue is next.
 
 Hosted CI and native install smoke both passed for a4c104f, including the short retained-memory workload.
+
+## Activity survives an unavailable event stream
+
+Activity now falls back after a delayed, malformed or disconnected stream. It fetches up to 50 jobs sequentially, with a 15-second request deadline, slower hidden-tab updates, failure backoff and no repeated requests after session refusal. Healthy streams do no polling. The UI distinguishes loading, unavailable/stale history and confirmed empty account history, with retry. The drawer now contains keyboard focus, closes on Escape and restores its opener. Backup follow-up notices use readable 14 px text and warning colors. Full check passed with 1,600 tests across 232 files. Browser inspection confirmed the actual failed-stream fallback and the saved backup notice.
+
+Hosted CI and native install smoke both passed for 9eea546.

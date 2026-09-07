@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { JobLogView } from "./JobLogView";
 import { jobWarnings } from "./JobWarnings";
+import { useDialogFocus } from "./useDialogFocus";
 import { createPortal } from "react-dom";
-import { followJobOutput, followJobs, terminalJobStates, type Job } from "./operations";
+import { followJobOutput, followJobs, terminalJobStates, type Job, type JobFeedStatus } from "./operations";
 
 /**
  * Global Activity drawer (M1.5): a topbar button with a running-job badge that opens a panel
@@ -50,11 +51,22 @@ export function ActivityDrawer() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [open, setOpen] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [feedStatus, setFeedStatus] = useState<JobFeedStatus>("loading");
+  const [retry, setRetry] = useState(0);
+  const drawerRef = useRef<HTMLElement | null>(null);
+  useDialogFocus(drawerRef, open);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setOpen(false); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open]);
 
   useEffect(() => followJobs({
     onSnapshot: (snapshot) => setJobs([...snapshot].sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? "")).slice(0, 50)),
     onJob: (job) => setJobs((current) => upsert(current, job)),
-  }), []);
+    onStatus: setFeedStatus,
+  }), [retry]);
 
   const runningCount = jobs.filter((job) => activeStates.has(job.state)).length;
   const expanded = expandedId ? jobs.find((job) => job.id === expandedId) ?? null : null;
@@ -74,7 +86,7 @@ export function ActivityDrawer() {
           position:fixed descendants, which would pin and clip the drawer to the topbar. */}
       {open && createPortal(
         <div className="activity-backdrop" role="presentation" onMouseDown={() => setOpen(false)}>
-          <aside className="activity-drawer" aria-label="Activity" onMouseDown={(event) => event.stopPropagation()}>
+          <aside ref={drawerRef} tabIndex={-1} role="dialog" aria-modal="true" className="activity-drawer" aria-label="Activity" onMouseDown={(event) => event.stopPropagation()}>
             <header className="activity-header">
               <div>
                 <span className="eyebrow">Latest</span>
@@ -83,7 +95,10 @@ export function ActivityDrawer() {
               <button className="icon-button" type="button" aria-label="Close activity" onClick={() => setOpen(false)}>X</button>
             </header>
             <div className="activity-list">
-              {jobs.length === 0 && <p className="activity-empty">Nothing has run yet. Approved operations appear here with their live output.</p>}
+              {feedStatus === "loading" && <p className="activity-empty">Reading job history...</p>}
+              {feedStatus === "unavailable" && <div role="alert"><p>Activity could not be refreshed. {jobs.length > 0 ? "The entries below may be out of date." : "Job history is unavailable."}</p><button className="secondary-button" type="button" onClick={() => setRetry((value) => value + 1)}>Try refreshing Activity</button></div>}
+              {feedStatus === "polling" && <p className="muted" role="status">Activity refreshes every few seconds while this tab is visible.</p>}
+              {jobs.length === 0 && (feedStatus === "live" || feedStatus === "polling") && <p className="activity-empty">No jobs are visible to this account in the recent history. Approved operations appear here.</p>}
               {jobs.map((job) => (
                 <div key={job.id} className="activity-item">
                   <button type="button" className="activity-row" aria-expanded={expandedId === job.id} onClick={() => toggle(job.id)}>

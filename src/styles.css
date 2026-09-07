@@ -2121,6 +2121,9 @@ textarea {
   background: var(--warn-bg);
 }
 
+.job-warning { font-size: 14px; line-height: 1.5; }
+.job-warning ul { margin: 4px 0 0; padding-left: 20px; }
+
 .warning-notice span {
   color: var(--warn-text-dim);
 }
