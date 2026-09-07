@@ -130,3 +130,9 @@ Native installation smoke passed for cfc26c1. Its general CI passed application 
 The helper's eight active read slots previously had an unbounded waiting list. They now admit at most 32 queued reads, refuse overflow with a retry explanation, and remove queued work when its caller disconnects. Total helper connections are capped at 64, including peers that send no request. Parsed request text is released and later request chunks are ignored. These changes do not interrupt an already-running approved mutation. Full check passed with 1,582 tests across 230 files, including 1,000 overflow attempts and cancellation followed by successful new work.
 
 The cfc26c1 CI retry passed after the Docker Hub outage, and native installation passed for 10471fc.
+
+## Bounded housekeeping inventory
+
+Housekeeping now streams directory entries with a shared 100,000-entry, 60-second cooperative budget and a depth limit of 64. It skips symbolic links and different filesystem devices. Missing install roots remain normal empty inventories; invalid or unreadable roots are unavailable. A failed or budget-limited category is disabled and excluded from the advertised reclaimable total, while other categories still finish. Cleanup independently repeats its inventory and refuses categories it cannot fully inspect. Full check passed with 1,587 tests across 231 files. The time budget is checked between filesystem operations; it is not a kernel-level deadline for a stalled filesystem call.
+
+Hosted CI and native install smoke passed for 10471fc and 7c35d41.

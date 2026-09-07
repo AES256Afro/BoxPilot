@@ -10,13 +10,14 @@
  * remove. Anything that could still be wanted — an image a container uses, the release BoxPilot
  * would roll back to, the newest backups — is never a candidate, and says so.
  */
-import { readdir, rm, stat } from "node:fs/promises";
+import { lstat, rm, stat } from "node:fs/promises";
 // The writer decides where job logs live; a second copy of that path here is the one that drifts.
 // This category spent a month scanning a directory nothing had ever written to.
 import { defaultJobLogDirectory } from "./job-log.mjs";
 import path from "node:path";
 import { fixedRun } from "./exec.mjs";
 import { shared } from "./cache.mjs";
+import { createTreeScanBudget, listTreeEntries, measureTreeBytes } from "./tree-scan.mjs";
 
 /**
  * Directories in /opt left behind by past upgrades, under every naming scheme BoxPilot has used.
@@ -38,22 +39,6 @@ const previousTreeKinds = [
 /** Which kind of leftover a directory name is, or null if it is not one. */
 function previousTreeKind(name) {
   return previousTreeKinds.find((entry) => entry.pattern.test(name))?.kind ?? null;
-}
-
-/** Bytes in a directory tree, following nothing and tolerating races. */
-async function directorySize(target) {
-  let total = 0;
-  const walk = async (directory) => {
-    const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
-    for (const entry of entries) {
-      const full = path.join(directory, entry.name);
-      if (entry.isSymbolicLink()) continue;
-      if (entry.isDirectory()) await walk(full);
-      else total += await stat(full).then((info) => info.size, () => 0);
-    }
-  };
-  await walk(target);
-  return total;
 }
 
 /** Every category `inspect` reports and `reclaim` accepts, in the order they are shown. */
@@ -98,12 +83,13 @@ export function createHousekeepingService({
   keepBackupsPerApp = 3,
   jobLogMaxAgeDays = 90,
   now = () => new Date(),
+  treeScanLimits = {},
 } = {}) {
   const docker = (args, options = {}) => run(dockerBinary, args, { timeout: 60_000, maxBuffer: 8 * 1024 * 1024, ...options });
 
   /** Releases of BoxPilot left in /opt by past upgrades, newest kept as the rollback target. */
-  async function previousTrees() {
-    const entries = await readdir(installRoot, { withFileTypes: true }).catch(() => []);
+  async function previousTrees({ budget = createTreeScanBudget(treeScanLimits) } = {}) {
+    const entries = await listTreeEntries(installRoot, { budget });
     const found = [];
     for (const entry of entries) {
       const kind = previousTreeKind(entry.name);
@@ -111,7 +97,7 @@ export function createHousekeepingService({
       const full = path.join(installRoot, entry.name);
       if (path.resolve(full) === path.resolve(currentTree)) continue;
       const info = await stat(full).catch(() => null);
-      if (info) found.push({ path: full, name: entry.name, kind, at: info.mtimeMs, bytes: await directorySize(full) });
+      if (info) found.push({ path: full, name: entry.name, kind, at: info.mtimeMs, bytes: await measureTreeBytes(full, { budget }) });
     }
     found.sort((left, right) => right.at - left.at);
     // The newest of each kind stays: the version you would revert to by hand, and the last failed
@@ -162,31 +148,31 @@ export function createHousekeepingService({
   }
 
   /** Backup archives past the newest few for each app. */
-  async function oldApplicationBackups() {
-    const entries = await readdir(applicationBackupRoot, { withFileTypes: true }).catch(() => []);
+  async function oldApplicationBackups({ budget = createTreeScanBudget(treeScanLimits) } = {}) {
+    const entries = await listTreeEntries(applicationBackupRoot, { budget });
     const stale = [];
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const directory = path.join(applicationBackupRoot, entry.name);
-      const names = (await readdir(directory).catch(() => [])).filter((name) => /^\d{8}T\d{6}Z\.tar\.gz$/.test(name)).sort().reverse();
+      const names = (await listTreeEntries(directory, { budget })).filter((entry) => entry.isFile() && /^\d{8}T\d{6}Z\.tar\.gz$/.test(entry.name)).map((entry) => entry.name).sort().reverse();
       for (const name of names.slice(keepBackupsPerApp)) {
         const full = path.join(directory, name);
-        const info = await stat(full).catch(() => null);
-        stale.push({ app: entry.name, path: full, meta: full.replace(/\.tar\.gz$/, ".json"), bytes: info?.size ?? 0 });
+        const info = await lstat(full).catch((error) => { if (error.code === "ENOENT") return null; throw error; });
+        if (info?.isFile()) stale.push({ app: entry.name, path: full, meta: full.replace(/\.tar\.gz$/, ".json"), bytes: info.size });
       }
     }
     return stale;
   }
 
   /** Directories a restore left behind when it could not finish putting things back. */
-  async function restoreLeftovers() {
-    const entries = await readdir(catalogRoot, { withFileTypes: true }).catch(() => []);
+  async function restoreLeftovers({ budget = createTreeScanBudget(treeScanLimits) } = {}) {
+    const entries = await listTreeEntries(catalogRoot, { budget });
     const found = [];
     for (const entry of entries) {
       const match = /^([a-z0-9][a-z0-9-]*)\.(replaced|restoring)$/.exec(entry.name);
       if (!entry.isDirectory() || !match) continue;
       const full = path.join(catalogRoot, entry.name);
-      found.push({ path: full, app: match[1], bytes: await directorySize(full) });
+      found.push({ path: full, app: match[1], bytes: await measureTreeBytes(full, { budget }) });
     }
     return found;
   }
@@ -196,9 +182,9 @@ export function createHousekeepingService({
    * after ninety days, so a log older than that belongs to a job nothing lists any more — decided
    * on age rather than by asking the web process, which keeps this side free of that dependency.
    */
-  async function orphanedJobLogs() {
+  async function orphanedJobLogs({ budget = createTreeScanBudget(treeScanLimits) } = {}) {
     const cutoff = now().getTime() - jobLogMaxAgeDays * 86_400_000;
-    const entries = await readdir(jobLogDirectory, { withFileTypes: true }).catch(() => []);
+    const entries = await listTreeEntries(jobLogDirectory, { budget });
     const found = [];
     for (const entry of entries) {
       if (!entry.isFile() || !/^[0-9a-f-]{36}\.log$/.test(entry.name)) continue;
@@ -215,15 +201,20 @@ export function createHousekeepingService({
    * the web process, which is the side that has the database.
    */
   async function inspect() {
-    const [trees, images, backups, leftovers, logs, df, dangling] = await Promise.all([
-      previousTrees(),
-      imageInventory(),
-      oldApplicationBackups(),
-      restoreLeftovers(),
-      orphanedJobLogs(),
-      docker(["system", "df", "--format", "json"]),
-      danglingLayers(),
+    const budget = createTreeScanBudget(treeScanLimits);
+    const scans = await Promise.allSettled([
+      previousTrees({ budget }), imageInventory(), oldApplicationBackups({ budget }), restoreLeftovers({ budget }),
+      orphanedJobLogs({ budget }), docker(["system", "df", "--format", "json"]), danglingLayers(),
     ]);
+    const defaults = [{ keep: [], remove: [] }, null, [], [], [], { ok: false, stdout: "" }, null];
+    const [trees, images, backups, leftovers, logs, df, dangling] = scans.map((result, index) => result.status === "fulfilled" ? result.value : defaults[index]);
+    const categoryForScan = ["boxpilot-versions", "docker-unreferenced-images", "app-backups", "restore-leftovers", "job-logs", "docker-unused", "docker-unused"];
+    const unavailable = new Map();
+    scans.forEach((result, index) => {
+      if (result.status === "rejected") unavailable.set(categoryForScan[index], result.reason?.code === "TREE_SCAN_BUDGET"
+        ? "Folder measurement reached its entry, depth or time budget. This category needs further review before cleanup."
+        : "This category could not be fully inspected. Retry after checking access and the source.");
+    });
 
     const unusedImages = (images ?? []).filter((image) => !image.used);
     const dockerRows = df.ok ? df.stdout.split("\n").filter(Boolean).map((line) => { try { return JSON.parse(line); } catch { return null; } }).filter(Boolean) : [];
@@ -301,6 +292,7 @@ export function createHousekeepingService({
       },
     ];
 
+    for (const category of categories) if (unavailable.has(category.id)) { category.safe = false; category.unavailable = unavailable.get(category.id); }
     return {
       generatedAt: now().toISOString(),
       categories: categories.map((category) => ({ ...category, humanBytes: humanBytes(category.bytes) })),
