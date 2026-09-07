@@ -1,5 +1,5 @@
 import { act } from "react";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { JobLogView } from "./JobLogView";
 import type { Job } from "./operations";
@@ -52,7 +52,7 @@ describe("the job log, viewable from wherever the action lives", () => {
     render(<JobLogView jobId="22222222-2222-4222-8222-222222222222" />);
     expect(await screen.findByText("unpacked 4 packages")).toBeTruthy();
     expect(screen.getByText(/Upgrade finished/)).toBeTruthy();
-    expect(fetchMock).toHaveBeenCalledWith("/api/v1/jobs/22222222-2222-4222-8222-222222222222/output");
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/jobs/22222222-2222-4222-8222-222222222222/output", expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
 
   it("says a pruned job is gone rather than showing an empty terminal", async () => {
@@ -60,6 +60,40 @@ describe("the job log, viewable from wherever the action lives", () => {
     render(<JobLogView jobId="33333333-3333-4333-8333-333333333333" title="Refresh package lists" />);
     expect(await screen.findByText(/no longer in the history/)).toBeTruthy();
     expect(screen.getByText(/Refresh package lists/)).toBeTruthy();
+  });
+
+  it("shows a retry after an output read fails instead of claiming the log is empty", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(json({ error: "unavailable" }, 503)).mockResolvedValueOnce(json({ output: "recovered output" }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<JobLogView job={job({})} />);
+    expect(await screen.findByText(/Saved output could not be read/)).toBeTruthy();
+    expect(screen.queryByText("This job recorded no output.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try reading again" }));
+    expect(await screen.findByText("recovered output")).toBeTruthy();
+  });
+
+  it("recovers a failed job lookup and clears a prior missing-job state when the id changes", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => input.toString().includes("missing") ? json({}, 404) : input.toString().endsWith("/output") ? json({ output: "found" }) : json({ job: job({}) }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { rerender } = render(<JobLogView jobId="missing" />);
+    await screen.findByText(/no longer in the history/);
+    rerender(<JobLogView jobId={job({}).id} />);
+    expect(await screen.findByText("found")).toBeTruthy();
+    expect(screen.queryByText(/no longer in the history/)).toBeNull();
+  });
+
+  it("reports a failed initial lookup and aborts an in-flight read on unmount", async () => {
+    let observed: AbortSignal | undefined;
+    const fetchMock = vi.fn().mockResolvedValueOnce(json({}, 503)).mockImplementation((_url, options) => new Promise((_resolve, reject) => {
+      observed = options.signal;
+      observed!.addEventListener("abort", () => reject(observed!.reason), { once: true });
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { unmount } = render(<JobLogView jobId={job({}).id} />);
+    expect(await screen.findByText(/This job could not be refreshed/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try reading again" }));
+    await waitFor(() => expect(observed).toBeTruthy());
+    unmount(); expect(observed?.aborted).toBe(true);
   });
 
   it("follows a running job live, replacing on a poll and appending on the stream", async () => {
