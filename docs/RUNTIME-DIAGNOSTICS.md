@@ -55,3 +55,9 @@ These changes were checked with injected pressure and overlapping calls, plus a 
 Housekeeping filesystem inventories share a 100,000-entry and 60-second cooperative work budget, with depth capped at 64. Directory entries are streamed rather than loaded without a bound. Links and different filesystem devices are skipped. Reaching a limit produces an unavailable category, not a partial size advertised as complete. Other categories can still return useful results. A blocked kernel filesystem operation may outlast the cooperative deadline until it returns; this is not a hard subprocess timeout.
 
 The helper permits eight active inspections, at most 32 waiting reads and 64 total connections. Excess work fails with retry guidance. Disconnecting releases a queued read before it starts; already-running approved host mutations continue under their existing lifecycle. A one-request socket does not retain extra input after parsing.
+
+## Shared folders and empty measurements
+
+A data-usage pass walks each exact writable folder path once, even when several apps use it. Success and failure are reused within that pass; the next pass reads again. The helper reports physical scans, unique paths and reused readings. History retains the apps sharing the folder, and Storage shows its growth once with those apps named. Folder growth does not identify which process wrote the bytes. Path aliases and overlapping parent/child trees are not deduplicated.
+
+A valid empty inventory records a successful check, clears an earlier error or deferral, and ages out old history without discarding recent readings. It observes the same minimum interval across restarts. A missing or malformed inventory fails explicitly and leaves existing history intact.

@@ -1704,34 +1704,50 @@ export function createAppHelper({
     try { mounts = JSON.parse(listed?.stdout ?? "{}").filesystems?.map((row) => row.target) ?? []; } catch { mounts = []; }
 
     const entries = [];
+    const measurements = new Map();
+    let scansRun = 0;
     for (const application of applications.applications ?? []) {
       const manifest = byId.get(application.id);
       if (!manifest) continue;
       for (const folder of measurableFolders({ manifest, live: application }, { directory: dirFor(manifest.id) })) {
         // -s one total, -b in bytes, -x without crossing into another filesystem: a bind mount
         // below a data folder belongs to whatever owns it, not to the app that happens to sit above.
-        const remaining = deadline - clock().getTime();
-        const command = remaining > 0 ? await scanCommand(folder.path) : null;
-        const measured = remaining <= 0 ? null
-          : await runCommand(command.binary, command.args, { timeout: Math.min(timeoutMsPerFolder, remaining) }).catch(() => null);
-        // Only a clean exit counts. du that hit a subtree it could not read exits non-zero and
-        // still prints a total - a total missing everything it could not see. Measured on this
-        // server: an unreadable folder yields "0" and exit 1. Reading that number would record the
-        // folder as having emptied overnight, which is why the exit code is checked and not just
-        // the output.
-        const bytes = measured?.ok ? Number.parseInt(measured.stdout.trim().split(/\s+/)[0], 10) : NaN;
+        let measurement = measurements.get(folder.path);
+        if (!measurement) {
+          const remaining = deadline - clock().getTime();
+          const command = remaining > 0 ? await scanCommand(folder.path) : null;
+          if (command) scansRun += 1;
+          const measured = remaining <= 0 ? null
+            : await runCommand(command.binary, command.args, { timeout: Math.min(timeoutMsPerFolder, remaining) }).catch(() => null);
+          // Only a clean exit counts. du that hit a subtree it could not read exits non-zero and
+          // still prints a total - a total missing everything it could not see. Measured on this
+          // server: an unreadable folder yields "0" and exit 1. Reading that number would record the
+          // folder as having emptied overnight, which is why the exit code is checked and not just
+          // the output.
+          const token = measured?.ok && typeof measured.stdout === "string" ? measured.stdout.trim().split(/\s+/)[0] : "";
+          const bytes = /^\d+$/.test(token) ? Number(token) : NaN;
+          measurement = { bytes: Number.isSafeInteger(bytes) && bytes >= 0 ? bytes : null, priority: command?.priority ?? null };
+          // Failures are shared only inside this pass too. A second app must not immediately
+          // repeat a four-minute failed walk of the same folder. The next pass retries it.
+          measurements.set(folder.path, measurement);
+        }
         entries.push({
           key: `${folder.appId}:${folder.path}`,
           appId: folder.appId,
           label: folder.label,
           path: folder.path,
           mount: mountFor(folder.path, mounts),
-          bytes: Number.isFinite(bytes) ? bytes : null,
-          priority: command?.priority ?? null,
+          ...measurement,
         });
       }
     }
-    return { measuredAt: clock().toISOString(), entries };
+    const owners = new Map();
+    for (const entry of entries) {
+      if (!owners.has(entry.path)) owners.set(entry.path, new Set());
+      owners.get(entry.path).add(entry.appId);
+    }
+    for (const entry of entries) if (owners.get(entry.path).size > 1) entry.sharedWith = [...owners.get(entry.path)].sort();
+    return { measuredAt: clock().toISOString(), entries, scansRun, uniquePaths: measurements.size, reusedReadings: entries.length - measurements.size };
   }
 
   /** Ids of the apps installed here: one directory read and one small state file each, no docker. */

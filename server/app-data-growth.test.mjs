@@ -23,6 +23,15 @@ describe("recording what each app's folders hold", () => {
     expect(Object.keys(history)).toEqual(["a"]);
   });
 
+  it("keeps shared-folder attribution through history and growth without naming a writer", () => {
+    const entries = ["one", "two"].map((appId) => ({ key: `${appId}:/mnt/shared`, appId, path: "/mnt/shared", mount: "/mnt", bytes: GiB, sharedWith: ["one", "two"] }));
+    let history = appendUsageSample({}, { at: day(1), entries });
+    history = appendUsageSample(history, { at: day(8), entries: entries.map((entry) => ({ ...entry, bytes: 3 * GiB })) });
+    const rows = growthByApp(history, { now: new Date(day(8)) });
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(row).toMatchObject({ grewBytes: 2 * GiB, sharedWith: ["one", "two"] });
+  });
+
   it("forgets readings older than the window it was told to keep", () => {
     let history = { old: [{ at: "2026-01-01T03:00:00.000Z", bytes: GiB }] };
     history = appendUsageSample(history, { at: day(1), entries: [{ key: "old", bytes: 2 * GiB, appId: "x", path: "/mnt/x", mount: "/mnt/x" }] }, { maxDays: 30 });
@@ -215,12 +224,30 @@ describe("the nightly sampler", () => {
     expect(store.settings.appDataUsageHistory["a:/mnt/a"][0].bytes).toBe(5 * GiB);
   });
 
-  it("writes nothing at all when the helper measured nothing", async () => {
-    // An empty reading must not overwrite a real history with an empty one.
+  it("preserves recent history when a successful inventory has no folders", async () => {
+    // No current folders does not erase recent measurements.
     const store = fakeStore({ appDataUsageHistory: { "a:/mnt/a": [{ at: day(1), bytes: GiB }] } });
     const helper = { request: async () => ({ entries: [] }) };
     await createAppDataSampler({ helper, store, now: () => new Date(day(3)) }).sample();
     expect(store.settings.appDataUsageHistory["a:/mnt/a"]).toHaveLength(1);
+  });
+
+  it("clears an old failure after an empty success, ages out history and avoids a restart rescan", async () => {
+    const store = fakeStore({ appDataUsageHistory: { old: [{ at: "2026-01-01T00:00:00.000Z", bytes: GiB }] }, appDataUsageLastRun: { at: day(1), error: "helper unavailable", deferred: "IO pressure" } });
+    const request = vi.fn(async () => ({ entries: [] }));
+    const options = { helper: { request }, store, now: () => new Date(day(3)) };
+    expect(await createAppDataSampler(options).sample()).toEqual({ sampled: 0, unmeasured: 0 });
+    expect(store.settings.appDataUsageHistory).toEqual({});
+    expect(store.settings.appDataUsageLastRun).toEqual({ at: day(3), sampled: 0, unmeasured: 0, error: null });
+    expect(await createAppDataSampler(options).sample()).toEqual({ sampled: 0, skipped: "measured recently" });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([null, {}, { entries: {} }, { entries: [null] }, { entries: [{ key: "a", bytes: -1 }] }])("rejects an invalid inventory without replacing history: %j", async (usage) => {
+    const store = fakeStore({ appDataUsageHistory: { kept: [{ at: day(1), bytes: GiB }] } });
+    const write = vi.spyOn(store, "setSetting");
+    await expect(createAppDataSampler({ helper: { request: async () => usage }, store, now: () => new Date(day(3)) }).sample()).rejects.toThrow("invalid folder inventory");
+    expect(write).not.toHaveBeenCalled();
   });
 
   it("does not count a folder it failed to measure as sampled", async () => {
