@@ -2,6 +2,8 @@
 
 Date: 2026-09-07. Source baseline: 1.114.0, commit b1a012b, plus the local systemd-manager fix a0a2bbe. This is a focused engineering review with live read-only measurements, not a penetration-test certificate or a long-duration leak test. Production was not changed.
 
+> Follow-up: the [1.115.0 outcome review](2026-09-07-final-review.md) separates fixes completed during the four-hour session from the remaining work below.
+
 ## Decision
 
 Prioritize truthful diagnostics and recovery that works when BoxPilot itself is damaged. Instrument resource use before imposing limits or adding aggressive automatic cleanup. Extend M27, M28, M29, and M30; add M32 only for workload and resource accounting, which has no existing complete owner.
