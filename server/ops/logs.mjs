@@ -1,4 +1,6 @@
 import { defineOperation } from "./registry.mjs";
+import { releaseSavedJobLog } from "../job-log-cleanup.mjs";
+import { jobIdPattern } from "../job-log.mjs";
 
 const journalctl = process.env.BOXPILOT_JOURNALCTL_BINARY ?? "/usr/bin/journalctl";
 const systemctl = process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl";
@@ -35,6 +37,12 @@ const knownContainers = new Map();
 
 export function logOperations() {
   return [
+    defineOperation({
+      id: "job.output.release", title: "Clear a saved job's live-output cache", risk: "low", minimumRole: "owner", timeoutMs: 15_000,
+      description: "Clears a completed job's runtime log only when its entire contents already match the saved database output. Retains incomplete or changed logs.",
+      parameters: { fields: { jobId: { type: "string", pattern: jobIdPattern } } },
+      run: (parameters) => releaseSavedJobLog(parameters),
+    }),
     defineOperation({
       id: "logs.sources", title: "List log sources", risk: "low", readOnly: true, timeoutMs: 60_000,
       description: "Fixed journal groups, every systemd unit with journal output, and every Docker container.",

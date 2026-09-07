@@ -59,3 +59,11 @@ The Repair summary now says Problem scan complete instead of a broad No problems
 Source through df66b3e was pushed to main and its remote SHA verified. Native install smoke passed, including independent doctor operation while Express was stopped. General CI passed all 1,507 assertions but failed on an unhandled ECONNRESET in the helper-client test server. That fixture omitted the production helper's socket error handling and attempted to use HTTP's closeAllConnections on net.Server. The fix tracks/closes real sockets and awaits cleanup.
 
 The job-log review added bounded UTF-8 lines, per-writer byte budgets and bounded reads of oversized old files. The fixed canary now replaces its previous probe and requires a successful fresh write. This avoids treating old capped evidence as proof of current write access. Regression coverage includes a sparse oversized file, concurrent writes, Unicode truncation and failed canary writes. Root-owned live-log cleanup/retention remains a separate investigation because the web account cannot unlink inside a 0750 root-owned log directory.
+
+Both hosted workflows passed for 8d49cac: general CI 34127578182 and native install smoke 34127578277. This includes the disposable Ubuntu package fixture and the independent doctor while Express is stopped.
+
+## Completed-job live-cache cleanup
+
+Confirmed that web-side unlink could not work under the installed root-owned 0750 log directory. Successful jobs now save their output before requesting a registered owner-level helper cleanup. The helper uses a read-only database connection, verifies completed state and a full byte-for-byte copy, and refuses changed, oversized, unsafe or unsaved logs. Failed job logs remain available. Producers flush pending writes before returning their result, and cleanup has an independent helper lane. The housekeeping inspector now requires operator access because its root-side backup listing is private operational information.
+
+Local full check passed with 1,523 tests across 225 files. Extended the disposable Ubuntu fixture to prove the unprivileged web identity can read but cannot unlink a root-owned log, followed by successful helper cleanup of the saved copy. That fixture passed on Ubuntu 24.04. Production remains unchanged.

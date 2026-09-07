@@ -36,3 +36,9 @@ describe("log operations", () => {
     await expect(registry.execute("logs.read", { kind: "unit", target: "docker.service", lines: 5 }, { run })).rejects.toThrow("10-2000");
   });
 });
+
+it("restricts live-output cache release to owners and a single validated job id", () => {
+  expect(registry.get("job.output.release")).toMatchObject({ risk: "low", minimumRole: "owner", readOnly: false });
+  expect(registry.validate("job.output.release", { jobId: "../../etc/passwd" })).not.toBeNull();
+  expect(registry.validate("job.output.release", { jobId: "11111111-2222-4333-8444-555555555555", path: "/tmp/x" })).not.toBeNull();
+});

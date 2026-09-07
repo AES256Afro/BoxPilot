@@ -89,6 +89,7 @@ export async function runTask(id, { now = () => new Date(), taskTable = tasks } 
     payload = { ok: false, task: spec.task, error: error instanceof Error ? error.message : String(error) };
   } finally {
     await unlink(specPath).catch(() => {});
+    await writer.flush();
   }
   await mkdir(runDirectory, { recursive: true, mode: 0o700 });
   await writeResult(id, payload);

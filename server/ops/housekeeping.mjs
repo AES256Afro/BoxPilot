@@ -12,7 +12,7 @@ import { categoryIds } from "../housekeeping.mjs";
 export function housekeepingOperations() {
   return [
     defineOperation({
-      id: "housekeeping.inspect", title: "Find space that can be reclaimed", risk: "low", readOnly: true, timeoutMs: 3 * 60_000,
+      id: "housekeeping.inspect", title: "Find space that can be reclaimed", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 3 * 60_000,
       description: "What is taking up room that nothing needs: previous BoxPilot releases, images no app uses, old backup archives, unfinished restores, and Docker's own leftovers.",
       run: (_parameters, { housekeeping }) => housekeeping.inspect(),
     }),
