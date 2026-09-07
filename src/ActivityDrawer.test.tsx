@@ -79,4 +79,13 @@ describe("Activity drawer", () => {
     expect(screen.getByText(/Upgrade finished/)).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/jobs/11111111-1111-4111-8111-111111111111/output", expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
+
+  it("marks a completed job with notices before its details are opened", () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    render(<ActivityDrawer />);
+    act(() => FakeEventSource.instances.at(-1)?.emit("snapshot", { jobs: [job({ state: "completed", result: { warnings: ["Local retention needs attention."] } })] }));
+    fireEvent.click(screen.getByRole("button", { name: /Activity/ }));
+    expect(screen.getByText("Completed with notice").className).toContain("status-warning");
+    expect(screen.queryByText("Completed")).toBeNull();
+  });
 });

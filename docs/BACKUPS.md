@@ -18,6 +18,13 @@ Every database backup is restored into an isolated copy before it is recorded. I
 not open, the backup is not written down as good. The Backups page shows the drill result beside
 each snapshot. That is what "passed" means there.
 
+Creating a database backup also keeps the newest ten local database copies, always preserving
+the copy just created. Encrypted repository retention is separate. If old local copies cannot
+be listed or removed, the new verified backup is kept and its result shows a follow-up notice
+in both the approval dialog and Activity. Only successful removals are reported as removed.
+An incomplete inventory prevents local pruning for that run. The backup table is recorded
+history; an older row is not proof that its local file still exists after retention.
+
 ## Keeping a copy off the box
 
 A disk failure should not take the backups with it. Three destinations are available, and you can
@@ -55,8 +62,6 @@ All of it is root-only. Nothing is world-readable, and no archive is served over
 - **An app**: its card offers each recorded backup; restoring stops the app, replaces the volumes,
   and starts it again.
 - **Apps and their data**: *Backups → Restore from a machine snapshot* reinstalls the apps with their saved settings and secrets, then restores each one's newest data archive. Network, firewall, fstab, VM definitions and the database copy are unpacked beside the snapshot for you to review and apply yourself. They are never applied for you.
-  are reinstalled with their saved settings and secrets, then each app's newest data archive is
-  restored.
 - **The database alone**: see the [controller recovery runbook](CONTROLLER-BACKUPS.md), which is
   the procedure to follow when BoxPilot itself will not start.
 

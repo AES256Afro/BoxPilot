@@ -7,7 +7,7 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const stagedJob = { id: "job-1", type: "op:storage.format", title: "Erase and format a disk", state: "awaiting_approval", risk: "high", parameters: { device: "/dev/sdb" }, recovery: {}, steps: [], approvals: [], createdAt: "2026-08-22T00:00:00Z", updatedAt: "2026-08-22T00:00:00Z" };
 
 /** Records what the dialog sends, and answers every endpoint it touches. */
-function stubApi({ passwordRequired = false, confirmText = "/dev/sdb", expiresAt = null as string | null, expired = false } = {}) {
+function stubApi({ passwordRequired = false, confirmText = "/dev/sdb", expiresAt = null as string | null, expired = false, result = null as unknown } = {}) {
   const calls: Array<{ url: string; method: string; body: Record<string, unknown> }> = [];
   const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -18,17 +18,28 @@ function stubApi({ passwordRequired = false, confirmText = "/dev/sdb", expiresAt
     if (url.includes("/jobs") && method === "POST" && url.endsWith("/jobs")) return json({ job: stagedJob, approval: { tier: "high", passwordRequired, elevated: !passwordRequired, mode: "tiered", confirmText, expiresAt, expired } });
     if (url.endsWith("/approve")) {
       // The server refuses unless the exact text was typed — the bug this test exists for.
-      if (body.confirmText !== confirmText) return json({ error: `Type ${confirmText} to confirm this high-risk job`, code: "job_approval_failed" }, 409);
+      if (confirmText && body.confirmText !== confirmText) return json({ error: `Type ${confirmText} to confirm this high-risk job`, code: "job_approval_failed" }, 409);
       return json({ job: { ...stagedJob, state: "applying" }, elevatedUntil: null }, 202);
     }
     if (url.includes("/jobs/job-1") && method === "DELETE") return json({ job: { ...stagedJob, state: "cancelled" } });
     if (url.endsWith("/output")) return json({ jobId: "job-1", state: "completed", output: "", live: false });
-    return json({ job: { ...stagedJob, state: "completed" } });
+    return json({ job: { ...stagedJob, state: "completed", result } });
   }));
   return calls;
 }
 
 describe("approval dialog", () => {
+  it("keeps a successful backup warning visible even when it has no live output", async () => {
+    stubApi({ confirmText: "", result: { warnings: ["The new backup passed, but old copies could not be removed."] } });
+    render(<ApproveDialog operationId="controller.backup.create" title="Back up database" parameters={{}} csrfToken="csrf" onClose={() => {}} />);
+    const run = await screen.findByRole("button", { name: "Confirm and run" });
+    await waitFor(() => expect(run.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(run);
+    expect(await screen.findByText("Completed with follow-up needed.")).toBeTruthy();
+    expect(screen.getByText("The new backup passed, but old copies could not be removed.")).toBeTruthy();
+    expect(screen.queryByText("Completed.")).toBeNull();
+  });
+
   it("contains keyboard focus and returns it to the opener", async () => {
     stubApi({ confirmText: "" });
     const opener = document.createElement("button"); document.body.append(opener); opener.focus();

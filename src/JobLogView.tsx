@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { followJobOutput, terminalJobStates, type Job } from "./operations";
 import { readJson } from "./http";
 import { jobOutputText } from "./jobOutputText";
+import { JobWarnings } from "./JobWarnings";
 
 /**
  * The terminal view of one job, usable from anywhere an action is shown.
@@ -90,6 +91,7 @@ export function JobLogView({ job: given, jobId, title }: { job?: Job; jobId?: st
         </ul>
       )}
       {job.error && <div className="auth-error" role="alert">{job.error}</div>}
+      <JobWarnings result={job.result} />
       {outputError && <div role="alert"><p>{outputError}</p>{retryButton}</div>}
       {readingOutput && <p className="muted">Reading saved output...</p>}
       {(output || !finished) && (

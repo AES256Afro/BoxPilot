@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { chmod, copyFile, lstat, mkdir, open, readdir, readFile, rm, rmdir, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdir, open, readFile, rm, rmdir, unlink, writeFile } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { createTreeScanBudget, listTreeEntries } from "./tree-scan.mjs";
 
 const uuidPattern = /^[a-f0-9-]{36}$/;
 const requiredTables = Object.freeze([
@@ -97,7 +98,9 @@ export function createControllerBackupHelper({
   // live database sits on, so it fills up and takes the database with it.
   keepLocal = 10,
   now = () => new Date(),
+  removeLocal = rm,
 } = {}) {
+  if (!Number.isInteger(keepLocal) || keepLocal < 1 || keepLocal > 1000) throw new Error("Local backup retention must keep between 1 and 1000 copies");
   /**
    * Keep the newest `keepLocal` local copies, never the one this call just made.
    *
@@ -107,20 +110,37 @@ export function createControllerBackupHelper({
    * is governed separately by retention; the local artifact is a convenience.
    */
   async function pruneLocalBackups(justCreated) {
-    const entries = await readdir(backupRoot, { withFileTypes: true }).catch(() => []);
-    const directories = [];
-    for (const entry of entries) {
-      if (!entry.isDirectory() || !uuidPattern.test(entry.name)) continue;
-      const info = await stat(path.join(backupRoot, entry.name)).catch(() => null);
-      if (info) directories.push({ id: entry.name, at: info.mtimeMs });
-    }
     const removed = [];
+    const failures = [];
+    let failureCount = 0;
+    const failed = (id, error) => {
+      failureCount += 1;
+      if (failures.length < 20) failures.push({ backupId: id, code: /^[A-Z_]+$/.test(error?.code ?? "") ? error.code : "UNAVAILABLE" });
+    };
+    const directories = [];
+    try {
+      await verifyRealDirectory(backupRoot);
+      const budget = createTreeScanBudget({ maxEntries: 10_000, maxDurationMs: 10_000 });
+      const entries = await listTreeEntries(backupRoot, { budget });
+      for (const entry of entries) {
+        if (!entry.isDirectory() || !uuidPattern.test(entry.name)) continue;
+        budget.check();
+        const info = await lstat(path.join(backupRoot, entry.name));
+        if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Backup inventory changed");
+        directories.push({ id: entry.name, at: info.mtimeMs });
+      }
+    } catch (error) {
+      failed(null, error);
+      return { removed, failures, failureCount, complete: false };
+    }
     for (const candidate of directories.sort((left, right) => right.at - left.at).slice(keepLocal)) {
       if (candidate.id === justCreated) continue;
-      await rm(path.join(backupRoot, candidate.id), { recursive: true, force: true }).catch(() => {});
-      removed.push(candidate.id);
+      try {
+        await removeLocal(path.join(backupRoot, candidate.id), { recursive: true, force: true });
+        removed.push(candidate.id);
+      } catch (error) { failed(candidate.id, error); }
     }
-    return removed;
+    return { removed, failures, failureCount, complete: failureCount === 0 };
   }
 
   async function initialize() {
@@ -238,9 +258,11 @@ export function createControllerBackupHelper({
       const directoryHandle = await open(backupDirectory, "r").catch(() => null);
       if (directoryHandle) { try { await directoryHandle.sync(); } catch { /* not every filesystem allows this */ } finally { await directoryHandle.close(); } }
 
-      const removedLocal = await pruneLocalBackups(input.backupId);
+      const localRetention = await pruneLocalBackups(input.backupId);
       return {
-        removedLocal,
+        removedLocal: localRetention.removed,
+        localRetention,
+        warnings: localRetention.complete ? [] : ["The new database backup passed verification, but old local copies could not all be checked or removed. They may still use disk space. Check backup-directory access and free space before retrying a backup."],
         backupId: input.backupId,
         applicationId: "boxpilot-controller",
         destination: "local-managed",
@@ -277,7 +299,7 @@ export function createControllerBackupHelper({
           serviceStopped: false,
           networkAccessRequired: false,
           independentCopyCreated: false,
-          retentionPerformed: false,
+          retentionPerformed: localRetention.removed.length > 0,
         },
         durationMs: Math.max(0, completedAt.getTime() - startedAt.getTime()),
       };

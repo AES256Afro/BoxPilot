@@ -242,6 +242,7 @@ export function createMachineSnapshotHelper({
         containsSecrets: true,
         contents: manifest.contents,
         controllerBackup,
+        warnings: controllerBackup.warnings ?? [],
         removedByRetention,
         boundary: { dataVolumesIncluded: false, deletesOutsideRetention: false, networkUsed: false },
       };

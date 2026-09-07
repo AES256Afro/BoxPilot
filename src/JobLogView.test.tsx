@@ -41,6 +41,14 @@ function job(overrides: Partial<Job>): Job {
 }
 
 describe("the job log, viewable from wherever the action lives", () => {
+  it("shows recorded follow-up notices after the live output has been released", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => json({ output: "" })));
+    render(<JobLogView job={job({ result: { warnings: ["Old local backups could not be removed.", null, { detail: "not a display string" }] } })} />);
+    expect(screen.getByText("Old local backups could not be removed.")).toBeTruthy();
+    expect(await screen.findByText("This job recorded no output.")).toBeTruthy();
+    expect(screen.queryByText("not a display string")).toBeNull();
+  });
+
   it("given only an id, fetches the job and shows its recorded output and steps", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
