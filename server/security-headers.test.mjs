@@ -50,6 +50,7 @@ describe("the middleware", () => {
     try {
       const base = `http://127.0.0.1:${server.address().port}`;
       expect((await fetch(`${base}/api/v1/thing`)).headers.get("cache-control")).toBe("no-store");
+      expect((await fetch(`${base}/API/v1/thing`)).headers.get("cache-control")).toBe("no-store");
       expect((await fetch(`${base}/`)).headers.get("cache-control")).toBeNull();
     } finally { server.closeAllConnections?.(); server.close(); }
   });

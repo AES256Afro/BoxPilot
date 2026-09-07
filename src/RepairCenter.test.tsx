@@ -8,6 +8,24 @@ afterEach(() => {
 });
 
 describe("Repair Center", () => {
+  it.each(["failed", "partial"])("does not report a healthy server when the problem scan is %s", async (mode) => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/remediations")) return mode === "failed"
+        ? new Response(JSON.stringify({ error: "helper unavailable" }), { status: 503 })
+        : new Response(JSON.stringify({ findings: [], counts: { critical: 0, warning: 0, info: 0 }, sourceStatus: "partial", unavailableChecks: ["Drives and mounts"] }));
+      if (url.includes("prerequisites")) return new Response(JSON.stringify({ checks: [] }));
+      if (url.includes("/jobs")) return new Response(JSON.stringify({ jobs: [] }));
+      return new Response(JSON.stringify({ error: "unavailable" }), { status: 503 });
+    }));
+    render(<RepairCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText("Checks incomplete")).toBeTruthy();
+    expect(screen.getByText("Problem scan incomplete")).toBeTruthy();
+    expect(screen.queryByText("Nothing needs fixing")).toBeNull();
+    expect(screen.queryByText("No problems found")).toBeNull();
+    if (mode === "partial") expect(screen.getByText(/Could not check: Drives and mounts/)).toBeTruthy();
+  });
+
   it("renders live checks and verifies the helper directly", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = input.toString();

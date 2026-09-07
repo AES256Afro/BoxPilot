@@ -9,6 +9,30 @@ function deferred() {
 }
 
 describe("sharing a slow read", () => {
+  it("does not let a pre-mutation read refill or clear a newer cache generation", async () => {
+    const gates = [deferred(), deferred()];
+    let calls = 0;
+    const read = shared(() => gates[calls++].promise, { ttlMs: 60_000, now: () => 0 });
+    const old = read();
+    await Promise.resolve();
+    read.forget();
+    const fresh = read();
+    await Promise.resolve();
+    gates[0].release("old");
+    expect(await old).toBe("old");
+    expect(read()).toBe(fresh);
+    gates[1].release("fresh");
+    expect(await fresh).toBe("fresh");
+    expect(await read()).toBe("fresh");
+    expect(calls).toBe(2);
+  });
+
+  it("turns synchronous failures into retryable promise rejections", async () => {
+    const read = shared(() => { throw new Error("failed read"); });
+    await expect(read()).rejects.toThrow("failed read");
+    await expect(read()).rejects.toThrow("failed read");
+  });
+
   it("gives concurrent callers one round trip", async () => {
     let calls = 0;
     const gate = deferred();

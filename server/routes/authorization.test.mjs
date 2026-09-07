@@ -123,6 +123,14 @@ afterAll(async () => {
 });
 
 describe("role boundaries", () => {
+  it("limits the full recovery export to the owner, including alternate path casing", async () => {
+    for (const role of ["viewer", "operator", "owner"]) {
+      const session = await signIn(role);
+      const response = await api("GET", "/api/v1/operations/RECOVERY-KIT", { session });
+      expect(response.status).toBe(role === "owner" ? 200 : 403);
+    }
+  });
+
   it("keeps settings and people owner-only, whatever the path casing", async () => {
     const operator = await signIn("operator");
     const owner = await signIn("owner");

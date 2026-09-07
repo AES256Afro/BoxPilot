@@ -95,18 +95,20 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [remediationError, setRemediationError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [password, setPassword] = useState("");
   const [approvalPolicy, setApprovalPolicy] = useState<ApprovalPolicy | null>(null);
   const [pending, setPending] = useState(false);
   const [canaryResult, setCanaryResult] = useState<string | null>(null);
-  const [remediations, setRemediations] = useState<{ findings: Remediation[]; counts: { critical: number; warning: number; info: number } } | null>(null);
+  const [remediations, setRemediations] = useState<{ findings: Remediation[]; counts: { critical: number; warning: number; info: number }; sourceStatus?: "ready" | "partial"; unavailableChecks?: string[] } | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     setRecoveryError(null);
     setActionError(null);
+    setRemediationError(null);
     try {
       // The fetches must start before allSettled sees them, or they run one after another and a
       // dropped connection escapes to the outer catch instead of failing just its own collector.
@@ -115,19 +117,25 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
         fetch("/api/v1/jobs?limit=25").then((response) => readJson<{ jobs: Job[] }>(response)),
         fetch("/api/v1/operations/recovery-kit").then((response) => readJson<RecoveryKit>(response)),
         fetch("/api/v1/operations/action-center").then((response) => readJson<ActionCenter>(response)),
-        fetch("/api/v1/remediations").then((response) => readJson<{ findings: Remediation[]; counts: { critical: number; warning: number; info: number } }>(response)),
+        fetch("/api/v1/remediations").then((response) => readJson<{ findings: Remediation[]; counts: { critical: number; warning: number; info: number }; sourceStatus?: "ready" | "partial"; unavailableChecks?: string[] }>(response)),
       ]);
       // A problem sweep that cannot run must not take the page down with it.
-      setRemediations(remediationResult.status === "fulfilled" ? remediationResult.value : null);
+      if (remediationResult.status === "fulfilled" && Array.isArray(remediationResult.value.findings)) {
+        setRemediations(remediationResult.value);
+        if (remediationResult.value.sourceStatus === "partial") setRemediationError(`Could not check: ${(remediationResult.value.unavailableChecks ?? []).join(", ") || "some parts of this server"}. Other findings are shown below.`);
+      } else {
+        setRemediations(null);
+        setRemediationError("The problem scan could not finish. Check again to retry.");
+      }
       if (actionResult.status === "fulfilled") setActionCenter(actionResult.value);
       else {
         setActionCenter(null);
         setActionError(actionResult.reason instanceof Error ? actionResult.reason.message : "Could not check what is not covered yet");
       }
-      if (prerequisiteResult.status === "rejected") throw prerequisiteResult.reason;
-      if (jobResult.status === "rejected") throw jobResult.reason;
-      setChecks(prerequisiteResult.value.checks);
-      setJobs(jobResult.value.jobs);
+      if (prerequisiteResult.status === "fulfilled") setChecks(prerequisiteResult.value.checks);
+      if (jobResult.status === "fulfilled") setJobs(jobResult.value.jobs);
+      const failed = [prerequisiteResult, jobResult].filter((result) => result.status === "rejected");
+      if (failed.length) setError("Some prerequisite or activity checks failed. Check again to retry.");
       if (recoveryResult.status === "fulfilled") setRecoveryKit(recoveryResult.value);
       else {
         setRecoveryKit(null);
@@ -276,8 +284,8 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       <section className="repair-readiness">
         <div>
           <span className="eyebrow">Repair</span>
-          <strong>{loading ? "Checking this server..." : problems.length === 0 ? "Nothing needs fixing" : `${problems.length} thing${problems.length === 1 ? "" : "s"} to fix`}</strong>
-          <p>{problems.length === 0 ? "Everything BoxPilot knows how to check is working. What is installed, and what you would need to rebuild this server, are below." : "Each one says what is wrong and what fixes it. Nothing runs until you approve it."}</p>
+          <strong>{loading ? "Checking this server..." : (remediationError || error) ? "Checks incomplete" : problems.length === 0 ? "No problems found" : `${problems.length} thing${problems.length === 1 ? "" : "s"} to fix`}</strong>
+          <p>{(remediationError || error) ? "Some checks could not finish. Review the available findings and retry the missing checks." : problems.length === 0 ? "The completed problem scan found no issues. Prerequisites and recovery readiness are listed below." : "Each one says what is wrong and what fixes it. Nothing runs until you approve it."}</p>
         </div>
         <button className="secondary-button" type="button" onClick={() => void refresh()} disabled={loading}>{loading ? "Checking..." : "Check again"}</button>
       </section>
@@ -316,6 +324,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
         <div><span className="eyebrow">Prerequisites</span><strong>{loading ? "Checking..." : `${ready} of ${checks.length} ready`}</strong><p>The tools BoxPilot needs installed. Each is checked on its own, so one failure does not hide the rest.</p></div>
       </section>
 
+      {remediationError && <div className="notice warning-notice" role="status"><strong>Problem scan incomplete</strong><span>{remediationError}</span></div>}
       {error && <div className="auth-error" role="alert">{error}</div>}
       {operationDialog}
       {recoveryError && <div className="notice warning-notice" role="status"><strong>Could not build the rebuild checklist</strong><span>{recoveryError}. The rest of this page still works.</span></div>}
@@ -344,7 +353,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       {recoveryKit && (
         <section className="panel recovery-kit">
           <header className="panel-header">
-            <div><span className="eyebrow">If you had to rebuild this server</span><strong>What you would need, and what you have</strong><span>Checked {new Date(recoveryKit.generatedAt).toLocaleString()} · BoxPilot {recoveryKit.product.version} · contains no passwords or keys, so it is safe to keep a copy off the box</span></div>
+            <div><span className="eyebrow">If you had to rebuild this server</span><strong>What you would need, and what you have</strong><span>Checked {new Date(recoveryKit.generatedAt).toLocaleString()} · BoxPilot {recoveryKit.product.version} · private recovery information; keep a protected copy on another device</span></div>
             <span className={`status-pill status-${recoveryKit.summary.actionRequired > 0 ? "warning" : "neutral"}`}>{recoveryKit.summary.actionRequired > 0 ? `${recoveryKit.summary.actionRequired} to sort out` : recoveryKit.summary.operatorChecks > 0 ? `${recoveryKit.summary.operatorChecks} to check` : "ready"}</span>
           </header>
           <div className="recovery-summary">

@@ -194,7 +194,8 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     // Every finding here, and every health condition the watcher tracks, ends at a notification
     // target. Whether there is one is therefore part of whether any of this reaches anybody.
     try { facts.notifications = { configured: notifications?.describe?.().configured === true }; } catch { facts.notifications = null; }
-    response.json({ ...detectRemediations(facts), checkedAt: new Date().toISOString() });
+    const unavailableChecks = [["Drives and mounts", storage], ["Applications", live], ["File sharing", samba], ["USB history", usb]].filter(([, value]) => !value || value.available === false).map(([name]) => name);
+    response.json({ ...detectRemediations(facts), checkedAt: new Date().toISOString(), sourceStatus: unavailableChecks.length ? "partial" : "ready", unavailableChecks });
   });
 
   /**
