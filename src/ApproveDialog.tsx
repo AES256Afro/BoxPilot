@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { approveJob, followJobOutput, stageOperation, waitForJob, type ApprovalPolicy, type Job, type RiskTier, cancelJob } from "./operations";
 import { useDialogFocus } from "./useDialogFocus";
+import { jobOutputText } from "./jobOutputText";
 
 /**
  * The one approval surface for registered operations (ADR-001 risk tiers):
@@ -106,7 +107,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
       stopFollowing.current?.();
       stopFollowing.current = followJobOutput(job.id, {
         // The stream sends fragments to append; asking returns the whole log, which replaces.
-        onOutput: (text, append) => { if (!tracking.signal.aborted) setOutput((current) => (append ? current + text : text)); },
+        onOutput: (text, append) => { if (!tracking.signal.aborted) setOutput((current) => jobOutputText(current, text, append)); },
         onState: () => {},
       });
       const finished = await waitForJob(job.id, { signal: tracking.signal });

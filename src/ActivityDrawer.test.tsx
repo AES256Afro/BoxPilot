@@ -77,6 +77,6 @@ describe("Activity drawer", () => {
     fireEvent.click(screen.getByRole("button", { name: /Upgrade packages/ }));
     expect(await screen.findByText("unpacked 3 packages")).toBeTruthy();
     expect(screen.getByText(/Upgrade finished/)).toBeTruthy();
-    expect(fetchMock).toHaveBeenCalledWith("/api/v1/jobs/11111111-1111-4111-8111-111111111111/output");
+    expect(fetchMock).toHaveBeenCalledWith("/api/v1/jobs/11111111-1111-4111-8111-111111111111/output", expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
 });

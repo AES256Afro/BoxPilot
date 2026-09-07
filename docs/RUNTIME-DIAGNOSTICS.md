@@ -16,6 +16,8 @@ Activity and job-log streams have a shared budget: eight streams per account and
 
 The browser also cancels observation when an approval dialog is removed, including in-flight job and output reads. The server job continues after approval. A staging reply arriving after dismissal is withdrawn instead of leaving an unapproved job behind. Waiting has an overall deadline that also interrupts stalled requests. Output polling is sequential and backs off; if a working stream disconnects, the browser closes it and uses full-output replacement so reconnects do not append the same log again. Malformed events cannot disable polling, and terminal state stops both transports.
 
+Approval and Activity terminals retain at most 256 Ki UTF-16 code units plus a short truncation notice. Earlier text is hidden in that view, while server-side output retention keeps its separate limits. Completed-log and individual-job reads have 15-second deadlines and abort on unmount. A failed read offers retry and does not claim the job recorded no output.
+
 ## Credentials awaiting approval
 
 An operation staged with credentials receives a 30-minute approval deadline, stored as non-secret recovery metadata. The actual secret stays in memory. Approval checks the deadline even if the periodic sweep has not run or the service has restarted. A minute sweep removes expired secret records and cancels their pending jobs; expiry is enforced at exactly the deadline, and physical cleanup occurs on the next sweep, at most about a minute later while the process is responsive. Operations without staged secrets do not acquire this deadline.
