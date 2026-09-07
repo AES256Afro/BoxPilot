@@ -28,6 +28,7 @@ export function createLoginThrottle({
   maxEntries = 5000,
   now = () => Date.now(),
 } = {}) {
+  if (!Number.isInteger(maxEntries) || maxEntries < 1) throw new Error("Login throttle capacity must be a positive integer");
   const entries = new Map(); // key → { failures, blockedUntil, lastFailureAt }
 
   // How long a key is remembered after its last failure. It has to outlast the block by a good
@@ -36,12 +37,12 @@ export function createLoginThrottle({
   const retentionMs = Math.max(maxDelayMs * 4, 15 * 60_000);
 
   /** Forget keys nobody has used lately, and never more than `maxEntries` of them. */
-  function prune() {
+  function prune(makeRoom = false) {
     const at = now();
     for (const [key, entry] of entries) {
       if (entry.blockedUntil <= at && entry.lastFailureAt + retentionMs < at) entries.delete(key);
     }
-    if (entries.size < maxEntries) return;
+    if (!makeRoom || entries.size < maxEntries) return;
     // A key that is actively blocking somebody is never evicted. Eviction ran in insertion order
     // over every entry, so an attacker could burn their own block away by creating a few thousand
     // keys — which cost them nothing, since a wrong username is refused before any hashing.
@@ -57,7 +58,16 @@ export function createLoginThrottle({
     let retryAfterMs = 0;
     for (const key of keys) {
       const entry = entries.get(key);
-      if (!entry) continue;
+      if (!entry) {
+        if (entries.size >= maxEntries) {
+          // When every slot is an active block, admitting a new key would either grow memory
+          // or erase somebody's protection. Wait only until the first slot can be reclaimed.
+          let firstAvailable = Infinity;
+          for (const value of entries.values()) firstAvailable = Math.min(firstAvailable, value.blockedUntil);
+          if (firstAvailable > at) retryAfterMs = Math.max(retryAfterMs, firstAvailable - at);
+        }
+        continue;
+      }
       if (entry.blockedUntil > at) { retryAfterMs = Math.max(retryAfterMs, entry.blockedUntil - at); continue; }
       if (decayOnExpiry && entry.failures >= maxFailures) {
         entries.set(key, { failures: maxFailures - 1, blockedUntil: 0, lastFailureAt: entry.lastFailureAt ?? at });
@@ -70,6 +80,10 @@ export function createLoginThrottle({
     prune();
     for (const key of keys) {
       if (ok) { entries.delete(key); continue; }
+      if (!entries.has(key)) {
+        prune(true);
+        if (entries.size >= maxEntries) continue;
+      }
       const entry = entries.get(key) ?? { failures: 0, blockedUntil: 0, lastFailureAt: 0 };
       entry.failures += 1;
       entry.lastFailureAt = now();
