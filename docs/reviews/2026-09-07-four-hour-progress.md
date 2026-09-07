@@ -73,3 +73,11 @@ Local full check passed with 1,523 tests across 225 files. Extended the disposab
 Prerequisite rows now follow their count directly. Technical evidence, protection steps and the rebuild inventory use native expandable details; download formats stay visible. Increased Repair text size, unified severity labels, removed the repeated feature strip and replaced unconditional green readiness styling with a neutral surface. Missing prerequisite data clears old readiness counts, missing activity does not say nothing has run, and incomplete collector objects preserve the rest of the page.
 
 Full check passed with 1,525 tests across 225 files. Browser inspection covered desktop and 390 px width, expanded evidence and keyboard navigation into a repair preview. It exposed a separate modal focus bug: focus remained behind the approval dialog. That is the next slice. Also fixed the local demo's scenario selection: only the fictional demo now sends same-origin referrers, allowing its troubled-server fixtures to run; production retains no-referrer.
+
+Hosted CI and native install smoke passed for ebf3e87 and b8bd23f.
+
+## Modal focus and abandoned browser work
+
+Approval now receives and contains keyboard focus and restores the opener on dismissal. Browser verification confirmed Tab/Shift-Tab wrapping and Escape returning to the repair action. A late staging reply is withdrawn if its dialog has gone. An accepted job continues on the host while unmount aborts its observer and output requests. The waiter deadline now covers stalled requests as well as successful polls. Lost observation explains that Activity may still show a running job.
+
+Output fallback now waits for a slow poll before scheduling another. A disconnected stream switches to full-output replacement, avoiding repeated log replay; malformed events preserve fallback, and terminal events stop both transports. Regression tests also caught and corrected a zero-delay fallback rescheduling loop during implementation. Full check passed with 1,537 tests across 226 files. Production remains unchanged.

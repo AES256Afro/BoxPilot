@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { approveJob, followJobOutput, stageOperation, waitForJob, type ApprovalPolicy, type Job, type RiskTier, cancelJob } from "./operations";
+import { useDialogFocus } from "./useDialogFocus";
 
 /**
  * The one approval surface for registered operations (ADR-001 risk tiers):
@@ -41,21 +42,40 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   const outputRef = useRef<HTMLPreElement | null>(null);
   const busyRef = useRef(false);
   const stopFollowing = useRef<(() => void) | null>(null);
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const observation = useRef<AbortController | null>(null);
+  const mounted = useRef(false);
+  const stagedRef = useRef<{ jobId: string | null; approvalStarted: boolean; withdrawn: boolean } | null>(null);
+  useDialogFocus(dialogRef);
 
   useEffect(() => { if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight; }, [output]);
-  useEffect(() => () => { stopFollowing.current?.(); }, []);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; observation.current?.abort(); stopFollowing.current?.(); };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
+    const stagedState = { jobId: null as string | null, approvalStarted: false, withdrawn: false };
+    stagedRef.current = stagedState;
+    const withdraw = () => {
+      if (!stagedState.jobId || stagedState.approvalStarted || stagedState.withdrawn) return;
+      stagedState.withdrawn = true;
+      void cancelJob(stagedState.jobId, csrfToken).catch(() => undefined);
+    };
+    setPhase("staging"); setJob(null); setPolicy(null); setError(null); setPassword(""); setTypedConfirm("");
     stageOperation(operationId, parameters, csrfToken)
-      .then((staged) => { if (cancelled) return; setJob(staged.job); setPolicy(staged.approval); setPhase("ready"); })
+      .then((staged) => { stagedState.jobId = staged.job.id; if (cancelled) { withdraw(); return; } setJob(staged.job); setPolicy(staged.approval); setPhase("ready"); })
       .catch((stageError: unknown) => { if (cancelled) return; setError(stageError instanceof Error ? stageError.message : "Could not prepare this action"); setPhase("error"); });
-    return () => { cancelled = true; };
+    return () => { cancelled = true; withdraw(); };
   }, [operationId, parameters, csrfToken]);
 
   // Dismissing a staged-but-unapproved job withdraws it so Activity does not fill with orphans.
   const dismiss = useCallback(() => {
-    if (job && phase === "ready") void cancelJob(job.id, csrfToken).catch(() => undefined);
+    if (job && phase === "ready" && stagedRef.current && !stagedRef.current.withdrawn) {
+      stagedRef.current.withdrawn = true;
+      void cancelJob(job.id, csrfToken).catch(() => undefined);
+    }
     onClose();
   }, [job, phase, csrfToken, onClose]);
 
@@ -67,11 +87,18 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   }, [dismiss]);
 
   const approve = useCallback(async () => {
-    if (!job) return;
+    if (!job || busyRef.current) return;
+    busyRef.current = true;
+    if (stagedRef.current) stagedRef.current.approvalStarted = true;
+    const tracking = new AbortController();
+    observation.current = tracking;
+    let accepted = false;
     setPhase("approving");
     setError(null);
     try {
       await approveJob(job.id, csrfToken, password || undefined, typedConfirm || undefined);
+      accepted = true;
+      if (!mounted.current || tracking.signal.aborted) return;
       if (password) window.dispatchEvent(new Event("boxpilot:auth-changed"));
       setPassword("");
       setPhase("running");
@@ -79,18 +106,25 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
       stopFollowing.current?.();
       stopFollowing.current = followJobOutput(job.id, {
         // The stream sends fragments to append; asking returns the whole log, which replaces.
-        onOutput: (text, append) => setOutput((current) => (append ? current + text : text)),
+        onOutput: (text, append) => { if (!tracking.signal.aborted) setOutput((current) => (append ? current + text : text)); },
         onState: () => {},
       });
-      const finished = await waitForJob(job.id);
+      const finished = await waitForJob(job.id, { signal: tracking.signal });
+      if (!mounted.current || tracking.signal.aborted) return;
       stopFollowing.current?.(); stopFollowing.current = null;
       setJob(finished);
       setPhase(finished.state === "completed" ? "done" : "error");
       if (finished.state !== "completed") setError(finished.error ?? "The operation did not complete");
       onFinished?.(finished);
     } catch (approveError) {
-      setError(approveError instanceof Error ? approveError.message : "Approval failed");
-      setPhase("ready");
+      if (!mounted.current || tracking.signal.aborted) return;
+      if (!accepted && stagedRef.current) stagedRef.current.approvalStarted = false;
+      const detail = approveError instanceof Error ? approveError.message : "Could not follow this job";
+      setError(accepted ? `${detail}. The job may still be running. Check Activity for its current state.` : detail);
+      setPhase(accepted ? "error" : "ready");
+    } finally {
+      stopFollowing.current?.(); stopFollowing.current = null;
+      if (observation.current === tracking) observation.current = null;
     }
   }, [job, csrfToken, password, typedConfirm, onFinished]);
 
@@ -112,7 +146,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={busy ? undefined : dismiss}>
-      <section className="modal" role="dialog" aria-modal="true" aria-labelledby="approve-title" onMouseDown={(event) => event.stopPropagation()}>
+      <section ref={dialogRef} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="approve-title" onMouseDown={(event) => event.stopPropagation()}>
         <header className="modal-header">
           <div>
             <span className="eyebrow">{phase === "done" ? "Finished" : phase === "error" ? "Needs attention" : "Approval"}</span>

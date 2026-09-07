@@ -69,32 +69,48 @@ export function cancelJob(jobId: string, csrfToken: string): Promise<{ job: Job 
   return fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } }).then((response) => readJson(response));
 }
 
-export function getJob(jobId: string): Promise<{ job: Job }> {
-  return fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}`).then((response) => readJson(response));
+export function getJob(jobId: string, { signal }: { signal?: AbortSignal } = {}): Promise<{ job: Job }> {
+  return fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}`, { signal }).then((response) => readJson(response));
 }
 
 export const terminalJobStates = new Set(["completed", "failed", "cancelled"]);
 
-/** Poll until the job reaches a terminal state. */
-/** Poll until the job finishes, tolerating a few failed polls (a restart, a sleeping laptop). */
-export async function waitForJob(jobId: string, { intervalMs = 2000, timeoutMs = 2 * 60 * 60 * 1000, sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)) } = {}): Promise<Job> {
-  const started = Date.now();
+function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) { reject(signal.reason); return; }
+    const onAbort = () => { clearTimeout(timer); reject(signal.reason); };
+    const timer = setTimeout(() => { signal.removeEventListener("abort", onAbort); resolve(); }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/** Wait for completion; abandoning the view cancels observation, not the host job. */
+export async function waitForJob(jobId: string, { intervalMs = 2000, timeoutMs = 2 * 60 * 60 * 1000, sleep = abortableSleep, now = Date.now, signal }: { intervalMs?: number; timeoutMs?: number; sleep?: (ms: number, signal: AbortSignal) => Promise<void>; now?: () => number; signal?: AbortSignal } = {}): Promise<Job> {
+  const started = now();
+  const controller = new AbortController();
+  const onAbort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) onAbort();
+  else signal?.addEventListener("abort", onAbort, { once: true });
+  const deadline = setTimeout(() => controller.abort(new Error("Timed out waiting for the job to finish")), timeoutMs);
   let failures = 0;
-  for (;;) {
+  try { for (;;) {
+    controller.signal.throwIfAborted();
+    if (now() - started >= timeoutMs) throw new Error("Timed out waiting for the job to finish");
     let job: Job;
     try {
-      ({ job } = await getJob(jobId));
+      ({ job } = await getJob(jobId, { signal: controller.signal }));
+      controller.signal.throwIfAborted();
       failures = 0;
     } catch (error) {
+      controller.signal.throwIfAborted();
       failures += 1;
       if (failures >= 5) throw error;
-      await sleep(intervalMs);
+      await sleep(intervalMs, controller.signal);
       continue;
     }
     if (terminalJobStates.has(job.state)) return job;
-    if (Date.now() - started > timeoutMs) throw new Error("Timed out waiting for the job to finish");
-    await sleep(intervalMs);
-  }
+    await sleep(intervalMs, controller.signal);
+  } } finally { clearTimeout(deadline); signal?.removeEventListener("abort", onAbort); }
 }
 
 /**
@@ -141,40 +157,57 @@ export function followJobOutput(
   // Set when a poll sees the job finished. `stopped` belongs to the consumer; this belongs to the
   // job, and a timer that had already fired when the job finished used to re-arm the poll anyway.
   let finished = false;
+  let polling = false;
+  const controller = new AbortController();
 
   const stopPolling = () => { if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; } if (startTimer) { clearTimeout(startTimer); startTimer = null; } };
 
   const poll = async () => {
-    if (stopped || finished || streamWon()) return;
+    if (stopped || finished || streamWon() || polling) return;
+    polling = true;
     try {
-      const response = await fetch(`/api/v1/jobs/${encoded}/output`);
+      const response = await fetch(`/api/v1/jobs/${encoded}/output`, { signal: controller.signal });
       if (!response.ok) return;
       const body = (await response.json()) as { output?: string; state?: string; error?: string | null };
       if (stopped || finished || streamWon()) return;
       if (typeof body.output === "string" && body.output.length > 0) {
         race.winner = "poll";
+        source?.close();
         onOutput(body.output, false);  // the whole log so far, so the dialog replaces rather than appends
       }
       if (body.state && ["completed", "failed", "cancelled"].includes(body.state)) {
         onState({ state: body.state, error: body.error ?? null });
-        finished = true; stopPolling();
+        finished = true; stopPolling(); source?.close();
       }
     } catch { /* the job poller still finishes the job; output is best-effort */ }
+    finally { polling = false; }
   };
 
   if (typeof EventSource !== "undefined") {
     source = new EventSource(`/api/v1/jobs/${encoded}/stream`);
     source.addEventListener("output", (event) => {
-      if (race.winner === "poll") return;
-      race.winner = "stream";
-      finished = true; stopPolling();
-      try { onOutput((JSON.parse((event as MessageEvent).data) as { text: string }).text, true); } catch { /* ignore malformed */ }
+      if (stopped || finished || race.winner === "poll") return;
+      try {
+        const text = (JSON.parse((event as MessageEvent).data) as { text: unknown }).text;
+        if (typeof text !== "string" || !text.length) return;
+        race.winner = "stream"; stopPolling();
+        onOutput(text, true);
+      } catch { /* ignore malformed */ }
     });
     source.addEventListener("state", (event) => {
-      try { onState(JSON.parse((event as MessageEvent).data) as { state: string; error: string | null }); } catch { /* ignore */ }
-      source?.close();
+      if (stopped || finished) return;
+      try {
+        const state = JSON.parse((event as MessageEvent).data) as { state: string; error: string | null };
+        if (!terminalJobStates.has(state.state)) return;
+        finished = true; stopPolling(); source?.close(); controller.abort(); onState(state);
+      } catch { /* ignore malformed */ }
     });
-    source.onerror = () => { /* the poller below and waitForJob both still finish the job */ };
+    source.onerror = () => {
+      if (stopped || finished) return;
+      // Reconnecting restarts a stream at byte zero. Use full-output replacement after a
+      // disconnect so replayed lines cannot accumulate in the browser indefinitely.
+      source?.close(); race.winner = "poll"; stopPolling(); scheduleNextPoll(0);
+    };
   }
 
   // Each ask returns the whole log, so a long operation asking every second would fetch the same
@@ -182,13 +215,14 @@ export function followJobOutput(
   // watching the first lines appear, unhurried once an install has been running for a while.
   const scheduleNextPoll = (delay: number) => {
     if (stopped || finished || streamWon()) return;
+    if (pollTimer) clearTimeout(pollTimer);
     pollTimer = setTimeout(async () => {
+      pollTimer = null;
       await poll();
-      scheduleNextPoll(Math.min(Math.round(delay * 1.4), maxPollEveryMs));
+      scheduleNextPoll(Math.max(1, Math.min(Math.max(pollEveryMs, Math.round(delay * 1.4)), maxPollEveryMs)));
     }, delay);
   };
-  startTimer = setTimeout(() => { void poll(); scheduleNextPoll(pollEveryMs); }, pollAfterMs);
+  startTimer = setTimeout(async () => { await poll(); scheduleNextPoll(pollEveryMs); }, pollAfterMs);
 
-  return () => { stopped = true; stopPolling(); source?.close(); };
+  return () => { stopped = true; stopPolling(); controller.abort(); source?.close(); };
 }
-

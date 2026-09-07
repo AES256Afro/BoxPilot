@@ -29,6 +29,55 @@ function stubApi({ passwordRequired = false, confirmText = "/dev/sdb", expiresAt
 }
 
 describe("approval dialog", () => {
+  it("contains keyboard focus and returns it to the opener", async () => {
+    stubApi({ confirmText: "" });
+    const opener = document.createElement("button"); document.body.append(opener); opener.focus();
+    const { unmount } = render(<ApproveDialog operationId="apt.repair" title="Repair packages" parameters={{}} csrfToken="csrf" onClose={() => {}} />);
+    await screen.findByText("High risk");
+    expect(document.activeElement).toBe(screen.getByRole("dialog"));
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close dialog" }));
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Confirm and run" }));
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close dialog" }));
+    opener.focus();
+    expect(document.activeElement).toBe(screen.getByRole("dialog"));
+    unmount(); expect(document.activeElement).toBe(opener); opener.remove();
+  });
+
+  it("withdraws a staging reply that arrives after the dialog was removed", async () => {
+    let reply!: (value: Response) => void;
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => init?.method === "DELETE" ? Promise.resolve(new Response("{}")) : new Promise<Response>((resolve) => { reply = resolve; }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { unmount } = render(<ApproveDialog operationId="apt.repair" title="Repair packages" parameters={{}} csrfToken="csrf" onClose={() => {}} />);
+    unmount();
+    reply(new Response(JSON.stringify({ job: stagedJob, approval: { tier: "medium" } })));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/jobs/job-1", expect.objectContaining({ method: "DELETE" })));
+  });
+
+  it("aborts job observation on unmount without cancelling an accepted host job", async () => {
+    const calls = stubApi();
+    const api = vi.mocked(fetch); const normal = api.getMockImplementation()!;
+    let observed: AbortSignal | undefined;
+    api.mockImplementation((input, init) => {
+      if (input.toString() === "/api/v1/jobs/job-1" && !init?.method) return new Promise<Response>((_resolve, reject) => {
+        observed = init?.signal ?? undefined;
+        observed?.addEventListener("abort", () => reject(observed?.reason), { once: true });
+      });
+      return normal(input, init);
+    });
+    const finished = vi.fn();
+    const { unmount } = render(<ApproveDialog operationId="storage.format" title="Erase disk" parameters={{ device: "/dev/sdb" }} csrfToken="csrf" onClose={() => {}} onFinished={finished} />);
+    fireEvent.change(await screen.findByLabelText("Typed confirmation"), { target: { value: "/dev/sdb" } });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm and run" }));
+    await waitFor(() => expect(observed).toBeTruthy());
+    unmount();
+    expect(observed?.aborted).toBe(true);
+    expect(calls.some((call) => call.method === "DELETE")).toBe(false);
+    expect(finished).not.toHaveBeenCalled();
+  });
+
   it("explains expired credentials and disables approval", async () => {
     const calls = stubApi({ confirmText: "", expiresAt: "2026-01-01T12:30:00Z", expired: true });
     render(<ApproveDialog operationId="samba.user.set" title="Update share password" parameters={{ username: "sam" }} csrfToken="csrf" onClose={() => {}} />);

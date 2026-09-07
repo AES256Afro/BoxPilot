@@ -26,6 +26,64 @@ const withFakes = (outputBody: unknown) => {
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); FakeSource.last = null; });
 
 describe("following a job's output", () => {
+  it("switches a disconnected stream to full replacement without replaying lines", async () => {
+    vi.useFakeTimers();
+    withFakes({ output: "first\nsecond\n", state: "applying" });
+    const seen: Array<[string, boolean]> = [];
+    const stop = followJobOutput("job-1", { onOutput: (text, append) => seen.push([text, append]), onState: () => {} });
+    const source = FakeSource.last!;
+    source.emit("output", { text: "first\n" });
+    source.onerror?.();
+    await vi.advanceTimersByTimeAsync(1);
+    source.emit("output", { text: "first\n" });
+    expect(source.closed).toBe(true);
+    expect(seen).toEqual([["first\n", true], ["first\nsecond\n", false]]);
+    stop();
+  });
+
+  it("keeps malformed stream output from disabling fallback polling", async () => {
+    vi.useFakeTimers();
+    withFakes({ output: "polled", state: "completed" });
+    const seen: string[] = [];
+    const stop = followJobOutput("job-1", { onOutput: (text) => seen.push(text), onState: () => {} });
+    FakeSource.last!.emit("output", { text: {} });
+    await vi.advanceTimersByTimeAsync(2600);
+    expect(seen).toEqual(["polled"]);
+    expect(FakeSource.last!.closed).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    stop();
+  });
+
+  it("does not overlap a slow first poll and aborts its request when stopped", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("EventSource", FakeSource as unknown as typeof EventSource);
+    let signal: AbortSignal | undefined;
+    vi.stubGlobal("fetch", vi.fn((_url, options) => new Promise((_resolve, reject) => {
+      signal = options.signal;
+      signal!.addEventListener("abort", () => reject(signal!.reason), { once: true });
+    })));
+    const stop = followJobOutput("job-1", { onOutput: () => {}, onState: () => {}, pollAfterMs: 1, pollEveryMs: 10 });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    stop();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(signal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("stops fallback timers when a stream reports completion without output", async () => {
+    vi.useFakeTimers();
+    withFakes({ output: "unexpected", state: "applying" });
+    const onState = vi.fn();
+    const stop = followJobOutput("job-1", { onOutput: () => {}, onState });
+    FakeSource.last!.emit("state", { state: "completed", error: null });
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(onState).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    stop();
+  });
+
   it("uses the stream when the stream arrives, and never asks", async () => {
     vi.useFakeTimers();
     withFakes({ output: "from polling", state: "applying" });
