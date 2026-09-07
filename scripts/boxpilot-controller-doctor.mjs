@@ -3,6 +3,8 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 import { inspectControllerFiles, addControllerConnectivity } from "../server/controller-doctor.mjs";
 import { createHelperClient } from "../server/helper-client.mjs";
+import { inspectControllerDatabase } from "../server/controller-database-health.mjs";
+import { summarizeDoctor } from "../server/controller-doctor.mjs";
 
 export function formatDoctor(report) {
   const lines = ["BoxPilot controller doctor (read-only)", `Checked ${report.checkedAt}`, ""];
@@ -33,18 +35,21 @@ export async function readWebHealth({ port = process.env.BOXPILOT_PORT ?? "8787"
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
 }
 
-export async function runControllerDoctor({ inspect = inspectControllerFiles, webProbe = readWebHealth, helperProbe = () => createHelperClient({ maxResponseBytes: 256 * 1024 }).request("system.runtime.inspect", {}, { timeoutMs: 5000 }) } = {}) {
-  const [report, web, helper] = await Promise.all([inspect(), webProbe().then((value) => ({ value }), () => ({ error: "Web health endpoint did not return a valid response" })), helperProbe().then((value) => ({ value }), () => ({ error: "Helper did not answer this version's diagnostic request; use root or the service account to check protected socket access" }))]);
-  return addControllerConnectivity(report, { web: web.value, helper: helper.value, webError: web.error, helperError: helper.error });
+export async function runControllerDoctor({ inspect = inspectControllerFiles, includeDatabase = false, databaseProbe = inspectControllerDatabase, webProbe = readWebHealth, helperProbe = () => createHelperClient({ maxResponseBytes: 256 * 1024 }).request("system.runtime.inspect", {}, { timeoutMs: 5000 }) } = {}) {
+  const [report, web, helper, database] = await Promise.all([inspect(), webProbe().then((value) => ({ value }), () => ({ error: "Web health endpoint did not return a valid response" })), helperProbe().then((value) => ({ value }), () => ({ error: "Helper did not answer this version's diagnostic request; use root or the service account to check protected socket access" })), includeDatabase ? databaseProbe() : null]);
+  const connected = addControllerConnectivity(report, { web: web.value, helper: helper.value, webError: web.error, helperError: helper.error });
+  if (!database) return connected;
+  const checks = [...connected.checks, ...database.checks];
+  return { ...connected, database, checks, ...summarizeDoctor(checks) };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const args = process.argv.slice(2);
-  if (args.includes("--help")) console.log("Usage: node scripts/boxpilot-controller-doctor.mjs [--json]\nRead-only service, permissions, release, capacity and connectivity checks. Run with sudo on the Ubuntu host for complete protected-path evidence.");
-  else if (args.some((arg) => arg !== "--json")) { console.error("Unknown option. Use --help."); process.exitCode = 2; }
+  if (args.includes("--help")) console.log("Usage: node scripts/boxpilot-controller-doctor.mjs [--json] [--database]\nService, permissions, release, capacity and connectivity checks. --database adds a bounded SQLite read-only inspection without migrations or record contents. Run with sudo on the Ubuntu host for complete protected-path evidence.");
+  else if (args.some((arg) => !["--json", "--database"].includes(arg))) { console.error("Unknown option. Use --help."); process.exitCode = 2; }
   else {
     try {
-      const report = await runControllerDoctor();
+      const report = await runControllerDoctor({ includeDatabase: args.includes("--database") });
       console.log(args.includes("--json") ? JSON.stringify(report, null, 2) : formatDoctor(report));
       process.exitCode = report.counts.fail ? 1 : report.counts.unknown ? 2 : 0;
     } catch (error) { console.error(`Doctor could not finish: ${error.message}`); process.exitCode = 2; }

@@ -1,6 +1,6 @@
 /** Destructive fixture work is confined to an explicitly opted-in disposable Docker container. */
 import assert from "node:assert/strict";
-import { access, chmod, chown, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, chown, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import { releaseSavedJobLog, savedCompletedOutput } from "../server/job-log-cleanup.mjs";
 import { jobLogPath } from "../server/job-log.mjs";
@@ -10,6 +10,8 @@ import path from "node:path";
 import { fixedRun } from "../server/exec.mjs";
 import { inspectPackageHealth, inspectPackageLocks } from "../server/package-health.mjs";
 import { aptRepair } from "../server/tasks/apt.mjs";
+import { createStateStore } from "../server/state.mjs";
+import { inspectControllerDatabase } from "../server/controller-database-health.mjs";
 
 if (process.env.BOXPILOT_DISPOSABLE_TEST !== "1" || process.platform !== "linux" || process.getuid?.() !== 0 || !await access("/.dockerenv").then(() => true, () => false)) {
   throw new Error("This test requires BOXPILOT_DISPOSABLE_TEST=1 inside a disposable root Docker container. Never run it on an installed server.");
@@ -70,6 +72,22 @@ try {
   const released = await releaseSavedJobLog({ jobId: savedJob }, { directory: cache, lookup: (id) => savedCompletedOutput(id, stateFile) });
   assert.equal(released.removed, true);
   console.log("PASS: web can read but cannot unlink; helper releases the fully saved cache");
+
+  const databaseDirectory = path.join(directory, "controller-state");
+  const store = createStateStore({ stateDirectory: databaseDirectory });
+  store.consumeBootstrapToken(store.createBootstrapToken().token, { username: "fixture-owner", passwordHash: "fixture-only-hash" });
+  const databasePath = store.databasePath; store.close();
+  await chown(databaseDirectory, 1000, 1000); await chown(databasePath, 1000, 1000);
+  const beforeDatabase = await readFile(databasePath);
+  assert.equal((await inspectControllerDatabase({ databasePath })).status, "ready");
+  assert.deepEqual(await readFile(databasePath), beforeDatabase);
+  for (const suffix of ["-wal", "-shm"]) {
+    const info = await lstat(databasePath + suffix).catch(() => null);
+    if (info) assert.equal(info.uid, 1000, "read-only doctor must not leave root-owned SQLite coordination files");
+  }
+  const reopen = spawn(process.execPath, ["--input-type=module", "-e", `import {createStateStore} from ${JSON.stringify(new URL("../server/state.mjs", import.meta.url).href)}; const store=createStateStore({stateDirectory:process.argv[1]}); store.close();`, databaseDirectory], { uid: 1000, gid: 1000, stdio: "inherit" });
+  assert.equal(await new Promise((resolve, reject) => { reopen.once("exit", resolve); reopen.once("error", reject); }), 0);
+  console.log("PASS: independent database check preserves bytes and permits the web identity to reopen state");
 
 } finally {
   if (locker && locker.exitCode === null) { const exited = new Promise((resolve) => locker.once("exit", resolve)); locker.stdin.end("done\n"); await exited; }

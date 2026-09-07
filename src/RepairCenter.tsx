@@ -332,7 +332,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       )}
 
       <RuntimeHealth />
-      <ControllerDoctor />
+      <ControllerDoctor onOpenBackups={() => onNavigate("backups")} />
       <PackageRecovery csrfToken={csrfToken} />
 
       <section className="repair-prerequisites" aria-label="Prerequisites">

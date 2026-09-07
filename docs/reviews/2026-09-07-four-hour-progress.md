@@ -85,3 +85,11 @@ Output fallback now waits for a slow poll before scheduling another. A disconnec
 ## Bounded browser output and truthful log errors
 
 Approval and Activity log views retain a 256 Ki-character tail with a visible truncation notice, preserving Unicode pairs and replacing full snapshots correctly. Job lookup and saved-output reads now abort on unmount and have 15-second deadlines. Failed reads show a retry action instead of claiming that the job had no output or staying on Reading indefinitely. Changing job ids clears a previous missing-job state. Full check passed with 1,542 tests across 227 files.
+
+Hosted CI and native install smoke passed for 650ae0e and 860184d.
+
+## Independent database diagnostics
+
+Added operator-only `controller.database.inspect`, a separate manual database action in Repair Center and independent doctor `--database`. Core SQLite checks run in a child with a 15-second deadline, bounded V8 heap/cache target/output and no inherited secret environment. It reads no account or job values into the report and runs no migration, checkpoint, database replacement or journal deletion. Root drops the child's identity to the database owner so normal SQLite coordination files cannot become root-owned.
+
+Fixtures cover committed WAL records, corruption, missing database/tables, foreign-key violations, symlinks, new-install account absence and a real child deadline. The Ubuntu integration preserves source bytes and proves the web identity can reopen the offline database after inspection. Local full check passed with 1,553 tests across 228 files. The built browser demo's database result and backup navigation were inspected. Native smoke now calls the registry inspector and adds database evidence with both services stopped; its hosted result is pending. Production database inspection and deployment have not been performed.

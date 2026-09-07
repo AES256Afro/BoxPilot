@@ -5,7 +5,7 @@ set -u
 # This entry point remains available over SSH when the web service cannot start.
 case "${1:-}" in
   --help)
-    printf 'Usage: sh scripts/boxpilot-doctor.sh [--control-plane [--json] | --json]\nNo options runs the existing host and optional virtualization checks.\n--control-plane checks BoxPilot services, permissions, release files and capacity.\n--json prints the controller report as JSON. Run with sudo for protected metadata.\n'
+    printf 'Usage: sh scripts/boxpilot-doctor.sh [--control-plane [--database] [--json] | --json]\nNo options runs the existing host and optional virtualization checks.\n--control-plane checks BoxPilot services, permissions, release files and capacity.\nAdd --database for bounded read-only SQLite checks without migrations or record contents.\n--json prints the controller report as JSON. Run with sudo for protected metadata.\n'
     exit 0
     ;;
   --control-plane|--json)
