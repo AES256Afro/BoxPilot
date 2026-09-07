@@ -154,3 +154,11 @@ Hosted CI and native install smoke both passed for a4c104f, including the short 
 Activity now falls back after a delayed, malformed or disconnected stream. It fetches up to 50 jobs sequentially, with a 15-second request deadline, slower hidden-tab updates, failure backoff and no repeated requests after session refusal. Healthy streams do no polling. The UI distinguishes loading, unavailable/stale history and confirmed empty account history, with retry. The drawer now contains keyboard focus, closes on Escape and restores its opener. Backup follow-up notices use readable 14 px text and warning colors. Full check passed with 1,600 tests across 232 files. Browser inspection confirmed the actual failed-stream fallback and the saved backup notice.
 
 Hosted CI and native install smoke both passed for 9eea546.
+
+## Raw configuration privacy
+
+The viewer-readable app configuration response included the entire Compose file, which can contain inline credentials after a manual edit, and unmasked `.env` entries no longer declared by the catalog. Configuration now masks unknown values and reads raw Compose through an audited elevated-owner operation. Fixed-file reads reject links/non-files and stop at 64 KiB. The UI retains the raw editing flow after owner verification, aborts abandoned reads and clears the password on close. Password-typed manifest fields always remain secret. New Compose edits are temporary secret parameters instead of persisted plaintext job parameters. Existing historical job copies and backups are not rewritten.
+
+Private app-backup inventories, machine-snapshot lists and application model names/sizes now require an operator; HTTP tests exercise run and inspect routes. Full check passed with 1,608 tests across 232 files. Browser inspection confirmed masked configuration and the raw-file-to-editor path; automated UI/HTTP tests cover owner verification and abandoning the read. Activity's phone-width warning layout and Escape focus return were also verified in the browser.
+
+Hosted CI and native install smoke both passed for 0fdee34.

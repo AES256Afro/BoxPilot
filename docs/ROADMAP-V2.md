@@ -1015,8 +1015,10 @@ clear until v1.112.0. The lesson generalises.
   jobs, scheduler, flows and the audit log, so a new nesting cannot be missed three times.
 - **M29.2 Staged secrets expire.** Thirty minutes unapproved and the staged copy is dropped, with
   the dialog saying so; today they live until the daily prune.
-- **M29.3 Backups never carry a secret.** A test that stages every operation with a secret in the
-  registry, writes a controller backup, and greps the archive.
+- **M29.3 Transient operation secrets stay out of controller backups.** A test that stages every
+  operation with a secret in the registry, writes a controller backup, and checks the copy for
+  those supplied values. Application backups still contain the credentials needed to restore
+  the application and require private storage.
 
 ### M30 — BoxPilot watching BoxPilot
 
@@ -1055,6 +1057,7 @@ Evidence, implemented fixes, live measurements, limitations and alternative repa
 - **M29.2 Staged-secret expiry (first slice implemented locally 2026-09-07).** Thirty-minute deadlines now apply to secret-bearing approvals; the minute sweep cancels expired jobs and drops secrets; the dialog shows expiry. Clock/restart tests pass. Remaining shared secret-path and backup-exclusion audit stays with M29.1/3. Original scope: expire awaiting-approval secret material and approval validity together after 30 minutes, including restart and abandoned-dialog behavior. Acceptance: injected-clock boundary tests, no secret in jobs/flows/schedules/logs/backups, and clear re-entry guidance.
 - **M29.4 Recovery exports and dependency hygiene (P1).** First slice implemented locally: owner-only full recovery export, case-insensitive API no-store, qs 6.16.0. Next: audit composite routes against direct-operation role rules; tests for every role and route casing; CI production dependency audit with an explicit triage process. Acceptance: non-owner cannot obtain another user's job metadata through any export or aggregate endpoint; inventory summaries stay usable where authorized.
 - **M29.5 Capacity bounds on authentication state (implemented 2026-09-07).** OIDC retains at most 1,024 pending codes and 64 per client, physically expires idle grants and rechecks client registration. Throttles preserve active blocks at a true capacity ceiling, including all-blocked saturation. Signing-key damage preserves the identity and leaves ordinary login available; Settings explains recovery. Acceptance: hostile cardinality test keeps memory bounded and does not let a caller evict its own block. Reuse the existing bounded whois/passkey caches.
+- **M29.6 Raw configuration and private inventories (implemented 2026-09-07).** Raw Compose reads require an elevated owner session, use bounded fixed-file reads and remain editable. Viewer configuration masks unknown environment values. Password fields cannot opt out of secret handling, and new raw edits stay in temporary secret storage rather than persisted job parameters. Backup inventories and model names/sizes require an operator. Acceptance: HTTP role/elevation tests, manual inline-secret fixtures, symlink/oversize refusals, and a durable-job test that keeps the edit out of stored parameters. Existing historical copies are not rewritten.
 
 ### Extend M30: repair BoxPilot when BoxPilot is broken
 

@@ -310,6 +310,47 @@ describe("finding things in a catalog of a hundred-odd apps", () => {
     expect(screen.queryByText("Jellyfin")).toBeNull();
   });
 
+  it("reads raw Compose only through the owner verification endpoint before allowing editing", async () => {
+    let elevated = false;
+    const compose = "services:\n  dockge:\n    environment:\n      TOKEN: owner-only-fixture\n";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest: dockge, live: runningLive }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10" } });
+      if (url.includes("app.serve.inspect")) return json({ result: { available: true, serves: [] } });
+      if (url.includes("app.config.inspect")) return json({ result: { id: "dockge", name: "Dockge", env: [], compose: "ignore-legacy-raw-response" } });
+      if (url.includes("app.compose.inspect")) return elevated ? json({ result: { compose } }) : json({ code: "elevation_required" }, 401);
+      if (url.endsWith("/auth/elevate")) { elevated = true; return json({ ok: true }); }
+      return json({ error: `unexpected ${url}` }, 500);
+    });
+    vi.stubGlobal("fetch", fetchMock); render(<AppCatalog csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Config" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Read Compose file" }));
+    expect(screen.queryByText("ignore-legacy-raw-response")).toBeNull();
+    fireEvent.change(await screen.findByLabelText("Owner password for Compose"), { target: { value: "correct horse battery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Unlock and read Compose file" }));
+    expect(await screen.findByText(/owner-only-fixture/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Edit raw" }));
+    expect((screen.getByLabelText("Compose file") as HTMLTextAreaElement).value).toBe(compose);
+  });
+
+  it("aborts a raw configuration read when its dialog closes", async () => {
+    let signal: AbortSignal | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, options?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest: dockge, live: runningLive }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10" } });
+      if (url.includes("app.serve.inspect")) return json({ result: { available: true, serves: [] } });
+      if (url.includes("app.config.inspect")) return json({ result: { id: "dockge", name: "Dockge", env: [] } });
+      if (url.includes("app.compose.inspect")) return new Promise<Response>((_resolve, reject) => { signal = options?.signal ?? undefined; signal?.addEventListener("abort", () => reject(signal?.reason), { once: true }); });
+      return json({ error: "unavailable" }, 500);
+    }));
+    render(<AppCatalog csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Config" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Read Compose file" }));
+    await waitFor(() => expect(signal).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+    expect(signal?.aborted).toBe(true); expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("still opens the configuration dialog when the answer is missing a section", async () => {
     // A partial result satisfied the "did we get anything" guard and then threw on env.length
     // while rendering, losing the whole dialog instead of the one section that was absent.

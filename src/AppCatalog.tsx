@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { strandedServes } from "./strandedServes";
 import { useOperation } from "./ApproveDialog";
 import { inspectOperation } from "./operations";
@@ -254,6 +254,14 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   const [models, setModels] = useState<{ id: string; name: string; available: boolean; reason: string | null; rows: Array<{ name: string; id: string; size: string; modified: string; bytes: number }>; wanted: string; loading: boolean } | null>(null);
   const [effectiveConfig, setEffectiveConfig] = useState<{ id: string; name: string; compose: string | null; env: Array<{ name: string; value: string; secret: boolean }>; directory: string } | null>(null);
   const [composeDraft, setComposeDraft] = useState<string | null>(null);
+  const [composeAccess, setComposeAccess] = useState({ needsPassword: false, password: "", busy: false, error: null as string | null });
+  const composeRead = useRef<AbortController | null>(null);
+  useEffect(() => () => { composeRead.current?.abort(); composeRead.current = null; }, [effectiveConfig?.id]);
+  const closeEffectiveConfig = () => {
+    composeRead.current?.abort(); composeRead.current = null;
+    setEffectiveConfig(null); setComposeDraft(null);
+    setComposeAccess({ needsPassword: false, password: "", busy: false, error: null });
+  };
   const [appBackups, setAppBackups] = useState<{ id: string; name: string; verification?: LiveState["backupVerification"]; backups: Array<{ artifact: string; createdAt: string | null; sizeBytes: number | null; downtimeMs: number | null; skippedHostPaths: string[]; skippedVolumes?: string[]; image: string | null }> } | null>(null);
   const [browsing, setBrowsing] = useState<{ backup: string; files: Array<{ path: string; sizeBytes: number; type: string }>; truncated: boolean; filter: string } | null>(null);
   const browseBackup = async (id: string, backup: string) => {
@@ -393,6 +401,8 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   };
 
   const showEffectiveConfig = async (id: string) => {
+    setComposeAccess({ needsPassword: false, password: "", busy: false, error: null });
+    setComposeDraft(null);
     try {
       const response = await fetch("/api/v1/operations/app.config.inspect/run", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id } }) });
       const body = (await response.json().catch(() => ({}))) as { result?: { id: string; name: string; compose: string | null; env: Array<{ name: string; value: string; secret: boolean }>; directory: string }; error?: string };
@@ -400,9 +410,42 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
       // Normalised here so the dialog below can read these without checking each one. A partial
       // answer used to satisfy the guard above and then throw on `env.length` while rendering,
       // which loses the whole dialog rather than the one section that is missing.
-      setEffectiveConfig({ ...body.result, env: body.result.env ?? [], compose: body.result.compose ?? null, directory: body.result.directory ?? "", name: body.result.name ?? id });
+      setEffectiveConfig({ ...body.result, env: body.result.env ?? [], compose: null, directory: body.result.directory ?? "", name: body.result.name ?? id });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Could not read the configuration");
+    }
+  };
+
+  const readRawCompose = async () => {
+    if (!effectiveConfig || composeAccess.busy) return;
+    const id = effectiveConfig.id;
+    const password = composeAccess.password;
+    composeRead.current?.abort();
+    const controller = new AbortController(); composeRead.current = controller;
+    const deadline = setTimeout(() => controller.abort(), 15_000);
+    setComposeAccess((current) => ({ ...current, busy: true, password: "", error: null }));
+    try {
+      if (password) {
+        const elevated = await fetch("/api/v1/auth/elevate", { method: "POST", signal: controller.signal, headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ password }) });
+        const body = await elevated.json() as { error?: string };
+        if (!elevated.ok) throw new Error(body.error ?? "Owner verification failed");
+        window.dispatchEvent(new Event("boxpilot:auth-changed"));
+      }
+      const response = await fetch("/api/v1/operations/app.compose.inspect/run", { method: "POST", signal: controller.signal, headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ parameters: { id } }) });
+      const body = await response.json() as { result?: { compose?: unknown }; error?: string; code?: string };
+      if (controller.signal.aborted) return;
+      if (response.status === 401 && body.code === "elevation_required") { setComposeAccess({ needsPassword: true, password: "", busy: false, error: null }); return; }
+      if (!response.ok) { if (response.status === 403) setComposeAccess((current) => ({ ...current, needsPassword: false })); throw new Error(body.error ?? "The Compose file could not be read"); }
+      if (typeof body.result?.compose !== "string") throw new Error("The Compose file response was incomplete");
+      const compose = body.result.compose;
+      setEffectiveConfig((current) => current?.id === id ? { ...current, compose } : current);
+      setComposeAccess({ needsPassword: false, password: "", busy: false, error: null });
+    } catch (readError) {
+      if (composeRead.current !== controller) return;
+      setComposeAccess((current) => ({ ...current, busy: false, error: controller.signal.aborted ? "The Compose file could not be read in time. Try again." : readError instanceof Error ? readError.message : "The Compose file could not be read" }));
+    } finally {
+      clearTimeout(deadline);
+      if (composeRead.current === controller) composeRead.current = null;
     }
   };
 
@@ -901,11 +944,11 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
       )}
 
       {effectiveConfig && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => { setEffectiveConfig(null); setComposeDraft(null); }}>
+        <div className="modal-backdrop" role="presentation" onMouseDown={closeEffectiveConfig}>
           <section className="modal" role="dialog" aria-modal="true" aria-labelledby="config-title" onMouseDown={(event) => event.stopPropagation()}>
-            <header className="modal-header"><div><span className="eyebrow">Effective configuration</span><h2 id="config-title">{effectiveConfig.name}</h2></div><button className="icon-button" type="button" onClick={() => { setEffectiveConfig(null); setComposeDraft(null); }} aria-label="Close dialog">X</button></header>
+            <header className="modal-header"><div><span className="eyebrow">Effective configuration</span><h2 id="config-title">{effectiveConfig.name}</h2></div><button className="icon-button" type="button" onClick={closeEffectiveConfig} aria-label="Close dialog">X</button></header>
             <div className="modal-copy">
-              <p>What BoxPilot wrote under <code>{effectiveConfig.directory}</code>. Secret values are masked; use Secrets to reveal them.</p>
+              <p>Configuration under <code>{effectiveConfig.directory}</code>. Private environment values are masked. The raw Compose file is available after owner verification because it may contain credentials.</p>
               {effectiveConfig.env.length > 0 && composeDraft === null && (
                 <>
                   <strong>.env</strong>
@@ -915,7 +958,11 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
               <strong>compose.yaml</strong>
               {composeDraft === null ? (
                 <>
-                  <pre className="app-logs">{effectiveConfig.compose ?? "(missing)"}</pre>
+                  {effectiveConfig.compose === null ? <div>
+                    {composeAccess.needsPassword && <label>Owner password<input aria-label="Owner password for Compose" type="password" autoComplete="current-password" value={composeAccess.password} onChange={(event) => setComposeAccess((current) => ({ ...current, password: event.target.value }))} /></label>}
+                    {composeAccess.error && <p className="auth-error" role="alert">{composeAccess.error}</p>}
+                    <button className="secondary-button" type="button" disabled={composeAccess.busy || (composeAccess.needsPassword && composeAccess.password.length < 12)} onClick={() => void readRawCompose()}>{composeAccess.busy ? "Reading Compose file..." : composeAccess.needsPassword ? "Unlock and read Compose file" : "Read Compose file"}</button>
+                  </div> : <pre className="app-logs">{effectiveConfig.compose}</pre>}
                   {effectiveConfig.compose && <footer className="recovery-actions"><button className="secondary-button" type="button" onClick={() => setComposeDraft(effectiveConfig.compose)}>Edit raw</button></footer>}
                 </>
               ) : (
@@ -924,7 +971,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                   <textarea aria-label="Compose file" className="compose-editor" spellCheck="false" rows={16} value={composeDraft} onChange={(event) => setComposeDraft(event.target.value)} />
                   <footer className="recovery-actions">
                     <button className="secondary-button" type="button" onClick={() => setComposeDraft(null)}>Cancel</button>
-                    <button className="primary-button" type="button" disabled={!composeDraft.trim() || composeDraft === effectiveConfig.compose} onClick={() => { const draft = composeDraft; const target = effectiveConfig; setEffectiveConfig(null); setComposeDraft(null); start({ operationId: "app.compose.edit", title: `Apply edited compose file to ${target.name}`, parameters: { id: target.id, compose: draft }, preview: <span>Replaces <code>compose.yaml</code> verbatim and recreates the containers. Rolled back if {target.name} does not come up.</span> }); }}>Apply</button>
+                    <button className="primary-button" type="button" disabled={!composeDraft.trim() || composeDraft === effectiveConfig.compose} onClick={() => { const draft = composeDraft; const target = effectiveConfig; closeEffectiveConfig(); start({ operationId: "app.compose.edit", title: `Apply edited compose file to ${target.name}`, parameters: { id: target.id, compose: draft }, preview: <span>Replaces <code>compose.yaml</code> verbatim and recreates the containers. Rolled back if {target.name} does not come up.</span> }); }}>Apply</button>
                   </footer>
                 </>
               )}

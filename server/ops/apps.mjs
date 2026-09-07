@@ -184,7 +184,7 @@ export function appOperations() {
       run: (_parameters, { apps }) => apps.countAppBackups(),
     }),
     defineOperation({
-      id: "app.backups.inspect", title: "List application backups", risk: "low", readOnly: true, timeoutMs: 30_000,
+      id: "app.backups.inspect", title: "List application backups", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 30_000,
       parameters: { fields: { id: idField } },
       run: (parameters, { apps }) => apps.listAppBackups(parameters),
     }),
@@ -225,14 +225,20 @@ export function appOperations() {
     defineOperation({
       id: "app.compose.edit", title: "Edit application compose file", risk: "high", timeoutMs: minutes(20),
       description: "Takes a data checkpoint, then replaces the app's compose.yaml verbatim, giving you full control and full responsibility. Validated by docker compose, applied with rollback; the next Settings change or Update regenerates the file from the manifest.",
-      parameters: { fields: { id: idField, compose: { type: "string", maxLength: 65536 }, checkpoint: { type: "boolean", optional: true } } },
+      parameters: { fields: { id: idField, compose: { type: "string", secret: true, maxLength: 65536 }, checkpoint: { type: "boolean", optional: true } } },
       run: (parameters, { apps, progress }) => apps.editCompose({ id: parameters.id, compose: parameters.compose }, { progress, checkpoint: parameters.checkpoint ?? true }),
     }),
     defineOperation({
       id: "app.config.inspect", title: "Show an app's settings", risk: "low", readOnly: true, timeoutMs: 30_000,
-      description: "The compose.yaml and .env BoxPilot wrote for the app. Secret values are masked; Reveal secrets shows them.",
+      description: "Declared public environment settings and masked private values. Reading the raw Compose file requires an elevated owner session.",
       parameters: { fields: { id: idField } },
       run: (parameters, { apps }) => apps.config(parameters),
+    }),
+    defineOperation({
+      id: "app.compose.inspect", title: "Read the raw application Compose file", risk: "low", readOnly: true, elevatedOnly: true, minimumRole: "owner", timeoutMs: 30_000,
+      description: "Reads the fixed Compose file for editing. It may contain inline credentials, so it requires owner verification and is audited.",
+      parameters: { fields: { id: idField } },
+      run: (parameters, { apps }) => apps.readComposeConfig(parameters),
     }),
     defineOperation({
       id: "app.secrets", title: "Reveal application secrets", risk: "low", readOnly: true, elevatedOnly: true, minimumRole: "owner", timeoutMs: 30_000,
@@ -320,7 +326,7 @@ export function appOperations() {
       run: (_parameters, { apps }) => apps.backupProtection(),
     }),
     defineOperation({
-      id: "app.models.inspect", title: "List an application's models", risk: "low", readOnly: true, timeoutMs: minutes(2),
+      id: "app.models.inspect", title: "List an application's models", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: minutes(2),
       description: "Which language models this app has downloaded, with the disk each one takes.",
       parameters: { fields: { id: idField } },
       run: (parameters, { apps }) => apps.listModels({ id: parameters.id }),

@@ -9,3 +9,11 @@ Pending SSO codes expire after one minute and are physically removed by one idle
 Authorization fields have application limits: state 2,048 characters, nonce 512, scope 256 and redirect URI 2,048. Repeated non-string fields are refused. Redirect URIs must match a registered HTTP(S) URL and cannot contain credentials or a fragment. BoxPilot requires explicit S256, a 43-character base64url SHA-256 challenge and a 43-128-character unreserved verifier. The verifier alphabet and S256 transformation follow [RFC 7636 sections 4.1-4.3](https://www.rfc-editor.org/rfc/rfc7636#section-4.1); the field and capacity limits are BoxPilot policy.
 
 Password throttles retain at most 5,000 entries per configured throttle. Active blocks are never evicted to admit new callers. If every slot is blocked, an unknown caller waits until the first slot is reclaimable. This bounds memory under saturation but can temporarily delay a legitimate new password login during an attack. The throttle does not govern existing authenticated sessions. Expired retained counters are cleaned on subsequent activity; they have a fixed maximum count while idle.
+
+## Application configuration
+
+An app's Config dialog shows declared public environment values and masks private or undeclared `.env` entries. Password fields are always private, including a manifest that mistakenly specifies `secret: false`. The complete Compose file may contain credentials placed there by a manual edit. Read Compose file uses the audited `app.compose.inspect` operation, requires the owner and accepts an existing elevated session. Otherwise the dialog asks for the owner password. Editing remains available after reading the file.
+
+Configuration reads accept only the catalog app id, use fixed filenames, reject symlinks and non-regular files, and stop at 64 KiB. Closing the dialog aborts its request and clears the displayed file and password. New Compose edits use temporary secret parameters with the same approval expiry and restart behavior as passwords, so the raw file is not stored in new job parameters. Previously recorded edits and existing backups are not rewritten by this change.
+
+Private application-backup inventories, machine-snapshot lists and model names/sizes require an operator. Aggregate backup counts and declared public settings remain viewer-readable.
