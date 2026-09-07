@@ -28,6 +28,32 @@ afterEach(async () => {
 });
 
 describe("durable job executor", () => {
+  it("expires secret-bearing approvals at the boundary and drops abandoned credentials", async () => {
+    const helper = { request: vi.fn(async () => ({ ok: true })) };
+    const { store, owner } = await setup(helper);
+    let clock = Date.parse("2026-09-07T12:00:00Z");
+    const jobs = createJobService(store, helper, { now: () => clock });
+    const first = await jobs.createOperationJob("samba.user.set", { username: "sam", password: "twelve chars long" }, owner.id);
+    const ordinary = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+    expect(jobs.describeApproval(first.id)).toMatchObject({ expiresAt: "2026-09-07T12:30:00.000Z", expired: false });
+    clock += 30 * 60_000 - 1;
+    expect(jobs.pruneStagedSecrets()).toBe(0);
+    clock += 1;
+    await expect(jobs.approveAndRun(first.id, owner.id, {})).rejects.toThrow("approval expired");
+    expect(store.getJob(first.id).state).toBe("cancelled");
+    expect(helper.request).not.toHaveBeenCalled();
+    expect(jobs.describeApproval(ordinary.id)).toMatchObject({ expiresAt: null, expired: false });
+    const second = await jobs.createOperationJob("samba.user.set", { username: "sam", password: "another password" }, owner.id);
+    clock += 30 * 60_000;
+    expect(jobs.pruneStagedSecrets()).toBe(1);
+    expect(jobs.pruneStagedSecrets()).toBe(0);
+    expect(store.getJob(second.id).state).toBe("cancelled");
+    const restarted = createJobService(store, helper, { now: () => clock });
+    await expect(restarted.approveAndRun(second.id, owner.id, {})).rejects.toThrow("approval expired");
+    expect(JSON.stringify(store.listJobs())).not.toContain("another password");
+    store.close();
+  });
+
   it("keeps secret parameters out of the database and hands them to the operation at run time", async () => {
     const helper = { request: vi.fn(async () => ({ ok: true })) };
     const { store, owner, jobs } = await setup(helper);

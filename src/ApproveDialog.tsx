@@ -94,6 +94,15 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
     }
   }, [job, csrfToken, password, typedConfirm, onFinished]);
 
+  const [approvalExpired, setApprovalExpired] = useState(false);
+  useEffect(() => {
+    const remaining = policy?.expiresAt ? Date.parse(policy.expiresAt) - Date.now() : null;
+    setApprovalExpired(Boolean(policy?.expired || (remaining !== null && remaining <= 0)));
+    if (remaining === null || remaining <= 0 || !Number.isFinite(remaining)) return;
+    const timer = window.setTimeout(() => setApprovalExpired(true), remaining);
+    return () => window.clearTimeout(timer);
+  }, [policy?.expiresAt, policy?.expired]);
+
   const tier = policy?.tier ?? "high";
   const passwordRequired = policy ? policy.passwordRequired : true;
   const confirmRequired = confirmText ?? policy?.confirmText ?? null;
@@ -114,6 +123,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
         <div className="modal-copy">
           {policy && <p><span className={`status-pill ${tierTone[tier]}`}>{tierLabel[tier]}</span>{policy.elevated && tier === "high" ? <span className="good-text"> Session elevated, no password needed right now.</span> : null}</p>}
           {preview && <div className="notice">{preview}</div>}
+          {phase === "ready" && policy?.expiresAt && <p role="status">{approvalExpired ? "This approval expired. Close it and stage the operation again with its credentials." : `Credentials are held temporarily. Approve before ${new Date(policy.expiresAt).toLocaleTimeString()}, or stage the operation again.`}</p>}
           {phase === "staging" && <p>Preparing...</p>}
           {phase === "ready" && confirmRequired && (
             <label>Type <code>{confirmRequired}</code> to confirm<input aria-label="Typed confirmation" autoComplete="off" spellCheck="false" value={typedConfirm} onChange={(event) => setTypedConfirm(event.target.value)} /></label>
@@ -140,7 +150,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
           ) : (
             <>
               <button className="secondary-button" type="button" onClick={dismiss} disabled={busy}>Cancel</button>
-              <button className="primary-button" type="button" onClick={() => void approve()} disabled={busy || phase !== "ready" || (passwordRequired && password.length < 12) || (Boolean(confirmRequired) && typedConfirm !== confirmRequired)}>{actionLabel}</button>
+              <button className="primary-button" type="button" onClick={() => void approve()} disabled={approvalExpired || busy || phase !== "ready" || (passwordRequired && password.length < 12) || (Boolean(confirmRequired) && typedConfirm !== confirmRequired)}>{actionLabel}</button>
             </>
           )}
         </footer>

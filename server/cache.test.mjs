@@ -9,6 +9,17 @@ function deferred() {
 }
 
 describe("sharing a slow read", () => {
+  it("reports cache cost without exposing the cached value", async () => {
+    let clock = 0;
+    const gate = deferred(); const read = shared(() => gate.promise, { ttlMs: 100, now: () => clock });
+    const first = read(); const second = read();
+    clock = 20; gate.release({ secret: "never in metrics" }); await Promise.all([first, second]);
+    await read();
+    expect(read.stats()).toMatchObject({ reads: 1, deduplicated: 1, cacheHits: 1, lastDurationMs: 20, inFlight: false, heldAgeMs: 0 });
+    expect(JSON.stringify(read.stats())).not.toContain("secret");
+    read.forget(); expect(read.stats().invalidations).toBe(1);
+  });
+
   it("does not let a pre-mutation read refill or clear a newer cache generation", async () => {
     const gates = [deferred(), deferred()];
     let calls = 0;

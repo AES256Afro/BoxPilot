@@ -382,6 +382,7 @@ app.use((error, request, response, _next) => {
 
 // Keep history bounded: finished jobs older than 90 days beyond the newest 500, audit beyond the newest 20,000 rows.
 const pruneHistory = () => { try { state.pruneHistory(); jobs.pruneStagedSecrets?.(); } catch (error) { console.warn(`History pruning failed: ${error.message}`); } };
+setInterval(() => { try { jobs.pruneStagedSecrets(); } catch (error) { console.warn(`Staged credential expiry failed: ${error.message}`); } }, 60_000).unref?.();
 setTimeout(pruneHistory, 2 * 60_000).unref?.();
 setInterval(pruneHistory, 24 * 3600_000).unref?.();
 

@@ -16,19 +16,24 @@ export function shared(read, { ttlMs = 0, now = () => Date.now() } = {}) {
   let generation = 0;
   let inFlight = null;
   let held = null; // { at, value }
+  const counters = { reads: 0, cacheHits: 0, deduplicated: 0, failures: 0, invalidations: 0, lastDurationMs: null };
 
   const call = (...args) => {
-    if (ttlMs > 0 && held && now() - held.at < ttlMs) return Promise.resolve(held.value);
-    if (inFlight) return inFlight;
+    if (ttlMs > 0 && held && now() - held.at < ttlMs) { counters.cacheHits += 1; return Promise.resolve(held.value); }
+    if (inFlight) { counters.deduplicated += 1; return inFlight; }
     const started = generation;
+    const startedAt = now();
+    counters.reads += 1;
     const pending = Promise.resolve().then(() => read(...args))
       .then((value) => { if (ttlMs > 0 && started === generation) held = { at: now(), value }; return value; })
       // A failure is never held: the next caller should get a fresh attempt, not a cached apology.
-      .finally(() => { if (inFlight === pending) inFlight = null; });
+      .catch((error) => { counters.failures += 1; throw error; })
+      .finally(() => { counters.lastDurationMs = Math.max(0, now() - startedAt); if (inFlight === pending) inFlight = null; });
     inFlight = pending;
     return pending;
   };
   /** Call after anything that changes what `read` would report. */
-  call.forget = () => { generation += 1; held = null; inFlight = null; };
+  call.forget = () => { counters.invalidations += 1; generation += 1; held = null; inFlight = null; };
+  call.stats = () => ({ ...counters, inFlight: Boolean(inFlight), heldAgeMs: held ? Math.max(0, now() - held.at) : null, ttlMs });
   return call;
 }

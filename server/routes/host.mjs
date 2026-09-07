@@ -5,6 +5,7 @@
  */
 import { Router } from "express";
 import { productVersion } from "../version.mjs";
+import { runtimeDiagnostics } from "../runtime-diagnostics.mjs";
 import { registry, riskTiers } from "../ops/index.mjs";
 import { approvalModes, elevationTtlMs } from "../ops/risk.mjs";
 import { findPortConflicts, listListeners } from "../ports.mjs";
@@ -58,6 +59,20 @@ export function buildReachability({ webHost, webPort, lanIp, dnsName, tls, serve
 
 export function createHostRouter({ state, helper, catalogService, inventory, network, notifications = null, controllerProtection, controllerRetention, githubProvenance, releaseUpdates, setup, supportBundle, audit, auth, identity = null, webHost = "127.0.0.1", webPort = 8787, tlsDir = process.env.BOXPILOT_TLS_DIR ?? "/etc/boxpilot/tls" }) {
   const router = Router();
+  router.get("/diagnostics/runtime", async (_request, response) => {
+    const [web, worker] = await Promise.allSettled([
+      runtimeDiagnostics.inspect(),
+      helper.request("system.runtime.inspect", {}, { timeoutMs: 10_000 }),
+    ]);
+    response.json({
+      web: web.status === "fulfilled" ? web.value : null,
+      helper: worker.status === "fulfilled" ? worker.value : null,
+      helperAvailable: worker.status === "fulfilled",
+      transport: helper.diagnostics?.() ?? null,
+      cache: runtimeDiagnostics.cacheStats(),
+    });
+  });
+
 
   // Catalog: manifests come from the working tree; live state comes from the helper (tolerated when unavailable).
   router.get("/catalog", async (request, response) => {
