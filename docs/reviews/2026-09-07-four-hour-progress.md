@@ -172,3 +172,9 @@ A valid empty inventory records success, clears old failure/deferral status, exp
 ## Configuration keyboard access
 
 App setup/settings and effective configuration now contain keyboard focus, close on Escape and restore their opener. Closing a raw Compose read also aborts it and clears transient password state. Full check passed with 1,622 tests across 232 files; regressions cover the setup focus cycle and Escape during a pending raw read.
+
+## Versioned update and backup history wording
+
+Prepared 1.115.0 using the repository's version synchronization script. Backup Center now calls its database rows history and explains that drill success is historical evidence; local retention can remove files while preserving records. Current file/repository availability reconciliation remains in M30.8. Full check passed with 1,622 tests across 232 files. The first broad browser sweep was interrupted after a concurrent rebuild invalidated the demo's captured asset references; its mixed-build failures are excluded. A fresh sweep runs against the completed 1.115.0 build.
+
+Hosted CI and native install smoke both passed for dabd1fb.
