@@ -39,9 +39,10 @@ export function jobLogPath(jobId, directory = defaultJobLogDirectory) {
 
 /** Writer for root-side processes. `group` is resolved by gid lookup of the boxpilot service user when available. */
 export function createJobLogWriter({ jobId, directory = defaultJobLogDirectory, gid = null, now = () => new Date(), replaceExisting = false } = {}) {
-  if (!jobId) return { append: async () => {}, path: null, enabled: false };
+  if (!jobId) return { append: async () => {}, flush: async () => {}, path: null, enabled: false };
   const target = jobLogPath(jobId, directory);
   let prepared = null; let bytes = 0;
+  const pending = new Set();
   async function prepare() {
     await mkdir(directory, { recursive: true, mode: 0o750 });
     if (gid !== null) await chown(directory, 0, gid).catch(() => {});
@@ -57,7 +58,7 @@ export function createJobLogWriter({ jobId, directory = defaultJobLogDirectory, 
     await chmod(target, 0o640).catch(() => {});
     try { bytes = (await stat(target)).size; } catch { bytes = 0; }
   }
-  async function append(line, stream = "stdout") {
+  async function write(line, stream = "stdout") {
     if (!prepared) prepared = prepare().then(() => true, () => false);
     if (!await prepared) return false;
     const budget = Math.min(maxJobLogLineBytes, maxJobLogBytes - bytes);
@@ -67,14 +68,22 @@ export function createJobLogWriter({ jobId, directory = defaultJobLogDirectory, 
     if (available <= 0) return false;
     const raw = String(line);
     // Slice before encoding or stripping controls so a huge line cannot double its allocation.
-    const buffer = Buffer.from(raw.slice(0, available).replace(/[\0]/g, ""));
+    const clippedRaw = raw.slice(0, available).replace(/[\uD800-\uDBFF]$/, "");
+    const buffer = Buffer.from(clippedRaw.replace(/[\0]/g, ""));
     const end = utf8End(buffer, available);
     const clipped = raw.length > available || end < buffer.length;
     const text = `${prefix}${buffer.toString("utf8", 0, end)}${clipped ? marker : ""}\n`;
     bytes += Buffer.byteLength(text);
     return appendFile(target, text).then(() => true, () => false);
   }
-  return { append, path: target, enabled: true };
+  function append(line, stream = "stdout") {
+    const writing = write(line, stream);
+    pending.add(writing);
+    writing.then(() => pending.delete(writing), () => pending.delete(writing));
+    return writing;
+  }
+  async function flush() { while (pending.size) await Promise.allSettled([...pending]); }
+  return { append, flush, path: target, enabled: true };
 }
 
 /** Reader for the web service. `read(jobId, offset)` returns the bytes after `offset`. */

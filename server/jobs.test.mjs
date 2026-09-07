@@ -28,6 +28,30 @@ afterEach(async () => {
 });
 
 describe("durable job executor", () => {
+  it("saves completed output before asking the helper to release the protected cache", async () => {
+    const seen = [];
+    let store;
+    const helper = { request: vi.fn(async (operation, parameters) => {
+      if (operation === "job.output.release") { seen.push(store.getJobOutput(parameters.jobId)); return { removed: true }; }
+      return { ok: true };
+    }) };
+    const setupResult = await setup(helper); store = setupResult.store;
+    const jobs = createJobService(store, helper, { jobLog: { read: async () => ({ text: "final output", exists: true }), remove: () => { throw new Error("web must not unlink root logs"); } } });
+    const job = await jobs.createOperationJob("apt.refresh", {}, setupResult.owner.id);
+    expect((await jobs.approveAndRun(job.id, setupResult.owner.id, {})).state).toBe("completed");
+    expect(seen).toEqual(["final output"]);
+    store.close();
+  });
+  it("preserves failed output without requesting cache deletion", async () => {
+    const helper = { request: vi.fn(async () => { throw new Error("operation failed"); }) };
+    const { store, owner } = await setup(helper);
+    const jobs = createJobService(store, helper, { jobLog: { read: async () => ({ text: "failure details", exists: true }) } });
+    const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
+    await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow("operation failed");
+    expect(store.getJobOutput(job.id)).toBe("failure details");
+    expect(helper.request).toHaveBeenCalledOnce();
+    store.close();
+  });
   it.each([false, true])("refreshes evidence after a settled operation without masking its outcome (failure=%s)", async (failed) => {
     const helper = { request: async () => { if (failed) throw new Error("original operation error"); return { ok: true }; } };
     const { store, owner } = await setup(helper);

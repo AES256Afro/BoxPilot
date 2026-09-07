@@ -29,6 +29,7 @@ const backupTreeOperations = new Set(["app.backup", "app.backup.restore", "app.b
 export function laneFor(operation, parameters = {}) {
   const id = String(operation ?? "");
   if (exclusiveOperations.has(id)) return [exclusiveLane];
+  if (id === "job.output.release") return ["job-output"];
   const subject = (value) => (typeof value === "string" && value.length && value.length <= 64 ? value : null);
   const lanes = [];
   if (id.startsWith("app.")) {

@@ -116,3 +116,12 @@ describe("bounded log storage and reads", () => {
     expect(result.text).not.toContain("old probe");
   });
 });
+
+it("flush waits for fire-and-forget output before the operation can publish a result", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-log-flush-")); directories.push(directory);
+  const writer = createJobLogWriter({ jobId, directory });
+  void writer.append("one"); void writer.append("two");
+  await writer.flush();
+  const report = await createJobLogReader({ directory }).read(jobId);
+  expect(report.text).toContain("one"); expect(report.text).toContain("two");
+});

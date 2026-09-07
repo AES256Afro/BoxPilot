@@ -1,6 +1,9 @@
 /** Destructive fixture work is confined to an explicitly opted-in disposable Docker container. */
 import assert from "node:assert/strict";
-import { access, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, chmod, chown, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { DatabaseSync } from "node:sqlite";
+import { releaseSavedJobLog, savedCompletedOutput } from "../server/job-log-cleanup.mjs";
+import { jobLogPath } from "../server/job-log.mjs";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -48,6 +51,26 @@ try {
   assert.equal((await inspectPackageHealth()).status, "busy");
   await assert.rejects(aptRepair(), /Another package manager/);
   console.log("PASS: a kernel-held package lock prevents repair");
+
+  // Reproduce the service's real permission split: group-readable output in a root-owned directory.
+  const cache = path.join(directory, "logs");
+  await chmod(directory, 0o755);
+  await mkdir(cache, { mode: 0o750 }); await chown(cache, 0, 1000);
+  const savedJob = "11111111-2222-4333-8444-555555555555";
+  const cached = jobLogPath(savedJob, cache);
+  await writeFile(cached, "saved output\n", { mode: 0o640 }); await chown(cached, 0, 1000);
+  const webCheck = spawn(process.execPath, ["--input-type=module", "-e", `import {readFile,unlink} from "node:fs/promises"; const file=${JSON.stringify(cached)}; if(await readFile(file,"utf8")!=="saved output\\n") process.exit(2); try { await unlink(file); process.exit(3); } catch(e) { if(e.code!=="EACCES") process.exit(4); }`], { uid: 1000, gid: 1000, stdio: "inherit" });
+  assert.equal(await new Promise((resolve, reject) => { webCheck.once("exit", resolve); webCheck.once("error", reject); }), 0);
+  const stateFile = path.join(directory, "cleanup.sqlite3");
+  const state = new DatabaseSync(stateFile);
+  state.exec("CREATE TABLE jobs(id TEXT PRIMARY KEY,state TEXT); CREATE TABLE job_output(job_id TEXT PRIMARY KEY,output TEXT)");
+  state.prepare("INSERT INTO jobs VALUES (?, 'completed')").run(savedJob);
+  state.prepare("INSERT INTO job_output VALUES (?,?)").run(savedJob, "saved output\n");
+  state.close();
+  const released = await releaseSavedJobLog({ jobId: savedJob }, { directory: cache, lookup: (id) => savedCompletedOutput(id, stateFile) });
+  assert.equal(released.removed, true);
+  console.log("PASS: web can read but cannot unlink; helper releases the fully saved cache");
+
 } finally {
   if (locker && locker.exitCode === null) { const exited = new Promise((resolve) => locker.once("exit", resolve)); locker.stdin.end("done\n"); await exited; }
   await fixedRun("/usr/bin/dpkg", ["--purge", name]);

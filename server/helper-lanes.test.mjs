@@ -140,3 +140,7 @@ describe("inspection concurrency", () => {
     await expect(gate.run(async () => "next one runs")).resolves.toBe("next one runs");
   });
 });
+
+it("keeps completed-log cache release independent of long host work", () => {
+  expect(laneFor("job.output.release", { jobId: "11111111-2222-4333-8444-555555555555" })).toEqual(["job-output"]);
+});
