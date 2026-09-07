@@ -3214,9 +3214,9 @@ textarea {
   justify-content: space-between;
   gap: 20px;
   padding: 18px;
-  border: 1px solid var(--border-success);
+  border: 1px solid var(--border);
   border-radius: 13px;
-  background: linear-gradient(105deg, var(--accent-bg), #11231f);
+  background: var(--surface-muted);
 }
 
 .repair-readiness > div {
@@ -4602,6 +4602,36 @@ textarea {
 .problem-card > button { justify-self: start; }
 .problem-manual { color: var(--muted); margin: 0; max-width: 82ch; }
 .repair-prereq-header { margin-top: 4px; }
+.repair-prerequisites { display: grid; gap: 12px; min-width: 0; }
+.repair-page { min-width: 0; font-size: 14px; line-height: 1.55; }
+.repair-page .panel, .repair-page .panel-header > div { min-width: 0; }
+.repair-page .panel-header { flex-wrap: wrap; }
+.repair-page .primary-button, .repair-page .secondary-button { font-size: 13px; }
+.repair-readiness > button { flex-shrink: 0; }
+.repair-page .panel-header strong, .repair-page .repair-check strong,
+.repair-page .action-card-heading strong { font-size: 15px; }
+.repair-page .panel-header span, .repair-page .repair-readiness p,
+.repair-page .repair-check p, .repair-page .repair-check em,
+.repair-page .helper-canary p, .repair-page .action-card p,
+.repair-page .action-card ol, .repair-page .action-evidence,
+.repair-page .recovery-check p, .repair-page .recovery-check small,
+.repair-page .job-steps p, .repair-page .job-recovery { font-size: 13px; line-height: 1.55; }
+.repair-page .action-evidence { background: var(--surface-muted); }
+.repair-page .repair-check { grid-template-columns: 96px minmax(0, 1fr); }
+.repair-page .problem-evidence { display: grid; gap: 6px; }
+.repair-page .problem-evidence li { font-size: 13px; border-radius: 6px; overflow-wrap: anywhere; }
+.repair-page .action-card, .repair-page .recovery-check, .repair-page .job-steps { overflow-wrap: anywhere; }
+.repair-page .status-pill { flex-shrink: 0; }
+.repair-details > summary { cursor: pointer; color: var(--text-strong); font-size: 13px; }
+.repair-details[open] > summary { margin-bottom: 10px; }
+.repair-details ol { margin-top: 10px; }
+.repair-details > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 3px; }
+@media (max-width: 640px) {
+  .repair-page .repair-check { grid-template-columns: 1fr; }
+  .repair-page .repair-state { justify-self: start; }
+  .repair-page .recovery-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .repair-page .recovery-check > div, .repair-page .action-card-heading { flex-wrap: wrap; }
+}
 
 /* Per-OS paths to a share, shown wherever a share is named (M22.7) */
 .connect-paths { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; }
