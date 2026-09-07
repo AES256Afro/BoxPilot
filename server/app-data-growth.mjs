@@ -27,7 +27,8 @@ export function appendUsageSample(history, { at, entries }, { maxDays = 30 } = {
     if (typeof entry?.key !== "string" || !Number.isFinite(entry.bytes)) continue;
     const kept = (Array.isArray(next[entry.key]) ? next[entry.key] : [])
       .filter((sample) => Number.isFinite(Date.parse(sample.at)) && Date.parse(sample.at) >= cutoff && sample.at.slice(0, 10) !== today);
-    kept.push({ at, bytes: entry.bytes, appId: entry.appId ?? null, path: entry.path ?? null, mount: entry.mount ?? null });
+    const sharedWith = Array.isArray(entry.sharedWith) ? [...new Set(entry.sharedWith.filter((id) => typeof id === "string"))].slice(0, 200) : [];
+    kept.push({ at, bytes: entry.bytes, appId: entry.appId ?? null, path: entry.path ?? null, mount: entry.mount ?? null, ...(sharedWith.length > 1 ? { sharedWith } : {}) });
     next[entry.key] = kept.slice(-maxDays);
   }
   // An uninstalled app's folders drop out once nothing has measured them for the whole window.
@@ -76,7 +77,7 @@ export function growthByApp(history, { now, mount = null, windowDays = 7, limit 
     if (mount && newest.mount !== mount) continue;
     const growth = growthOverWindow(samples, { now, windowDays });
     if (!growth) continue;
-    rows.push({ appId: newest.appId, path: newest.path, mount: newest.mount, ...growth });
+    rows.push({ appId: newest.appId, path: newest.path, mount: newest.mount, ...growth, ...(Array.isArray(newest.sharedWith) && newest.sharedWith.length > 1 ? { sharedWith: newest.sharedWith } : {}) });
   }
   return rows
     .sort((left, right) => (right.grewBytes ?? -Infinity) - (left.grewBytes ?? -Infinity) || right.bytes - left.bytes)
@@ -156,7 +157,9 @@ export function createAppDataSampler({ helper, store, readPressure = readScanPre
     // re-arms the timer below. Walking every data folder on the disk once per deploy is not what
     // "once a day" means, so the history itself decides whether it is due.
     const history = store.getSetting("appDataUsageHistory", {}) ?? {};
-    const previous = lastSampledAt(history);
+    const lastRun = store.getSetting("appDataUsageLastRun", null);
+    const emptyRunAt = lastRun && !lastRun.error && !lastRun.deferred && lastRun.sampled === 0 && lastRun.unmeasured === 0 ? Date.parse(lastRun.at) : NaN;
+    const previous = Math.max(lastSampledAt(history) ?? -Infinity, Number.isFinite(emptyRunAt) ? emptyRunAt : -Infinity);
     if (!force && previous !== null && now().getTime() - previous < minimumGapMs) return { sampled: 0, skipped: "measured recently" };
     if (!force) {
       const deferred = scanDeferral(await readPressure().catch(() => null));
@@ -166,8 +169,10 @@ export function createAppDataSampler({ helper, store, readPressure = readScanPre
       }
     }
     const usage = await helper.request("app.data.usage", {}, { timeoutMs });
-    const entries = usage?.entries ?? [];
-    if (!entries.length) return { sampled: 0 };
+    if (!Array.isArray(usage?.entries) || usage.entries.some((entry) => !entry || typeof entry.key !== "string" || !entry.key || !(entry.bytes === null || Number.isSafeInteger(entry.bytes) && entry.bytes >= 0))) {
+      throw new Error("Application data measurement returned an invalid folder inventory");
+    }
+    const entries = usage.entries;
     const next = appendUsageSample(history, { at: now().toISOString(), entries }, { maxDays });
     store.setSetting("appDataUsageHistory", next, { updatedBy: null });
     const sampled = entries.filter((entry) => Number.isFinite(entry.bytes)).length;

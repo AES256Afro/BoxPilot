@@ -1231,6 +1231,35 @@ describe("measuring what each app's data folders hold", () => {
     expect(usage.entries.some((entry) => entry.path === "/mnt/the-dump/media")).toBe(false);
   });
 
+  it.each([true, false])("walks a shared folder once per pass, including failures (%s)", async (ok) => {
+    let attempts = 0;
+    const runCommand = async (binary) => {
+      if (binary === "findmnt") return mounts;
+      if (binary === "du") { attempts += 1; return { ok, stdout: "512\t/shared\n", stderr: "" }; }
+      return { ok: false, stdout: "", stderr: "" };
+    };
+    const context = await setup({ runCommand });
+    await writeFile(path.join(context.catalogDirectory, "grabber.yaml"), withData);
+    await writeFile(path.join(context.catalogDirectory, "second.yaml"), withData.replace("id: grabber\n", "id: second\n").replace("name: Grabber", "name: Second"));
+    await context.apps.install({ id: "grabber" });
+    await context.apps.install({ id: "second" });
+    for (let pass = 1; pass <= 2; pass += 1) {
+      const usage = await context.apps.dataUsage();
+      expect(attempts).toBe(pass);
+      expect(usage).toMatchObject({ scansRun: 1, uniquePaths: 1, reusedReadings: 1 });
+      expect(usage.entries).toHaveLength(2);
+      for (const entry of usage.entries) expect(entry).toMatchObject({ bytes: ok ? 512 : null, sharedWith: ["grabber", "second"] });
+    }
+  });
+
+  it.each(["12junk", "-12", "9007199254740992"])("does not record malformed or inexact bytes: %s", async (token) => {
+    const runCommand = async (binary) => binary === "findmnt" ? mounts : { ok: true, stdout: `${token}\t/folder\n`, stderr: "" };
+    const context = await setup({ runCommand });
+    await writeFile(path.join(context.catalogDirectory, "grabber.yaml"), withData);
+    await context.apps.install({ id: "grabber" });
+    expect((await context.apps.dataUsage()).entries[0].bytes).toBeNull();
+  });
+
   it("ignores a total du printed alongside a failure", async () => {
     // du that could not read part of a tree exits non-zero and still prints a total - one missing
     // everything it could not see. On this server that is "0", which would read as the folder

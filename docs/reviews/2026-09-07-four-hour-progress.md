@@ -162,3 +162,9 @@ The viewer-readable app configuration response included the entire Compose file,
 Private app-backup inventories, machine-snapshot lists and application model names/sizes now require an operator; HTTP tests exercise run and inspect routes. Full check passed with 1,608 tests across 232 files. Browser inspection confirmed masked configuration and the raw-file-to-editor path; automated UI/HTTP tests cover owner verification and abandoning the read. Activity's phone-width warning layout and Escape focus return were also verified in the browser.
 
 Hosted CI and native install smoke both passed for 0fdee34.
+
+## Shared-folder scan cost and truthful empty results
+
+A data-usage pass now scans each exact writable path once across installed apps, including reuse of failed readings within the pass. The next pass retries normally. It reports scan/reuse counts and preserves shared-folder attribution in history. Storage displays shared growth once and names the apps using the folder without identifying one as the writer. Invalid, negative or inexact byte totals remain unmeasured.
+
+A valid empty inventory records success, clears old failure/deferral status, expires old history and respects the minimum interval across service restarts. Malformed inventories fail without replacing history. Full check passed with 1,621 tests across 232 files; the built browser confirmed one shared growth row. Exact path matching does not eliminate aliases or overlapping parent/child trees. Hosted CI and native install smoke both passed for 4f9c7db.

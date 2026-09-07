@@ -20,7 +20,7 @@ interface VolumeGroup { name: string | null; physicalVolumes: string[]; sizeByte
 interface ShareRow { name: string; kind: "smb" | "nfs"; source: string; mountpoint: string; readOnly: boolean; automount: boolean; mounted: boolean; sizeBytes: number | null; usedBytes: number | null; availableBytes: number | null }
 interface SnapshotRow { path: string; name: string; volumeGroup: string | null; sizeBytes: number; origin?: string; sizeGiB?: number; createdAt?: string; suffix?: string | null }
 interface StorageReport { devices: DeviceRow[]; mounts: MountRow[]; fstab: FstabRow[]; volumeGroups: VolumeGroup[]; snapshots?: SnapshotRow[]; shares: ShareRow[]; tools: { cifs: boolean; nfs: boolean; smbclient: boolean; showmount: boolean } }
-interface Usage { appId: string | null; path: string | null; mount: string | null; bytes: number; grewBytes: number | null; days: number }
+interface Usage { appId: string | null; path: string | null; mount: string | null; bytes: number; grewBytes: number | null; days: number; sharedWith?: string[] }
 interface LastMeasured { at: string; sampled: number; unmeasured: number; error: string | null; deferred?: string }
 interface Forecast { target: string; daysToFull: number; availableBytes: number | null; totalBytes: number | null; samples: number }
 interface Discovered { address: string; name: string | null; smb: boolean; nfs: boolean; mac: string | null; interface: string | null }
@@ -266,7 +266,7 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
                     Only folders that actually grew are named - listing the ones holding still just
                     buries the one that is not. */}
                 {(() => {
-                  const growing = usage.filter((entry) => entry.mount === forecast.target && (entry.grewBytes ?? 0) > 0);
+                  const growing = usage.filter((entry) => entry.mount === forecast.target && (entry.grewBytes ?? 0) > 0).filter((entry, index, entries) => !entry.sharedWith?.length || entries.findIndex((other) => other.path === entry.path) === index);
                   if (!growing.length) return null;
                   return (
                     <ul className="filling-blame">
@@ -274,7 +274,7 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
                         <li key={`${entry.appId}:${entry.path}`}>
                           {/* The app's name, not its id: the chips right above say "qBittorrent
                               (through a VPN)" and this said "qbittorrent". */}
-                          <strong>{mapApps.find((app) => app.id === entry.appId)?.name ?? entry.appId ?? "Unknown"}</strong> grew <strong>{gib(entry.grewBytes ?? 0)}</strong>
+                          {entry.sharedWith?.length ? <>Shared folder used by <strong>{entry.sharedWith.map((id) => mapApps.find((app) => app.id === id)?.name ?? id).join(", ")}</strong></> : <><strong>{mapApps.find((app) => app.id === entry.appId)?.name ?? entry.appId ?? "Unknown"}</strong>'s folder</>} grew <strong>{gib(entry.grewBytes ?? 0)}</strong>
                           {entry.days >= 1 ? ` in the last ${Math.round(entry.days)} day${Math.round(entry.days) === 1 ? "" : "s"}` : ""}
                           {" · "}<code>{entry.path}</code> holds {gib(entry.bytes)}
                         </li>

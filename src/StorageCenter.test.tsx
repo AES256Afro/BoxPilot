@@ -45,6 +45,18 @@ function mockFetch(overview: unknown, staged: Record<string, string>, extra: (ur
 }
 
 describe("Storage center", () => {
+  it("shows shared-folder growth once and names all apps using it", async () => {
+    mockFetch(report, {}, (url) => {
+      if (url === "/api/v1/storage/forecast") return json({ forecasts: [{ target: "/mnt/shared", daysToFull: 10, availableBytes: GiB }], usage: ["one", "two"].map((appId) => ({ appId, path: "/mnt/shared/downloads", mount: "/mnt/shared", bytes: 3 * GiB, grewBytes: 2 * GiB, days: 7, sharedWith: ["one", "two"] })) });
+      return null;
+    });
+    render(<StorageCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText(/Shared folder used by/)).toBeTruthy();
+    expect(screen.getAllByText(/Shared folder used by/)).toHaveLength(1);
+    expect(screen.getByText("one, two")).toBeTruthy();
+    expect(screen.getByText(/Shared folder used by/).textContent).toContain("grew 2.0 GiB");
+  });
+
   it("offers Mount for unmounted filesystems and stages it with the fstab preview", async () => {
     const staged: Record<string, string> = {};
     mockFetch(report, staged);
