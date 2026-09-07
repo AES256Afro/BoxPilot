@@ -1,3 +1,4 @@
+import CopyButton from "./CopyButton";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { readJson } from "./http";
 import { useOperation } from "./ApproveDialog";
@@ -176,7 +177,7 @@ export default function NetworkCenter({ csrfToken, onAssessmentReady, onOpenRepa
                 <div className="reach-badges">
                   <span className={`status-pill status-${way.encrypted ? "good" : "neutral"}`}>{way.encrypted ? "encrypted" : "not encrypted"}</span>
                   {way.encrypted && !way.trusted && <span className="status-pill status-warning">install certificate</span>}
-                  <button className="text-button" type="button" onClick={() => void navigator.clipboard?.writeText(way.url)}>Copy</button>
+                  <CopyButton value={way.url} />
                 </div>
               </div>
             ))}

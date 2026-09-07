@@ -1,3 +1,4 @@
+import CopyButton from "./CopyButton";
 import { connectPaths } from "./sharePaths";
 
 /**
@@ -13,7 +14,7 @@ export default function ConnectPaths({ host, share, subpath = "", compact = fals
           <span className="connect-os">{entry.os}</span>
           <code>{entry.path}</code>
           {!compact && <span className="muted connect-hint">{entry.hint}</span>}
-          <button className="text-button" type="button" onClick={() => void navigator.clipboard?.writeText(entry.path)} aria-label={`Copy the ${entry.os} path`}>Copy</button>
+          <CopyButton value={entry.path} ariaLabel={`Copy the ${entry.os} path`} />
         </li>
       ))}
     </ul>

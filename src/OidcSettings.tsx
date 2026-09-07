@@ -1,3 +1,4 @@
+import CopyButton from "./CopyButton";
 import { useCallback, useEffect, useState } from "react";
 
 /**
@@ -45,7 +46,6 @@ export default function OidcSettings({ csrfToken }: { csrfToken: string }) {
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not remove the app"); } finally { setBusy(false); }
   };
 
-  const copy = (value: string) => void navigator.clipboard?.writeText(value);
 
   return (
     <section className="panel settings-panel">
@@ -58,7 +58,7 @@ export default function OidcSettings({ csrfToken }: { csrfToken: string }) {
             <span>Most apps ask for one URL. Give them this, and choose authorization code with PKCE (no client secret).</span>
             <div className="recovery-actions" style={{ marginTop: 8 }}>
               <code style={{ wordBreak: "break-all" }}>{view.discovery}</code>
-              <button className="text-button" type="button" onClick={() => copy(view.discovery)}>Copy</button>
+              <CopyButton value={view.discovery} />
             </div>
             <span className="muted">If an app asks for the issuer instead, it is <code>{view.issuer}</code>. Register the app below to get its client id.</span>
           </div></div>
@@ -82,7 +82,7 @@ export default function OidcSettings({ csrfToken }: { csrfToken: string }) {
                   <strong>{client.name}</strong>
                   <span>client id <code style={{ wordBreak: "break-all" }}>{client.id}</code> · {client.redirectUris.length} redirect URL{client.redirectUris.length === 1 ? "" : "s"}</span>
                 </div>
-                <button className="text-button" type="button" onClick={() => copy(client.id)}>Copy id</button>
+                <CopyButton value={client.id} label="Copy id" />
                 <button className="text-button" type="button" disabled={busy} onClick={() => void remove(client)}>Remove</button>
               </div>
             ))}

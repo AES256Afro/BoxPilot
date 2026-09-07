@@ -1,3 +1,4 @@
+import CopyButton from "./CopyButton";
 import { useCallback, useEffect, useState, useRef } from "react";
 import type { PendingOperation } from "./ApproveDialog";
 
@@ -124,13 +125,13 @@ export default function NfsPanel({ start, folders, refreshKey }: { start: (opera
                     <li key={form.os}>
                       <span className="connect-os">{form.os}</span>
                       <code>{form.path}</code>
-                      <button className="text-button" type="button" onClick={() => void navigator.clipboard?.writeText(form.path)} aria-label={`Copy the ${form.os} form for ${entry.path}`}>Copy</button>
+                      <CopyButton value={form.path} ariaLabel={`Copy the ${form.os} form for ${entry.path}`} />
                     </li>
                   ))}
                   <li>
                     <span className="connect-os">At boot</span>
                     <code>{nfsFstabLine({ host, exportPath: entry.path })}</code>
-                    <button className="text-button" type="button" onClick={() => void navigator.clipboard?.writeText(nfsFstabLine({ host, exportPath: entry.path }))} aria-label={`Copy the fstab line for ${entry.path}`}>Copy</button>
+                    <CopyButton value={nfsFstabLine({ host, exportPath: entry.path })} ariaLabel={`Copy the fstab line for ${entry.path}`} />
                   </li>
                 </ul>
               </li>

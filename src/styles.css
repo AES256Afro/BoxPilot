@@ -4681,3 +4681,8 @@ textarea {
 .controller-doctor article { margin: 12px 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
 .controller-doctor article p { margin: 6px 0; }
 .controller-doctor pre { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.passkey-rename { grid-column: 1 / -1; width: 100%; }
+.passkey-rename label { display: grid; gap: 6px; flex: 1 1 180px; }
+.passkey-rename input { min-width: 0; width: 100%; }
+.copy-feedback { grid-column: 1 / -1; color: var(--text-muted); font-size: 14px; line-height: 1.5; }
