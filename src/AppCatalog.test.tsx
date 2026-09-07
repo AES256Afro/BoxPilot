@@ -66,6 +66,17 @@ describe("App catalog", () => {
     expect(JSON.parse(stagedBody ?? "{}")).toEqual({ parameters: { id: "jellyfin", values: { ports: { web: 8097 }, env: {}, volumes: { media: "/mnt/media" } } } });
   });
 
+  it("contains setup focus and returns to Install when Escape closes it", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => input.toString() === "/api/v1/catalog" ? json({ applications: [{ manifest, live: { installed: false, state: null, container: { exists: false } } }], problems: [], host: {} }) : json({})));
+    render(<AppCatalog csrfToken="csrf-token" />);
+    const opener = await screen.findByRole("button", { name: "Install" }); opener.focus(); fireEvent.click(opener);
+    const dialog = await screen.findByRole("dialog"); expect(document.activeElement).toBe(dialog);
+    fireEvent.keyDown(dialog, { key: "Tab" });
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Close dialog" }));
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull(); expect(document.activeElement).toBe(opener);
+  });
+
   it("offers the server's mounted drives and network shares as a folder dropdown at setup", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
@@ -344,10 +355,14 @@ describe("finding things in a catalog of a hundred-odd apps", () => {
       return json({ error: "unavailable" }, 500);
     }));
     render(<AppCatalog csrfToken="csrf-token" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Config" }));
+    const opener = await screen.findByRole("button", { name: "Config" }); opener.focus();
+    fireEvent.click(opener);
+    const dialog = await screen.findByRole("dialog");
+    expect(document.activeElement).toBe(dialog);
     fireEvent.click(await screen.findByRole("button", { name: "Read Compose file" }));
     await waitFor(() => expect(signal).toBeTruthy());
-    fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(document.activeElement).toBe(opener);
     expect(signal?.aborted).toBe(true); expect(screen.queryByRole("dialog")).toBeNull();
   });
 
