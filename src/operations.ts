@@ -13,7 +13,7 @@ export interface OperationDescription {
   parameterNames: string[];
 }
 
-export interface ApprovalPolicy { confirmText?: string | null; minimumRole?: string | null;
+export interface ApprovalPolicy { expiresAt?: string | null; expired?: boolean; confirmText?: string | null; minimumRole?: string | null;
   jobId?: string;
   tier: RiskTier;
   passwordRequired: boolean;

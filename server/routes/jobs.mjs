@@ -3,6 +3,7 @@
  * Activity-drawer event stream, and operation schedules. Mounted at /api/v1 behind the session.
  */
 import { Router } from "express";
+import { createEventStream, createStreamBudget } from "../event-stream.mjs";
 import { suggestFlows, suggestionFacts } from "../flow-suggestions.mjs";
 
 /**
@@ -17,8 +18,21 @@ export function outputTailFrom(final, sentBytes) {
   return bytes.subarray(sentBytes).toString("utf8");
 }
 
-export function createJobsRouter({ state, jobs, scheduler, flows = null, helper = null, jobLogReader, auth }) {
+export function createJobsRouter({ state, jobs, scheduler, flows = null, helper = null, jobLogReader, auth, streamBudget = createStreamBudget() }) {
   const router = Router();
+  function openStream(request, response) {
+    const release = streamBudget.acquire(request.boxpilotSession?.owner?.id ?? "anonymous");
+    if (!release) {
+      response.setHeader("Retry-After", "10");
+      response.status(429).json({ error: "Too many live streams are open. Close an unused tab and try again.", code: "stream_limit" });
+      return null;
+    }
+    response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive", "X-Accel-Buffering": "no" });
+    const stream = createEventStream(response);
+    stream.onClose(release);
+    return stream;
+  }
+
 
   /** Everyone sees their own jobs; the owner sees the whole box. */
   const scopeFor = (request) => (request.boxpilotSession?.owner?.role === "owner" ? {} : { createdBy: request.boxpilotSession.owner.id });
@@ -32,13 +46,15 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, helper 
   // Server-sent events for the Activity drawer: recent jobs on connect, then a snapshot of each
   // job as it is created, approved, stepped, or finished. Output text stays on /jobs/:id/stream.
   router.get("/events", (request, response) => {
-    response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive", "X-Accel-Buffering": "no" });
-    const send = (event, data) => response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    const stream = openStream(request, response);
+    if (!stream) return;
     const scope = scopeFor(request);
-    send("snapshot", { jobs: state.listJobs(30, scope) });
-    const unsubscribe = state.subscribeJobs((job) => { if (!scope.createdBy || job.createdBy === scope.createdBy) send("job", { job }); });
-    const heartbeat = setInterval(() => response.write(": ping\n\n"), 25_000);
-    request.on("close", () => { clearInterval(heartbeat); unsubscribe(); });
+    stream.send("snapshot", { jobs: state.listJobs(30, scope) });
+    const unsubscribe = state.subscribeJobs((job) => { if (!scope.createdBy || job.createdBy === scope.createdBy) stream.send("job", { job }); });
+    stream.onClose(unsubscribe);
+    const heartbeat = setInterval(() => stream.write(": ping\n\n"), 25_000);
+    heartbeat.unref?.();
+    stream.onClose(() => clearInterval(heartbeat));
   });
 
   // Job output: persisted once the job is finished, otherwise the live file being written by the helper/runner.
@@ -55,17 +71,17 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, helper 
   router.get("/jobs/:id/stream", async (request, response) => {
     const initial = state.getJob(request.params.id);
     if (!initial || !mayRead(request, initial)) return response.status(404).json({ error: "Job not found", code: "job_not_found" });
-    response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive", "X-Accel-Buffering": "no" });
-    response.write(": connected\n\n");
-    let offset = 0; let closed = false;
-    request.on("close", () => { closed = true; });
-    const send = (event, data) => { if (!closed) response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
+    const stream = openStream(request, response);
+    if (!stream) return;
+    stream.write(": connected\n\n");
+    let offset = 0;
     const persisted = state.getJobOutput(initial.id);
-    if (persisted !== null) { send("output", { text: persisted }); send("state", { state: initial.state, error: initial.error }); response.end(); return; }
+    if (persisted !== null) { await stream.output(persisted); stream.send("state", { state: initial.state, error: initial.error }); stream.end(); return; }
     const started = Date.now();
-    while (!closed && Date.now() - started < 3 * 60 * 60 * 1000) {
+    while (!stream.closed && Date.now() - started < 3 * 60 * 60 * 1000) {
+      if (!await stream.ready()) break;
       const chunk = await jobLogReader.read(initial.id, offset).catch(() => ({ text: "", offset, exists: false }));
-      if (chunk.text) { send("output", { text: chunk.text }); offset = chunk.offset; }
+      if (chunk.text) { if (!await stream.output(chunk.text)) break; offset = chunk.offset; }
       const current = state.getJob(initial.id);
       if (!current || ["completed", "failed", "cancelled"].includes(current.state)) {
         const final = state.getJobOutput(initial.id);
@@ -76,13 +92,13 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, helper 
         // suffix, not the whole, and offsets from the start no longer mean anything: send nothing
         // rather than a slice from the wrong place.
         const tail = final === null ? null : outputTailFrom(final, offset);
-        if (tail) send("output", { text: tail });
-        send("state", { state: current?.state ?? "unknown", error: current?.error ?? null });
+        if (tail) await stream.output(tail);
+        stream.send("state", { state: current?.state ?? "unknown", error: current?.error ?? null });
         break;
       }
       await new Promise((resolve) => setTimeout(resolve, 700));
     }
-    if (!closed) response.end();
+    stream.end();
     return undefined;
   });
 

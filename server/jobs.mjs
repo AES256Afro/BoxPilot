@@ -6,6 +6,7 @@ import { secretFields } from "./ops/registry.mjs";
 
 /** What a secret parameter looks like in the database and the job API. */
 export const secretPlaceholder = "[secret]";
+export const stagedSecretTtlMs = 30 * 60_000;
 /** Operations whose `values.env` can carry a manifest-declared secret. */
 const appValueOperations = new Set(["app.install", "app.reconfigure"]);
 
@@ -33,6 +34,8 @@ export function createJobService(store, helper, {
   jobLog = null,
   operationRecordHooks = {},
   operationPrepareHooks = {},
+  now = () => Date.now(),
+  secretTtlMs = stagedSecretTtlMs,
 } = {}) {
   // Secret parameters (share passwords) staged with a job live here until it runs; they are
   // never written to SQLite or the job log. A restart forgets them and the job must be re-staged.
@@ -47,7 +50,9 @@ export function createJobService(store, helper, {
     const registered = job.type.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
     let confirmText = null;
     try { confirmText = registered?.confirm ? registered.confirm(job.parameters ?? {}) ?? null : null; } catch { confirmText = null; }
-    return { minimumRole: registered?.minimumRole ?? null, confirmText: typeof confirmText === "string" && confirmText ? confirmText : null, mode, ...approvalRequirement({ jobType: job.type, mode, elevatedUntil: session?.elevatedUntil ?? null }) };
+    const expiresAt = job.recovery?.approvalExpiresAt ?? null;
+    const expired = Boolean(expiresAt && Date.parse(expiresAt) <= now());
+    return { expiresAt, expired, minimumRole: registered?.minimumRole ?? null, confirmText: typeof confirmText === "string" && confirmText ? confirmText : null, mode, ...approvalRequirement({ jobType: job.type, mode, elevatedUntil: session?.elevatedUntil ?? null, now: () => new Date(now()) }) };
   }
 
   /**
@@ -73,10 +78,14 @@ export function createJobService(store, helper, {
     const approverRole = session?.owner?.role ?? owner.role ?? "owner";
     if (job.createdBy !== ownerId && approverRole !== "owner") throw new Error("Job not found");
     const policy = approvalPolicy(job, session);
+    if (policy.expired) {
+      expireSecretJob(job);
+      throw Object.assign(new Error("This approval expired after 30 minutes. Close it and stage the operation again with its credentials."), { code: "approval_expired" });
+    }
     if (policy.passwordRequired && !passwordProvided) throw Object.assign(new Error(`Enter the owner password: ${policy.tier}-risk job needs the owner password`), { code: "password_required" });
     let elevatedUntil = session?.elevatedUntil ?? null;
     if (passwordProvided && session?.tokenHash && typeof store.elevateSession === "function") {
-      elevatedUntil = store.elevateSession(session.tokenHash, new Date(Date.now() + elevationTtlMs)) ?? elevatedUntil;
+      elevatedUntil = store.elevateSession(session.tokenHash, new Date(now() + elevationTtlMs)) ?? elevatedUntil;
     }
     const role = session?.owner?.role ?? owner.role ?? "owner";
     if (role === "viewer" || role === "disabled") throw new Error("Viewers cannot approve jobs");
@@ -87,7 +96,7 @@ export function createJobService(store, helper, {
     const registeredOperation = job.type.startsWith("op:") ? registry.get(job.type.slice(3)) : null;
     if (!registeredOperation) throw new Error("Job type is not supported by this executor");
     const parameters = { ...(job.parameters ?? {}) };
-    const secrets = stagedSecrets.get(jobId) ?? {};
+    const secrets = stagedSecrets.get(jobId)?.values ?? {};
     for (const name of secretFields(registeredOperation.parameters)) {
       if (parameters[name] !== secretPlaceholder) continue;
       if (typeof secrets[name] !== "string") throw new Error("The credentials staged with this job are no longer available (the service restarted); stage it again");
@@ -215,12 +224,14 @@ export function createJobService(store, helper, {
       secrets[path] = readPath(persisted, path);
       writePath(persisted, path, secretPlaceholder);
     }
+    const approvalExpiresAt = Object.keys(secrets).length ? new Date(now() + secretTtlMs).toISOString() : null;
     const job = store.createJob({
       type: `op:${operationId}`,
       title: operation.title,
       risk: operation.risk,
       parameters: persisted,
       recovery: {
+        ...(approvalExpiresAt ? { approvalExpiresAt } : {}),
         reason: operation.description || `${operation.title} is ${operation.risk} risk.`,
         manual: "If verification fails, review the job log and the helper journal, then rerun or undo the operation.",
       },
@@ -230,7 +241,7 @@ export function createJobService(store, helper, {
         { name: "checkpoint", state: "completed", detail: `${operation.risk} risk · ${operation.readOnly ? "read-only" : "changes host state"} · runs through the root task runner` },
       ],
     });
-    if (Object.keys(secrets).length) stagedSecrets.set(job.id, secrets);
+    if (Object.keys(secrets).length) stagedSecrets.set(job.id, { values: secrets, expiresAt: Date.parse(approvalExpiresAt) });
     return job;
   }
 
@@ -257,16 +268,22 @@ export function createJobService(store, helper, {
     return approvalPolicy(job, session);
   }
 
-  /**
-   * Drop staged secrets whose job can no longer use them. A job abandoned by closing the tab is
-   * pruned from the database after thirty days, but its password sat in this map for the life of
-   * the process. Anything not still awaiting approval is finished with its secrets.
-   */
+  function expireSecretJob(job) {
+    stagedSecrets.delete(job.id);
+    if (job.state !== "awaiting_approval") return;
+    const reason = "Approval expired. Stage the operation again and re-enter its credentials.";
+    store.transitionJob(job.id, "awaiting_approval", "cancelled", { error: reason });
+    store.recordAudit("job.approval.expired", { actorId: null, subjectId: job.id, details: { type: job.type } });
+  }
+
+  /** Drop finished or expired secrets. Called once a minute, and expiry is also enforced at approval. */
   function pruneStagedSecrets() {
     let dropped = 0;
-    for (const jobId of [...stagedSecrets.keys()]) {
-      if (store.getJob(jobId)?.state === "awaiting_approval") continue;
+    for (const [jobId, record] of stagedSecrets) {
+      const job = store.getJob(jobId);
+      if (job?.state === "awaiting_approval" && record.expiresAt > now()) continue;
       stagedSecrets.delete(jobId); dropped += 1;
+      if (job?.state === "awaiting_approval") expireSecretJob(job);
     }
     return dropped;
   }

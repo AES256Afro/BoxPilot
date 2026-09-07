@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import net from "node:net";
 import { shared } from "./cache.mjs";
+import { createHelperResponseReader, maxHelperResponseBytes } from "./helper-response.mjs";
 
 /**
  * Reads that several routes ask for at once, and that take no arguments so one answer serves them
@@ -8,7 +9,7 @@ import { shared } from "./cache.mjs";
  * together are two requests, not one.
  */
 const sharableReads = new Set([
-  "app.inspect", "samba.inspect", "container.docker.inventory", "app.data.usage",
+  "system.runtime.inspect", "app.inspect", "samba.inspect", "container.docker.inventory", "app.data.usage",
   // The rest of what one Overview or Repair load asks for from several routes at once.
   "apt.unattended.inspect", "firewall.inspect", "nfs.inspect", "host.snapshot.inspect", "app.backups.counts",
   "prerequisite.docker.inspect", "prerequisite.restic.inspect", "prerequisite.smartmontools.inspect", "prerequisite.virtualization.inspect",
@@ -22,41 +23,47 @@ const sharableReads = new Set([
  */
 const sharedReadCeilingMs = 30_000;
 
-export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock", timeoutMs = 5000 } = {}) {
+export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock", timeoutMs = 5000, maxResponseBytes = maxHelperResponseBytes, setTimeout: schedule = globalThis.setTimeout, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
+  const transport = { active: 0, completed: 0, failed: 0 };
   function send(operation, parameters = {}, { timeoutMs: requestTimeoutMs = timeoutMs, jobId = null } = {}) {
     return new Promise((resolve, reject) => {
       const connection = net.createConnection(socketPath);
+      transport.active += 1;
       const id = randomUUID();
-      let payload = "";
+      const reader = createHelperResponseReader(id, { maxFrameBytes: maxResponseBytes });
       let settled = false;
 
       function fail(error) {
         if (settled) return;
         settled = true;
+        transport.active -= 1; transport.failed += 1;
+        cancel(deadline);
         connection.destroy();
         reject(error);
       }
 
+      // Unlike the socket inactivity timeout, this cannot be extended forever by queued heartbeats.
+      const deadline = schedule(() => fail(new Error("Helper request timed out (overall deadline reached)")), requestTimeoutMs);
+      deadline.unref?.();
       connection.setEncoding("utf8");
       connection.setTimeout(requestTimeoutMs);
       connection.on("connect", () => connection.write(`${JSON.stringify({ version: 1, id, operation, parameters, ...(jobId ? { context: { jobId } } : {}) })}\n`));
-      connection.on("data", (chunk) => { payload += chunk; });
+      connection.on("data", (chunk) => { if (!settled) { try { reader.push(chunk); } catch (error) { fail(error); } } });
       connection.on("end", () => {
         if (settled) return;
         try {
-          // The helper may send "queued" heartbeat lines first; the reply is the last complete line.
-          const lines = payload.split("\n").map((line) => line.trim()).filter(Boolean);
-          const response = JSON.parse(lines.at(-1) ?? "");
-          if (response.id !== id) throw new Error("Helper response id did not match the request");
-          if (!response.ok) throw new Error(response.error ?? "Helper operation failed");
+          const result = reader.finish();
           settled = true;
-          resolve(response.result);
+          transport.active -= 1; transport.completed += 1;
+          cancel(deadline);
+          resolve(result);
         } catch (error) {
           fail(error);
         }
       });
       connection.on("timeout", () => fail(new Error("Helper request timed out")));
       connection.on("error", (error) => fail(new Error(`Helper unavailable: ${error.message}`)));
+      connection.on("close", () => { if (!settled) fail(new Error("Helper connection closed before sending a result")); });
     });
   }
 
@@ -94,5 +101,5 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
     });
   }
 
-  return { socketPath, request };
+  return { socketPath, request, diagnostics: () => ({ ...transport, sharedReads: Object.fromEntries([...sharedReads].map(([operation, read]) => [operation, read.stats()])) }) };
 }

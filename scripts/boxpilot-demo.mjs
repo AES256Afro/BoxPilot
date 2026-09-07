@@ -605,6 +605,11 @@ api.get("/storage/nfs", (_request, response) => json(response, { installed: true
 api.get("/people", (_request, response) => json(response, { people: [{ id: "owner-demo", username: host.owner, role: "owner", createdAt: ago(900) }, { id: "p2", username: "sam", role: "viewer", createdAt: ago(300) }] }));
 // The Repair page's problem sweep. The trouble world shows the failure that actually happened:
 // a USB drive that came back under a new name, leaving the mount pointing at nothing.
+api.get("/diagnostics/runtime", (_request, response) => {
+  const snapshot = (rss, heap, fileCache) => ({ checkedAt: now().toISOString(), version: productVersion, uptimeSeconds: 3600, processMemory: { rss, heapUsed: heap, external: 2 * 1024 ** 2 }, cpu: { percentOfOneCore: 0.12, intervalMs: 5000 }, eventLoopBusyPercent: 0.5, cgroup: { available: true, fileCacheBytes: fileCache, anonymousBytes: heap * 2, oomKills: 0 } });
+  json(response, { web: snapshot(120 * 1024 ** 2, 32 * 1024 ** 2, 2 * 1024 ** 2), helper: snapshot(156 * 1024 ** 2, 48 * 1024 ** 2, 4 * 1024 ** 3), helperAvailable: true, transport: { active: 0, completed: 42, failed: 0 } });
+});
+
 api.get("/remediations", (request, response) => {
   const world = scenarioOf(request.get("referer"));
   if (world !== "trouble") return json(response, { findings: [], counts: { critical: 0, warning: 0, info: 0 }, checkedAt: now().toISOString() });

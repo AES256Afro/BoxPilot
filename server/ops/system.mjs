@@ -1,5 +1,6 @@
 import { readFile, readlink } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
+import { runtimeDiagnostics } from "../runtime-diagnostics.mjs";
 import { hostnamePattern, timezonePattern } from "../tasks/system.mjs";
 
 const systemctl = process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl";
@@ -29,6 +30,11 @@ async function readText(path) {
 
 export function systemOperations() {
   return [
+    defineOperation({
+      id: "system.runtime.inspect", title: "Check BoxPilot helper resource use", risk: "low", readOnly: true, timeoutMs: 10_000,
+      description: "Reads the helper process memory, CPU and Linux pressure counters. Starts no disk scans or child processes.",
+      run: () => runtimeDiagnostics.inspect(),
+    }),
     defineOperation({
       id: "system.web.lan.set", title: "Reach BoxPilot on your local network", risk: "medium", timeoutMs: 2 * 60_000, minimumRole: "owner", restartsService: true,
       description: "Serves the BoxPilot control panel on this server's network address, not only over Tailscale, so a device on your LAN can reach it. The Tailscale path keeps working. Anyone on your network can then reach the sign-in page, and over plain HTTP the password crosses the LAN unencrypted, so set up HTTPS on the LAN as well and turn this on only on a network you trust. BoxPilot restarts a few seconds after this runs.",

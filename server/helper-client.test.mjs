@@ -18,8 +18,8 @@ async function helperSocket(handler) {
       payload += chunk;
       if (!payload.includes("\n")) return;
       const request = JSON.parse(payload.trim());
-      const result = await handler(request);
-      connection.end(`${JSON.stringify({ version: 1, id: request.id, ok: true, result })}\n`);
+      const result = await handler(request, connection);
+      if (!connection.destroyed) connection.end(`${JSON.stringify({ version: 1, id: request.id, ok: true, result })}\n`);
     });
   });
   await new Promise((resolve) => server.listen(socketPath, resolve));
@@ -31,6 +31,23 @@ async function helperSocket(handler) {
 afterEach(() => { server?.closeAllConnections?.(); server?.close(); server = null; if (dir) rmSync(dir, { recursive: true, force: true }); dir = null; });
 
 describe("sharing helper reads", () => {
+  it("enforces an overall deadline even while the helper sends queue heartbeats", async () => {
+    let received; const arrived = new Promise((resolve) => { received = resolve; });
+    const socketPath = await helperSocket(async (request, connection) => {
+      connection.write(`${JSON.stringify({ version: 1, id: request.id, queued: true })}\n`);
+      received();
+      await new Promise((resolve) => connection.once("close", resolve));
+      return {};
+    });
+    let expire; let cleared = 0;
+    const client = createHelperClient({ socketPath, setTimeout: (fn) => { expire = fn; return 1; }, clearTimeout: () => { cleared += 1; } });
+    const waiting = client.request("apt.upgrade", {});
+    await arrived;
+    expire();
+    await expect(waiting).rejects.toThrow("overall deadline");
+    expect(cleared).toBe(1);
+  });
+
   it("answers concurrent identical reads from one round trip", async () => {
     let calls = 0;
     let release;
