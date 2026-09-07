@@ -5,7 +5,7 @@ import SchedulesPanel from "./SchedulesPanel";
 import { inspectOperation } from "./operations";
 import { readJson } from "./http";
 
-interface HousekeepingCategory { id: string; title: string; summary: string; items: number | null; bytes: number; humanBytes: string; detail: string[]; keeping: string[]; safe: boolean }
+interface HousekeepingCategory { id: string; title: string; summary: string; items: number | null; bytes: number; humanBytes: string; detail: string[]; keeping: string[]; safe: boolean; unavailable?: string | null }
 interface Housekeeping { generatedAt: string; categories: HousekeepingCategory[]; totalBytes: number; totalHumanBytes: string }
 interface DockerDisk { available: boolean; rows: Array<{ type: string; total: number | string | null; active: number | string | null; size: string | null; reclaimable: string | null }>; logging?: { configured: boolean; logDriver: string | null; maxSize: string | null; liveRestore: boolean } }
 
@@ -256,7 +256,7 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
         <header className="panel-header">
           <div>
             <strong>Housekeeping</strong>
-            <span>{housekeeping ? `${housekeeping.totalHumanBytes} can be reclaimed. Pick what to clear; nothing else is touched.` : "What is taking up room that nothing needs any more."}</span>
+            <span>{housekeeping ? `About ${housekeeping.totalHumanBytes} in eligible items. Shared image layers can reduce the space recovered.` : "What is taking up room that nothing needs any more."}</span>
           </div>
           <div className="recovery-actions">
             <button className="text-button" type="button" disabled={scanning} onClick={() => void scanHousekeeping()}>{scanning ? "Looking…" : "Rescan"}</button>
@@ -296,8 +296,9 @@ export default function SystemCenter({ csrfToken }: { csrfToken: string }) {
                   />
                   <div>
                     <strong>{category.title}</strong>
-                    <span className="housekeeping-size">{category.bytes > 0 ? category.humanBytes : "nothing to clear"}{category.items !== null && category.items > 0 ? ` · ${category.items} item${category.items === 1 ? "" : "s"}` : ""}</span>
+                    <span className="housekeeping-size">{!category.safe ? "Review needed" : category.bytes > 0 ? category.humanBytes : "nothing to clear"}{category.items !== null && category.items > 0 ? ` · ${category.items} item${category.items === 1 ? "" : "s"}` : ""}</span>
                     <span className="muted">{category.summary}</span>
+                    {category.unavailable && <span className="muted">{category.unavailable}</span>}
                     {category.keeping.length > 0 && <span className="muted">Keeping: {category.keeping.join(", ")}.</span>}
                     {category.detail.length > 0 && <details><summary>What exactly</summary><span className="muted">{category.detail.join(" · ")}</span></details>}
                   </div>

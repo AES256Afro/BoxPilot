@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAppHelper } from "./app-helper.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
+import { fixedRun } from "./exec.mjs";
 
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
@@ -80,7 +81,7 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
   const backupRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-appbk-")); directories.push(backupRoot);
   const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, lanAddress: "192.168.1.10", ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(statPath ? { statPath } : {}), ...(lstatPath ? { lstatPath } : {}), ...(runCommand ? { runCommand } : {}), ...(vpnProfile ? { vpnProfile } : {}) });
   const advance = (ms) => { nowMs += ms; };
-  return { apps, calls, containers, catalogRoot, catalogDirectory, backupRoot, advance };
+  return { apps, calls, containers, catalogRoot, catalogDirectory, backupRoot, advance, runDocker };
 }
 
 describe("generic app deployer", () => {
@@ -1044,6 +1045,53 @@ describe("folders an app is pointed at", () => {
 });
 
 describe("restoring an application backup", () => {
+  it("keeps the original after a healthy restore when its safety backup failed", async () => {
+    let failBackup = false;
+    const runCommand = (binary, args, options) => failBackup && args.includes("-czf") ? Promise.resolve({ ok: false, stdout: "", stderr: "fixture full backup disk" }) : fixedRun(binary, args, options);
+    const { apps, catalogRoot } = await setup({ runCommand });
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const made = await apps.backup({ id: "demo", keep: 5 });
+    await writeFile(path.join(catalogRoot, "demo", "latest-data"), "original newer data");
+    failBackup = true;
+    const result = await apps.restoreAppBackup({ id: "demo", backup: made.artifact });
+    expect(result.retainedOriginal).toBe(true);
+    expect(await readFile(path.join(catalogRoot, "demo.replaced", "latest-data"), "utf8")).toBe("original newer data");
+  });
+
+  it("leaves the app running when archive extraction fails before the data swap", async () => {
+    const runCommand = (binary, args, options) => args.includes("-xzf") ? Promise.resolve({ ok: false, stdout: "", stderr: "fixture corrupt archive" }) : fixedRun(binary, args, options);
+    const { apps, catalogRoot, containers } = await setup({ runCommand });
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const made = await apps.backup({ id: "demo", keep: 5 });
+    await expect(apps.restoreAppBackup({ id: "demo", backup: made.artifact })).rejects.toThrow(/live application directory was not replaced/);
+    expect([...containers.values()][0].running).toBe(true);
+    expect(await readFile(path.join(catalogRoot, "demo", "compose.yaml"), "utf8")).toContain("services:");
+  });
+
+  it("preserves an earlier restore directory and refuses before stopping the app", async () => {
+    const { apps, catalogRoot, calls } = await setup();
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const made = await apps.backup({ id: "demo", keep: 5 });
+    const previous = path.join(catalogRoot, "demo.replaced");
+    await mkdir(previous); await writeFile(path.join(previous, "original"), "only original");
+    calls.length = 0;
+    await expect(apps.restoreAppBackup({ id: "demo", backup: made.artifact })).rejects.toThrow(/earlier restore/);
+    expect(await readFile(path.join(previous, "original"), "utf8")).toBe("only original");
+    expect(calls.some((call) => / stop(?: |$)/.test(call))).toBe(false);
+  });
+
+  it("retains the displaced original when restored containers fail to start", async () => {
+    const { apps, catalogRoot, runDocker } = await setup();
+    await apps.install({ id: "demo", values: { setup: [] } });
+    const made = await apps.backup({ id: "demo", keep: 5 });
+    await writeFile(path.join(catalogRoot, "demo", "latest-data"), "original newer data");
+    const original = runDocker.getMockImplementation();
+    runDocker.mockImplementation(async (binary, args, options) => args[0] === "compose" && args.includes("up") ? { ok: false, stdout: "", stderr: "fixture start failure" } : original(binary, args, options));
+    await expect(apps.restoreAppBackup({ id: "demo", backup: made.artifact })).rejects.toThrow(/original directory remains/);
+    expect(await readFile(path.join(catalogRoot, "demo.replaced", "latest-data"), "utf8")).toBe("original newer data");
+    await expect(readFile(path.join(catalogRoot, "demo", "latest-data"))).rejects.toThrow();
+  });
+
   it("replaces the app directory rather than unpacking over it", async () => {
     const { apps, catalogRoot } = await setup();
     await apps.install({ id: "demo", values: { setup: [] } });

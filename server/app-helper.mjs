@@ -1394,6 +1394,13 @@ export function createAppHelper({
   async function restoreAppBackup({ id, backup: backupName }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
     if (typeof backupName !== "string" || !backupNamePattern.test(backupName)) throw new Error("Backup name is invalid");
+    const live = dirFor(id);
+    const staged = `${live}.restoring`;
+    const displaced = `${live}.replaced`;
+    for (const candidate of [staged, displaced]) {
+      const existing = await lstat(candidate).catch((error) => { if (error.code === "ENOENT") return null; throw error; });
+      if (existing) throw new Error(`An earlier restore left ${path.basename(candidate)}. Preserve it and review the restore job before trying again; it may contain the only original data.`);
+    }
     const backupDirectory = backupDirFor(id);
     const artifact = path.join(backupDirectory, backupName);
     await stat(artifact).catch(() => { throw new Error(`Backup ${backupName} does not exist`); });
@@ -1404,47 +1411,52 @@ export function createAppHelper({
       const actual = await sha256File(artifact);
       if (actual !== meta.checksumSha256) throw new Error(`Backup ${backupName} failed its checksum; it may be damaged. Nothing was changed.`);
     }
+    let safetyBackupSaved = false;
     try {
       progress?.("Taking a safety backup of the current state first...", "stdout");
       const safety = await backup({ id, keep: null }, { progress });
+      safetyBackupSaved = true;
       progress?.(`Current state saved as ${safety.artifact}`, "stdout");
     } catch (error) {
-      progress?.(`Safety backup failed (${error.message}); continuing with the restore`, "stderr");
-    }
-    const status = await containerStatus(id);
-    if (status.running) {
-      const stop = await compose(id, ["stop"], { timeout: 120_000, progress });
-      if (!stop.ok) throw new Error(`docker compose stop failed: ${redact(stop.stderr).split("\n").slice(-3).join(" ")}`);
+      progress?.(`Safety backup failed (${error.message}); the original directory will be retained after the restore`, "stderr");
     }
     // Extract beside the app and swap, so the result is the backup and nothing else. Unpacking over
     // the live directory would leave every file written since — for a database that means old control
     // files next to newer WAL segments, which is neither the backup nor the present state.
-    const live = dirFor(id);
-    const staged = `${live}.restoring`;
-    const displaced = `${live}.replaced`;
-    await rm(staged, { recursive: true, force: true });
-    await rm(displaced, { recursive: true, force: true });
-    await mkdir(staged, { recursive: true, mode: 0o700 });
+    await mkdir(staged, { mode: 0o700 });
     progress?.(`$ tar -xzf ${backupName}`, "stdout");
     const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", staged], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
     if (!extract.ok) {
       await rm(staged, { recursive: true, force: true });
-      throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. Nothing was replaced; the safety backup above holds the pre-restore state.`);
+      throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. The live application directory was not replaced.`);
+    }
+    const status = await containerStatus(id);
+    if (status.running) {
+      const stop = await compose(id, ["stop"], { timeout: 120_000, progress });
+      if (!stop.ok) {
+        await rm(staged, { recursive: true, force: true });
+        throw new Error(`docker compose stop failed: ${redact(stop.stderr).split("\n").slice(-3).join(" ")}. The live application directory was not replaced.`);
+      }
     }
     if (await stat(live).then(() => true, () => false)) await rename(live, displaced);
     try {
       await rename(staged, live);
     } catch (error) {
       // Put the app back exactly as it was rather than leaving it with no directory at all.
-      if (await stat(displaced).then(() => true, () => false)) await rename(displaced, live).catch(() => {});
+      let recovered = false;
+      if (await stat(displaced).then(() => true, () => false)) recovered = await rename(displaced, live).then(() => true, () => false);
       await rm(staged, { recursive: true, force: true });
-      throw new Error(`Could not swap in the restored files (${error.message}); the app was left as it was.`);
+      throw new Error(`Could not swap in the restored files (${error.message}). ${recovered ? "The original directory was put back; check whether the app needs starting." : "The original may remain in the .replaced directory; preserve it and inspect before retrying."}`);
     }
-    await rm(displaced, { recursive: true, force: true });
     const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
-    if (!up.ok) throw new Error(`Restored the files, but docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
-    const healthy = await waitHealthy(manifest, progress);
-    return { restored: true, id, backup: backupName, image: healthy.image, health: healthy.health };
+    if (!up.ok) throw new Error(`Restored the files, but docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}. The original directory remains in ${path.basename(displaced)} for recovery.`);
+    let healthy;
+    try { healthy = await waitHealthy(manifest, progress); }
+    catch (error) { throw new Error(`${error.message}. Preserve ${path.basename(displaced)}; it holds the original directory when one existed.`); }
+    if (safetyBackupSaved) await rm(displaced, { recursive: true, force: true });
+    const retainedOriginal = !safetyBackupSaved && await lstat(displaced).then(() => true, () => false);
+    if (retainedOriginal) progress?.(`Restore passed its health check. ${path.basename(displaced)} was retained because no safety backup was saved.`, "stderr");
+    return { restored: true, id, backup: backupName, image: healthy.image, health: healthy.health, retainedOriginal };
   }
 
   function backupArtifactFor(id, backupName) {
