@@ -79,7 +79,8 @@ export function createOperationsRouter({ state, helper, jobs, prerequisites, rec
     response.json(await prerequisites.inspect());
   });
 
-  router.get("/operations/recovery-kit", async (_request, response) => {
+  // The export contains cross-account job metadata and server-wide backup inventory.
+  router.get("/operations/recovery-kit", auth.requireRole("owner"), async (_request, response) => {
     try {
       response.json(await recoveryKit.inspect());
     } catch {

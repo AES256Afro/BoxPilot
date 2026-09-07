@@ -1037,6 +1037,45 @@ clear until v1.112.0. The lesson generalises.
 - **M31.4** "Where the space went" over time: the app-data sampler's history as a chart, so a
   download folder growing 240 GB a week is a slope the owner can see, not only a sentence.
 
+## Review follow-through: 2026-09-07
+
+Evidence, implemented fixes, live measurements, limitations and alternative repair approaches are in [the reliability review](reviews/2026-09-07-reliability-review.md). Items below extend existing owners; they are not a second roadmap. Local implementation does not mean released or deployed.
+
+### Extend M27: trustworthy and verifiable findings
+
+- **M27.5 Partial checks and fresh verification (P1).** First slice implemented locally: failed/partial Repair scans say Checks incomplete and name missing sources; successful sections survive unrelated fetch failures. Next: checked-at, age and per-source availability for every collector; targeted retry; mutation-to-cache invalidation map; post-repair detector rerun. Acceptance: helper failure, one collector timeout and stale cache never produce an all-clear; completed jobs say resolved, still failing, or could not verify using new evidence. Depends on M32.2 for cache instrumentation, not for honest failure display.
+- **M27.6 Failure fixtures (P1, extends M27.3).** Add captured, scrubbed fixtures for full disk/inodes, apt lock held, helper unavailable, partial SMART, failed backup and disconnected client. Acceptance: reproducible tests establish both the finding and the safe action without damaging a real host. M26 retains drive-specific ownership.
+
+### Extend M28: Repair Center readability
+
+- **M28.5 Findings before explanation (P2).** Keep problem count, incomplete checks, current jobs and primary fix above the fold; collapse technical evidence and rebuild inventory; place prerequisite details beside their count; remove repeated feature introductions. Use consistent Critical / Warning / Information wording, plain action labels, and explicit service interruption/duration. Explain that recovery exports contain private operational information. Acceptance: keyboard workflow from finding to preview to result; desktop and narrow-screen QA; no green readiness styling for missing/unknown checks. Separate verified facts from likely causes.
+
+### Extend M29: security and bounded retention
+
+- **M29.2 Staged-secret expiry remains P1.** Existing work, not duplicated: expire awaiting-approval secret material and approval validity together after 30 minutes, including restart and abandoned-dialog behavior. Acceptance: injected-clock boundary tests, no secret in jobs/flows/schedules/logs/backups, and clear re-entry guidance.
+- **M29.4 Recovery exports and dependency hygiene (P1).** First slice implemented locally: owner-only full recovery export, case-insensitive API no-store, qs 6.16.0. Next: audit composite routes against direct-operation role rules; tests for every role and route casing; CI production dependency audit with an explicit triage process. Acceptance: non-owner cannot obtain another user's job metadata through any export or aggregate endpoint; inventory summaries stay usable where authorized.
+- **M29.5 Capacity bounds on authentication state (P2).** Bound OIDC pending codes and review throttle saturation. Preserve active blocks while enforcing a true capacity ceiling. Acceptance: hostile cardinality test keeps memory bounded and does not let a caller evict its own block. Reuse the existing bounded whois/passkey caches.
+
+### Extend M30: repair BoxPilot when BoxPilot is broken
+
+- **M30.5 Independent doctor and known-good recovery (P1).** Extend the existing doctor script, shared with a UI inspector where possible, to check service/socket/log permissions, free bytes/inodes, Node/runtime, release assets and web/helper version agreement. Offer exact repair plans for known file/service drift and compatible release rollback. Store last-known-good release metadata. Acceptance: disposable Ubuntu VM recovers with Express stopped; preserves configuration/secrets and original release; requires database compatibility before rollback; verifies both HTTP and helper afterward.
+- **M30.6 Interrupted APT recovery (P1).** Inspect dpkg audit, active package jobs and real lock ownership. Offer configuration completion and dependency repair with exact package preview. Acceptance: active upgrade is left alone; stale job metadata never authorizes deleting locks; interruption fixture returns a clean audit and recorded repair result.
+- **M30.7 Database recovery and rehearsal (P1).** Inspect capacity and DB health, preserve an offline recovery copy, validate a chosen backup/schema, stop the writer, restore and verify. Reuse M20 backup primitives. Acceptance: disposable corruption fixture restores service; original database and WAL remain recoverable; never delete a live WAL or replace an unverified database.
+- **M30.8 Low-space recovery (P2).** Attribute bytes and inodes to journal, managed completed-job logs, package caches and backup retention. Offer bounded cleanup with category/size/retention preview. Acceptance: gain measured free space without deleting active logs, application volumes, or last good backup. Reuse existing housekeeping and retention operations.
+- **M30.9 Repair recipes and bounded automation (P2).** Add declarative detect/precondition/action/verify/recovery recipes over the operation registry. Link existing M22 app repair, M20 restore, M26 mount recovery and M31 browse/restore instead of reimplementing them. Acceptance: one root-cause card groups related symptoms; opt-in automatic recipes have cooldown, maximum attempts, stop conditions and notification; destructive recipes retain existing approval tiers. Depends on M27.5 and individually validated M30.5-8 tools.
+
+### M32: BoxPilot's own resource use, measured and controlled
+
+This owns diagnostic cost and resource accounting. M21 remains the owner of general server performance views; M30 owns recovery actions.
+
+- **M32.1 Resource breakdown (P1).** Show web/helper RSS, heap used/total, external buffers, cgroup anonymous/file memory, PSI, event-loop delay, active subprocesses/streams and restart/OOM counters. Use low-cost sampling and bounded history. Acceptance: Linux file cache is labelled correctly; unavailable counters are not zero; enabling the view starts no recursive scans.
+- **M32.2 Measured caching (P1).** First slice implemented locally: generation-safe shared cache invalidation and synchronous error normalization. Next: hit/miss/dedup/duration/age counters; consistent injected clocks; concurrent needrestart coalescing; invalidation after relevant operations. Acceptance: post-change readers cannot get pre-change cached facts; concurrent tabs share one expensive read; errors are not cached as healthy results.
+- **M32.3 IO budgets and scheduling (P2).** Preserve existing sequential du/deadline/minimum-gap controls. Add supported idle IO priority, pressure-aware deferral, per-device coordination and pause/resume visibility; coalesce asynchronous background checks and back off on repeated failures. Acceptance: scheduled scans defer under injected pressure, manual checks remain possible, and database writes stay bounded. Benchmark in a disposable VM with representative metadata volume, not production.
+- **M32.4 Stream and helper memory budgets (P1).** Incremental helper protocol parsing, response-size cap and overall deadline; SSE backpressure and per-session connection budget with cleanup. Acceptance: stalled clients and a continuously heartbeating oversized helper cannot grow buffers or retain listeners without limit; normal long jobs keep streaming and reconnect correctly.
+- **M32.5 Reproducible leak and idle-cost suite (P2).** Local repeated page mount/unmount, stream disconnect, failed helper, concurrent scan and job churn scenarios, followed by a 24-72 hour disposable-host soak. Compare retained heap/handles after warmup, separate file cache and child processes, and sample read/write/process-spawn costs. Acceptance: budgets stated against a measured baseline; no unexplained positive retained-heap slope; no orphan listeners/timers; results include workload and version. Do not claim this pass from a short RSS snapshot.
+
+Suggested order: release the reviewed fixes; M32.4 and M29.2; M27.5 plus M32.1-2; M30.5-7; then M30.8-9, M28.5 and M32.3-5. Keep backup compatibility and independent recovery ahead of broad automatic remediation.
+
 ## App catalogue candidates
 
 Checked against the 164 manifests already in `catalog/`, so nothing here duplicates an existing

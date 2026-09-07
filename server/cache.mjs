@@ -13,19 +13,22 @@
  * facts genuinely move slower than the owner does.
  */
 export function shared(read, { ttlMs = 0, now = () => Date.now() } = {}) {
+  let generation = 0;
   let inFlight = null;
   let held = null; // { at, value }
 
   const call = (...args) => {
     if (ttlMs > 0 && held && now() - held.at < ttlMs) return Promise.resolve(held.value);
     if (inFlight) return inFlight;
-    inFlight = Promise.resolve(read(...args))
-      .then((value) => { if (ttlMs > 0) held = { at: now(), value }; return value; })
+    const started = generation;
+    const pending = Promise.resolve().then(() => read(...args))
+      .then((value) => { if (ttlMs > 0 && started === generation) held = { at: now(), value }; return value; })
       // A failure is never held: the next caller should get a fresh attempt, not a cached apology.
-      .finally(() => { inFlight = null; });
-    return inFlight;
+      .finally(() => { if (inFlight === pending) inFlight = null; });
+    inFlight = pending;
+    return pending;
   };
   /** Call after anything that changes what `read` would report. */
-  call.forget = () => { held = null; };
+  call.forget = () => { generation += 1; held = null; inFlight = null; };
   return call;
 }

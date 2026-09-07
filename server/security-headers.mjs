@@ -63,7 +63,7 @@ export function securityHeaders({ html = "" } = {}) {
     // must not sit in a disk cache or the back-forward cache to be shown again later, or to someone
     // else on a shared machine. This was set before the headers moved here and was lost in the move;
     // the review of that release caught it.
-    if (request.path.startsWith("/api/")) response.setHeader("Cache-Control", "no-store");
+    if (request.path.toLowerCase().startsWith("/api/")) response.setHeader("Cache-Control", "no-store");
     next();
   };
 }
