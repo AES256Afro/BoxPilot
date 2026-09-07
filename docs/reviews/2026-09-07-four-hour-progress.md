@@ -184,3 +184,13 @@ Hosted CI and native install smoke both passed for dabd1fb.
 A complete deep sweep opened 558 controls across 3 fictional scenarios and 18 pages. It found unhandled clipboard denials on Storage, Network and Settings, plus a native prompt for passkey renaming. The runner retained each page's previous errors, so repeated lines are not separate defects. Copy controls now provide a visible manual-copy fallback, reject stale completion feedback and acknowledge successful copying. Passkeys use an inline, bounded-name form with Save, Cancel and Escape instead of the native prompt.
 
 Full check passed with 1,627 tests across 234 files. Phone-width browser inspection confirmed the inline form and Escape focus return. A second deep sweep is running against the corrected, unchanged build. Both hosted workflows passed for the preceding 7908992 versioned tree. The release tag is held until the final source/browser checks are reviewed.
+
+## Browser retention observation
+
+The 120-cycle same-document experiment completed without errors, with stable DOM/listener counts and about 107 KiB peak retained JavaScript heap growth after warmup. An extended 400-cycle run likewise kept one document, 688 nodes, 323 listeners and no open dialogs. Peak retained JavaScript heap growth was 276,204 bytes, with about 7 KiB added in the last 100 cycles. Browser-native embedder memory rose about 3.7 MiB after warmup, so M32.5 retains native-allocation profiling as an unresolved lead. These are measured local experiments, not a whole-browser leak pass.
+
+Hosted CI and native install smoke both passed for final application source 1329fe1.
+
+## Final browser validation and publication
+
+The corrected deep browser sweep reported zero problems across 3 scenarios and 18 pages, after opening 558 controls. The final source is 1329fe1, with 1,627 tests and both hosted workflows passing. Version 1.115.0 is tagged from that tested application tree; final review/milestone documentation is published on main. Production remains unchanged. The source review, outstanding milestones and browser-native memory profiling lead are consolidated in 2026-09-07-final-review.md.
