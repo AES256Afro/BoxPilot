@@ -22,7 +22,7 @@ describe("Repair Center", () => {
     expect(await screen.findByText("Checks incomplete")).toBeTruthy();
     expect(screen.getByText("Problem scan incomplete")).toBeTruthy();
     expect(screen.queryByText("Nothing needs fixing")).toBeNull();
-    expect(screen.queryByText("No problems found")).toBeNull();
+    expect(screen.queryByText("Problem scan complete")).toBeNull();
     if (mode === "partial") expect(screen.getByText(/Could not check: Drives and mounts/)).toBeTruthy();
   });
 

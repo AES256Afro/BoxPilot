@@ -67,6 +67,21 @@ jobs:
           echo "$canary" | grep -q '"verified":true' || { echo "helper canary did not verify" >&2; exit 1; }
           curl -fsS -b "$jar" http://127.0.0.1:8787/api/v1/setup | grep -q '"profiles"' || { echo "setup profiles unavailable" >&2; exit 1; }
 
+      - name: Independent doctor works with the web service stopped
+        run: |
+          sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --json > /tmp/boxpilot-doctor-running.json
+          node -e 'const r=require("/tmp/boxpilot-doctor-running.json"); if(r.counts.fail || r.counts.unknown) { console.error(r); process.exit(1); }'
+          trap 'sudo systemctl start boxpilot.service' EXIT
+          sudo systemctl stop boxpilot.service
+          if sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --json > /tmp/boxpilot-doctor-stopped.json; then
+            echo "Doctor did not detect the stopped web service"
+            exit 1
+          fi
+          node -e 'const r=require("/tmp/boxpilot-doctor-stopped.json"); const checks=new Map(r.checks.map(c=>[c.id,c])); for(const [id,status] of [["web-service","fail"],["helper-response","pass"],["asset:dist/index.html","pass"]]) if(checks.get(id)?.status!==status) { console.error(r); process.exit(1); }'
+          sudo systemctl start boxpilot.service
+          curl --fail --silent --retry 10 --retry-connrefused --retry-delay 1 --max-time 2 --retry-max-time 25 http://127.0.0.1:8787/api/v1/health > /dev/null
+          sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --json > /tmp/boxpilot-doctor-restarted.json
+
       - name: Service journals
         if: always()
         run: sudo journalctl -u boxpilot-helper.service -u boxpilot.service --no-pager -n 120 || true
