@@ -5,6 +5,15 @@ import { createRegistry } from "./registry.mjs";
 const registry = createRegistry([aptOperations]);
 
 describe("apt operations", () => {
+  it("re-executes the manager with a fixed command and reports failures", async () => {
+    const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
+    await expect(registry.execute("system.manager.reexec", {}, { run })).resolves.toEqual({ reexecuted: true });
+    expect(run).toHaveBeenCalledWith("/usr/bin/systemctl", ["daemon-reexec"], { timeout: 45_000 });
+    await expect(registry.execute("system.manager.reexec", { unit: "ssh.service" }, { run })).rejects.toThrow();
+    run.mockResolvedValue({ ok: false, stdout: "", stderr: "manager unavailable" });
+    await expect(registry.execute("system.manager.reexec", {}, { run })).rejects.toThrow("manager unavailable");
+  });
+
   it("parses apt list --upgradable output", () => {
     const output = "Listing...\nlibssl3t64/noble-security 3.0.13-0ubuntu3.5 amd64 [upgradable from: 3.0.13-0ubuntu3.4]\nhtop/noble 3.3.0-4 amd64 [upgradable from: 3.2.2-2]\nnoise line\n";
     expect(parseUpgradable(output)).toEqual([

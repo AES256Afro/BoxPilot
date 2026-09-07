@@ -73,6 +73,17 @@ async function rebootRequired() {
 export function aptOperations() {
   return [
     defineOperation({
+      id: "system.manager.reexec", title: "Refresh systemd manager", risk: "medium", timeoutMs: 60_000,
+      description: "Re-executes the systemd manager to pick up upgraded libraries while preserving its state.",
+      run: async (_parameters, { run, progress }) => {
+        progress?.("$ systemctl daemon-reexec", "stdout");
+        const result = await run("/usr/bin/systemctl", ["daemon-reexec"], { timeout: 45_000 });
+        if (!result.ok) throw new Error(`systemctl daemon-reexec failed: ${result.stderr || "see the system journal"}`);
+        clearNeedrestartCache();
+        return { reexecuted: true };
+      },
+    }),
+    defineOperation({
       id: "apt.upgradable.inspect", title: "List available package updates", risk: "low", readOnly: true, timeoutMs: 3 * 60_000,
       description: "Reads APT's view of upgradable packages, plus which running services still use pre-upgrade libraries (needrestart, when installed).",
       run: async (_parameters, { run }) => {

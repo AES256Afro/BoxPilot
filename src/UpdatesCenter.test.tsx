@@ -7,6 +7,27 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 describe("Updates center", () => {
+  it("routes the systemd manager to its own approval action and preserves normal service restarts", async () => {
+    const calls: Array<{ url: string; body?: BodyInit | null }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      calls.push({ url, body: init?.body });
+      if (url.endsWith("/operations/apt.upgradable.inspect/inspect")) return json({ result: { count: 0, upgradable: [], servicesNeedingRestart: ["systemd-manager", "cron.service", "systemd-user"] } });
+      if (url.endsWith("/operations/packages.curated.inspect/inspect")) return json({ result: { packages: [] } });
+      if (url.endsWith("/operations/apt.unattended.inspect/inspect")) return json({ result: { installed: false, enabled: false } });
+      if (url.endsWith("/jobs")) return json({ job: { id: "job-manager", state: "awaiting_approval", risk: "medium", steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false } }, 201);
+      return json({ error: "unexpected request" }, 500);
+    }));
+    render(<UpdatesCenter csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Refresh systemd manager" }));
+    expect(await screen.findByText("systemctl daemon-reexec")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Confirm and run" })).toBeTruthy();
+    expect(calls.find((call) => call.url.endsWith("/operations/system.manager.reexec/jobs"))?.body).toBe(JSON.stringify({ parameters: {} }));
+    expect(screen.queryByRole("button", { name: "Restart systemd-manager" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Restart cron.service" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Restart systemd-user" })).toBeNull();
+  });
+
   it("lists upgradable packages and upgrades selected ones through the approval dialog", async () => {
     const calls: Array<{ url: string; init?: RequestInit }> = [];
     let jobPolls = 0;
