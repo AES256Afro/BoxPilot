@@ -287,8 +287,8 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       <section className="repair-readiness">
         <div>
           <span className="eyebrow">Repair</span>
-          <strong>{loading ? "Checking this server..." : (remediationError || error) ? "Checks incomplete" : problems.length === 0 ? "No problems found" : `${problems.length} thing${problems.length === 1 ? "" : "s"} to fix`}</strong>
-          <p>{(remediationError || error) ? "Some checks could not finish. Review the available findings and retry the missing checks." : problems.length === 0 ? "The completed problem scan found no issues. Prerequisites and recovery readiness are listed below." : "Each one says what is wrong and what fixes it. Nothing runs until you approve it."}</p>
+          <strong>{loading ? "Checking this server..." : (remediationError || error) ? "Checks incomplete" : problems.length === 0 ? "Problem scan complete" : `${problems.length} thing${problems.length === 1 ? "" : "s"} to fix`}</strong>
+          <p>{(remediationError || error) ? "Some checks could not finish. Review the available findings and retry the missing checks." : problems.length === 0 ? "This scan found no repair findings. Run installation, package and resource checks below for more detail." : "Each one says what is wrong and what fixes it. Nothing runs until you approve it."}</p>
         </div>
         <button className="secondary-button" type="button" onClick={() => void refresh()} disabled={loading}>{loading ? "Checking..." : "Check again"}</button>
       </section>

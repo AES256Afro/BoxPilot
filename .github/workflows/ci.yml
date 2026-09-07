@@ -36,3 +36,8 @@ jobs:
 
       - name: Build container
         run: docker build -t boxpilot:ci .
+
+      - name: Verify interrupted package recovery on disposable Ubuntu
+        run: |
+          docker build -f tests/ubuntu/package-recovery.Dockerfile -t boxpilot-package-recovery-test:ci .
+          docker run --rm --network none --cpus 2 --memory 768m --pids-limit 128 --mount "type=bind,source=${GITHUB_WORKSPACE},target=/work,readonly" boxpilot-package-recovery-test:ci

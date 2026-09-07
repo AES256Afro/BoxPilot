@@ -45,3 +45,11 @@ Third slice committed as e746d2f. The built demo's package diagnosis and medium-
 - Follow-up review moved diagnostic invalidation after durable result hooks, before terminal events, and shared the new manual inspectors across concurrent callers.
 
 The source is not yet deployed. M30.5 still needs known-good repair/rollback and disposable Ubuntu recovery testing. The read-only sampler at /tmp/boxpilot-resource-sampler.py writes /tmp/boxpilot-resource-samples-20260907.jsonl every minute until 16:29:10 UTC. It runs as exec session 70169. Do not start a duplicate sampler. Inspect the trend near the deadline and preserve the distinction between RSS, anonymous memory and Linux file cache; this is not a JavaScript heap profile.
+
+Fourth slice committed as 5ae4de0 with 1,507 tests across 224 files passing. The built demo's installation warning and independent-console instructions were inspected visually and through the accessibility tree.
+
+## Disposable Ubuntu validation
+
+The local Ubuntu 24.04 container test passed all of: deliberately interrupted package configuration, diagnosis, repair, fresh verification, idempotent repeat, refusal while a real kernel lock is held, and final cleanup. The container runs with no network, a read-only checkout mount and bounded CPU/memory. Added it to CI and extended native install smoke to prove doctor evidence remains available with the web service stopped. Hosted results are separate from local success.
+
+The Repair summary now says Problem scan complete instead of a broad No problems found when optional manual diagnostics have not run or have separate findings.
