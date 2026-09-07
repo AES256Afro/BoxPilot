@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -33,7 +33,51 @@ describe("OIDC provider", () => {
   // Tolerate a setup that never got as far as assigning these. Teardown that assumes it did
   // throws its own error over the real one: an EACCES from beforeEach surfaced for a whole
   // afternoon as "Cannot read properties of undefined (reading 'close')".
-  afterEach(() => { store?.close(); if (dir) rmSync(dir, { recursive: true, force: true }); });
+  afterEach(() => { oidc?.close(); vi.useRealTimers(); store?.close(); if (dir) rmSync(dir, { recursive: true, force: true }); });
+
+  it("bounds pending codes per client and globally without invalidating an existing grant", () => {
+    const clients = Array.from({ length: 17 }, (_, index) => oidc.registerClient({ name: `App ${index}`, redirectUris: ["https://app/cb"] }));
+    const { verifier, challenge } = pkce();
+    const issue = (client) => oidc.issueCode({ clientId: client.id, ownerId: owner.id, redirectUri: "https://app/cb", codeChallenge: challenge, scope: "openid" });
+    const first = issue(clients[0]);
+    for (let index = 1; index < 64; index += 1) issue(clients[0]);
+    expect(() => issue(clients[0])).toThrow(/Too many/);
+    for (const client of clients.slice(1, 16)) for (let index = 0; index < 64; index += 1) issue(client);
+    expect(oidc.internals.pendingCodeCount()).toBe(1024);
+    expect(() => issue(clients[16])).toThrow(/Too many/);
+    expect(oidc.exchangeCode({ code: first, codeVerifier: verifier, clientId: clients[0].id, redirectUri: "https://app/cb", issuer }).token_type).toBe("Bearer");
+    issue(clients[16]);
+    expect(oidc.internals.pendingCodeCount()).toBe(1024);
+  });
+
+  it("physically expires abandoned codes while idle and clears timers on close", () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-07T00:00:00Z"));
+    const client = oidc.registerClient({ name: "App", redirectUris: ["https://app/cb"] });
+    const issue = () => oidc.issueCode({ clientId: client.id, ownerId: owner.id, redirectUri: "https://app/cb", codeChallenge: pkce().challenge, scope: "openid" });
+    issue(); expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(60_000);
+    expect(oidc.internals.pendingCodeCount()).toBe(0); expect(vi.getTimerCount()).toBe(0);
+    issue(); oidc.close();
+    expect(oidc.internals.pendingCodeCount()).toBe(0); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("refuses a pending grant after the registered client is removed", () => {
+    const client = oidc.registerClient({ name: "App", redirectUris: ["https://app/cb"] });
+    const { verifier, challenge } = pkce();
+    const code = oidc.issueCode({ clientId: client.id, ownerId: owner.id, redirectUri: "https://app/cb", codeChallenge: challenge, scope: "openid" });
+    store.removeOidcClient(client.id);
+    expect(() => oidc.exchangeCode({ code, codeVerifier: verifier, clientId: client.id, redirectUri: "https://app/cb", issuer })).toThrow(/no longer registered/);
+  });
+
+  it("rejects oversized or repeated authorization fields before retaining them", () => {
+    const client = oidc.registerClient({ name: "App", redirectUris: ["https://app/cb"] });
+    const params = { client_id: client.id, redirect_uri: "https://app/cb", response_type: "code", code_challenge: pkce().challenge, code_challenge_method: "S256" };
+    for (const change of [{ state: ["a", "b"] }, { state: "x".repeat(2049) }, { nonce: "x".repeat(513) }, { scope: "x".repeat(257) }, { code_challenge: "short" }, { code_challenge_method: undefined }]) {
+      expect(() => oidc.validateAuthorization({ ...params, ...change })).toThrow(OidcError);
+    }
+    expect(isValidRedirectUri("https://user:password@app/cb")).toBe(false);
+    expect(oidc.internals.pendingCodeCount()).toBe(0);
+  });
 
   it("publishes discovery and a JWKS with only the public key", () => {
     const meta = oidc.metadata(issuer);

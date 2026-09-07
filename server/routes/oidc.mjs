@@ -102,7 +102,13 @@ export function createOidcRouter({ oidc, auth, store }) {
     if (body.decision !== "approve") {
       return response.redirect(redirectWith(validated.redirectUri, { error: "access_denied", state: validated.state }));
     }
-    const code = oidc.issueCode({ clientId: validated.client.id, ownerId: session.owner.id, redirectUri: validated.redirectUri, codeChallenge: validated.codeChallenge, scope: validated.scope, nonce: validated.nonce });
+    let code;
+    try {
+      code = oidc.issueCode({ clientId: validated.client.id, ownerId: session.owner.id, redirectUri: validated.redirectUri, codeChallenge: validated.codeChallenge, scope: validated.scope, nonce: validated.nonce });
+    } catch (error) {
+      if (error instanceof OidcError) { error.redirectUri = validated.redirectUri; error.state = validated.state; }
+      return renderAuthorizationError(response, error);
+    }
     store.recordAudit("oidc.authorized", { actorId: session.owner.id, subjectId: validated.client.id, details: { client: validated.client.name, scope: validated.scope } });
     return response.redirect(redirectWith(validated.redirectUri, { code, state: validated.state }));
   });

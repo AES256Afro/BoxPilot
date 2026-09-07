@@ -44,7 +44,7 @@ beforeAll(async () => {
   base = `http://127.0.0.1:${server.address().port}`;
 });
 
-afterAll(async () => { server?.close(); state?.close?.(); await rm(directory, { recursive: true, force: true }); });
+afterAll(async () => { oidc?.close(); server?.close(); state?.close?.(); await rm(directory, { recursive: true, force: true }); });
 
 describe("OIDC endpoints", () => {
   it("serves discovery and JWKS at the site root", async () => {
@@ -68,7 +68,7 @@ describe("OIDC endpoints", () => {
     // Chrome checks form-action against the redirect a form POST ends in, not only the form's own
     // action. With 'self' alone, approving consent left the person stuck on the consent page.
     const session = await signIn();
-    const params = new URLSearchParams({ client_id: client.id, redirect_uri: redirectUri, response_type: "code", scope: "openid", code_challenge: "abc", code_challenge_method: "S256" });
+    const params = new URLSearchParams({ client_id: client.id, redirect_uri: redirectUri, response_type: "code", scope: "openid", code_challenge: "a".repeat(43), code_challenge_method: "S256" });
     const consent = await fetch(`${base}/oidc/authorize?${params}`, { headers: { Cookie: session.cookie } });
     expect(consent.status).toBe(200);
     const csp = consent.headers.get("content-security-policy") ?? "";
@@ -117,7 +117,7 @@ describe("OIDC endpoints", () => {
 
   it("denying redirects back with access_denied", async () => {
     const session = await signIn();
-    const form = new URLSearchParams({ client_id: client.id, redirect_uri: redirectUri, response_type: "code", scope: "openid", code_challenge: "abc", code_challenge_method: "S256", state: "st-2", csrf: session.csrfToken, decision: "deny" });
+    const form = new URLSearchParams({ client_id: client.id, redirect_uri: redirectUri, response_type: "code", scope: "openid", code_challenge: "a".repeat(43), code_challenge_method: "S256", state: "st-2", csrf: session.csrfToken, decision: "deny" });
     const denied = await fetch(`${base}/oidc/authorize`, { method: "POST", headers: { Cookie: session.cookie, "Content-Type": "application/x-www-form-urlencoded" }, body: form.toString(), redirect: "manual" });
     expect(denied.status).toBe(302);
     const location = new URL(denied.headers.get("location"));
