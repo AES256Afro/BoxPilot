@@ -1,5 +1,6 @@
 import { readFile, readlink } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
+import { inspectControllerFiles } from "../controller-doctor.mjs";
 import { runtimeDiagnostics } from "../runtime-diagnostics.mjs";
 import { hostnamePattern, timezonePattern } from "../tasks/system.mjs";
 
@@ -30,6 +31,11 @@ async function readText(path) {
 
 export function systemOperations() {
   return [
+    defineOperation({
+      id: "system.controller.inspect", title: "Check BoxPilot installation health", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 30_000,
+      description: "Checks service state, protected file metadata, release assets and free space. Reads no database, log or configuration contents.",
+      run: (_parameters, { run }) => inspectControllerFiles({ run }),
+    }),
     defineOperation({
       id: "system.runtime.inspect", title: "Check BoxPilot helper resource use", risk: "low", readOnly: true, timeoutMs: 10_000,
       description: "Reads the helper process memory, CPU and Linux pressure counters. Starts no disk scans or child processes.",

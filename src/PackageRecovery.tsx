@@ -18,7 +18,11 @@ export default function PackageRecovery({ csrfToken }: { csrfToken: string }) {
   const [error, setError] = useState<string | null>(null);
   async function check() {
     setBusy(true); setError(null); setReport(null);
-    try { setReport((await inspectOperation<Report>("apt.health.inspect")).result); }
+    try {
+      const result = (await inspectOperation<Report>("apt.health.inspect")).result;
+      if (!result || !Object.hasOwn(titles, result.status) || !Array.isArray(result.locks?.holders)) throw new Error("The package check returned incomplete data. Check that both services run the same BoxPilot release.");
+      setReport(result);
+    }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Could not check package recovery"); }
     finally { setBusy(false); }
   }

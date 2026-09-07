@@ -4644,3 +4644,7 @@ textarea {
 .package-recovery details { margin: 0 16px 12px; }
 .package-recovery details pre { max-height: 16rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .package-recovery > div > button { margin: 0 16px 16px; }
+.controller-doctor > p, .controller-doctor > div, .controller-doctor > details { margin: 12px 20px 18px; font-size: .85rem; line-height: 1.5; }
+.controller-doctor article { margin: 12px 0; padding: 12px; border: 1px solid var(--border); border-radius: 8px; }
+.controller-doctor article p { margin: 6px 0; }
+.controller-doctor pre { overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }

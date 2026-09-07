@@ -2,6 +2,29 @@
 
 set -u
 
+# This entry point remains available over SSH when the web service cannot start.
+case "${1:-}" in
+  --help)
+    printf 'Usage: sh scripts/boxpilot-doctor.sh [--control-plane [--json] | --json]\nNo options runs the existing host and optional virtualization checks.\n--control-plane checks BoxPilot services, permissions, release files and capacity.\n--json prints the controller report as JSON. Run with sudo for protected metadata.\n'
+    exit 0
+    ;;
+  --control-plane|--json)
+    boxpilot_doctor_mode="$1"
+    shift
+    if ! command -v node >/dev/null 2>&1; then
+      printf '[FAIL] Node.js is missing. Restore Node.js 24 or newer before running controller diagnostics.\n' >&2
+      exit 2
+    fi
+    boxpilot_doctor_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+    if [ "$boxpilot_doctor_mode" = --json ]; then
+      exec node "$boxpilot_doctor_dir/boxpilot-controller-doctor.mjs" --json "$@"
+    fi
+    exec node "$boxpilot_doctor_dir/boxpilot-controller-doctor.mjs" "$@"
+    ;;
+  "") ;;
+  *) printf 'Unknown option. Use --help.\n' >&2; exit 2 ;;
+esac
+
 boxpilot_failures=0
 boxpilot_uri="${BOXPILOT_LIBVIRT_URI:-qemu:///system}"
 boxpilot_iso_directory="${BOXPILOT_ISO_DIRECTORY:-/var/lib/libvirt/boot}"
@@ -145,7 +168,7 @@ fi
 
 if boxpilot_has_command curl && curl --max-time 3 --fail --silent "http://127.0.0.1:${boxpilot_port}/api/v1/health" >/dev/null 2>&1; then
   boxpilot_pass "BoxPilot health endpoint responds on loopback port $boxpilot_port"
-elif boxpilot_has_command wget && wget -qO- "http://127.0.0.1:${boxpilot_port}/api/v1/health" >/dev/null 2>&1; then
+elif boxpilot_has_command wget && wget --timeout=3 --tries=1 -qO- "http://127.0.0.1:${boxpilot_port}/api/v1/health" >/dev/null 2>&1; then
   boxpilot_pass "BoxPilot health endpoint responds on loopback port $boxpilot_port"
 else
   boxpilot_warn "BoxPilot health endpoint is not responding on loopback port $boxpilot_port"
