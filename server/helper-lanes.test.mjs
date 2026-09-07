@@ -111,6 +111,32 @@ describe("an operation holds every lane it touches", () => {
 });
 
 describe("inspection concurrency", () => {
+  it("refuses overflow instead of retaining an unbounded read queue", async () => {
+    const gate = createConcurrencyGate(1, { maxWaiting: 2 });
+    let release;
+    const active = gate.run(() => new Promise((resolve) => { release = resolve; }));
+    const queued = [gate.run(async () => "first"), gate.run(async () => "second")];
+    const overflow = await Promise.allSettled(Array.from({ length: 1000 }, () => gate.run(async () => "must not run")));
+    expect(overflow.every((result) => result.status === "rejected" && result.reason.code === "HELPER_BUSY")).toBe(true);
+    expect(gate.waiting()).toBe(2);
+    release(); await active;
+    expect(await Promise.all(queued)).toEqual(["first", "second"]);
+    expect(gate.waiting()).toBe(0); expect(gate.active()).toBe(0);
+  });
+
+  it("removes abandoned waiting work and admits the next live caller", async () => {
+    const gate = createConcurrencyGate(1, { maxWaiting: 1 });
+    let release; let abandonedRuns = 0;
+    const active = gate.run(() => new Promise((resolve) => { release = resolve; }));
+    const controller = new AbortController();
+    const pending = gate.run(async () => { abandonedRuns += 1; }, { signal: controller.signal });
+    const rejection = expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    controller.abort(); await rejection;
+    expect(gate.waiting()).toBe(0);
+    const next = gate.run(async () => "next");
+    release(); await active;
+    expect(await next).toBe("next"); expect(abandonedRuns).toBe(0);
+  });
   it("runs a bounded number at once and lets the rest through in order", async () => {
     const gate = createConcurrencyGate(2);
     const order = [];

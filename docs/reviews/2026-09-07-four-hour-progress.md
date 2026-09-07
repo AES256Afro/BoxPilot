@@ -124,3 +124,9 @@ Fixed the installed-app id collector treating a Set as an array, which broke the
 Scheduled app-data scans now defer under sustained kernel PSI pressure, retain prior history, explain the delay in Storage, and retry after 30 minutes. Manual forced measurements remain available. Linux du requests idle IO and nice 10 where supported; concurrent data scans, sampler writes and housekeeping inspections are coalesced. Full check passed with 1,580 tests across 230 files. The disposable Ubuntu integration passed the actual low-priority command together with package recovery, lock refusal, log-release permissions and independent database ownership checks.
 
 Native installation smoke passed for cfc26c1. Its general CI passed application checks but Docker Hub returned HTTP 500 while resolving the base image; the failed job was retried. Production remains unchanged. The read-only live sampler continues to the agreed deadline.
+
+## Helper admission and abandoned work
+
+The helper's eight active read slots previously had an unbounded waiting list. They now admit at most 32 queued reads, refuse overflow with a retry explanation, and remove queued work when its caller disconnects. Total helper connections are capped at 64, including peers that send no request. Parsed request text is released and later request chunks are ignored. These changes do not interrupt an already-running approved mutation. Full check passed with 1,582 tests across 230 files, including 1,000 overflow attempts and cancellation followed by successful new work.
+
+The cfc26c1 CI retry passed after the Docker Hub outage, and native installation passed for 10471fc.

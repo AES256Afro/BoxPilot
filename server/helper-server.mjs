@@ -83,6 +83,8 @@ await unlink(socketPath).catch((error) => {
 });
 
 const server = net.createServer({ allowHalfOpen: true }, (connection) => {
+  const abandoned = new AbortController();
+  connection.once("close", () => abandoned.abort());
   // The web side destroys its socket when a request times out or the service restarts. Writing the
   // reply then raises EPIPE, and an unhandled 'error' here would take the root helper down mid-operation.
   connection.on("error", () => connection.destroy());
@@ -99,6 +101,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
     let request;
     try {
       request = JSON.parse(payload);
+      payload = "";
     } catch {
       reply({ version: 1, id: null, ok: false, error: "Malformed JSON request", code: "malformed_json" });
       return;
@@ -108,7 +111,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       if (registeredTimeout) connection.setTimeout(registeredTimeout);
       let result;
       if (readOnlyOperations.has(request.operation)) {
-        result = await reads.run(() => executeHelperOperation(request, helperDependencies));
+        result = await reads.run(() => executeHelperOperation(request, helperDependencies), { signal: abandoned.signal });
       } else {
         const held = laneFor(request.operation, request.parameters);
         // Waiting behind another operation must not look like a hung request: a heartbeat line keeps
@@ -142,6 +145,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
   }
 
   connection.on("data", (chunk) => {
+    if (handled) return;
     payload += chunk;
     if (Buffer.byteLength(payload, "utf8") > maxRequestBytes) {
       handled = true;
@@ -153,9 +157,17 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       void respond();
     }
   });
-  connection.on("end", () => void respond());
+  connection.on("end", () => {
+    // Official clients keep the request side open until the reply. A FIN after submission
+    // means that caller has gone; release a queued read before it starts expensive host work.
+    if (handled) abandoned.abort();
+    else void respond();
+  });
   connection.on("timeout", () => connection.destroy());
 });
+// Bound even peers that connect without submitting a request. The socket is local and group
+// protected, but valid web requests must not turn into unlimited root-process connections.
+server.maxConnections = 64;
 
 server.listen(socketPath, async () => {
   await chmod(socketPath, 0o660);

@@ -81,15 +81,37 @@ export function createLaneQueues() {
   return { run, busy, size: () => lanes.size };
 }
 
-/** Let at most `limit` tasks run at once; the rest wait their turn in order. */
-export function createConcurrencyGate(limit) {
+/** Bound active and queued reads; abandoned queued work must never start later. */
+export function createConcurrencyGate(limit, { maxWaiting = limit * 4 } = {}) {
+  if (!Number.isInteger(limit) || limit < 1 || !Number.isInteger(maxWaiting) || maxWaiting < 0) throw new Error("Invalid helper concurrency limits");
   let running = 0;
   const waiting = [];
-  const next = () => { if (running >= limit) return; const resume = waiting.shift(); if (resume) { running += 1; resume(); } };
-  async function run(task) {
-    if (running >= limit) await new Promise((resolve) => waiting.push(resolve));
+  const abandoned = () => Object.assign(new Error("The queued inspection was abandoned before it started"), { name: "AbortError" });
+  const next = () => {
+    if (running >= limit) return;
+    const entry = waiting.shift();
+    if (entry) { entry.cleanup(); running += 1; entry.resolve(); }
+  };
+  async function run(task, { signal } = {}) {
+    if (signal?.aborted) throw abandoned();
+    if (running >= limit) {
+      if (waiting.length >= maxWaiting) throw Object.assign(new Error("The helper inspection queue is full. Wait for current checks to finish, then retry."), { code: "HELPER_BUSY" });
+      await new Promise((resolve, reject) => {
+        const entry = { resolve, cleanup: () => signal?.removeEventListener("abort", abort) };
+        const abort = () => {
+          const index = waiting.indexOf(entry);
+          if (index < 0) return;
+          waiting.splice(index, 1); entry.cleanup(); reject(abandoned());
+        };
+        waiting.push(entry);
+        signal?.addEventListener("abort", abort, { once: true });
+      });
+    }
     else running += 1;
-    try { return await task(); } finally { running -= 1; next(); }
+    try {
+      if (signal?.aborted) throw abandoned();
+      return await task();
+    } finally { running -= 1; next(); }
   }
   return { run, active: () => running, waiting: () => waiting.length };
 }
