@@ -7,7 +7,9 @@ ConditionPathIsDirectory=/var/lib/boxpilot
 
 [Service]
 Type=simple
-User=root
+# Root is the system-service default. Explicit User=root with sandboxing can strip
+# CAP_SETUID on current systemd, preventing the database probe from dropping to its owner.
+# Keep this consistent with boxpilot-run@.service; Group still grants socket access.
 Group=boxpilot
 WorkingDirectory=/opt/boxpilot
 Environment=NODE_ENV=production

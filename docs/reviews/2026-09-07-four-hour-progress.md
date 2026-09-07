@@ -101,3 +101,9 @@ The login throttle previously exceeded its capacity when every entry was an acti
 SSO startup previously replaced the signing key after any read or parse failure. It now creates a key only when absent, uses exclusive creation and bounded no-follow reads, validates private permissions and P-256, and preserves damaged or incompatible files. An unavailable SSO identity no longer prevents ordinary BoxPilot startup: SSO endpoints report temporary unavailability, while owner client administration and a Settings recovery message remain available. Full check passed with 1,562 tests across 229 files.
 
 Native testing confirmed that the independent database doctor works while both services are stopped. The authenticated helper inspector currently fails to launch its child with EPERM inside the service sandbox. The report now distinguishes that failure from a timeout; native privilege diagnostics are being used to resolve it before declaring this slice complete.
+
+## Pending SSO authorization codes
+
+Pending grants now have a 1,024 global and 64-per-client ceiling. Saturation refuses new grants without evicting valid ones, and one unreferenced expiry timer physically releases abandoned codes while idle. Removing a client clears its pending grants, and token exchange rechecks current registration. Input fields have type/length limits; S256 challenges and verifiers follow the PKCE format, and the method must be explicit. Full check passed with 1,566 tests across 229 files, including saturation, idle expiry and client-removal fixtures.
+
+The native helper's effective capability mask was missing CAP_SETUID despite its bounding set including it. Applied the generic runner's existing documented convention: omit explicit User=root while retaining the default root identity, Group=boxpilot and all helper sandbox restrictions. The native installation check will verify whether this restores the required downward identity transition.
