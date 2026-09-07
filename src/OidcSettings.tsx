@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from "react";
  * client secret — an app needs only the issuer URL and its client id.
  */
 interface OidcClient { id: string; name: string; redirectUris: string[]; createdAt: string }
-interface ClientsView { issuer: string; discovery: string; clients: OidcClient[] }
+interface ClientsView { issuer: string; discovery: string; clients: OidcClient[]; status?: { ready: boolean; detail: string | null } }
 
 async function json<T>(response: Response): Promise<T> {
   const body = (await response.json().catch(() => ({}))) as T & { error?: string };
@@ -51,6 +51,7 @@ export default function OidcSettings({ csrfToken }: { csrfToken: string }) {
     <section className="panel settings-panel">
       <header className="panel-header"><div><strong>Single sign-on</strong><span>Let your apps offer "Sign in with BoxPilot" instead of their own passwords</span></div></header>
       <div className="approval-settings">
+        {view?.status?.ready === false && <div className="auth-error" role="alert">{view.status.detail}</div>}
         {view && (
           <div className="approval-option" style={{ cursor: "default" }}><span aria-hidden="true">🔐</span><div>
             <strong>Point your app at BoxPilot</strong>

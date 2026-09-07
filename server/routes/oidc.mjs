@@ -38,6 +38,12 @@ export function createOidcRouter({ oidc, auth, store }) {
   const router = Router();
   // OIDC token and consent bodies are application/x-www-form-urlencoded.
   router.use(express.urlencoded({ extended: false, limit: "16kb" }));
+  router.use(["/.well-known/openid-configuration", "/oidc"], (_request, response, next) => {
+    const status = oidc.status();
+    if (status.ready) return next();
+    allowCrossOrigin(response);
+    return response.status(503).json({ error: "temporarily_unavailable", error_description: "Single sign-on is unavailable. The BoxPilot owner can review its signing-key status in Settings." });
+  });
 
   router.get("/.well-known/openid-configuration", (request, response) => {
     allowCrossOrigin(response);
@@ -135,7 +141,7 @@ export function createOidcAdminRouter({ oidc, auth }) {
   const ownerOnly = auth.requireRole("owner");
   router.get("/oidc/clients", ownerOnly, (request, response) => {
     const issuer = originFrom(request);
-    response.json({ issuer, discovery: `${issuer}/.well-known/openid-configuration`, clients: oidc.listClients() });
+    response.json({ issuer, discovery: `${issuer}/.well-known/openid-configuration`, clients: oidc.listClients(), status: oidc.status() });
   });
   router.post("/oidc/clients", ownerOnly, (request, response) => {
     try {

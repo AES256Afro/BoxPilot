@@ -2,6 +2,29 @@ import { describe, expect, it } from "vitest";
 import { createLoginThrottle } from "./login-throttle.mjs";
 
 describe("login throttle", () => {
+  it("keeps a hard bound when every entry is actively blocked and recovers at the first expiry", () => {
+    let clock = 0;
+    const throttle = createLoginThrottle({ maxEntries: 3, maxFailures: 1, baseDelayMs: 1000, now: () => clock });
+    throttle.record(["first", "second", "third", "overflow"], false);
+    for (let index = 0; index < 10_000; index += 1) throttle.record([`new-${index}`], false);
+    expect(throttle.size()).toBe(3);
+    expect(throttle.check(["first"])).toEqual({ blocked: true, retryAfterMs: 1000 });
+    expect(throttle.check(["new-caller"])).toEqual({ blocked: true, retryAfterMs: 1000 });
+    clock = 1000;
+    expect(throttle.check(["new-caller"]).blocked).toBe(false);
+    throttle.record(["new-caller"], false);
+    expect(throttle.size()).toBe(3);
+    expect(throttle.check(["new-caller"]).blocked).toBe(true);
+  });
+
+  it("does not evict an existing counter merely to update it at capacity", () => {
+    const throttle = createLoginThrottle({ maxEntries: 1 });
+    for (let index = 0; index < 5; index += 1) throttle.record(["caller"], false);
+    expect(throttle.check(["caller"]).blocked).toBe(true);
+    throttle.record(["caller"], true);
+    expect(throttle.size()).toBe(0);
+  });
+
   it("blocks after five failures with a doubling delay and clears on success", () => {
     let clock = 1_000_000;
     const throttle = createLoginThrottle({ now: () => clock });

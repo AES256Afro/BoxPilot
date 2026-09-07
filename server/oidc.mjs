@@ -10,10 +10,10 @@
  * URL the app reached, so an install that lives on the tailnet issues tailnet-URL tokens and one on
  * the LAN issues LAN-URL tokens, with no configuration.
  */
-import { generateKeyPairSync, createPrivateKey, createPublicKey, createHash, randomBytes } from "node:crypto";
-import { readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { publicJwk, signJwt, verifyJwt } from "./jwt.mjs";
+import { loadOidcSigningKeys } from "./oidc-signing-keys.mjs";
 
 const CODE_TTL_MS = 60_000;
 const ACCESS_TTL_SECONDS = 3600;
@@ -31,23 +31,6 @@ export class OidcError extends Error {
   }
 }
 
-function loadOrCreateKeys(keyDir) {
-  const keyPath = path.join(keyDir, "signing.key");
-  let privateKey;
-  try {
-    privateKey = createPrivateKey(readFileSync(keyPath));
-  } catch {
-    mkdirSync(keyDir, { recursive: true, mode: 0o700 });
-    const pair = generateKeyPairSync("ec", { namedCurve: "P-256" });
-    writeFileSync(keyPath, pair.privateKey.export({ format: "pem", type: "pkcs8" }), { mode: 0o600 });
-    try { chmodSync(keyPath, 0o600); } catch { /* best effort */ }
-    privateKey = pair.privateKey;
-  }
-  const publicKey = createPublicKey(privateKey);
-  const kid = createHash("sha256").update(publicKey.export({ format: "der", type: "spki" })).digest("base64url").slice(0, 16);
-  return { privateKey, publicKey, kid };
-}
-
 /** A redirect URI must be an absolute http/https URL with no fragment (OIDC forbids a fragment). */
 export function isValidRedirectUri(value) {
   try {
@@ -62,12 +45,17 @@ export function createOidcService({
   now = () => Date.now(),
   keys = null,
 } = {}) {
-  const { privateKey, publicKey, kid } = keys ?? loadOrCreateKeys(keyDir);
+  let signingKeys = keys;
+  try { signingKeys ??= loadOidcSigningKeys(keyDir); } catch { /* Keep ordinary BoxPilot login and recovery available. */ }
+  const { privateKey, publicKey, kid } = signingKeys ?? {};
+  const status = () => ({ ready: Boolean(signingKeys), detail: signingKeys ? null : "Single sign-on is unavailable because its signing key could not be loaded. Preserve the key file and restore a verified key backup, then restart BoxPilot. Ordinary BoxPilot sign-in remains available." });
+  const requireKeys = () => { if (!signingKeys) throw new OidcError("temporarily_unavailable", status().detail); };
   const codes = new Map(); // code -> { clientId, ownerId, redirectUri, codeChallenge, scope, nonce, expiresAt }
 
   function pruneCodes() { const at = now(); for (const [key, record] of codes) if (record.expiresAt <= at) codes.delete(key); }
 
   function metadata(issuer) {
+    requireKeys();
     return {
       issuer,
       authorization_endpoint: `${issuer}/oidc/authorize`,
@@ -85,7 +73,7 @@ export function createOidcService({
     };
   }
 
-  function jwks() { return { keys: [publicJwk(publicKey, kid)] }; }
+  function jwks() { requireKeys(); return { keys: [publicJwk(publicKey, kid)] }; }
 
   // ---- Client registration -------------------------------------------------------------------
   function registerClient({ name, redirectUris, ownerId = null }) {
@@ -107,6 +95,7 @@ export function createOidcService({
   // ---- Authorization -------------------------------------------------------------------------
   /** Validate an authorization request. Throws OidcError; redirectUri/state are attached when it is safe to bounce the error back. */
   function validateAuthorization(params) {
+    requireKeys();
     const client = store.getOidcClient(params.client_id);
     if (!client) throw new OidcError("invalid_client", "Unknown client. Register this app under Settings, Single sign-on.");
     const redirectUri = params.redirect_uri;
@@ -124,6 +113,7 @@ export function createOidcService({
 
   /** After the owner consents, mint a single-use authorization code. */
   function issueCode({ clientId, ownerId, redirectUri, codeChallenge, scope, nonce }) {
+    requireKeys();
     pruneCodes();
     const code = randomBytes(32).toString("base64url");
     codes.set(code, { clientId, ownerId, redirectUri, codeChallenge, scope, nonce: nonce ?? null, expiresAt: now() + CODE_TTL_MS });
@@ -132,6 +122,7 @@ export function createOidcService({
 
   // ---- Token + userinfo ----------------------------------------------------------------------
   function exchangeCode({ code, codeVerifier, clientId, redirectUri, issuer }) {
+    requireKeys();
     const record = codes.get(code);
     codes.delete(code); // single use, whether or not it checks out
     if (!record || record.expiresAt <= now()) throw new OidcError("invalid_grant", "The authorization code is invalid or expired.");
@@ -150,6 +141,7 @@ export function createOidcService({
   }
 
   function userinfo(accessToken, issuer) {
+    requireKeys();
     let payload;
     try { payload = verifyJwt(accessToken, { publicKey, now: Math.floor(now() / 1000) }); } catch { throw new OidcError("invalid_token", "The access token is invalid or expired."); }
     if (payload.token_use !== "access" || payload.iss !== issuer) throw new OidcError("invalid_token", "Not an access token for this issuer.");
@@ -166,5 +158,5 @@ export function createOidcService({
     };
   }
 
-  return { metadata, jwks, registerClient, listClients, removeClient, validateAuthorization, issueCode, exchangeCode, userinfo, internals: { kid, publicKey } };
+  return { status, metadata, jwks, registerClient, listClients, removeClient, validateAuthorization, issueCode, exchangeCode, userinfo, internals: { kid, publicKey } };
 }
