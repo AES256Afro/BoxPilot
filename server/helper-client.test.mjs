@@ -6,12 +6,17 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createHelperClient } from "./helper-client.mjs";
 
 let server = null; let dir = null;
+const sockets = new Set();
 
 /** A helper socket that answers on command, so overlapping requests are deterministic. */
 async function helperSocket(handler) {
   dir = mkdtempSync(path.join(tmpdir(), "boxpilot-helper-"));
   const socketPath = path.join(dir, "helper.sock");
   server = net.createServer((connection) => {
+    sockets.add(connection);
+    connection.on("close", () => sockets.delete(connection));
+    // Deadline tests deliberately reset their peer, just as the real helper handles.
+    connection.on("error", () => connection.destroy());
     let payload = "";
     connection.setEncoding("utf8");
     connection.on("data", async (chunk) => {
@@ -26,9 +31,14 @@ async function helperSocket(handler) {
   return socketPath;
 }
 
-// closeAllConnections as well as close: the client's sockets would otherwise keep the server (and
-// its unix socket path) alive past the test that owns them.
-afterEach(() => { server?.closeAllConnections?.(); server?.close(); server = null; if (dir) rmSync(dir, { recursive: true, force: true }); dir = null; });
+// net.Server has no HTTP closeAllConnections method. Own and close the actual sockets.
+afterEach(async () => {
+  for (const socket of sockets) socket.destroy();
+  if (server) await new Promise((resolve) => server.close(resolve));
+  server = null;
+  if (dir) rmSync(dir, { recursive: true, force: true });
+  dir = null;
+});
 
 describe("sharing helper reads", () => {
   it("starts fresh evidence after invalidation while an older read is still running", async () => {

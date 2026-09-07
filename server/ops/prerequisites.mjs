@@ -31,12 +31,12 @@ export function prerequisiteOperations() {
       // Answering the socket is half the check. The other half is the one that was missing when the
       // helper's umask made every job log unreadable to the web service for three weeks: write a
       // line as the helper does, and let the caller - the web service - prove it can read it back.
-      run: async () => {
+      run: async (_parameters, { createProbeWriter = createJobLogWriter, inspectProbe = stat, now = () => new Date() } = {}) => {
         const jobId = "00000000-0000-4000-8000-00000000c0de";   // one fixed probe, rewritten each time
-        const writer = createJobLogWriter({ jobId, gid: serviceGroupId() });
-        await writer.append(`canary ${new Date().toISOString()}`, "stdout");
+        const writer = createProbeWriter({ jobId, gid: serviceGroupId(), replaceExisting: true });
+        if (!await writer.append(`canary ${now().toISOString()}`, "stdout")) throw new Error("The helper could not write fresh diagnostic log evidence");
         const path = jobLogPath(jobId);
-        const mode = await stat(path).then((entry) => entry.mode & 0o777, () => null);
+        const mode = await inspectProbe(path).then((entry) => entry.mode & 0o777, () => null);
         return { verified: true, helperVersion: productVersion, mutationPerformed: false, jobLog: { path, mode } };
       },
     }),

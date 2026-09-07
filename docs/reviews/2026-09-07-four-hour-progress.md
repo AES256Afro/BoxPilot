@@ -53,3 +53,9 @@ Fourth slice committed as 5ae4de0 with 1,507 tests across 224 files passing. The
 The local Ubuntu 24.04 container test passed all of: deliberately interrupted package configuration, diagnosis, repair, fresh verification, idempotent repeat, refusal while a real kernel lock is held, and final cleanup. The container runs with no network, a read-only checkout mount and bounded CPU/memory. Added it to CI and extended native install smoke to prove doctor evidence remains available with the web service stopped. Hosted results are separate from local success.
 
 The Repair summary now says Problem scan complete instead of a broad No problems found when optional manual diagnostics have not run or have separate findings.
+
+## Hosted validation and log follow-up
+
+Source through df66b3e was pushed to main and its remote SHA verified. Native install smoke passed, including independent doctor operation while Express was stopped. General CI passed all 1,507 assertions but failed on an unhandled ECONNRESET in the helper-client test server. That fixture omitted the production helper's socket error handling and attempted to use HTTP's closeAllConnections on net.Server. The fix tracks/closes real sockets and awaits cleanup.
+
+The job-log review added bounded UTF-8 lines, per-writer byte budgets and bounded reads of oversized old files. The fixed canary now replaces its previous probe and requires a successful fresh write. This avoids treating old capped evidence as proof of current write access. Regression coverage includes a sparse oversized file, concurrent writes, Unicode truncation and failed canary writes. Root-owned live-log cleanup/retention remains a separate investigation because the web account cannot unlink inside a 0750 root-owned log directory.

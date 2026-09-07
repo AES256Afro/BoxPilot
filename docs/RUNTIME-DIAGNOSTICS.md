@@ -23,3 +23,5 @@ The approval dialog shows the deadline and disables expired approvals. Close the
 ## Verification
 
 Tests cover 10,000 queue heartbeats without retained frame growth, oversized and malformed replies, an overall deadline while queue heartbeats arrive, slow-reader disconnects, connection-budget cleanup, Unicode log chunking, clock-controlled secret expiry and restart refusal, missing cgroup data, and separation of heap from file cache. These checks establish bounded behavior for the tested paths, not a production soak-test pass.
+
+Job output also has independent bounds: each writer limits lines to 64 KiB and its accumulated output to 4 MiB, while a read of a damaged or old oversized file allocates at most 4 MiB plus three UTF-8 boundary bytes. This is not a shared inter-process file-size lock; separate producers can overlap. The fixed canary replaces its previous output and reports failure if a new probe cannot be written.
