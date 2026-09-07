@@ -178,3 +178,9 @@ App setup/settings and effective configuration now contain keyboard focus, close
 Prepared 1.115.0 using the repository's version synchronization script. Backup Center now calls its database rows history and explains that drill success is historical evidence; local retention can remove files while preserving records. Current file/repository availability reconciliation remains in M30.8. Full check passed with 1,622 tests across 232 files. The first broad browser sweep was interrupted after a concurrent rebuild invalidated the demo's captured asset references; its mixed-build failures are excluded. A fresh sweep runs against the completed 1.115.0 build.
 
 Hosted CI and native install smoke both passed for dabd1fb.
+
+## Browser-discovered copy and passkey issues
+
+A complete deep sweep opened 558 controls across 3 fictional scenarios and 18 pages. It found unhandled clipboard denials on Storage, Network and Settings, plus a native prompt for passkey renaming. The runner retained each page's previous errors, so repeated lines are not separate defects. Copy controls now provide a visible manual-copy fallback, reject stale completion feedback and acknowledge successful copying. Passkeys use an inline, bounded-name form with Save, Cancel and Escape instead of the native prompt.
+
+Full check passed with 1,627 tests across 234 files. Phone-width browser inspection confirmed the inline form and Escape focus return. A second deep sweep is running against the corrected, unchanged build. Both hosted workflows passed for the preceding 7908992 versioned tree. The release tag is held until the final source/browser checks are reviewed.

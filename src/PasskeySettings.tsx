@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import CopyButton from "./CopyButton";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { deletePasskey, fetchPasskeyStatus, generateRecoveryCodes, passkeysSupported, registerPasskey, renamePasskey, type PasskeyInfo } from "./passkey";
 
 /**
@@ -14,6 +15,16 @@ export default function PasskeySettings({ csrfToken }: { csrfToken: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [freshCodes, setFreshCodes] = useState<string[] | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null);
+  const renameOpener = useRef<HTMLButtonElement | null>(null);
+  const returnRenameFocus = useRef(false);
+  const cancelRename = () => { returnRenameFocus.current = true; setRenaming(null); };
+  useEffect(() => {
+    if (!renaming && !busy && returnRenameFocus.current) {
+      returnRenameFocus.current = false;
+      renameOpener.current?.focus();
+    }
+  }, [renaming, busy]);
   const supported = passkeysSupported();
   const host = typeof window !== "undefined" ? window.location.host : "";
 
@@ -31,10 +42,12 @@ export default function PasskeySettings({ csrfToken }: { csrfToken: string }) {
     await registerPasskey(csrfToken, label.trim() || "Passkey");
     setLabel("");
   });
-  const rename = (id: string, current: string) => {
-    const next = window.prompt("Rename this passkey", current);
-    if (next === null || next.trim() === current) return;
-    void act("Passkey renamed.", async () => { await renamePasskey(csrfToken, id, next.trim()); });
+  const saveRename = () => {
+    if (!renaming?.label.trim()) return;
+    void act("Passkey renamed.", async () => {
+      await renamePasskey(csrfToken, renaming.id, renaming.label.trim());
+      cancelRename();
+    });
   };
   const remove = (id: string, name: string) => act(`Removed ${name}.`, async () => {
     if (!password) throw new Error("Enter your password below to remove a passkey");
@@ -78,8 +91,14 @@ export default function PasskeySettings({ csrfToken }: { csrfToken: string }) {
                 {status.passkeys.map((key) => (
                   <div className="workload" key={key.id}>
                     <div><strong>{key.label}</strong><span>for <code>{key.rpId}</code> · added {new Date(key.createdAt).toLocaleDateString()}{key.lastUsedAt ? ` · last used ${new Date(key.lastUsedAt).toLocaleDateString()}` : " · not used yet"}</span></div>
-                    <button className="text-button" type="button" disabled={busy} onClick={() => rename(key.id, key.label)}>Rename</button>
+                    <button className="text-button" type="button" disabled={busy} onClick={(event) => { renameOpener.current = event.currentTarget; setRenaming({ id: key.id, label: key.label }); }}>Rename</button>
+
                     <button className="text-button" type="button" disabled={busy} onClick={() => void remove(key.id, key.label)}>Remove</button>
+                    {renaming?.id === key.id && <form className="recovery-actions passkey-rename" aria-label="Rename passkey" onSubmit={(event) => { event.preventDefault(); saveRename(); }} onKeyDown={(event) => { if (event.key === "Escape" && !busy) { event.preventDefault(); cancelRename(); } }}>
+                      <label>New passkey name<input autoFocus aria-label="New passkey name" maxLength={48} value={renaming.label} onChange={(event) => setRenaming({ id: key.id, label: event.target.value })} /></label>
+                      <button className="primary-button" type="submit" disabled={busy || !renaming.label.trim() || renaming.label.trim() === key.label}>Save name</button>
+                      <button className="text-button" type="button" disabled={busy} onClick={cancelRename}>Cancel rename</button>
+                    </form>}
                   </div>
                 ))}
               </div>
@@ -96,7 +115,7 @@ export default function PasskeySettings({ csrfToken }: { csrfToken: string }) {
                   <p className="muted">Save these now. They are shown once and each works a single time.</p>
                   <ul className="recovery-code-list">{freshCodes.map((code) => <li key={code}><code>{code}</code></li>)}</ul>
                   <div className="recovery-actions">
-                    <button className="secondary-button" type="button" onClick={() => void navigator.clipboard?.writeText(freshCodes.join("\n"))}>Copy</button>
+                    <CopyButton className="secondary-button" value={freshCodes.join("\n")} />
                     <button className="secondary-button" type="button" onClick={downloadCodes}>Download</button>
                     <button className="text-button" type="button" onClick={() => setFreshCodes(null)}>Done, I saved them</button>
                   </div>
