@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { readJson } from "./http";
 import RuntimeHealth from "./RuntimeHealth";
 import PackageRecovery from "./PackageRecovery";
+import ControllerDoctor from "./ControllerDoctor";
 import { useOperation } from "./ApproveDialog";
 import { inspectOperation } from "./operations";
 import type { ViewName } from "./data";
@@ -323,6 +324,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       )}
 
       <RuntimeHealth />
+      <ControllerDoctor />
       <PackageRecovery csrfToken={csrfToken} />
 
       <section className="repair-readiness repair-prereq-header">

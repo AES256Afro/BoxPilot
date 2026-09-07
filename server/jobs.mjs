@@ -168,13 +168,13 @@ export function createJobService(store, helper, {
         : execution.timeoutMs
           ? await helper.request(execution.operation, execution.parameters, { timeoutMs: execution.timeoutMs, jobId })
           : await helper.request(execution.operation, execution.parameters, { jobId });
-      await refreshEvidence();
       store.transitionJob(jobId, "applying", "verifying", { result });
       store.addJobStep(jobId, "apply", "completed", execution.applied);
       if (!execution.validate(result)) throw new Error(execution.run ? "Operation returned an invalid result" : "Helper returned an invalid operation result");
       // Registry ops with durable evidence record it web-side; a failed record fails the job.
       if (job.type.startsWith("op:")) operationRecordHooks[job.type.slice(3)]?.(job, result);
       store.addJobStep(jobId, "verify", "completed", execution.verified);
+      await refreshEvidence();
       const completed = store.transitionJob(jobId, "verifying", "completed", { result });
       store.recordAudit("job.completed", { actorId: owner.id, subjectId: jobId, details: { type: job.type } });
       await persistJobOutput(jobId);

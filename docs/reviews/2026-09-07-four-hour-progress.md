@@ -33,3 +33,15 @@ Second-slice validation: full check passed with 1,482 tests across 219 files. Co
 - Live Linux read-only diagnosis returned healthy with both audit and simulation succeeding. No package mutation or service restart was performed.
 
 Validation: full check passed with 1,499 tests across 221 files. Interrupted Ubuntu mutation and deployment remain unverified. See PACKAGE-RECOVERY.md.
+
+Third slice committed as e746d2f. The built demo's package diagnosis and medium-risk approval preview were manually inspected in the browser.
+
+## Fourth local slice: independent installation doctor
+
+- Added manual operator installation diagnostics in Repair Center and independent `--control-plane` / `--json` doctor entry points over SSH or console.
+- Reports service identity/state, protected directory/socket metadata, assets, installed release and free bytes/inodes. CLI additionally compares bounded web/helper responses with the installed release.
+- Missing connectivity preserves the rest of the evidence. Unreadable protected metadata is unknown, not a permission fault. No database, configuration or log contents are read.
+- Live ordinary-account Linux inspection: 15 checks passed, 2 protected paths unknown. Elevated inspection requires interactive sudo and was not performed.
+- Follow-up review moved diagnostic invalidation after durable result hooks, before terminal events, and shared the new manual inspectors across concurrent callers.
+
+The source is not yet deployed. M30.5 still needs known-good repair/rollback and disposable Ubuntu recovery testing. The read-only sampler at /tmp/boxpilot-resource-sampler.py writes /tmp/boxpilot-resource-samples-20260907.jsonl every minute until 16:29:10 UTC. It runs as exec session 70169. Do not start a duplicate sampler. Inspect the trend near the deadline and preserve the distinction between RSS, anonymous memory and Linux file cache; this is not a JavaScript heap profile.

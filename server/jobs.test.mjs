@@ -31,12 +31,14 @@ describe("durable job executor", () => {
   it.each([false, true])("refreshes evidence after a settled operation without masking its outcome (failure=%s)", async (failed) => {
     const helper = { request: async () => { if (failed) throw new Error("original operation error"); return { ok: true }; } };
     const { store, owner } = await setup(helper);
-    const hook = vi.fn(async (job) => { expect(store.getJob(job.id).state).toBe("applying"); throw new Error("refresh failed"); });
+    const statesAtRefresh = [];
+    const hook = vi.fn(async (job) => { statesAtRefresh.push(store.getJob(job.id).state); throw new Error("refresh failed"); });
     const jobs = createJobService(store, helper, { onOperationSettled: hook });
     const job = await jobs.createOperationJob("apt.refresh", {}, owner.id);
     if (failed) await expect(jobs.approveAndRun(job.id, owner.id, {})).rejects.toThrow("original operation error");
     else expect((await jobs.approveAndRun(job.id, owner.id, {})).state).toBe("completed");
     expect(hook).toHaveBeenCalledOnce();
+    expect(statesAtRefresh).toEqual([failed ? "applying" : "verifying"]);
     expect(store.getJob(job.id).state).toBe(failed ? "failed" : "completed");
     store.close();
   });

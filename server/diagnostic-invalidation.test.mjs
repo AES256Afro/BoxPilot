@@ -13,7 +13,7 @@ describe("evidence after operations", () => {
     invalidateOperationEvidence({ type: "op:app.install" }, services);
     expect(services.inventory.forget).toHaveBeenCalledOnce();
     expect(services.prerequisites.forget).not.toHaveBeenCalled();
-    expect(services.helper.invalidate).toHaveBeenCalledWith(["app.inspect", "container.docker.inventory", "app.backups.counts"]);
+    expect(services.helper.invalidate).toHaveBeenCalledWith(["system.controller.inspect", "app.inspect", "container.docker.inventory", "app.backups.counts"]);
   });
   it("refreshes prerequisites after package changes, including failed jobs", () => {
     const services = deps();

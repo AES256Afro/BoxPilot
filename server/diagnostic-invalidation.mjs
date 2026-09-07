@@ -3,10 +3,11 @@ export function invalidateOperationEvidence(job, { registry, inventory, prerequi
   const operation = job.type?.startsWith("op:") ? job.type.slice(3) : null;
   if (operation && registry.get(operation)?.readOnly) return;
   inventory.forget();
-  const reads = new Set();
+  const reads = new Set(["system.controller.inspect"]);
   const system = /^(apt|prerequisite|service|system)\./.test(operation ?? "");
   if (system) {
     prerequisites.forget();
+    reads.add("apt.health.inspect");
     for (const name of ["apt.unattended.inspect", "prerequisite.docker.inspect", "prerequisite.restic.inspect", "prerequisite.smartmontools.inspect", "prerequisite.virtualization.inspect", "virtualization.foundation.inspect"]) reads.add(name);
   }
   if (system || /^(app|container)\./.test(operation ?? "")) {
