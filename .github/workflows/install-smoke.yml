@@ -89,4 +89,8 @@ jobs:
 
       - name: Service journals
         if: always()
-        run: sudo journalctl -u boxpilot-helper.service -u boxpilot.service --no-pager -n 120 || true
+        run: |
+          sudo journalctl -u boxpilot-helper.service -u boxpilot.service --no-pager -n 120 || true
+          systemctl show boxpilot-helper.service -p CapabilityBoundingSet -p SystemCallFilter -p NoNewPrivileges -p PrivateUsers
+          pid="$(systemctl show boxpilot-helper.service -p MainPID --value)"
+          if [ "$pid" -gt 0 ]; then sudo sed -n '/^Uid:/p; /^Gid:/p; /^Cap/p; /^Seccomp/p' "/proc/$pid/status"; fi
