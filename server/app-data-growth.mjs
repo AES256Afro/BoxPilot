@@ -11,6 +11,9 @@
  * it, because measuring a folder means walking it and that is not something a page load should do.
  */
 
+import { readScanPressure, scanDeferral } from "./scan-resources.mjs";
+import { shared } from "./cache.mjs";
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** One sample per app folder per calendar day (the latest wins), older than `maxDays` dropped. */
@@ -137,7 +140,7 @@ export function mountFor(path, mounts) {
  * a comparison that cannot be made, which the growth window already handles, and is far better than
  * a fabricated reading.
  */
-export function createAppDataSampler({ helper, store, now = () => new Date(), intervalMs = 24 * 60 * 60 * 1000, initialDelayMs = 20 * 60 * 1000, minimumGapMs = 20 * 60 * 60 * 1000, maxDays = 30, timeoutMs = 40 * 60_000, report = (message) => console.warn(message), setInterval: schedule = globalThis.setInterval, setTimeout: delay = globalThis.setTimeout, clearInterval: unschedule = globalThis.clearInterval, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
+export function createAppDataSampler({ helper, store, readPressure = readScanPressure, pressureRetryMs = 30 * 60_000, now = () => new Date(), intervalMs = 24 * 60 * 60 * 1000, initialDelayMs = 20 * 60 * 1000, minimumGapMs = 20 * 60 * 60 * 1000, maxDays = 30, timeoutMs = 40 * 60_000, report = (message) => console.warn(message), setInterval: schedule = globalThis.setInterval, setTimeout: delay = globalThis.setTimeout, clearInterval: unschedule = globalThis.clearInterval, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
   /** The newest reading anywhere in the history, so a restart cannot start the clock over. */
   function lastSampledAt(history) {
     let newest = null;
@@ -148,13 +151,20 @@ export function createAppDataSampler({ helper, store, now = () => new Date(), in
     return newest;
   }
 
-  async function sample({ force = false } = {}) {
+  async function sampleOnce({ force = false } = {}) {
     // The owner restarts this service several times on a day they are updating, and each restart
     // re-arms the timer below. Walking every data folder on the disk once per deploy is not what
     // "once a day" means, so the history itself decides whether it is due.
     const history = store.getSetting("appDataUsageHistory", {}) ?? {};
     const previous = lastSampledAt(history);
     if (!force && previous !== null && now().getTime() - previous < minimumGapMs) return { sampled: 0, skipped: "measured recently" };
+    if (!force) {
+      const deferred = scanDeferral(await readPressure().catch(() => null));
+      if (deferred) {
+        store.setSetting("appDataUsageLastRun", { at: now().toISOString(), sampled: 0, unmeasured: 0, error: null, deferred }, { updatedBy: null });
+        return { sampled: 0, deferred };
+      }
+    }
     const usage = await helper.request("app.data.usage", {}, { timeoutMs });
     const entries = usage?.entries ?? [];
     if (!entries.length) return { sampled: 0 };
@@ -167,10 +177,20 @@ export function createAppDataSampler({ helper, store, now = () => new Date(), in
     store.setSetting("appDataUsageLastRun", { at: now().toISOString(), sampled, unmeasured, error: null }, { updatedBy: null });
     return { sampled, unmeasured };
   }
+  const sample = shared(sampleOnce);
+  let stopRunning = null;
   function start() {
+    if (stopRunning) return stopRunning;
+    let active = true;
+    let retry = null;
     // One line a night, on success as well as failure. "Did last night's sweep run?" is a question
     // the journal should be able to answer without anyone opening a page or a database.
     const safeSample = () => sample().then((result) => {
+      if (active && result.deferred && !retry) {
+        report(`[boxpilot] deferred application data measurement: ${result.deferred}; retrying in ${Math.round(pressureRetryMs / 60_000)} minutes`);
+        retry = delay(() => { retry = null; if (active) void safeSample(); }, pressureRetryMs);
+        retry.unref?.();
+      }
       if (result.sampled) report(`[boxpilot] measured ${result.sampled} application data folder(s)${result.unmeasured ? `, ${result.unmeasured} not measured` : ""}`);
     }).catch((error) => {
       // Never throw out of a timer, but never swallow it either: the owner is told on the Storage
@@ -182,7 +202,8 @@ export function createAppDataSampler({ helper, store, now = () => new Date(), in
     first.unref?.();
     const timer = schedule(safeSample, intervalMs);
     timer.unref?.();
-    return () => { cancel(first); unschedule(timer); };
+    stopRunning = () => { active = false; cancel(first); cancel(retry); unschedule(timer); stopRunning = null; };
+    return stopRunning;
   }
   return { sample, start };
 }
