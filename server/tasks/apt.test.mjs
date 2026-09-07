@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { aptAutoremove, aptInstall, aptRemove, aptTaskInternals, aptUnattendedSet, aptUpdate, aptUpgrade, validPackageList } from "./apt.mjs";
+import { aptAutoremove, aptInstall, aptRemove, aptRepair, aptTaskInternals, aptUnattendedSet, aptUpdate, aptUpgrade, validPackageList } from "./apt.mjs";
 
 function fakeRun(versions = {}, { failApt = false } = {}) {
   return vi.fn(async (binary, args) => {
@@ -170,5 +170,29 @@ describe("taking over needrestart's job without inheriting its timing", () => {
     const run = fakeRun(versions); // answers "unknown binary" for needrestart
     const result = await aptUpgrade({ packages: ["htop"], refreshFirst: false }, { run });
     expect(result).toMatchObject({ servicesNeedingRestart: null, servicesRestarted: [], selfRestartScheduled: false });
+  });
+});
+
+describe("dedicated package repair", () => {
+  it.each(["busy", "unknown", "invalid"])("does no mutation when execution-time diagnosis is %s", async (status) => {
+    const run = vi.fn();
+    await expect(aptRepair({}, { run, inspect: async () => ({ status }) })).rejects.toThrow();
+    expect(run).not.toHaveBeenCalled();
+  });
+  it("does nothing to an already healthy package state", async () => {
+    const run = vi.fn();
+    expect(await aptRepair({}, { run, inspect: async () => ({ status: "healthy" }) })).toMatchObject({ changed: false, verified: true });
+    expect(run).not.toHaveBeenCalled();
+  });
+  it("preserves package-removal protection, suppresses needrestart in both steps and verifies the result", async () => {
+    const run = fakeRun();
+    const inspect = vi.fn().mockResolvedValueOnce({ status: "needs-repair" }).mockResolvedValueOnce({ status: "healthy" });
+    expect(await aptRepair({}, { run, inspect })).toMatchObject({ repaired: true, verified: true });
+    expect(run).toHaveBeenCalledWith("/usr/bin/dpkg", ["--configure", "-a"], expect.objectContaining({ env: expect.objectContaining({ NEEDRESTART_SUSPEND: "1" }) }));
+    expect(run).toHaveBeenCalledWith("/usr/bin/apt-get", ["install", "--fix-broken", "--yes", "--no-remove"], expect.objectContaining({ env: expect.objectContaining({ NEEDRESTART_SUSPEND: "1" }) }));
+  });
+  it("does not label successful commands as a repaired system when verification still fails", async () => {
+    await expect(aptRepair({}, { run: fakeRun(), inspect: async () => ({ status: "needs-repair" }) })).rejects.toThrow("could not verify");
+    await expect(aptRepair({ shell: "sh" }, { run: vi.fn() })).rejects.toThrow("no parameters");
   });
 });

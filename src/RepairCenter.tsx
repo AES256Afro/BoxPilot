@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { readJson } from "./http";
 import RuntimeHealth from "./RuntimeHealth";
+import PackageRecovery from "./PackageRecovery";
 import { useOperation } from "./ApproveDialog";
 import { inspectOperation } from "./operations";
 import type { ViewName } from "./data";
@@ -322,6 +323,7 @@ export default function RepairCenter({ csrfToken, onNavigate = () => undefined }
       )}
 
       <RuntimeHealth />
+      <PackageRecovery csrfToken={csrfToken} />
 
       <section className="repair-readiness repair-prereq-header">
         <div><span className="eyebrow">Prerequisites</span><strong>{loading ? "Checking..." : `${ready} of ${checks.length} ready`}</strong><p>The tools BoxPilot needs installed. Each is checked on its own, so one failure does not hide the rest.</p></div>

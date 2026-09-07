@@ -6,6 +6,7 @@
 import { access, writeFile } from "node:fs/promises";
 import { fixedRun } from "../exec.mjs";
 import { parseNeedrestart } from "../needrestart.mjs";
+import { inspectPackageHealth } from "../package-health.mjs";
 
 export const packageNamePattern = /^[a-z0-9][a-z0-9+.-]{0,99}$/;
 const aptGet = "/usr/bin/apt-get";
@@ -107,17 +108,32 @@ function summarizeAptOutput(stdout) {
  * healthy system). apt refuses to upgrade/install while packages are half-configured or broken,
  * so every mutation runs this first instead of telling the operator to use a terminal.
  */
-export async function repairPackageState({ run: baseRun = fixedRun, log = null } = {}) {
+export async function repairPackageState({ run: baseRun = fixedRun, log = null, allowRemovals = true } = {}) {
   const run = withLog(baseRun, log);
   // Budget: the apt.upgrade task allows 180 min; these inner limits sum to less so a stuck step fails inside the job instead of outliving it.
-  const configure = await run("/usr/bin/dpkg", ["--configure", "-a"], { timeout: 20 * 60_000, maxBuffer: 8 * 1024 * 1024 });
-  const fixBroken = await run(aptGet, ["install", "--fix-broken", "--yes"], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
+  const configure = await run("/usr/bin/dpkg", ["--configure", "-a"], { timeout: 20 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
+  const fixBroken = await run(aptGet, ["install", "--fix-broken", "--yes", ...(allowRemovals ? [] : ["--no-remove"])], { timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024, env: aptEnvironment });
   return {
     ok: configure.ok && fixBroken.ok,
     configured: configure.ok,
     fixedBroken: fixBroken.ok,
     detail: [configure, fixBroken].filter((result) => !result.ok).map((result) => result.stderr.split("\n").slice(-2).join(" ")).join(" | ") || null,
   };
+}
+
+/** A dedicated repair repeats the diagnosis at execution time and verifies the final state. */
+export async function aptRepair(parameters = {}, { run: baseRun = fixedRun, log = null, inspect = inspectPackageHealth } = {}) {
+  if (!parameters || Object.keys(parameters).length) throw new Error("Package repair accepts no parameters");
+  const run = withLog(baseRun, log);
+  const before = await inspect({ run });
+  if (before.status === "busy") throw new Error("Another package manager is running. Let it finish, then check package recovery again.");
+  if (before.status === "unknown") throw new Error("Package recovery checks could not finish. Review the diagnosis before retrying.");
+  if (before.status === "healthy") return { repaired: false, verified: true, changed: false, before, after: before };
+  if (before.status !== "needs-repair") throw new Error("Package recovery returned an invalid diagnosis");
+  const repair = await repairPackageState({ run, allowRemovals: false });
+  const after = await inspect({ run });
+  if (after.status !== "healthy") throw new Error(`Package recovery could not verify a healthy state. ${repair.detail ?? "Run Check package recovery for the remaining problem."}`);
+  return { repaired: true, verified: true, changed: true, before, after, repair, rebootRequired: await rebootRequired() };
 }
 
 

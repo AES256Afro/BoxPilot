@@ -21,3 +21,15 @@ Next: finish partial source availability and coalescing/invalidation, then indep
 - Settled mutations invalidate relevant evidence before a terminal job event can prompt the browser to reload it. Read-only operations and unrelated disk-usage scans are left alone. Partial failures also invalidate evidence.
 - Overlapping health checks share one evaluation, avoiding duplicate notifications before state is saved. Unknown evidence preserves previously detected, unannounced conditions.
 - Regression coverage includes pending pre-repair reads, partial/malformed storage results, notification overlap and invalidation failures preserving the real job outcome.
+
+Second-slice validation: full check passed with 1,482 tests across 219 files. Committed as 4a06809.
+
+## Third local slice: interrupted package recovery
+
+- Manual package health inspection and reviewed package repair in Repair Center, reusing the operation registry, approvals and generic runner.
+- Kernel lock ownership distinguishes active work from normal persistent lock files. Busy or unknown evidence prevents a repair from starting.
+- No-remove dependency repair, repeated execution-time diagnosis and final audit/simulation. Healthy state is a no-op; failed verification cannot claim repair succeeded.
+- Fixed the existing dpkg configuration step to suppress needrestart consistently with the APT step.
+- Live Linux read-only diagnosis returned healthy with both audit and simulation succeeding. No package mutation or service restart was performed.
+
+Validation: full check passed with 1,499 tests across 221 files. Interrupted Ubuntu mutation and deployment remain unverified. See PACKAGE-RECOVERY.md.
