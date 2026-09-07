@@ -1,3 +1,4 @@
+import { shared } from "./cache.mjs";
 /**
  * Health alerts: watches the sanitized inventory and pushes one notification per condition
  * when it turns bad (and one when it clears), through the same target failed jobs use.
@@ -115,7 +116,7 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
   const settingKey = "healthAlertsState";
 
   /** One pass: evaluate, send for new conditions and for cleared ones, persist the active set. */
-  async function check() {
+  const check = shared(async () => {
     const snapshot = await inventory.inspect();
     // A stopped backup is a health condition too, but it comes from the schedule and flow tables,
     // not the host. Both an operation schedule (how BoxPilot's own nightly backups run) and a
@@ -154,9 +155,9 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
     const availability = { ...collectorAvailability(snapshot), "schedule.overdue": true, "storage.forecast": true, "smart.errors": true, "smart.wear": true };
     for (const [key, entry] of Object.entries(previous)) {
       if (nextState[key]) continue;
-      if (entry?.notified === false) continue; // never announced, so there is nothing to say it cleared
       // Evidence that is temporarily missing (stale SMART file, systemctl timeout) carries the alert forward unchanged.
       if (availability[key.split(":")[0]] === false) { nextState[key] = entry; continue; }
+      if (entry?.notified === false) continue; // never announced, so there is nothing to say it cleared
       if (!target) continue;
       try {
         await notifications.send({ title: `BoxPilot: resolved. ${entry.title ?? key}`, message: `This condition cleared at ${now().toLocaleString()}.`, priority: "default" });
@@ -169,7 +170,7 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
     }
     store.setSetting(settingKey, nextState, { updatedBy: null });
     return { active: active.map((alert) => alert.key), sent, target: Boolean(target) };
-  }
+  });
 
   function start() {
     const safeCheck = () => check().catch(() => {});

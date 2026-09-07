@@ -5,7 +5,7 @@
  */
 import { access, writeFile } from "node:fs/promises";
 import { fixedRun } from "../exec.mjs";
-import { parseNeedrestart } from "../ops/apt.mjs";
+import { parseNeedrestart } from "../needrestart.mjs";
 
 export const packageNamePattern = /^[a-z0-9][a-z0-9+.-]{0,99}$/;
 const aptGet = "/usr/bin/apt-get";

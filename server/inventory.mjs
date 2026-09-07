@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import os from "node:os";
+import { shared } from "./cache.mjs";
 import { statfs } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
@@ -78,15 +79,8 @@ export function createInventoryService({
   }
 
   const inventoryTtlMs = 10_000;
-  let cached = null; // { at, value }
-  let inFlight = null;
-  /** The full inventory is ~17 commands; the Overview asks for it several times per visit. */
-  async function inspect() {
-    if (cached && Date.now() - cached.at < inventoryTtlMs) return cached.value;
-    if (inFlight) return inFlight;
-    inFlight = collect().then((value) => { cached = { at: Date.now(), value }; return value; }).finally(() => { inFlight = null; });
-    return inFlight;
-  }
+  /** The full inventory is costly; share reads and expose explicit mutation invalidation. */
+  const inspect = shared(collect, { ttlMs: inventoryTtlMs, now: () => now().getTime() });
 
   async function collect() {
     let release = {};
@@ -148,7 +142,7 @@ export function createInventoryService({
     };
   }
 
-  return { inspect };
+  return { inspect, forget: inspect.forget, cacheStats: inspect.stats };
 }
 
 export const inventoryInternals = { parseKeyValues, filesystemSummary, serviceUnits, storageHealthPath };

@@ -1,11 +1,12 @@
 import { access, readFile } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
 import { validPackageList } from "../tasks/apt.mjs";
+import { needrestartScanner } from "../needrestart.mjs";
+export { parseNeedrestart } from "../needrestart.mjs";
 
 /** Common server tools offered on the Updates & packages page (M2.2). */
-let needrestartCache = null; // { at, value }; needrestart walks every process, so reuse a recent answer
 /** Package work changes what needs restarting: the next inspection must ask again. */
-export function clearNeedrestartCache() { needrestartCache = null; }
+export function clearNeedrestartCache() { needrestartScanner.forget(); }
 /** Run a package task, then forget what needed restarting before it. */
 const withCacheReset = (task) => task.finally(() => clearNeedrestartCache());
 
@@ -38,16 +39,6 @@ export function parseSourceMap(stdout) {
     if (name) sources[name] = (source ?? name).split(" ")[0] || name;
   }
   return sources;
-}
-
-/** Parse `needrestart -b` batch output: services running outdated libraries. */
-export function parseNeedrestart(stdout) {
-  const services = [];
-  for (const line of String(stdout ?? "").split("\n")) {
-    const match = line.match(/^NEEDRESTART-SVC:\s*(\S+)/);
-    if (match && !services.includes(match[1])) services.push(match[1]);
-  }
-  return services.sort();
 }
 
 const minutes = (value) => value * 60_000;
@@ -97,20 +88,9 @@ export function aptOperations() {
           for (const item of upgradable) item.source = map[item.name] ?? item.name;
         }
         const needrestartPresent = await access("/usr/sbin/needrestart").then(() => true, () => false);
-        let servicesNeedingRestart = null;
-        if (needrestartPresent) {
-          // needrestart scans /proc/*/maps for every process (containers included): seconds of CPU, so reuse a recent answer.
-          if (!needrestartCache || Date.now() - needrestartCache.at > 10 * 60_000) {
-            const needrestart = await run("/usr/sbin/needrestart", ["-b"], { timeout: 90_000, maxBuffer: 2 * 1024 * 1024 });
-            // A failed run must not pin "nothing to restart" for ten minutes.
-            if (needrestart.ok) needrestartCache = { at: Date.now(), value: parseNeedrestart(needrestart.stdout) };
-            else needrestartCache = null;
-            servicesNeedingRestart = needrestart.ok ? needrestartCache.value : null;
-          } else {
-            servicesNeedingRestart = needrestartCache.value;
-          }
-        }
-        return { upgradable, count: upgradable.length, securityCount: security, rebootRequired: await rebootRequired(), needrestartPresent, servicesNeedingRestart };
+        const restartScan = needrestartPresent ? await needrestartScanner.inspect(run).catch(() => null) : null;
+        return { upgradable, count: upgradable.length, securityCount: security, rebootRequired: await rebootRequired(), needrestartPresent, servicesNeedingRestart: restartScan?.services ?? null, needrestartCheckedAt: restartScan?.checkedAt ?? null };
+
       },
     }),
     defineOperation({

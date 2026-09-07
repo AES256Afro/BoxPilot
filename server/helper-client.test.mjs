@@ -31,6 +31,19 @@ async function helperSocket(handler) {
 afterEach(() => { server?.closeAllConnections?.(); server?.close(); server = null; if (dir) rmSync(dir, { recursive: true, force: true }); dir = null; });
 
 describe("sharing helper reads", () => {
+  it("starts fresh evidence after invalidation while an older read is still running", async () => {
+    let calls = 0; let arrived; let release;
+    const started = new Promise((resolve) => { arrived = resolve; });
+    const held = new Promise((resolve) => { release = resolve; });
+    const socketPath = await helperSocket(async () => { const call = ++calls; if (call === 1) { arrived(); await held; } return { call }; });
+    const client = createHelperClient({ socketPath });
+    const old = client.request("app.inspect");
+    await started;
+    client.invalidate(["app.inspect"]);
+    expect(await client.request("app.inspect")).toEqual({ call: 2 });
+    release();
+    expect(await old).toEqual({ call: 1 });
+  });
   it("enforces an overall deadline even while the helper sends queue heartbeats", async () => {
     let received; const arrived = new Promise((resolve) => { received = resolve; });
     const socketPath = await helperSocket(async (request, connection) => {

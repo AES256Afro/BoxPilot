@@ -101,5 +101,8 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
     });
   }
 
-  return { socketPath, request, diagnostics: () => ({ ...transport, sharedReads: Object.fromEntries([...sharedReads].map(([operation, read]) => [operation, read.stats()])) }) };
+  function invalidate(operations) {
+    for (const operation of operations) sharedReads.get(operation)?.forget();
+  }
+  return { socketPath, request, invalidate, diagnostics: () => ({ ...transport, sharedReads: Object.fromEntries([...sharedReads].map(([operation, read]) => [operation, read.stats()])) }) };
 }
