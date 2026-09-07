@@ -142,3 +142,9 @@ Hosted CI and native install smoke passed for 10471fc and 7c35d41.
 Added a temporary local socket workload covering shared helper reads, event-stream close/abort, SSO grant exchange and throttle churn. After garbage collection it asserts zero outstanding helper requests/connections, stream reservations and pending grants, plus the throttle capacity. It records heap, RSS, buffers and resource counts and enforces an 8 MiB peak retained-heap growth budget after warmup under a 128 MiB V8 heap cap. The 3,500-cycle local run retained about 78 KiB additional heap; the shorter 800-cycle CI workload retained about 143 KiB. Neither result is a full application leak or production-load pass. Full check passed with 1,587 tests across 231 files. CI now runs the shorter workload.
 
 Hosted CI and native install smoke both passed for 5ec14d0.
+
+## Truthful local backup retention
+
+Controller backup retention previously recorded a directory as removed even when deletion failed, and always reported that no retention occurred. It now reports only successful removals, bounds its inventory, refuses pruning after an incomplete inventory and validates the configured keep count. A failed cleanup preserves the new verified backup and records a follow-up notice with bounded error metadata. Machine snapshots carry through the same notice. Approval and Activity show these notices even after live logs are released; a completed job with a notice has a distinct status. Full check passed with 1,593 tests across 231 files, including injected deletion denial and actual successful pruning. The browser follow-up exposed that Activity has no history fallback if its event stream never connects; that separate issue is next.
+
+Hosted CI and native install smoke both passed for a4c104f, including the short retained-memory workload.

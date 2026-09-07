@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { JobLogView } from "./JobLogView";
+import { jobWarnings } from "./JobWarnings";
 import { createPortal } from "react-dom";
 import { followJobOutput, followJobs, terminalJobStates, type Job } from "./operations";
 
@@ -88,7 +89,7 @@ export function ActivityDrawer() {
                   <button type="button" className="activity-row" aria-expanded={expandedId === job.id} onClick={() => toggle(job.id)}>
                     <span className="activity-title">{job.title}</span>
                     <span className="activity-meta">
-                      <span className={`status-pill ${stateTone(job.state)}`}>{stateLabel[job.state] ?? job.state}</span>
+                      <span className={`status-pill ${job.state === "completed" && jobWarnings(job.result).length ? "status-warning" : stateTone(job.state)}`}>{job.state === "completed" && jobWarnings(job.result).length ? "Completed with notice" : stateLabel[job.state] ?? job.state}</span>
                       <span className="activity-time">{timeLabel(job.createdAt)}</span>
                     </span>
                   </button>

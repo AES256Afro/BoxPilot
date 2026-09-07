@@ -741,10 +741,12 @@ const troubleWords = {
 };
 
 /** The same server, described by the routes that report what it can currently reach. */
+const backupNotice = (job) => ({ ...job, type: "op:controller.backup.create", title: "Back up the BoxPilot database", result: { warnings: ["The new database backup passed verification, but old local copies could not all be checked or removed. They may still use disk space. Check backup-directory access and free space before retrying a backup."] } });
 const troubleRest = {
   "/jobs": (body) => ({ jobs: body.jobs.map((job, index) => (index === 0
     ? { ...job, state: "failed", error: "rsync: connection unexpectedly closed by nas.local" }
-    : job)) }),
+    : index === 1 ? backupNotice(job) : job)) }),
+  "/jobs/d2": (body) => ({ ...body, job: backupNotice(body.job) }),
   // A mirror that keeps failing does not record an error anywhere; it just stops being recent,
   // which is the thing the interface has to notice on the owner's behalf.
   "/settings/backup-destination": (body) => ({ ...body, lastSync: { ...body.lastSync, completedAt: ago(24 * 34) } }),

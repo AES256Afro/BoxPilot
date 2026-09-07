@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { approveJob, followJobOutput, stageOperation, waitForJob, type ApprovalPolicy, type Job, type RiskTier, cancelJob } from "./operations";
 import { useDialogFocus } from "./useDialogFocus";
 import { jobOutputText } from "./jobOutputText";
+import { JobWarnings, jobWarnings } from "./JobWarnings";
 
 /**
  * The one approval surface for registered operations (ADR-001 risk tiers):
@@ -139,6 +140,7 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
   }, [policy?.expiresAt, policy?.expired]);
 
   const tier = policy?.tier ?? "high";
+  const hasWarnings = jobWarnings(job?.result).length > 0;
   const passwordRequired = policy ? policy.passwordRequired : true;
   const confirmRequired = confirmText ?? policy?.confirmText ?? null;
   const busy = phase === "staging" || phase === "approving" || phase === "running";
@@ -173,7 +175,8 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
               {showOutput && <pre ref={outputRef} aria-label="Job output">{output || (phase === "running" ? "Waiting for output..." : "")}</pre>}
             </div>
           )}
-          {phase === "done" && job && <p className="good-text">Completed. {job.steps.filter((step) => step.name === "verify").at(-1)?.detail ?? ""}</p>}
+          {phase === "done" && job && <p className={hasWarnings ? undefined : "good-text"}>{hasWarnings ? "Completed with follow-up needed." : "Completed."} {job.steps.filter((step) => step.name === "verify").at(-1)?.detail ?? ""}</p>}
+          {job && (phase === "done" || phase === "error") && <JobWarnings result={job.result} />}
           {error && <div className="auth-error" role="alert">{error}</div>}
           {job && (phase === "done" || phase === "error") && (
             <details><summary>Job log</summary><ul>{job.steps.map((step, index) => <li key={`${step.name}-${index}`}><strong>{step.name}</strong> · {step.state} · {step.detail}</li>)}</ul></details>

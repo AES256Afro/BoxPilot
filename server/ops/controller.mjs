@@ -15,7 +15,11 @@ export function controllerOperations() {
     defineOperation({
       id: "controller.backup.create", title: "Back up the BoxPilot database", risk: "low", timeoutMs: 10 * 60_000,
       description: "Snapshots the live database with VACUUM INTO (no downtime), test-restores the copy, and records the result.",
-      run: async (_parameters, { controllerBackups }) => controllerBackups.createBackup({ backupId: randomUUID() }),
+      run: async (_parameters, { controllerBackups, progress }) => {
+        const result = await controllerBackups.createBackup({ backupId: randomUUID() });
+        for (const warning of result.warnings ?? []) progress?.(warning, "stderr");
+        return result;
+      },
     }),
     defineOperation({
       id: "controller.backup.protect", title: "Keep an encrypted copy of a database backup", risk: "medium", timeoutMs: 12 * 60 * 60_000,

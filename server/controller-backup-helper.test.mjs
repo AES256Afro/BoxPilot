@@ -2,14 +2,14 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createControllerBackupHelper, controllerBackupHelperInternals } from "./controller-backup-helper.mjs";
 import { createStateStore } from "./state.mjs";
 
 const directories = [];
 const backupId = "11111111-1111-4111-8111-111111111111";
 
-async function fixture() {
+async function fixture(options = {}) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-controller-backup-"));
   directories.push(directory);
   const stateDirectory = path.join(directory, "state");
@@ -19,7 +19,7 @@ async function fixture() {
   store.createJob({ type: "controller.database.backup", title: "Controller backup", createdBy: owner.id });
   const backupRoot = path.join(directory, "managed", "backups", "boxpilot-controller");
   const restoreDrillRoot = path.join(directory, "managed", "controller-restore-drills");
-  const helper = createControllerBackupHelper({ sourceDatabasePath: store.databasePath, backupRoot, restoreDrillRoot, now: () => new Date("2026-08-16T08:00:00.000Z") });
+  const helper = createControllerBackupHelper({ sourceDatabasePath: store.databasePath, backupRoot, restoreDrillRoot, now: () => new Date("2026-08-16T08:00:00.000Z"), ...options });
   await helper.initialize();
   return { directory, store, helper, backupRoot, restoreDrillRoot };
 }
@@ -135,6 +135,49 @@ describe("local copies on the database's own disk", () => {
     const left = (await readdir(backupRoot)).sort();
     // The three newest, plus the one named as just written even though it is the oldest.
     expect(left).toEqual([ids[0], ids[3], ids[4], ids[5]].sort());
-    expect(removed.sort()).toEqual([ids[1], ids[2]].sort());
+    expect(removed.removed.sort()).toEqual([ids[1], ids[2]].sort());
+    expect(removed).toMatchObject({ complete: true, failures: [], failureCount: 0 });
+  });
+
+  it("preserves the new verified backup and reports failed deletion without claiming it was removed", async () => {
+    const removeLocal = vi.fn().mockRejectedValue(Object.assign(new Error("private filesystem detail"), { code: "EACCES" }));
+    const { store, helper, backupRoot } = await fixture({ keepLocal: 1, removeLocal });
+    const oldId = "22222222-2222-4222-8222-222222222222";
+    await mkdir(path.join(backupRoot, oldId));
+    await writeFile(path.join(backupRoot, oldId, "boxpilot.sqlite3"), "earlier copy");
+    await utimes(path.join(backupRoot, oldId), new Date(1000), new Date(1000));
+    try {
+      const result = await helper.createBackup({ backupId });
+      expect(result).toMatchObject({ removedLocal: [], localRetention: { complete: false, failureCount: 1, failures: [{ backupId: oldId, code: "EACCES" }] }, boundary: { retentionPerformed: false }, restoreDrill: { passed: true } });
+      expect(result.warnings[0]).toContain("new database backup passed verification");
+      expect(JSON.stringify(result)).not.toContain("private filesystem detail");
+      expect((await stat(result.artifactPath)).size).toBeGreaterThan(0);
+      expect(await readFile(path.join(backupRoot, oldId, "boxpilot.sqlite3"), "utf8")).toBe("earlier copy");
+      expect(removeLocal).toHaveBeenCalledOnce();
+    } finally { store.close(); }
+  });
+
+  it("records successful retention as a mutation and keeps the newly verified copy", async () => {
+    const { store, helper, backupRoot } = await fixture({ keepLocal: 1 });
+    const oldId = "22222222-2222-4222-8222-222222222222";
+    await mkdir(path.join(backupRoot, oldId));
+    await utimes(path.join(backupRoot, oldId), new Date(1000), new Date(1000));
+    try {
+      const result = await helper.createBackup({ backupId });
+      expect(result).toMatchObject({ removedLocal: [oldId], localRetention: { complete: true }, boundary: { retentionPerformed: true }, warnings: [] });
+      await expect(stat(path.join(backupRoot, oldId))).rejects.toMatchObject({ code: "ENOENT" });
+      expect((await stat(result.artifactPath)).isFile()).toBe(true);
+    } finally { store.close(); }
+  });
+
+  it("reports an unavailable inventory and refuses invalid retention limits", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "boxpilot-controller-prune-")); directories.push(root);
+    const backupRoot = path.join(root, "not-a-directory"); await writeFile(backupRoot, "preserve");
+    const removeLocal = vi.fn();
+    const helper = createControllerBackupHelper({ backupRoot, removeLocal });
+    await expect(helper.internals.pruneLocalBackups(backupId)).resolves.toMatchObject({ removed: [], complete: false, failureCount: 1 });
+    expect(removeLocal).not.toHaveBeenCalled();
+    expect(await readFile(backupRoot, "utf8")).toBe("preserve");
+    for (const keepLocal of [0, -1, NaN, Infinity, 1.5, 1001]) expect(() => createControllerBackupHelper({ keepLocal })).toThrow("between 1 and 1000");
   });
 });
