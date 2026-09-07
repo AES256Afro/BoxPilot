@@ -69,6 +69,7 @@ jobs:
           curl -fsS -b "$jar" http://127.0.0.1:8787/api/v1/setup | grep -q '"profiles"' || { echo "setup profiles unavailable" >&2; exit 1; }
 
       - name: Independent doctor works with the web service stopped
+        if: ${{ !cancelled() }}
         run: |
           sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --json --database > /tmp/boxpilot-doctor-running.json
           node -e 'const r=require("/tmp/boxpilot-doctor-running.json"); if(r.counts.fail || r.counts.unknown) { console.error(r); process.exit(1); }'

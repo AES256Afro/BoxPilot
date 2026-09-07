@@ -100,6 +100,13 @@ it("terminates a real child at its deadline and leaves the source intact", async
   expect(await readFile(databasePath)).toEqual(before);
 });
 
+it("distinguishes a refused subprocess launch from a resource deadline without returning stderr", async () => {
+  const run = async () => { throw Object.assign(new Error("private runtime path"), { code: "EPERM", stderr: "private detail" }); };
+  const report = await inspectControllerDatabase({ databasePath: "/missing/fixture.sqlite3", run, now });
+  expect(report.checks[0].detail).toContain("EPERM");
+  expect(JSON.stringify(report)).not.toContain("private");
+});
+
 it("registers database inspection as an operator read with no browser path", () => {
   const operation = controllerOperations().find((item) => item.id === "controller.database.inspect");
   expect(operation).toMatchObject({ readOnly: true, minimumRole: "operator", risk: "low" });

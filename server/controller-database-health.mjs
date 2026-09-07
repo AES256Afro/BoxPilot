@@ -77,7 +77,12 @@ export async function inspectControllerDatabase({ databasePath = databaseDefault
     const result = JSON.parse(stdout);
     if (!Array.isArray(result?.checks) || result.checks.length > 12 || !result.counts) throw new Error("Invalid probe response");
     return result;
-  } catch { return unknownReport("The bounded database check could not finish within its resource budget. Retry during a quiet period or use the independent doctor.", now); }
+  } catch (error) {
+    const code = ["EACCES", "EPERM", "ENOENT", "ENOMEM", "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"].includes(error.code) ? error.code : null;
+    const signal = ["SIGKILL", "SIGABRT", "SIGSEGV"].includes(error.signal) ? error.signal : null;
+    const reason = code ? `could not start or complete (${code})` : signal ? `was terminated (${signal})` : "did not return a valid result";
+    return unknownReport(`The isolated database check ${reason}. Check the installed runtime and helper journal, or use the independent doctor.`, now);
+  }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
