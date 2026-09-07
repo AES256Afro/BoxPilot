@@ -16,6 +16,15 @@ const lsblkJson = JSON.stringify({ blockdevices: [
 ] });
 
 describe("storage inventory", () => {
+  it.each([{ ok: false, stdout: "", stderr: "timeout" }, { ok: true, stdout: "invalid" }, { ok: true, stdout: "{}" }])("retains devices while reporting unavailable mount evidence", async (mounts) => {
+    const report = await collectStorage({ run: async (binary) => binary.endsWith("lsblk") ? { ok: true, stdout: lsblkJson } : mounts, readFile: async () => { throw new Error("permission denied"); }, exists: async () => false });
+    expect(report.devices.length).toBeGreaterThan(0);
+    expect(report.availability).toEqual({ devices: true, mounts: false, fstab: false });
+    expect(report.mounts).toEqual([]);
+  });
+  it("rejects malformed device output instead of calling it an empty inventory", async () => {
+    await expect(collectStorage({ run: async () => ({ ok: true, stdout: "{}" }), readFile: async () => "", exists: async () => false })).rejects.toThrow("invalid device inventory");
+  });
   it("decodes device-mapper names", () => {
     expect(splitDmName("ubuntu--vg-ubuntu--lv")).toEqual({ vg: "ubuntu-vg", lv: "ubuntu-lv" });
     expect(splitDmName("data-media")).toEqual({ vg: "data", lv: "media" });

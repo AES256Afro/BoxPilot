@@ -19,6 +19,7 @@ interface UpgradableReport {
   rebootRequired: boolean;
   needrestartPresent?: boolean;
   servicesNeedingRestart?: string[] | null;
+  needrestartCheckedAt?: string | null;
 }
 
 interface UnattendedReport { installed: boolean; enabled: boolean }
@@ -110,10 +111,12 @@ export default function UpdatesCenter({ csrfToken }: { csrfToken: string }) {
 
       {error && <div className="auth-error" role="alert">{error}</div>}
 
+      {report?.needrestartPresent && report.servicesNeedingRestart === null && <section className="panel"><strong>Running-library check unavailable</strong><p>The scan did not finish. Refresh this page to try again. Package update information is still shown below.</p></section>}
       {report?.servicesNeedingRestart && report.servicesNeedingRestart.length > 0 && (
         <section className="panel">
           <header className="panel-header"><div><strong>Services running old libraries</strong><span>These kept the pre-upgrade code in memory. Restart them when convenient, or reboot to refresh everything.</span></div></header>
           <div className="recovery-actions">
+            {report.needrestartCheckedAt && <span>Checked {new Date(report.needrestartCheckedAt).toLocaleString()}</span>}
             {report.servicesNeedingRestart.map((unit) => unit === "systemd-manager" ? (
               <button key={unit} className="secondary-button" type="button" onClick={() => start({ operationId: "system.manager.reexec", title: "Refresh systemd manager", parameters: {}, preview: <span>Re-executes the system manager to load updated libraries while preserving its state. Runs <code>systemctl daemon-reexec</code>.</span> })}>Refresh systemd manager</button>
             ) : !/^[A-Za-z0-9:._@\\-]{1,200}\.service$/.test(unit) ? (

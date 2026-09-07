@@ -193,18 +193,22 @@ export async function collectStorage({ run = fixedRun, readFile = readFileDefaul
   const [lsblkResult, findmntResult, fstabContent, cifs, nfs, smbclient, showmount] = await Promise.all([
     run(lsblkBinary, ["-J", "-b", "-o", lsblkColumns], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }),
     run(findmntBinary, ["--real", "-J", "-b", "-o", "TARGET,SOURCE,FSTYPE,SIZE,USED,AVAIL,OPTIONS"], { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 }),
-    readFile("/etc/fstab", "utf8").catch(() => ""),
+    readFile("/etc/fstab", "utf8").catch(() => null),
     exists("/sbin/mount.cifs"),
     exists("/sbin/mount.nfs"),
     exists("/usr/bin/smbclient"),
     exists("/usr/sbin/showmount"),
   ]);
   if (!lsblkResult.ok) throw new Error(`lsblk failed: ${lsblkResult.stderr.split("\n").filter(Boolean).at(-1) ?? "unknown error"}`);
+  const hasArray = (text, key) => { try { return Array.isArray(JSON.parse(text)?.[key]); } catch { return false; } };
+  if (!hasArray(lsblkResult.stdout, "blockdevices")) throw new Error("lsblk returned an invalid device inventory");
+  const mountsAvailable = findmntResult.ok && hasArray(findmntResult.stdout, "filesystems");
   const devices = annotateDevices(parseLsblkTree(lsblkResult.stdout));
-  const mounts = findmntResult.ok ? parseFindmnt(findmntResult.stdout) : [];
-  const fstab = parseFstab(fstabContent);
+  const mounts = mountsAvailable ? parseFindmnt(findmntResult.stdout) : [];
+  const fstab = parseFstab(fstabContent ?? "");
   const volumeGroups = volumeGroupsFrom(devices);
   return {
+    availability: { devices: true, mounts: Boolean(mountsAvailable), fstab: fstabContent !== null },
     devices,
     mounts,
     fstab,

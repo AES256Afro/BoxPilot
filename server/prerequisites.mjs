@@ -2,6 +2,7 @@ import { constants as fsConstants } from "node:fs";
 import { access, readFile, statfs } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
+import { shared } from "./cache.mjs";
 
 const execFile = promisify(execFileCallback);
 
@@ -36,7 +37,7 @@ export function port53Occupied(text) {
   });
 }
 
-export function createPrerequisiteService({ stateDirectory, helper, runCommand = fixedCommand, checkAccess = access, getFilesystem = statfs, readProbe = (file) => readFile(file, "utf8") } = {}) {
+export function createPrerequisiteService({ stateDirectory, helper, runCommand = fixedCommand, checkAccess = access, getFilesystem = statfs, readProbe = (file) => readFile(file, "utf8"), now = () => Date.now() } = {}) {
   /**
    * The six helper inspections this page needs are independent of each other, so they are sent
    * together: the page waits for the slowest, not for the sum. The helper caps concurrent
@@ -229,21 +230,10 @@ export function createPrerequisiteService({ stateDirectory, helper, runCommand =
     ));
 
     const counts = checks.reduce((summary, item) => ({ ...summary, [item.status]: (summary[item.status] ?? 0) + 1 }), {});
-    return { generatedAt: new Date().toISOString(), checks, counts, ready: checks.every((item) => item.status === "ready") };
+    return { generatedAt: new Date(now()).toISOString(), checks, counts, ready: checks.every((item) => item.status === "ready") };
   }
 
-  // Three panels on the Repair Center ask for this at once, and the page re-asks every ten seconds
-  // while a job runs. One collection is ~29 child processes on the helper, eight of them parsing
-  // the whole APT cache, so callers arriving together share one.
-  const ttlMs = 10_000;
-  let cached = null;
-  let inFlight = null;
-  async function inspect() {
-    if (cached && Date.now() - cached.at < ttlMs) return cached.value;
-    if (inFlight) return inFlight;
-    inFlight = collect().then((value) => { cached = { at: Date.now(), value }; return value; }).finally(() => { inFlight = null; });
-    return inFlight;
-  }
-
-  return { inspect };
+  // Share concurrent panel reads and briefly hold their result. Relevant mutations invalidate it.
+  const inspect = shared(collect, { ttlMs: 10_000, now });
+  return { inspect, forget: inspect.forget, cacheStats: inspect.stats };
 }

@@ -250,3 +250,18 @@ describe("a filesystem that turned itself read-only", () => {
     expect(collectorAvailability({ storage: { filesystems: { available: false, mounts: [] } } })["storage.mount.readonly"]).toBe(false);
   });
 });
+
+it("coalesces overlapping health checks before sending notifications", async () => {
+  const settings = new Map();
+  const store = { getSetting: (key, fallback) => settings.get(key) ?? fallback, setSetting: (key, value) => settings.set(key, value), recordAudit: vi.fn() };
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  const send = vi.fn(async () => { await held; });
+  const inspect = vi.fn(async () => ({ ...healthy, maintenance: { system: { failedServiceCount: 1 } } }));
+  const alerts = createHealthAlerts({ inventory: { inspect }, notifications: { getTarget: () => ({}), send }, store });
+  const a = alerts.check(); const b = alerts.check();
+  release();
+  expect(await a).toEqual(await b);
+  expect(inspect).toHaveBeenCalledOnce();
+  expect(send).toHaveBeenCalledOnce();
+});

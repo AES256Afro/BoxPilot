@@ -35,6 +35,7 @@ import { createHelperClient } from "./helper-client.mjs";
 import { createHelperLibvirtService } from "./helper-libvirt.mjs";
 import { createInventoryService } from "./inventory.mjs";
 import { createJobService } from "./jobs.mjs";
+import { invalidateOperationEvidence } from "./diagnostic-invalidation.mjs";
 import { createLibvirtFoundationService } from "./libvirt-foundation.mjs";
 import { createMaintenanceService } from "./maintenance.mjs";
 import { createNetworkService } from "./network.mjs";
@@ -130,6 +131,7 @@ function markProfileEdited(job) {
 
 const secretEnvNamesFor = async (appId) => ((await catalogService.get(appId))?.env ?? []).filter((entry) => entry.secret || entry.type === "password").map((entry) => entry.name);
 const jobs = createJobService(state, helper, {
+  onOperationSettled: (job) => invalidateOperationEvidence(job, { registry, inventory, prerequisites, helper }),
   secretEnvNamesFor,
   jobLog: jobLogReader,
   // Registry ops whose results become durable evidence rows.

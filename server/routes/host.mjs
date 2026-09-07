@@ -187,7 +187,8 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     }
     const verifications = state.getSetting("appBackupVerifications", {}) ?? {};
     const drills = state.getSetting("killSwitchDrills", {}) ?? {};
-    const manifests = await catalogService.all().then(({ manifests: all }) => all).catch(() => []);
+    const catalogManifests = await catalogService.all().then(({ manifests: all }) => all).catch(() => null);
+    const manifests = catalogManifests ?? [];
     facts.apps = (live?.applications ?? []).filter((app) => app.installed).map((app) => ({
       id: app.id,
       name: manifests.find((manifest) => manifest.id === app.id)?.name ?? app.id,
@@ -210,6 +211,9 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     // target. Whether there is one is therefore part of whether any of this reaches anybody.
     try { facts.notifications = { configured: notifications?.describe?.().configured === true }; } catch { facts.notifications = null; }
     const unavailableChecks = [["Drives and mounts", storage], ["Applications", live], ["File sharing", samba], ["USB history", usb]].filter(([, value]) => !value || value.available === false).map(([name]) => name);
+    if (storage?.availability?.mounts === false) unavailableChecks.push("Current mounts");
+    if (storage?.availability?.fstab === false) unavailableChecks.push("Saved mount configuration");
+    if (!catalogManifests) unavailableChecks.push("Application definitions");
     response.json({ ...detectRemediations(facts), checkedAt: new Date().toISOString(), sourceStatus: unavailableChecks.length ? "partial" : "ready", unavailableChecks });
   });
 

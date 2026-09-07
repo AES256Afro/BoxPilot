@@ -1,4 +1,5 @@
 import { defineOperation } from "./registry.mjs";
+import { needrestartScanner } from "../needrestart.mjs";
 
 const systemctl = process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl";
 const journalctl = process.env.BOXPILOT_JOURNALCTL_BINARY ?? "/usr/bin/journalctl";
@@ -85,6 +86,7 @@ export function serviceOperations() {
         const args = action === "enable" || action === "disable" ? [action, unit] : [action, unit];
         progress?.(`$ systemctl ${args.join(" ")}`, "stdout");
         const result = await run(systemctl, args, { timeout: 4 * 60_000, onLine: progress ?? undefined });
+        if (["restart", "reload"].includes(action)) needrestartScanner.forget();
         if (!result.ok) throw new Error(`systemctl ${action} ${unit} failed: ${result.stderr.split("\n").slice(-3).join(" ") || "see the unit journal"}`);
         const show = await run(systemctl, ["show", unit, "--property=ActiveState,SubState,UnitFileState,Result"], { timeout: 15_000 });
         const state = Object.fromEntries(show.stdout.split("\n").map((line) => line.split("=", 2)).filter((pair) => pair.length === 2));
