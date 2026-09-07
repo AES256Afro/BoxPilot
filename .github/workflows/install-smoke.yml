@@ -65,20 +65,24 @@ jobs:
           canary="$(curl -fsS -b "$jar" http://127.0.0.1:8787/api/v1/operations/canary.verify/inspect)"
           echo "$canary"
           echo "$canary" | grep -q '"verified":true' || { echo "helper canary did not verify" >&2; exit 1; }
+          curl -fsS -b "$jar" http://127.0.0.1:8787/api/v1/operations/controller.database.inspect/inspect | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{const r=JSON.parse(d).result;if(r.status!=="ready"){console.error(r);process.exit(1)}})'
           curl -fsS -b "$jar" http://127.0.0.1:8787/api/v1/setup | grep -q '"profiles"' || { echo "setup profiles unavailable" >&2; exit 1; }
 
       - name: Independent doctor works with the web service stopped
         run: |
-          sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --json > /tmp/boxpilot-doctor-running.json
+          sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --json --database > /tmp/boxpilot-doctor-running.json
           node -e 'const r=require("/tmp/boxpilot-doctor-running.json"); if(r.counts.fail || r.counts.unknown) { console.error(r); process.exit(1); }'
-          trap 'sudo systemctl start boxpilot.service' EXIT
+          trap 'sudo systemctl start boxpilot-helper.service boxpilot.service' EXIT
           sudo systemctl stop boxpilot.service
-          if sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --json > /tmp/boxpilot-doctor-stopped.json; then
+          if sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --json --database > /tmp/boxpilot-doctor-stopped.json; then
             echo "Doctor did not detect the stopped web service"
             exit 1
           fi
-          node -e 'const r=require("/tmp/boxpilot-doctor-stopped.json"); const checks=new Map(r.checks.map(c=>[c.id,c])); for(const [id,status] of [["web-service","fail"],["helper-response","pass"],["asset:dist/index.html","pass"]]) if(checks.get(id)?.status!==status) { console.error(r); process.exit(1); }'
-          sudo systemctl start boxpilot.service
+          node -e 'const r=require("/tmp/boxpilot-doctor-stopped.json"); const checks=new Map(r.checks.map(c=>[c.id,c])); for(const [id,status] of [["web-service","fail"],["helper-response","pass"],["asset:dist/index.html","pass"],["database-quick-check","pass"]]) if(checks.get(id)?.status!==status) { console.error(r); process.exit(1); }'
+          sudo systemctl stop boxpilot-helper.service
+          sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --json --database > /tmp/boxpilot-doctor-both-stopped.json || true
+          node -e 'const r=require("/tmp/boxpilot-doctor-both-stopped.json"); const c=r.checks.find(c=>c.id==="database-quick-check"); if(c?.status!=="pass") { console.error(r); process.exit(1); }'
+          sudo systemctl start boxpilot-helper.service boxpilot.service
           curl --fail --silent --retry 10 --retry-connrefused --retry-delay 1 --max-time 2 --retry-max-time 25 http://127.0.0.1:8787/api/v1/health > /dev/null
           sudo sh /opt/boxpilot/scripts/boxpilot-doctor.sh --json > /tmp/boxpilot-doctor-restarted.json
 

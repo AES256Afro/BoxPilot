@@ -1,9 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { defineOperation } from "./registry.mjs";
+import { inspectControllerDatabase } from "../controller-database-health.mjs";
+import { shared } from "../cache.mjs";
+const databaseHealth = shared(() => inspectControllerDatabase());
 
 /** BoxPilot's own database backup as a registry operation. */
 export function controllerOperations() {
   return [
+    defineOperation({
+      id: "controller.database.inspect", title: "Check the BoxPilot database", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 20_000,
+      description: "Runs bounded read-only SQLite structure, related-record and core-table checks. Reports no account, setting or job contents; runs no migrations or recovery commands.",
+      run: () => databaseHealth(),
+    }),
     defineOperation({
       id: "controller.backup.create", title: "Back up the BoxPilot database", risk: "low", timeoutMs: 10 * 60_000,
       description: "Snapshots the live database with VACUUM INTO (no downtime), test-restores the copy, and records the result.",

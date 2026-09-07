@@ -2,6 +2,17 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import ControllerDoctor from "./ControllerDoctor";
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+it("runs database checks separately and preserves an incomplete result", async () => {
+  const request = vi.fn(async () => new Response(JSON.stringify({ result: { checkedAt: "2026-09-07T12:00:00Z", status: "incomplete", checks: [{ id: "database-read", title: "Database inspection", status: "unknown", detail: "The bounded check timed out", next: "Retry during a quiet period" }] } })));
+  vi.stubGlobal("fetch", request);
+  render(<ControllerDoctor />);
+  expect(request).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Check database" }));
+  expect(await screen.findByText("Database checks incomplete")).toBeTruthy();
+  expect(screen.getByText("Retry during a quiet period")).toBeTruthy();
+  expect(request).toHaveBeenCalledWith("/api/v1/operations/controller.database.inspect/inspect");
+  expect(screen.queryByText("Basic database checks passed")).toBeNull();
+});
 it("offers independent console recovery without running a scan on page load", async () => {
   const request = vi.fn(async () => new Response(JSON.stringify({ result: { checkedAt: "2026-09-07T12:00:00Z", checks: [{ id: "space", title: "Free space", status: "warning", detail: "820 MiB available", next: "Review Storage" }] } })));
   vi.stubGlobal("fetch", request);
