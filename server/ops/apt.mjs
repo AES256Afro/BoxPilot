@@ -2,6 +2,7 @@ import { access, readFile } from "node:fs/promises";
 import { defineOperation } from "./registry.mjs";
 import { validPackageList } from "../tasks/apt.mjs";
 import { needrestartScanner } from "../needrestart.mjs";
+import { inspectPackageHealth } from "../package-health.mjs";
 export { parseNeedrestart } from "../needrestart.mjs";
 
 /** Common server tools offered on the Updates & packages page (M2.2). */
@@ -63,6 +64,16 @@ async function rebootRequired() {
 /** APT operations. Mutations run through the generic root runner (`runUnit`); inspection runs in the helper. */
 export function aptOperations() {
   return [
+    defineOperation({
+      id: "apt.health.inspect", title: "Check package recovery", risk: "low", readOnly: true, minimumRole: "operator", timeoutMs: 90_000,
+      description: "Checks interrupted package configuration, dependency repair and active package-manager locks.",
+      run: (_parameters, { run }) => inspectPackageHealth({ run }),
+    }),
+    defineOperation({
+      id: "apt.repair", title: "Repair interrupted packages", risk: "medium", minimumRole: "operator", timeoutMs: minutes(60),
+      description: "Finishes pending package configuration and installs missing dependencies, then verifies the package database. Package scripts may restart services. Stops if dependency repair requires package removal.",
+      run: (_parameters, { runUnit, jobLog }) => withCacheReset(runUnit.runTask("apt.repair", {}, { timeoutMs: minutes(55), logPath: jobLog?.path ?? null })),
+    }),
     defineOperation({
       id: "system.manager.reexec", title: "Refresh systemd manager", risk: "medium", timeoutMs: 60_000,
       description: "Re-executes the systemd manager to pick up upgraded libraries while preserving its state.",

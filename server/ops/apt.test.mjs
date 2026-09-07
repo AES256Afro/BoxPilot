@@ -5,6 +5,14 @@ import { createRegistry } from "./registry.mjs";
 const registry = createRegistry([aptOperations]);
 
 describe("apt operations", () => {
+  it("registers operator-only diagnosis and routes fixed package repair through the existing runner", async () => {
+    expect(registry.get("apt.health.inspect")).toMatchObject({ readOnly: true, minimumRole: "operator" });
+    expect(registry.get("apt.repair")).toMatchObject({ risk: "medium", minimumRole: "operator" });
+    const runUnit = { runTask: vi.fn(async () => ({ verified: true })) };
+    expect(await registry.execute("apt.repair", {}, { runUnit })).toEqual({ verified: true });
+    expect(runUnit.runTask).toHaveBeenCalledWith("apt.repair", {}, expect.anything());
+    await expect(registry.execute("apt.repair", { force: true }, { runUnit })).rejects.toThrow();
+  });
   it("re-executes the manager with a fixed command and reports failures", async () => {
     const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
     await expect(registry.execute("system.manager.reexec", {}, { run })).resolves.toEqual({ reexecuted: true });

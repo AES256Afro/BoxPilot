@@ -169,6 +169,7 @@ export const inspections = {
     memory: { memTotalKiB: 32 * 1024 ** 2, memAvailableKiB: 21 * 1024 ** 2, swapTotalKiB: 4 * 1024 ** 2, swapFreeKiB: 4 * 1024 ** 2 },
     fstrim: { active: "active", enabled: "enabled", nextRun: "Mon 2026-08-24 00:00:00 UTC" },
   },
+  "apt.health.inspect": { checkedAt: "2026-09-07T12:00:00Z", status: "needs-repair", repairAvailable: true, locks: { available: true, holders: [] }, audit: { ok: true, detail: "The following packages have been unpacked but not configured:\n example-tool" }, simulation: { ok: true, detail: "Conf example-tool (1.0 Ubuntu)" } },
   "apt.upgradable.inspect": { count: 4, securityCount: 1, rebootRequired: false, needrestartPresent: true, servicesNeedingRestart: [], upgradable: [
     { name: "openssl", suite: "noble-security", candidate: "3.0.13-0ubuntu3.6", installed: "3.0.13-0ubuntu3.5", architecture: "amd64", source: "security" },
     { name: "curl", suite: "noble-updates", candidate: "8.5.0-2ubuntu10.7", installed: "8.5.0-2ubuntu10.6", architecture: "amd64" },

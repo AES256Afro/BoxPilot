@@ -3,7 +3,7 @@
  * approval spec by the helper; values run as root with network access.
  * Keep this list explicit — it is the only thing the template unit will execute.
  */
-import { aptAutoremove, aptInstall, aptRemove, aptUnattendedSet, aptUpdate, aptUpgrade } from "./apt.mjs";
+import { aptAutoremove, aptInstall, aptRemove, aptRepair, aptUnattendedSet, aptUpdate, aptUpgrade } from "./apt.mjs";
 import { dockerLoggingDefaults, setHostname, setLocale, setSwappiness, setTimezone, systemReboot } from "./system.mjs";
 import { sshPasswordAuthSet, userAdd, userKeysImport, userSudoSet } from "./users.mjs";
 import { firewallProfileApply, firewallRuleAdd, firewallRuleDelete, firewallSet } from "./firewall.mjs";
@@ -30,6 +30,7 @@ import { httpRequest } from "./http-request.mjs";
 
 export const tasks = Object.freeze({
   "apt.update": aptUpdate,
+  "apt.repair": aptRepair,
   "apt.upgrade": aptUpgrade,
   "apt.install": aptInstall,
   "apt.remove": aptRemove,
