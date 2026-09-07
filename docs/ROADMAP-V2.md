@@ -1048,7 +1048,7 @@ Evidence, implemented fixes, live measurements, limitations and alternative repa
 
 ### Extend M28: Repair Center readability
 
-- **M28.5 Findings before explanation (P2).** Keep problem count, incomplete checks, current jobs and primary fix above the fold; collapse technical evidence and rebuild inventory; place prerequisite details beside their count; remove repeated feature introductions. Use consistent Critical / Warning / Information wording, plain action labels, and explicit service interruption/duration. Explain that recovery exports contain private operational information. Acceptance: keyboard workflow from finding to preview to result; desktop and narrow-screen QA; no green readiness styling for missing/unknown checks. Separate verified facts from likely causes.
+- **M28.5 Findings before explanation (P2).** First slice: larger Repair text, consistent severity labels, expandable evidence and rebuild inventory, contiguous prerequisite count/details, visible download formats, neutral readiness styling and per-source missing-data notices. Desktop and 390 px browser checks passed for layout and preview entry. Remaining: current jobs above the fold, explicit service interruption/duration, modal focus containment and keyboard workflow through the result. Recovery exports identify private operational information. Acceptance: keyboard workflow from finding to preview to result; desktop and narrow-screen QA; no green readiness styling for missing/unknown checks. Separate verified facts from likely causes.
 
 ### Extend M29: security and bounded retention
 

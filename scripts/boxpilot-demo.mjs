@@ -881,6 +881,8 @@ const indexHtml = await readFile(path.join(dist, "index.html"), "utf8");
 headers = securityHeaders({ html: indexHtml.replace("</body>", `${switcher("default")}</body>`) });
 app.get("/{*rest}", (request, response) => {
   const current = scenarioNames.includes(request.query.scenario) ? request.query.scenario : "default";
+  // Fictional per-tab scenarios use the same-origin document URL. Production keeps no-referrer.
+  response.setHeader("Referrer-Policy", "same-origin");
   response.type("html").send(indexHtml.replace("</body>", `${switcher(current)}</body>`));
 });
 // Only when run directly: importing this module for its fixtures must not start a server.

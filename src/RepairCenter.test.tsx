@@ -8,6 +8,33 @@ afterEach(() => {
 });
 
 describe("Repair Center", () => {
+  it("keeps the page usable when collectors return incomplete JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}")));
+    render(<RepairCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText("Checks incomplete")).toBeTruthy();
+    expect(screen.getByText("Prerequisites unavailable")).toBeTruthy();
+    expect(screen.getByText("Protection checks incomplete")).toBeTruthy();
+    expect(screen.getByText("Could not build the rebuild checklist")).toBeTruthy();
+    expect(screen.getByText(/Activity is unavailable\./)).toBeTruthy();
+    expect(screen.queryByText("0 of 0 ready")).toBeNull();
+  });
+
+  it("does not reuse old readiness counts after a failed prerequisite refresh", async () => {
+    let fail = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.includes("prerequisites")) return fail ? new Response("{}", { status: 503 }) : new Response(JSON.stringify({ checks: [{ id: "helper.boundary", group: "BoxPilot", name: "Helper", status: "ready", summary: "Ready", repair: null }] }));
+      if (url.includes("/jobs")) return new Response(JSON.stringify({ jobs: [] }));
+      return new Response("{}", { status: 503 });
+    }));
+    render(<RepairCenter csrfToken="csrf-token" />);
+    expect(await screen.findByText("1 of 1 ready")).toBeTruthy();
+    fail = true;
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(await screen.findByText("Prerequisites unavailable")).toBeTruthy();
+    expect(screen.queryByText("1 of 1 ready")).toBeNull();
+  });
+
   it.each(["failed", "partial"])("does not report a healthy server when the problem scan is %s", async (mode) => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
@@ -72,12 +99,12 @@ describe("Repair Center", () => {
 
     expect(await screen.findByText("Restricted helper")).toBeTruthy();
     expect(screen.getByText("Docker Engine")).toBeTruthy();
-    expect(screen.getByText("What you would need, and what you have")).toBeTruthy();
-    expect(screen.getByText("What is not covered yet")).toBeTruthy();
+    expect(screen.getByText("Rebuild checklist")).toBeTruthy();
+    expect(screen.getByText("Protection gaps")).toBeTruthy();
     expect(screen.getByText("Independent BoxPilot database copy")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Download the rebuild steps" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Download the raw data" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Check it" }));
+    expect(screen.getByRole("button", { name: "Download rebuild steps (.md)" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download recovery data (.json)" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Check helper" }));
     expect(await screen.findByText(/version 0.61.0/)).toBeTruthy();
   });
 

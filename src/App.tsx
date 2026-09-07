@@ -307,10 +307,10 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
               </button>
             )}
           </header>
-          <section className="surface-notice surface-live feature-strip" aria-label="Features">
+          {view !== "repairs" && <section className="surface-notice surface-live feature-strip" aria-label="Features">
             <strong>What you can do</strong>
             <ul className="feature-list">{viewFeatures[view].map((feature) => <li key={feature}>{feature}</li>)}</ul>
-          </section>
+          </section>}
           {bundleError && <div className="auth-error" role="alert">{bundleError}</div>}
           <PageErrorBoundary pageName={viewLabel(view)} resetKey={view}><Suspense fallback={<p className="muted page-loading">Loading…</p>}>{pageContent}</Suspense></PageErrorBoundary>
         </div>
