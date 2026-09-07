@@ -12,6 +12,7 @@ import { inspectPackageHealth, inspectPackageLocks } from "../server/package-hea
 import { aptRepair } from "../server/tasks/apt.mjs";
 import { createStateStore } from "../server/state.mjs";
 import { inspectControllerDatabase } from "../server/controller-database-health.mjs";
+import { dataScanCommand } from "../server/scan-resources.mjs";
 
 if (process.env.BOXPILOT_DISPOSABLE_TEST !== "1" || process.platform !== "linux" || process.getuid?.() !== 0 || !await access("/.dockerenv").then(() => true, () => false)) {
   throw new Error("This test requires BOXPILOT_DISPOSABLE_TEST=1 inside a disposable root Docker container. Never run it on an installed server.");
@@ -88,6 +89,15 @@ try {
   const reopen = spawn(process.execPath, ["--input-type=module", "-e", `import {createStateStore} from ${JSON.stringify(new URL("../server/state.mjs", import.meta.url).href)}; const store=createStateStore({stateDirectory:process.argv[1]}); store.close();`, databaseDirectory], { uid: 1000, gid: 1000, stdio: "inherit" });
   assert.equal(await new Promise((resolve, reject) => { reopen.once("exit", resolve); reopen.once("error", reject); }), 0);
   console.log("PASS: independent database check preserves bytes and permits the web identity to reopen state");
+  const scanDirectory = path.join(directory, "priority-scan");
+  await mkdir(scanDirectory);
+  await writeFile(path.join(scanDirectory, "sample"), "x".repeat(4096));
+  const scan = await dataScanCommand(scanDirectory);
+  const measured = await fixedRun(scan.binary, scan.args, { timeout: 5000 });
+  assert.equal(measured.ok, true);
+  assert.ok(Number.parseInt(measured.stdout, 10) >= 4096);
+  assert.equal(scan.priority, "idle-io-requested-and-nice-10");
+  console.log("PASS: low-priority Linux folder measurement returns a valid byte count");
 
 } finally {
   if (locker && locker.exitCode === null) { const exited = new Promise((resolve) => locker.once("exit", resolve)); locker.stdin.end("done\n"); await exited; }

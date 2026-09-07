@@ -16,6 +16,7 @@ import { readdir, rm, stat } from "node:fs/promises";
 import { defaultJobLogDirectory } from "./job-log.mjs";
 import path from "node:path";
 import { fixedRun } from "./exec.mjs";
+import { shared } from "./cache.mjs";
 
 /**
  * Directories in /opt left behind by past upgrades, under every naming scheme BoxPilot has used.
@@ -407,5 +408,5 @@ export function createHousekeepingService({
     return { reclaimed: failures.length === 0, targets: [...chosen], removed, failures, freedBytes, freedHumanBytes: humanBytes(freedBytes) };
   }
 
-  return { inspect, reclaim, internals: { previousTrees, imageInventory, danglingLayers, oldApplicationBackups, restoreLeftovers, orphanedJobLogs, humanBytes } };
+  return { inspect: shared(inspect), reclaim, internals: { previousTrees, imageInventory, danglingLayers, oldApplicationBackups, restoreLeftovers, orphanedJobLogs, humanBytes } };
 }

@@ -116,3 +116,11 @@ Hosted CI and native install smoke both passed for 7ab4a7d. Omitting explicit Us
 General cleanup now lists restore siblings at their actual location and preserves them as recovery evidence. It no longer searches inside application data for arbitrary folders ending in .replaced. Image cleanup requires complete container/app inventory and protects references made by image id or alias. Unverified categories are excluded from the advertised reclaimable total, and shared image sizes are not counted as bytes actually freed.
 
 Application restore refuses leftover staging/original directories before taking action, extracts before the final stop-and-swap window, and preserves the original through the restored app's health check. Failed startup retains it. A failed safety backup also retains it after an otherwise healthy restore. Swap rollback errors no longer claim the app was put back unless the rename succeeded. Full check passed with 1,573 tests across 229 files; focused fault fixtures cover earlier restore evidence, failed startup, failed safety backup and extraction failure. The built browser demo confirms the restore evidence is readable, expanded on demand and unavailable for cleanup selection.
+
+## Resource-aware measurements and restored app statistics
+
+Fixed the installed-app id collector treating a Set as an array, which broke the resource statistics operation. It now reads valid installed app ids without Docker work and skips restore sibling directories.
+
+Scheduled app-data scans now defer under sustained kernel PSI pressure, retain prior history, explain the delay in Storage, and retry after 30 minutes. Manual forced measurements remain available. Linux du requests idle IO and nice 10 where supported; concurrent data scans, sampler writes and housekeeping inspections are coalesced. Full check passed with 1,580 tests across 230 files. The disposable Ubuntu integration passed the actual low-priority command together with package recovery, lock refusal, log-release permissions and independent database ownership checks.
+
+Native installation smoke passed for cfc26c1. Its general CI passed application checks but Docker Hub returned HTTP 500 while resolving the base image; the failed job was retried. Production remains unchanged. The read-only live sampler continues to the agreed deadline.

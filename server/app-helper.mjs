@@ -17,6 +17,8 @@ import { isDeniedHostPath } from "./catalog/schema.mjs";
 import { measurableFolders, mountFor } from "./app-data-growth.mjs";
 import { resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
 import { profileConnectionEnv, profileSecurityEnv } from "./vpn-profile.mjs";
+import { dataScanCommand } from "./scan-resources.mjs";
+import { shared } from "./cache.mjs";
 
 const actions = Object.freeze(["start", "stop", "restart", "pause", "unpause"]);
 const idPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
@@ -90,6 +92,7 @@ export function createAppHelper({
   tarBinary = process.env.BOXPILOT_TAR_BINARY ?? "/usr/bin/tar",
   runDocker = defaultDockerRunner,
   runCommand = fixedRun,
+  scanCommand = dataScanCommand,
   catalog = createCatalogService(),
   wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   clock = () => new Date(),
@@ -1682,8 +1685,9 @@ export function createAppHelper({
         // -s one total, -b in bytes, -x without crossing into another filesystem: a bind mount
         // below a data folder belongs to whatever owns it, not to the app that happens to sit above.
         const remaining = deadline - clock().getTime();
+        const command = remaining > 0 ? await scanCommand(folder.path) : null;
         const measured = remaining <= 0 ? null
-          : await runCommand("du", ["-sbx", folder.path], { timeout: Math.min(timeoutMsPerFolder, remaining) }).catch(() => null);
+          : await runCommand(command.binary, command.args, { timeout: Math.min(timeoutMsPerFolder, remaining) }).catch(() => null);
         // Only a clean exit counts. du that hit a subtree it could not read exits non-zero and
         // still prints a total - a total missing everything it could not see. Measured on this
         // server: an unreadable folder yields "0" and exit 1. Reading that number would record the
@@ -1697,6 +1701,7 @@ export function createAppHelper({
           path: folder.path,
           mount: mountFor(folder.path, mounts),
           bytes: Number.isFinite(bytes) ? bytes : null,
+          priority: command?.priority ?? null,
         });
       }
     }
@@ -1706,9 +1711,15 @@ export function createAppHelper({
   /** Ids of the apps installed here: one directory read and one small state file each, no docker. */
   async function installedIds() {
     const ids = await presentIds();
-    const states = await Promise.all(ids.map(async (id) => ({ id, state: await readState(id) })));
-    return states.filter(({ state }) => state?.installed).map(({ id }) => id);
+    if (ids === null) throw new Error("The application directory could not be read; installed app statistics are unavailable");
+    const installed = [];
+    for (const id of ids) {
+      if (!idPattern.test(id)) continue;
+      const state = await readState(id);
+      if (state?.installed) installed.push(id);
+    }
+    return installed;
   }
 
-  return { syncHomepage, inspect, installedIds, dataUsage, reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { imageDeclaredOwner, parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
+  return { syncHomepage, inspect, installedIds, dataUsage: shared(dataUsage), reachabilityFacts, vpnKillSwitchDrill, foreignProjects, foreignProjectAction, foreignProjectLogs, vpnStatus, listModels, pullModel, removeModel, countAppBackups, backupProtection, install, uninstall, update, reconfigure, action, logs, config, editCompose, secrets, setPassword, backup, listAppBackups, verifyAppBackup, restoreAppBackup, rollbackApp, listAppBackupFiles, restoreAppBackupPath, deleteAppBackup, checkUpdates, catalogRoot: root, internals: { imageDeclaredOwner, parseModelList, containerStatus, waitHealthy, writeProject, readState, parseEnvFile } };
 }

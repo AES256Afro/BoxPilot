@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { appendUsageSample, createAppDataSampler, growthByApp, growthOverWindow, measurableFolders, mountFor } from "./app-data-growth.mjs";
+import { describe, expect, it, vi } from "vitest";
+import { appendUsageSample, createAppDataSampler as createRealAppDataSampler, growthByApp, growthOverWindow, measurableFolders, mountFor } from "./app-data-growth.mjs";
+const createAppDataSampler = (options) => createRealAppDataSampler({ readPressure: async () => ({}), ...options });
 
 const GiB = 1024 ** 3;
 const day = (index) => `2026-09-${String(index).padStart(2, "0")}T03:00:00.000Z`;
@@ -168,6 +169,43 @@ describe("the nightly sampler", () => {
     const settings = { ...initial };
     return { settings, getSetting: (key, fallback) => settings[key] ?? fallback, setSetting: (key, value) => { settings[key] = value; } };
   }
+
+  it("defers under pressure without changing history and permits an explicit measurement", async () => {
+    const store = fakeStore({ appDataUsageHistory: { kept: [{ at: day(1), bytes: 42 }] } });
+    const request = vi.fn(async () => ({ entries: [{ key: "kept", bytes: 50 }] }));
+    const sampler = createAppDataSampler({ helper: { request }, store, now: () => new Date(day(3)), readPressure: async () => ({ io: { full: { avg60: 15 } } }) });
+    expect((await sampler.sample()).deferred).toContain("IO pressure");
+    expect(request).not.toHaveBeenCalled();
+    expect(store.settings.appDataUsageHistory.kept).toEqual([{ at: day(1), bytes: 42 }]);
+    expect(store.settings.appDataUsageLastRun.deferred).toContain("IO pressure");
+    expect((await sampler.sample({ force: true })).sampled).toBe(1);
+    expect(store.settings.appDataUsageLastRun.deferred).toBeUndefined();
+  });
+
+  it("shares overlapping measurements and persists their result once", async () => {
+    let finish;
+    const request = vi.fn(() => new Promise((resolve) => { finish = resolve; }));
+    const store = fakeStore(); const write = vi.spyOn(store, "setSetting");
+    const sampler = createAppDataSampler({ helper: { request }, store, now: () => new Date(day(3)) });
+    const first = sampler.sample(); const second = sampler.sample({ force: true });
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+    finish({ entries: [{ key: "a", bytes: 12 }] });
+    expect(await first).toEqual(await second);
+    expect(write).toHaveBeenCalledTimes(2); // history and last-run status, one write each
+  });
+
+  it("retries a deferred schedule without duplicate timers and cancels its retry on stop", async () => {
+    vi.useFakeTimers();
+    try {
+      const sampler = createAppDataSampler({ helper: { request: vi.fn() }, store: fakeStore(), report: () => {}, initialDelayMs: 1, pressureRetryMs: 60_000, readPressure: async () => ({ memory: { full: { avg60: 2 } } }) });
+      const stop = sampler.start(); expect(sampler.start()).toBe(stop);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(vi.getTimerCount()).toBe(2); // daily tick plus one retry
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(vi.getTimerCount()).toBe(2);
+      stop(); expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
 
   it("records what the helper measured", async () => {
     const store = fakeStore();

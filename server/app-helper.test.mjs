@@ -79,12 +79,25 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
   const wait = vi.fn(async (ms) => { nowMs += ms; });
   const catalog = createCatalogService({ directory: catalogDirectory, ttlMs: 0 });
   const backupRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-appbk-")); directories.push(backupRoot);
-  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, lanAddress: "192.168.1.10", ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(statPath ? { statPath } : {}), ...(lstatPath ? { lstatPath } : {}), ...(runCommand ? { runCommand } : {}), ...(vpnProfile ? { vpnProfile } : {}) });
+  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, scanCommand: async (folder) => ({ binary: "du", args: ["-sbx", folder], priority: "fixture" }), lanAddress: "192.168.1.10", ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(statPath ? { statPath } : {}), ...(lstatPath ? { lstatPath } : {}), ...(runCommand ? { runCommand } : {}), ...(vpnProfile ? { vpnProfile } : {}) });
   const advance = (ms) => { nowMs += ms; };
   return { apps, calls, containers, catalogRoot, catalogDirectory, backupRoot, advance, runDocker };
 }
 
 describe("generic app deployer", () => {
+  it("lists installed ids from the directory set without Docker calls or restore leftovers", async () => {
+    const { apps, catalogRoot, calls } = await setup();
+    expect(await apps.installedIds()).toEqual([]);
+    await apps.install({ id: "demo", values: { setup: [] } });
+    await mkdir(path.join(catalogRoot, "demo.replaced"));
+    await mkdir(path.join(catalogRoot, "unconfigured"));
+    calls.length = 0;
+    expect(await apps.installedIds()).toEqual(["demo"]);
+    expect(calls).toEqual([]);
+    await apps.uninstall({ id: "demo" });
+    expect(await apps.installedIds()).toEqual([]);
+  });
+
   it("resolves device globs against the host when writing the project, and refuses when nothing matches", async () => {
     const manifestYaml = "schemaVersion: 2\nid: smart\nname: Smart\ncategory: Disks\ndescription: d\nimage:\n  reference: x/smart:1\ndevices:\n  - /dev/sd?\n  - /dev/nvme?\nhealth:\n  kind: running\n  stableSeconds: 4\n  timeoutSeconds: 30\n";
     const bare = await setup({ listDevices: async () => ["tty", "zero"] });

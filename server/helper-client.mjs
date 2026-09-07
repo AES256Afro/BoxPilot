@@ -9,6 +9,7 @@ import { createHelperResponseReader, maxHelperResponseBytes } from "./helper-res
  * together are two requests, not one.
  */
 const sharableReads = new Set([
+  "housekeeping.inspect", "app.stats.inspect", "system.performance.inspect",
   "apt.health.inspect", "system.controller.inspect", "controller.database.inspect",
   "system.runtime.inspect", "app.inspect", "samba.inspect", "container.docker.inventory", "app.data.usage",
   // The rest of what one Overview or Repair load asks for from several routes at once.

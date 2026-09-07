@@ -21,7 +21,7 @@ interface ShareRow { name: string; kind: "smb" | "nfs"; source: string; mountpoi
 interface SnapshotRow { path: string; name: string; volumeGroup: string | null; sizeBytes: number; origin?: string; sizeGiB?: number; createdAt?: string; suffix?: string | null }
 interface StorageReport { devices: DeviceRow[]; mounts: MountRow[]; fstab: FstabRow[]; volumeGroups: VolumeGroup[]; snapshots?: SnapshotRow[]; shares: ShareRow[]; tools: { cifs: boolean; nfs: boolean; smbclient: boolean; showmount: boolean } }
 interface Usage { appId: string | null; path: string | null; mount: string | null; bytes: number; grewBytes: number | null; days: number }
-interface LastMeasured { at: string; sampled: number; unmeasured: number; error: string | null }
+interface LastMeasured { at: string; sampled: number; unmeasured: number; error: string | null; deferred?: string }
 interface Forecast { target: string; daysToFull: number; availableBytes: number | null; totalBytes: number | null; samples: number }
 interface Discovered { address: string; name: string | null; smb: boolean; nfs: boolean; mac: string | null; interface: string | null }
 
@@ -187,10 +187,12 @@ export default function StorageCenter({ csrfToken, onNavigate }: { csrfToken: st
               Each place data lives, what uses it, and how it is shared, in one picture.
               {/* Whether the sizes below can be trusted. A sweep that has been failing for a
                   fortnight otherwise looks exactly like one with nothing to measure. */}
-              {lastMeasured?.error
+              {lastMeasured?.deferred
+                ? <> Scheduled measurement deferred: {lastMeasured.deferred}. Existing sizes are retained; the scheduler retries in 30 minutes.</>
+                : lastMeasured?.error
                 ? <> Sizes are out of date: the last attempt on {new Date(lastMeasured.at).toLocaleDateString()} failed ({lastMeasured.error}).</>
                 : lastMeasured
-                  ? <> Sizes measured {new Date(lastMeasured.at).toLocaleDateString()}{lastMeasured.unmeasured > 0 ? `; ${lastMeasured.unmeasured} folder${lastMeasured.unmeasured === 1 ? "" : "s"} took too long to measure` : ""}.</>
+                  ? <> Sizes measured {new Date(lastMeasured.at).toLocaleDateString()}{lastMeasured.unmeasured > 0 ? `; ${lastMeasured.unmeasured} folder${lastMeasured.unmeasured === 1 ? "" : "s"} could not be measured` : ""}.</>
                   : null}
             </span></div></header>
             <div className="storage-map">
