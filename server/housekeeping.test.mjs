@@ -14,7 +14,7 @@ import { housekeepingRemoveTrees } from "./tasks/housekeeping.mjs";
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
 
-async function fixture({ runUnitFails = false } = {}) {
+async function fixture({ runUnitFails = false, treeScanLimits = {} } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "boxpilot-housekeeping-"));
   directories.push(root);
   const installRoot = path.join(root, "opt");
@@ -79,7 +79,7 @@ async function fixture({ runUnitFails = false } = {}) {
     return housekeepingRemoveTrees(parameters);
   } };
   const service = createHousekeepingService({
-    run, runUnit, installRoot, currentTree: path.join(installRoot, "boxpilot"),
+    run, runUnit, treeScanLimits, installRoot, currentTree: path.join(installRoot, "boxpilot"),
     catalogRoot, applicationBackupRoot, jobLogDirectory,
     apps: { inspect: async () => ({ applications: [{ id: "jellyfin", installed: true, installedImage: "jellyfin/jellyfin:10.11.11" }] }) },
     now: () => new Date(now),
@@ -88,6 +88,19 @@ async function fixture({ runUnitFails = false } = {}) {
 }
 
 describe("finding what can be reclaimed", () => {
+  it("retains useful categories when filesystem work exceeds its shared budget", async () => {
+    const { service } = await fixture({ treeScanLimits: { maxEntries: 1 } });
+    const report = await service.inspect();
+    const releases = report.categories.find((category) => category.id === "boxpilot-versions");
+    expect(releases.safe).toBe(false);
+    expect(releases.unavailable).toContain("budget");
+    expect(report.categories.find((category) => category.id === "docker-unused").safe).toBe(true);
+    expect(report.totalBytes).toBe(report.categories.filter((category) => category.safe).reduce((sum, category) => sum + category.bytes, 0));
+    const cleanup = await service.reclaim({ targets: ["boxpilot-versions", "docker-unused"] });
+    expect(cleanup.failures.map((entry) => entry.category)).toContain("boxpilot-versions");
+    expect(cleanup.removed.some((entry) => entry.category === "docker-unused")).toBe(true);
+  });
+
   it("keeps the newest version you could revert to, and the last failure's evidence", async () => {
     const { service } = await fixture();
     const report = await service.inspect();
