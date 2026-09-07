@@ -50,6 +50,8 @@ async function fixture({ runUnitFails = false } = {}) {
   await writeFile(path.join(catalogRoot, "jellyfin", "data.replaced", "old"), "leftover");
   await mkdir(path.join(catalogRoot, "jellyfin", "data"), { recursive: true });
   await writeFile(path.join(catalogRoot, "jellyfin", "data", "live"), "in use");
+  await mkdir(path.join(catalogRoot, "jellyfin.replaced"), { recursive: true });
+  await writeFile(path.join(catalogRoot, "jellyfin.replaced", "original"), "only recoverable original");
 
   const jobLogDirectory = path.join(root, "job-logs");
   await mkdir(jobLogDirectory, { recursive: true });
@@ -174,11 +176,13 @@ describe("reclaiming", () => {
   it("removes only the categories named, and leaves live data alone", async () => {
     const { service, installRoot, catalogRoot, applicationBackupRoot } = await fixture();
     const result = await service.reclaim({ targets: ["boxpilot-versions", "restore-leftovers"] });
-    expect(result.removed.map((entry) => entry.category)).toEqual(expect.arrayContaining(["boxpilot-versions", "restore-leftovers"]));
+    expect(result.removed.map((entry) => entry.category)).toEqual(expect.arrayContaining(["boxpilot-versions"]));
+    expect(result.failures.map((entry) => entry.category)).toContain("restore-leftovers");
 
     // Gone: the older trees and the unfinished restore.
     await expect(stat(path.join(installRoot, "boxpilot.rollback-0.50.0-abc"))).rejects.toThrow();
-    await expect(stat(path.join(catalogRoot, "jellyfin", "data.replaced"))).rejects.toThrow();
+    await expect(stat(path.join(catalogRoot, "jellyfin", "data.replaced"))).resolves.toBeTruthy();
+    await expect(stat(path.join(catalogRoot, "jellyfin.replaced", "original"))).resolves.toBeTruthy();
     // Kept: the live install, the rollback target, the app's real data, and every backup, because
     // those categories were not chosen.
     await expect(stat(path.join(installRoot, "boxpilot", "server.mjs"))).resolves.toBeTruthy();
@@ -204,6 +208,34 @@ describe("reclaiming", () => {
     const removed = run.mock.calls.filter(([, args]) => args[0] === "rmi").map(([, args]) => args[1]);
     expect(removed).toEqual(expect.arrayContaining(["jellyfin/jellyfin:10.10.7", "old/removed-app:1.0"]));
     expect(removed).not.toContain("jellyfin/jellyfin:10.11.11");
+  });
+
+  it("reports actual restore siblings as protected and excludes them from reclaimable totals", async () => {
+    const { service } = await fixture();
+    const report = await service.inspect();
+    const restores = report.categories.find((category) => category.id === "restore-leftovers");
+    expect(restores.safe).toBe(false);
+    expect(restores.detail).toEqual(["jellyfin: jellyfin.replaced"]);
+    expect(report.totalBytes).toBe(report.categories.filter((category) => category.safe).reduce((sum, category) => sum + category.bytes, 0));
+  });
+
+  it("keeps all image aliases when a container names their image id", async () => {
+    const { service, run } = await fixture();
+    const original = run.getMockImplementation();
+    run.mockImplementation(async (binary, args) => args[0] === "ps" ? { ok: true, stdout: "sha2", stderr: "" } : original(binary, args));
+    await service.reclaim({ targets: ["docker-unreferenced-images"] });
+    expect(run.mock.calls.filter(([, args]) => args[0] === "rmi").map(([, args]) => args[1])).toEqual(["old/removed-app:1.0"]);
+  });
+
+  it("refuses image cleanup when container inventory fails and reports uncertainty", async () => {
+    const { service, run } = await fixture();
+    const original = run.getMockImplementation();
+    run.mockImplementation(async (binary, args) => args[0] === "ps" ? { ok: false, stdout: "", stderr: "unavailable" } : original(binary, args));
+    const report = await service.inspect();
+    expect(report.categories.find((category) => category.id === "docker-unreferenced-images").safe).toBe(false);
+    const result = await service.reclaim({ targets: ["docker-unreferenced-images"] });
+    expect(result.reclaimed).toBe(false);
+    expect(run.mock.calls.some(([, args]) => args[0] === "rmi")).toBe(false);
   });
 });
 

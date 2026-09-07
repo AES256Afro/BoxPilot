@@ -124,7 +124,7 @@ export function createHousekeepingService({
   /** Untagged layers an image update left behind. Nothing can reference these by name. */
   async function danglingLayers() {
     const listed = await docker(["images", "--filter", "dangling=true", "--format", "{{.ID}}\t{{.Size}}"]);
-    if (!listed.ok) return [];
+    if (!listed.ok) return null;
     return listed.stdout.split("\n").filter(Boolean).map((line) => {
       const [id, size] = line.split("\t");
       return { id, bytes: parseDockerSize(size) };
@@ -132,15 +132,17 @@ export function createHousekeepingService({
   }
 
   async function imageInventory() {
-    const listed = await docker(["images", "--format", "{{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.Size}}", "--filter", "dangling=false"]);
+    const listed = await docker(["images", "--no-trunc", "--format", "{{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.Size}}", "--filter", "dangling=false"]);
     if (!listed.ok) return null;
     const inUse = new Set();
-    const containers = await docker(["ps", "--all", "--format", "{{.Image}}"]);
-    if (containers.ok) for (const line of containers.stdout.split("\n")) if (line.trim()) inUse.add(line.trim());
+    const containers = await docker(["ps", "--all", "--no-trunc", "--format", "{{.Image}}"]);
+    if (!containers.ok || !apps) return null;
+    for (const line of containers.stdout.split("\n")) if (line.trim()) inUse.add(line.trim());
     const installedReferences = new Set();
     if (apps) {
       const inspection = await apps.inspect({}).catch(() => null);
-      for (const application of inspection?.applications ?? []) {
+      if (!Array.isArray(inspection?.applications) || inspection.problems?.length) return null;
+      for (const application of inspection.applications) {
         if (!application.installed) continue;
         if (application.installedImage) installedReferences.add(application.installedImage);
         if (application.state?.image?.reference) installedReferences.add(application.state.image.reference);
@@ -152,7 +154,10 @@ export function createHousekeepingService({
       if (!reference || reference.includes("<none>")) continue;
       images.push({ reference, id, bytes: parseDockerSize(size), used: inUse.has(reference) || installedReferences.has(reference) });
     }
-    return images;
+    // Different tags can name one image. A container using any alias protects them all.
+    const normalizeId = (value) => value.replace(/^sha256:/, "");
+    const usedIds = new Set(images.filter((image) => image.used || inUse.has(image.id) || inUse.has(normalizeId(image.id)) || inUse.has(`sha256:${normalizeId(image.id)}`)).map((image) => normalizeId(image.id)));
+    return images.map((image) => ({ ...image, used: image.used || usedIds.has(normalizeId(image.id)) }));
   }
 
   /** Backup archives past the newest few for each app. */
@@ -177,13 +182,10 @@ export function createHousekeepingService({
     const entries = await readdir(catalogRoot, { withFileTypes: true }).catch(() => []);
     const found = [];
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const appDirectory = path.join(catalogRoot, entry.name);
-      for (const child of await readdir(appDirectory, { withFileTypes: true }).catch(() => [])) {
-        if (!child.isDirectory() || !/\.(replaced|restoring)$/.test(child.name)) continue;
-        const full = path.join(appDirectory, child.name);
-        found.push({ path: full, app: entry.name, bytes: await directorySize(full) });
-      }
+      const match = /^([a-z0-9][a-z0-9-]*)\.(replaced|restoring)$/.exec(entry.name);
+      if (!entry.isDirectory() || !match) continue;
+      const full = path.join(catalogRoot, entry.name);
+      found.push({ path: full, app: match[1], bytes: await directorySize(full) });
     }
     return found;
   }
@@ -227,7 +229,7 @@ export function createHousekeepingService({
     // Only the build cache from `df`. Its "Images reclaimable" counts every image no *running*
     // container holds, which is the other category's job and would be counted twice here.
     const buildCacheBytes = dockerRows.filter((row) => /build cache/i.test(String(row.Type ?? ""))).reduce((sum, row) => sum + parseReclaimable(row.Reclaimable), 0);
-    const danglingBytes = dangling.reduce((sum, entry) => sum + entry.bytes, 0);
+    const danglingBytes = (dangling ?? []).reduce((sum, entry) => sum + entry.bytes, 0);
 
     const categories = [
       {
@@ -244,14 +246,15 @@ export function createHousekeepingService({
         id: "docker-unused",
         title: "Orphaned image layers and build cache",
         summary: "Layers left behind when an image was replaced by a newer version, and what Docker cached while building. Nothing references either; both come back on their own if they are ever needed again.",
-        items: dangling.length || null,
+        items: dangling?.length || null,
         bytes: danglingBytes + buildCacheBytes,
         detail: [
-          ...(dangling.length ? [`${dangling.length} orphaned layer${dangling.length === 1 ? "" : "s"}: ${humanBytes(danglingBytes)}`] : []),
+          ...(dangling?.length ? [`${dangling.length} orphaned layer${dangling.length === 1 ? "" : "s"}: ${humanBytes(danglingBytes)}`] : []),
           ...(buildCacheBytes ? [`build cache: ${humanBytes(buildCacheBytes)}`] : []),
         ],
         keeping: [],
-        safe: true,
+        safe: df.ok && dangling !== null,
+        unavailable: !df.ok || dangling === null ? "Docker usage could not be fully inspected. Retry when Docker is available." : null,
       },
       {
         id: "docker-unreferenced-images",
@@ -262,6 +265,7 @@ export function createHousekeepingService({
         detail: unusedImages.slice(0, 40).map((image) => `${image.reference} (${humanBytes(image.bytes)})`),
         keeping: [],
         safe: images !== null,
+        unavailable: images === null ? "Container or installed-app references could not be verified. Retry the scan before cleanup." : null,
       },
       {
         id: "app-backups",
@@ -276,12 +280,13 @@ export function createHousekeepingService({
       {
         id: "restore-leftovers",
         title: "Unfinished restores",
-        summary: "Folders a restore left behind when it could not finish swapping data back. They are copies, not the live data an app is using.",
+        summary: "Staging or previous-data folders beside an app. A restore may still be running, or this may be the only recoverable original. Review the restore job and backups before moving anything.",
         items: leftovers.length,
         bytes: leftovers.reduce((sum, entry) => sum + entry.bytes, 0),
         detail: leftovers.map((entry) => `${entry.app}: ${path.basename(entry.path)}`),
-        keeping: [],
-        safe: true,
+        keeping: leftovers.map((entry) => path.basename(entry.path)),
+        safe: false,
+        unavailable: "Recovery evidence. General cleanup cannot remove these folders.",
       },
       {
         id: "job-logs",
@@ -298,8 +303,8 @@ export function createHousekeepingService({
     return {
       generatedAt: now().toISOString(),
       categories: categories.map((category) => ({ ...category, humanBytes: humanBytes(category.bytes) })),
-      totalBytes: categories.reduce((sum, category) => sum + category.bytes, 0),
-      totalHumanBytes: humanBytes(categories.reduce((sum, category) => sum + category.bytes, 0)),
+      totalBytes: categories.filter((category) => category.safe).reduce((sum, category) => sum + category.bytes, 0),
+      totalHumanBytes: humanBytes(categories.filter((category) => category.safe).reduce((sum, category) => sum + category.bytes, 0)),
     };
   }
 
@@ -362,12 +367,13 @@ export function createHousekeepingService({
 
     if (chosen.has("docker-unreferenced-images")) await attempt("docker-unreferenced-images", async () => {
       const images = await imageInventory();
-      const unused = (images ?? []).filter((entry) => !entry.used);
+      if (!images) throw new Error("Container or installed-app references could not be verified; images were retained");
+      const unused = images.filter((entry) => !entry.used);
       say(`Removing ${unused.length} image${unused.length === 1 ? "" : "s"} no app uses.`);
       for (const [index, image] of unused.entries()) {
         // Docker refuses an image a container still holds, which is the guard that matters here.
         const result = await docker(["rmi", image.reference], { timeout: 120_000 });
-        if (result.ok) { freedBytes += image.bytes; removed.push({ category: "docker-unreferenced-images", what: image.reference, bytes: image.bytes }); }
+        if (result.ok) { removed.push({ category: "docker-unreferenced-images", what: image.reference, estimatedImageBytes: image.bytes }); }
         say(`  [${index + 1}/${unused.length}] ${image.reference}${result.ok ? "" : ". Still in use, left alone"}`);
       }
     });
@@ -384,13 +390,7 @@ export function createHousekeepingService({
     });
 
     if (chosen.has("restore-leftovers")) await attempt("restore-leftovers", async () => {
-      const leftovers = await restoreLeftovers();
-      say(`Removing ${leftovers.length} folder${leftovers.length === 1 ? "" : "s"} an unfinished restore left behind.`);
-      for (const entry of leftovers) {
-        await rm(entry.path, { recursive: true, force: true });
-        freedBytes += entry.bytes;
-        removed.push({ category: "restore-leftovers", what: `${entry.app}/${path.basename(entry.path)}`, bytes: entry.bytes });
-      }
+      throw new Error("Unfinished restore folders may contain the only original data or an active restore. Review the restore job and backups; general cleanup preserves them.");
     });
 
     if (chosen.has("job-logs")) await attempt("job-logs", async () => {
@@ -403,7 +403,7 @@ export function createHousekeepingService({
       }
     });
 
-    say(`Done. ${humanBytes(freedBytes)} back, plus whatever Docker's own prune returned.`);
+    say(`Done. Removed files total ${humanBytes(freedBytes)} by file size. Docker reports its own reclaimed space; image sizes are excluded because layers may be shared.`);
     return { reclaimed: failures.length === 0, targets: [...chosen], removed, failures, freedBytes, freedHumanBytes: humanBytes(freedBytes) };
   }
 

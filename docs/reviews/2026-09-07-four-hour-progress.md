@@ -107,3 +107,12 @@ Native testing confirmed that the independent database doctor works while both s
 Pending grants now have a 1,024 global and 64-per-client ceiling. Saturation refuses new grants without evicting valid ones, and one unreferenced expiry timer physically releases abandoned codes while idle. Removing a client clears its pending grants, and token exchange rechecks current registration. Input fields have type/length limits; S256 challenges and verifiers follow the PKCE format, and the method must be explicit. Full check passed with 1,566 tests across 229 files, including saturation, idle expiry and client-removal fixtures.
 
 The native helper's effective capability mask was missing CAP_SETUID despite its bounding set including it. Applied the generic runner's existing documented convention: omit explicit User=root while retaining the default root identity, Group=boxpilot and all helper sandbox restrictions. The native installation check will verify whether this restores the required downward identity transition.
+
+
+## Native database verification and protected app recovery
+
+Hosted CI and native install smoke both passed for 7ab4a7d. Omitting explicit User=root fixed the helper child identity transition while retaining its root default identity and sandbox. The authenticated inspector and independent database doctor now pass in the actual Ubuntu installation, including both services stopped.
+
+General cleanup now lists restore siblings at their actual location and preserves them as recovery evidence. It no longer searches inside application data for arbitrary folders ending in .replaced. Image cleanup requires complete container/app inventory and protects references made by image id or alias. Unverified categories are excluded from the advertised reclaimable total, and shared image sizes are not counted as bytes actually freed.
+
+Application restore refuses leftover staging/original directories before taking action, extracts before the final stop-and-swap window, and preserves the original through the restored app's health check. Failed startup retains it. A failed safety backup also retains it after an otherwise healthy restore. Swap rollback errors no longer claim the app was put back unless the rename succeeded. Full check passed with 1,573 tests across 229 files; focused fault fixtures cover earlier restore evidence, failed startup, failed safety backup and extraction failure. The built browser demo confirms the restore evidence is readable, expanded on demand and unavailable for cleanup selection.
