@@ -125,9 +125,12 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
   }, [hasConfigurableVolumes, csrfToken]);
   const submit = async () => {
     const compact = compactValues(manifest, values, mode === "reconfigure" ? live?.state?.values : undefined);
+    // Precheck resolves against catalog defaults, so it needs unchanged required settings
+    // and custom ports too. The mutation still sends only changes to the stored values.
+    const precheckValues = compactValues(manifest, values);
     setChecking(true); setProblems([]);
     try {
-      const response = await fetch(`/api/v1/catalog/${encodeURIComponent(manifest.id)}/precheck`, { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ values: compact }) });
+      const response = await fetch(`/api/v1/catalog/${encodeURIComponent(manifest.id)}/precheck`, { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ values: precheckValues }) });
       const body = (await response.json().catch(() => ({}))) as { ok: boolean; errors: string[]; conflicts: Array<{ label: string; port: number; protocol: string; listeners: string[] }>; error?: string };
       if (!response.ok && !body.errors?.length) throw new Error(body.error ?? "Precheck failed");
       const found = [...(body.errors ?? []), ...(body.conflicts ?? []).map((conflict) => {

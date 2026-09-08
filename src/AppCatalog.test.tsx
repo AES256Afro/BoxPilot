@@ -294,6 +294,38 @@ describe("finding things in a catalog of a hundred-odd apps", () => {
   const runningLive = { id: "dockge", installed: true, dataPresent: true, state: { installedAt: "x", updatedAt: "x", manifestSha256: "a", image: { reference: "louislam/dockge:1.5.0", id: "sha256:1" }, values: { ports: { web: 5001 }, env: {}, volumes: {} }, pinnedRollback: false, uninstalledAt: null }, container: { exists: true, running: true, status: "running", health: "healthy", restarts: 0, image: "sha256:1" }, urls: [{ id: "web", label: "Web UI", host: 5001, exposure: "lan" }] };
   const notInstalled = { id: "jellyfin", installed: false, dataPresent: false, state: null, container: { exists: false, running: false, status: "absent", health: "none", restarts: 0, image: null }, urls: [] };
 
+  it.each(["port", "origin"])("prechecks effective settings while staging only the changed %s", async (changed) => {
+    const origin = "https://portal.example.test";
+    const app = { ...dockge, env: [{ name: "PUBLIC_URL", label: "Portal origin", description: null, type: "string", default: null, required: true, secret: false, generate: false, options: null, fixed: false }] };
+    const live = { ...runningLive, state: { ...runningLive.state, values: { ports: { web: 5002 }, env: { PUBLIC_URL: origin }, volumes: {} } } };
+    let checked: { ports: Record<string, number>; env: Record<string, string> } | undefined;
+    let staged: string | undefined;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest: app, live }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      if (url.includes("app.serve.inspect")) return json({ result: { available: true, serves: [] } });
+      if (url.endsWith("/precheck")) {
+        checked = JSON.parse(init?.body as string).values;
+        return checked?.env.PUBLIC_URL
+          ? json({ ok: true, errors: [], conflicts: [] })
+          : json({ ok: false, errors: ["PUBLIC_URL is required"], conflicts: [] }, 400);
+      }
+      if (url.endsWith("/operations/app.reconfigure/jobs")) {
+        staged = init?.body as string;
+        return json({ job: { id: "settings", type: "op:app.reconfigure", title: "Change settings", state: "awaiting_approval", risk: "medium", error: null, result: null, steps: [], approvals: [] }, approval: { tier: "medium", passwordRequired: false, elevated: false, mode: "tiered", reason: "medium" } }, 201);
+      }
+      return json({}, 200);
+    }));
+    render(<AppCatalog csrfToken="csrf-token" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    if (changed === "port") fireEvent.change(screen.getByRole("spinbutton", { name: "Web UI port" }), { target: { value: "5001" } });
+    else fireEvent.change(screen.getByLabelText("Portal origin"), { target: { value: `${origin}/new` } });
+    fireEvent.click(screen.getByRole("button", { name: "Apply settings" }));
+    await waitFor(() => expect(staged).toBeDefined());
+    expect(checked).toEqual({ ports: changed === "port" ? {} : { web: 5002 }, env: { PUBLIC_URL: changed === "port" ? origin : `${origin}/new` }, volumes: {} });
+    expect(JSON.parse(staged!).parameters.values).toEqual({ ports: changed === "port" ? { web: 5001 } : {}, env: changed === "port" ? {} : { PUBLIC_URL: `${origin}/new` }, volumes: {} });
+  });
+
   const mount = () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = input.toString();
