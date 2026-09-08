@@ -3,12 +3,12 @@ id: protec
 name: Protec
 category: Administration
 icon: "▣"
-description: "Self-hosted device enrollment, package inventory, device-scoped API access, and management audit history."
+description: "Self-hosted device enrollment, package inventory, device-scoped API access, recoverable token rotation, and management audit history."
 website: https://foragefournuts.com
 risk: low
 image:
-  reference: ghcr.io/aes256afro/protec:0.3.0
-  version: "0.3.0"
+  reference: ghcr.io/aes256afro/protec:0.4.0
+  version: "0.4.0"
 user: "10001:10001"
 ports:
   - id: web
@@ -25,7 +25,7 @@ env:
   - name: PROTEC_PUBLIC_URL
     label: Portal HTTPS origin
     required: true
-    description: "The exact HTTPS address used to open the portal, including its port if needed. Choose Tailnet access or configure an HTTPS reverse proxy. Example: https://server.example.ts.net:8765"
+    description: "The exact HTTPS address used to open the portal, including its port if needed. Publish the loopback port with Tailscale Serve or configure an HTTPS reverse proxy. Example: https://server.example.ts.net:8765"
   - name: PROTEC_ADMIN_TOKEN
     label: Administrator token
     type: password
@@ -40,8 +40,9 @@ health:
   kind: healthcheck
   timeoutSeconds: 120
 notes: >-
-  Choose Tailnet access and enter the resulting HTTPS origin before installation.
-  The container port binds only to loopback. Other deployments need an HTTPS reverse proxy.
+  Plan a Tailscale Serve or reverse-proxy HTTPS address and enter its origin before installation.
+  The container port binds only to loopback; publish it through your chosen HTTPS service.
+  Back up before upgrading to 0.4: schema 4 requires the pre-upgrade database for rollback.
   Linux and macOS inventory agents connect outbound to the portal. Device privileges are
   reported; this release does not install packages, enforce policies, manage VPN routes,
   or run remote shells. Explore mock data at https://foragefournuts.com/demo/.
