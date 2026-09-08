@@ -3,12 +3,12 @@ id: protec
 name: Protec
 category: Administration
 icon: "▣"
-description: "Self-hosted device enrollment, package inventory, role-based API access, and management audit history."
+description: "Self-hosted device enrollment, package inventory, device-scoped API access, and management audit history."
 website: https://foragefournuts.com
 risk: low
 image:
-  reference: ghcr.io/aes256afro/protec:0.2.0
-  version: "0.2.0"
+  reference: ghcr.io/aes256afro/protec:0.3.0
+  version: "0.3.0"
 user: "10001:10001"
 ports:
   - id: web
