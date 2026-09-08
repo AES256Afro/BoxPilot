@@ -3,12 +3,12 @@ id: protec
 name: Protec
 category: Administration
 icon: "▣"
-description: "Self-hosted device enrollment, package inventory, device-scoped API access, recoverable token rotation, and management audit history."
+description: "Self-hosted device enrollment, package inventory, device-scoped API access, recoverable token rotation, inventory completion receipts, and audit history."
 website: https://foragefournuts.com
 risk: low
 image:
-  reference: ghcr.io/aes256afro/protec:0.4.0
-  version: "0.4.0"
+  reference: ghcr.io/aes256afro/protec:0.5.0
+  version: "0.5.0"
 user: "10001:10001"
 ports:
   - id: web
@@ -42,7 +42,7 @@ health:
 notes: >-
   Plan a Tailscale Serve or reverse-proxy HTTPS address and enter its origin before installation.
   The container port binds only to loopback; publish it through your chosen HTTPS service.
-  Back up before upgrading to 0.4: schema 4 requires the pre-upgrade database for rollback.
+  Back up before upgrading to 0.5: schema 5 requires the pre-upgrade database for rollback.
   Linux and macOS inventory agents connect outbound to the portal. Device privileges are
   reported; this release does not install packages, enforce policies, manage VPN routes,
   or run remote shells. Explore mock data at https://foragefournuts.com/demo/.
