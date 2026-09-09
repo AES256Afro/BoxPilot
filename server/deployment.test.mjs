@@ -315,3 +315,27 @@ describe("native systemd network boundaries", () => {
   });
 
 });
+
+
+describe("surviving a reboot with the backup drive still waking up", () => {
+  it("does not let one failed helper start cancel the web service for good", async () => {
+    // 2026-09-09: the helper failed once at boot (its bind path hit "No such device" while the USB
+    // drive was probed), restarted fine five seconds later, and the web service stayed down for
+    // hours because Requires= had turned that first failure into a dependency failure, which
+    // systemd never retries.
+    const web = await readFile("deploy/boxpilot.service", "utf8");
+    expect(web).toMatch(/^Wants=boxpilot-helper\.service$/m);
+    expect(web).not.toMatch(/^Requires=boxpilot-helper\.service$/m);
+    expect(web).toMatch(/^After=boxpilot-helper\.service$/m);
+  });
+
+  it("orders the helper after the network and the backup share's automount, without requiring either", async () => {
+    // The backup mount is a network share behind an automount: binding the path at boot triggered a
+    // mount attempt before the network was up.
+    const helper = await readFile("deploy/boxpilot-helper.service", "utf8");
+    expect(helper).toMatch(/^After=network-online\.target mnt-boxpilot\\x2dbackup\.automount$/m);
+    expect(helper).toMatch(/^Wants=network-online\.target$/m);
+    expect(helper).not.toMatch(/^RequiresMountsFor=.*boxpilot-backup/m);   // the drive may be absent
+    expect(helper).toMatch(/^ReadWritePaths=-\/mnt\/boxpilot-backup$/m);
+  });
+});

@@ -1,6 +1,13 @@
 [Unit]
 Description=BoxPilot restricted local helper
 After=local-fs.target
+# The backup mount is a network share behind a systemd automount. Setting up this unit's bind path
+# at boot touched the automount trigger, which tried to mount the share before the network was up
+# and failed with "No such device" - a state the "-" prefix below does not forgive, since the path
+# exists. So: wait for the network, and for the automount trigger to be in place. Ordering only;
+# the share may be unreachable and the helper must still start.
+Wants=network-online.target
+After=network-online.target mnt-boxpilot\x2dbackup.automount
 Before=boxpilot.service
 
 ConditionPathIsDirectory=/var/lib/boxpilot

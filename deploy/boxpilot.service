@@ -2,7 +2,12 @@
 Description=BoxPilot web service
 Wants=network-online.target
 After=network-online.target
-Requires=boxpilot-helper.service
+# Wants, not Requires. With Requires, one failed helper start at boot - the backup drive still
+# being probed when its bind path was set up - cancelled this unit's start job as a "dependency
+# failure", which systemd never retries; the helper then came up on its own restart five seconds
+# later and the web service stayed down for hours. The web process already degrades to "helper
+# unavailable" and recovers when the socket answers, so it should start regardless.
+Wants=boxpilot-helper.service
 After=boxpilot-helper.service
 
 [Service]
