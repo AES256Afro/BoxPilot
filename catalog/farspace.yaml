@@ -1,0 +1,21 @@
+schemaVersion: 2
+id: farspace
+name: FarSpace
+category: Games
+icon: "🚀"
+description: "Pixel-art space sim: fly with real momentum, trade a living economy, mine, fight corsairs, walk your ship and the stations, orbit and survey planets, and chart the real stars within 20 light-years."
+website: https://fsociety.work
+risk: low
+image:
+  reference: ghcr.io/aes256afro/farspace:0.6.0
+  version: "0.6.0"
+ports:
+  - id: web
+    label: Game
+    container: 8080
+    host: 8139
+    exposure: lan
+health:
+  kind: healthcheck
+  timeoutSeconds: 60
+notes: "Single-player, served as a static page. Saves live in each player's browser; nothing is stored on the box."
