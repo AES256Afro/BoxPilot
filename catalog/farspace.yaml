@@ -7,8 +7,8 @@ description: "Pixel-art space sim: fly with real momentum, trade a living econom
 website: https://fsociety.work
 risk: low
 image:
-  reference: ghcr.io/aes256afro/farspace:0.17.6
-  version: "0.17.6"
+  reference: ghcr.io/aes256afro/farspace:0.17.8
+  version: "0.17.8"
 ports:
   - id: web
     label: Game
