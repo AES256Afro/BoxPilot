@@ -7,7 +7,9 @@ description: "S3-compatible object storage on your own disk. A backup target for
 website: https://min.io
 risk: low
 image:
-  reference: minio/minio:RELEASE.2025-09-07T16-13-09Z
+  # quay.io, not Docker Hub: MinIO withdrew minio/minio from Docker Hub, so the pull fails there
+  # for every release, not just this one. quay.io is MinIO's own registry and carries the same tags.
+  reference: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
   version: "2025-09-07"
 command: ["server", "/data", "--console-address", ":9001"]
 ports:
