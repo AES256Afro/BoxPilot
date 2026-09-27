@@ -96,7 +96,7 @@ describe("listing folders on a drive", () => {
     // Without the resolve-then-recheck, a symlink under /mnt would list /etc's folder names.
     const base = await mkdtemp(path.join(os.tmpdir(), "boxpilot-symlink-"));
     const link = path.join(base, "escape");
-    await symlink("/usr", link);
+    await symlink("/usr", link, "junction"); // a junction on Windows, which needs no privilege; ignored elsewhere
     try {
       await expect(op().run({ path: "/mnt/nope-does-not-exist" })).resolves.toMatchObject({ folders: [] });
     } finally { await fsPromises.rm(base, { recursive: true, force: true }); }

@@ -6,7 +6,8 @@ import { helperOperations } from "./helper-protocol.mjs";
 describe("native systemd network boundaries", () => {
   it("allows netlink only in the web inventory process", async () => {
     const webUnit = await readFile("deploy/boxpilot.service", "utf8");
-    const helperUnit = await readFile("deploy/boxpilot-helper.service", "utf8");
+    // Git for Windows checks text out with CRLF endings by default (core.autocrlf); the committed file has LF.
+    const helperUnit = (await readFile("deploy/boxpilot-helper.service", "utf8")).replaceAll("\r\n", "\n");
     const serverEntry = await readFile("server/index.mjs", "utf8");
     const prerequisites = await readFile("server/prerequisites.mjs", "utf8");
     expect(webUnit).toContain("RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK");

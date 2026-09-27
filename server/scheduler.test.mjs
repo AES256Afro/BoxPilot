@@ -48,7 +48,7 @@ describe("operation scheduler", () => {
   });
 
   it("refuses high-risk, read-only, unknown, and invalid-parameter schedules", async () => {
-    const { scheduler, owner } = await setup();
+    const { store, scheduler, owner } = await setup();
     const base = { frequency: "daily", minute: 0, hour: 3, createdBy: owner.id };
     await expect(scheduler.create({ ...base, operationId: "apt.purge" })).rejects.toThrow("high risk");
     await expect(scheduler.create({ ...base, operationId: "app.inspect" })).rejects.toThrow("Read-only");
@@ -60,6 +60,7 @@ describe("operation scheduler", () => {
     await expect(scheduler.create({ ...base, operationId: "snap.delete", parameters: { name: "nightly" } })).rejects.toThrow("type a confirmation");
     // The ops that ARE meant to run unattended (no confirm) still schedule fine.
     await expect(scheduler.create({ ...base, operationId: "recycle.empty", parameters: { share: "media" } })).resolves.toBeTruthy();
+    store.close();
   });
 
   it("runs due schedules as their creator and advances the next occurrence", async () => {
@@ -135,6 +136,7 @@ describe("scheduler hygiene", () => {
     expect(await scheduler.tick()).toBe(0);
     release();
     await first;
+    store.close();
   });
 });
 
@@ -167,6 +169,7 @@ describe("schedules and secrets", () => {
     expect(() => scheduler.setEnabled(ownerSchedule.id, false, helper.id)).toThrow("not found");
     expect(() => scheduler.remove(ownerSchedule.id, helper.id)).toThrow("not found");
     expect(() => scheduler.setEnabled(ownerSchedule.id, false, owner.id)).not.toThrow();
+    store.close();
   });
 });
 
@@ -228,6 +231,7 @@ describe("a schedule that would store an app's secret", () => {
     await expect(scheduler.create({ operationId: "app.reconfigure", parameters: { id: "cloudflare-ddns", values: { env: { CLOUDFLARE_API_TOKEN: "cf-token" } } }, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id }))
       .rejects.toThrow("needs a password or key each time");
     expect(store.listSchedules()).toHaveLength(0);
+    store.close();
   });
 });
 
