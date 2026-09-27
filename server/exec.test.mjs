@@ -163,9 +163,11 @@ describe("a command BoxPilot stopped for taking too long", () => {
 
   it("says so on the streaming path too, keeping what the command did say", async () => {
     const lines = [];
-    const result = await fixedRun(process.execPath, ["-e", "console.error('still going'); setTimeout(() => {}, 10000)"], { timeout: 300, onLine: (line) => lines.push(line) });
+    // The child has to start and write before the deadline. A fresh Node process took longer
+    // than 300 ms to do that under a loaded full suite on Windows, and the kill came first.
+    const result = await fixedRun(process.execPath, ["-e", "console.error('still going'); setTimeout(() => {}, 10000)"], { timeout: 2_000, onLine: (line) => lines.push(line) });
     expect(result.ok).toBe(false);
-    expect(result.stderr.startsWith("timed out after 300 ms")).toBe(true);
+    expect(result.stderr.startsWith("timed out after 2000 ms")).toBe(true);
     expect(result.stderr).toContain("still going");
   });
 });
