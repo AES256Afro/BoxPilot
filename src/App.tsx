@@ -9,6 +9,7 @@ import AuthScreen from "./AuthScreen";
 import ActivityDrawer from "./ActivityDrawer";
 import { useTheme } from "./useTheme";
 import { dropElevation, fetchAuthStatus, logoutOwner, type AuthStatus } from "./auth";
+import { connectionLabel } from "./appLinks";
 
 // Every page is its own chunk, fetched the first time it is opened. All eighteen used to ride in
 // the one bundle: 688 KB of JavaScript to show the Overview, about sixty percent of it pages the
@@ -114,7 +115,7 @@ const viewFeatures: Record<ViewName, string[]> = {
   setup: ["Setup profiles", "Checks what is already in place", "Installs the rest in order", "Autoinstall files for a new server"],
   overview: ["Updates and failed services", "Apps and VMs running", "Backup health", "Setup checklist", "Needs attention", "Installed apps"],
   updates: ["APT updates, all or selected", "Automatic security updates", "Restart hints", "Common tools with one click", "Snapshot before upgrading", "Install and remove packages"],
-  catalog: [`${__BOXPILOT_CATALOG_SIZE__} apps in 19 categories`, "Install, update, configure, uninstall", "Per-app backups and restores", "Logs and resource use", "HTTPS on your tailnet", "Image tags verified"],
+  catalog: [`${__BOXPILOT_CATALOG_SIZE__} apps${__BOXPILOT_CATALOG_CATEGORIES__ > 0 ? ` in ${__BOXPILOT_CATALOG_CATEGORIES__} categories` : ""}`, "Install, update, configure, uninstall", "Per-app backups and restores", "Logs and resource use", "HTTPS on your tailnet", "Image tags verified"],
   services: ["systemd units and timers", "Start, stop, restart", "Enable and disable", "Journal", "SSH, Tailscale, and BoxPilot protected"],
   system: ["Hostname", "Time zone and language", "Swap and swappiness", "fstrim", "Docker housekeeping", "UPS monitoring", "Schedules", "BoxPilot self-update"],
   performance: ["CPU, memory and swap live", "Load average and temperatures", "Disk use per filesystem", "CPU and memory per app", "Pause, resume, stop, restart", "AI services pinned to the top"],
@@ -257,7 +258,8 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
       anchor.href = url;
       anchor.download = "boxpilot-support-bundle.json";
       anchor.click();
-      URL.revokeObjectURL(url);
+      // Revoking in the same tick can cancel the download before the browser has read the blob.
+      setTimeout(() => URL.revokeObjectURL(url), 0);
     } catch (error) {
       setBundleError(error instanceof Error ? error.message : "Support bundle is unavailable");
     }
@@ -285,7 +287,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
         </nav>
         <div className="private-access">
           <i />
-          <div><strong>Private administration</strong><span>Tailscale HTTPS | Funnel off</span></div>
+          <div><strong>Private administration</strong><span>{connectionLabel(window.location)}</span></div>
         </div>
         <div className="prototype-label">v{__BOXPILOT_VERSION__}</div>
       </aside>
@@ -295,7 +297,7 @@ function Console({ authStatus, onSignedOut, onAuthChanged }: { authStatus: AuthS
           <div className="hostline">
             <div><strong>BoxPilot</strong><span>Server administration</span></div>
           </div>
-          <div className="topbar-right"><ActivityDrawer />{authStatus.owner?.role && authStatus.owner.role !== "owner" ? <span className="status-pill status-neutral" title="Your role on this server">{authStatus.owner.role}</span> : null}{elevated ? <button className="text-button" type="button" title="High-risk approvals skip the password until this time. Click to lock now." onClick={() => void dropElevation(authStatus.csrfToken ?? "").then(refreshAuth).catch(() => refreshAuth())}>Elevated until {elevatedLabel} · Lock</button> : <StatusPill tone="neutral">Tiered approvals</StatusPill>}<span className="signed-in-user">{authStatus.owner?.username}</span><button className="text-button" type="button" onClick={() => void logoutOwner(authStatus.csrfToken ?? "").then(onSignedOut).catch(onSignedOut)}>Sign out</button></div>
+          <div className="topbar-right"><ActivityDrawer />{authStatus.owner?.role && authStatus.owner.role !== "owner" ? <span className="status-pill status-neutral" title="Your role on this server">{authStatus.owner.role}</span> : null}{elevated ? <button className="text-button elevation-lock" type="button" title="High-risk approvals skip the password until this time. Click to lock now." aria-label={`Elevated until ${elevatedLabel}. Lock now`} onClick={() => void dropElevation(authStatus.csrfToken ?? "").then(refreshAuth).catch(() => refreshAuth())}><span className="elevation-long">Elevated until </span><span className="elevation-short">Until </span>{elevatedLabel} · Lock</button> : <StatusPill tone="neutral">Tiered approvals</StatusPill>}<span className="signed-in-user" title={authStatus.owner?.username}>{authStatus.owner?.username}</span><button className="text-button" type="button" onClick={() => void logoutOwner(authStatus.csrfToken ?? "").then(onSignedOut).catch(onSignedOut)}>Sign out</button></div>
         </header>
 
         <div className="content">

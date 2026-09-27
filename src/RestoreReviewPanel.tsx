@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { PendingOperation } from "./ApproveDialog";
 import { inspectOperation } from "./operations";
 import { countOf } from "./data";
+import { formatBytes } from "./formatBytes";
 
 /**
  * The half of a restore that is deliberately not applied, made visible.
@@ -37,7 +38,6 @@ const formatWhen = (name: string): string => {
   return new Date(`${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}Z`).toLocaleString();
 };
 
-const formatSize = (bytes: number): string => (bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KiB`);
 
 export default function RestoreReviewPanel({ start }: { start: (operation: PendingOperation) => void }) {
   const [restores, setRestores] = useState<RestoreReview[] | null>(null);
@@ -85,10 +85,10 @@ export default function RestoreReviewPanel({ start }: { start: (operation: Pendi
                 <p className="muted">{areaGuidance[area].guidance}</p>
                 {restore.files.filter((file) => file.area === area).map((file) => (
                   <details key={file.path}>
-                    <summary><code>{file.path}</code> <span className="muted">{formatSize(file.sizeBytes)}</span></summary>
+                    <summary><code>{file.path}</code> <span className="muted">{formatBytes(file.sizeBytes)}</span></summary>
                     {file.content !== null
                       ? <pre className="log-view">{file.content}</pre>
-                      : <p className="muted">Not shown here ({formatSize(file.sizeBytes)}, not plain text). It is on this server at <code>{restore.stagedAt}/{file.path}</code>.</p>}
+                      : <p className="muted">Not shown here ({formatBytes(file.sizeBytes)}, not plain text). It is on this server at <code>{restore.stagedAt}/{file.path}</code>.</p>}
                   </details>
                 ))}
               </div>

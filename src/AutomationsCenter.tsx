@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { JobLogView } from "./JobLogView";
+import CopyButton from "./CopyButton";
 
 /**
  * Automations (M13.2, ADR-002): ordered lists of registered operations, run as ordinary jobs.
@@ -47,6 +48,10 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
   const [suggestions, setSuggestions] = useState<Record<string, string>>({});   // slug -> why this server wants it
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Removing a flow and regenerating its webhook cannot be undone: each asks once, inline.
+  const [confirming, setConfirming] = useState<{ flowId: string; action: "remove" | "regenerate" } | null>(null);
+  // A new webhook URL exists only here, so it stays on screen until the owner dismisses it.
+  const [webhook, setWebhook] = useState<{ flowId: string; name: string; url: string } | null>(null);
   const [draftName, setDraftName] = useState("");
   const [draftAfter, setDraftAfter] = useState("");
   const [draftSteps, setDraftSteps] = useState<DraftStep[]>([]);
@@ -145,20 +150,20 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
       const body = (await response.json()) as { token?: string; path?: string; error?: string };
       if (!response.ok || !body.path) throw new Error(body.error ?? "Could not create the webhook");
       // The one time the URL exists outside the caller's hands: shown here, stored nowhere.
-      setNotice(`POST ${window.location.origin}${body.path} fires ${flow.name}. Copy it now; only its fingerprint is kept, so it cannot be shown again.`);
+      setWebhook({ flowId: flow.id, name: flow.name, url: `${window.location.origin}${body.path}` });
       await refresh();
     } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not create the webhook"); }
   };
 
   const removeWebhook = async (flow: Flow) => {
     setError(null); setNotice(null);
-    try { await post(`/api/v1/flows/${encodeURIComponent(flow.id)}/webhook`, undefined, "DELETE"); setNotice(`${flow.name}'s webhook no longer works.`); await refresh(); }
+    try { await post(`/api/v1/flows/${encodeURIComponent(flow.id)}/webhook`, undefined, "DELETE"); setWebhook((current) => (current?.flowId === flow.id ? null : current)); setNotice(`${flow.name}'s webhook no longer works.`); await refresh(); }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not remove the webhook"); }
   };
 
   const removeFlow = async (flow: Flow) => {
     setError(null); setNotice(null);
-    try { await post(`/api/v1/flows/${encodeURIComponent(flow.id)}`, undefined, "DELETE"); await refresh(); }
+    try { await post(`/api/v1/flows/${encodeURIComponent(flow.id)}`, undefined, "DELETE"); setWebhook((current) => (current?.flowId === flow.id ? null : current)); await refresh(); }
     catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not remove it"); }
   };
 
@@ -187,6 +192,17 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
     <div className="automations">
       {error && <div className="auth-error" role="alert">{error}</div>}
       {notice && !error && <p className="muted">{notice}</p>}
+      {webhook && (
+        <div className="notice webhook-reveal" role="status">
+          <strong>New webhook for {webhook.name}</strong>
+          <span>A POST to this URL runs the flow. Copy it now: only its fingerprint is kept, so it cannot be shown again.</span>
+          <code aria-label="Webhook URL">{webhook.url}</code>
+          <div className="recovery-actions">
+            <CopyButton value={webhook.url} ariaLabel="Copy the webhook URL" />
+            <button className="text-button" type="button" onClick={() => setWebhook(null)}>Dismiss</button>
+          </div>
+        </div>
+      )}
 
       {shelf.length > 0 && (
       <section className="panel">
@@ -351,10 +367,21 @@ export default function AutomationsCenter({ csrfToken }: { csrfToken: string }) 
                   {flow.frequency && (
                     <button className="text-button" type="button" disabled={flow.running} onClick={() => void reschedule(flow, null)}>Stop scheduling it</button>
                   )}
-                  <button className="text-button" type="button" onClick={() => void mintWebhook(flow)}>{flow.webhookEnabled ? "Regenerate the webhook" : "Create a webhook"}</button>
+                  <button className="text-button" type="button" onClick={() => (flow.webhookEnabled ? setConfirming({ flowId: flow.id, action: "regenerate" }) : void mintWebhook(flow))}>{flow.webhookEnabled ? "Regenerate the webhook" : "Create a webhook"}</button>
                   {flow.webhookEnabled && <button className="text-button" type="button" onClick={() => void removeWebhook(flow)}>Remove the webhook</button>}
-                  <button className="text-button" type="button" disabled={flow.running} onClick={() => void removeFlow(flow)}>Remove</button>
+                  <button className="text-button" type="button" disabled={flow.running} onClick={() => setConfirming({ flowId: flow.id, action: "remove" })}>Remove</button>
                 </div>
+                {confirming?.flowId === flow.id && (
+                  <div className="notice warning-notice" role="group" aria-label={confirming.action === "remove" ? `Confirm removing ${flow.name}` : `Confirm regenerating the webhook for ${flow.name}`}>
+                    <span>{confirming.action === "remove"
+                      ? `Remove ${flow.name}? Its schedule, triggers and webhook stop with it. This cannot be undone.`
+                      : `Regenerate the webhook for ${flow.name}? The current URL stops working at once; whatever calls it needs the new one.`}</span>
+                    <div className="recovery-actions">
+                      <button className="primary-button" type="button" disabled={confirming.action === "remove" && flow.running} onClick={() => { setConfirming(null); void (confirming.action === "remove" ? removeFlow(flow) : mintWebhook(flow)); }}>{confirming.action === "remove" ? "Remove it" : "Regenerate it"}</button>
+                      <button className="secondary-button" type="button" onClick={() => setConfirming(null)}>Cancel</button>
+                    </div>
+                  </div>
+                )}
               </article>
             ))}
           </div>

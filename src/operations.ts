@@ -64,6 +64,11 @@ export function approveJob(jobId: string, csrfToken: string, password?: string, 
   }).then((response) => readJson(response));
 }
 
+/** What approving a staged job needs right now (elevation can lapse after staging). */
+export function getJobApproval(jobId: string): Promise<ApprovalPolicy> {
+  return fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}/approval`).then((response) => readJson(response));
+}
+
 /** Withdraw a job that is still awaiting approval (the dialog was dismissed). */
 export function cancelJob(jobId: string, csrfToken: string): Promise<{ job: Job }> {
   return fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } }).then((response) => readJson(response));
