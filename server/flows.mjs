@@ -162,7 +162,8 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       const env = step?.parameters?.values?.env;
       if (!env || typeof env !== "object") continue;
       const named = await secretEnvNamesFor(step.parameters?.id);
-      if (named.some((key) => typeof env[key] === "string" && env[key])) throw new Error(`${registry.get?.(step.operationId)?.title ?? step.operationId} needs a password or key each time, so it cannot be part of a flow`);
+      // values.env takes numbers as well as text, so a PIN typed as a number counts too.
+      if (named.some((key) => ![undefined, null, ""].includes(env[key]))) throw new Error(`${registry.get?.(step.operationId)?.title ?? step.operationId} needs a password or key each time, so it cannot be part of a flow`);
     }
   }
 

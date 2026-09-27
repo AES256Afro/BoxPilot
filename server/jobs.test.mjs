@@ -408,3 +408,23 @@ describe("staged secrets whose job is finished with them", () => {
     expect(seen.find((call) => call.operation === "share.mount")?.parameters.password).toBe("hunter2 hunter2");
   });
 });
+
+describe("an app secret typed as a number", () => {
+  // values.env accepts numbers and the deployer turns them into text, so a PIN or a numeric token
+  // can arrive as 918273645546372 rather than "918273645546372". Only strings were staged: the
+  // number went into the jobs table, and every backup of it, in clear.
+  it("is staged like a string one and still reaches the helper", async () => {
+    const seen = [];
+    const helper = { request: async (operation, parameters) => { seen.push({ operation, parameters }); return { installed: true }; } };
+    const { store, owner } = await setup(helper);
+    try {
+      const jobs = createJobService(store, helper, { secretEnvNamesFor: async () => ["ADMIN_PIN"] });
+      const job = await jobs.createOperationJob("app.install", { id: "pinned-app", values: { env: { ADMIN_PIN: 918273645546372, TZ: "UTC" } } }, owner.id);
+      expect(store.getJob(job.id).parameters.values.env).toEqual({ ADMIN_PIN: "[secret]", TZ: "UTC" });
+      expect(JSON.stringify(store.listJobs())).not.toContain("918273645546372");
+      await jobs.approveAndRun(job.id, owner.id, { password: "correct horse battery" });
+      expect(seen.find((call) => call.operation === "app.install").parameters.values.env.ADMIN_PIN).toBe(918273645546372);
+      expect(JSON.stringify(store.listJobs())).not.toContain("918273645546372");
+    } finally { store.close(); }
+  });
+});

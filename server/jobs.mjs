@@ -9,13 +9,16 @@ export const secretPlaceholder = "[secret]";
 export const stagedSecretTtlMs = 30 * 60_000;
 /** Operations whose `values.env` can carry a manifest-declared secret. */
 const appValueOperations = new Set(["app.install", "app.reconfigure"]);
+// values.env takes numbers and booleans as well as text (the deployer stringifies them), so a PIN
+// typed as a number is as much a secret as one typed as a string.
+const holdsValue = (value) => value !== undefined && value !== null && value !== "";
 
 /** Dotted paths of every secret in these parameters: top-level flagged fields plus nested app env. */
 function nestedSecretPaths(operationId, parameters, secretEnvNames) {
   if (!appValueOperations.has(operationId)) return [];
   const env = parameters?.values?.env;
   if (!env || typeof env !== "object") return [];
-  return secretEnvNames.filter((name) => typeof env[name] === "string" && env[name].length).map((name) => `values.env.${name}`);
+  return secretEnvNames.filter((name) => holdsValue(env[name])).map((name) => `values.env.${name}`);
 }
 const readPath = (object, path) => path.split(".").reduce((node, key) => (node && typeof node === "object" ? node[key] : undefined), object);
 function writePath(object, path, value) {
