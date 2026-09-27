@@ -255,6 +255,30 @@ describe("a schedule that would store an app's secret", () => {
   });
 });
 
+describe("a schedule stored before its secret was refused", () => {
+  it("is paused rather than run, whether the secret is top-level or an app's own", async () => {
+    // The pause checked only top-level fields, so a schedule holding an app's token in values.env
+    // kept running from the database it should never have been written to.
+    const { store, owner } = await setup({ now: () => new Date("2026-08-20T10:30:00.000Z") });
+    try {
+      const jobs = { createOperationJob: vi.fn(), approveAndStart: vi.fn() };
+      const catalog = async (id) => { if (id === "broken") throw new Error("catalog unreadable"); return id === "cloudflared" ? ["TUNNEL_TOKEN"] : []; };
+      const scheduler = createSchedulerService({ store, jobs, secretEnvNamesFor: catalog, now: () => new Date("2026-08-20T10:30:00.000Z") });
+      const stored = (operationId, parameters) => store.createSchedule({ operationId, parameters, frequency: "daily", minute: 0, hour: 3, createdBy: owner.id, nextDueAt: "2026-08-20T03:00:00.000Z" });
+      const share = stored("share.mount", { kind: "smb", host: "nas", share: "Public", name: "nas", username: "jamie", password: "hunter2 hunter2" });
+      const app = stored("app.reconfigure", { id: "cloudflared", values: { env: { TUNNEL_TOKEN: "eyJ-legacy-token" } } });
+      const unreadable = stored("app.reconfigure", { id: "broken", values: { env: { SETTING: "x" } } });
+      await scheduler.tick();
+      for (const schedule of [share, app]) {
+        expect(store.getSchedule(schedule.id)).toMatchObject({ enabled: false, lastResult: expect.stringMatching(/^paused/) });
+      }
+      // A catalog that cannot be read skips the run and leaves the schedule as it was.
+      expect(store.getSchedule(unreadable.id)).toMatchObject({ enabled: true, lastResult: "error: catalog unreadable" });
+      expect(jobs.createOperationJob).not.toHaveBeenCalled();
+    } finally { store.close(); }
+  });
+});
+
 describe("next runs across a daylight-saving change", () => {
   // Pinned to a zone with DST so the transitions are the same wherever the tests run. Node picks
   // up a change to process.env.TZ for every Date created afterwards.

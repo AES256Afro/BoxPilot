@@ -36,6 +36,17 @@ describe("the flow library", () => {
     expect(problems.find((problem) => problem.file === "ghost.yaml").errors[0]).toMatch(/not a registered operation/);
   });
 
+  it("reports an entry that would ship a secret, top-level or an app's own", async () => {
+    // Adding a shelf entry stores it as a flow, so a shipped secret would land in every database.
+    const directory = await libraryWith({
+      "token.yaml": "name: Token\nsteps:\n  - operationId: credentials.set\n    parameters: { name: ntfy, value: tok_shipped }\n",
+      "app-token.yaml": "name: App token\nsteps:\n  - operationId: app.reconfigure\n    parameters: { id: cloudflared, values: { env: { TUNNEL_TOKEN: eyJ-shipped } } }\n",
+    });
+    const { library, problems } = await loadFlowLibrary({ directory });
+    expect(library).toEqual([]);
+    expect(problems.map((problem) => problem.errors[0])).toEqual([expect.stringMatching(/needs a password or key/), expect.stringMatching(/needs a password or key/)]);
+  });
+
   it("treats a missing directory as an empty library, not an error", async () => {
     const { library, problems } = await loadFlowLibrary({ directory: "/no/such/library/dir" });
     expect(library).toEqual([]);

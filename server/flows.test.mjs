@@ -621,7 +621,7 @@ describe("starting a flow without waiting for it", () => {
     const jobs = fakeJobs(store);
     const service = createFlowService({ store, jobs, pollMs: 2 });
     const flow = await service.create({ name: "long", steps: goodSteps, createdBy: "owner-1" });
-    const started = service.launch(flow.id, "owner-1", { role: "owner" });
+    const started = await service.launch(flow.id, "owner-1", { role: "owner" });
     expect(started).toEqual({ started: true, id: flow.id, name: "long" });
     expect(store.getFlow(flow.id).running ?? true).toBeTruthy(); // the run is underway, not awaited
     // Give it a moment: it records its own outcome without anyone awaiting it.
@@ -633,16 +633,27 @@ describe("starting a flow without waiting for it", () => {
     const store = fakeStore();
     const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2 });
     const flow = await service.create({ name: "x", steps: goodSteps, createdBy: "owner-1" });
-    expect(() => service.launch("nope", "owner-1", { role: "owner" })).toThrow("Flow not found");
-    expect(() => service.launch(flow.id, "viewer-1", { role: "viewer" })).toThrow(/Viewers cannot run flows/);
+    await expect(service.launch("nope", "owner-1", { role: "owner" })).rejects.toThrow("Flow not found");
+    await expect(service.launch(flow.id, "viewer-1", { role: "viewer" })).rejects.toThrow(/Viewers cannot run flows/);
   });
 
   it("refuses a second start while the first is still running", async () => {
     const store = fakeStore();
     const service = createFlowService({ store, jobs: fakeJobs(store, { neverFinish: "job-1" }), pollMs: 2 });
     const flow = await service.create({ name: "slow", steps: goodSteps, createdBy: "owner-1" });
-    service.launch(flow.id, "owner-1", { role: "owner" });
-    expect(() => service.launch(flow.id, "owner-1", { role: "owner" })).toThrow(/already running/);
+    await service.launch(flow.id, "owner-1", { role: "owner" });
+    await expect(service.launch(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/already running/);
+  });
+
+  it("refuses the second of two starts made together, to its own caller", async () => {
+    // launch waits on the catalog before it starts the run; both starts pass the first check in
+    // that wait, and only the second look, taken with nothing between it and the run, tells them apart.
+    const store = fakeStore();
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2 });
+    const flow = await service.create({ name: "slow", steps: goodSteps, createdBy: "owner-1" });
+    const [first, second] = await Promise.allSettled([service.launch(flow.id, "owner-1", { role: "owner" }), service.launch(flow.id, "owner-1", { role: "owner" })]);
+    expect(first).toMatchObject({ status: "fulfilled", value: { started: true } });
+    expect(second).toMatchObject({ status: "rejected", reason: expect.objectContaining({ message: expect.stringMatching(/already running/) }) });
   });
 });
 
@@ -681,6 +692,41 @@ describe("editing a flow to carry an app's secret", () => {
     const flow = await flows.create({ name: "Re-pin", steps: steps(""), createdBy: "owner-1" });
     await expect(flows.update(flow.id, { steps: steps(918273645546372) }, "owner-1")).rejects.toThrow("needs a password or key each time");
     expect(JSON.stringify(store.listFlows())).not.toContain("918273645546372");
+  });
+});
+
+describe("a flow saved before its secret was refused", () => {
+  // validateFlow refused such a flow at run time only for a top-level password; one holding an
+  // app's token in values.env ran on, from the database it should never have been written to.
+  const catalog = async (id) => (id === "cloudflared" ? ["TUNNEL_TOKEN"] : []);
+  const legacy = {
+    top: [{ operationId: "credentials.set", parameters: { name: "ntfy", value: "tok_LEGACY" } }],
+    app: [{ operationId: "app.reconfigure", parameters: { id: "cloudflared", values: { env: { TUNNEL_TOKEN: "eyJ-legacy-token" } } } }],
+  };
+
+  it("does not run when started by hand, and says why before anything starts", async () => {
+    const store = fakeStore();
+    const jobs = fakeJobs(store);
+    const service = createFlowService({ store, jobs, pollMs: 2, secretEnvNamesFor: catalog });
+    for (const steps of Object.values(legacy)) {
+      const flow = store.createFlow({ name: "legacy", steps, createdBy: "owner-1" });
+      await expect(service.launch(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/no longer valid: step 1: .* needs a password or key each time/);
+      await expect(service.run(flow.id, "owner-1", { role: "owner" })).rejects.toThrow(/no longer valid/);
+    }
+    expect(jobs.calls).toEqual([]);
+  });
+
+  it("is skipped, recorded and not run when its clock comes round", async () => {
+    const store = fakeStore();
+    const jobs = fakeJobs(store);
+    const service = createFlowService({ store, jobs, pollMs: 2, secretEnvNamesFor: catalog, now: () => new Date("2026-09-15T10:00:00.000Z") });
+    const flow = store.createFlow({ name: "legacy", steps: legacy.app, createdBy: "owner-1", frequency: "daily", minute: 0, hour: 3, nextDueAt: "2026-09-15T03:00:00.000Z" });
+    await service.tick();
+    expect(store.getFlow(flow.id).lastResult).toMatch(/^skipped: This flow is no longer valid: step 1/);
+    expect(store.audits.map((audit) => audit.event)).toContain("flow.skipped");
+    expect(jobs.calls).toEqual([]);
+    // Nor can it be kept by editing something else about it: the stored steps are checked too.
+    await expect(service.update(flow.id, { name: "renamed" }, "owner-1")).rejects.toThrow("needs a password or key each time");
   });
 });
 
