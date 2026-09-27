@@ -12,7 +12,8 @@ import { fixedRun } from "./exec.mjs";
 import { parseServeStatus } from "./tailscale-serve.mjs";
 import { createCatalogService } from "./catalog/index.mjs";
 import { parseExit, parseForwardedPort } from "./vpn-exit.mjs";
-import { bindingFor, deployedImages, deviceMatchesPattern, renderCompose, projectNameFor, resolveDevices } from "./catalog/compose.mjs";
+import { bindingFor, deployedImages, deviceMatchesPattern, renderCompose, projectNameFor, resolveDevices, wantsGpu } from "./catalog/compose.mjs";
+import { createNvidiaInspector } from "./nvidia.mjs";
 import { isDeniedHostPath } from "./catalog/schema.mjs";
 import { measurableFolders, mountFor } from "./app-data-growth.mjs";
 import { resolveValues, sanitizeStoredValues } from "./catalog/schema.mjs";
@@ -105,6 +106,8 @@ export function createAppHelper({
   lstatPath = (target) => lstat(target),
   tailscaleBinary = process.env.BOXPILOT_TAILSCALE_BINARY ?? "/usr/bin/tailscale",
   vpnProfile = null,
+  // Whether Docker can give containers an NVIDIA GPU; asked only for apps marked `gpu: optional`.
+  nvidiaReady = null,
 } = {}) {
   const root = path.resolve(catalogRoot);
   const dirFor = (id) => path.join(root, id);
@@ -113,6 +116,7 @@ export function createAppHelper({
   const recentlyTouched = new Set();
   const backupDirFor = (id) => path.join(path.resolve(backupRoot), id);
   const docker = (args, options) => runDocker(dockerBinary, args, options);
+  const gpuReady = nvidiaReady ?? createNvidiaInspector({ run: (binary, args, options) => (binary === "/usr/bin/docker" ? docker(args, options) : runCommand(binary, args, options)) }).dockerRuntimeReady;
 
   async function readState(id) {
     try { return JSON.parse(await readFile(path.join(dirFor(id), "boxpilot.json"), "utf8")); } catch { return null; }
@@ -447,7 +451,10 @@ export function createAppHelper({
       for (const entry of manifest.env) if (entry.fromVpnProfile && connection[entry.name] !== undefined) values.env[entry.name] = connection[entry.name];
       if (manifest.networkVia) sidecarEnvOverrides[manifest.networkVia] = profileSecurityEnv(profile);
     }
-    const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices, tailnetAddress: values.exposure === "tailnet" ? await tailnetAddress() : null, sidecarEnvOverrides });
+    // A GPU-capable app gets the GPU only when Docker can actually provide one; otherwise it runs
+    // on the CPU, the same as on a server without a GPU.
+    const gpu = wantsGpu(manifest) ? await gpuReady().catch(() => false) : false;
+    const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices, tailnetAddress: values.exposure === "tailnet" ? await tailnetAddress() : null, sidecarEnvOverrides, gpu });
     await writeFile(path.join(directory, ".env.tmp"), rendered.envFile, { mode: 0o600 });
     await rename(path.join(directory, ".env.tmp"), path.join(directory, ".env"));
     await writeFile(path.join(directory, "compose.yaml.tmp"), rendered.composeYaml, { mode: 0o600 });
