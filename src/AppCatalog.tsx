@@ -345,33 +345,33 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   }, []);
 
   // A rehearsal on a cadence is what turns "the backups restore" from a one-off into a record.
-  const scheduleRehearsal = async (appId: string) => {
+  // Every schedule change reports the server's refusal and blocks a second click while it is out.
+  const [scheduling, setScheduling] = useState(false);
+  const changeSchedule = async (send: () => Promise<Response>, failure: string) => {
+    if (scheduling) return;
+    setScheduling(true);
+    setError(null);
     try {
-      // spread: one server can have twenty of these, and twenty archives decompressing in the same
-      // minute is not a rehearsal, it is an outage. The server puts it somewhere quiet near here.
-      await fetch("/api/v1/schedules", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-        body: JSON.stringify({ operationId: "app.backup.verify", parameters: { id: appId }, frequency: "weekly", minute: 30, hour: 3, weekday: 1, spread: true }) });
+      const response = await send();
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `${failure} (${response.status})`);
+      }
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : failure);
+    } finally {
       await loadKillswitch();
-    } catch { /* a failure leaves the button as it was */ }
+      setScheduling(false);
+    }
   };
-  const unscheduleRehearsal = async (scheduleId: string) => {
-    try {
-      await fetch(`/api/v1/schedules/${encodeURIComponent(scheduleId)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } });
-      await loadKillswitch();
-    } catch { /* leave it on if the delete failed */ }
-  };
-  const scheduleKillswitch = async (appId: string) => {
-    try {
-      await fetch("/api/v1/schedules", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ operationId: "app.vpn.killswitch.drill", parameters: { id: appId }, frequency: "weekly", minute: 0, hour: 4, weekday: 0, spread: true }) });
-      await loadKillswitch();
-    } catch { /* a failure leaves the button as it was */ }
-  };
-  const unscheduleKillswitch = async (scheduleId: string) => {
-    try {
-      await fetch(`/api/v1/schedules/${encodeURIComponent(scheduleId)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } });
-      await loadKillswitch();
-    } catch { /* leave it on if the delete failed */ }
-  };
+  const createSchedule = (body: Record<string, unknown>) => () => fetch("/api/v1/schedules", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify(body) });
+  const deleteSchedule = (scheduleId: string) => () => fetch(`/api/v1/schedules/${encodeURIComponent(scheduleId)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } });
+  // spread: one server can have twenty of these, and twenty archives decompressing in the same
+  // minute is not a rehearsal, it is an outage. The server puts it somewhere quiet near here.
+  const scheduleRehearsal = (appId: string) => changeSchedule(createSchedule({ operationId: "app.backup.verify", parameters: { id: appId }, frequency: "weekly", minute: 30, hour: 3, weekday: 1, spread: true }), "Could not schedule the rehearsal");
+  const unscheduleRehearsal = (scheduleId: string) => changeSchedule(deleteSchedule(scheduleId), "Could not stop the rehearsal");
+  const scheduleKillswitch = (appId: string) => changeSchedule(createSchedule({ operationId: "app.vpn.killswitch.drill", parameters: { id: appId }, frequency: "weekly", minute: 0, hour: 4, weekday: 0, spread: true }), "Could not schedule the kill-switch check");
+  const unscheduleKillswitch = (scheduleId: string) => changeSchedule(deleteSchedule(scheduleId), "Could not stop the kill-switch check");
 
   const showLogs = async (id: string, container?: string) => {
     try {
@@ -583,8 +583,8 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
               {installed && manifest.networkVia && tunnels[manifest.id]?.exit && tunnels[manifest.id].running && (
                 <p className="muted app-stats">VPN exit: {tunnels[manifest.id].exit?.location ?? "unknown place"} · {tunnels[manifest.id].exit?.ip}{tunnels[manifest.id].forwardedPort ? ` · forwarded port ${tunnels[manifest.id].forwardedPort} (set it under Tools, Options, Connection)` : ""} · <button className="text-button" type="button" onClick={() => start({ operationId: "app.vpn.killswitch.drill", title: `Prove ${manifest.name}'s kill switch`, parameters: { id: manifest.id }, preview: <span>Forces the tunnel down for a few seconds, checks nothing can reach the internet while it is down, then brings it back. Downloads pause briefly and resume by themselves; the result is recorded.</span> })}>Prove the kill switch</button>
                   {killswitch[manifest.id]
-                    ? <> · <span className={`status-pill status-${killswitch[manifest.id].overdue || (killswitch[manifest.id].lastResult && !killswitch[manifest.id].lastResult!.startsWith("completed")) ? "warning" : "good"}`}>auto-checked weekly</span>{killswitch[manifest.id].lastRunAt ? ` (last ${new Date(killswitch[manifest.id].lastRunAt!).toLocaleDateString()}${killswitch[manifest.id].lastResult && !killswitch[manifest.id].lastResult!.startsWith("completed") ? ", failed" : ""})` : ""} <button className="text-button" type="button" onClick={() => void unscheduleKillswitch(killswitch[manifest.id].id)}>stop</button></>
-                    : <> · <button className="text-button" type="button" onClick={() => void scheduleKillswitch(manifest.id)}>Verify weekly</button></>}
+                    ? <> · <span className={`status-pill status-${killswitch[manifest.id].overdue || (killswitch[manifest.id].lastResult && !killswitch[manifest.id].lastResult!.startsWith("completed")) ? "warning" : "good"}`}>auto-checked weekly</span>{killswitch[manifest.id].lastRunAt ? ` (last ${new Date(killswitch[manifest.id].lastRunAt!).toLocaleDateString()}${killswitch[manifest.id].lastResult && !killswitch[manifest.id].lastResult!.startsWith("completed") ? ", failed" : ""})` : ""} <button className="text-button" type="button" disabled={scheduling} onClick={() => void unscheduleKillswitch(killswitch[manifest.id].id)}>stop</button></>
+                    : <> · <button className="text-button" type="button" disabled={scheduling} onClick={() => void scheduleKillswitch(manifest.id)}>Verify weekly</button></>}
                 </p>
               )}
               {/* The drill's own verdict, not just whether one is scheduled. A leak means traffic
@@ -902,8 +902,9 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                   </p>
                 )}
                 {appBackups.backups.length > 0 && (rehearsal[appBackups.id]
-                  ? <p className="muted">Rehearsed automatically {rehearsal[appBackups.id].cadence}. <button className="text-button" type="button" onClick={() => void unscheduleRehearsal(rehearsal[appBackups.id].id)}>stop</button></p>
-                  : <p className="muted">Nothing checks these on their own. <button className="text-button" type="button" onClick={() => void scheduleRehearsal(appBackups.id)}>Rehearse weekly</button></p>)}
+                  ? <p className="muted">Rehearsed automatically {rehearsal[appBackups.id].cadence}. <button className="text-button" type="button" disabled={scheduling} onClick={() => void unscheduleRehearsal(rehearsal[appBackups.id].id)}>stop</button></p>
+                  : <p className="muted">Nothing checks these on their own. <button className="text-button" type="button" disabled={scheduling} onClick={() => void scheduleRehearsal(appBackups.id)}>Rehearse weekly</button></p>)}
+                {error && <div className="auth-error">{error}</div>}
               </div>
               {browsing && (
                 <div className="backup-browser">
