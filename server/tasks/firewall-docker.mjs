@@ -44,7 +44,9 @@ export function parseUfwStatus(output) {
     if (!rule) continue;
     const port = Number(rule[1]);
     if (!(port >= 1 && port <= 65535)) continue;
-    const source = rule[4].trim();
+    // ufw prints a rule's comment after the source (`Anywhere   # BoxPilot profile: Redis`), and
+    // BoxPilot comments nearly every rule it adds; left on, no source matched and the rule was dropped.
+    const source = rule[4].replace(/\s+#.*$/, "").trim();
     let from = null;
     if (!/^Anywhere$/i.test(source)) {
       const cidr = source.match(/^(\d{1,3}(?:\.\d{1,3}){3}(?:\/\d{1,2})?)$/);
