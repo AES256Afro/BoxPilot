@@ -245,7 +245,7 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
           </div>
           {showUnannounced && (
             <>
-              <span>{targetConfigured ? "Your notification target did not accept these. BoxPilot tries again every 15 minutes." : "No notification target is set, so these reached no one."}</span>
+              <span>{targetConfigured ? "These have not reached your notification target yet. BoxPilot tries again every 15 minutes." : "No notification target is set, so these reached no one."}</span>
               <ul className="unannounced-list">
                 {unannounced.map((alert) => (
                   <li key={`${alert.family}:${alert.title}`}>
