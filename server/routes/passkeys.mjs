@@ -41,7 +41,7 @@ export function createPasskeyRouter({ store, auth, passkeys, identity = null }) 
     }
   });
 
-  router.post("/auth/passkey/verify", (request, response) => {
+  router.post("/auth/passkey/verify", async (request, response) => {
     let result;
     try {
       result = passkeys.authenticateVerify({ origin: request.body?.origin, response: request.body?.response });
@@ -49,7 +49,7 @@ export function createPasskeyRouter({ store, auth, passkeys, identity = null }) 
       return response.status(401).json({ error: error.message, code: "passkey_rejected" });
     }
     try {
-      return response.json(auth.issueSession(request, response, result.owner, { method: "passkey", detail: result.credential.label }));
+      return response.json(await auth.issueSession(request, response, result.owner, { method: "passkey", detail: result.credential.label }));
     } catch (error) {
       return response.status(403).json({ error: error.message, code: "identity_refused" });
     }
@@ -65,7 +65,7 @@ export function createPasskeyRouter({ store, auth, passkeys, identity = null }) 
     if (!owner) return response.status(401).json({ error: "That recovery code is not valid", code: "recovery_rejected" });
     // The code being spent is audited in consumeRecoveryCode, and issueSession audits session.created.
     try {
-      return response.json({ ...auth.issueSession(request, response, owner, { method: "recovery-code" }), recoveryCodesRemaining: store.countRecoveryCodes(owner.id) });
+      return response.json({ ...(await auth.issueSession(request, response, owner, { method: "recovery-code" })), recoveryCodesRemaining: store.countRecoveryCodes(owner.id) });
     } catch (error) {
       return response.status(403).json({ error: error.message, code: "identity_refused" });
     }
