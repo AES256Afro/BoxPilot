@@ -126,6 +126,20 @@ export function createAppHelper({
     try { return parseEnvFile(await readFile(path.join(dirFor(id), ".env"), "utf8")); } catch { return {}; }
   }
 
+  /** The deployed compose.yaml and .env as they are now (null when absent), so a failed change can put them back. */
+  async function readProjectFiles(id) {
+    const read = (name) => readFile(path.join(dirFor(id), name), "utf8").catch(() => null);
+    return { compose: await read("compose.yaml"), env: await read(".env") };
+  }
+
+  async function restoreProjectFiles(id, saved) {
+    for (const [name, content] of [["compose.yaml", saved.compose], [".env", saved.env]]) {
+      if (content === null) continue;
+      await writeFile(path.join(dirFor(id), `${name}.tmp`), content, { mode: 0o600 });
+      await rename(path.join(dirFor(id), `${name}.tmp`), path.join(dirFor(id), name));
+    }
+  }
+
   async function containerStatus(id) {
     const name = projectNameFor(id);
     const result = await docker(["inspect", "--format", '{"running":{{.State.Running}},"status":"{{.State.Status}}","health":"{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}","restarts":{{.RestartCount}},"image":"{{.Image}}","startedAt":"{{.State.StartedAt}}","exitCode":{{.State.ExitCode}}}', name], { timeout: 10_000 });
@@ -652,11 +666,19 @@ export function createAppHelper({
     // What is running right now, read from the deployed compose file before it is overwritten. This
     // is the only exact record: the manifest below has already moved to the new tags, and stored
     // state carries the app's own image but never its sidecars'.
-    const runningBefore = deployedImages(await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => ""));
-    await writeProject(manifest, values, { existingEnv: await readEnv(id), devices }); // picks up manifest changes (new image tag)
-    declaredUserCache.delete(manifest.image.reference); declaredOwnerCache.delete(manifest.image.reference);   // a pull can change the image's USER
-    const pull = await compose(id, ["pull"], { timeout: 30 * 60_000, progress });
-    if (!pull.ok) throw new Error(`docker compose pull failed: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
+    const previous = await readProjectFiles(id);
+    const runningBefore = deployedImages(previous.compose ?? "");
+    try {
+      await writeProject(manifest, values, { existingEnv: await readEnv(id), devices }); // picks up manifest changes (new image tag)
+      declaredUserCache.delete(manifest.image.reference); declaredOwnerCache.delete(manifest.image.reference);   // a pull can change the image's USER
+      const pull = await compose(id, ["pull"], { timeout: 30 * 60_000, progress });
+      if (!pull.ok) throw new Error(`docker compose pull failed: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
+    } catch (error) {
+      // Nothing has been restarted yet, so the containers still run the old version: put the files
+      // that describe them back, or the next restart would quietly move the app forward.
+      await restoreProjectFiles(id, previous).catch(() => {});
+      throw new Error(`${manifest.name} update failed before anything was restarted; the app was unchanged. ${error.message}`);
+    }
     const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
     try {
       if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
@@ -672,17 +694,23 @@ export function createAppHelper({
       return { updated: true, id, previousImage: before.image, image: status.image, changed: before.image !== status.image, previousReference: runningBefore[id] ?? state.image?.reference ?? null, reference: manifest.image.reference, checkpoint: saved };
     } catch (error) {
       let rolledBack = false;
+      progress?.(`Update failed: ${error.message}. Restoring previous image...`, "stderr");
+      // Pin the exact images that were running. If that cannot be written, the compose file that
+      // was deployed before is the next best thing; never start the version that just failed again.
+      let pinnedImages = false;
       if (before.image) {
         const pinned = {
           ...manifest,
           image: { ...manifest.image, reference: before.image },
           sidecars: (manifest.sidecars ?? []).map((sidecar) => (beforeSidecars[sidecar.id] ? { ...sidecar, image: beforeSidecars[sidecar.id] } : sidecar)),
         };
-        await writeProject(pinned, values, { existingEnv: await readEnv(id), devices }).catch(() => {});
-        progress?.(`Update failed: ${error.message}. Restoring previous image...`, "stderr");
+        pinnedImages = await writeProject(pinned, values, { existingEnv: await readEnv(id), devices }).then(() => true, () => false);
+      }
+      const restored = pinnedImages || await restoreProjectFiles(id, previous).then(() => previous.compose !== null, () => false);
+      if (restored) {
         const rollback = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000, progress });
         rolledBack = rollback.ok;
-        if (rolledBack) await writeState(id, { ...state, pinnedRollback: true, image: { reference: before.image, id: before.image } }).catch(() => {});
+        if (rolledBack && pinnedImages) await writeState(id, { ...state, pinnedRollback: true, image: { reference: before.image, id: before.image } }).catch(() => {});
       }
       throw new Error(`${manifest.name} update failed${rolledBack ? "; the previous image was restored" : " and automatic rollback also failed"}. ${error.message}`);
     }
@@ -730,17 +758,31 @@ export function createAppHelper({
     // What is deployed right now, which is what this rollback moves away from. Stepping back several
     // releases means the entry being undone describes an older hop, so its `to` is not where the app
     // actually is — reading the deployed file is the only answer that stays true at any depth.
-    const runningBefore = deployedImages(await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => ""));
+    const previous = await readProjectFiles(id);
+    const runningBefore = deployedImages(previous.compose ?? "");
     const restoring = Object.entries(restoreTo).map(([service, reference]) => `${service} to ${reference}`).join(", ");
     progress?.(`Putting ${manifest.name} back: ${restoring}`, "stdout");
-    await writeProject(pinned, values, { existingEnv: await readEnv(id), devices });
-    // Pull explicitly: the previous image is unused after an update, so a prune may have removed it.
-    declaredUserCache.delete(manifest.image.reference); declaredOwnerCache.delete(manifest.image.reference);   // a pull can change the image's USER
-    const pull = await compose(id, ["pull"], { timeout: 30 * 60_000, progress });
-    if (!pull.ok) throw new Error(`Could not fetch the previous version: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
-    const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
-    if (!up.ok) throw new Error(`${manifest.name} would not start on the previous version: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
-    const status = await waitHealthy(manifest, progress);
+    let started = false;
+    let status;
+    try {
+      await writeProject(pinned, values, { existingEnv: await readEnv(id), devices });
+      // Pull explicitly: the previous image is unused after an update, so a prune may have removed it.
+      declaredUserCache.delete(manifest.image.reference); declaredOwnerCache.delete(manifest.image.reference);   // a pull can change the image's USER
+      const pull = await compose(id, ["pull"], { timeout: 30 * 60_000, progress });
+      if (!pull.ok) throw new Error(`Could not fetch the previous version: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
+      started = true;
+      const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
+      if (!up.ok) throw new Error(`${manifest.name} would not start on the previous version: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
+      status = await waitHealthy(manifest, progress);
+    } catch (error) {
+      // Put back the compose file this app was running, as reconfigure and a compose edit do, and
+      // start it again if the attempt got as far as replacing the containers.
+      const restored = await restoreProjectFiles(id, previous).then(() => previous.compose !== null, () => false);
+      if (!started) throw new Error(`${manifest.name} could not go back a version; the app was unchanged. ${error.message}`);
+      progress?.(`Going back failed: ${error.message}. Restoring the version it was on...`, "stderr");
+      const back = restored && (await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000, progress })).ok;
+      throw new Error(`${manifest.name} could not go back a version${back ? "; the version it was on was restored" : " and restoring the version it was on also failed"}. ${error.message}`);
+    }
     // The rollback is itself an entry, so going back twice steps back twice rather than ping-ponging.
     const movedFrom = Object.fromEntries(Object.keys(restoreTo).map((service) => [service, runningBefore[service] ?? last.to?.[service] ?? null]));
     const entry = { at: clock().toISOString(), from: movedFrom, to: restoreTo, rolledBack: true };
