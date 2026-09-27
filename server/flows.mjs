@@ -9,7 +9,7 @@
  * nothing attempts an automatic unwind — a half-done flow the owner can read beats a rollback
  * that guesses.
  */
-import { secretPaths } from "./ops/registry.mjs";
+import { maskSecrets, secretPaths } from "./ops/registry.mjs";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { registry as defaultRegistry, validateParameters } from "./ops/index.mjs";
 import { computeNextRun, validateCadence } from "./scheduler.mjs";
@@ -177,9 +177,18 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
     return withoutHash(store.createFlow({ name: name.trim(), steps: normalizeSteps(steps), createdBy, triggerFlowId, ...cadenceFields(cadence) }));
   }
 
-  function list() {
-    // The hash never travels to a browser: it is not invertible, but it is also not the page's business.
-    return store.listFlows().map((flow) => ({ ...withoutHash(flow), risk: flowRisk(flow.steps, registry), running: running.has(flow.id) }));
+  /**
+   * Flows as the page sees them. The hash never travels to a browser: it is not invertible, but it
+   * is also not the page's business. Nor does a secret: a flow saved before its secret was refused
+   * still holds it, and GET /flows answers every signed-in role, so each step goes out masked.
+   */
+  async function list() {
+    const masked = async (step) => {
+      const operation = registry.get?.(step?.operationId);
+      if (!operation || !step.parameters || typeof step.parameters !== "object") return step;
+      return { ...step, parameters: maskSecrets(step.parameters, await secretPaths(operation, step.parameters, { secretEnvNamesFor })) };
+    };
+    return Promise.all(store.listFlows().map(async (flow) => ({ ...withoutHash(flow), steps: await Promise.all((flow.steps ?? []).map(masked)), risk: flowRisk(flow.steps, registry), running: running.has(flow.id) })));
   }
 
   async function update(id, { name, steps, cadence, enabled, triggerFlowId }, actorId, { role = "owner" } = {}) {

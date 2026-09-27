@@ -728,6 +728,19 @@ describe("a flow saved before its secret was refused", () => {
     // Nor can it be kept by editing something else about it: the stored steps are checked too.
     await expect(service.update(flow.id, { name: "renamed" }, "owner-1")).rejects.toThrow("needs a password or key each time");
   });
+
+  it("is listed with its secret masked, since GET /flows answers every signed-in role", async () => {
+    const store = fakeStore();
+    const service = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, secretEnvNamesFor: catalog });
+    store.createFlow({ name: "top", steps: legacy.top, createdBy: "owner-1" });
+    store.createFlow({ name: "app", steps: legacy.app, createdBy: "owner-1" });
+    const listed = await service.list();
+    expect(JSON.stringify(listed)).not.toMatch(/tok_LEGACY|eyJ-legacy-token/);
+    expect(listed[0].steps[0].parameters).toEqual({ name: "ntfy", value: "[secret]" });
+    expect(listed[1].steps[0].parameters.values.env.TUNNEL_TOKEN).toBe("[secret]");
+    // Only the answer is masked; the record, which run() must still refuse, is left as it is.
+    expect(store.listFlows()[0].steps[0].parameters.value).toBe("tok_LEGACY");
+  });
 });
 
 describe("a flow step whose app the catalog cannot name", () => {
