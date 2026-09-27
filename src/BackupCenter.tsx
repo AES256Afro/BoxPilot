@@ -372,28 +372,30 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
           : !appProtection.available ? <p className="muted">The backup folder could not be read, so protection is unknown. Nothing is assumed either way.</p>
           : appProtection.verdicts.length === 0 ? <p className="muted">No installed app holds data that needs backing up yet.</p>
           : (
-          <table className="perf-table">
-            <thead><tr><th>App</th><th>Last backup</th><th>Keeps happening</th></tr></thead>
-            <tbody>
-              {[...appProtection.verdicts]
-                .sort((left, right) => Number(left.state === "ok") - Number(right.state === "ok") || left.name.localeCompare(right.name))
-                .map((verdict) => (
-                <tr key={verdict.id}>
-                  <td>{verdict.name}</td>
-                  <td>
-                    {verdict.state === "never"
-                      ? <span className="status-pill status-warning">never</span>
-                      : <span className={`status-pill ${verdict.state === "ok" ? "status-good" : "status-warning"}`}>{verdict.ageDays === 0 ? "today" : `${verdict.ageDays}d ago`}</span>}
-                  </td>
-                  <td>
-                    {verdict.scheduled
-                      ? <span className="muted">nightly</span>
-                      : <button className="text-button" type="button" onClick={() => void protectEverything([verdict])}>Schedule it</button>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="table-scroll">
+            <table className="perf-table">
+              <thead><tr><th>App</th><th>Last backup</th><th>Keeps happening</th></tr></thead>
+              <tbody>
+                {[...appProtection.verdicts]
+                  .sort((left, right) => Number(left.state === "ok") - Number(right.state === "ok") || left.name.localeCompare(right.name))
+                  .map((verdict) => (
+                  <tr key={verdict.id}>
+                    <td>{verdict.name}</td>
+                    <td>
+                      {verdict.state === "never"
+                        ? <span className="status-pill status-warning">never</span>
+                        : <span className={`status-pill ${verdict.state === "ok" ? "status-good" : "status-warning"}`}>{verdict.ageDays === 0 ? "today" : `${verdict.ageDays}d ago`}</span>}
+                    </td>
+                    <td>
+                      {verdict.scheduled
+                        ? <span className="muted">nightly</span>
+                        : <button className="text-button" type="button" onClick={() => void protectEverything([verdict])}>Schedule it</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 
