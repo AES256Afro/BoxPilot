@@ -47,6 +47,25 @@ describe("GET /settings/watch", () => {
     expect(byKey["storage.smart"].details[0].title).toContain("/dev/sda");
     // Every condition family from the watcher is present.
     expect(body.conditions.length).toBeGreaterThanOrEqual(12);
+    expect(body.unannouncedCount).toBe(1);
+  });
+
+  it("counts failed schedules, automations and unsaved results that reached no one (M27.2)", async () => {
+    settings.set("healthAlertsState", {
+      "schedule.failed:s1": { title: "Scheduled task failed: Back up application data (jellyfin)", since: "2026-09-27T03:00:00Z", message: "disk full", notified: false },
+      "flow.failed:f1": { title: "Automation stopped: Nightly", since: "2026-09-27T03:10:00Z", notified: true },
+      "record.failed:vm.export.create:lab": { title: "Result not saved: Export a stopped VM (lab)", since: "2026-09-27T03:20:00Z", message: "UNIQUE constraint failed", notified: false },
+      "system.reboot": { title: "A reboot is required", since: "2026-09-26T00:00:00Z", notified: false },
+    });
+    const body = await (await fetch(`${base}/api/v1/settings/watch`)).json();
+    expect(body.activeCount).toBe(4);
+    expect(body.unannouncedCount).toBe(3);
+    const byKey = Object.fromEntries(body.conditions.map((condition) => [condition.key, condition]));
+    expect(byKey["schedule.failed"].details).toEqual([{ title: "Scheduled task failed: Back up application data (jellyfin)", since: "2026-09-27T03:00:00Z", announced: false }]);
+    expect(byKey["flow.failed"].details[0].announced).toBe(true);
+    expect(byKey["record.failed"].active).toBe(true);
+    // The words kept for a later send are not handed to every signed-in viewer; the title is enough here.
+    expect(JSON.stringify(body)).not.toContain("UNIQUE constraint");
   });
 });
 

@@ -26,7 +26,31 @@ export const healthConditions = Object.freeze({
   "storage.forecast": "A filesystem is on track to fill soon",
   "smart.errors": "A disk's error count is climbing",
   "smart.wear": "An SSD is nearing its write-endurance limit",
+  ...reportedConditions(),
 });
+
+/**
+ * Failures of BoxPilot's own unattended work (M27.2). A scheduled task that failed, an automation
+ * that stopped, a job whose result could not be saved: each was known to BoxPilot and, without a
+ * notification target, told to no one. They are conditions like the ones above and live in the same
+ * state, but nothing re-evaluates them every round: whoever sees the failure raises it, and whoever
+ * sees the next success clears it.
+ */
+function reportedConditions() {
+  return {
+    "schedule.failed": "A scheduled task failed or did not run",
+    "flow.failed": "An automation stopped or did not run",
+    "record.failed": "A job ran but its result was not saved",
+  };
+}
+const reportedFamilies = new Set(Object.keys(reportedConditions()));
+export const isReported = (key) => reportedFamilies.has(String(key).split(":")[0]);
+
+/** An error message as the end of a sentence in an alert: trimmed, with one full stop. */
+export const asSentence = (text) => {
+  const trimmed = String(text ?? "").trim();
+  return !trimmed || /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+};
 
 /** Derive the current set of bad conditions from an inventory snapshot. Pure. */
 export function evaluateHealth(inventory) {
@@ -114,6 +138,29 @@ export function collectorAvailability(inventory) {
 
 export function createHealthAlerts({ inventory, notifications, store, resolveScheduleTitle = (operationId) => operationId, intervalMs = 15 * 60 * 1000, initialDelayMs = 3 * 60 * 1000, now = () => new Date(), setInterval: schedule = globalThis.setInterval, setTimeout: delay = globalThis.setTimeout, clearInterval: unschedule = globalThis.clearInterval, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
   const settingKey = "healthAlertsState";
+  // The round below and raise()/clear() each read the state, may wait on a send, and write it back.
+  // One at a time, or a round that started before a schedule failed would write over its entry.
+  let queue = Promise.resolve();
+  const exclusive = (work) => {
+    const next = queue.then(work);
+    queue = next.catch(() => {});
+    return next;
+  };
+  const readState = () => ({ ...(store.getSetting(settingKey, {}) ?? {}) });
+  const writeState = (value) => store.setSetting(settingKey, value, { updatedBy: null });
+
+  /** Send one announcement: true when the target took it, false when there is none or it failed. */
+  async function announce(key, { title, message, priority = "default" }) {
+    if (!notifications.getTarget()) return false;
+    try {
+      await notifications.send({ title: `BoxPilot: ${title}`, message, priority });
+      store.recordAudit("health.alert.sent", { actorId: null, subjectId: key, details: { title, at: now().toISOString() } });
+      return true;
+    } catch (error) {
+      store.recordAudit("health.alert.failed", { actorId: null, subjectId: key, details: { error: error.message } });
+      return false;
+    }
+  }
 
   /** One pass: evaluate, send for new conditions and for cleared ones, persist the active set. */
   const check = shared(async () => {
@@ -130,47 +177,98 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
     // A drive going bad shows in its SMART numbers before it fails outright (M23.3).
     const smartAlerts = evaluateSmartTrends(store.getSetting?.("smartHistory", {}) ?? {}, { now: now() });
     const active = [...evaluateHealth(snapshot), ...scheduleAlerts, ...forecastAlerts, ...smartAlerts];
-    const previous = store.getSetting(settingKey, {}) ?? {};
-    const nextState = {};
-    const sent = [];
-    const target = notifications.getTarget();
-    for (const alert of active) {
-      const seen = previous[alert.key];
-      // Remember a condition only once it has actually been announced, or the owner who configures
-      // notifications tomorrow would never hear about what broke today.
-      // Entries written before this flag existed count as announced, so upgrading does not replay them.
-      if (seen && seen.notified !== false) { nextState[alert.key] = seen; continue; }
-      if (!target) { nextState[alert.key] = { since: seen?.since ?? now().toISOString(), title: alert.title, notified: false }; continue; }
-      try {
-        await notifications.send({ title: `BoxPilot: ${alert.title}`, message: alert.message, priority: alert.priority });
-        nextState[alert.key] = { since: seen?.since ?? now().toISOString(), title: alert.title, notified: true };
-        sent.push(alert.key);
-        store.recordAudit("health.alert.sent", { actorId: null, subjectId: alert.key, details: { title: alert.title, at: now().toISOString() } });
-      } catch (error) {
-        store.recordAudit("health.alert.failed", { actorId: null, subjectId: alert.key, details: { error: error.message } });
-        delete nextState[alert.key]; // try again next round
+    return exclusive(async () => {
+      const previous = readState();
+      const nextState = {};
+      const sent = [];
+      const target = notifications.getTarget();
+      for (const alert of active) {
+        const seen = previous[alert.key];
+        // Remember a condition only once it has actually been announced, or the owner who configures
+        // notifications tomorrow would never hear about what broke today.
+        // Entries written before this flag existed count as announced, so upgrading does not replay them.
+        if (seen && seen.notified !== false) { nextState[alert.key] = seen; continue; }
+        // A send that fails is kept as not announced, the same as having no target: the owner can
+        // see it, and the next round tries again.
+        const notified = await announce(alert.key, alert);
+        nextState[alert.key] = { since: seen?.since ?? now().toISOString(), title: alert.title, notified };
+        if (notified) sent.push(alert.key);
       }
-    }
-    // The schedule table is always readable, so an overdue alert can clear the moment it catches up.
-    const availability = { ...collectorAvailability(snapshot), "schedule.overdue": true, "storage.forecast": true, "smart.errors": true, "smart.wear": true };
-    for (const [key, entry] of Object.entries(previous)) {
-      if (nextState[key]) continue;
-      // Evidence that is temporarily missing (stale SMART file, systemctl timeout) carries the alert forward unchanged.
-      if (availability[key.split(":")[0]] === false) { nextState[key] = entry; continue; }
-      if (entry?.notified === false) continue; // never announced, so there is nothing to say it cleared
-      if (!target) continue;
-      try {
-        await notifications.send({ title: `BoxPilot: resolved. ${entry.title ?? key}`, message: `This condition cleared at ${now().toLocaleString()}.`, priority: "default" });
-        sent.push(`resolved:${key}`);
-        store.recordAudit("health.alert.resolved", { actorId: null, subjectId: key, details: { since: entry.since, at: now().toISOString() } });
-      } catch (error) {
-        store.recordAudit("health.alert.failed", { actorId: null, subjectId: key, details: { error: error.message } });
-        nextState[key] = entry; // keep it so the resolution is announced next time
+      // The schedule table is always readable, so an overdue alert can clear the moment it catches up.
+      const availability = { ...collectorAvailability(snapshot), "schedule.overdue": true, "storage.forecast": true, "smart.errors": true, "smart.wear": true };
+      for (const [key, entry] of Object.entries(previous)) {
+        if (nextState[key]) continue;
+        // Raised by whatever saw the failure, not by this round, and kept until that code clears it.
+        // One not yet announced gets another try, so a target set today still hears about yesterday.
+        if (isReported(key)) {
+          const retry = entry?.notified === false && target
+            ? await announce(key, { title: entry.title ?? key, message: entry.message ?? entry.title ?? key, priority: entry.priority ?? "high" })
+            : false;
+          nextState[key] = retry ? { since: entry.since ?? null, title: entry.title ?? key, notified: true } : entry;
+          if (retry) sent.push(key);
+          continue;
+        }
+        // Evidence that is temporarily missing (stale SMART file, systemctl timeout) carries the alert forward unchanged.
+        if (availability[key.split(":")[0]] === false) { nextState[key] = entry; continue; }
+        if (entry?.notified === false) continue; // never announced, so there is nothing to say it cleared
+        if (!target) continue;
+        try {
+          await notifications.send({ title: `BoxPilot: resolved. ${entry.title ?? key}`, message: `This condition cleared at ${now().toLocaleString()}.`, priority: "default" });
+          sent.push(`resolved:${key}`);
+          store.recordAudit("health.alert.resolved", { actorId: null, subjectId: key, details: { since: entry.since, at: now().toISOString() } });
+        } catch (error) {
+          store.recordAudit("health.alert.failed", { actorId: null, subjectId: key, details: { error: error.message } });
+          nextState[key] = entry; // keep it so the resolution is announced next time
+        }
       }
-    }
-    store.setSetting(settingKey, nextState, { updatedBy: null });
-    return { active: active.map((alert) => alert.key), sent, target: Boolean(target) };
+      writeState(nextState);
+      return { active: active.map((alert) => alert.key), sent, target: Boolean(target) };
+    });
   });
+
+  /**
+   * A reported condition turned bad: announce it once, or keep it as not announced. Raising it again
+   * while it stands announced does nothing, so a schedule failing every hour is one push, not one an
+   * hour. Not announced keeps the words, so the round that finds a target later can send them.
+   */
+  function raise({ key, title, message, priority = "high" }) {
+    return exclusive(async () => {
+      const state = readState();
+      const seen = state[key];
+      if (seen && seen.notified !== false) return { key, notified: true, sent: false };
+      const since = seen?.since ?? now().toISOString();
+      const text = String(message ?? title).slice(0, 500);
+      const notified = await announce(key, { title, message: text, priority });
+      state[key] = notified ? { since, title, notified } : { since, title, message: text, priority, notified };
+      writeState(state);
+      return { key, notified, sent: notified };
+    });
+  }
+
+  /**
+   * The same work succeeded again: say so once if the failure was announced, and drop it either way.
+   * `quietly` is for a schedule or automation that was deleted rather than fixed.
+   */
+  function clear(key, { quietly = false } = {}) {
+    return exclusive(async () => {
+      const state = readState();
+      const entry = state[key];
+      if (!entry) return { key, cleared: false, sent: false };
+      delete state[key];
+      writeState(state);
+      if (quietly || entry.notified === false || !notifications.getTarget()) return { key, cleared: true, sent: false };
+      try {
+        await notifications.send({ title: `BoxPilot: resolved. ${entry.title ?? key}`, message: `Its next run succeeded, at ${now().toLocaleString()}.`, priority: "default" });
+        store.recordAudit("health.alert.resolved", { actorId: null, subjectId: key, details: { since: entry.since, at: now().toISOString() } });
+        return { key, cleared: true, sent: true };
+      } catch (error) {
+        // Good news that did not arrive is not worth holding the condition open for: nothing
+        // re-evaluates this one, so keeping it would show a fixed failure as live.
+        store.recordAudit("health.alert.failed", { actorId: null, subjectId: key, details: { error: error.message } });
+        return { key, cleared: true, sent: false };
+      }
+    });
+  }
 
   function start() {
     const safeCheck = () => check().catch(() => {});
@@ -181,5 +279,5 @@ export function createHealthAlerts({ inventory, notifications, store, resolveSch
     return () => { cancel(first); unschedule(timer); };
   }
 
-  return { check, start, evaluate: () => inventory.inspect().then(evaluateHealth) };
+  return { check, start, raise, clear, evaluate: () => inventory.inspect().then(evaluateHealth) };
 }

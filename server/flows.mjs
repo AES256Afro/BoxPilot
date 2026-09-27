@@ -14,6 +14,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { registry as defaultRegistry, validateParameters } from "./ops/index.mjs";
 import { computeNextRun, validateCadence } from "./scheduler.mjs";
 import { holdsPlaceholder, isSinglePlaceholder, referencesIn, resolveValues, stepNamePattern } from "./flow-values.mjs";
+import { asSentence } from "./health-alerts.mjs";
 
 const nameLimit = 80;
 const stepLimit = 10;
@@ -94,8 +95,26 @@ export function validateFlow({ name, steps } = {}, registry = defaultRegistry) {
   return null;
 }
 
-export function createFlowService({ store, jobs, secretEnvNamesFor = async () => [], registry = defaultRegistry, pollMs = 1000, maxStepMs = null, retryDelayMs = 30_000, now = () => new Date(), notify = null, library = [], report = (message) => console.warn(message) }) {
+export function createFlowService({ store, jobs, secretEnvNamesFor = async () => [], registry = defaultRegistry, pollMs = 1000, maxStepMs = null, retryDelayMs = 30_000, now = () => new Date(), alerts = null, library = [], report = (message) => console.warn(message) }) {
   const running = new Set(); // flow ids mid-run; a flow must not lap itself
+  // Step jobs this service started. A step that fails is the flow's to announce, as one condition
+  // per flow until it next runs cleanly; the notifier asks here so it does not push the job as well.
+  const stepJobs = new Set();
+  const claimStep = (jobId) => {
+    stepJobs.add(jobId);
+    if (stepJobs.size > 500) stepJobs.delete(stepJobs.values().next().value);
+  };
+  const owns = (jobId) => stepJobs.has(jobId);
+  const alertKey = (flow) => `flow.failed:${flow.id}`;
+  /** Through the health-alert ledger: sent once, or kept as not announced when nothing can be sent. */
+  function announce(flow, headline, message) {
+    if (!alerts) return;
+    try { Promise.resolve(alerts.raise({ key: alertKey(flow), title: `${headline}: ${flow.name}`, message: String(message).slice(0, 500), priority: "high" })).catch(() => {}); } catch { /* the flow's own record stands */ }
+  }
+  function settle(flow, options) {
+    if (!alerts) return;
+    try { Promise.resolve(alerts.clear(alertKey(flow), options)).catch(() => {}); } catch { /* nothing to clear */ }
+  }
 
   function assertMayManage(flow, actorId, role) {
     if (!flow) throw new Error("Flow not found");
@@ -201,8 +220,10 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   }
 
   function remove(id, actorId, { role = "owner" } = {}) {
-    assertMayManage(store.getFlow(id), actorId, role);
+    const flow = store.getFlow(id);
+    assertMayManage(flow, actorId, role);
     store.deleteFlow(id, { actorId });
+    settle(flow, { quietly: true }); // deleted, not fixed: nothing to announce
   }
 
   /** Wait for one step's job to reach a terminal state, bounded by the operation's own budget. */
@@ -284,7 +305,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
             const summary = `failed at step ${index + 1} (${title}): its condition ${error.message}`.slice(0, 300);
             store.markFlowRun(id, { result: summary, jobIds });
             store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, reason: error.message.slice(0, 200) } });
-            notify?.(`${flow.name} ${summary}`);
+            announce(flow, "Automation stopped", `${flow.name} ${summary}`);
             throw new Error(`${flow.name} ${summary}`);
           }
           const met = step.when.equals !== undefined ? read === step.when.equals : Boolean(read);
@@ -304,6 +325,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
             // moment before staging, so the job is created and validated with real parameters.
             const parameters = resolveValues(step.parameters ?? {}, namedResults);
             job = await jobs.createOperationJob(step.operationId, parameters, actorId, { role });
+            claimStep(job.id);
             if (attempt === 1) jobIds.push(job.id); else jobIds[index] = job.id;
             // Progress lands as it happens, not at the end: the page can show which step is running
             // and its live output, and a crash mid-run leaves an honest record of where it stopped.
@@ -319,7 +341,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
             const summary = `failed at step ${index + 1} (${title}): ${error.message}`.slice(0, 300);
             store.markFlowRun(id, { result: summary, jobIds });
             // No job ran, so no failed-job push carries the news; this is the flow's own to send.
-            notify?.(`${flow.name} ${summary}`);
+            announce(flow, "Automation stopped", `${flow.name} ${summary}`);
             throw new Error(`${flow.name} ${summary}`);
           }
           try {
@@ -330,7 +352,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
             const summary = `lost sight of step ${index + 1} (${title}): ${error.message}`.slice(0, 300);
             store.markFlowRun(id, { result: summary, jobIds });
             store.recordAudit("flow.failed", { actorId, subjectId: id, details: { step: index + 1, operationId: step.operationId, jobId: job.id, reason: error.message.slice(0, 200) } });
-            notify?.(`${flow.name} ${summary}`);
+            announce(flow, "Automation stopped", `${flow.name} ${summary}`);
             throw new Error(`${flow.name} ${summary}`);
           }
           if (finished.state === "completed") {
@@ -345,6 +367,8 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
           if (step.onFailure === "continue") { problems.push(`step ${index + 1} (${title}) ${finished.state === "failed" ? "failed" : finished.state}${attemptsAllowed > 1 ? ` after ${attempt} attempts` : ""}`.slice(0, 200)); break; }
           const summary = `stopped at step ${index + 1} (${title})${attemptsAllowed > 1 ? ` after ${attempt} attempts` : ""}: ${finished.error ?? finished.state}`.slice(0, 300);
           store.markFlowRun(id, { result: summary, jobIds });
+          // The step's job belongs to the flow (see claimStep), so its failure is told here, once per flow.
+          announce(flow, "Automation stopped", `${asSentence(`${flow.name} ${summary}`)} Earlier steps ran and stand; each one's job record says what it did.`);
           throw new Error(`${flow.name} ${summary}. Earlier steps ran and stand; each one's job record says what it did.`);
         }
         if (finished?.state !== "completed") continue;
@@ -357,6 +381,9 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
         ? `completed with problems: ${problems.join("; ")}`.slice(0, 300)
         : asides.length ? `completed (${asides.join("; ")})`.slice(0, 300) : "completed";
       store.markFlowRun(id, { result, jobIds });
+      // A step that failed under a keep-going policy is still a failure; its job no longer pushes on its own.
+      if (problems.length) announce(flow, "Automation finished with problems", `${flow.name} ${result}`);
+      else settle(flow);
       store.recordAudit("flow.completed", { actorId, subjectId: id, details: { steps: flow.steps.length, problems: problems.length } });
       completedRun = true;
       return { completed: true, steps: flow.steps.length, jobIds, problems };
@@ -432,7 +459,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       if (!recordedRunFailure.test(error.message)) {
         store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
         store.recordAudit("flow.skipped", { actorId: flow.createdBy, subjectId: flow.id, details: { reason: error.message.slice(0, 200) } });
-        notify?.(`${flow.name} ${refusalPhrase}: ${error.message}`.slice(0, 300));
+        announce(flow, "Automation did not run", `${flow.name} ${refusalPhrase}: ${error.message}`.slice(0, 300));
       }
     }
   }
@@ -462,7 +489,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       if (!recordedRunFailure.test(error.message)) {
         store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
         store.recordAudit("flow.skipped", { actorId: flow.createdBy, subjectId: flow.id, details: { reason: error.message.slice(0, 200) } });
-        notify?.(`${flow.name} was due to run after another flow but did not: ${error.message}`.slice(0, 300));
+        announce(flow, "Automation did not run", `${flow.name} was due to run after another flow but did not: ${error.message}`.slice(0, 300));
       }
     }
   }
@@ -502,7 +529,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
             store.markFlowRun(flow.id, { result: `skipped: ${error.message}`.slice(0, 300), jobIds: [] });
             store.recordAudit("flow.skipped", { actorId: flow.createdBy, subjectId: flow.id, details: { reason: error.message.slice(0, 200) } });
             // A refusal produces no job, so nothing else would tell the owner their schedule did not run.
-            notify?.(`${flow.name} was due but did not run: ${error.message}`.slice(0, 300));
+            announce(flow, "Automation did not run", `${flow.name} was due but did not run: ${error.message}`.slice(0, 300));
           }
         }
       }
@@ -526,7 +553,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       const summary = `interrupted by a BoxPilot restart while ${flow.lastResult}; the step's job record says how far it got, and later steps did not run`.slice(0, 300);
       store.markFlowRun(flow.id, { result: summary, jobIds: flow.lastJobIds ?? [] });
       store.recordAudit("flow.interrupted", { actorId: flow.createdBy, subjectId: flow.id, details: { was: flow.lastResult.slice(0, 200) } });
-      notify?.(`${flow.name} was ${summary}`);
+      announce(flow, "Automation was interrupted", `${flow.name} was ${summary}`);
       recovered += 1;
     }
     return recovered;
@@ -567,5 +594,5 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       }));
   }
 
-  return { create, list, update, remove, run, launch, tick, start, recover, stepPalette, shelf, mintWebhook, clearWebhook, fireWebhook };
+  return { create, list, update, remove, run, launch, tick, start, recover, stepPalette, shelf, mintWebhook, clearWebhook, fireWebhook, owns };
 }

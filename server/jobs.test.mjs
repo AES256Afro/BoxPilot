@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Password hashing runs at production scrypt cost; CI runners need more than the 5 s default.
 vi.setConfig({ testTimeout: 30_000 });
-import { createJobService } from "./jobs.mjs";
+import { createJobService, recordFailed } from "./jobs.mjs";
+import { createHealthAlerts } from "./health-alerts.mjs";
 import { hashPassword } from "./security.mjs";
 import { createStateStore } from "./state.mjs";
 
@@ -259,6 +260,70 @@ describe("durable job executor", () => {
     await expect(jobs.approveAndRun(job.id, owner.id, "correct horse battery")).rejects.toThrow("Recorded evidence does not match");
     expect(store.getJob(job.id).state).toBe("failed");
     store.close();
+  });
+
+  describe("a result that could not be saved (M27.2)", () => {
+    // Closed before the directory goes, pass or fail: an open database cannot be deleted on Windows.
+    const open = [];
+    afterEach(() => { for (const store of open.splice(0)) { try { store.close(); } catch { /* already closed */ } } });
+    // The real health-alert ledger over the job store, with a stand-in notification target.
+    async function recording({ target = { kind: "ntfy" }, send = vi.fn(async () => ({ sent: true })) } = {}) {
+      const helper = { request: vi.fn(async () => ({ created: true })) };
+      const { store, owner } = await setup(helper);
+      open.push(store);
+      const alerts = createHealthAlerts({ inventory: { inspect: async () => ({}) }, notifications: { getTarget: () => target, send }, store, now: () => new Date("2026-09-27T03:00:00Z") });
+      let broken = true;
+      const jobs = createJobService(store, helper, {
+        alerts,
+        operationRecordHooks: { "vm.export.create": () => { if (broken) throw new Error("UNIQUE constraint failed: vm_exports.id"); } },
+      });
+      const runOnce = async () => {
+        const job = await jobs.createOperationJob("vm.export.create", { name: "ubuntu-lab" }, owner.id);
+        await jobs.approveAndRun(job.id, owner.id, "correct horse battery").catch(() => {});
+        await alerts.clear("nothing:pending"); // the job announces without waiting; this waits for it
+        return store.getJob(job.id);
+      };
+      return { store, send, runOnce, fix: () => { broken = false; }, state: () => store.getSetting("healthAlertsState", {}) };
+    }
+    const key = "record.failed:vm.export.create:ubuntu-lab";
+
+    it("says which half failed, is announced once per operation, and clears when it records again", async () => {
+      const { send, runOnce, fix, state } = await recording();
+      const failed = await runOnce();
+      expect(failed.state).toBe("failed");
+      // The job record says the operation ran and only the record did not land; the notifier reads
+      // this to leave the job's own push to the alert.
+      expect(recordFailed(failed)).toBe(true);
+      expect(failed.steps.find((step) => step.name === "record").detail).toContain("The operation ran, but BoxPilot could not save its result: UNIQUE constraint failed");
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledWith({ title: "BoxPilot: Result not saved: Export a stopped VM (ubuntu-lab)", message: expect.stringContaining("could not save what it did: UNIQUE constraint failed: vm_exports.id. Pages that show it"), priority: "high" });
+
+      await runOnce();
+      expect(send).toHaveBeenCalledTimes(1); // the same record failing again is not a second push
+
+      fix();
+      const recorded = await runOnce();
+      expect(recorded.state).toBe("completed");
+      expect(recordFailed(recorded)).toBe(false);
+      expect(send).toHaveBeenCalledTimes(2);
+      expect(send).toHaveBeenLastCalledWith(expect.objectContaining({ title: "BoxPilot: resolved. Result not saved: Export a stopped VM (ubuntu-lab)" }));
+      expect(state()).toEqual({});
+    });
+
+    it("is kept as not announced when there is no target", async () => {
+      const { send, runOnce, state } = await recording({ target: null });
+      await runOnce();
+      expect(send).not.toHaveBeenCalled();
+      expect(state()[key]).toMatchObject({ notified: false, title: "Result not saved: Export a stopped VM (ubuntu-lab)", message: expect.stringContaining("UNIQUE constraint failed") });
+    });
+
+    it("is kept as not announced when the target does not answer", async () => {
+      const send = vi.fn(async () => { throw new Error("The notification target answered 502"); });
+      const { runOnce, state } = await recording({ send });
+      await runOnce();
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(state()[key]).toMatchObject({ notified: false });
+    });
   });
 
   it("refuses legacy job types now that only registry operations execute", async () => {
