@@ -66,4 +66,13 @@ describe("cloud backup tasks", () => {
     expect(copyCall[1]).not.toContain("sync");
     await expect(backupCloudTest({ provider: "b2", account: "a", bucket: "bkt" }, { run, secretsDirectory: await secretsDir(), rclone: "/" })).rejects.toThrow("Save the cloud destination first");
   });
+
+  it("leaves machine-snapshot working folders, which hold secrets in the clear, out of the copy", async () => {
+    const secretsDirectory = await secretsDir();
+    const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "Errors:                 0\nTransferred:            1 / 1, 100%\n" }));
+    await backupCloudSetup({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox", key: "k" }, { run, secretsDirectory, rclone: "/" });
+    await backupCloudSync({ provider: "b2", account: "a", bucket: "home-backups", path: "homebox" }, { run, secretsDirectory, rclone: "/", sources: [{ name: "machine-snapshots", root: secretsDirectory }] });
+    const copyCall = run.mock.calls.find(([, args]) => args.includes("copy"));
+    expect(copyCall[1]).toEqual(expect.arrayContaining(["--exclude", "/.staging-*/**", "--exclude", "/.restore-*/**", "--exclude", "/restored/**"]));
+  });
 });

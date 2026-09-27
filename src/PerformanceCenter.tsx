@@ -110,36 +110,38 @@ export default function PerformanceCenter({ csrfToken }: { csrfToken: string }) 
           </div>
         </header>
         {!perf ? <p className="muted">Loading…</p> : apps.length === 0 ? <p className="muted">No apps are installed yet. Add some from the App catalog.</p> : (
-          <table className="perf-table">
-            <thead><tr><th>App</th><th>State</th><th className="num">CPU</th><th className="num">Memory</th><th>Controls</th></tr></thead>
-            <tbody>
-              {apps.map((app) => {
-                const name = meta[app.id]?.name ?? app.id;
-                const paused = app.state === "paused";
-                const running = app.running && !paused;
-                return (
-                  <tr key={app.id}>
-                    <td>{meta[app.id]?.icon && <span className="perf-icon">{meta[app.id]?.icon}</span>}{name}{isAI(app.id) && <span className="status-pill status-neutral perf-ai">AI</span>}</td>
-                    <td><span className={`status-pill ${running ? "status-good" : paused ? "status-warning" : "status-neutral"}`}>{stateLabel[app.state] ?? app.state}</span></td>
-                    <td className="num">{running || paused ? `${app.cpuPercent.toFixed(1)}%` : "—"}</td>
-                    <td className="num">{running || paused ? gib(app.memBytes) : "—"}</td>
-                    <td className="perf-controls">
-                      {running && <>
-                        <button className="text-button" type="button" onClick={() => act(app.id, "pause", `Pause ${name}`, `Freezes ${name}. It stops using the CPU but keeps its memory, and resumes instantly. Nothing is lost.`)}>Pause</button>
-                        <button className="text-button" type="button" onClick={() => act(app.id, "restart", `Restart ${name}`, `Restarts ${name}.`)}>Restart</button>
-                        <button className="text-button danger-text" type="button" onClick={() => act(app.id, "stop", `Stop ${name}`, `Stops ${name} and frees its memory. Its data is kept; starting it again is a cold start.`)}>Stop</button>
-                      </>}
-                      {paused && <>
-                        <button className="text-button" type="button" onClick={() => act(app.id, "unpause", `Resume ${name}`, `Thaws ${name} exactly where it left off.`)}>Resume</button>
-                        <button className="text-button danger-text" type="button" onClick={() => act(app.id, "stop", `Stop ${name}`, `Stops ${name} and frees its memory.`)}>Stop</button>
-                      </>}
-                      {!running && !paused && <button className="text-button" type="button" onClick={() => act(app.id, "start", `Start ${name}`, `Starts ${name}.`)}>Start</button>}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="table-scroll">
+            <table className="perf-table">
+              <thead><tr><th>App</th><th>State</th><th className="num">CPU</th><th className="num">Memory</th><th>Controls</th></tr></thead>
+              <tbody>
+                {apps.map((app) => {
+                  const name = meta[app.id]?.name ?? app.id;
+                  const paused = app.state === "paused";
+                  const running = app.running && !paused;
+                  return (
+                    <tr key={app.id}>
+                      <td>{meta[app.id]?.icon && <span className="perf-icon">{meta[app.id]?.icon}</span>}{name}{isAI(app.id) && <span className="status-pill status-neutral perf-ai">AI</span>}</td>
+                      <td><span className={`status-pill ${running ? "status-good" : paused ? "status-warning" : "status-neutral"}`}>{stateLabel[app.state] ?? app.state}</span></td>
+                      <td className="num">{running || paused ? `${app.cpuPercent.toFixed(1)}%` : "—"}</td>
+                      <td className="num">{running || paused ? gib(app.memBytes) : "—"}</td>
+                      <td className="perf-controls">
+                        {running && <>
+                          <button className="text-button" type="button" onClick={() => act(app.id, "pause", `Pause ${name}`, `Freezes ${name}. It stops using the CPU but keeps its memory, and resumes instantly. Nothing is lost.`)}>Pause</button>
+                          <button className="text-button" type="button" onClick={() => act(app.id, "restart", `Restart ${name}`, `Restarts ${name}.`)}>Restart</button>
+                          <button className="text-button danger-text" type="button" onClick={() => act(app.id, "stop", `Stop ${name}`, `Stops ${name} and frees its memory. Its data is kept; starting it again is a cold start.`)}>Stop</button>
+                        </>}
+                        {paused && <>
+                          <button className="text-button" type="button" onClick={() => act(app.id, "unpause", `Resume ${name}`, `Thaws ${name} exactly where it left off.`)}>Resume</button>
+                          <button className="text-button danger-text" type="button" onClick={() => act(app.id, "stop", `Stop ${name}`, `Stops ${name} and frees its memory.`)}>Stop</button>
+                        </>}
+                        {!running && !paused && <button className="text-button" type="button" onClick={() => act(app.id, "start", `Start ${name}`, `Starts ${name}.`)}>Start</button>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
         {perf && !perf.statsAvailable && <p className="muted">Live CPU and memory per app need Docker's stats stream, which is not answering right now.</p>}
       </section>

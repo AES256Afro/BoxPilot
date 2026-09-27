@@ -14,7 +14,7 @@ const sharableReads = new Set([
   "system.runtime.inspect", "app.inspect", "samba.inspect", "container.docker.inventory", "app.data.usage",
   // The rest of what one Overview or Repair load asks for from several routes at once.
   "apt.unattended.inspect", "firewall.inspect", "nfs.inspect", "host.snapshot.inspect", "app.backups.counts",
-  "prerequisite.docker.inspect", "prerequisite.restic.inspect", "prerequisite.smartmontools.inspect", "prerequisite.virtualization.inspect",
+  "prerequisite.docker.inspect", "prerequisite.restic.inspect", "prerequisite.smartmontools.inspect", "prerequisite.virtualization.inspect", "prerequisite.nvidia.inspect",
   "virtualization.foundation.inspect",
 ]);
 
@@ -25,15 +25,24 @@ const sharableReads = new Set([
  */
 const sharedReadCeilingMs = 30_000;
 
-export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock", timeoutMs = 5000, maxResponseBytes = maxHelperResponseBytes, setTimeout: schedule = globalThis.setTimeout, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
+/**
+ * How long a mutation may wait in the helper's queue behind earlier work on its lane before the
+ * web side gives up. The longest registered operations run for twelve hours, so a request queued
+ * behind one of those must not be failed by its own (much shorter) budget.
+ */
+const queuedCeilingMs = 24 * 60 * 60_000;
+
+export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SOCKET ?? "/run/boxpilot/helper.sock", timeoutMs = 5000, queueTimeoutMs = queuedCeilingMs, maxResponseBytes = maxHelperResponseBytes, setTimeout: schedule = globalThis.setTimeout, clearTimeout: cancel = globalThis.clearTimeout } = {}) {
   const transport = { active: 0, completed: 0, failed: 0 };
   function send(operation, parameters = {}, { timeoutMs: requestTimeoutMs = timeoutMs, jobId = null } = {}) {
     return new Promise((resolve, reject) => {
       const connection = net.createConnection(socketPath);
       transport.active += 1;
       const id = randomUUID();
-      const reader = createHelperResponseReader(id, { maxFrameBytes: maxResponseBytes });
       let settled = false;
+      let deadline = null;
+      let queued = false;
+      let started = false;
 
       function fail(error) {
         if (settled) return;
@@ -44,9 +53,31 @@ export function createHelperClient({ socketPath = process.env.BOXPILOT_HELPER_SO
         reject(error);
       }
 
-      // Unlike the socket inactivity timeout, this cannot be extended forever by queued heartbeats.
-      const deadline = schedule(() => fail(new Error("Helper request timed out (overall deadline reached)")), requestTimeoutMs);
-      deadline.unref?.();
+      /** Replace the overall deadline. Unlike the socket inactivity timeout, heartbeats never extend it. */
+      function arm(ms, message) {
+        if (deadline !== null) cancel(deadline);
+        deadline = schedule(() => fail(new Error(message)), ms);
+        deadline.unref?.();
+      }
+      // The operation's budget is measured from when the helper starts it. A request the helper says
+      // is queued behind earlier work waits under the queue ceiling instead, and gets its full budget
+      // back when the helper reports that it left the queue.
+      const reader = createHelperResponseReader(id, {
+        maxFrameBytes: maxResponseBytes,
+        onQueued: () => {
+          if (queued || started) return;
+          queued = true;
+          arm(queueTimeoutMs, "Helper request timed out while queued behind earlier operations (overall deadline reached)");
+          // Heartbeats arrive every 20 seconds; a short budget must not read the queue as a dead peer.
+          connection.setTimeout(Math.max(requestTimeoutMs, 60_000));
+        },
+        onStarted: () => {
+          started = true;
+          arm(requestTimeoutMs, "Helper request timed out (overall deadline reached)");
+          connection.setTimeout(requestTimeoutMs);
+        },
+      });
+      arm(requestTimeoutMs, "Helper request timed out (overall deadline reached)");
       connection.setEncoding("utf8");
       connection.setTimeout(requestTimeoutMs);
       connection.on("connect", () => connection.write(`${JSON.stringify({ version: 1, id, operation, parameters, ...(jobId ? { context: { jobId } } : {}) })}\n`));

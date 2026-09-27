@@ -35,6 +35,25 @@ describe("log operations", () => {
     await expect(registry.execute("logs.read", { kind: "unit", target: "docker.service", since: "yesterday" }, { run })).rejects.toThrow("must look like");
     await expect(registry.execute("logs.read", { kind: "unit", target: "docker.service", lines: 5 }, { run })).rejects.toThrow("10-2000");
   });
+
+  it("keeps the zone of a followed timestamp instead of reading it as host-local time", async () => {
+    const calls = [];
+    const run = vi.fn(async (binary, args) => {
+      calls.push(`${binary.split("/").pop()} ${args.join(" ")}`);
+      if (args[0] === "ps") return { ok: true, stdout: "bp-jellyfin", stderr: "" };
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    await registry.execute("logs.read", { kind: "container", target: "bp-jellyfin", since: "2026-08-21T01:00:00Z" }, { run });
+    expect(calls.at(-1)).toBe("docker logs --timestamps --tail 300 --since 2026-08-21T01:00:00Z bp-jellyfin");
+    await registry.execute("logs.read", { kind: "container", target: "bp-jellyfin", since: "2026-08-21T03:00:00+02:00" }, { run });
+    expect(calls.at(-1)).toContain("--since 2026-08-21T01:00:00Z ");
+    await registry.execute("logs.read", { kind: "unit", target: "docker.service", since: "2026-08-20T21:00:00-0400" }, { run });
+    expect(calls.at(-1)).toBe("journalctl --no-pager -o short-iso -n 300 --since 2026-08-21 01:00:00 UTC -u docker.service");
+    await registry.execute("logs.read", { kind: "unit", target: "docker.service", since: "2026-08-21 01:00" }, { run });
+    expect(calls.at(-1)).toContain("--since 2026-08-21 01:00 -u");
+    await expect(registry.execute("logs.read", { kind: "unit", target: "docker.service", since: "2026-08-21T01:00:00+2" }, { run })).rejects.toThrow("must look like");
+    await expect(registry.execute("logs.read", { kind: "unit", target: "docker.service", since: "2026-13-45T01:00:00Z" }, { run })).rejects.toThrow("must look like");
+  });
 });
 
 it("restricts live-output cache release to owners and a single validated job id", () => {

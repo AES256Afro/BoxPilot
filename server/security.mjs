@@ -66,14 +66,15 @@ export async function verifyPassword(password, encoded) {
 
 export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, resolveClientAddress = null, notify = null } = {}) {
   /**
-   * Best-effort "from where" for the session list: the tailnet peer if there is one, otherwise the
-   * forwarded or socket address, plus the user agent. This is display metadata shown to the owner
-   * about their own sessions, not a trust decision, so a forged header at worst mislabels a row.
+   * "From where" for the session list, the audit log and new-sign-in alerts: the tailnet peer if
+   * there is one, otherwise the socket address, plus the user agent. X-Forwarded-For counts only
+   * through the resolver, which trusts it from loopback when Tailscale Serve is the proxy in front.
+   * Read from anyone, a forged "127.0.0.1" silenced the alert for a new address and put a false
+   * address on the session and in the audit log.
    */
-  function clientDescriptor(request) {
-    const direct = tailnetClientAddress(request);
-    const forwarded = String(request.get?.("x-forwarded-for") ?? "").split(",")[0].trim();
-    const raw = direct || forwarded || request.socket?.remoteAddress || request.ip || null;
+  async function clientDescriptor(request) {
+    const peer = resolveClientAddress ? await resolveClientAddress(request).catch(() => null) : tailnetClientAddress(request);
+    const raw = peer || request.socket?.remoteAddress || request.ip || null;
     return {
       address: raw ? (normalizeAddress(raw) ?? String(raw).slice(0, 64)) : null,
       userAgent: (request.get?.("user-agent") ?? "").slice(0, 300) || null,
@@ -212,7 +213,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
     try {
       const passwordHash = await hashPassword(password);
       const owner = store.consumeBootstrapToken(bootstrapToken, { username, passwordHash });
-      const descriptor = clientDescriptor(request);
+      const descriptor = await clientDescriptor(request);
       const session = store.createSession(owner.id, { ttlMs: sessionTtlMs, ...descriptor, method: "password" });
       noteSignIn(owner, descriptor, "password"); // baselines the first address silently
       appendCookie(request, response, cookieHeader(request, session.token, Math.floor(sessionTtlMs / 1000)));
@@ -290,7 +291,7 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
       response.status(401).json({ error: "Invalid username or password", code: "invalid_credentials" });
       return;
     }
-    const descriptor = clientDescriptor(request);
+    const descriptor = await clientDescriptor(request);
     const session = store.createSession(owner.id, { ttlMs: sessionTtlMs, ...descriptor, method: "password" });
     store.recordAudit("session.created", { actorId: owner.id, subjectId: owner.id });
     noteSignIn(owner, descriptor, "password");
@@ -298,10 +299,10 @@ export function createAuthService(store, { sessionTtlMs = 12 * 60 * 60 * 1000, r
     response.json({ authenticated: true, owner: { id: owner.id, username: owner.username, role: owner.role ?? "owner" }, csrfToken: session.csrfToken, expiresAt: session.expiresAt });
   }
 
-  /** Issue a session for an owner authenticated by an external identity (Tailscale, GitHub). */
-  function issueSession(request, response, owner, { method = "identity", detail = null } = {}) {
+  /** Issue a session for an owner authenticated by an external identity (Tailscale, GitHub). Async: the address is resolved first. */
+  async function issueSession(request, response, owner, { method = "identity", detail = null } = {}) {
     if (owner?.role === "disabled") throw new Error("This account is disabled");
-    const descriptor = clientDescriptor(request);
+    const descriptor = await clientDescriptor(request);
     const session = store.createSession(owner.id, { ttlMs: sessionTtlMs, ...descriptor, method });
     store.recordAudit("session.created", { actorId: owner.id, subjectId: owner.id, details: { method, ...(detail ? { detail } : {}) } });
     noteSignIn(owner, descriptor, method);

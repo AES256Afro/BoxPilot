@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { connectionLabel } from "./appLinks";
 
 afterEach(() => {
   cleanup();
@@ -81,5 +82,28 @@ describe("BoxPilot console", () => {
     expect(screen.getByRole("button", { name: "Kernel" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Download support bundle" }));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/support-bundle"));
+  });
+
+  it("describes the connection from the address bar instead of a fixed Tailscale claim", async () => {
+    vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+    render(<App />);
+    expect(await screen.findByText("HTTP connection")).toBeTruthy();
+    expect(screen.queryByText(/Funnel/)).toBeNull();
+    expect(connectionLabel({ protocol: "https:", hostname: "box.tail1234.ts.net" })).toBe("Tailscale HTTPS");
+    expect(connectionLabel({ protocol: "http:", hostname: "100.101.102.103" })).toBe("Tailscale HTTP");
+    expect(connectionLabel({ protocol: "https:", hostname: "192.168.1.10" })).toBe("HTTPS connection");
+    expect(connectionLabel({ protocol: "http:", hostname: "100.200.1.1" })).toBe("HTTP connection");
+  });
+
+  it("counts the catalog's categories instead of naming a fixed number", async () => {
+    const manifests = import.meta.glob<string>("../catalog/*.yaml", { query: "?raw", import: "default", eager: true });
+    const categories = new Set(Object.values(manifests).map((text) => /^category:\s*(.+?)\s*$/m.exec(text)?.[1]).filter(Boolean));
+    expect(categories.size).toBeGreaterThan(0);
+    vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+    window.history.replaceState(null, "", "/?view=catalog");
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "App catalog" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Features" }).textContent).toContain(`apps in ${categories.size} categories`);
+    window.history.replaceState(null, "", "/");
   });
 });

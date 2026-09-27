@@ -2,7 +2,7 @@ import express from "express";
 import { randomUUID } from "node:crypto";
 import { createReadStream, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
-import { createDeviceResolver } from "./catalog/devices.mjs";
+import { createDeviceResolver, deviceResolvingOperations } from "./catalog/devices.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startTlsListener } from "./tls-listener.mjs";
@@ -180,9 +180,7 @@ const jobs = createJobService(state, helper, {
   // Prepare hooks pin server-derived expectations into the staged parameters.
   operationPrepareHooks: {
     // Device globs (/dev/sd?, /dev/ttyUSB?) resolve here against the real /dev; the helper runs with PrivateDevices.
-    "app.install": (parameters) => withResolvedDevices(parameters),
-    "app.update": (parameters) => withResolvedDevices(parameters),
-    "app.reconfigure": (parameters) => withResolvedDevices(parameters),
+    ...Object.fromEntries(deviceResolvingOperations.map((id) => [id, (parameters) => withResolvedDevices(parameters)])),
     "controller.backup.protect": (parameters) => controllerProtection.prepareOperation(parameters),
     "system.update": (parameters) => releaseUpdates.prepareOperation(parameters),
     // Dashboard links need the address the browser uses; fall back to the LAN address for scheduled runs.

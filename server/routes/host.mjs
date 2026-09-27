@@ -121,12 +121,16 @@ export function createHostRouter({ state, helper, catalogService, inventory, net
     const requested = manifest.ports.map((port) => ({ id: port.id, label: port.label, host: values.ports[port.id], protocol: port.protocol, exposure: port.exposure }));
     let conflicts = [];
     try {
-      const listeners = await listListeners();
-      const live = await helper.request("app.inspect", {}, { timeoutMs: 15_000 }).catch(() => null);
+      const [listeners, live, docker] = await Promise.all([
+        listListeners(),
+        helper.request("app.inspect", {}, { timeoutMs: 15_000 }).catch(() => null),
+        // Names the container behind a docker-proxy listener; optional, so a failure just omits it.
+        helper.request("container.docker.inventory", {}, { timeoutMs: 15_000 }).catch(() => null),
+      ]);
       const own = live?.applications?.find((entry) => entry.id === manifest.id);
       // The ports this app is already holding are not conflicts with itself.
       const ownPorts = portsHeldByApp(manifest, own);
-      conflicts = findPortConflicts(requested, listeners).filter((conflict) => !ownPorts.has(`${conflict.port}/${conflict.protocol}`));
+      conflicts = findPortConflicts(requested, listeners, docker?.containers ?? null).filter((conflict) => !ownPorts.has(`${conflict.port}/${conflict.protocol}`));
     } catch { /* conflicts are advisory */ }
     return response.json({ ok: conflicts.length === 0, errors: [], conflicts: conflicts.map((conflict) => ({ ...conflict, label: requested.find((port) => port.id === conflict.id)?.label ?? conflict.id })) });
   });

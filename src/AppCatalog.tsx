@@ -4,6 +4,8 @@ import { useOperation } from "./ApproveDialog";
 import { useDialogFocus } from "./useDialogFocus";
 import { inspectOperation } from "./operations";
 import { appUrl, appAddresses } from "./appLinks";
+import { describePortConflict, type PortConflict } from "./portConflict";
+import { formatBytes } from "./formatBytes";
 
 /** Types mirror server/catalog/schema.mjs (normalized manifest) and server/app-helper.mjs (live state). */
 interface ManifestPort { id: string; label: string; container: number; host: number; protocol: "tcp" | "udp"; exposure: "lan" | "loopback"; fixed: boolean; tailnet?: "serve" | "address" | "unchanged"; containerFollowsHost?: boolean }
@@ -86,7 +88,7 @@ function compactValues(manifest: Manifest, values: Values, baseline?: Values): V
   return { ports, env, volumes, ...((manifest.networkModes?.length ?? 0) > 1 && values.networkMode ? { networkMode: values.networkMode } : {}), ...(manifest.setup ? { setup: values.setup ?? [] } : {}) };
 }
 
-function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure"; csrfToken: string; onSubmit: (values: Values) => void; onCancel: () => void }) {
+function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel, appNameFor = () => null }: { manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure"; csrfToken: string; onSubmit: (values: Values) => void; onCancel: () => void; appNameFor?: (id: string) => string | null }) {
   const dialogRef = useRef<HTMLElement | null>(null);
   useDialogFocus(dialogRef);
   const [values, setValues] = useState<Values>(() => initialValues(manifest, live));
@@ -131,16 +133,9 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
     setChecking(true); setProblems([]);
     try {
       const response = await fetch(`/api/v1/catalog/${encodeURIComponent(manifest.id)}/precheck`, { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ values: precheckValues }) });
-      const body = (await response.json().catch(() => ({}))) as { ok: boolean; errors: string[]; conflicts: Array<{ label: string; port: number; protocol: string; listeners: string[] }>; error?: string };
+      const body = (await response.json().catch(() => ({}))) as { ok: boolean; errors: string[]; conflicts: PortConflict[]; error?: string };
       if (!response.ok && !body.errors?.length) throw new Error(body.error ?? "Precheck failed");
-      const found = [...(body.errors ?? []), ...(body.conflicts ?? []).map((conflict) => {
-        const held = conflict.listeners.join(", ");
-        // "Pick another port" is useless advice for a DNS server, and resolved is the usual culprit.
-        const resolved = conflict.port === 53 && held.includes("127.0.0.53");
-        return resolved
-          ? `Port 53 is held by Ubuntu's own resolver (${held}). Set DNSStubListener=no in /etc/systemd/resolved.conf, restart systemd-resolved, then install again.`
-          : `${conflict.label}: port ${conflict.port}/${conflict.protocol} is already in use on this server (${held}). Pick another port.`;
-      })];
+      const found = [...(body.errors ?? []), ...(body.conflicts ?? []).map((conflict) => describePortConflict(conflict, appNameFor))];
       if (found.length) { setProblems(found); return; }
       onSubmit(compact);
     } catch (requestError) {
@@ -283,6 +278,20 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
     }
   };
   const [secrets, setSecrets] = useState<{ id: string; name: string; items: Array<{ name: string; label: string; value: string }> | null; needsPassword: boolean; password: string; error: string | null; signIn?: boolean; newPassword?: string } | null>(null);
+  // The read-only dialogs contain focus and close on Escape like the configuration dialog does.
+  const logsRef = useRef<HTMLElement | null>(null);
+  const foreignLogsRef = useRef<HTMLElement | null>(null);
+  const reachabilityRef = useRef<HTMLElement | null>(null);
+  const appBackupsRef = useRef<HTMLElement | null>(null);
+  const modelsRef = useRef<HTMLElement | null>(null);
+  const secretsRef = useRef<HTMLElement | null>(null);
+  useDialogFocus(logsRef, Boolean(logs));
+  useDialogFocus(foreignLogsRef, Boolean(foreignLogs));
+  useDialogFocus(reachabilityRef, Boolean(reachability));
+  useDialogFocus(appBackupsRef, Boolean(appBackups));
+  useDialogFocus(modelsRef, Boolean(models));
+  useDialogFocus(secretsRef, Boolean(secrets));
+  const closeOnEscape = (close: () => void) => (event: { key: string; stopPropagation: () => void }) => { if (event.key === "Escape") { event.stopPropagation(); close(); } };
   const [filter, setFilter] = useState("");
   const [search, setSearch] = useState("");
   const [serves, setServes] = useState<Array<{ dnsName: string; port: number; target: string | null }> | null>(null);
@@ -345,33 +354,33 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
   }, []);
 
   // A rehearsal on a cadence is what turns "the backups restore" from a one-off into a record.
-  const scheduleRehearsal = async (appId: string) => {
+  // Every schedule change reports the server's refusal and blocks a second click while it is out.
+  const [scheduling, setScheduling] = useState(false);
+  const changeSchedule = async (send: () => Promise<Response>, failure: string) => {
+    if (scheduling) return;
+    setScheduling(true);
+    setError(null);
     try {
-      // spread: one server can have twenty of these, and twenty archives decompressing in the same
-      // minute is not a rehearsal, it is an outage. The server puts it somewhere quiet near here.
-      await fetch("/api/v1/schedules", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken },
-        body: JSON.stringify({ operationId: "app.backup.verify", parameters: { id: appId }, frequency: "weekly", minute: 30, hour: 3, weekday: 1, spread: true }) });
+      const response = await send();
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `${failure} (${response.status})`);
+      }
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : failure);
+    } finally {
       await loadKillswitch();
-    } catch { /* a failure leaves the button as it was */ }
+      setScheduling(false);
+    }
   };
-  const unscheduleRehearsal = async (scheduleId: string) => {
-    try {
-      await fetch(`/api/v1/schedules/${encodeURIComponent(scheduleId)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } });
-      await loadKillswitch();
-    } catch { /* leave it on if the delete failed */ }
-  };
-  const scheduleKillswitch = async (appId: string) => {
-    try {
-      await fetch("/api/v1/schedules", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ operationId: "app.vpn.killswitch.drill", parameters: { id: appId }, frequency: "weekly", minute: 0, hour: 4, weekday: 0, spread: true }) });
-      await loadKillswitch();
-    } catch { /* a failure leaves the button as it was */ }
-  };
-  const unscheduleKillswitch = async (scheduleId: string) => {
-    try {
-      await fetch(`/api/v1/schedules/${encodeURIComponent(scheduleId)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } });
-      await loadKillswitch();
-    } catch { /* leave it on if the delete failed */ }
-  };
+  const createSchedule = (body: Record<string, unknown>) => () => fetch("/api/v1/schedules", { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify(body) });
+  const deleteSchedule = (scheduleId: string) => () => fetch(`/api/v1/schedules/${encodeURIComponent(scheduleId)}`, { method: "DELETE", headers: { "X-BoxPilot-CSRF": csrfToken } });
+  // spread: one server can have twenty of these, and twenty archives decompressing in the same
+  // minute is not a rehearsal, it is an outage. The server puts it somewhere quiet near here.
+  const scheduleRehearsal = (appId: string) => changeSchedule(createSchedule({ operationId: "app.backup.verify", parameters: { id: appId }, frequency: "weekly", minute: 30, hour: 3, weekday: 1, spread: true }), "Could not schedule the rehearsal");
+  const unscheduleRehearsal = (scheduleId: string) => changeSchedule(deleteSchedule(scheduleId), "Could not stop the rehearsal");
+  const scheduleKillswitch = (appId: string) => changeSchedule(createSchedule({ operationId: "app.vpn.killswitch.drill", parameters: { id: appId }, frequency: "weekly", minute: 0, hour: 4, weekday: 0, spread: true }), "Could not schedule the kill-switch check");
+  const unscheduleKillswitch = (scheduleId: string) => changeSchedule(deleteSchedule(scheduleId), "Could not stop the kill-switch check");
 
   const showLogs = async (id: string, container?: string) => {
     try {
@@ -583,8 +592,8 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
               {installed && manifest.networkVia && tunnels[manifest.id]?.exit && tunnels[manifest.id].running && (
                 <p className="muted app-stats">VPN exit: {tunnels[manifest.id].exit?.location ?? "unknown place"} · {tunnels[manifest.id].exit?.ip}{tunnels[manifest.id].forwardedPort ? ` · forwarded port ${tunnels[manifest.id].forwardedPort} (set it under Tools, Options, Connection)` : ""} · <button className="text-button" type="button" onClick={() => start({ operationId: "app.vpn.killswitch.drill", title: `Prove ${manifest.name}'s kill switch`, parameters: { id: manifest.id }, preview: <span>Forces the tunnel down for a few seconds, checks nothing can reach the internet while it is down, then brings it back. Downloads pause briefly and resume by themselves; the result is recorded.</span> })}>Prove the kill switch</button>
                   {killswitch[manifest.id]
-                    ? <> · <span className={`status-pill status-${killswitch[manifest.id].overdue || (killswitch[manifest.id].lastResult && !killswitch[manifest.id].lastResult!.startsWith("completed")) ? "warning" : "good"}`}>auto-checked weekly</span>{killswitch[manifest.id].lastRunAt ? ` (last ${new Date(killswitch[manifest.id].lastRunAt!).toLocaleDateString()}${killswitch[manifest.id].lastResult && !killswitch[manifest.id].lastResult!.startsWith("completed") ? ", failed" : ""})` : ""} <button className="text-button" type="button" onClick={() => void unscheduleKillswitch(killswitch[manifest.id].id)}>stop</button></>
-                    : <> · <button className="text-button" type="button" onClick={() => void scheduleKillswitch(manifest.id)}>Verify weekly</button></>}
+                    ? <> · <span className={`status-pill status-${killswitch[manifest.id].overdue || (killswitch[manifest.id].lastResult && !killswitch[manifest.id].lastResult!.startsWith("completed")) ? "warning" : "good"}`}>auto-checked weekly</span>{killswitch[manifest.id].lastRunAt ? ` (last ${new Date(killswitch[manifest.id].lastRunAt!).toLocaleDateString()}${killswitch[manifest.id].lastResult && !killswitch[manifest.id].lastResult!.startsWith("completed") ? ", failed" : ""})` : ""} <button className="text-button" type="button" disabled={scheduling} onClick={() => void unscheduleKillswitch(killswitch[manifest.id].id)}>stop</button></>
+                    : <> · <button className="text-button" type="button" disabled={scheduling} onClick={() => void scheduleKillswitch(manifest.id)}>Verify weekly</button></>}
                 </p>
               )}
               {/* The drill's own verdict, not just whether one is scheduled. A leak means traffic
@@ -817,14 +826,14 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
           </ul>
         </section>
       )}
-      {config && <ConfigForm manifest={config.manifest} live={config.live} mode={config.mode} csrfToken={csrfToken} onCancel={() => setConfig(null)} onSubmit={(values) => {
+      {config && <ConfigForm manifest={config.manifest} live={config.live} mode={config.mode} csrfToken={csrfToken} appNameFor={(id) => data?.applications.find((entry) => entry.manifest.id === id)?.manifest.name ?? null} onCancel={() => setConfig(null)} onSubmit={(values) => {
         const { manifest, mode } = config;
         setConfig(null);
         start({ operationId: mode === "install" ? "app.install" : "app.reconfigure", title: mode === "install" ? `Install ${manifest.name}` : `Change ${manifest.name} settings`, parameters: { id: manifest.id, values }, preview: <span>{mode === "install" ? `Pulls ${manifest.image.reference}, starts it with the settings you chose, and waits until it is healthy. Rolled back automatically if it fails.` : "Recreates the container with the new settings; the previous configuration is restored if it fails."}</span> });
       }} />}
       {logs && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setLogs(null)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="logs-title" onMouseDown={(event) => event.stopPropagation()}>
+          <section ref={logsRef} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="logs-title" onKeyDown={closeOnEscape(() => setLogs(null))} onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Logs</span><h2 id="logs-title">{logs.id}{logs.container ? ` · ${logs.container}` : ""}</h2></div><button className="icon-button" type="button" onClick={() => setLogs(null)} aria-label="Close dialog">X</button></header>
             {(() => {
               const owner = data?.applications.find((entry) => entry.manifest.id === logs.id)?.manifest;
@@ -844,7 +853,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
 
       {foreignLogs && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setForeignLogs(null)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="foreign-logs-title" onMouseDown={(event) => event.stopPropagation()}>
+          <section ref={foreignLogsRef} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="foreign-logs-title" onKeyDown={closeOnEscape(() => setForeignLogs(null))} onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Logs</span><h2 id="foreign-logs-title">{foreignLogs.name}</h2></div><button className="icon-button" type="button" onClick={() => setForeignLogs(null)} aria-label="Close dialog">X</button></header>
             <pre className="app-logs">{foreignLogs.lines.join("\n") || "(no output)"}</pre>
           </section>
@@ -853,7 +862,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
 
       {reachability && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setReachability(null)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="reach-title" onMouseDown={(event) => event.stopPropagation()}>
+          <section ref={reachabilityRef} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="reach-title" onKeyDown={closeOnEscape(() => setReachability(null))} onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Reachability</span><h2 id="reach-title">{reachability.id}</h2></div><button className="icon-button" type="button" onClick={() => setReachability(null)} aria-label="Close dialog">X</button></header>
             {reachability.checking ? <p className="muted">Asking each address, from the server itself...</p> : (
               <div className="reach-report">
@@ -880,7 +889,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
 
       {appBackups && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setAppBackups(null)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="backups-title" onMouseDown={(event) => event.stopPropagation()}>
+          <section ref={appBackupsRef} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="backups-title" onKeyDown={closeOnEscape(() => setAppBackups(null))} onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Backups</span><h2 id="backups-title">{appBackups.name}</h2></div><button className="icon-button" type="button" onClick={() => setAppBackups(null)} aria-label="Close dialog">X</button></header>
             <div className="modal-copy">
               {appBackups.backups.length === 0 && <p>No backups yet. Back up creates a consistent archive of the app's data and configuration.</p>}
@@ -902,8 +911,9 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                   </p>
                 )}
                 {appBackups.backups.length > 0 && (rehearsal[appBackups.id]
-                  ? <p className="muted">Rehearsed automatically {rehearsal[appBackups.id].cadence}. <button className="text-button" type="button" onClick={() => void unscheduleRehearsal(rehearsal[appBackups.id].id)}>stop</button></p>
-                  : <p className="muted">Nothing checks these on their own. <button className="text-button" type="button" onClick={() => void scheduleRehearsal(appBackups.id)}>Rehearse weekly</button></p>)}
+                  ? <p className="muted">Rehearsed automatically {rehearsal[appBackups.id].cadence}. <button className="text-button" type="button" disabled={scheduling} onClick={() => void unscheduleRehearsal(rehearsal[appBackups.id].id)}>stop</button></p>
+                  : <p className="muted">Nothing checks these on their own. <button className="text-button" type="button" disabled={scheduling} onClick={() => void scheduleRehearsal(appBackups.id)}>Rehearse weekly</button></p>)}
+                {error && <div className="auth-error">{error}</div>}
               </div>
               {browsing && (
                 <div className="backup-browser">
@@ -914,7 +924,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                   </div>
                   <ul className="backup-file-list">
                     {browsing.files.filter((entry) => entry.type !== "directory" && (!browsing.filter || entry.path.toLowerCase().includes(browsing.filter.toLowerCase()))).slice(0, 200).map((entry) => (
-                      <li key={entry.path}><code>{entry.path}</code><span className="muted">{entry.sizeBytes >= 1024 ? `${(entry.sizeBytes / 1024).toFixed(0)} KiB` : `${entry.sizeBytes} B`}</span><button className="text-button" type="button" onClick={() => { const target = appBackups; const file = entry.path; const archive = browsing.backup; setBrowsing(null); setAppBackups(null); start({ operationId: "app.backup.restore-path", title: `Restore ${file} into ${target.name}`, parameters: { id: target.id, backup: archive, path: file }, preview: <span>Takes a checkpoint of {target.name}'s current data, stops it briefly, restores only <code>{file}</code> from this backup over the current one, and starts it again. Everything else is untouched.</span> }); }}>Restore this file</button></li>
+                      <li key={entry.path}><code>{entry.path}</code><span className="muted">{formatBytes(entry.sizeBytes)}</span><button className="text-button" type="button" onClick={() => { const target = appBackups; const file = entry.path; const archive = browsing.backup; setBrowsing(null); setAppBackups(null); start({ operationId: "app.backup.restore-path", title: `Restore ${file} into ${target.name}`, parameters: { id: target.id, backup: archive, path: file }, preview: <span>Takes a checkpoint of {target.name}'s current data, stops it briefly, restores only <code>{file}</code> from this backup over the current one, and starts it again. Everything else is untouched.</span> }); }}>Restore this file</button></li>
                     ))}
                   </ul>
                   {browsing.truncated && <p className="muted">Listing capped; refine the filter.</p>}
@@ -928,7 +938,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
                       {appBackups.backups.map((backup) => (
                         <tr key={backup.artifact}>
                           <td>{backup.createdAt ? new Date(backup.createdAt).toLocaleString() : backup.artifact}</td>
-                          <td>{backup.sizeBytes !== null ? `${(backup.sizeBytes / 1024 / 1024).toFixed(1)} MiB` : "—"}</td>
+                          <td>{formatBytes(backup.sizeBytes)}</td>
                           <td>{offlineFor(backup.downtimeMs)}</td>
                           <td>
                             <div className="recovery-actions">
@@ -990,7 +1000,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
 
       {models && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setModels(null)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="models-title" onMouseDown={(event) => event.stopPropagation()}>
+          <section ref={modelsRef} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="models-title" onKeyDown={closeOnEscape(() => setModels(null))} onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Models</span><h2 id="models-title">{models.name}</h2></div><button className="icon-button" type="button" onClick={() => setModels(null)} aria-label="Close dialog">X</button></header>
             <div className="modal-copy">
               {models.loading && <p className="muted">Asking {models.name} what it has…</p>}
@@ -1025,7 +1035,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
 
       {secrets && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setSecrets(null)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="secrets-title" onMouseDown={(event) => event.stopPropagation()}>
+          <section ref={secretsRef} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="secrets-title" onKeyDown={closeOnEscape(() => setSecrets(null))} onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">{secrets.signIn ? "Sign in" : "Secrets"}</span><h2 id="secrets-title">{secrets.name}</h2></div><button className="icon-button" type="button" onClick={() => setSecrets(null)} aria-label="Close dialog">X</button></header>
             <div className="modal-copy">
               {secrets.signIn && (() => {

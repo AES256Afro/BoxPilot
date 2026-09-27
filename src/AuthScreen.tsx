@@ -12,12 +12,14 @@ export default function AuthScreen({ bootstrapRequired, onAuthenticated }: { boo
   const [github, setGithub] = useState<GithubFlow | null>(null);
   const [githubStatus, setGithubStatus] = useState<string | null>(null);
   const pollTimer = useRef<number | null>(null);
+  // Bumped by Cancel and on unmount so a poll already in flight does not schedule another.
+  const flowGeneration = useRef(0);
 
   useEffect(() => {
     if (bootstrapRequired) return;
     fetchIdentityOptions().then(setIdentity).catch(() => setIdentity(null));
   }, [bootstrapRequired]);
-  useEffect(() => () => { if (pollTimer.current) window.clearTimeout(pollTimer.current); }, []);
+  useEffect(() => () => { flowGeneration.current += 1; if (pollTimer.current) window.clearTimeout(pollTimer.current); }, []);
 
   // First Tailscale sign-in from a browser confirms the password once; the server then remembers the browser.
   const [devicePrompt, setDevicePrompt] = useState<{ username: string } | null>(null);
@@ -51,24 +53,37 @@ export default function AuthScreen({ bootstrapRequired, onAuthenticated }: { boo
   };
 
   const githubSignIn = async () => {
+    const generation = ++flowGeneration.current;
+    const current = () => generation === flowGeneration.current;
     setError(null); setGithubStatus("Starting…");
     try {
       const flow = await startGithubSignIn();
+      if (!current()) return;
       setGithub(flow); setGithubStatus("Waiting for you to authorize on GitHub…");
       const poll = async () => {
         try {
           const result = await pollGithubSignIn(flow.flowId);
+          if (!current()) return;
           if (result.status === "complete" && result.session) { onAuthenticated(result.session); return; }
           if (result.status === "pending") { pollTimer.current = window.setTimeout(() => void poll(), flow.intervalSeconds * 1000); return; }
           setGithub(null); setGithubStatus(null); setError(result.error ?? (result.status === "expired" ? "The GitHub code expired; try again." : result.status === "denied" ? "GitHub authorization was denied." : "GitHub sign-in failed."));
         } catch (pollError) {
+          if (!current()) return;
           setGithub(null); setGithubStatus(null); setError(pollError instanceof Error ? pollError.message : "GitHub sign-in failed");
         }
       };
       pollTimer.current = window.setTimeout(() => void poll(), flow.intervalSeconds * 1000);
     } catch (requestError) {
+      if (!current()) return;
       setGithubStatus(null); setError(requestError instanceof Error ? requestError.message : "GitHub sign-in failed");
     }
+  };
+
+  const cancelGithub = () => {
+    flowGeneration.current += 1;
+    if (pollTimer.current) window.clearTimeout(pollTimer.current);
+    pollTimer.current = null;
+    setGithub(null); setGithubStatus(null);
   };
 
   const submit = async (event: FormEvent) => {
@@ -122,6 +137,7 @@ export default function AuthScreen({ bootstrapRequired, onAuthenticated }: { boo
                 <span>Open <a href={github.verificationUri} target="_blank" rel="noreferrer">{github.verificationUri}</a> and enter</span>
                 <code className="github-code">{github.userCode}</code>
                 <span className="muted">{githubStatus}</span>
+                <button className="text-button" type="button" onClick={cancelGithub}>Cancel</button>
               </div>
             )}
             <div className="identity-divider"><span>or use your password</span></div>
