@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { countOf } from "./data";
 import type { PendingOperation } from "./ApproveDialog";
 import { inspectOperation } from "./operations";
+import { formatBytes } from "./formatBytes";
 
 interface SnapshotEntry { artifact: string; sizeBytes: number | null; createdAt: string | null; checksumSha256: string | null; apps: number | null }
 interface Sources { sources: Array<{ source: "local" | "mirror"; root: string; available: boolean; snapshots: SnapshotEntry[] }>; mount: { mounted: boolean; blocker: string | null } }
@@ -10,12 +11,6 @@ interface Discovered { locations: Array<{ root: string; mount: { target: string;
 interface Option { key: string; source: "local" | "mirror" | "discovered"; root: string | null; where: string; snapshot: SnapshotEntry }
 interface Described { source: string; artifact: string; createdAt: string | null; apps: Array<{ id: string; installed: boolean; newestBackup: string | null; dataAvailable: boolean; dataLocation: string | null }>; system: { netplanFiles?: number; ufwFiles?: number; fstab?: boolean } | null; vms: { domains: string[]; disksIncluded?: boolean; diskRepositoryReachable?: boolean } | null }
 
-function formatBytes(value: number | null) {
-  if (!value) return "—";
-  const units = ["B", "KiB", "MiB", "GiB"]; let size = value; let index = 0;
-  while (size >= 1024 && index < units.length - 1) { size /= 1024; index += 1; }
-  return `${size.toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
-}
 
 /**
  * Backups → Restore from a machine snapshot: pick one, choose apps, restore.
@@ -91,7 +86,7 @@ export default function RestorePanel({ csrfToken, start }: { csrfToken: string; 
         <label>Snapshot
           <select aria-label="Snapshot to restore" value={choice} onChange={(event) => void describe(event.target.value)}>
             <option value="">Choose a snapshot…</option>
-            {options.map((option) => <option key={option.key} value={option.key}>{option.where} · {option.snapshot.createdAt ? new Date(option.snapshot.createdAt).toLocaleString() : option.snapshot.artifact} · {formatBytes(option.snapshot.sizeBytes)}{option.snapshot.apps !== null ? ` · ${countOf(option.snapshot.apps, "app")}` : ""}</option>)}
+            {options.map((option) => <option key={option.key} value={option.key}>{option.where} · {option.snapshot.createdAt ? new Date(option.snapshot.createdAt).toLocaleString() : option.snapshot.artifact} · {formatBytes(option.snapshot.sizeBytes || null)}{option.snapshot.apps !== null ? ` · ${countOf(option.snapshot.apps, "app")}` : ""}</option>)}
           </select>
         </label>
         {sources && !sources.mount.mounted && options.length === 0 && <span className="muted">{sources.mount.blocker ?? "No snapshots here or on any mounted drive. If you have one on a drive or a network share, mount it from the Storage page and refresh. A rebuilt server finds it that way."}</span>}

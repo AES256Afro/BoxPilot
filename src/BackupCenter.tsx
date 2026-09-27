@@ -9,6 +9,7 @@ import { readJson } from "./http";
 import { useTailnetHosts } from "./tailnetHosts";
 import { behindBackupSchedules, judgeProtection, type AppProtection, type ProtectionVerdict, type ScheduleLike } from "./backupProtection";
 import { offBoxVerdict, offBoxWarning, mirrorOperations, type OffBoxInputs } from "./offBox";
+import { formatBytes } from "./formatBytes";
 
 interface BackupRecord { id: string; applicationId: string; destination: string; checksumSha256: string; sizeBytes: number; downtimeMs: number; restoreDrill: { passed?: boolean } | null; createdAt: string }
 interface ControllerProtection { id: string; backupId: string; snapshotId?: string; createdAt: string; protected?: boolean; retained?: boolean }
@@ -41,9 +42,6 @@ interface MachineSnapshotState {
 
 const requestJson = async <T,>(url: string, options?: RequestInit): Promise<T> => readJson<T>(await fetch(url, options));
 
-function formatBytes(bytes: number): string {
-  return bytes >= 1024 ** 2 ? `${(bytes / 1024 ** 2).toFixed(1)} MiB` : `${(bytes / 1024).toFixed(0)} KiB`;
-}
 
 /**
  * Backups home: BoxPilot's own database. Per-app backups live on each catalog card, and VM

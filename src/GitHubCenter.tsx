@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { readJson } from "./http";
+import { formatBytes } from "./formatBytes";
 
 type CommitEvidence = {
   sha: string;
@@ -49,10 +50,6 @@ function formatDate(value: string | null | undefined) {
   return value ? new Date(value).toLocaleString() : "Not reported";
 }
 
-function formatBytes(value: number) {
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
-}
 
 function CommitLine({ label, commit }: { label: string; commit: CommitEvidence }) {
   return <div className="github-commit"><div><span>{label}</span><a href={commit.url} target="_blank" rel="noreferrer"><code>{commit.sha.slice(0, 12)}</code></a></div><div><span className={`status-pill ${commit.verification.verified ? "status-good" : "status-warning"}`}>{commit.verification.verified ? "GitHub reports verified" : `GitHub reports ${commit.verification.reason}`}</span><small>{formatDate(commit.committedAt)}</small></div></div>;
