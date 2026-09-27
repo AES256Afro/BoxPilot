@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -20,7 +21,8 @@ describe("reading the certificate state", () => {
     expect(typeof status.port).toBe("number");
   });
 
-  it("reads names, fingerprint and expiry from a real certificate", async () => {
+  // Linux only: needs openssl on the fixed Linux PATH.
+  it.skipIf(onWindows)("reads names, fingerprint and expiry from a real certificate", async () => {
     const dir = await mkdtemp(path.join(tmpdir(), "boxpilot-tlsstatus-"));
     const key = path.join(dir, "leaf.key");
     const crt = path.join(dir, "leaf.crt");

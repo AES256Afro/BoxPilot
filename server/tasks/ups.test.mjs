@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { onWindows } from "../../test/platform.mjs";
 import { renderNutConfig, upsSetup, validateUpsSetup } from "./ups.mjs";
 import { classifyUsbDevice, detectUsbUps } from "../ups-detect.mjs";
 
@@ -32,7 +33,8 @@ describe("UPS detection", () => {
     expect(classifyUsbDevice({ idVendor: "03f0", idProduct: "134a", manufacturer: "PixArt", product: "HP USB Optical Mouse" })).toBeNull();
   });
 
-  it("walks sysfs and lists only UPS devices", async () => {
+  // Linux only: expects POSIX paths.
+  it.skipIf(onWindows)("walks sysfs and lists only UPS devices", async () => {
     const tree = {
       "/sys/bus/usb/devices/1-2/idVendor": "0764", "/sys/bus/usb/devices/1-2/idProduct": "0501", "/sys/bus/usb/devices/1-2/product": "CP1500PFCLCD",
       "/sys/bus/usb/devices/1-3/idVendor": "03f0", "/sys/bus/usb/devices/1-3/idProduct": "134a", "/sys/bus/usb/devices/1-3/product": "HP USB Optical Mouse",

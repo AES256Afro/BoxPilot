@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { fixedRun } from "./exec.mjs";
 import { createMachineSnapshotHelper } from "./machine-snapshot-helper.mjs";
 
@@ -34,7 +35,8 @@ async function buildSnapshot(root, { appId = "demo", withEnv = true } = {}) {
   return snapshotRoot;
 }
 
-describe("machine snapshot restore", () => {
+// Linux only: needs tar on the fixed Linux PATH.
+describe.skipIf(onWindows)("machine snapshot restore", () => {
   it("lists sources, describes a snapshot, and rehydrates apps through the deployer with data from the mirror", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "boxpilot-restore-")); directories.push(root);
     const snapshotRoot = await buildSnapshot(root);

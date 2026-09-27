@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { createAuditLog, parseAuditLimit } from "./audit.mjs";
 
 describe("virtualization audit log", () => {
-  it("records redacted structured events in JSONL", async () => {
+  // Linux only: expects POSIX paths.
+  it.skipIf(onWindows)("records redacted structured events in JSONL", async () => {
     const append = vi.fn(async () => {});
     const makeDirectory = vi.fn(async () => {});
     const audit = createAuditLog({ stateDirectory: "/safe/state", append, makeDirectory });

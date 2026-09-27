@@ -2,6 +2,7 @@ import { mkdtemp, open, readdir, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { createJobLogReader, createJobLogWriter, jobLogPath, maxJobLogBytes, maxJobLogLineBytes } from "./job-log.mjs";
 
 const directories = [];
@@ -9,7 +10,8 @@ afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d,
 const jobId = "11111111-2222-4333-8444-555555555555";
 
 describe("job log", () => {
-  it("appends timestamped lines that a reader can tail incrementally, then removes the file", async () => {
+  // Linux only: POSIX file modes.
+  it.skipIf(onWindows)("appends timestamped lines that a reader can tail incrementally, then removes the file", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-joblog-")); directories.push(directory);
     const writer = createJobLogWriter({ jobId, directory, now: () => new Date("2026-08-19T12:00:00.000Z") });
     await writer.append("hello", "stdout");
@@ -65,7 +67,8 @@ describe("following a job log", () => {
 
 
 describe("log files under the helper's umask", () => {
-  it("are readable by the service group whatever umask the process runs with", async () => {
+  // Linux only: POSIX file modes and umask.
+  it.skipIf(onWindows)("are readable by the service group whatever umask the process runs with", async () => {
     // boxpilot-helper.service runs with UMask=0077. A mode passed to open() is only a request; the
     // umask edits it, and 0640 became 0600 - a log root wrote and the web service could not read.
     const previous = process.umask(0o077);

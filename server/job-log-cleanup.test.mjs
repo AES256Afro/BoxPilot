@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { releaseSavedJobLog, savedCompletedOutput } from "./job-log-cleanup.mjs";
 import { jobLogPath } from "./job-log.mjs";
 const directories = [];
@@ -12,20 +13,23 @@ async function fixture() {
   const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-saved-log-")); directories.push(directory);
   const file = jobLogPath(jobId, directory);
   await writeFile(file, "complete output\n", { mode: 0o640 });
-  return { directory, file, expectedUid: process.getuid(), lookup: async () => "complete output\n" };
+  return { directory, file, expectedUid: process.getuid?.(), lookup: async () => "complete output\n" };
 }
 describe("releasing durable job output", () => {
-  it("removes only a fully saved completed log and is idempotent", async () => {
+  // Linux only: POSIX ownership and file modes.
+  it.skipIf(onWindows)("removes only a fully saved completed log and is idempotent", async () => {
     const options = await fixture();
     expect(await releaseSavedJobLog({ jobId }, options)).toMatchObject({ removed: true, bytes: 16 });
     expect(await releaseSavedJobLog({ jobId }, options)).toMatchObject({ removed: false, retained: false, reason: "already-absent" });
   });
-  it.each([null, "output\n", "other output\n"])("retains a file when its full contents were not persisted (%s)", async (saved) => {
+  // Linux only: POSIX ownership and file modes (the directory check would refuse first).
+  it.skipIf(onWindows).each([null, "output\n", "other output\n"])("retains a file when its full contents were not persisted (%s)", async (saved) => {
     const options = await fixture(); options.lookup = async () => saved;
     expect((await releaseSavedJobLog({ jobId }, options)).retained).toBe(true);
     expect(await readFile(options.file, "utf8")).toBe("complete output\n");
   });
-  it("refuses symlinks, foreign ownership and a file changed during inspection", async () => {
+  // Linux only: POSIX ownership and file modes; creates file symlinks.
+  it.skipIf(onWindows)("refuses symlinks, foreign ownership and a file changed during inspection", async () => {
     const options = await fixture();
     expect((await releaseSavedJobLog({ jobId }, { ...options, expectedUid: 999999 })).reason).toBe("untrusted-directory");
     await rm(options.file); await symlink(path.join(options.directory, "target"), options.file);

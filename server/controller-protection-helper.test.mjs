@@ -2,6 +2,7 @@ import { copyFile, lstat, mkdir, mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { createControllerBackupHelper } from "./controller-backup-helper.mjs";
 import { createControllerProtectionHelper, controllerProtectionHelperInternals, validateControllerProtectionInput } from "./controller-protection-helper.mjs";
 import { createStateStore } from "./state.mjs";
@@ -89,13 +90,15 @@ describe("controller independent protection helper", () => {
     expect(() => controllerProtectionHelperInternals.confinedChild("/fixed/root", "../escape")).toThrow("escaped its fixed root");
   });
 
-  it("reports a read-only ready destination with a distinct repository and recovery key", async () => {
+  // Linux only: fsyncs a read-only handle, which Windows refuses; the backup mount must resolve below /mnt.
+  it.skipIf(onWindows)("reports a read-only ready destination with a distinct repository and recovery key", async () => {
     const { destination, run } = await fixture();
     expect(destination).toMatchObject({ ready: true, encrypted: true, independent: true, repositoryId, setupCommand: "sudo /opt/boxpilot/scripts/boxpilot-controller-restic-setup.sh", boundary: { mutationPerformed: false, browserPathAccepted: false, browserPasswordAccepted: false } });
     expect(run).toHaveBeenCalledWith(expect.stringContaining("findmnt"), expect.arrayContaining(["--mountpoint", "/mnt/boxpilot-controller-test"]), expect.any(Object));
   });
 
-  it("reads the complete repository and restores the exact snapshot before claiming protection", async () => {
+  // Linux only: fsyncs a read-only handle, which Windows refuses; the backup mount must resolve below /mnt.
+  it.skipIf(onWindows)("reads the complete repository and restores the exact snapshot before claiming protection", async () => {
     const { helper, run, parameters, localResult, protectionDrillRoot } = await fixture();
     const result = await helper.protect(parameters);
     expect(result).toMatchObject({ created: true, protectionId, backupId, repositoryId, snapshotId, encrypted: true, independent: true, repositoryVerified: true, protected: true, restoreDrill: { passed: true, mode: "exact-snapshot-isolated-copy-open", network: "none", artifactChecksumMatched: true, manifestChecksumMatched: true, workspaceRemoved: true }, boundary: { productionDatabaseChanged: false, localBackupChanged: false, retentionPerformed: false, prunePerformed: false } });
@@ -105,7 +108,8 @@ describe("controller independent protection helper", () => {
     await expect(lstat(path.join(protectionDrillRoot, protectionId))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
-  it("rejects changed artifact evidence before invoking restic backup", async () => {
+  // Linux only: fsyncs a read-only handle, which Windows refuses; the backup mount must resolve below /mnt.
+  it.skipIf(onWindows)("rejects changed artifact evidence before invoking restic backup", async () => {
     const { helper, run, parameters } = await fixture();
     await expect(helper.protect({ ...parameters, expectedArtifactChecksumSha256: "f".repeat(64) })).rejects.toThrow("checksum changed");
     expect(run.mock.calls.some(([, args]) => args.includes("backup"))).toBe(false);

@@ -3,6 +3,7 @@ import { lstat, mkdir, mkdtemp, readFile, symlink, writeFile } from "node:fs/pro
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { createVmMediaHelper, safeIsoFilename, validateVmMediaImportInput } from "./vm-media-helper.mjs";
 
 async function fixture() {
@@ -21,7 +22,8 @@ async function fixture() {
 }
 
 describe("VM media helper", () => {
-  it("lists only complete regular staged pairs and managed ISO files", async () => {
+  // Linux only: creates file symlinks, which need a privilege on Windows.
+  it.skipIf(onWindows)("lists only complete regular staged pairs and managed ISO files", async () => {
     const item = await fixture();
     await writeFile(path.join(item.mediaRoot, "debian.iso"), "managed");
     await writeFile(path.join(item.inboxRoot, "incomplete.iso"), "incomplete");
@@ -41,7 +43,8 @@ describe("VM media helper", () => {
     expect(result.boundary).toMatchObject({ browserPathAccepted: false, arbitraryDestinationAccepted: false, existingMediaOverwritten: false, mutationPerformed: false });
   });
 
-  it("imports exact staged bytes atomically and removes the staging pair", async () => {
+  // Linux only: fsyncs a read-only handle, which Windows refuses.
+  it.skipIf(onWindows)("imports exact staged bytes atomically and removes the staging pair", async () => {
     const item = await fixture();
     const before = await item.helper.inspect();
     const candidate = before.inbox.candidates[0];
