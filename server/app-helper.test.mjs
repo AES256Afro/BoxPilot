@@ -821,6 +821,43 @@ describe("generic app deployer", () => {
     await expect(apps.restoreAppBackupPath({ id: "demo", backup: backupResult.artifact, path: "data/missing.txt" })).rejects.toThrow("is not in");
   });
 
+  it("restores a file from the oldest backup without its own checkpoint pruning that backup", async () => {
+    const { apps, catalogRoot, advance } = await setup();
+    await apps.install({ id: "demo" });
+    const dataDirectory = path.join(catalogRoot, "demo", "data");
+    await mkdir(dataDirectory, { recursive: true });
+    await writeFile(path.join(dataDirectory, "settings.json"), '{"theme":"dark"}');
+    const oldest = await apps.backup({ id: "demo" });
+    for (let index = 0; index < 4; index += 1) { advance(60_000); await apps.backup({ id: "demo" }); }
+    await writeFile(path.join(dataDirectory, "settings.json"), '{"theme":"broken"}');
+    advance(60_000);
+
+    await expect(apps.restoreAppBackupPath({ id: "demo", backup: oldest.artifact, path: "data/settings.json" })).resolves.toMatchObject({ restored: true });
+    expect(await readFile(path.join(dataDirectory, "settings.json"), "utf8")).toBe('{"theme":"dark"}');
+    expect((await apps.listAppBackups({ id: "demo" })).backups.map((item) => item.artifact)).toContain(oldest.artifact);
+  });
+
+  it("prunes checkpoints only against other checkpoints, never the owner's own backups", async () => {
+    const { apps, advance } = await setup();
+    await apps.install({ id: "demo" });
+    const nightlies = [];
+    for (let index = 0; index < 3; index += 1) { advance(60_000); nightlies.push((await apps.backup({ id: "demo" })).artifact); }
+    // Six settings tweaks, each taking a checkpoint of whatever state the app is in.
+    const checkpoints = [];
+    for (let index = 0; index < 6; index += 1) { advance(60_000); checkpoints.push((await apps.reconfigure({ id: "demo" })).checkpoint.artifact); }
+    let kept = (await apps.listAppBackups({ id: "demo" })).backups.map((item) => item.artifact);
+    expect(kept).toEqual(expect.arrayContaining(nightlies));
+    expect(kept).not.toContain(checkpoints[0]);
+    expect(kept).toEqual(expect.arrayContaining(checkpoints.slice(1)));
+    // And the owner's own retention counts only the owner's backups, so checkpoints do not push
+    // nightlies out either.
+    advance(60_000);
+    const next = await apps.backup({ id: "demo", keep: 3 });
+    expect(next.pruned).toEqual([nightlies[0]]);
+    kept = (await apps.listAppBackups({ id: "demo" })).backups.map((item) => item.artifact);
+    expect(kept).toEqual(expect.arrayContaining([...nightlies.slice(1), next.artifact, ...checkpoints.slice(1)]));
+  });
+
   it("pulls before reading the image's USER, so a first install can hand over its data folder", async () => {
     // AuDHDMAP's first install crash-looped on `mkdir /data/attachments` with EACCES. Its manifest
     // declares no PUID, so the app's user can only come from the image's own USER directive - and
