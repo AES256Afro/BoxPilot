@@ -79,7 +79,9 @@ export default function SystemLogs({ csrfToken = "" }: { csrfToken?: string }) {
   const select = (nextKind: Kind, nextTarget: string) => { setKind(nextKind); setTarget(nextTarget); };
   const download = () => {
     const blob = new Blob([entries.join("\n") + "\n"], { type: "text/plain" });
-    const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `${target.replace(/[^A-Za-z0-9._-]/g, "_")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.log`; anchor.click(); URL.revokeObjectURL(url);
+    const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `${target.replace(/[^A-Za-z0-9._-]/g, "_")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.log`; anchor.click();
+    // Revoking in the same tick can cancel the download before the browser has read the blob.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   return (
