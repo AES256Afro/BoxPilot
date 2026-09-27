@@ -115,6 +115,28 @@ describe("approval dialog", () => {
     await waitFor(() => expect(onFinished).toHaveBeenCalled());
   });
 
+  it("asks for the password when the elevated session lapsed after staging", async () => {
+    const calls = stubApi({ passwordRequired: false, confirmText: "" });
+    const api = vi.mocked(fetch); const normal = api.getMockImplementation()!;
+    const json = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
+    api.mockImplementation((input, init) => {
+      const url = input.toString();
+      if (url.endsWith("/approve")) {
+        calls.push({ url, method: "POST", body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown> });
+        return json({ error: "Enter the owner password: high-risk job needs the owner password", code: "job_approval_failed" }, 409);
+      }
+      if (url.endsWith("/approval")) return json({ jobId: "job-1", tier: "high", passwordRequired: true, elevated: false, mode: "tiered", reason: "" });
+      return normal(input, init);
+    });
+    render(<ApproveDialog operationId="apt.repair" title="Repair packages" parameters={{}} csrfToken="csrf" onClose={() => {}} />);
+    const run = await screen.findByRole("button", { name: "Confirm and run" });
+    expect(screen.queryByLabelText("Approval password")).toBeNull();
+    fireEvent.click(run);
+    expect(await screen.findByLabelText("Approval password")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toMatch(/owner password/);
+    expect(screen.queryByText(/Session elevated/)).toBeNull();
+  });
+
   it("withdraws the staged job when the dialog is dismissed", async () => {
     const calls = stubApi();
     const onClose = vi.fn();
