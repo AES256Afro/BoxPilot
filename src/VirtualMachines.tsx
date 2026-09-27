@@ -231,7 +231,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       operationId: "vm.backup.retention.apply",
       title: "Apply VM backup retention",
       parameters: {},
-      preview: <span>Lets go of old backups that are safe to drop: only ones that passed a test restore, are no longer in use, are past the minimum age, and never below {retentionStatus?.policy?.minimumCopiesPerDomain ?? 3} copies per VM. Then checks the store is intact. The files stay and no space is reclaimed, so nothing you still need is touched.</span>,
+      preview: <span>Lets go of old backups that are safe to drop: only ones that passed a test restore, are no longer in use, are past the minimum age, and never below {retentionStatus?.policy?.minimumCopiesPerDomain ?? 3} restore-tested copies per VM. Then checks the store is intact. The files stay and no space is reclaimed, so nothing you still need is touched.</span>,
     });
   };
 
@@ -420,7 +420,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
           <span className={`status-pill status-${protectionDestination?.ready ? "good" : "warning"}`}>{protectionDestination?.ready ? "ready" : "setup required"}</span>
         </div>
         <div className="vm-control-lock">
-          <div><strong>Retention</strong><span>{retentionStatus ? `Keep at least ${countOf(retentionStatus.policy?.minimumCopiesPerDomain ?? 3, "copy", "copies")} per VM and every copy under ${countOf(retentionStatus.policy?.minimumAgeDays ?? 30, "day")}. Only restore-tested, unreferenced snapshots can qualify.` : "The retention policy could not be read just now."}</span></div>
+          <div><strong>Retention</strong><span>{retentionStatus ? `Keep at least ${countOf(retentionStatus.policy?.minimumCopiesPerDomain ?? 3, "restore-tested copy", "restore-tested copies")} per VM and every copy under ${countOf(retentionStatus.policy?.minimumAgeDays ?? 30, "day")}. Only restore-tested, unreferenced snapshots can qualify.` : "The retention policy could not be read just now."}</span></div>
           <button type="button" className="secondary-button" onClick={() => startRetention()} disabled={pending !== null || !protectionDestination?.ready || (retentionStatus?.candidates?.length ?? 0) === 0}>Apply retention</button>
         </div>
         {retentionStatus && <div className="vm-plan-warnings"><strong>Retention status</strong><span>{retentionStatus.candidates?.length ?? 0} currently eligible | {retentionStatus.beforeCount ?? 0} repository snapshot(s) | {retentionStatus.retentionRuns?.length ?? 0} completed run(s)</span>{retentionStatus.blockers?.map((blocker) => <span key={blocker}>{blocker}</span>)}<span>Prune is disabled, so retention does not claim reclaimed disk space.</span></div>}

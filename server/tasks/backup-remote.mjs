@@ -71,6 +71,13 @@ function parseRsyncStats(stdout) {
   return { filesTransferred: number("Number of regular files transferred"), bytesTransferred: number("Total transferred file size") };
 }
 
+/**
+ * A snapshot or restore that stops half way leaves `.staging-*` or `.restore-*` beside the machine
+ * snapshots, and a restore stages files for review under `restored/`. Each holds the controller
+ * database and every app's .env unencrypted, so none of them leave the box.
+ */
+const machineSnapshotExcludes = ["--exclude=/.staging-*/", "--exclude=/.restore-*/", "--exclude=/restored/"];
+
 /** Push every local backup root to the destination with checksum verification. Never deletes remotely. */
 export async function backupRemoteSync(parameters = {}, { run = fixedRun, log = null, secretsDirectory = defaults.secretsDirectory, sources = defaults.sources, now = () => new Date() } = {}) {
   const destination = normalizeDestination(parameters);
@@ -91,7 +98,8 @@ export async function backupRemoteSync(parameters = {}, { run = fixedRun, log = 
     // the *final* name, so a dropped link mid-database leaves a truncated file sitting where the
     // real one was, beside a manifest that says it is complete. This is the copy somebody reaches
     // for when the server is gone.
-    const result = await run(rsync, ["-a", "--checksum", "--partial-dir=.boxpilot-partial", "--exclude=.boxpilot-partial", "--mkpath", "--stats", "--timeout=600", "-e", transport, `${source.root}/`, target], { timeout: 6 * 60 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+    const excludes = source.name === "machine-snapshots" ? machineSnapshotExcludes : [];
+    const result = await run(rsync, ["-a", "--checksum", "--partial-dir=.boxpilot-partial", "--exclude=.boxpilot-partial", ...excludes, "--mkpath", "--stats", "--timeout=600", "-e", transport, `${source.root}/`, target], { timeout: 6 * 60 * 60_000, maxBuffer: 8 * 1024 * 1024 });
     if (!result.ok) throw new Error(`rsync failed for ${source.name}: ${result.stderr.trim().split("\n").slice(-2).join(" ")}`);
     const stats = parseRsyncStats(result.stdout);
     filesTransferred += stats.filesTransferred; bytesTransferred += stats.bytesTransferred;
