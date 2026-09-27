@@ -200,6 +200,26 @@ describe("restoring from a machine snapshot", () => {
     expect(apps.calls.install).toBe(0);
   });
 
+  it("refuses a snapshot whose manifest names an application outside the catalog", async () => {
+    const { paths, controllerBackups } = await fixture();
+    const artifact = "machine-snapshot-20260821T020000Z-11111111.tar.gz";
+    await mkdir(paths.snapshotRoot, { recursive: true });
+    await writeFile(path.join(paths.snapshotRoot, artifact), "crafted");
+    await writeFile(path.join(paths.snapshotRoot, `${artifact}.meta.json`), JSON.stringify({ checksumSha256: createHash("sha256").update("crafted").digest("hex") }));
+    // What the crafted archive unpacks to: a manifest whose app id climbs out of the catalog, which
+    // the restore would otherwise create and write into as root.
+    const run = vi.fn(async (_binary, args) => {
+      if (args[0] !== "-xzf" || !args.includes("-C")) return { ok: false, stdout: "", stderr: "unexpected" };
+      await writeFile(path.join(args[args.indexOf("-C") + 1], "manifest.json"), JSON.stringify({ contents: { apps: [{ id: "../escaped", installed: true }] }, files: [] }));
+      return { ok: true, stdout: "", stderr: "" };
+    });
+    const helper = createMachineSnapshotHelper({ run, controllerBackups, ...paths, requireIndependentDevice: false, now: () => new Date("2026-08-21T02:00:00.000Z") });
+    const apps = { internals: { readState: vi.fn(async () => null) }, install: vi.fn(async () => {}), restoreAppBackup: vi.fn(async () => {}) };
+    await expect(helper.restore({ source: "local", artifact }, { apps })).rejects.toThrow(/not a valid application id/);
+    await expect(stat(path.join(paths.catalogRoot, "..", "escaped"))).rejects.toThrow();
+    expect(apps.install).not.toHaveBeenCalled();
+  });
+
   it("picks up where an interrupted restore stopped instead of starting over", async () => {
     const { helper, paths } = await fixture();
     const created = await helper.create({ snapshotId });
