@@ -81,9 +81,19 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
   interface DomainStats { name: string; state: string; cpuTimeNs: number; vcpus: number | null; memoryKiB: number | null; memoryMaxKiB: number | null; diskReadBytes: number; diskWriteBytes: number; netRxBytes: number; netTxBytes: number }
   const [rates, setRates] = useState<Record<string, { cpuPercent: number | null; memoryKiB: number | null; memoryMaxKiB: number | null; diskBytesPerSecond: number | null; netBytesPerSecond: number | null }>>({});
   const previousSample = useRef<{ at: number; domains: DomainStats[] } | null>(null);
+  // Each sample waits for the last to answer (a slow libvirt must not stack up requests), and a
+  // hidden tab stops sampling until it is shown again.
   useEffect(() => {
     let cancelled = false;
+    let busy = false;
+    let timer: number | null = null;
+    const schedule = () => {
+      if (cancelled || document.hidden || timer !== null) return;
+      timer = window.setTimeout(() => { timer = null; void sample(); }, 5000);
+    };
     const sample = async () => {
+      if (busy || cancelled) return;
+      busy = true;
       try {
         const { result } = await inspectOperation<{ sampledAt: string; domains: DomainStats[] }>("vm.stats.inspect");
         const at = Date.parse(result.sampledAt) || Date.now();
@@ -100,10 +110,15 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
         previousSample.current = { at, domains: result.domains };
         if (!cancelled) setRates(next);
       } catch { /* stats are a convenience; the page works without them */ }
+      finally { busy = false; schedule(); }
     };
-    void sample();
-    const timer = window.setInterval(() => { void sample(); }, 5000);
-    return () => { cancelled = true; window.clearInterval(timer); };
+    const onVisibility = () => {
+      if (document.hidden) { if (timer !== null) { window.clearTimeout(timer); timer = null; } return; }
+      if (timer === null && !busy) void sample();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    if (!document.hidden) void sample();
+    return () => { cancelled = true; if (timer !== null) window.clearTimeout(timer); document.removeEventListener("visibilitychange", onVisibility); };
   }, []);
   const rateLabel = (bytesPerSecond: number | null) => (bytesPerSecond === null ? "—" : bytesPerSecond >= 1024 ** 2 ? `${(bytesPerSecond / 1024 ** 2).toFixed(1)} MiB/s` : `${(bytesPerSecond / 1024).toFixed(0)} KiB/s`);
 
