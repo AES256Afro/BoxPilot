@@ -1,8 +1,8 @@
 /**
  * New sign-in alerts (M19.4): the owner is notified the first time their account signs in from an
  * address, after the first address is baselined silently. Driven over a real socket, with the client
- * address controlled through X-Forwarded-For (which the display descriptor reads) and a captured
- * notify.
+ * address controlled through X-Forwarded-For as Tailscale Serve sets it (the resolver below stands
+ * in for identity.clientAddress with Serve in front) and a captured notify.
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
@@ -11,6 +11,7 @@ import express from "express";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createStateStore } from "./state.mjs";
 import { createAuthService, hashPassword } from "./security.mjs";
+import { tailnetClientAddress } from "./identity.mjs";
 
 const password = "correct horse battery";
 let directory; let server; let base; let state; let notified;
@@ -29,7 +30,7 @@ beforeAll(async () => {
   state = createStateStore({ stateDirectory: directory });
   state.consumeBootstrapToken(state.createBootstrapToken().token, { username: "alex", passwordHash: await hashPassword(password) });
   notified = [];
-  const auth = createAuthService(state, { notify: async (payload) => { notified.push(payload); } });
+  const auth = createAuthService(state, { notify: async (payload) => { notified.push(payload); }, resolveClientAddress: async (request) => tailnetClientAddress(request, { trustForwarded: true }) });
   const app = express();
   app.use(express.json({ limit: "256kb", strict: true }));
   app.post("/api/v1/auth/login", auth.login);
@@ -62,5 +63,34 @@ describe("new sign-in alerts", () => {
     const before = notified.length;
     expect(await login(undefined)).toBe(200); // socket is 127.0.0.1, no forwarded address
     expect(notified).toHaveLength(before);
+  });
+});
+
+describe("where a sign-in came from", () => {
+  // X-Forwarded-For was read from anyone: a caller on the LAN sending "127.0.0.1" suppressed the
+  // alert (loopback is ignored) and put a false address on the session row and in the audit log.
+  function direct(auth, remoteAddress, headers = {}) {
+    const lower = Object.fromEntries(Object.entries(headers).map(([name, value]) => [name.toLowerCase(), value]));
+    const request = { socket: { remoteAddress }, headers: lower, body: { username: "alex", password }, get: (name) => lower[name.toLowerCase()] };
+    const sent = {};
+    const response = { statusCode: 200, headers: {}, status(code) { this.statusCode = code; return this; }, json(body) { sent.body = body; return this; }, getHeader(name) { return this.headers[name]; }, setHeader(name, value) { this.headers[name] = value; } };
+    return auth.login(request, response).then(() => ({ status: response.statusCode, body: sent.body }));
+  }
+
+  it("ignores a forwarded address that no trusted proxy vouched for", async () => {
+    const auth = createAuthService(state, { notify: async (payload) => { notified.push(payload); } });
+    const before = notified.length;
+    expect((await direct(auth, "192.168.1.50", { "X-Forwarded-For": "127.0.0.1" })).status).toBe(200);
+    expect(notified).toHaveLength(before + 1);
+    expect(notified.at(-1).message).toContain("192.168.1.50");
+    expect(state.listSessions(state.findOwnerByUsername("alex").id).map((session) => session.address)).toContain("192.168.1.50");
+  });
+
+  it("takes the tailnet peer from the resolver that knows Serve is in front", async () => {
+    const auth = createAuthService(state, { notify: async (payload) => { notified.push(payload); }, resolveClientAddress: async () => "100.64.0.30" });
+    const before = notified.length;
+    expect((await direct(auth, "127.0.0.1", { "X-Forwarded-For": "100.64.0.30" })).status).toBe(200);
+    expect(notified).toHaveLength(before + 1);
+    expect(notified.at(-1).message).toContain("100.64.0.30");
   });
 });
