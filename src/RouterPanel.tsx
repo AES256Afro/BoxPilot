@@ -67,19 +67,21 @@ export default function RouterPanel({ start, gateway }: { start: (operation: Pen
             {report.model ? <>, {report.model}{report.firmware ? ` on ${report.firmware}` : ""}</> : null}.
           </p>
           {leases === null ? <p className="muted">Reading the device list…</p> : leases.length === 0 ? <p className="muted">The router reported no devices.</p> : (
-            <table className="perf-table">
-              <thead><tr><th>Device</th><th>Address</th><th>MAC</th><th>Address is</th></tr></thead>
-              <tbody>
-                {leases.map((lease) => (
-                  <tr key={`${lease.address}-${lease.mac ?? ""}`}>
-                    <td>{lease.name ?? <span className="muted">unnamed</span>}{lease.online ? null : <span className="status-pill status-neutral perf-ai">offline</span>}</td>
-                    <td><code>{lease.address}</code></td>
-                    <td className="muted">{lease.mac ?? "—"}</td>
-                    <td>{lease.reserved ? <span className="status-pill status-good">reserved</span> : <span className="status-pill status-neutral">from the pool</span>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="table-scroll">
+              <table className="perf-table">
+                <thead><tr><th>Device</th><th>Address</th><th>MAC</th><th>Address is</th></tr></thead>
+                <tbody>
+                  {leases.map((lease) => (
+                    <tr key={`${lease.address}-${lease.mac ?? ""}`}>
+                      <td>{lease.name ?? <span className="muted">unnamed</span>}{lease.online ? null : <span className="status-pill status-neutral perf-ai">offline</span>}</td>
+                      <td><code>{lease.address}</code></td>
+                      <td className="muted">{lease.mac ?? "—"}</td>
+                      <td>{lease.reserved ? <span className="status-pill status-good">reserved</span> : <span className="status-pill status-neutral">from the pool</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
         </>
       ) : (
