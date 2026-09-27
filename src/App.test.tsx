@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { connectionLabel } from "./appLinks";
 
 afterEach(() => {
   cleanup();
@@ -81,5 +82,16 @@ describe("BoxPilot console", () => {
     expect(screen.getByRole("button", { name: "Kernel" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Download support bundle" }));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/v1/support-bundle"));
+  });
+
+  it("describes the connection from the address bar instead of a fixed Tailscale claim", async () => {
+    vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+    render(<App />);
+    expect(await screen.findByText("HTTP connection")).toBeTruthy();
+    expect(screen.queryByText(/Funnel/)).toBeNull();
+    expect(connectionLabel({ protocol: "https:", hostname: "box.tail1234.ts.net" })).toBe("Tailscale HTTPS");
+    expect(connectionLabel({ protocol: "http:", hostname: "100.101.102.103" })).toBe("Tailscale HTTP");
+    expect(connectionLabel({ protocol: "https:", hostname: "192.168.1.10" })).toBe("HTTPS connection");
+    expect(connectionLabel({ protocol: "http:", hostname: "100.200.1.1" })).toBe("HTTP connection");
   });
 });
