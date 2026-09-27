@@ -26,8 +26,8 @@ restores, and redeploys applications, platforms, and VMs (ADR-001).
 The ops CLI observes, diagnoses, and alerts. It links to BoxPilot for operations
 instead of duplicating them: its earlier plans for a restore rehearsal, a
 deploy catalog, and an identity-gated exposure gateway are ceded to
-BoxPilot's roadmap, where those capabilities already exist or are underway
-(e.g. Tailscale/GitHub sign-in on this branch).
+BoxPilot's roadmap, where those capabilities now exist (Tailscale and GitHub
+sign-in, app backups with restore rehearsal, the app catalog).
 
 ## Integration ideas, when wanted
 
@@ -35,4 +35,5 @@ BoxPilot's roadmap, where those capabilities already exist or are underway
 - a BoxPilot catalog entry that installs the ops CLI watchdog service
 - the ops CLI `secure` findings rendered in a BoxPilot panel (read-only feed)
 
-Each fits the operation-registry model in ROADMAP-V2 when that lands.
+Each fits the operation registry described in ROADMAP-V2, which has landed:
+new host actions are registry entries, and a new app is a catalog manifest.

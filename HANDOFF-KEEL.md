@@ -14,8 +14,9 @@ installers, an Electron desktop app, and an iOS client.
 
 ## What landed here
 
-`catalog/keel.yaml`, on branch `catalog-keel`. Knowledge category, one web
-port, one data volume, `health.kind: healthcheck`.
+`catalog/keel.yaml`, merged to `main` on 2026-09-01 and pinned on 2026-09-04
+at `1.2.7`, the first published image. Knowledge category, one web port, one
+data volume, `health.kind: healthcheck`.
 
 Choices a reviewer will otherwise wonder about:
 
@@ -37,31 +38,27 @@ Choices a reviewer will otherwise wonder about:
   generated generic secret would be the wrong shape, and offering it on a
   SQLite install would be a setting that can only be got wrong.
 
-## The blocker: no image exists yet
-
-This is the one thing to know before trying an install.
+## The image
 
 BoxPilot deploys images. `server/catalog/schema.mjs` requires
 `image.reference`, rejects unknown fields, and has no build-from-git path, so
-an app that only ships source cannot be catalogued. Keel shipped only source.
+an app that only ships source cannot be catalogued. Keel originally shipped
+only source, and that was the blocker when this entry was written.
 
-Keel's side now has a workflow (branch `keel-container-image`) that builds
-linux/amd64 and linux/arm64 and pushes `ghcr.io/<owner>/keel:<version>` and
-`:latest` on a `v*` tag. Until that branch merges and a version is tagged:
-
-- **no image is on GHCR**, so installing Keel from the catalog will fail to
-  pull;
-- the manifest pins `1.2.6`, which is the version that must be tagged first;
-- the first publish creates a **private** package. It has to be made public in
-  the Keel repository's package settings, or BoxPilot cannot pull it
-  anonymously.
+It is resolved. Keel's release workflow builds linux/amd64 and linux/arm64 and
+pushes `ghcr.io/aes256afro/keel:<version>` and `:latest` on a `v*` tag. The
+package is public, so BoxPilot pulls it without credentials. As of 2026-09-27,
+`1.2.7` is the only version tag, and it is what the manifest pins. The image
+matches the manifest's assumptions: `USER node`, port 3000, a `/data` volume,
+and a HEALTHCHECK against `/api/health`.
 
 Bump `image.reference` and `image.version` together whenever Keel releases.
+The Catalog images workflow checks that the pinned tag resolves.
 
 ## How this was verified
 
-Not by inspection alone. Against a locally built image, standing in for the
-unpublished one:
+Not by inspection alone. Before the first image was published, against a
+locally built one standing in for it:
 
 - the manifest validates through `loadCatalog()`: 164 entries, no problems;
 - `server/catalog-install-smoke.test.mjs` passes with it, which drives every
