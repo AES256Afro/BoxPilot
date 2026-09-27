@@ -8,6 +8,23 @@ function sameArray(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+/** A copy counts toward the minimum only if it has been restored successfully. */
+function restoreTested(backup) {
+  return Boolean(backup.protected) && backup.restoreDrill?.passed === true;
+}
+
+/**
+ * Index of the oldest entry the minimum-copies rule keeps: the Nth newest restore-tested one, so
+ * that newer untested copies never count toward the minimum. Everything at or before it is kept.
+ */
+function minimumCopiesCutoff(entries, minimum) {
+  let tested = 0;
+  for (const [index, entry] of entries.entries()) {
+    if (restoreTested(entry) && ++tested === minimum) return index;
+  }
+  return entries.length;
+}
+
 function selectRetentionCandidates({ backups, recoveries, activeConsumers = [], now }) {
   const active = backups.filter((backup) => backup.retained !== false);
   const recoverySources = new Set(recoveries.map((recovery) => recovery.backupId));
@@ -22,13 +39,14 @@ function selectRetentionCandidates({ backups, recoveries, activeConsumers = [], 
   const kept = [];
   for (const entries of grouped.values()) {
     entries.sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+    const cutoff = minimumCopiesCutoff(entries, minimumCopiesPerDomain);
     entries.forEach((backup, index) => {
       const created = new Date(backup.createdAt).getTime();
       const ageDays = Number.isFinite(created) ? Math.max(0, Math.floor((now.getTime() - created) / dayMs)) : 0;
       const reasons = [];
-      if (index < minimumCopiesPerDomain) reasons.push("minimum-copies");
+      if (index <= cutoff) reasons.push("minimum-copies");
       if (ageDays < minimumAgeDays) reasons.push("minimum-age");
-      if (!backup.protected || backup.restoreDrill?.passed !== true) reasons.push("not-restore-tested");
+      if (!restoreTested(backup)) reasons.push("not-restore-tested");
       if (recoverySources.has(backup.id)) reasons.push("recovery-source");
       if (activeConsumerSources.has(backup.id)) reasons.push("active-restore-or-recovery");
       const entry = {
@@ -132,7 +150,9 @@ export function createVmRetentionService({ store, helper, now = () => new Date()
 
   /** Pin the snapshot ids that do have local records, so the browser cannot widen what may go. */
   function prepareForget() {
-    const backups = store.listVmBackups(500).filter((backup) => backup.retained !== false);
+    // The whole table: the bounded listing stops at 200 rows, and a recorded snapshot beyond it
+    // would look unrecorded and become forgettable.
+    const backups = store.listAllVmBackups().filter((backup) => backup.retained !== false);
     return { knownSnapshotIds: [...new Set(backups.map((backup) => backup.snapshotId).filter(Boolean))].sort() };
   }
 

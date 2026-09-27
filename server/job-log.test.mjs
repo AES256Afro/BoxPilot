@@ -125,3 +125,32 @@ it("flush waits for fire-and-forget output before the operation can publish a re
   const report = await createJobLogReader({ directory }).read(jobId);
   expect(report.text).toContain("one"); expect(report.text).toContain("two");
 });
+
+describe("the order and the end of a long log", () => {
+  it("keeps lines in the order they were appended, however many arrive at once", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-log-order-")); directories.push(directory);
+    const writer = createJobLogWriter({ jobId, directory });
+    // Varying sizes make independent appends finish in a different order than they started.
+    for (let index = 0; index < 400; index += 1) void writer.append(`line ${index} ${"x".repeat((index * 7919) % 8_000)}`);
+    await writer.flush();
+    const { text } = await createJobLogReader({ directory }).read(jobId);
+    const order = text.trim().split("\n").map((line) => Number(line.match(/ line (\d+) /)?.[1]));
+    expect(order).toEqual(Array.from({ length: 400 }, (_, index) => index));
+  });
+
+  it("says where it was cut, and still ends with the last lines the operation wrote", async () => {
+    // Everything after the cap used to vanish silently - including the error that ended the job.
+    const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-log-tail-")); directories.push(directory);
+    const writer = createJobLogWriter({ jobId, directory });
+    const lines = Math.ceil((maxJobLogBytes * 2) / 60_000);
+    for (let index = 0; index < lines; index += 1) void writer.append(`step ${index} ${"y".repeat(60_000)}`);
+    void writer.append("final error: the disk is full", "stderr");
+    await writer.flush();
+    expect((await stat(writer.path)).size).toBeLessThanOrEqual(maxJobLogBytes);
+    const { text } = await createJobLogReader({ directory }).read(jobId);
+    expect(text.match(/log truncated at 4 MiB/g)).toHaveLength(1);
+    expect(text.trimEnd().split("\n").at(-1)).toMatch(/! final error: the disk is full$/);
+    expect(text).toContain(`step ${lines - 1} `);
+    expect(text.indexOf("log truncated")).toBeLessThan(text.indexOf(`step ${lines - 1} `));
+  });
+});

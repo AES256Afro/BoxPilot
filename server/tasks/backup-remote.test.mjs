@@ -67,6 +67,18 @@ describe("off-box SSH mirror tasks", () => {
     expect(rsyncCall).toContain(`${sources[0].root}/ backup@nas.local:/srv/boxpilot/controller-backups/`);
   });
 
+  it("leaves machine-snapshot working folders, which hold secrets in the clear, out of the copy", async () => {
+    const { run, calls, secretsDirectory, sources } = await fixture();
+    await mkdir(sources[1].root, { recursive: true });
+    const statExists = await import("node:fs/promises").then((fs) => fs.stat("/usr/bin/rsync").then(() => true, () => false));
+    const promise = backupRemoteSync(destination, { run, secretsDirectory, sources });
+    if (!statExists) { await expect(promise).rejects.toThrow("rsync is not installed"); return; }
+    await promise;
+    const snapshotCall = calls.find((call) => call.includes("rsync") && call.includes("/machine-snapshots/"));
+    expect(snapshotCall).toContain("--exclude=/.staging-*/ --exclude=/.restore-*/ --exclude=/restored/");
+    expect(calls.find((call) => call.includes("rsync") && call.includes("/controller-backups/"))).not.toContain("/restored/");
+  });
+
   it("refuses to sync before the key exists or the host key is pinned", async () => {
     const { run, secretsDirectory, sources } = await fixture({ withKnownHosts: false });
     await expect(backupRemoteSync(destination, { run, secretsDirectory, sources })).rejects.toThrow("Test the destination first");

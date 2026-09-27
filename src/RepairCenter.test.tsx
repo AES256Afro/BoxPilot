@@ -173,6 +173,28 @@ describe("Repair Center", () => {
     expect(button.disabled).toBe(false);
   });
 
+  it("shows what a waiting job will run, and lets it be withdrawn instead", async () => {
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+    const job = { id: "job-fmt", title: "Erase and format a disk", type: "op:storage.format", state: "awaiting_approval", risk: "high", error: null, steps: [], parameters: { device: "/dev/sdb", filesystem: "ext4" } };
+    let withdrawn = false;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url.includes("prerequisites")) return json({ checks: [] });
+      if (url.includes("action-center") || url.includes("recovery-kit")) return json({ error: "unavailable" }, 503);
+      if (url.endsWith("/approval")) return json({ jobId: "job-fmt", tier: "high", passwordRequired: true, elevated: false, mode: "tiered", reason: "high risk", confirmText: "/dev/sdb" });
+      if (url.endsWith("/jobs/job-fmt") && init?.method === "DELETE") { withdrawn = true; return json({ job: { ...job, state: "cancelled" } }); }
+      return json({ jobs: [withdrawn ? { ...job, state: "cancelled" } : job] });
+    }));
+    render(<RepairCenter csrfToken="csrf-token" />);
+    const details = await screen.findByLabelText("What this job will run");
+    expect(details.textContent).toContain("storage.format");
+    expect(details.textContent).toContain("/dev/sdb");
+    expect(details.textContent).toContain("ext4");
+    fireEvent.click(screen.getByRole("button", { name: "Withdraw" }));
+    await vi.waitFor(() => expect(withdrawn).toBe(true));
+    await vi.waitFor(() => expect(screen.queryByLabelText("What this job will run")).toBeNull());
+  });
+
   it("renders a job that arrived without a recovery block", async () => {
     // The type said recovery was always there; a job without it threw inside a map and took the
     // whole page down — a blank screen at the moment somebody is trying to repair something.

@@ -1,10 +1,11 @@
-import { cleanup, configure, fireEvent, getConfig, render, screen } from "@testing-library/react";
+import { act, cleanup, configure, fireEvent, getConfig, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import VirtualMachines from "./VirtualMachines";
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe("Virtual Machines", () => {
@@ -211,4 +212,36 @@ describe("Virtual Machines", () => {
       configure({ asyncUtilTimeout: previousAsyncUtilTimeout });
     }
   }, 20_000);   // vitest's own 5 s test budget would otherwise be the next thing a loaded machine trips
+
+  it("waits for each stats sample before the next, and pauses while the tab is hidden", async () => {
+    vi.useFakeTimers();
+    const answers: Array<() => void> = [];
+    let samples = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/vm.stats.inspect/inspect")) {
+        samples += 1;
+        return new Promise<Response>((resolve) => { answers.push(() => resolve(new Response(JSON.stringify({ operation: "vm.stats.inspect", result: { sampledAt: new Date().toISOString(), domains: [] } }), { status: 200, headers: { "Content-Type": "application/json" } }))); });
+      }
+      return new Promise<Response>(() => undefined); // the rest of the page stays loading; only stats matter here
+    }));
+    let hidden = false;
+    const visibility = vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
+    render(<VirtualMachines csrfToken="csrf" onOpenRepair={vi.fn()} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(samples).toBe(1);
+    // A slow answer holds the next sample back instead of stacking requests.
+    await act(async () => { await vi.advanceTimersByTimeAsync(20_000); });
+    expect(samples).toBe(1);
+    await act(async () => { answers.shift()?.(); await vi.advanceTimersByTimeAsync(5000); });
+    expect(samples).toBe(2);
+    await act(async () => { answers.shift()?.(); await vi.advanceTimersByTimeAsync(0); });
+    hidden = true;
+    await act(async () => { document.dispatchEvent(new Event("visibilitychange")); await vi.advanceTimersByTimeAsync(30_000); });
+    expect(samples).toBe(2);
+    hidden = false;
+    await act(async () => { document.dispatchEvent(new Event("visibilitychange")); await vi.advanceTimersByTimeAsync(0); });
+    expect(samples).toBe(3);
+    visibility.mockRestore();
+  });
 });

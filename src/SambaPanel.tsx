@@ -3,18 +3,12 @@ import type { PendingOperation } from "./ApproveDialog";
 import type { ViewName } from "./data";
 import { inspectOperation } from "./operations";
 import ConnectPaths from "./ConnectPaths";
+import { formatBytes } from "./formatBytes";
 
 interface DiagnosticCheck { id: string; state: "ok" | "problem" | "warn" | "info"; title: string; detail: string; hint: string | null; share: string | null }
 
 interface ShareConfig { name: string; path: string; comment: string | null; readOnly: boolean; guest: boolean; users: string[]; forceUser?: string | null; recycle?: boolean; recycleBytes?: number | null }
 
-const formatBytes = (bytes: number) => {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let value = bytes / 1024; let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
-  return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
-};
 interface SambaState {
   installed: boolean; running: boolean | null; configured: boolean; error: string | null;
   config: { managed: boolean; workgroup: string; scope: "tailscale" | "lan"; interfaces: string[]; shares: ShareConfig[] };

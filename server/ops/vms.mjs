@@ -236,7 +236,7 @@ export function vmOperations() {
         const info = await virsh(run, ["snapshot-info", name, snapshotName], { timeout: 15_000 });
         const verified = /^Current:\s+yes$/mi.test(info.stdout ?? "") && /^Location:\s+internal$/mi.test(info.stdout ?? "") && /^State:\s+shut\s?off$/mi.test(info.stdout ?? "");
         if (!verified) throw new Error("The snapshot command returned, but offline internal verification failed. Leave the VM stopped and inspect it manually.");
-        return { name, snapshotName, created: true, verified: true, consistency: "offline-consistent", independentBackup: false, diskTargets: disks.map(([, , target]) => target) };
+        return { name, snapshotName, created: true, verified: true, consistency: "offline-consistent", independentBackup: false, diskTargets: disks.map(({ target }) => target) };
       },
     }),
     defineOperation({

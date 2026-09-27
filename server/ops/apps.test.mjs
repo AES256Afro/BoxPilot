@@ -98,3 +98,26 @@ describe("who may measure the data folders", () => {
     expect(find("app.data.usage").readOnly).toBe(true);
   });
 });
+
+describe("operations that re-render an app's compose file carry the devices the web process resolved", () => {
+  // The helper runs with PrivateDevices, so a device glob resolved there matches nothing: Jellyfin
+  // lost its GPU render node when its password or exposure changed, and Zigbee2MQTT refused to start.
+  it("covers every app operation that ends in writing the project", async () => {
+    const { deviceResolvingOperations } = await import("../catalog/devices.mjs");
+    const rerendering = appOperations().filter((operation) => /apps\.(install|update|reconfigure|rollbackApp|setPassword)\(/.test(String(operation.run))).map((operation) => operation.id);
+    expect(rerendering.length).toBeGreaterThan(4);
+    expect([...deviceResolvingOperations].sort()).toEqual([...rerendering].sort());
+    for (const id of deviceResolvingOperations) expect(operations[id].parameters.fields.devices, id).toBeTruthy();
+  });
+
+  it("hands them on when the password or the exposure changes", async () => {
+    const apps = {
+      setPassword: vi.fn(async () => ({ changed: true })),
+      reconfigure: vi.fn(async () => ({ hostPorts: [] })),
+    };
+    await operations["app.password.set"].run({ id: "jellyfin", password: "correct horse", devices: ["/dev/dri/renderD128"] }, { apps });
+    expect(apps.setPassword).toHaveBeenCalledWith(expect.objectContaining({ id: "jellyfin", devices: ["/dev/dri/renderD128"] }), expect.anything());
+    await operations["app.exposure.set"].run({ id: "jellyfin", mode: "lan", devices: ["/dev/dri/renderD128"] }, { apps, run: vi.fn() });
+    expect(apps.reconfigure).toHaveBeenCalledWith(expect.objectContaining({ id: "jellyfin", devices: ["/dev/dri/renderD128"] }), expect.anything());
+  });
+});

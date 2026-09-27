@@ -14,7 +14,7 @@ import { housekeepingRemoveTrees } from "./tasks/housekeeping.mjs";
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
 
-async function fixture({ runUnitFails = false, treeScanLimits = {} } = {}) {
+async function fixture({ runUnitFails = false, treeScanLimits = {}, snapshotArchives = {} } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "boxpilot-housekeeping-"));
   directories.push(root);
   const installRoot = path.join(root, "opt");
@@ -61,7 +61,17 @@ async function fixture({ runUnitFails = false, treeScanLimits = {} } = {}) {
   await writeFile(freshLog, "recent output");
   await utimes(oldLog, new Date(now - 120 * 86_400_000), new Date(now - 120 * 86_400_000));
 
-  const run = vi.fn(async (_binary, args) => {
+  // Machine snapshots as `tar -O` reads them: { artifact: { "./manifest.json": {...}, ... } }, or
+  // null for an archive that cannot be read.
+  const machineSnapshotRoot = path.join(root, "machine-snapshots");
+  await mkdir(machineSnapshotRoot, { recursive: true });
+  for (const name of Object.keys(snapshotArchives)) await writeFile(path.join(machineSnapshotRoot, name), "snapshot");
+  const run = vi.fn(async (binary, args) => {
+    if (binary === "/fixture/tar") {
+      const members = snapshotArchives[path.basename(args[1])];
+      const member = members?.[args.at(-1)];
+      return member ? { ok: true, stdout: JSON.stringify(member), stderr: "" } : { ok: false, stdout: "", stderr: "tar: damaged" };
+    }
     if (args[0] === "images" && args.includes("dangling=true")) return { ok: true, stdout: "sha9\t300MB\nsha8\t100MB", stderr: "" };
     if (args[0] === "images") return { ok: true, stdout: "jellyfin/jellyfin:10.11.11\tsha1\t1.7GB\njellyfin/jellyfin:10.10.7\tsha2\t1.7GB\nold/removed-app:1.0\tsha3\t500MB", stderr: "" };
     if (args[0] === "ps") return { ok: true, stdout: "jellyfin/jellyfin:10.11.11", stderr: "" };
@@ -80,7 +90,7 @@ async function fixture({ runUnitFails = false, treeScanLimits = {} } = {}) {
   } };
   const service = createHousekeepingService({
     run, runUnit, treeScanLimits, installRoot, currentTree: path.join(installRoot, "boxpilot"),
-    catalogRoot, applicationBackupRoot, jobLogDirectory,
+    catalogRoot, applicationBackupRoot, jobLogDirectory, machineSnapshotRoot, tarBinary: "/fixture/tar",
     apps: { inspect: async () => ({ applications: [{ id: "jellyfin", installed: true, installedImage: "jellyfin/jellyfin:10.11.11" }] }) },
     now: () => new Date(now),
   });
@@ -136,6 +146,38 @@ describe("finding what can be reclaimed", () => {
     const { service } = await fixture();
     const backups = (await service.inspect()).categories.find((category) => category.id === "app-backups");
     expect(backups.items).toBe(2); // five archives, three kept
+  });
+
+  it("keeps an older backup a retained machine snapshot would restore from", async () => {
+    // A machine snapshot restores each app from the newest backup that existed when it was taken.
+    const { service, applicationBackupRoot } = await fixture({ snapshotArchives: {
+      "machine-snapshot-20260811T000000Z-abcdef01.tar.gz": {
+        "./manifest.json": { contents: { apps: [{ id: "jellyfin", installed: true }] } },
+        "./apps/jellyfin/backups.json": { id: "jellyfin", backups: [{ artifact: "20260810T000000Z.tar.gz" }, { artifact: "20260801T000000Z.tar.gz" }] },
+      },
+    } });
+    const backups = (await service.inspect()).categories.find((category) => category.id === "app-backups");
+    expect(backups.items).toBe(1);
+    const result = await service.reclaim({ targets: ["app-backups"] });
+    expect(result.removed.map((entry) => entry.what)).toEqual(["jellyfin/20260801T000000Z.tar.gz"]);
+    await expect(stat(path.join(applicationBackupRoot, "jellyfin", "20260810T000000Z.tar.gz"))).resolves.toBeTruthy();
+  });
+
+  it("offers no application backup when a machine snapshot's references cannot be read", async () => {
+    const { service, applicationBackupRoot } = await fixture({ snapshotArchives: { "machine-snapshot-20260811T000000Z-abcdef01.tar.gz": null } });
+    const result = await service.reclaim({ targets: ["app-backups"] });
+    expect(result.failures.map((entry) => entry.category)).toContain("app-backups");
+    await expect(stat(path.join(applicationBackupRoot, "jellyfin", "20260801T000000Z.tar.gz"))).resolves.toBeTruthy();
+  });
+
+  it("does not let pre-change checkpoints push the owner's own backups out", async () => {
+    const { service, applicationBackupRoot } = await fixture();
+    // The three newest are checkpoints taken before settings changes; the two older are the owner's.
+    for (const stamp of ["20260815T000000Z", "20260820T000000Z", "20260822T000000Z"]) {
+      await writeFile(path.join(applicationBackupRoot, "jellyfin", `${stamp}.json`), JSON.stringify({ checkpoint: { reason: "settings change" } }));
+    }
+    const backups = (await service.inspect()).categories.find((category) => category.id === "app-backups");
+    expect(backups.items).toBe(0);
   });
 
   it("offers a log older than the history but not a recent one", async () => {

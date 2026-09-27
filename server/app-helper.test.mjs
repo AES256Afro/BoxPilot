@@ -1,5 +1,6 @@
 import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
+import YAML from "yaml";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAppHelper } from "./app-helper.mjs";
@@ -9,7 +10,7 @@ import { fixedRun } from "./exec.mjs";
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
 
-async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, statPath = undefined, lstatPath = undefined, runCommand = undefined, vpnProfile = undefined, execTable = { vpn: "running", leaks: false, noCurl: false } } = {}) {
+async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, statPath = undefined, lstatPath = undefined, runCommand = undefined, vpnProfile = undefined, nvidiaReady = undefined, execTable = { vpn: "running", leaks: false, noCurl: false } } = {}) {
   const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
   const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
   await writeFile(path.join(catalogDirectory, "demo.yaml"), `schemaVersion: 2\nid: demo\nname: Demo\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8080\nvolumes:\n  - id: data\n    container: /data\n    path: data\n  - id: docker\n    container: /var/run/docker.sock\n    hostPath: /var/run/docker.sock\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\n  - name: TZ\n    default: Etc/UTC\nhealth:\n  kind: ${healthKind}\n  stableSeconds: 4\n  timeoutSeconds: 30\n`);
@@ -79,7 +80,7 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
   const wait = vi.fn(async (ms) => { nowMs += ms; });
   const catalog = createCatalogService({ directory: catalogDirectory, ttlMs: 0 });
   const backupRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-appbk-")); directories.push(backupRoot);
-  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, scanCommand: async (folder) => ({ binary: "du", args: ["-sbx", folder], priority: "fixture" }), lanAddress: "192.168.1.10", ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(statPath ? { statPath } : {}), ...(lstatPath ? { lstatPath } : {}), ...(runCommand ? { runCommand } : {}), ...(vpnProfile ? { vpnProfile } : {}) });
+  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, scanCommand: async (folder) => ({ binary: "du", args: ["-sbx", folder], priority: "fixture" }), lanAddress: "192.168.1.10", ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(statPath ? { statPath } : {}), ...(lstatPath ? { lstatPath } : {}), ...(runCommand ? { runCommand } : {}), ...(vpnProfile ? { vpnProfile } : {}), ...(nvidiaReady ? { nvidiaReady } : {}) });
   const advance = (ms) => { nowMs += ms; };
   return { apps, calls, containers, catalogRoot, catalogDirectory, backupRoot, advance, runDocker };
 }
@@ -157,6 +158,48 @@ describe("generic app deployer", () => {
     await writeFile(path.join(withGpu.catalogDirectory, "gpu.yaml"), manifest);
     await withGpu.apps.install({ id: "gpu" });
     expect(await readFile(path.join(withGpu.catalogRoot, "gpu", "compose.yaml"), "utf8")).toContain("/dev/dri/renderD128:/dev/dri/renderD128");
+  });
+
+  it("gives a GPU-capable app the NVIDIA GPU only when Docker can provide it", async () => {
+    // Docker refuses to start a service reserving a driver it lacks, so a server without the NVIDIA
+    // runtime must get a plain CPU compose file, never a reservation that breaks the install.
+    const manifest = `schemaVersion: 2
+id: llm
+name: Llm
+category: AI
+description: d
+gpu: optional
+image:
+  reference: nginx:1.27
+sidecars:
+  - id: runner
+    image: nginx:1.27
+    gpu: optional
+`;
+    const cpu = await setup({ nvidiaReady: async () => false });
+    await writeFile(path.join(cpu.catalogDirectory, "llm.yaml"), manifest);
+    await cpu.apps.install({ id: "llm" });
+    expect(await readFile(path.join(cpu.catalogRoot, "llm", "compose.yaml"), "utf8")).not.toContain("nvidia");
+
+    const gpu = await setup({ nvidiaReady: async () => true });
+    await writeFile(path.join(gpu.catalogDirectory, "llm.yaml"), manifest);
+    await gpu.apps.install({ id: "llm" });
+    const compose = YAML.parse(await readFile(path.join(gpu.catalogRoot, "llm", "compose.yaml"), "utf8"));
+    expect(compose.services.llm.deploy.resources.reservations.devices[0]).toMatchObject({ driver: "nvidia", capabilities: ["gpu"] });
+    expect(compose.services.runner.deploy.resources.reservations.devices[0].driver).toBe("nvidia");
+  });
+
+  it("keeps the devices the web process resolved when the sign-in password changes", async () => {
+    // The helper's own /dev is empty (PrivateDevices): a password change that re-resolved there
+    // refused a Zigbee stick and silently dropped a GPU render node.
+    const { apps, catalogDirectory, catalogRoot } = await setup({ listDevices: async () => ["null", "zero"] });
+    await writeFile(path.join(catalogDirectory, "stick.yaml"), "schemaVersion: 2\nid: stick\nname: Stick\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8085\ndevices:\n  - /dev/ttyUSB?\noptionalDevices:\n  - /dev/dri/renderD*\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\nsignIn:\n  passwordEnv: ADMIN_PASSWORD\n");
+    const devices = ["/dev/ttyUSB0", "/dev/dri/renderD128"];
+    await apps.install({ id: "stick", devices });
+    await expect(apps.setPassword({ id: "stick", password: "correct horse battery", devices })).resolves.toMatchObject({ changed: true });
+    const compose = await readFile(path.join(catalogRoot, "stick", "compose.yaml"), "utf8");
+    expect(compose).toContain("/dev/ttyUSB0:/dev/ttyUSB0");
+    expect(compose).toContain("/dev/dri/renderD128:/dev/dri/renderD128");
   });
 
   it("changes the sign-in password and nothing else", async () => {
@@ -821,6 +864,43 @@ describe("generic app deployer", () => {
     await expect(apps.restoreAppBackupPath({ id: "demo", backup: backupResult.artifact, path: "data/missing.txt" })).rejects.toThrow("is not in");
   });
 
+  it("restores a file from the oldest backup without its own checkpoint pruning that backup", async () => {
+    const { apps, catalogRoot, advance } = await setup();
+    await apps.install({ id: "demo" });
+    const dataDirectory = path.join(catalogRoot, "demo", "data");
+    await mkdir(dataDirectory, { recursive: true });
+    await writeFile(path.join(dataDirectory, "settings.json"), '{"theme":"dark"}');
+    const oldest = await apps.backup({ id: "demo" });
+    for (let index = 0; index < 4; index += 1) { advance(60_000); await apps.backup({ id: "demo" }); }
+    await writeFile(path.join(dataDirectory, "settings.json"), '{"theme":"broken"}');
+    advance(60_000);
+
+    await expect(apps.restoreAppBackupPath({ id: "demo", backup: oldest.artifact, path: "data/settings.json" })).resolves.toMatchObject({ restored: true });
+    expect(await readFile(path.join(dataDirectory, "settings.json"), "utf8")).toBe('{"theme":"dark"}');
+    expect((await apps.listAppBackups({ id: "demo" })).backups.map((item) => item.artifact)).toContain(oldest.artifact);
+  });
+
+  it("prunes checkpoints only against other checkpoints, never the owner's own backups", async () => {
+    const { apps, advance } = await setup();
+    await apps.install({ id: "demo" });
+    const nightlies = [];
+    for (let index = 0; index < 3; index += 1) { advance(60_000); nightlies.push((await apps.backup({ id: "demo" })).artifact); }
+    // Six settings tweaks, each taking a checkpoint of whatever state the app is in.
+    const checkpoints = [];
+    for (let index = 0; index < 6; index += 1) { advance(60_000); checkpoints.push((await apps.reconfigure({ id: "demo" })).checkpoint.artifact); }
+    let kept = (await apps.listAppBackups({ id: "demo" })).backups.map((item) => item.artifact);
+    expect(kept).toEqual(expect.arrayContaining(nightlies));
+    expect(kept).not.toContain(checkpoints[0]);
+    expect(kept).toEqual(expect.arrayContaining(checkpoints.slice(1)));
+    // And the owner's own retention counts only the owner's backups, so checkpoints do not push
+    // nightlies out either.
+    advance(60_000);
+    const next = await apps.backup({ id: "demo", keep: 3 });
+    expect(next.pruned).toEqual([nightlies[0]]);
+    kept = (await apps.listAppBackups({ id: "demo" })).backups.map((item) => item.artifact);
+    expect(kept).toEqual(expect.arrayContaining([...nightlies.slice(1), next.artifact, ...checkpoints.slice(1)]));
+  });
+
   it("pulls before reading the image's USER, so a first install can hand over its data folder", async () => {
     // AuDHDMAP's first install crash-looped on `mkdir /data/attachments` with EACCES. Its manifest
     // declares no PUID, so the app's user can only come from the image's own USER directive - and
@@ -1365,5 +1445,129 @@ describe("remembering what an image says its user is", () => {
     await apps.internals.imageDeclaredOwner("x/missing:1", { mayRun: false });
     await apps.internals.imageDeclaredOwner("x/missing:1", { mayRun: false });
     expect(inspects).toBe(2);
+  });
+});
+describe("an app set to tailnet only while Tailscale is not up", () => {
+  // A helper that started before Tailscale cached "no tailnet address" for good, and the renderer
+  // fell back to the LAN binding: a port meant for tailnet members only was published to the house.
+  const forge = "schemaVersion: 2\nid: forge\nname: Forge\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 3000\n    host: 3002\n  - id: ssh\n    label: Git over SSH\n    container: 22\n    host: 2222\n    tailnet: address\n";
+
+  it("refuses rather than binding a tailnet-address port to the LAN, and asks Tailscale again next time", async () => {
+    let tailscaleUp = false;
+    const runCommand = vi.fn(async (_binary, args) => (args[0] === "ip"
+      ? (tailscaleUp ? { ok: true, stdout: "100.64.0.5\n", stderr: "" } : { ok: false, stdout: "", stderr: "Tailscale is stopped." })
+      : { ok: false, stdout: "", stderr: "" }));
+    const { apps, catalogDirectory, catalogRoot } = await setup({ runCommand });
+    await writeFile(path.join(catalogDirectory, "forge.yaml"), forge);
+    await apps.install({ id: "forge" });
+    const before = await readFile(path.join(catalogRoot, "forge", "compose.yaml"), "utf8");
+
+    await expect(apps.reconfigure({ id: "forge", values: { exposure: "tailnet" } }, { checkpoint: false })).rejects.toThrow(/no tailnet address.*Git over SSH/);
+    expect(await readFile(path.join(catalogRoot, "forge", "compose.yaml"), "utf8")).toBe(before);
+
+    tailscaleUp = true;
+    await apps.reconfigure({ id: "forge", values: { exposure: "tailnet" } }, { checkpoint: false });
+    const compose = await readFile(path.join(catalogRoot, "forge", "compose.yaml"), "utf8");
+    expect(compose).toContain("100.64.0.5:2222:22");
+    expect(compose).toContain("127.0.0.1:3002:3000");
+    expect(compose).not.toContain("192.168.1.10:2222");
+  });
+});
+
+describe("an update or a step back that fails part-way", () => {
+  // update() rewrote compose.yaml to the new tags before pulling, and a failed pull threw outside
+  // the rollback: compose.yaml named the new version while the containers and boxpilot.json were
+  // still the old one, so the next restart quietly moved the app forward. rollbackApp() restored
+  // nothing at all when its pull, start or health check failed.
+  const manifest = (image) => [
+    "schemaVersion: 2", "id: step", "name: Step", "category: T", "description: d",
+    "image:", `  reference: ${image}`,
+    "ports:", "  - id: web", "    container: 80", "    host: 8080",
+    "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+  ].join("\n") + "\n";
+  async function installed() {
+    const context = await setup();
+    const publish = async (image) => {
+      await rm(path.join(context.catalogDirectory, "step.yaml"), { force: true });
+      await writeFile(path.join(context.catalogDirectory, "step.yaml"), manifest(image));
+    };
+    const composeFile = () => readFile(path.join(context.catalogRoot, "step", "compose.yaml"), "utf8");
+    const original = context.runDocker.getMockImplementation();
+    const failing = (verb, times = Infinity) => {
+      let left = times;
+      context.runDocker.mockImplementation(async (binary, args) => {
+        if (args[0] === "compose" && args.includes(verb) && left > 0) { left -= 1; context.calls.push(args.join(" ")); return { ok: false, stdout: "", stderr: `fixture ${verb} failure` }; }
+        return original(binary, args);
+      });
+    };
+    await publish("app:1.0");
+    await context.apps.install({ id: "step" });
+    return { ...context, publish, composeFile, failing };
+  }
+
+  it("keeps the deployed compose file when the new images cannot be pulled", async () => {
+    const { apps, publish, composeFile, failing } = await installed();
+    const before = await composeFile();
+    await publish("app:2.0.0");
+    failing("pull");
+    await expect(apps.update({ id: "step" }, { checkpoint: false })).rejects.toThrow(/unchanged.*fixture pull failure/);
+    expect(await composeFile()).toBe(before);
+  });
+
+  it("puts the current version back when the previous one cannot be fetched", async () => {
+    const { apps, publish, composeFile, failing } = await installed();
+    await publish("app:2.0.0");
+    await apps.update({ id: "step" }, { checkpoint: false });
+    const current = await composeFile();
+    failing("pull");
+    await expect(apps.rollbackApp({ id: "step" }, { checkpoint: false })).rejects.toThrow(/unchanged.*fixture pull failure/);
+    expect(await composeFile()).toBe(current);
+  });
+
+  it("brings the current version back up when the previous one will not start", async () => {
+    const { apps, publish, composeFile, failing, calls } = await installed();
+    await publish("app:2.0.0");
+    await apps.update({ id: "step" }, { checkpoint: false });
+    const current = await composeFile();
+    failing("up", 1);
+    calls.length = 0;
+    await expect(apps.rollbackApp({ id: "step" }, { checkpoint: false })).rejects.toThrow(/was restored.*fixture up failure/);
+    expect(await composeFile()).toBe(current);
+    expect(calls.filter((call) => / up /.test(call))).toHaveLength(2); // the failed start, then the restore
+  });
+});
+
+describe("restoring one path from an application backup", () => {
+  // tar ran as root straight into the live app directory, and follows a directory symlink it finds
+  // there. A container can plant one in its own volume (data/config -> /etc), so restoring
+  // data/config/app.conf wrote wherever the container pointed.
+  async function backedUp() {
+    const context = await setup();
+    await context.apps.install({ id: "demo" });
+    const config = path.join(context.catalogRoot, "demo", "data", "config");
+    await mkdir(config, { recursive: true });
+    await writeFile(path.join(config, "app.conf"), "from the backup");
+    const { artifact } = await context.apps.backup({ id: "demo" });
+    return { ...context, config, artifact };
+  }
+
+  it("refuses to write through a symlink planted in the app's folder", async () => {
+    const { apps, config, artifact } = await backedUp();
+    const elsewhere = await mkdtemp(path.join(os.tmpdir(), "boxpilot-planted-")); directories.push(elsewhere);
+    await rm(config, { recursive: true });
+    await symlink(elsewhere, config, "junction"); // a junction on Windows, which needs no privilege; ignored elsewhere
+    await expect(apps.restoreAppBackupPath({ id: "demo", backup: artifact, path: "data/config/app.conf" })).rejects.toThrow(/symbolic link/);
+    expect(await readdir(elsewhere)).toEqual([]);
+  });
+
+  it("puts the path back, recreating folders removed since, and leaves no staging behind", async () => {
+    const { apps, catalogRoot, config, artifact } = await backedUp();
+    await writeFile(path.join(config, "app.conf"), "changed later");
+    await apps.restoreAppBackupPath({ id: "demo", backup: artifact, path: "data/config/app.conf" });
+    expect(await readFile(path.join(config, "app.conf"), "utf8")).toBe("from the backup");
+    await rm(config, { recursive: true });
+    await apps.restoreAppBackupPath({ id: "demo", backup: artifact, path: "data/config/app.conf" });
+    expect(await readFile(path.join(config, "app.conf"), "utf8")).toBe("from the backup");
+    expect((await readdir(catalogRoot)).sort()).toEqual(["demo"]);
   });
 });

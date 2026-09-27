@@ -29,4 +29,21 @@ describe("Services center", () => {
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     expect(JSON.parse(staged ?? "{}")).toEqual({ parameters: { unit: "docker.service", action: "restart" } });
   });
+
+  it("closes the journal on Escape and gives focus back to its button", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/operations/service.list/inspect")) return json({ operation: "service.list", result: { counts: { total: 1, active: 1, failed: 0 }, units: [{ unit: "docker.service", description: "Docker", load: "loaded", active: "active", sub: "running", enabled: "enabled", critical: false }] } });
+      return json({ operation: "service.journal", result: { lines: ["started docker"] } });
+    }));
+    render(<ServicesCenter csrfToken="csrf-token" />);
+    const opener = await screen.findByRole("button", { name: "Journal" });
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = await screen.findByRole("dialog");
+    expect(document.activeElement).toBe(dialog);
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
 });

@@ -184,7 +184,7 @@ describe("root storage tasks", () => {
     await expect(storageLvmSnapshotDelete({ path: "/dev/mapper/ubuntu--vg-ubuntu--lv" }, { run })).rejects.toThrow("Only BoxPilot snapshots");
     await expect(storageLvmSnapshotDelete({ path: created.path }, { run })).resolves.toEqual({ removed: true, path: created.path });
     expect(run).toHaveBeenCalledWith("/usr/sbin/lvremove", ["-f", created.path], expect.anything());
-    await expect(storageLvmSnapshotRollback({ path: created.path }, { run })).resolves.toMatchObject({ rollbackScheduled: true, rebootRequired: true });
+    await expect(storageLvmSnapshotRollback({ path: created.path }, { run })).resolves.toMatchObject({ rollbackScheduled: true });
     expect(run).toHaveBeenCalledWith("/usr/sbin/lvconvert", ["--merge", created.path], expect.anything());
     expect(() => assertNotProtected(created.path, [])).toThrow("LVM snapshot");
     expect(() => assertNotProtected("/dev/mapper/ubuntu--vg-ubuntu--lv-real", [])).toThrow("LVM snapshot");
@@ -408,5 +408,24 @@ describe("checking a drive without changing it", () => {
     await expect(storageCheck({ name: "the-dump" }, { run, files })).rejects.toThrow("still in use");
     expect(calls).toContain("docker start bp-plex");
     expect(calls.some((call) => call.startsWith("fsck.exfat"))).toBe(false);
+  });
+});
+
+describe("rolling back to an LVM snapshot", () => {
+  // `|| true` made every rollback report a reboot, including a merge LVM had already finished.
+  const path = "/dev/mapper/ubuntu--vg-boxpilot--snap--20260821--2005";
+  const answering = (stdout, stderr = "") => vi.fn(async () => ({ ok: true, stdout, stderr }));
+
+  it("asks for a reboot only when LVM deferred the merge", async () => {
+    // A mounted origin such as /: LVM schedules the merge for the next activation.
+    for (const deferred of [
+      ["  Delaying merge since origin is open.", "  Merging of snapshot ubuntu-vg/boxpilot-snap-20260821-2005 will occur on next activation of ubuntu-vg/ubuntu-lv."],
+      ["", "  Can't merge until origin volume is closed."],
+    ]) {
+      await expect(storageLvmSnapshotRollback({ path }, { run: answering(deferred[0], deferred[1]) })).resolves.toMatchObject({ rollbackScheduled: true, rebootRequired: true });
+    }
+    // An unmounted data volume merges on the spot.
+    const now = answering("  Merging of volume ubuntu-vg/boxpilot-snap-20260821-2005 started.\n  ubuntu-vg/data-lv: Merged: 100.00%");
+    await expect(storageLvmSnapshotRollback({ path }, { run: now })).resolves.toMatchObject({ rollbackScheduled: true, rebootRequired: false });
   });
 });

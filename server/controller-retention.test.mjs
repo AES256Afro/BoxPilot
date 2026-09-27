@@ -51,6 +51,14 @@ describe("controller backup retention service", () => {
     expect(selection.kept.find((item) => item.protectionId === protection(5).id)?.reasons).toContain("not-restore-tested");
   });
 
+  it("counts the minimum copies among restore-tested snapshots, so untested newer ones cannot leave none", () => {
+    const untested = { protected: false, restoreDrill: null };
+    const protections = [protection(1, untested), protection(2, untested), protection(3, untested), protection(4), protection(5), protection(6), protection(7)];
+    const selection = controllerRetentionInternals.selectRetentionCandidates({ protections, now });
+    expect(selection.candidates.map((item) => item.protectionId)).toEqual([protection(7).id]);
+    for (const number of [4, 5, 6]) expect(selection.kept.find((item) => item.protectionId === protection(number).id)?.reasons).toContain("minimum-copies");
+  });
+
   it("preserves protections referenced by an active controller operation", async () => {
     const { service, store, protections } = fixture();
     // The shape jobs.mjs actually stores: "op:<operation id>" with flat parameters. The fixture

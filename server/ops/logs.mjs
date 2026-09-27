@@ -7,7 +7,11 @@ const systemctl = process.env.BOXPILOT_SYSTEMCTL_BINARY ?? "/usr/bin/systemctl";
 const dockerBinary = process.env.BOXPILOT_DOCKER_BINARY ?? "/usr/bin/docker";
 const unitPattern = /^[A-Za-z0-9:._@\\-]{1,200}\.(service|timer|socket|mount|target)$/;
 const containerPattern = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
-const sincePattern = /^(\d+(m|h|d)|\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?)?)$/;
+// A timestamp may carry its zone (Z, +hh:mm, +hhmm): the Logs page follows from the newest line it
+// holds, and a container's `docker logs --timestamps` line is UTC. Without the zone, both journalctl
+// and docker read the time as host-local, which on a non-UTC host skips or repeats hours.
+const sincePattern = /^(\d+(m|h|d)|\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2}(?::\d{2})?(?:Z|[+-]\d{2}:?\d{2})?)?)$/;
+const zonedPattern = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}(?::\d{2})?)(Z|([+-]\d{2}):?(\d{2}))$/;
 const grepPattern = /^[^\0\r\n]{1,200}$/;
 
 /** Fixed journal groups the Logs page offers with one click. */
@@ -25,8 +29,23 @@ function redact(value) {
   return String(value ?? "").replace(/\b(token|password|secret|api[_-]?key|authorization)\b\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]");
 }
 
+/** A zoned timestamp as UTC `YYYY-MM-DDTHH:MM:SS`; null when it has no zone or is not a real time. */
+export function zonedToUtc(since) {
+  const match = zonedPattern.exec(since ?? "");
+  if (!match) return null;
+  const time = match[2].length === 5 ? `${match[2]}:00` : match[2];
+  const date = new Date(`${match[1]}T${time}${match[3] === "Z" ? "Z" : `${match[4]}:${match[5]}`}`);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 19);
+}
+
+function validSince(value) {
+  return sincePattern.test(value) && (!zonedPattern.test(value) || zonedToUtc(value) !== null);
+}
+
 function sinceArgument(since) {
   if (!since) return [];
+  const utc = zonedToUtc(since);
+  if (utc) return ["--since", `${utc.replace("T", " ")} UTC`];
   const relative = since.match(/^(\d+)(m|h|d)$/);
   if (relative) return ["--since", `-${relative[1]}${relative[2] === "m" ? "min" : relative[2] === "h" ? "hour" : "day"}`];
   return ["--since", since];
@@ -64,7 +83,7 @@ export function logOperations() {
         kind: { type: "string", enum: ["group", "unit", "container"] },
         target: { type: "string", maxLength: 200 },
         lines: { type: "number", optional: true, validate: (value) => (Number.isInteger(value) && value >= 10 && value <= 2000 ? null : "must be 10-2000") },
-        since: { type: "string", optional: true, nullable: true, validate: (value) => (sincePattern.test(value) ? null : "must look like 30m, 2h, 7d, or YYYY-MM-DD[ HH:MM]") },
+        since: { type: "string", optional: true, nullable: true, validate: (value) => (validSince(value) ? null : "must look like 30m, 2h, 7d, or YYYY-MM-DD[ HH:MM[:SS][Z|+hh:mm]]") },
         filter: { type: "string", optional: true, nullable: true, validate: (value) => (grepPattern.test(value) ? null : "must be a short text pattern") },
       } },
       run: async ({ kind, target, lines = 300, since = null, filter = null }, { run }) => {
@@ -79,7 +98,7 @@ export function logOperations() {
             if (knownContainers.size > 200) knownContainers.clear();
             knownContainers.set(target, Date.now());
           }
-          result = await run(dockerBinary, ["logs", "--timestamps", "--tail", String(lines), ...(since ? ["--since", since.match(/^\d+[mhd]$/) ? since : since.replace(" ", "T")] : []), target], { timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
+          result = await run(dockerBinary, ["logs", "--timestamps", "--tail", String(lines), ...(since ? ["--since", since.match(/^\d+[mhd]$/) ? since : zonedToUtc(since) ? `${zonedToUtc(since)}Z` : since.replace(" ", "T")] : []), target], { timeout: 30_000, maxBuffer: 16 * 1024 * 1024 });
           if (!result.ok && !result.stdout && !result.stderr) throw new Error("docker logs failed");
           let entries = `${result.stdout}\n${result.stderr}`.split("\n").filter(Boolean);
           if (filter) entries = entries.filter((line) => line.toLowerCase().includes(filter.toLowerCase()));
