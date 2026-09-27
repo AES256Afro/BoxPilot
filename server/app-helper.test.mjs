@@ -1406,3 +1406,66 @@ describe("an app set to tailnet only while Tailscale is not up", () => {
     expect(compose).not.toContain("192.168.1.10:2222");
   });
 });
+
+describe("an update or a step back that fails part-way", () => {
+  // update() rewrote compose.yaml to the new tags before pulling, and a failed pull threw outside
+  // the rollback: compose.yaml named the new version while the containers and boxpilot.json were
+  // still the old one, so the next restart quietly moved the app forward. rollbackApp() restored
+  // nothing at all when its pull, start or health check failed.
+  const manifest = (image) => [
+    "schemaVersion: 2", "id: step", "name: Step", "category: T", "description: d",
+    "image:", `  reference: ${image}`,
+    "ports:", "  - id: web", "    container: 80", "    host: 8080",
+    "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+  ].join("\n") + "\n";
+  async function installed() {
+    const context = await setup();
+    const publish = async (image) => {
+      await rm(path.join(context.catalogDirectory, "step.yaml"), { force: true });
+      await writeFile(path.join(context.catalogDirectory, "step.yaml"), manifest(image));
+    };
+    const composeFile = () => readFile(path.join(context.catalogRoot, "step", "compose.yaml"), "utf8");
+    const original = context.runDocker.getMockImplementation();
+    const failing = (verb, times = Infinity) => {
+      let left = times;
+      context.runDocker.mockImplementation(async (binary, args) => {
+        if (args[0] === "compose" && args.includes(verb) && left > 0) { left -= 1; context.calls.push(args.join(" ")); return { ok: false, stdout: "", stderr: `fixture ${verb} failure` }; }
+        return original(binary, args);
+      });
+    };
+    await publish("app:1.0");
+    await context.apps.install({ id: "step" });
+    return { ...context, publish, composeFile, failing };
+  }
+
+  it("keeps the deployed compose file when the new images cannot be pulled", async () => {
+    const { apps, publish, composeFile, failing } = await installed();
+    const before = await composeFile();
+    await publish("app:2.0.0");
+    failing("pull");
+    await expect(apps.update({ id: "step" }, { checkpoint: false })).rejects.toThrow(/unchanged.*fixture pull failure/);
+    expect(await composeFile()).toBe(before);
+  });
+
+  it("puts the current version back when the previous one cannot be fetched", async () => {
+    const { apps, publish, composeFile, failing } = await installed();
+    await publish("app:2.0.0");
+    await apps.update({ id: "step" }, { checkpoint: false });
+    const current = await composeFile();
+    failing("pull");
+    await expect(apps.rollbackApp({ id: "step" }, { checkpoint: false })).rejects.toThrow(/unchanged.*fixture pull failure/);
+    expect(await composeFile()).toBe(current);
+  });
+
+  it("brings the current version back up when the previous one will not start", async () => {
+    const { apps, publish, composeFile, failing, calls } = await installed();
+    await publish("app:2.0.0");
+    await apps.update({ id: "step" }, { checkpoint: false });
+    const current = await composeFile();
+    failing("up", 1);
+    calls.length = 0;
+    await expect(apps.rollbackApp({ id: "step" }, { checkpoint: false })).rejects.toThrow(/was restored.*fixture up failure/);
+    expect(await composeFile()).toBe(current);
+    expect(calls.filter((call) => / up /.test(call))).toHaveLength(2); // the failed start, then the restore
+  });
+});
