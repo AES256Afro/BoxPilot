@@ -972,9 +972,22 @@ the web service could not read). There will be more.
   key, name the page that reads it. The kill-switch drill verdict was recorded for a month and read
   by nothing (v1.92.0); `healthAlertsState` was read by one route that filtered out the unannounced
   half (v1.111.0). Turn the audit into a test that fails when a new key has no consumer.
-- **M27.2 "Not announced" is a state the owner can see.** Done for health alerts; extend to failed
-  schedules, failed flows, and record-hook failures. One "BoxPilot could not tell you about N
-  things" line on the Overview when no notification target is set.
+- ✅ **M27.2 "Not announced" is a state the owner can see** (unreleased): a scheduled task that failed
+  (or could not start, was skipped under always-ask approvals, was paused for a stored password, or
+  was cut off by a restart), an automation that stopped, finished with problems or did not run, and a
+  job whose record hook could not save its result are now conditions in `healthAlertsState` beside
+  the health alerts. Each is announced once per schedule, flow or operation through the notification
+  target, kept as not announced when there is no target or the send fails, sent by the next
+  15-minute round once a target answers, and cleared by the next success (one "resolved" push if it
+  had been announced; deleting the schedule or flow clears it quietly). The jobs those conditions
+  cover no longer push once per failure, so a schedule failing every hour is one push. A host alert
+  whose send failed is now kept as not announced too, instead of being dropped until the next round.
+  The Overview shows one "BoxPilot could not tell you about N things" line, quiet at zero, that opens
+  to the list and links to Settings. Still open: a job someone ran by hand, an interrupted job that
+  no schedule started, release notices and sign-in alerts are still pushed directly and leave no
+  record when nothing receives them; a "resolved" push that fails is dropped rather than retried;
+  the Schedules panel still shows "ran" for a run whose job later failed; a scheduled run whose
+  record hook fails raises both a schedule and a record condition.
 - **M27.3 Run the detectors against captured reality.** Keep a fixture directory of real
   `findmnt -J`, `lsblk -J`, fstab, `docker inspect` output from the real server (scrubbed), and run
   every Repair detector and health rule over it in CI. The findmnt tree bug would have failed on
