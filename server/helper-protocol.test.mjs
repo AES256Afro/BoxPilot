@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { executeHelperOperation, validateHelperRequest } from "./helper-protocol.mjs";
 import { productVersion } from "./version.mjs";
 
@@ -52,16 +53,19 @@ function retentionParameters(overrides = {}) {
 }
 
 describe("restricted helper protocol", () => {
-  it("executes the no-mutation canary", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("executes the no-mutation canary", async () => {
     const result = await executeHelperOperation(request(), { createProbeWriter: () => ({ append: async () => true }), inspectProbe: async () => ({ mode: 0o640 }) });
     expect(result).toMatchObject({ ok: true, result: { verified: true, helperVersion: productVersion, mutationPerformed: false } });
   });
 
-  it("does not report a fresh canary when diagnostic output could not be written", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("does not report a fresh canary when diagnostic output could not be written", async () => {
     await expect(executeHelperOperation(request(), { createProbeWriter: () => ({ append: async () => false }) })).rejects.toThrow("fresh diagnostic log evidence");
   });
 
-  it("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("accepts only the fixed smartmontools inspection and exact-version installation", async () => {
     expect(validateHelperRequest(request({ operation: "prerequisite.smartmontools.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "prerequisite.smartmontools.inspect", parameters: { package: "curl" } }))).toContain("no parameters");
     expect(validateHelperRequest(request({ operation: "prerequisite.smartmontools.install", parameters: { expectedVersion: "7.5-2" } }))).toBeNull();
@@ -75,7 +79,8 @@ describe("restricted helper protocol", () => {
     await expect(executeHelperOperation(request({ operation: "prerequisite.smartmontools.install", parameters: { expectedVersion: "7.5-2" } }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { installed: true, version: "7.5-2", boundary: { arbitraryPackageAccepted: false } } });
   });
 
-  it("accepts only fixed restic inspection and exact-version installation", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("accepts only fixed restic inspection and exact-version installation", async () => {
     expect(validateHelperRequest(request({ operation: "prerequisite.restic.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "prerequisite.restic.inspect", parameters: { repository: "/tmp/repo" } }))).toContain("no parameters");
     expect(validateHelperRequest(request({ operation: "prerequisite.restic.install", parameters: { expectedVersion: "0.18.1-1" } }))).toBeNull();
@@ -89,7 +94,8 @@ describe("restricted helper protocol", () => {
     await expect(executeHelperOperation(request({ operation: "prerequisite.restic.install", parameters: { expectedVersion: "0.18.1-1" } }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { installed: true, version: "0.18.1-1", binaryVerified: true } });
   });
 
-  it("accepts only fixed Docker prerequisite inspection and exact-version installation", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("accepts only fixed Docker prerequisite inspection and exact-version installation", async () => {
     expect(validateHelperRequest(request({ operation: "prerequisite.docker.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "prerequisite.docker.inspect", parameters: { repository: "example" } }))).toContain("no parameters");
     expect(validateHelperRequest(request({ operation: "prerequisite.docker.install", parameters: { expectedVersion: "28.2.2-0ubuntu1" } }))).toBeNull();
@@ -103,7 +109,8 @@ describe("restricted helper protocol", () => {
     await expect(executeHelperOperation(request({ operation: "prerequisite.docker.install", parameters: { expectedVersion: "28.2.2-0ubuntu1" } }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { installed: true, version: "28.2.2-0ubuntu1", engineVerified: true } });
   });
 
-  it("accepts only the fixed virtualization package set", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("accepts only the fixed virtualization package set", async () => {
     const expectedPackages = { "qemu-system-x86": "1:10.2.1+ds-1ubuntu3.2", "libvirt-daemon-system": "12.0.0-1ubuntu5.2", "libvirt-clients": "12.0.0-1ubuntu5.2", virtinst: "1:5.1.0-1", ovmf: "2025.11-3ubuntu7" };
     expect(validateHelperRequest(request({ operation: "prerequisite.virtualization.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "prerequisite.virtualization.inspect", parameters: { uri: "qemu:///session" } }))).toContain("no parameters");
@@ -118,7 +125,8 @@ describe("restricted helper protocol", () => {
     await expect(executeHelperOperation(request({ operation: "prerequisite.virtualization.install", parameters: { expectedPackages } }), { prerequisites })).resolves.toMatchObject({ ok: true, result: { installed: true, packages: expectedPackages, connectionUri: "qemu:///system", kvmDeviceVerified: true } });
   });
 
-  it("accepts only exact APT metadata evidence and no package or command input", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("accepts only exact APT metadata evidence and no package or command input", async () => {
     const updatedAt = "2026-08-01T00:00:00.000Z";
     expect(validateHelperRequest(request({ operation: "prerequisite.apt-metadata.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "prerequisite.apt-metadata.inspect", parameters: { command: "apt upgrade" } }))).toContain("no parameters");
@@ -139,14 +147,16 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ parameters: { command: "id" } }))).toBe("Check that BoxPilot can do root work accepts no parameters");
   });
 
-  it("returns only the Docker server availability and version", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("returns only the Docker server availability and version", async () => {
     const result = await executeHelperOperation(request({ operation: "container.docker.inspect", parameters: {} }), {
       hostInspect: { inspectDocker: async () => ({ available: true, version: "29.1.3" }) },
     });
     expect(result).toMatchObject({ ok: true, result: { available: true, version: "29.1.3" } });
   });
 
-  it("keeps controller backup inspection read-only and routes creation through the registry", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("keeps controller backup inspection read-only and routes creation through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "controller.database.backup.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "controller.database.backup.inspect", parameters: { database: "/tmp/db" } }))).toContain("no parameters");
     expect(validateHelperRequest(request({ operation: "controller.database.backup.create", parameters: { backupId: randomUUID() } }))).toBe("Operation is not allowlisted");
@@ -158,7 +168,8 @@ describe("restricted helper protocol", () => {
     await expect(executeHelperOperation(request({ operation: "controller.backup.create", parameters: {} }), { controllerBackups })).resolves.toMatchObject({ ok: true, result: { applicationId: "boxpilot-controller", consistentSnapshot: true } });
   });
 
-  it("keeps controller protection inspection read-only and rejects the legacy create", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("keeps controller protection inspection read-only and rejects the legacy create", async () => {
     expect(validateHelperRequest(request({ operation: "controller.database.protection.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "controller.database.protection.inspect", parameters: { repository: "/tmp" } }))).toContain("no parameters");
     expect(validateHelperRequest(request({ operation: "controller.database.protection.create", parameters: { protectionId: randomUUID() } }))).toBe("Operation is not allowlisted");
@@ -166,7 +177,8 @@ describe("restricted helper protocol", () => {
     await expect(executeHelperOperation(request({ operation: "controller.database.protection.inspect", parameters: {} }), { controllerProtection })).resolves.toMatchObject({ ok: true, result: { ready: false, boundary: { mutationPerformed: false } } });
   });
 
-  it("keeps controller retention inspection read-only and rejects the legacy apply", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("keeps controller retention inspection read-only and rejects the legacy apply", async () => {
     expect(validateHelperRequest(request({ operation: "controller.database.protection.retention.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "controller.database.protection.retention.inspect", parameters: { repository: "/tmp" } }))).toContain("no parameters");
     expect(validateHelperRequest(request({ operation: "controller.database.protection.retention.apply", parameters: { retentionId: randomUUID() } }))).toBe("Operation is not allowlisted");
@@ -179,14 +191,16 @@ describe("restricted helper protocol", () => {
     expect(validateHelperRequest(request({ id: "not-a-uuid" }))).toBe("Request id must be a UUID");
   });
 
-  it("routes VM creation through the registry and rejects the legacy operation", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("routes VM creation through the registry and rejects the legacy operation", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.domain.create", parameters: vmParameters() }))).toBe("Operation is not allowlisted");
     const virtualization = { create: async (parameters) => ({ created: true, verified: true, domain: parameters.name }) };
     const result = await executeHelperOperation(request({ operation: "vm.create", parameters: vmParameters() }), { virtualization });
     expect(result).toMatchObject({ ok: true, result: { created: true, verified: true, domain: "ubuntu-lab" } });
   });
 
-  it("keeps VM media inspection read-only and routes the import through the registry", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("keeps VM media inspection read-only and routes the import through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.media.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "virtualization.media.inspect", parameters: { path: "/tmp" } }))).toContain("no parameters");
     expect(validateHelperRequest(request({ operation: "virtualization.media.import", parameters: vmMediaParameters() }))).toBe("Operation is not allowlisted");
@@ -198,7 +212,8 @@ describe("restricted helper protocol", () => {
     await expect(executeHelperOperation(request({ operation: "vm.media.import", parameters: vmMediaParameters() }), { vmMedia })).resolves.toMatchObject({ ok: true, result: { imported: true, filename: "ubuntu.iso" } });
   });
 
-  it("accepts only fixed read-only virtualization inventory scopes", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("accepts only fixed read-only virtualization inventory scopes", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "domains" } }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "domain", name: "ubuntu-lab" } }))).toContain("fixed status, domains, or resources scope");
     expect(validateHelperRequest(request({ operation: "virtualization.inventory.inspect", parameters: { scope: "../../etc" } }))).toContain("fixed status, domains, or resources scope");
@@ -207,7 +222,8 @@ describe("restricted helper protocol", () => {
     expect(result).toMatchObject({ ok: true, result: { scope: "resources", connected: true } });
   });
 
-  it("keeps foundation inspection read-only and routes initialization through the registry", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("keeps foundation inspection read-only and routes initialization through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.foundation.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "virtualization.foundation.inspect", parameters: { pool: "custom" } }))).toContain("no parameters");
     expect(validateHelperRequest(request({ operation: "virtualization.foundation.initialize", parameters: { foundationId: randomUUID(), expectedRevision: "a".repeat(64) } }))).toBe("Operation is not allowlisted");
@@ -219,7 +235,8 @@ describe("restricted helper protocol", () => {
     await expect(executeHelperOperation(request({ operation: "vm.foundation.initialize", parameters: {} }), { foundation })).resolves.toMatchObject({ ok: true, result: { initialized: true, ready: true } });
   });
 
-  it("accepts only a parameter-free console handoff inspection", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("accepts only a parameter-free console handoff inspection", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.console.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "virtualization.console.inspect", parameters: { port: 22 } }))).toContain("accepts no parameters");
     const virtualization = { consoleGuidance: async () => ({ nativeProxyAvailable: false, cockpit: { active: true, port: 9090 } }) };
@@ -227,7 +244,8 @@ describe("restricted helper protocol", () => {
     expect(result).toMatchObject({ ok: true, result: { nativeProxyAvailable: false, cockpit: { active: true, port: 9090 } } });
   });
 
-  it("keeps export inspection exact and routes export creation through the registry", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("keeps export inspection exact and routes export creation through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.domain.export.inspect", parameters: { name: "ubuntu-lab" } }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "virtualization.domain.export.inspect", parameters: { name: "../../etc" } }))).toContain("exact domain name");
     expect(validateHelperRequest(request({ operation: "virtualization.domain.export.create", parameters: exportParameters() }))).toBe("Operation is not allowlisted");
@@ -239,7 +257,8 @@ describe("restricted helper protocol", () => {
     await expect(executeHelperOperation(request({ operation: "vm.export.create", parameters: exportParameters() }), { virtualization })).resolves.toMatchObject({ ok: true, result: { contentVerified: true, protected: false } });
   });
 
-  it("keeps protection inspection read-only and routes the encrypted backup through the registry", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("keeps protection inspection read-only and routes the encrypted backup through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.export.backup.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "virtualization.export.backup.inspect", parameters: { repository: "/tmp" } }))).toContain("accepts no parameters");
     expect(validateHelperRequest(request({ operation: "virtualization.export.backup.create", parameters: protectionParameters() }))).toBe("Operation is not allowlisted");
@@ -251,7 +270,8 @@ describe("restricted helper protocol", () => {
     await expect(executeHelperOperation(request({ operation: "vm.export.protect", parameters: protectionParameters() }), { vmProtection })).resolves.toMatchObject({ ok: true, result: { created: true, protected: false } });
   });
 
-  it("keeps retention inspection read-only and routes the apply through the registry", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("keeps retention inspection read-only and routes the apply through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.export.backup.retention.inspect", parameters: {} }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "virtualization.export.backup.retention.inspect", parameters: { repository: "/tmp" } }))).toContain("accepts no parameters");
     expect(validateHelperRequest(request({ operation: "virtualization.export.backup.retention.apply", parameters: retentionParameters() }))).toBe("Operation is not allowlisted");
@@ -263,7 +283,8 @@ describe("restricted helper protocol", () => {
     await expect(executeHelperOperation(request({ operation: "vm.backup.retention.apply", parameters: retentionParameters() }), { vmRetention })).resolves.toMatchObject({ ok: true, result: { applied: true, prunePerformed: false } });
   });
 
-  it("keeps the drill inspection typed and routes the drill run through the registry", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("keeps the drill inspection typed and routes the drill run through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.export.backup.restore-drill.inspect", parameters: restoreDrillParameters() }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "virtualization.export.backup.restore-drill.inspect", parameters: restoreDrillParameters({ network: "default" }) }))).toContain("only the fixed typed evidence fields");
     expect(validateHelperRequest(request({ operation: "virtualization.export.backup.restore-drill", parameters: restoreDrillParameters() }))).toBe("Operation is not allowlisted");
@@ -275,7 +296,8 @@ describe("restricted helper protocol", () => {
     await expect(executeHelperOperation(request({ operation: "vm.backup.restore-drill", parameters: restoreDrillParameters() }), { vmRestoreDrill })).resolves.toMatchObject({ ok: true, result: { passed: true, protected: true } });
   });
 
-  it("keeps the recovery inspection typed and routes the clone through the registry", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("keeps the recovery inspection typed and routes the clone through the registry", async () => {
     expect(validateHelperRequest(request({ operation: "virtualization.backup.recovery.inspect", parameters: recoveryParameters() }))).toBeNull();
     expect(validateHelperRequest(request({ operation: "virtualization.backup.recovery.inspect", parameters: recoveryParameters({ path: "/tmp/restore" }) }))).toContain("only the fixed typed protected-backup fields");
     expect(validateHelperRequest(request({ operation: "virtualization.backup.recovery.create", parameters: recoveryParameters() }))).toBe("Operation is not allowlisted");
@@ -289,7 +311,8 @@ describe("restricted helper protocol", () => {
 });
 
 describe("the nightly data sweep reaches the helper", () => {
-  it("is registered read-only under the name the sampler asks for", async () => {
+  // Linux only: executeHelperOperation builds its default helpers from POSIX paths.
+  it.skipIf(onWindows)("is registered read-only under the name the sampler asks for", async () => {
     // The sampler swallows its own errors so a bad night is quiet. That makes a wiring mistake -
     // an operation id that does not resolve, or one that is not read-only and so queues behind a
     // deploy - silent for as long as nobody looks. This is the check that it is wired.

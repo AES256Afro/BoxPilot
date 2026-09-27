@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { createStateStore } from "./state.mjs";
 import { inspectControllerDatabase, readControllerDatabaseHealth } from "./controller-database-health.mjs";
 import { controllerOperations } from "./ops/controller.mjs";
@@ -20,7 +21,8 @@ async function fixture({ owner = true } = {}) {
 }
 afterEach(async () => { for (const clean of fixtures.splice(0)) await clean(); });
 
-it("checks committed WAL state without exposing records or changing database bytes", async () => {
+// Linux only: POSIX file modes.
+it.skipIf(onWindows)("checks committed WAL state without exposing records or changing database bytes", async () => {
   const { databasePath } = await fixture();
   const before = await readFile(databasePath); const walBefore = await readFile(`${databasePath}-wal`);
   const report = await readControllerDatabaseHealth({ databasePath, now });
@@ -33,19 +35,22 @@ it("checks committed WAL state without exposing records or changing database byt
   expect(await readFile(`${databasePath}-wal`)).toEqual(walBefore);
 });
 
-it("checks a clean offline database through the isolated child", async () => {
+// Linux only: POSIX file modes.
+it.skipIf(onWindows)("checks a clean offline database through the isolated child", async () => {
   const { databasePath, close } = await fixture(); close();
   expect((await inspectControllerDatabase({ databasePath })).status).toBe("ready");
 });
 
-it("distinguishes new-install account absence from broken database structure", async () => {
+// Linux only: POSIX file modes.
+it.skipIf(onWindows)("distinguishes new-install account absence from broken database structure", async () => {
   const { databasePath } = await fixture({ owner: false });
   const report = await readControllerDatabaseHealth({ databasePath, now });
   expect(report.status).toBe("warning");
   expect(report.checks.find((check) => check.id === "database-owner").status).toBe("warning");
 });
 
-it("finds related-record failures while retaining other successful checks", async () => {
+// Linux only: POSIX file modes.
+it.skipIf(onWindows)("finds related-record failures while retaining other successful checks", async () => {
   const { databasePath } = await fixture();
   const db = new DatabaseSync(databasePath);
   db.exec("PRAGMA foreign_keys = OFF; CREATE TABLE fixture_parent (id INTEGER PRIMARY KEY); CREATE TABLE fixture_child (parent_id INTEGER REFERENCES fixture_parent(id)); INSERT INTO fixture_child VALUES (42);"); db.close();
@@ -55,7 +60,8 @@ it("finds related-record failures while retaining other successful checks", asyn
   expect(report.checks.find((check) => check.id === "database-core-tables").status).toBe("pass");
 });
 
-it("reports corruption and missing core tables without initializing a database", async () => {
+// Linux only: POSIX file modes.
+it.skipIf(onWindows)("reports corruption and missing core tables without initializing a database", async () => {
   const { databasePath, close } = await fixture(); close();
   await writeFile(databasePath, "private-corrupt-content");
   const damaged = await readControllerDatabaseHealth({ databasePath, now });
@@ -70,7 +76,8 @@ it("reports corruption and missing core tables without initializing a database",
   await expect(readFile(databasePath)).rejects.toMatchObject({ code: "ENOENT" });
 });
 
-it("refuses linked databases and linked journal files", async () => {
+// Linux only: creates file symlinks, which need a privilege on Windows.
+it.skipIf(onWindows)("refuses linked databases and linked journal files", async () => {
   const { directory, databasePath, close } = await fixture(); close();
   const link = path.join(directory, "linked.sqlite3"); await symlink(databasePath, link);
   expect((await readControllerDatabaseHealth({ databasePath: link, now })).checks[0].status).toBe("fail");

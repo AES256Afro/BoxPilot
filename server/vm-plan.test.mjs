@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { createVmPlanner, validateVmPlanInput } from "./vm-plan.mjs";
 
 function isoEntry(name, kind = "file") {
@@ -33,7 +34,8 @@ describe("VM creation planning", () => {
     expect(validateVmPlanInput(validInput({ name: "boxpilot-drill-manual" }))).toContain("Names beginning with boxpilot-drill- are reserved for isolated restore recovery");
   });
 
-  it("lists regular ISO files without following directories or symlinks", async () => {
+  // Linux only: expects POSIX paths.
+  it.skipIf(onWindows)("lists regular ISO files without following directories or symlinks", async () => {
     const planner = createVmPlanner({
       mediaRoot: "/safe/iso",
       readDirectory: async () => [isoEntry("ubuntu-24.04.iso"), isoEntry("empty.iso"), isoEntry("nested.iso", "directory"), isoEntry("link.iso", "symlink"), isoEntry("notes.txt")],
@@ -47,7 +49,8 @@ describe("VM creation planning", () => {
     expect(options.mediaRoot).toBe("/safe/iso");
   });
 
-  it("builds a deterministic stageable virt-install preview", async () => {
+  // Linux only: expects POSIX paths.
+  it.skipIf(onWindows)("builds a deterministic stageable virt-install preview", async () => {
     const planner = createVmPlanner({
       mediaRoot: "/safe/iso",
       readDirectory: async () => [isoEntry("ubuntu-24.04.iso")],

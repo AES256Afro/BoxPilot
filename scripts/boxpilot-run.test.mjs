@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 
 let directory;
 beforeEach(async () => {
@@ -39,7 +40,8 @@ describe("boxpilot-run task runner", () => {
     await expect(runTask("../etc/passwd", { now, taskTable })).rejects.toThrow("UUID");
   });
 
-  it("hands tasks a run that writes every command into the job log, commands only", async () => {
+  // Linux only: runs /bin/sh and expects a POSIX log path.
+  it.skipIf(onWindows)("hands tasks a run that writes every command into the job log, commands only", async () => {
     const logDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-runlog-"));
     process.env.BOXPILOT_JOB_LOG_DIRECTORY = logDirectory;
     vi.resetModules();

@@ -1,5 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { productVersion } from "./version.mjs";
 import { helperOperations } from "./helper-protocol.mjs";
 
@@ -67,7 +68,8 @@ describe("native systemd network boundaries", () => {
     expect(compose).toContain("/tmp:size=16m,mode=1777");
   });
 
-  it("normalizes only the generated web distribution after hardened builds", async () => {
+  // Linux only: checks the POSIX executable bit.
+  it.skipIf(onWindows)("normalizes only the generated web distribution after hardened builds", async () => {
     const packageDefinition = await readFile("package.json", "utf8");
     const normalizer = await readFile("scripts/boxpilot-web-dist-permissions.mjs", "utf8");
     const metadata = await stat("scripts/boxpilot-web-dist-permissions.mjs");
@@ -92,7 +94,8 @@ describe("native systemd network boundaries", () => {
     expect(normalizer).toContain("await chmod(target, 0o644)");
   });
 
-  it("ships an executable interactive setup utility without embedding a repository password", async () => {
+  // Linux only: checks the POSIX executable bit.
+  it.skipIf(onWindows)("ships an executable interactive setup utility without embedding a repository password", async () => {
     const setup = await readFile("scripts/boxpilot-restic-setup.sh", "utf8");
     const metadata = await stat("scripts/boxpilot-restic-setup.sh");
     expect(metadata.mode & 0o111).not.toBe(0);
@@ -103,7 +106,8 @@ describe("native systemd network boundaries", () => {
     expect(setup).not.toMatch(/RESTIC_PASSWORD=/);
   });
 
-  it("ships a separate terminal-only controller restic setup without accepting a browser password or destination", async () => {
+  // Linux only: checks the POSIX executable bit.
+  it.skipIf(onWindows)("ships a separate terminal-only controller restic setup without accepting a browser password or destination", async () => {
     const setup = await readFile("scripts/boxpilot-controller-restic-setup.sh", "utf8");
     const metadata = await stat("scripts/boxpilot-controller-restic-setup.sh");
     expect(metadata.mode & 0o111).not.toBe(0);
@@ -116,7 +120,8 @@ describe("native systemd network boundaries", () => {
     expect(setup).not.toMatch(/RESTIC_PASSWORD=/);
   });
 
-  it("ships a separate terminal-only application restic setup and repository key", async () => {
+  // Linux only: checks the POSIX executable bit.
+  it.skipIf(onWindows)("ships a separate terminal-only application restic setup and repository key", async () => {
     const setup = await readFile("scripts/boxpilot-application-restic-setup.sh", "utf8");
     const metadata = await stat("scripts/boxpilot-application-restic-setup.sh");
     expect(metadata.mode & 0o111).not.toBe(0);
@@ -129,7 +134,8 @@ describe("native systemd network boundaries", () => {
     expect(setup).not.toMatch(/RESTIC_PASSWORD=/);
   });
 
-  it("ships a fixed timer-only SMART scanner outside the browser and privileged helper protocol", async () => {
+  // Linux only: checks the POSIX executable bit.
+  it.skipIf(onWindows)("ships a fixed timer-only SMART scanner outside the browser and privileged helper protocol", async () => {
     const service = await readFile("deploy/boxpilot-storage-scan.service", "utf8");
     const timer = await readFile("deploy/boxpilot-storage-scan.timer", "utf8");
     const scanner = await readFile("scripts/boxpilot-storage-scan.mjs", "utf8");
@@ -186,7 +192,8 @@ describe("native systemd network boundaries", () => {
     expect(protocol).not.toContain("package.install");
   });
 
-  it("ships a separate static exact-package restic installer without repository setup inputs", async () => {
+  // Linux only: checks the POSIX executable bit.
+  it.skipIf(onWindows)("ships a separate static exact-package restic installer without repository setup inputs", async () => {
     const service = await readFile("deploy/boxpilot-restic-install.service", "utf8");
     const installer = await readFile("scripts/boxpilot-restic-install.mjs", "utf8");
     const protocol = await readFile("server/helper-protocol.mjs", "utf8");
@@ -210,7 +217,8 @@ describe("native systemd network boundaries", () => {
     expect(protocol).not.toContain("package.install");
   });
 
-  it("ships a separate static exact-package Docker Engine installer without provider or daemon inputs", async () => {
+  // Linux only: checks the POSIX executable bit.
+  it.skipIf(onWindows)("ships a separate static exact-package Docker Engine installer without provider or daemon inputs", async () => {
     const service = await readFile("deploy/boxpilot-docker-install.service", "utf8");
     const installer = await readFile("scripts/boxpilot-docker-install.mjs", "utf8");
     const protocol = await readFile("server/helper-protocol.mjs", "utf8");
@@ -236,7 +244,8 @@ describe("native systemd network boundaries", () => {
     expect(protocol).not.toContain("package.install");
   });
 
-  it("ships a static fixed virtualization bundle installer without provider, URI, network, pool, or VM inputs", async () => {
+  // Linux only: checks the POSIX executable bit.
+  it.skipIf(onWindows)("ships a static fixed virtualization bundle installer without provider, URI, network, pool, or VM inputs", async () => {
     const service = await readFile("deploy/boxpilot-virtualization-install.service", "utf8");
     const installer = await readFile("scripts/boxpilot-virtualization-install.mjs", "utf8");
     const protocol = await readFile("server/helper-protocol.mjs", "utf8");
@@ -264,7 +273,8 @@ describe("native systemd network boundaries", () => {
     expect(protocol).not.toContain("package.install");
   });
 
-  it("ships a static fixed libvirt foundation initializer with job-limited rollback", async () => {
+  // Linux only: checks the POSIX executable bit.
+  it.skipIf(onWindows)("ships a static fixed libvirt foundation initializer with job-limited rollback", async () => {
     const service = await readFile("deploy/boxpilot-libvirt-foundation.service", "utf8");
     const initializer = await readFile("scripts/boxpilot-libvirt-foundation.mjs", "utf8");
     const foundationHelper = await readFile("server/libvirt-foundation-helper.mjs", "utf8");

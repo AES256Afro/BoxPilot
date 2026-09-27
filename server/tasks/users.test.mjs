@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { onWindows } from "../../test/platform.mjs";
 import { sshPasswordAuthSet, userAdd, userKeysImport, userSudoSet, validKeyLines } from "./users.mjs";
 
 const ED_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKk3Fake0000000000000000000000000000000000 laptop";
@@ -99,7 +100,8 @@ describe("root user and SSH tasks", () => {
     expect(files.written["/etc/ssh/sshd_config.d/00-boxpilot.conf"]).toBeUndefined();
   });
 
-  it("disables password login through a validated drop-in and reloads ssh", async () => {
+  // Linux only: expects POSIX paths.
+  it.skipIf(onWindows)("disables password login through a validated drop-in and reloads ssh", async () => {
     const run = fakeRun();
     const files = fakeFiles({
       "/etc/passwd": "root:x:0:0::/root:/bin/bash\nalex:x:1001:1001::/home/alex:/bin/bash\n",
@@ -111,7 +113,8 @@ describe("root user and SSH tasks", () => {
     expect(run).toHaveBeenCalledWith("/usr/bin/systemctl", ["reload-or-restart", "ssh.service"], expect.anything());
   });
 
-  it("rolls the drop-in back when sshd rejects the configuration", async () => {
+  // Linux only: expects POSIX paths.
+  it.skipIf(onWindows)("rolls the drop-in back when sshd rejects the configuration", async () => {
     const run = fakeRun({ failSshdTest: true });
     const files = fakeFiles({
       "/etc/passwd": "alex:x:1001:1001::/home/alex:/bin/bash\n",

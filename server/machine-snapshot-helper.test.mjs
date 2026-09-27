@@ -3,6 +3,7 @@ import {chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "no
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { fixedRun } from "./exec.mjs";
 import { createMachineSnapshotHelper } from "./machine-snapshot-helper.mjs";
 
@@ -97,7 +98,8 @@ afterEach(async () => {
 });
 
 describe("machine snapshot helper", () => {
-  it("assembles one verified secret-bearing archive from every live evidence family", async () => {
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("assembles one verified secret-bearing archive from every live evidence family", async () => {
     const { helper, paths, controllerBackups } = await fixture();
     const result = await helper.create({ snapshotId });
     expect(result).toMatchObject({
@@ -122,7 +124,8 @@ describe("machine snapshot helper", () => {
     expect((await readdir(paths.snapshotRoot)).filter((name) => name.startsWith(".staging"))).toEqual([]);
   });
 
-  it("rejects malformed snapshot ids and keeps only the newest snapshots", async () => {
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("rejects malformed snapshot ids and keeps only the newest snapshots", async () => {
     const { helper, paths } = await fixture();
     await expect(helper.create({ snapshotId: "../../etc" })).rejects.toThrow("must be a UUID");
     await mkdir(paths.snapshotRoot, { recursive: true });
@@ -135,7 +138,8 @@ describe("machine snapshot helper", () => {
     expect((await helper.inspect()).snapshots).toHaveLength(2);
   });
 
-  it("mirrors the local backup roots onto the mount with hash verification and no deletes", async () => {
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("mirrors the local backup roots onto the mount with hash verification and no deletes", async () => {
     const { helper, paths } = await fixture();
     await helper.create({ snapshotId });
     await writeFile(path.join(paths.mountRoot, "operator-file.txt"), "keep me");
@@ -190,7 +194,8 @@ describe("restoring from a machine snapshot", () => {
     };
   }
 
-  it("refuses an archive whose checksum file is missing, before touching anything", async () => {
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("refuses an archive whose checksum file is missing, before touching anything", async () => {
     const { helper, paths } = await fixture();
     const created = await helper.create({ snapshotId });
     await rm(`${created.artifactPath}.meta.json`);
@@ -220,7 +225,8 @@ describe("restoring from a machine snapshot", () => {
     expect(apps.install).not.toHaveBeenCalled();
   });
 
-  it("picks up where an interrupted restore stopped instead of starting over", async () => {
+  // Linux only: needs /usr/bin/tar.
+  it.skipIf(onWindows)("picks up where an interrupted restore stopped instead of starting over", async () => {
     const { helper, paths } = await fixture();
     const created = await helper.create({ snapshotId });
     const stateFile = path.join(paths.catalogRoot, "uptime-kuma", "boxpilot.json");
@@ -295,7 +301,8 @@ describe("finding snapshots on a drive that was just plugged in", () => {
     expect(found.snapshots[0].artifact).toBe("machine-snapshot-20260819T010000Z-0ddba11a.tar.gz");
   });
 
-  it("tells a drive that did not answer apart from a drive with nothing on it", async () => {
+  // Linux only: chmod 000 must make a folder unreadable.
+  it.skipIf(onWindows)("tells a drive that did not answer apart from a drive with nothing on it", async () => {
     // A soft network mount mid-hiccup errors the read; the first version reported that as "no
     // snapshots found", which is an invented all-clear delivered to someone mid-rebuild. Seen
     // live: the same CIFS mount answered three snapshots on one read and an error on the one before.

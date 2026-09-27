@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { onWindows } from "../../test/platform.mjs";
 import { backupCloudSetup, backupCloudSync, backupCloudTest, configPath } from "./backup-cloud.mjs";
 import { cloudTarget, normalizeCloudDestination, parseRcloneStats, renderRcloneConfig, validateCloudDestination } from "../backup-cloud.mjs";
 
@@ -28,7 +29,8 @@ describe("cloud destination model", () => {
 });
 
 describe("cloud backup tasks", () => {
-  it("writes a root-only rclone.conf with the secret and reports the target", async () => {
+  // Linux only: POSIX file modes.
+  it.skipIf(onWindows)("writes a root-only rclone.conf with the secret and reports the target", async () => {
     const secretsDirectory = await secretsDir();
     const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
     const result = await backupCloudSetup({ provider: "b2", account: "0012abc", bucket: "home-backups", path: "homebox", key: "K123" }, { run, secretsDirectory, rclone: "/" });

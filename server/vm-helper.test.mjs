@@ -2,6 +2,7 @@ import { copyFile, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:f
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { createVmHelper } from "./vm-helper.mjs";
 import { snapshotDiskRevision, snapshotInventoryRevision } from "./vm-snapshot.mjs";
 
@@ -14,7 +15,8 @@ function regularIso(overrides = {}) {
 }
 
 describe("restricted VM helper", () => {
-  it("builds fixed arguments and verifies the created domain", async () => {
+  // Linux only: expects POSIX paths.
+  it.skipIf(onWindows)("builds fixed arguments and verifies the created domain", async () => {
     const run = vi.fn(async (binary, args) => {
       if (binary === "/usr/bin/virt-install") return { stdout: "", stderr: "" };
       if (args.includes("list")) return { stdout: "", stderr: "" };
@@ -94,7 +96,8 @@ describe("restricted VM helper", () => {
     expect(run.mock.calls.some(([, args]) => args[2] === "dumpxml")).toBe(false);
   });
 
-  it("exports a stopped persistent VM to a server-owned root-only verified artifact", async () => {
+  // Linux only: POSIX file modes.
+  it.skipIf(onWindows)("exports a stopped persistent VM to a server-owned root-only verified artifact", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-helper-export-"));
     try {
       const imageRoot = path.join(directory, "images");

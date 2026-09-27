@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -67,7 +68,8 @@ describe("profile env mapping", () => {
 });
 
 describe("createVpnProfileStore", () => {
-  it("saves to a 0600 file, reads it back, and clears it", async () => {
+  // Linux only: POSIX file modes.
+  it.skipIf(onWindows)("saves to a 0600 file, reads it back, and clears it", async () => {
     const file = await tempFile();
     const store = createVpnProfileStore({ file, now: clock });
     expect(await store.describe()).toEqual({ configured: false });

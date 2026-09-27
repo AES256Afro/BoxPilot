@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
+import { onWindows } from "../test/platform.mjs";
 import { initializeApprovedLibvirtFoundation, libvirtFoundationScriptInternals } from "./boxpilot-libvirt-foundation.mjs";
 
 const foundationId = "123e4567-e89b-42d3-a456-426614174000";
@@ -12,7 +13,8 @@ const before = {
 };
 
 describe("fixed libvirt foundation initializer", () => {
-  it("defines, starts, and enables only the fixed default resources", async () => {
+  // Linux only: expects POSIX paths.
+  it.skipIf(onWindows)("defines, starts, and enables only the fixed default resources", async () => {
     const inspector = { inspect: vi.fn().mockResolvedValueOnce(before).mockResolvedValueOnce({ ready: true }) };
     const run = vi.fn(async () => ({ ok: true, stdout: "", stderr: "" }));
     const writeNetworkXml = vi.fn();
