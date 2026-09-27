@@ -279,13 +279,13 @@ export function appOperations() {
     defineOperation({
       id: "app.exposure.set", title: "Change who can reach an application", risk: "medium", timeoutMs: minutes(15),
       description: "Tailnet only publishes the app on your tailnet over HTTPS and stops it listening on the network, so Tailscale authenticates every visitor before the app sees them. Home network publishes it on the LAN address instead, where anything on your network can reach it and only the firewall stands in the way.",
-      parameters: { fields: { id: idField, mode: { type: "string", validate: (value) => (["lan", "tailnet"].includes(value) ? null : "must be lan or tailnet") } } },
+      parameters: { fields: { id: idField, mode: { type: "string", validate: (value) => (["lan", "tailnet"].includes(value) ? null : "must be lan or tailnet") }, devices: devicesField } },
       run: async (parameters, { apps, run, progress }) => {
         const tailnet = parameters.mode === "tailnet";
         // Rebind first, then publish. Doing it the other way round would leave Serve pointing at a
         // port that is still answering the whole LAN.
         progress?.(tailnet ? "Binding the app to this server only..." : "Publishing the app on the LAN address...", "stdout");
-        const reconfigured = await apps.reconfigure({ id: parameters.id, values: { exposure: parameters.mode } }, { progress, checkpoint: false });
+        const reconfigured = await apps.reconfigure({ id: parameters.id, values: { exposure: parameters.mode }, devices: parameters.devices ?? null }, { progress, checkpoint: false });
         const hostPorts = reconfigured.hostPorts ?? [];
         // Only the app's HTTP ports can go through Serve, which terminates HTTPS and proxies HTTP.
         // The rest moved to the tailnet address or stayed on the LAN when the compose was written,
@@ -317,8 +317,8 @@ export function appOperations() {
     defineOperation({
       id: "app.password.set", title: "Change an application's sign-in password", risk: "medium", timeoutMs: minutes(15),
       description: "Sets the password the app's sign-in page asks for and recreates the container so it takes effect. Data is untouched.",
-      parameters: { fields: { id: idField, password: { type: "string", secret: true, validate: (value) => (value.length >= 8 && value.length <= 128 && !/[\r\n]/.test(value) ? null : "must be 8 to 128 characters") } } },
-      run: (parameters, { apps, progress }) => apps.setPassword({ id: parameters.id, password: parameters.password }, { progress }),
+      parameters: { fields: { id: idField, password: { type: "string", secret: true, validate: (value) => (value.length >= 8 && value.length <= 128 && !/[\r\n]/.test(value) ? null : "must be 8 to 128 characters") }, devices: devicesField } },
+      run: (parameters, { apps, progress }) => apps.setPassword({ id: parameters.id, password: parameters.password, devices: parameters.devices ?? null }, { progress }),
     }),
     defineOperation({
       id: "app.backup.protection", title: "Read which apps have backups", risk: "low", readOnly: true, timeoutMs: minutes(2),

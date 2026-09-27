@@ -159,6 +159,19 @@ describe("generic app deployer", () => {
     expect(await readFile(path.join(withGpu.catalogRoot, "gpu", "compose.yaml"), "utf8")).toContain("/dev/dri/renderD128:/dev/dri/renderD128");
   });
 
+  it("keeps the devices the web process resolved when the sign-in password changes", async () => {
+    // The helper's own /dev is empty (PrivateDevices): a password change that re-resolved there
+    // refused a Zigbee stick and silently dropped a GPU render node.
+    const { apps, catalogDirectory, catalogRoot } = await setup({ listDevices: async () => ["null", "zero"] });
+    await writeFile(path.join(catalogDirectory, "stick.yaml"), "schemaVersion: 2\nid: stick\nname: Stick\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8085\ndevices:\n  - /dev/ttyUSB?\noptionalDevices:\n  - /dev/dri/renderD*\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\nsignIn:\n  passwordEnv: ADMIN_PASSWORD\n");
+    const devices = ["/dev/ttyUSB0", "/dev/dri/renderD128"];
+    await apps.install({ id: "stick", devices });
+    await expect(apps.setPassword({ id: "stick", password: "correct horse battery", devices })).resolves.toMatchObject({ changed: true });
+    const compose = await readFile(path.join(catalogRoot, "stick", "compose.yaml"), "utf8");
+    expect(compose).toContain("/dev/ttyUSB0:/dev/ttyUSB0");
+    expect(compose).toContain("/dev/dri/renderD128:/dev/dri/renderD128");
+  });
+
   it("changes the sign-in password and nothing else", async () => {
     // The generated password sat behind the elevated Secrets view and could only be changed by
     // finding the right variable in Settings. For Pi-hole that is also the only change that
