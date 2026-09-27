@@ -132,6 +132,20 @@ export function createAppHelper({
     try { return parseEnvFile(await readFile(path.join(dirFor(id), ".env"), "utf8")); } catch { return {}; }
   }
 
+  /** The deployed compose.yaml and .env as they are now (null when absent), so a failed change can put them back. */
+  async function readProjectFiles(id) {
+    const read = (name) => readFile(path.join(dirFor(id), name), "utf8").catch(() => null);
+    return { compose: await read("compose.yaml"), env: await read(".env") };
+  }
+
+  async function restoreProjectFiles(id, saved) {
+    for (const [name, content] of [["compose.yaml", saved.compose], [".env", saved.env]]) {
+      if (content === null) continue;
+      await writeFile(path.join(dirFor(id), `${name}.tmp`), content, { mode: 0o600 });
+      await rename(path.join(dirFor(id), `${name}.tmp`), path.join(dirFor(id), name));
+    }
+  }
+
   async function containerStatus(id) {
     const name = projectNameFor(id);
     const result = await docker(["inspect", "--format", '{"running":{{.State.Running}},"status":"{{.State.Status}}","health":"{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}","restarts":{{.RestartCount}},"image":"{{.Image}}","startedAt":"{{.State.StartedAt}}","exitCode":{{.State.ExitCode}}}', name], { timeout: 10_000 });
@@ -456,7 +470,7 @@ export function createAppHelper({
     // A GPU-capable app gets the GPU only when Docker can actually provide one; otherwise it runs
     // on the CPU, the same as on a server without a GPU.
     const gpu = wantsGpu(manifest) ? await gpuReady().catch(() => false) : false;
-    const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices, tailnetAddress: values.exposure === "tailnet" ? await tailnetAddress() : null, sidecarEnvOverrides, gpu });
+    const rendered = renderCompose(manifest, values, { existingEnv, lanAddress, devices, tailnetAddress: await tailnetAddressFor(manifest, values), sidecarEnvOverrides, gpu });
     await writeFile(path.join(directory, ".env.tmp"), rendered.envFile, { mode: 0o600 });
     await rename(path.join(directory, ".env.tmp"), path.join(directory, ".env"));
     await writeFile(path.join(directory, "compose.yaml.tmp"), rendered.composeYaml, { mode: 0o600 });
@@ -666,11 +680,19 @@ export function createAppHelper({
     // What is running right now, read from the deployed compose file before it is overwritten. This
     // is the only exact record: the manifest below has already moved to the new tags, and stored
     // state carries the app's own image but never its sidecars'.
-    const runningBefore = deployedImages(await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => ""));
-    await writeProject(manifest, values, { existingEnv: await readEnv(id), devices }); // picks up manifest changes (new image tag)
-    declaredUserCache.delete(manifest.image.reference); declaredOwnerCache.delete(manifest.image.reference);   // a pull can change the image's USER
-    const pull = await compose(id, ["pull"], { timeout: 30 * 60_000, progress });
-    if (!pull.ok) throw new Error(`docker compose pull failed: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
+    const previous = await readProjectFiles(id);
+    const runningBefore = deployedImages(previous.compose ?? "");
+    try {
+      await writeProject(manifest, values, { existingEnv: await readEnv(id), devices }); // picks up manifest changes (new image tag)
+      declaredUserCache.delete(manifest.image.reference); declaredOwnerCache.delete(manifest.image.reference);   // a pull can change the image's USER
+      const pull = await compose(id, ["pull"], { timeout: 30 * 60_000, progress });
+      if (!pull.ok) throw new Error(`docker compose pull failed: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
+    } catch (error) {
+      // Nothing has been restarted yet, so the containers still run the old version: put the files
+      // that describe them back, or the next restart would quietly move the app forward.
+      await restoreProjectFiles(id, previous).catch(() => {});
+      throw new Error(`${manifest.name} update failed before anything was restarted; the app was unchanged. ${error.message}`);
+    }
     const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
     try {
       if (!up.ok) throw new Error(`docker compose up failed: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
@@ -686,17 +708,23 @@ export function createAppHelper({
       return { updated: true, id, previousImage: before.image, image: status.image, changed: before.image !== status.image, previousReference: runningBefore[id] ?? state.image?.reference ?? null, reference: manifest.image.reference, checkpoint: saved };
     } catch (error) {
       let rolledBack = false;
+      progress?.(`Update failed: ${error.message}. Restoring previous image...`, "stderr");
+      // Pin the exact images that were running. If that cannot be written, the compose file that
+      // was deployed before is the next best thing; never start the version that just failed again.
+      let pinnedImages = false;
       if (before.image) {
         const pinned = {
           ...manifest,
           image: { ...manifest.image, reference: before.image },
           sidecars: (manifest.sidecars ?? []).map((sidecar) => (beforeSidecars[sidecar.id] ? { ...sidecar, image: beforeSidecars[sidecar.id] } : sidecar)),
         };
-        await writeProject(pinned, values, { existingEnv: await readEnv(id), devices }).catch(() => {});
-        progress?.(`Update failed: ${error.message}. Restoring previous image...`, "stderr");
+        pinnedImages = await writeProject(pinned, values, { existingEnv: await readEnv(id), devices }).then(() => true, () => false);
+      }
+      const restored = pinnedImages || await restoreProjectFiles(id, previous).then(() => previous.compose !== null, () => false);
+      if (restored) {
         const rollback = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000, progress });
         rolledBack = rollback.ok;
-        if (rolledBack) await writeState(id, { ...state, pinnedRollback: true, image: { reference: before.image, id: before.image } }).catch(() => {});
+        if (rolledBack && pinnedImages) await writeState(id, { ...state, pinnedRollback: true, image: { reference: before.image, id: before.image } }).catch(() => {});
       }
       throw new Error(`${manifest.name} update failed${rolledBack ? "; the previous image was restored" : " and automatic rollback also failed"}. ${error.message}`);
     }
@@ -744,17 +772,31 @@ export function createAppHelper({
     // What is deployed right now, which is what this rollback moves away from. Stepping back several
     // releases means the entry being undone describes an older hop, so its `to` is not where the app
     // actually is — reading the deployed file is the only answer that stays true at any depth.
-    const runningBefore = deployedImages(await readFile(path.join(dirFor(id), "compose.yaml"), "utf8").catch(() => ""));
+    const previous = await readProjectFiles(id);
+    const runningBefore = deployedImages(previous.compose ?? "");
     const restoring = Object.entries(restoreTo).map(([service, reference]) => `${service} to ${reference}`).join(", ");
     progress?.(`Putting ${manifest.name} back: ${restoring}`, "stdout");
-    await writeProject(pinned, values, { existingEnv: await readEnv(id), devices });
-    // Pull explicitly: the previous image is unused after an update, so a prune may have removed it.
-    declaredUserCache.delete(manifest.image.reference); declaredOwnerCache.delete(manifest.image.reference);   // a pull can change the image's USER
-    const pull = await compose(id, ["pull"], { timeout: 30 * 60_000, progress });
-    if (!pull.ok) throw new Error(`Could not fetch the previous version: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
-    const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
-    if (!up.ok) throw new Error(`${manifest.name} would not start on the previous version: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
-    const status = await waitHealthy(manifest, progress);
+    let started = false;
+    let status;
+    try {
+      await writeProject(pinned, values, { existingEnv: await readEnv(id), devices });
+      // Pull explicitly: the previous image is unused after an update, so a prune may have removed it.
+      declaredUserCache.delete(manifest.image.reference); declaredOwnerCache.delete(manifest.image.reference);   // a pull can change the image's USER
+      const pull = await compose(id, ["pull"], { timeout: 30 * 60_000, progress });
+      if (!pull.ok) throw new Error(`Could not fetch the previous version: ${redact(pull.stderr).split("\n").slice(-3).join(" ")}`);
+      started = true;
+      const up = await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 15 * 60_000, progress });
+      if (!up.ok) throw new Error(`${manifest.name} would not start on the previous version: ${redact(up.stderr).split("\n").slice(-4).join(" ")}`);
+      status = await waitHealthy(manifest, progress);
+    } catch (error) {
+      // Put back the compose file this app was running, as reconfigure and a compose edit do, and
+      // start it again if the attempt got as far as replacing the containers.
+      const restored = await restoreProjectFiles(id, previous).then(() => previous.compose !== null, () => false);
+      if (!started) throw new Error(`${manifest.name} could not go back a version; the app was unchanged. ${error.message}`);
+      progress?.(`Going back failed: ${error.message}. Restoring the version it was on...`, "stderr");
+      const back = restored && (await compose(id, ["up", "--detach", "--remove-orphans"], { timeout: 10 * 60_000, progress })).ok;
+      throw new Error(`${manifest.name} could not go back a version${back ? "; the version it was on was restored" : " and restoring the version it was on also failed"}. ${error.message}`);
+    }
     // The rollback is itself an entry, so going back twice steps back twice rather than ping-ponging.
     const movedFrom = Object.fromEntries(Object.keys(restoreTo).map((service) => [service, runningBefore[service] ?? last.to?.[service] ?? null]));
     const entry = { at: clock().toISOString(), from: movedFrom, to: restoreTo, rolledBack: true };
@@ -1087,25 +1129,49 @@ export function createAppHelper({
    */
   /**
    * This server's own tailnet address, for ports that have to move somewhere reachable but cannot
-   * go through Serve. Null when Tailscale is absent or not up, which the caller treats as "leave
-   * the port where it was" rather than as a failure.
+   * go through Serve. Null when Tailscale is absent or not up.
+   *
+   * Only an answer is remembered, and only for a minute: the helper usually starts before
+   * Tailscale does, and remembering "no address" from then meant every later deploy treated the
+   * server as having no tailnet at all.
    */
-  let tailnetAddressCache;
+  const tailnetCacheMs = 60_000;
+  const tailnetCache = { address: null, dnsName: null };
+  const cachedTailnet = (key) => (tailnetCache[key] && clock().getTime() - tailnetCache[key].at < tailnetCacheMs ? tailnetCache[key].value : null);
+  const rememberTailnet = (key, value) => { tailnetCache[key] = value ? { value, at: clock().getTime() } : null; return value; };
   async function tailnetAddress() {
-    if (tailnetAddressCache !== undefined) return tailnetAddressCache;
+    const cached = cachedTailnet("address");
+    if (cached) return cached;
     const result = await runCommand(tailscaleBinary, ["ip", "-4"], { timeout: 15_000 }).catch(() => ({ ok: false, stdout: "" }));
     const address = result.ok ? (result.stdout.split("\n").map((line) => line.trim()).find((line) => /^\d{1,3}(\.\d{1,3}){3}$/.test(line)) ?? null) : null;
-    tailnetAddressCache = address;
-    return address;
+    return rememberTailnet("address", address);
+  }
+
+  /**
+   * The tailnet address a compose file for these values binds to. A port that moves to the tailnet
+   * address has nowhere safe to go without one: the renderer would leave it on the LAN, which for
+   * an app the owner set to "tailnet only" publishes it to the whole house. Refuse instead, before
+   * anything is written, so the app stays exactly as it was.
+   */
+  async function tailnetAddressFor(manifest, values) {
+    if (values.exposure !== "tailnet") return null;
+    const address = await tailnetAddress();
+    if (address) return address;
+    const network = (manifest.networkModes ?? [manifest.network]).includes(values.networkMode) ? values.networkMode : manifest.network;
+    if (network === "host" || manifest.network === "host") return null; // no published ports to bind
+    const stranded = (manifest.ports ?? []).filter((port) => port.exposure !== "loopback" && (port.tailnet ?? "serve") === "address");
+    if (stranded.length) throw new Error(`${manifest.name} is set to tailnet only, but this server has no tailnet address right now (is Tailscale up?). ${stranded.map((port) => port.label ?? port.id).join(", ")} would have been left open on the home network, so nothing was changed`);
+    return null;
   }
 
   /** This server's tailnet machine name (homebox.tail...ts.net), or null without Tailscale. */
-  let tailnetDnsNameCache;
   async function tailnetDnsName() {
-    if (tailnetDnsNameCache !== undefined) return tailnetDnsNameCache;
+    const cached = cachedTailnet("dnsName");
+    if (cached) return cached;
     const result = await runCommand(tailscaleBinary, ["status", "--json"], { timeout: 15_000, maxBuffer: 4 * 1024 * 1024 }).catch(() => ({ ok: false, stdout: "" }));
-    try { tailnetDnsNameCache = result.ok ? (JSON.parse(result.stdout).Self?.DNSName ?? "").replace(/\.$/, "") || null : null; } catch { tailnetDnsNameCache = null; }
-    return tailnetDnsNameCache;
+    let dnsName = null;
+    try { dnsName = result.ok ? (JSON.parse(result.stdout).Self?.DNSName ?? "").replace(/\.$/, "") || null : null; } catch { dnsName = null; }
+    return rememberTailnet("dnsName", dnsName);
   }
 
   /**
@@ -1538,6 +1604,33 @@ export function createAppHelper({
     return { id, backup: backupName, files, truncated: files.length >= limit };
   }
 
+  /**
+   * Move `source` to `base/relativePath` without ever resolving a symlink on the way. Every folder
+   * between base and the destination must be a real directory (missing ones are created one level
+   * at a time); the destination itself, whatever it is, is moved aside to `aside` rather than
+   * written through, and put back if the move fails.
+   */
+  async function placeWithoutFollowing(source, base, relativePath, aside) {
+    const parts = relativePath.split("/");
+    let current = base;
+    for (const part of ["", ...parts.slice(0, -1)]) {
+      current = part ? path.join(current, part) : current;
+      const info = await lstat(current).catch((error) => { if (error.code === "ENOENT") return null; throw error; });
+      if (!info) { await mkdir(current, { mode: 0o755 }); continue; }
+      if (info.isSymbolicLink()) throw new Error(`${path.relative(base, current) || "The app folder"} is a symbolic link; restoring through it could write outside the app, so nothing was restored`);
+      if (!info.isDirectory()) throw new Error(`${path.relative(base, current)} is not a folder, so ${relativePath} cannot be restored inside it`);
+    }
+    const target = path.join(base, relativePath);
+    const displaced = await lstat(target).then(() => true, (error) => { if (error.code === "ENOENT") return false; throw error; });
+    if (displaced) await rename(target, aside);
+    try {
+      await rename(source, target);
+    } catch (error) {
+      if (displaced) await rename(aside, target).catch(() => {});
+      throw error;
+    }
+  }
+
   /** Restore one path (file or directory) from a backup after a checkpoint; everything else stays as it is. */
   async function restoreAppBackupPath({ id, backup: backupName, path: relativePath }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
@@ -1558,11 +1651,20 @@ export function createAppHelper({
       const stop = await compose(id, ["stop"], { timeout: 120_000, progress });
       if (!stop.ok) throw new Error(`docker compose stop failed: ${redact(stop.stderr).split("\n").slice(-3).join(" ")}`);
     }
+    // Extract into a fresh folder of our own, never into the live one: tar runs as root and follows a
+    // directory symlink it finds on the way, and a container can plant one in its own volume
+    // (data/config -> /etc). The result is then moved into place one checked component at a time.
+    const live = dirFor(id);
+    const staged = `${live}.restoring-path`;
     try {
+      await rm(staged, { recursive: true, force: true });
+      await mkdir(staged, { mode: 0o700 });
       progress?.(`$ tar -xzf ${backupName} ${relativePath}`, "stdout");
-      const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", dirFor(id), relativePath], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+      const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", staged, relativePath], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
       if (!extract.ok) throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. The checkpoint ${saved.artifact} holds the pre-restore state.`);
+      await placeWithoutFollowing(path.join(staged, relativePath), live, relativePath, path.join(staged, ".previous"));
     } finally {
+      await rm(staged, { recursive: true, force: true }).catch(() => {});
       if (status.running) {
         const start = await compose(id, ["start"], { timeout: 180_000, progress });
         if (!start.ok) progress?.(`${manifest.name} did not start again: ${redact(start.stderr).split("\n").slice(-2).join(" ")}`, "stderr");
@@ -1596,14 +1698,14 @@ export function createAppHelper({
    * start — Pi-hole does — this is also the only place a change sticks. The stored values carry
    * everything but secrets, and the project's .env keeps every other secret as it was.
    */
-  async function setPassword({ id, password }, { progress = null } = {}) {
+  async function setPassword({ id, password, devices = null }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
     if (!manifest.signIn?.passwordEnv) throw new Error(`${manifest.name} does not have a sign-in password BoxPilot can set`);
     if (typeof password !== "string" || password.length < 8 || password.length > 128) throw new Error("The password must be 8 to 128 characters");
     const state = await readState(id);
     if (!state?.installed) throw new Error(`${manifest.name} is not installed`);
     const stored = sanitizeStoredValues(manifest, state.values ?? {});
-    const result = await reconfigure({ id, values: { ...stored, env: { ...stored.env, [manifest.signIn.passwordEnv]: password } } }, { progress, checkpoint: false });
+    const result = await reconfigure({ id, values: { ...stored, env: { ...stored.env, [manifest.signIn.passwordEnv]: password } }, devices }, { progress, checkpoint: false });
     return { id, changed: true, hostPorts: result.hostPorts };
   }
 

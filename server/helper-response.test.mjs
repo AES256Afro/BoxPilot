@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createHelperResponseReader } from "./helper-response.mjs";
+import { createHelperResponseReader, helperQueuedFrame, helperStartedFrame } from "./helper-response.mjs";
 const reply = (data) => `${JSON.stringify({ version: 1, id: "request", ...data })}\n`;
 
 describe("bounded helper response parsing", () => {
@@ -29,5 +29,23 @@ describe("bounded helper response parsing", () => {
     const reader = createHelperResponseReader("request");
     reader.push(reply({ ok: true, result: 42 }).trim());
     expect(reader.finish()).toBe(42);
+  });
+  it("reports when a queued request leaves the queue, once, and never queued again after that", () => {
+    const events = [];
+    const reader = createHelperResponseReader("request", { onQueued: () => events.push("queued"), onStarted: () => events.push("started") });
+    reader.push(`${JSON.stringify(helperQueuedFrame("request", "app:demo"))}\n`);
+    reader.push(`${JSON.stringify(helperQueuedFrame("request", "app:demo"))}\n`);
+    reader.push(`${JSON.stringify(helperStartedFrame("request"))}\n`);
+    expect(events).toEqual(["queued", "queued", "started"]);
+    expect(reader.stats()).toMatchObject({ heartbeats: 2, started: true, complete: false });
+    reader.push(reply({ ok: true, result: 1 }));
+    expect(reader.finish()).toBe(1);
+    const twice = createHelperResponseReader("request");
+    twice.push(reply({ started: true }));
+    expect(() => twice.push(reply({ started: true }))).toThrow("starting twice");
+    const late = createHelperResponseReader("request");
+    late.push(reply({ started: true }));
+    expect(() => late.push(reply({ queued: true }))).toThrow("after it started");
+    expect(() => createHelperResponseReader("request").push(reply({ started: true, ok: false, error: "no" }))).toThrow("no");
   });
 });

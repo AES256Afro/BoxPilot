@@ -53,7 +53,7 @@ export function createIdentityRouter({ store, auth, identity }) {
       auth.rememberDevice(request, response, account);
     }
     try {
-      return response.json(auth.issueSession(request, response, account, { method: "tailscale", detail: tailscale.login }));
+      return response.json(await auth.issueSession(request, response, account, { method: "tailscale", detail: tailscale.login }));
     } catch (error) {
       return response.status(403).json({ error: error.message, code: "identity_refused" });
     }
@@ -90,7 +90,7 @@ export function createIdentityRouter({ store, auth, identity }) {
     const owner = store.findOwnerById(accountId);
     if (!owner) return response.status(403).json({ status: "denied", error: `GitHub account ${result.login} is linked to an account that no longer exists` });
     try {
-      return response.json({ status: "complete", session: auth.issueSession(request, response, owner, { method: "github", detail: result.login }) });
+      return response.json({ status: "complete", session: await auth.issueSession(request, response, owner, { method: "github", detail: result.login }) });
     } catch (error) {
       return response.status(403).json({ status: "denied", error: error.message });
     }

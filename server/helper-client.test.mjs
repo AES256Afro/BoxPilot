@@ -11,7 +11,8 @@ const sockets = new Set();
 /** A helper socket that answers on command, so overlapping requests are deterministic. */
 async function helperSocket(handler) {
   dir = mkdtempSync(path.join(tmpdir(), "boxpilot-helper-"));
-  const socketPath = path.join(dir, "helper.sock");
+  // Windows has no Unix sockets in the temp directory; a named pipe serves the same client code.
+  const socketPath = process.platform === "win32" ? path.join("\\\\?\\pipe", path.basename(dir)) : path.join(dir, "helper.sock");
   server = net.createServer((connection) => {
     sockets.add(connection);
     connection.on("close", () => sockets.delete(connection));
@@ -55,20 +56,42 @@ describe("sharing helper reads", () => {
     expect(await old).toEqual({ call: 1 });
   });
   it("enforces an overall deadline even while the helper sends queue heartbeats", async () => {
-    let received; const arrived = new Promise((resolve) => { received = resolve; });
+    const socketPath = await helperSocket(async (request, connection) => {
+      const beat = setInterval(() => connection.write(`${JSON.stringify({ version: 1, id: request.id, queued: true })}\n`), 10);
+      await new Promise((resolve) => connection.once("close", resolve));
+      clearInterval(beat);
+      return {};
+    });
+    const client = createHelperClient({ socketPath, queueTimeoutMs: 120 });
+    await expect(client.request("apt.upgrade", {}, { timeoutMs: 60_000 })).rejects.toThrow("overall deadline");
+  });
+
+  it("measures an operation's budget from when the helper starts it, not from time spent queued", async () => {
+    // A job approved while a long backup holds its lane used to time out on the web side while the
+    // helper later ran it with nobody watching. The queue wait is not the operation's budget.
+    const frame = (request, value) => `${JSON.stringify({ version: 1, id: request.id, ...value })}\n`;
+    const socketPath = await helperSocket(async (request, connection) => {
+      connection.write(frame(request, { queued: true, lane: "app:demo" }));
+      await new Promise((resolve) => setTimeout(resolve, 400)); // well past the 150 ms budget
+      connection.write(frame(request, { started: true }));
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      return { ran: true };
+    });
+    const client = createHelperClient({ socketPath });
+    await expect(client.request("app.password.set", { id: "demo" }, { timeoutMs: 150 })).resolves.toEqual({ ran: true });
+  });
+
+  it("still holds a started operation to its own budget", async () => {
     const socketPath = await helperSocket(async (request, connection) => {
       connection.write(`${JSON.stringify({ version: 1, id: request.id, queued: true })}\n`);
-      received();
+      connection.write(`${JSON.stringify({ version: 1, id: request.id, started: true })}\n`);
       await new Promise((resolve) => connection.once("close", resolve));
       return {};
     });
-    let expire; let cleared = 0;
-    const client = createHelperClient({ socketPath, setTimeout: (fn) => { expire = fn; return 1; }, clearTimeout: () => { cleared += 1; } });
-    const waiting = client.request("apt.upgrade", {});
-    await arrived;
-    expire();
-    await expect(waiting).rejects.toThrow("overall deadline");
-    expect(cleared).toBe(1);
+    const client = createHelperClient({ socketPath });
+    const began = Date.now();
+    await expect(client.request("app.password.set", { id: "demo" }, { timeoutMs: 100 })).rejects.toThrow("overall deadline");
+    expect(Date.now() - began).toBeLessThan(5_000);
   });
 
   it("answers concurrent identical reads from one round trip", async () => {
