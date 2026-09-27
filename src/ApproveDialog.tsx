@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { approveJob, followJobOutput, stageOperation, waitForJob, type ApprovalPolicy, type Job, type RiskTier, cancelJob } from "./operations";
+import { approveJob, followJobOutput, getJobApproval, stageOperation, waitForJob, type ApprovalPolicy, type Job, type RiskTier, cancelJob } from "./operations";
 import { useDialogFocus } from "./useDialogFocus";
 import { jobOutputText } from "./jobOutputText";
 import { JobWarnings, jobWarnings } from "./JobWarnings";
@@ -124,6 +124,15 @@ export function ApproveDialog({ operationId, title, parameters, preview, confirm
       const detail = approveError instanceof Error ? approveError.message : "Could not follow this job";
       setError(accepted ? `${detail}. The job may still be running. Check Activity for its current state.` : detail);
       setPhase(accepted ? "error" : "ready");
+      if (!accepted) {
+        // The policy was read when the job was staged. If the elevated session lapsed since, the
+        // server now wants the password: show the field at once, then re-read the real policy.
+        if (/owner password/i.test(detail)) setPolicy((current) => current ? { ...current, passwordRequired: true, elevated: false } : current);
+        const jobId = job.id;
+        void getJobApproval(jobId).then((fresh) => {
+          if (mounted.current && stagedRef.current?.jobId === jobId) setPolicy((current) => current ? { ...current, ...fresh } : fresh);
+        }).catch(() => undefined);
+      }
     } finally {
       stopFollowing.current?.(); stopFollowing.current = null;
       if (observation.current === tracking) observation.current = null;

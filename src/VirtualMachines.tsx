@@ -3,6 +3,7 @@ import { sentenceList, countOf } from "./data";
 import { inspectOperation } from "./operations";
 import CloudVmForm from "./CloudVmForm";
 import { useOperation } from "./ApproveDialog";
+import { useDialogFocus } from "./useDialogFocus";
 import {
   fetchVmExports,
   fetchLibvirtFoundation,
@@ -77,13 +78,27 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
   const [recoveries, setRecoveries] = useState<VmRecoveryRecord[]>([]);
   const [recoveryBackup, setRecoveryBackup] = useState<VmProtectedBackup | null>(null);
   const [recoveryName, setRecoveryName] = useState("");
+  const snapshotDialogRef = useRef<HTMLElement | null>(null);
+  const recoveryDialogRef = useRef<HTMLElement | null>(null);
+  useDialogFocus(snapshotDialogRef, Boolean(snapshotDomain));
+  useDialogFocus(recoveryDialogRef, Boolean(recoveryBackup));
   // Live resource use (M7.8): two domstats samples → rates. Polled only while the page is open.
   interface DomainStats { name: string; state: string; cpuTimeNs: number; vcpus: number | null; memoryKiB: number | null; memoryMaxKiB: number | null; diskReadBytes: number; diskWriteBytes: number; netRxBytes: number; netTxBytes: number }
   const [rates, setRates] = useState<Record<string, { cpuPercent: number | null; memoryKiB: number | null; memoryMaxKiB: number | null; diskBytesPerSecond: number | null; netBytesPerSecond: number | null }>>({});
   const previousSample = useRef<{ at: number; domains: DomainStats[] } | null>(null);
+  // Each sample waits for the last to answer (a slow libvirt must not stack up requests), and a
+  // hidden tab stops sampling until it is shown again.
   useEffect(() => {
     let cancelled = false;
+    let busy = false;
+    let timer: number | null = null;
+    const schedule = () => {
+      if (cancelled || document.hidden || timer !== null) return;
+      timer = window.setTimeout(() => { timer = null; void sample(); }, 5000);
+    };
     const sample = async () => {
+      if (busy || cancelled) return;
+      busy = true;
       try {
         const { result } = await inspectOperation<{ sampledAt: string; domains: DomainStats[] }>("vm.stats.inspect");
         const at = Date.parse(result.sampledAt) || Date.now();
@@ -100,10 +115,15 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
         previousSample.current = { at, domains: result.domains };
         if (!cancelled) setRates(next);
       } catch { /* stats are a convenience; the page works without them */ }
+      finally { busy = false; schedule(); }
     };
-    void sample();
-    const timer = window.setInterval(() => { void sample(); }, 5000);
-    return () => { cancelled = true; window.clearInterval(timer); };
+    const onVisibility = () => {
+      if (document.hidden) { if (timer !== null) { window.clearTimeout(timer); timer = null; } return; }
+      if (timer === null && !busy) void sample();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    if (!document.hidden) void sample();
+    return () => { cancelled = true; if (timer !== null) window.clearTimeout(timer); document.removeEventListener("visibilitychange", onVisibility); };
   }, []);
   const rateLabel = (bytesPerSecond: number | null) => (bytesPerSecond === null ? "—" : bytesPerSecond >= 1024 ** 2 ? `${(bytesPerSecond / 1024 ** 2).toFixed(1)} MiB/s` : `${(bytesPerSecond / 1024).toFixed(0)} KiB/s`);
 
@@ -513,7 +533,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       {plannerOpen && <VmPlanner csrfToken={csrfToken} onClose={() => setPlannerOpen(false)} onStage={(input) => { setPlannerOpen(false); startOperation({ operationId: "vm.create", title: `Create VM ${input.name}`, parameters: { ...input }, preview: <span>Creates <code>{input.name}</code> exactly as planned through the restricted helper, {input.vcpus} vCPU, {formatMemory(input.memoryMiB * 1024)} RAM, {input.diskGiB} GiB disk from <code>{input.isoFile}</code>. Checked against the live host first. If it fails, the new VM and its disks are removed.</span> }); }} />}
       {snapshotDomain && (
         <div className="vm-planner-backdrop" role="presentation">
-          <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-snapshot-title">
+          <section ref={snapshotDialogRef} tabIndex={-1} className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-snapshot-title" onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setSnapshotDomain(null); } }}>
             <header className="vm-planner-header"><div><span className="eyebrow">Offline snapshot</span><h2 id="vm-snapshot-title">Snapshot {snapshotDomain.name}</h2><p>Only stopped VMs with plain qcow2 disks can be snapshotted.</p></div><button type="button" className="modal-close" aria-label="Close snapshot plan" onClick={() => setSnapshotDomain(null)}>X</button></header>
             <div className="vm-action-review">
               <form onSubmit={(event) => { event.preventDefault(); createSnapshot(); }}>
@@ -527,7 +547,7 @@ export default function VirtualMachines({ csrfToken = "", onOpenRepair = () => {
       )}
       {recoveryBackup && (
         <div className="vm-planner-backdrop" role="presentation">
-          <section className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-recovery-title">
+          <section ref={recoveryDialogRef} tabIndex={-1} className="vm-planner-dialog vm-action-dialog" role="dialog" aria-modal="true" aria-labelledby="vm-recovery-title" onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setRecoveryBackup(null); } }}>
             <header className="vm-planner-header"><div><span className="eyebrow">Recovery clone</span><h2 id="vm-recovery-title">Recover {recoveryBackup.domainName}</h2><p>Builds a new, separate VM from this backup. The original VM and the backup are both left as they are.</p></div><button type="button" className="modal-close" aria-label="Close recovery plan" onClick={() => setRecoveryBackup(null)}>X</button></header>
             <div className="vm-action-review">
               <form onSubmit={(event) => { event.preventDefault(); startRecovery(); }}>

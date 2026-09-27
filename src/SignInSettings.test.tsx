@@ -1,8 +1,8 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import SignInSettings from "./SignInSettings";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 
 describe("Sign-in settings", () => {
@@ -23,5 +23,51 @@ describe("Sign-in settings", () => {
     fireEvent.click(button);
     expect(await screen.findByText(/Tailscale identity linked/)).toBeTruthy();
     expect(JSON.parse(linkBody ?? "{}")).toEqual({ password: "correct horse battery" });
+  });
+
+  const githubApi = () => {
+    const polls: Array<(response: Response) => void> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = input.toString();
+      if (url.endsWith("/auth/identity/links")) return json({ tailscaleLogins: [], githubLogins: [], githubConfigured: true, githubClientId: "Ov23liexample", currentTailscale: null });
+      if (url.endsWith("/auth/identity/github/start")) return json({ flowId: "f1", userCode: "ABCD-1234", verificationUri: "https://github.com/login/device", expiresIn: 900, intervalSeconds: 5 });
+      if (url.endsWith("/auth/github/poll")) return new Promise<Response>((resolve) => { polls.push(resolve); });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    return polls;
+  };
+  const startLinking = async () => {
+    render(<SignInSettings csrfToken="csrf-token" />);
+    fireEvent.change(await screen.findByLabelText("Owner password for sign-in settings"), { target: { value: "correct horse battery" } });
+    const link = await screen.findByRole("button", { name: "Link a GitHub account" });
+    vi.useFakeTimers();
+    await act(async () => { fireEvent.click(link); await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("ABCD-1234")).toBeTruthy();
+  };
+
+  it("cancels a GitHub link in progress and stops polling", async () => {
+    const polls = githubApi();
+    await startLinking();
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(polls).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText("ABCD-1234")).toBeNull();
+    // Not busy any more: with the password typed again, linking can start over.
+    fireEvent.change(screen.getByLabelText("Owner password for sign-in settings"), { target: { value: "correct horse battery" } });
+    expect((screen.getByRole("button", { name: "Link a GitHub account" }) as HTMLButtonElement).disabled).toBe(false);
+    // The answer to the poll that was already out does not schedule another.
+    await act(async () => { polls[0](json({ status: "pending" })); await vi.advanceTimersByTimeAsync(20_000); });
+    expect(polls).toHaveLength(1);
+    expect(screen.queryByText("ABCD-1234")).toBeNull();
+  });
+
+  it("does not keep polling after it is removed mid-poll", async () => {
+    const polls = githubApi();
+    await startLinking();
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(polls).toHaveLength(1);
+    cleanup();
+    await act(async () => { polls[0](json({ status: "pending" })); await vi.advanceTimersByTimeAsync(20_000); });
+    expect(polls).toHaveLength(1);
   });
 });

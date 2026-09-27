@@ -75,18 +75,20 @@ export default function LocalNamesPanel({ csrfToken, start, lanAddress }: { csrf
             )}
           </div>
           {preview.length === 0 ? <p className="muted">No installed app has a page to open yet.</p> : (
-            <table className="perf-table">
-              <thead><tr><th>Name</th><th>Opens</th><th>In DNS now</th></tr></thead>
-              <tbody>
-                {preview.map((app) => (
-                  <tr key={app.id}>
-                    <td><code>{app.name}</code></td>
-                    <td className="muted">{app.name}:{app.port}</td>
-                    <td>{inForce.has(app.name) ? <span className="status-pill status-good">yes</span> : <span className="status-pill status-neutral">not yet</span>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="table-scroll">
+              <table className="perf-table">
+                <thead><tr><th>Name</th><th>Opens</th><th>In DNS now</th></tr></thead>
+                <tbody>
+                  {preview.map((app) => (
+                    <tr key={app.id}>
+                      <td><code>{app.name}</code></td>
+                      <td className="muted">{app.name}:{app.port}</td>
+                      <td>{inForce.has(app.name) ? <span className="status-pill status-good">yes</span> : <span className="status-pill status-neutral">not yet</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           )}
           <p className="muted">
             A name points at this server, so the port is still needed: <code>jellyfin.{domain}:8096</code>. Put a reverse proxy in front if you want the name on its own.

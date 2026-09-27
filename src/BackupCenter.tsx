@@ -9,6 +9,7 @@ import { readJson } from "./http";
 import { useTailnetHosts } from "./tailnetHosts";
 import { behindBackupSchedules, judgeProtection, type AppProtection, type ProtectionVerdict, type ScheduleLike } from "./backupProtection";
 import { offBoxVerdict, offBoxWarning, mirrorOperations, type OffBoxInputs } from "./offBox";
+import { formatBytes } from "./formatBytes";
 
 interface BackupRecord { id: string; applicationId: string; destination: string; checksumSha256: string; sizeBytes: number; downtimeMs: number; restoreDrill: { passed?: boolean } | null; createdAt: string }
 interface ControllerProtection { id: string; backupId: string; snapshotId?: string; createdAt: string; protected?: boolean; retained?: boolean }
@@ -41,9 +42,6 @@ interface MachineSnapshotState {
 
 const requestJson = async <T,>(url: string, options?: RequestInit): Promise<T> => readJson<T>(await fetch(url, options));
 
-function formatBytes(bytes: number): string {
-  return bytes >= 1024 ** 2 ? `${(bytes / 1024 ** 2).toFixed(1)} MiB` : `${(bytes / 1024).toFixed(0)} KiB`;
-}
 
 /**
  * Backups home: BoxPilot's own database. Per-app backups live on each catalog card, and VM
@@ -372,28 +370,30 @@ export default function BackupCenter({ csrfToken }: { csrfToken: string; onOpenR
           : !appProtection.available ? <p className="muted">The backup folder could not be read, so protection is unknown. Nothing is assumed either way.</p>
           : appProtection.verdicts.length === 0 ? <p className="muted">No installed app holds data that needs backing up yet.</p>
           : (
-          <table className="perf-table">
-            <thead><tr><th>App</th><th>Last backup</th><th>Keeps happening</th></tr></thead>
-            <tbody>
-              {[...appProtection.verdicts]
-                .sort((left, right) => Number(left.state === "ok") - Number(right.state === "ok") || left.name.localeCompare(right.name))
-                .map((verdict) => (
-                <tr key={verdict.id}>
-                  <td>{verdict.name}</td>
-                  <td>
-                    {verdict.state === "never"
-                      ? <span className="status-pill status-warning">never</span>
-                      : <span className={`status-pill ${verdict.state === "ok" ? "status-good" : "status-warning"}`}>{verdict.ageDays === 0 ? "today" : `${verdict.ageDays}d ago`}</span>}
-                  </td>
-                  <td>
-                    {verdict.scheduled
-                      ? <span className="muted">nightly</span>
-                      : <button className="text-button" type="button" onClick={() => void protectEverything([verdict])}>Schedule it</button>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="table-scroll">
+            <table className="perf-table">
+              <thead><tr><th>App</th><th>Last backup</th><th>Keeps happening</th></tr></thead>
+              <tbody>
+                {[...appProtection.verdicts]
+                  .sort((left, right) => Number(left.state === "ok") - Number(right.state === "ok") || left.name.localeCompare(right.name))
+                  .map((verdict) => (
+                  <tr key={verdict.id}>
+                    <td>{verdict.name}</td>
+                    <td>
+                      {verdict.state === "never"
+                        ? <span className="status-pill status-warning">never</span>
+                        : <span className={`status-pill ${verdict.state === "ok" ? "status-good" : "status-warning"}`}>{verdict.ageDays === 0 ? "today" : `${verdict.ageDays}d ago`}</span>}
+                    </td>
+                    <td>
+                      {verdict.scheduled
+                        ? <span className="muted">nightly</span>
+                        : <button className="text-button" type="button" onClick={() => void protectEverything([verdict])}>Schedule it</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 

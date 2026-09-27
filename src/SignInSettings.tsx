@@ -26,13 +26,16 @@ export default function SignInSettings({ csrfToken }: { csrfToken: string }) {
   const [busy, setBusy] = useState(false);
   const [flow, setFlow] = useState<GithubFlow | null>(null);
   const pollTimer = useRef<number | null>(null);
+  // Bumped by Cancel and on unmount: a poll that was already in flight sees it and stops, instead
+  // of scheduling the next one (the device code lives for about fifteen minutes).
+  const flowGeneration = useRef(0);
   const headers = { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken };
 
   const refresh = useCallback(async () => {
     try { const body = await json<Links>(await fetch("/api/v1/auth/identity/links")); setLinks(body); setClientId(body.githubClientId); } catch (requestError) { setError(requestError instanceof Error ? requestError.message : "Could not load sign-in settings"); }
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
-  useEffect(() => () => { if (pollTimer.current) window.clearTimeout(pollTimer.current); }, []);
+  useEffect(() => () => { flowGeneration.current += 1; if (pollTimer.current) window.clearTimeout(pollTimer.current); }, []);
 
   const act = async (label: string, work: () => Promise<void>) => {
     setBusy(true); setError(null); setMessage(null);
@@ -45,22 +48,34 @@ export default function SignInSettings({ csrfToken }: { csrfToken: string }) {
   const unlinkGithub = (login: string) => act(`Unlinked ${login}.`, async () => { await json(await fetch("/api/v1/auth/identity/github", { method: "DELETE", headers, body: JSON.stringify({ password, login }) })); });
 
   const linkGithub = async () => {
+    const generation = ++flowGeneration.current;
+    const current = () => generation === flowGeneration.current;
     setBusy(true); setError(null); setMessage(null);
     try {
       const started = await json<GithubFlow>(await fetch("/api/v1/auth/identity/github/start", { method: "POST", headers, body: JSON.stringify({ password }) }));
+      if (!current()) return;
       setFlow(started); setPassword("");
       const poll = async () => {
         try {
           const result = await pollGithubSignIn(started.flowId);
+          if (!current()) return;
           if (result.status === "complete") { setFlow(null); setMessage(`Linked GitHub account ${result.login}.`); await refresh(); setBusy(false); return; }
           if (result.status === "pending") { pollTimer.current = window.setTimeout(() => void poll(), started.intervalSeconds * 1000); return; }
           setFlow(null); setBusy(false); setError(result.error ?? `GitHub flow ${result.status}`);
-        } catch (pollError) { setFlow(null); setBusy(false); setError(pollError instanceof Error ? pollError.message : "GitHub link failed"); }
+        } catch (pollError) { if (!current()) return; setFlow(null); setBusy(false); setError(pollError instanceof Error ? pollError.message : "GitHub link failed"); }
       };
       pollTimer.current = window.setTimeout(() => void poll(), started.intervalSeconds * 1000);
     } catch (requestError) {
+      if (!current()) return;
       setBusy(false); setError(requestError instanceof Error ? requestError.message : "GitHub link failed");
     }
+  };
+
+  const cancelGithub = () => {
+    flowGeneration.current += 1;
+    if (pollTimer.current) window.clearTimeout(pollTimer.current);
+    pollTimer.current = null;
+    setFlow(null); setBusy(false); setError(null); setMessage("GitHub linking cancelled.");
   };
 
   const passwordOk = password.length >= 12;
@@ -88,7 +103,7 @@ export default function SignInSettings({ csrfToken }: { csrfToken: string }) {
             <button className="secondary-button" type="button" disabled={busy || !passwordOk || clientId === (links?.githubClientId ?? "")} onClick={() => void saveClientId()}>Save client ID</button>
             {links?.githubConfigured && !flow && <button className="primary-button" type="button" disabled={busy || !passwordOk} onClick={() => void linkGithub()}>Link a GitHub account</button>}
           </div>
-          {flow && <div className="github-device"><span>Open <a href={flow.verificationUri} target="_blank" rel="noreferrer">{flow.verificationUri}</a> and enter</span><code className="github-code">{flow.userCode}</code><span className="muted">Waiting for GitHub…</span></div>}
+          {flow && <div className="github-device"><span>Open <a href={flow.verificationUri} target="_blank" rel="noreferrer">{flow.verificationUri}</a> and enter</span><code className="github-code">{flow.userCode}</code><span className="muted">Waiting for GitHub…</span><button className="text-button" type="button" onClick={cancelGithub}>Cancel</button></div>}
           {links?.githubLogins.length ? <div className="recovery-actions" style={{ marginTop: 8 }}>{links.githubLogins.map((login) => <button key={login} className="secondary-button" type="button" disabled={busy || !passwordOk} onClick={() => void unlinkGithub(login)}>Unlink {login}</button>)}</div> : null}
           {links?.githubRelinkNeeded?.length ? (
             <p className="muted" style={{ marginTop: 8 }}>
