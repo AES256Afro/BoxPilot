@@ -10,6 +10,7 @@ import { createAppHelper } from "./app-helper.mjs";
 import { createVmCloudHelper } from "./vm-cloud.mjs";
 import { createHostInspectHelper } from "./host-inspect-helper.mjs";
 import { executeHelperOperation } from "./helper-protocol.mjs";
+import { helperQueuedFrame, helperStartedFrame } from "./helper-response.mjs";
 import { createConcurrencyGate, createLaneQueues, laneFor } from "./helper-lanes.mjs";
 import { createVmRecoveryHelper } from "./vm-recovery-helper.mjs";
 import { createVmRestoreDrillHelper } from "./vm-restore-drill-helper.mjs";
@@ -115,14 +116,16 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
       } else {
         const held = laneFor(request.operation, request.parameters);
         // Waiting behind another operation must not look like a hung request: a heartbeat line keeps
-        // both idle timers alive, and the client ignores every line before the last one.
+        // both idle timers alive; the client reads those lines as progress, not as the reply.
         let heartbeat = null;
         // Anything can be held up by the exclusive lane, and an exclusive request waits for every lane.
         const willWait = lanes.busy(held);
+        const frame = (value) => { if (!connection.destroyed && connection.writable) connection.write(`${JSON.stringify(value)}\n`); };
         if (willWait) {
-          heartbeat = setInterval(() => {
-            if (!connection.destroyed && connection.writable) connection.write(`${JSON.stringify({ version: 1, id: request?.id ?? null, queued: true, lane: held.join("+") })}\n`);
-          }, queuedHeartbeatMs);
+          // Say so at once: the client holds a queued request to its queue ceiling rather than the
+          // operation's own budget, which starts only when the "started" frame below arrives.
+          frame(helperQueuedFrame(request?.id ?? null, held.join("+")));
+          heartbeat = setInterval(() => frame(helperQueuedFrame(request?.id ?? null, held.join("+"))), queuedHeartbeatMs);
           heartbeat.unref?.();
         }
         try {
@@ -132,6 +135,7 @@ const server = net.createServer({ allowHalfOpen: true }, (connection) => {
             if (connection.destroyed || connection.readableEnded) throw new Error("The request was abandoned while it waited for an earlier operation on this subject");
             if (heartbeat) { clearInterval(heartbeat); heartbeat = null; }
             if (registeredTimeout) connection.setTimeout(registeredTimeout); // the operation's own budget starts now
+            if (willWait) frame(helperStartedFrame(request.id)); // ...and the client's deadline restarts with it
             return executeHelperOperation(request, helperDependencies);
           });
         } finally {

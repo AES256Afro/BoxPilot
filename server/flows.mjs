@@ -150,10 +150,13 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   // The stored hash is never the browser's business; strip it from anything a route returns.
   const withoutHash = ({ webhookHash: _webhookHash, ...flow }) => flow;
 
-  async function create({ name, steps, createdBy, cadence = null, triggerFlowId = null }) {
-    // An app password or token typed into an install form sits inside values.env, which the
-    // registry's field flags cannot see. A flow is stored, so it would sit in the database and in
-    // every backup of it. Asked of the manifest here, in the one place that can await it.
+  /**
+   * An app password or token typed into an install form sits inside values.env, which the
+   * registry's field flags cannot see. A flow is stored, so it would sit in the database, in every
+   * backup of it, and in GET /flows. Asked of the manifest here, where it can be awaited, for
+   * creating a flow and for editing one alike.
+   */
+  async function refuseStoredAppSecrets(steps) {
     for (const step of Array.isArray(steps) ? steps : []) {
       if (!["app.install", "app.reconfigure"].includes(step?.operationId)) continue;
       const env = step?.parameters?.values?.env;
@@ -161,6 +164,10 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
       const named = await secretEnvNamesFor(step.parameters?.id);
       if (named.some((key) => typeof env[key] === "string" && env[key])) throw new Error(`${registry.get?.(step.operationId)?.title ?? step.operationId} needs a password or key each time, so it cannot be part of a flow`);
     }
+  }
+
+  async function create({ name, steps, createdBy, cadence = null, triggerFlowId = null }) {
+    await refuseStoredAppSecrets(steps);
     const problem = validateFlow({ name, steps }, registry);
     if (problem) throw new Error(problem);
     const triggerProblem = checkTrigger(triggerFlowId);
@@ -176,6 +183,7 @@ export function createFlowService({ store, jobs, secretEnvNamesFor = async () =>
   async function update(id, { name, steps, cadence, enabled, triggerFlowId }, actorId, { role = "owner" } = {}) {
     const flow = store.getFlow(id);
     assertMayManage(flow, actorId, role);
+    if (steps) await refuseStoredAppSecrets(steps);
     const problem = validateFlow({ name: name ?? flow.name, steps: steps ?? flow.steps }, registry);
     if (problem) throw new Error(problem);
     if (triggerFlowId !== undefined) {

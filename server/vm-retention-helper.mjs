@@ -132,14 +132,21 @@ export function createVmRetentionHelper({
     } catch {
       verification.push("post-inspection-failed");
     }
-    const afterIds = new Set(after?.snapshots?.map((snapshot) => snapshot.id) ?? []);
+    // An unavailable repository inspects as ready: false with no snapshots instead of throwing,
+    // which would otherwise read as every candidate gone. Only the same repository counts.
+    const afterIdentityValid = after?.ready === true
+      && after.repositoryId === before.repositoryId
+      && after.destinationRevision === before.destinationRevision;
+    if (after && !afterIdentityValid) verification.push("post-inspection-identity-unverified");
+    const verifiedAfter = afterIdentityValid ? after : null;
+    const afterIds = new Set(verifiedAfter?.snapshots?.map((snapshot) => snapshot.id) ?? []);
     // Only what a fresh inspection shows gone counts as forgotten. Believing the forget command's
     // own exit code here recorded backups as gone that might still be there, and the next preview
     // then reported them as unattributable — a blocker with no way out.
-    const actuallyForgotten = after ? parameters.forgetSnapshotIds.filter((id) => !afterIds.has(id)) : [];
+    const actuallyForgotten = verifiedAfter ? parameters.forgetSnapshotIds.filter((id) => !afterIds.has(id)) : [];
     if (actuallyForgotten.length === 0) throw new Error("Restic retention failed before any reviewed snapshot removal was confirmed");
     const allCandidatesAbsent = actuallyForgotten.length === parameters.forgetSnapshotIds.length;
-    const allKeptPresent = after ? expectedKept.every((id) => afterIds.has(id)) : false;
+    const allKeptPresent = verifiedAfter ? expectedKept.every((id) => afterIds.has(id)) : false;
     if (!allCandidatesAbsent) verification.push("candidate-still-present");
     if (!allKeptPresent) verification.push("noncandidate-presence-unverified");
     if (after && after.repositoryId !== before.repositoryId) verification.push("repository-identity-changed");
@@ -153,9 +160,9 @@ export function createVmRetentionHelper({
       forgottenSnapshotIds: actuallyForgotten,
       keptSnapshotIds: expectedKept,
       beforeCount: before.snapshots.length,
-      afterCount: after?.snapshots?.length ?? null,
+      afterCount: verifiedAfter?.snapshots?.length ?? null,
       beforeSnapshotSetRevision: before.snapshotSetRevision,
-      afterSnapshotSetRevision: after?.snapshotSetRevision ?? null,
+      afterSnapshotSetRevision: verifiedAfter?.snapshotSetRevision ?? null,
       repositoryVerified,
       prunePerformed: false,
       spaceReclaimed: false,
@@ -177,6 +184,10 @@ export function createVmRetentionHelper({
     if (!before.snapshots.some((snapshot) => snapshot.id === snapshotId)) throw new Error("That snapshot is not in the repository");
     await run(resticBinary, [...commonResticArguments(), "forget", snapshotId], { timeout: 60 * 60 * 1000 });
     const after = await inspect();
+    // An unavailable repository lists no snapshots, which is not the same as this one being gone.
+    if (!after.ready || after.repositoryId !== before.repositoryId || after.destinationRevision !== before.destinationRevision) {
+      throw new Error("The forget ran, but its result could not be confirmed because the repository is not available; check it before trying again");
+    }
     if (after.snapshots.some((snapshot) => snapshot.id === snapshotId)) throw new Error("The snapshot is still in the repository after forget");
     return { forgotten: true, snapshotId, repositoryId: after.repositoryId, beforeCount: before.snapshots.length, afterCount: after.snapshots.length, prunePerformed: false };
   }

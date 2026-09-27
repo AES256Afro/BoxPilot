@@ -98,6 +98,30 @@ describe("VM retention helper", () => {
       verification: ["repository-check-failed"],
     });
   });
+
+  it("does not count candidates as forgotten when the repository is unavailable afterwards", async () => {
+    // An unmounted drive inspects as { ready: false, snapshots: [] } rather than throwing, which
+    // reads exactly like "every candidate is gone".
+    let destinationChecks = 0;
+    const inspectDestination = async () => (++destinationChecks <= 2 ? destination : { ready: false, blockers: ["The backup drive is not mounted"] });
+    const run = vi.fn(async (_binary, args) => (args.includes("snapshots") ? { stdout: JSON.stringify(snapshots), stderr: "" } : { stdout: "", stderr: "" }));
+    const helper = createVmRetentionHelper({ inspectDestination, run });
+    const preview = await helper.inspect();
+    await expect(helper.apply(input({ expectedSnapshotSetRevision: preview.snapshotSetRevision }))).rejects.toThrow(/before any reviewed snapshot removal was confirmed/);
+  });
+
+  it("does not count candidates as forgotten when a different repository answers afterwards", async () => {
+    let destinationChecks = 0;
+    const inspectDestination = async () => (++destinationChecks <= 2 ? destination : { ...destination, destinationRevision: "9".repeat(64) });
+    let inspection = 0;
+    const run = vi.fn(async (_binary, args) => {
+      if (args.includes("snapshots")) return { stdout: JSON.stringify(++inspection <= 2 ? snapshots : []), stderr: "" };
+      return { stdout: "", stderr: "" };
+    });
+    const helper = createVmRetentionHelper({ inspectDestination, run });
+    const preview = await helper.inspect();
+    await expect(helper.apply(input({ expectedSnapshotSetRevision: preview.snapshotSetRevision }))).rejects.toThrow(/before any reviewed snapshot removal was confirmed/);
+  });
 });
 
 describe("forgetting a snapshot with no local record", () => {
@@ -132,6 +156,16 @@ describe("forgetting a snapshot with no local record", () => {
     const { service, forgotten } = helper([orphan, recorded]);
     await expect(service.forgetUnrecorded({ snapshotId: recorded, knownSnapshotIds: [recorded] })).rejects.toThrow(/local backup record/);
     expect(forgotten).toEqual([]);
+  });
+
+  it("does not report a forget it could not confirm because the repository went away", async () => {
+    let checks = 0;
+    const inspectDestination = async () => (++checks <= 1 ? ready : { ready: false, blockers: ["The backup drive is not mounted"] });
+    const run = vi.fn(async (_binary, args) => (args.includes("snapshots")
+      ? { stdout: JSON.stringify([orphan, recorded].map((id) => ({ id, time: "2026-01-01T00:00:00Z", tags: ["boxpilot-vm"] }))), stderr: "" }
+      : { stdout: "", stderr: "" }));
+    const service = createVmRetentionHelper({ run, inspectDestination });
+    await expect(service.forgetUnrecorded({ snapshotId: orphan, knownSnapshotIds: [recorded] })).rejects.toThrow(/could not be confirmed/);
   });
 
   it("refuses an id the repository does not hold", async () => {

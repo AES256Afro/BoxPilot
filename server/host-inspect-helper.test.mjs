@@ -26,4 +26,16 @@ describe("container health", () => {
       ["bp-jellyfin", "healthy"], ["bp-kuma", "unhealthy"], ["bp-ntfy", "none"], ["bp-new", "starting"],
     ]);
   });
+
+  it("keeps the labels that say who owns a container", async () => {
+    const run = async (_binary, args) => ({ ok: true, stderr: "", stdout: args[0] === "ps" ? [
+      JSON.stringify({ ID: "a", Names: "bp-ollama", State: "running", Status: "Up", Labels: "com.docker.compose.project=bp-ollama,io.boxpilot.app=ollama,com.docker.compose.service=ollama" }),
+      JSON.stringify({ ID: "b", Names: "llmcoach-ollama-1", State: "running", Status: "Up", Labels: "com.docker.compose.service=ollama,com.docker.compose.project=llmcoach" }),
+      JSON.stringify({ ID: "c", Names: "adhoc", State: "running", Status: "Up", Labels: "" }),
+    ].join("\n") : "" });
+    const result = await createHostInspectHelper({ run }).inventoryDocker();
+    expect(result.containers.map((c) => [c.name, c.app, c.composeProject])).toEqual([
+      ["bp-ollama", "ollama", "bp-ollama"], ["llmcoach-ollama-1", null, "llmcoach"], ["adhoc", null, null],
+    ]);
+  });
 });

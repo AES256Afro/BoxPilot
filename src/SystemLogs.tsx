@@ -58,8 +58,10 @@ export default function SystemLogs({ csrfToken = "" }: { csrfToken?: string }) {
         return fresh.length ? [...current, ...fresh].slice(-2000) : current;
       });
       const newestLine = received.at(-1) ?? null;
-      const stamp = newestLine ? /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})/.exec(newestLine)?.[1] ?? null : null;
-      if (stamp) lastTimestamp.current = stamp.replace(" ", "T");
+      // Keep the zone: container lines are UTC ("...Z") and journal lines carry their offset; a bare
+      // time would be read as host-local and skip or repeat hours on a non-UTC host.
+      const match = newestLine ? /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:[.,]\d+)?(Z|[+-]\d{2}:?\d{2})?/.exec(newestLine) : null;
+      if (match) lastTimestamp.current = `${match[1]}T${match[2]}${match[3] ?? ""}`;
       setError(null);
     } catch (requestError) {
       if (sequence === readSequence.current) setError(requestError instanceof Error ? requestError.message : "Could not read logs");
@@ -77,7 +79,9 @@ export default function SystemLogs({ csrfToken = "" }: { csrfToken?: string }) {
   const select = (nextKind: Kind, nextTarget: string) => { setKind(nextKind); setTarget(nextTarget); };
   const download = () => {
     const blob = new Blob([entries.join("\n") + "\n"], { type: "text/plain" });
-    const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `${target.replace(/[^A-Za-z0-9._-]/g, "_")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.log`; anchor.click(); URL.revokeObjectURL(url);
+    const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `${target.replace(/[^A-Za-z0-9._-]/g, "_")}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.log`; anchor.click();
+    // Revoking in the same tick can cancel the download before the browser has read the blob.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   return (
