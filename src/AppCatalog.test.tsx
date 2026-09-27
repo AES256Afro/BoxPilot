@@ -249,6 +249,31 @@ describe("App catalog", () => {
     expect(await screen.findByText("Medium risk")).toBeTruthy();
     expect(JSON.parse(staged[0] ?? "{}")).toEqual({ parameters: { id: "jellyfin", backup: "20260816T030000Z.tar.gz", path: "config/system.xml" } });
   });
+
+  it("reports a refused rehearsal schedule and blocks a second click while it is out", async () => {
+    let answer!: (response: Response) => void;
+    let posts = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input.toString();
+      if (url === "/api/v1/catalog") return json({ applications: [{ manifest, live: { id: "jellyfin", installed: true, dataPresent: true, state: { installedAt: "x", updatedAt: "x", manifestSha256: "abc", image: { reference: "jellyfin/jellyfin:10.10.7", id: "sha256:1" }, values: { ports: { web: 8096 }, env: {}, volumes: {} }, pinnedRollback: false, uninstalledAt: null }, container: { exists: true, running: true, status: "running", health: "healthy", restarts: 0, image: "sha256:1" }, urls: [] } }], problems: [], liveError: null, host: { lanAddress: "192.168.1.10", tailscaleDnsName: null } });
+      if (url.endsWith("/operations/app.backups.inspect/run")) return json({ operation: "app.backups.inspect", result: { id: "jellyfin", directory: "/x", backups: [{ artifact: "20260816T030000Z.tar.gz", createdAt: "2026-08-16T03:00:00.000Z", sizeBytes: 1024, downtimeMs: 900, skippedHostPaths: [], image: null }] } });
+      if (url === "/api/v1/schedules" && init?.method === "POST") { posts += 1; return new Promise<Response>((resolve) => { answer = resolve; }); }
+      if (url === "/api/v1/schedules") return json({ schedules: [] });
+      return json({ error: `unexpected ${url}` }, 500);
+    }));
+    render(<AppCatalog csrfToken="csrf-token" />);
+    expect(await screen.findByText("Running")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Backups" }));
+    const rehearse = await screen.findByRole("button", { name: "Rehearse weekly" });
+    fireEvent.click(rehearse);
+    await waitFor(() => expect((rehearse as HTMLButtonElement).disabled).toBe(true));
+    fireEvent.click(rehearse);
+    expect(posts).toBe(1);
+    answer(json({ error: "Only operators can add schedules" }, 403));
+    const dialog = screen.getByRole("dialog");
+    expect(await within(dialog).findByText("Only operators can add schedules")).toBeTruthy();
+    await waitFor(() => expect((screen.getByRole("button", { name: "Rehearse weekly" }) as HTMLButtonElement).disabled).toBe(false));
+  });
 });
 
 describe("where the Open button sends you", () => {
