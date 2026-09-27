@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readJson } from "./http";
 import { useOperation } from "./ApproveDialog";
 import { inspectOperation } from "./operations";
+import { useDialogFocus } from "./useDialogFocus";
 
 interface Unit { unit: string; description: string; load: string; active: string; sub: string; enabled: string; critical: boolean; guarded?: string | null }
 interface ServiceList { units: Unit[]; counts: { total: number; active: number; failed: number } }
@@ -15,6 +16,8 @@ export default function ServicesCenter({ csrfToken }: { csrfToken: string }) {
   const [filter, setFilter] = useState("");
   const [scope, setScope] = useState<"common" | "active" | "failed" | "all">("common");
   const [journal, setJournal] = useState<{ unit: string; lines: string[] } | null>(null);
+  const journalRef = useRef<HTMLElement | null>(null);
+  useDialogFocus(journalRef, Boolean(journal));
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -70,7 +73,7 @@ export default function ServicesCenter({ csrfToken }: { csrfToken: string }) {
       {dialog}
       {journal && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setJournal(null)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="journal-title" onMouseDown={(event) => event.stopPropagation()}>
+          <section ref={journalRef} tabIndex={-1} className="modal" role="dialog" aria-modal="true" aria-labelledby="journal-title" onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setJournal(null); } }} onMouseDown={(event) => event.stopPropagation()}>
             <header className="modal-header"><div><span className="eyebrow">Journal</span><h2 id="journal-title">{journal.unit}</h2></div><button className="icon-button" type="button" onClick={() => setJournal(null)} aria-label="Close dialog">X</button></header>
             <pre className="app-logs">{journal.lines.join("\n") || "(no entries)"}</pre>
           </section>
