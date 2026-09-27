@@ -1469,3 +1469,38 @@ describe("an update or a step back that fails part-way", () => {
     expect(calls.filter((call) => / up /.test(call))).toHaveLength(2); // the failed start, then the restore
   });
 });
+
+describe("restoring one path from an application backup", () => {
+  // tar ran as root straight into the live app directory, and follows a directory symlink it finds
+  // there. A container can plant one in its own volume (data/config -> /etc), so restoring
+  // data/config/app.conf wrote wherever the container pointed.
+  async function backedUp() {
+    const context = await setup();
+    await context.apps.install({ id: "demo" });
+    const config = path.join(context.catalogRoot, "demo", "data", "config");
+    await mkdir(config, { recursive: true });
+    await writeFile(path.join(config, "app.conf"), "from the backup");
+    const { artifact } = await context.apps.backup({ id: "demo" });
+    return { ...context, config, artifact };
+  }
+
+  it("refuses to write through a symlink planted in the app's folder", async () => {
+    const { apps, config, artifact } = await backedUp();
+    const elsewhere = await mkdtemp(path.join(os.tmpdir(), "boxpilot-planted-")); directories.push(elsewhere);
+    await rm(config, { recursive: true });
+    await symlink(elsewhere, config, "junction"); // a junction on Windows, which needs no privilege; ignored elsewhere
+    await expect(apps.restoreAppBackupPath({ id: "demo", backup: artifact, path: "data/config/app.conf" })).rejects.toThrow(/symbolic link/);
+    expect(await readdir(elsewhere)).toEqual([]);
+  });
+
+  it("puts the path back, recreating folders removed since, and leaves no staging behind", async () => {
+    const { apps, catalogRoot, config, artifact } = await backedUp();
+    await writeFile(path.join(config, "app.conf"), "changed later");
+    await apps.restoreAppBackupPath({ id: "demo", backup: artifact, path: "data/config/app.conf" });
+    expect(await readFile(path.join(config, "app.conf"), "utf8")).toBe("from the backup");
+    await rm(config, { recursive: true });
+    await apps.restoreAppBackupPath({ id: "demo", backup: artifact, path: "data/config/app.conf" });
+    expect(await readFile(path.join(config, "app.conf"), "utf8")).toBe("from the backup");
+    expect((await readdir(catalogRoot)).sort()).toEqual(["demo"]);
+  });
+});

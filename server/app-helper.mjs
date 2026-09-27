@@ -1581,6 +1581,33 @@ export function createAppHelper({
     return { id, backup: backupName, files, truncated: files.length >= limit };
   }
 
+  /**
+   * Move `source` to `base/relativePath` without ever resolving a symlink on the way. Every folder
+   * between base and the destination must be a real directory (missing ones are created one level
+   * at a time); the destination itself, whatever it is, is moved aside to `aside` rather than
+   * written through, and put back if the move fails.
+   */
+  async function placeWithoutFollowing(source, base, relativePath, aside) {
+    const parts = relativePath.split("/");
+    let current = base;
+    for (const part of ["", ...parts.slice(0, -1)]) {
+      current = part ? path.join(current, part) : current;
+      const info = await lstat(current).catch((error) => { if (error.code === "ENOENT") return null; throw error; });
+      if (!info) { await mkdir(current, { mode: 0o755 }); continue; }
+      if (info.isSymbolicLink()) throw new Error(`${path.relative(base, current) || "The app folder"} is a symbolic link; restoring through it could write outside the app, so nothing was restored`);
+      if (!info.isDirectory()) throw new Error(`${path.relative(base, current)} is not a folder, so ${relativePath} cannot be restored inside it`);
+    }
+    const target = path.join(base, relativePath);
+    const displaced = await lstat(target).then(() => true, (error) => { if (error.code === "ENOENT") return false; throw error; });
+    if (displaced) await rename(target, aside);
+    try {
+      await rename(source, target);
+    } catch (error) {
+      if (displaced) await rename(aside, target).catch(() => {});
+      throw error;
+    }
+  }
+
   /** Restore one path (file or directory) from a backup after a checkpoint; everything else stays as it is. */
   async function restoreAppBackupPath({ id, backup: backupName, path: relativePath }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
@@ -1601,11 +1628,20 @@ export function createAppHelper({
       const stop = await compose(id, ["stop"], { timeout: 120_000, progress });
       if (!stop.ok) throw new Error(`docker compose stop failed: ${redact(stop.stderr).split("\n").slice(-3).join(" ")}`);
     }
+    // Extract into a fresh folder of our own, never into the live one: tar runs as root and follows a
+    // directory symlink it finds on the way, and a container can plant one in its own volume
+    // (data/config -> /etc). The result is then moved into place one checked component at a time.
+    const live = dirFor(id);
+    const staged = `${live}.restoring-path`;
     try {
+      await rm(staged, { recursive: true, force: true });
+      await mkdir(staged, { mode: 0o700 });
       progress?.(`$ tar -xzf ${backupName} ${relativePath}`, "stdout");
-      const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", dirFor(id), relativePath], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
+      const extract = await runCommand(tarBinary, ["-xzf", artifact, "-C", staged, relativePath], { timeout: 60 * 60_000, maxBuffer: 4 * 1024 * 1024 });
       if (!extract.ok) throw new Error(`tar extraction failed: ${extract.stderr.split("\n").slice(-2).join(" ")}. The checkpoint ${saved.artifact} holds the pre-restore state.`);
+      await placeWithoutFollowing(path.join(staged, relativePath), live, relativePath, path.join(staged, ".previous"));
     } finally {
+      await rm(staged, { recursive: true, force: true }).catch(() => {});
       if (status.running) {
         const start = await compose(id, ["start"], { timeout: 180_000, progress });
         if (!start.ok) progress?.(`${manifest.name} did not start again: ${redact(start.stderr).split("\n").slice(-2).join(" ")}`, "stderr");
