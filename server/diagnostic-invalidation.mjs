@@ -8,7 +8,7 @@ export function invalidateOperationEvidence(job, { registry, inventory, prerequi
   if (system) {
     prerequisites.forget();
     reads.add("apt.health.inspect");
-    for (const name of ["apt.unattended.inspect", "prerequisite.docker.inspect", "prerequisite.restic.inspect", "prerequisite.smartmontools.inspect", "prerequisite.virtualization.inspect", "virtualization.foundation.inspect"]) reads.add(name);
+    for (const name of ["apt.unattended.inspect", "prerequisite.docker.inspect", "prerequisite.restic.inspect", "prerequisite.smartmontools.inspect", "prerequisite.virtualization.inspect", "prerequisite.nvidia.inspect", "virtualization.foundation.inspect"]) reads.add(name);
   }
   if (system || /^(app|container)\./.test(operation ?? "")) {
     for (const name of ["app.inspect", "container.docker.inventory", "app.backups.counts"]) reads.add(name);

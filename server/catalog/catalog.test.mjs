@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadCatalog } from "./index.mjs";
-import { renderCompose, resolveDevices } from "./compose.mjs";
+import { renderCompose, resolveDevices, wantsGpu } from "./compose.mjs";
 import { resolveValues, sanitizeStoredValues, validateManifest } from "./schema.mjs";
 
 const base = { schemaVersion: 2, id: "demo", name: "Demo", category: "Test", description: "A demo", image: { reference: "nginx:1.27" } };
@@ -377,5 +377,37 @@ describe("catalog freshness", () => {
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  });
+});
+
+describe("NVIDIA GPU", () => {
+  const base = { schemaVersion: 2, id: "llm", name: "LLM", category: "AI", description: "x", image: { reference: "ollama/ollama:1" }, ports: [{ id: "api", container: 11434 }] };
+
+  it("accepts gpu: optional on the app and on sidecars, and nothing else", () => {
+    expect(validateManifest({ ...base, gpu: "optional" }).errors).toEqual([]);
+    expect(validateManifest({ ...base, gpu: true }).errors.join(" ")).toContain("manifest.gpu");
+    expect(validateManifest({ ...base, sidecars: [{ id: "runner", image: "ollama/ollama:1", gpu: "optional" }] }).errors).toEqual([]);
+    expect(validateManifest({ ...base, sidecars: [{ id: "runner", image: "ollama/ollama:1", gpu: "required" }] }).errors.join(" ")).toContain("gpu");
+  });
+
+  it("reserves the GPU only when Docker can provide one", () => {
+    const { manifest } = validateManifest({ ...base, gpu: "optional", sidecars: [{ id: "helper", image: "busybox:1", gpu: "optional" }, { id: "plain", image: "busybox:1" }] });
+    const values = { ports: { api: 11434 }, env: {}, volumes: {} };
+    const off = renderCompose(manifest, values).compose;
+    expect(off.services.llm.deploy).toBeUndefined();
+    const on = renderCompose(manifest, values, { gpu: true }).compose;
+    expect(on.services.llm.deploy.resources.reservations.devices).toEqual([{ driver: "nvidia", count: "all", capabilities: ["gpu"] }]);
+    expect(on.services.helper.deploy).toBeDefined();
+    expect(on.services.plain.deploy).toBeUndefined();
+    const { manifest: cpuOnly } = validateManifest(base);
+    expect(renderCompose(cpuOnly, values, { gpu: true }).compose.services.llm.deploy).toBeUndefined();
+    expect(wantsGpu(manifest)).toBe(true);
+    expect(wantsGpu(cpuOnly)).toBe(false);
+  });
+
+  it("marks Ollama and Open WebUI's Ollama as GPU-capable", async () => {
+    const { manifests } = await loadCatalog();
+    expect(manifests.find((m) => m.id === "ollama").gpu).toBe("optional");
+    expect(manifests.find((m) => m.id === "open-webui").sidecars.find((s) => s.id === "ollama").gpu).toBe("optional");
   });
 });

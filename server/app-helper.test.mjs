@@ -1,5 +1,6 @@
 import { lstat, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
+import YAML from "yaml";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAppHelper } from "./app-helper.mjs";
@@ -9,7 +10,7 @@ import { fixedRun } from "./exec.mjs";
 const directories = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((d) => rm(d, { recursive: true, force: true }))); });
 
-async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, statPath = undefined, lstatPath = undefined, runCommand = undefined, vpnProfile = undefined, execTable = { vpn: "running", leaks: false, noCurl: false } } = {}) {
+async function setup({ healthKind = "running", exitOnUp = false, failUp = false, crashLoop = false, networkGone_ = false, listDevices = undefined, chownDirectory = undefined, statPath = undefined, lstatPath = undefined, runCommand = undefined, vpnProfile = undefined, nvidiaReady = undefined, execTable = { vpn: "running", leaks: false, noCurl: false } } = {}) {
   const catalogDirectory = await mkdtemp(path.join(os.tmpdir(), "boxpilot-cat-")); directories.push(catalogDirectory);
   const catalogRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-approot-")); directories.push(catalogRoot);
   await writeFile(path.join(catalogDirectory, "demo.yaml"), `schemaVersion: 2\nid: demo\nname: Demo\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8080\nvolumes:\n  - id: data\n    container: /data\n    path: data\n  - id: docker\n    container: /var/run/docker.sock\n    hostPath: /var/run/docker.sock\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\n  - name: TZ\n    default: Etc/UTC\nhealth:\n  kind: ${healthKind}\n  stableSeconds: 4\n  timeoutSeconds: 30\n`);
@@ -79,7 +80,7 @@ async function setup({ healthKind = "running", exitOnUp = false, failUp = false,
   const wait = vi.fn(async (ms) => { nowMs += ms; });
   const catalog = createCatalogService({ directory: catalogDirectory, ttlMs: 0 });
   const backupRoot = await mkdtemp(path.join(os.tmpdir(), "boxpilot-appbk-")); directories.push(backupRoot);
-  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, scanCommand: async (folder) => ({ binary: "du", args: ["-sbx", folder], priority: "fixture" }), lanAddress: "192.168.1.10", ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(statPath ? { statPath } : {}), ...(lstatPath ? { lstatPath } : {}), ...(runCommand ? { runCommand } : {}), ...(vpnProfile ? { vpnProfile } : {}) });
+  const apps = createAppHelper({ catalogRoot, backupRoot, runDocker, catalog, wait, clock, scanCommand: async (folder) => ({ binary: "du", args: ["-sbx", folder], priority: "fixture" }), lanAddress: "192.168.1.10", ...(listDevices ? { listDevices } : {}), ...(chownDirectory ? { chownDirectory } : {}), ...(statPath ? { statPath } : {}), ...(lstatPath ? { lstatPath } : {}), ...(runCommand ? { runCommand } : {}), ...(vpnProfile ? { vpnProfile } : {}), ...(nvidiaReady ? { nvidiaReady } : {}) });
   const advance = (ms) => { nowMs += ms; };
   return { apps, calls, containers, catalogRoot, catalogDirectory, backupRoot, advance, runDocker };
 }
@@ -157,6 +158,35 @@ describe("generic app deployer", () => {
     await writeFile(path.join(withGpu.catalogDirectory, "gpu.yaml"), manifest);
     await withGpu.apps.install({ id: "gpu" });
     expect(await readFile(path.join(withGpu.catalogRoot, "gpu", "compose.yaml"), "utf8")).toContain("/dev/dri/renderD128:/dev/dri/renderD128");
+  });
+
+  it("gives a GPU-capable app the NVIDIA GPU only when Docker can provide it", async () => {
+    // Docker refuses to start a service reserving a driver it lacks, so a server without the NVIDIA
+    // runtime must get a plain CPU compose file, never a reservation that breaks the install.
+    const manifest = `schemaVersion: 2
+id: llm
+name: Llm
+category: AI
+description: d
+gpu: optional
+image:
+  reference: nginx:1.27
+sidecars:
+  - id: runner
+    image: nginx:1.27
+    gpu: optional
+`;
+    const cpu = await setup({ nvidiaReady: async () => false });
+    await writeFile(path.join(cpu.catalogDirectory, "llm.yaml"), manifest);
+    await cpu.apps.install({ id: "llm" });
+    expect(await readFile(path.join(cpu.catalogRoot, "llm", "compose.yaml"), "utf8")).not.toContain("nvidia");
+
+    const gpu = await setup({ nvidiaReady: async () => true });
+    await writeFile(path.join(gpu.catalogDirectory, "llm.yaml"), manifest);
+    await gpu.apps.install({ id: "llm" });
+    const compose = YAML.parse(await readFile(path.join(gpu.catalogRoot, "llm", "compose.yaml"), "utf8"));
+    expect(compose.services.llm.deploy.resources.reservations.devices[0]).toMatchObject({ driver: "nvidia", capabilities: ["gpu"] });
+    expect(compose.services.runner.deploy.resources.reservations.devices[0].driver).toBe("nvidia");
   });
 
   it("changes the sign-in password and nothing else", async () => {
