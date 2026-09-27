@@ -28,14 +28,38 @@ export async function listListeners({ run = fixedRun } = {}) {
 }
 
 /**
- * `requested`: [{ id, host, protocol, exposure }]. A loopback-only bind conflicts with loopback or
- * wildcard listeners; a LAN bind conflicts with anything on that port.
+ * Containers publishing `port`/`protocol`, from the Docker inventory (`docker ps` Ports text such as
+ * "127.0.0.1:11434->11434/tcp, [::]:8080->80/tcp"). `ss` only shows docker-proxy for these, which
+ * doesn't say whose port it is.
  */
-export function findPortConflicts(requested, listeners) {
+export function containersPublishing(containers, port, protocol) {
+  const wanted = protocol === "udp" ? "udp" : "tcp";
+  const publishes = (text) => String(text ?? "").split(",").some((mapping) => {
+    // "<addr>:<host port or range>-><container port or range>/<proto>"; unpublished ports have no "->".
+    const match = /:(\d+)(?:-(\d+))?->[\d-]+\/(tcp|udp)$/.exec(mapping.trim());
+    if (!match || match[3] !== wanted) return false;
+    const low = Number(match[1]);
+    const high = match[2] ? Number(match[2]) : low;
+    return port >= low && port <= high;
+  });
+  return (containers ?? [])
+    .filter((container) => publishes(container.ports))
+    .map((container) => ({ name: container.name, app: container.app ?? null, composeProject: container.composeProject ?? null }));
+}
+
+/**
+ * `requested`: [{ id, host, protocol, exposure }]. A loopback-only bind conflicts with loopback or
+ * wildcard listeners; a LAN bind conflicts with anything on that port. With `containers` (the
+ * Docker inventory), each conflict also names the containers holding the port.
+ */
+export function findPortConflicts(requested, listeners, containers = null) {
   const conflicts = [];
   for (const request of requested) {
     const hits = listeners.filter((listener) => listener.protocol === request.protocol && listener.port === request.host && (request.exposure === "loopback" ? listener.scope !== "address" : true));
-    if (hits.length) conflicts.push({ id: request.id, port: request.host, protocol: request.protocol, listeners: hits.map((hit) => `${hit.address}:${hit.port}`) });
+    if (!hits.length) continue;
+    const conflict = { id: request.id, port: request.host, protocol: request.protocol, listeners: hits.map((hit) => `${hit.address}:${hit.port}`) };
+    if (containers) conflict.containers = containersPublishing(containers, request.host, request.protocol);
+    conflicts.push(conflict);
   }
   return conflicts;
 }
