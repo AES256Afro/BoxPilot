@@ -1380,3 +1380,29 @@ describe("remembering what an image says its user is", () => {
     expect(inspects).toBe(2);
   });
 });
+describe("an app set to tailnet only while Tailscale is not up", () => {
+  // A helper that started before Tailscale cached "no tailnet address" for good, and the renderer
+  // fell back to the LAN binding: a port meant for tailnet members only was published to the house.
+  const forge = "schemaVersion: 2\nid: forge\nname: Forge\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 3000\n    host: 3002\n  - id: ssh\n    label: Git over SSH\n    container: 22\n    host: 2222\n    tailnet: address\n";
+
+  it("refuses rather than binding a tailnet-address port to the LAN, and asks Tailscale again next time", async () => {
+    let tailscaleUp = false;
+    const runCommand = vi.fn(async (_binary, args) => (args[0] === "ip"
+      ? (tailscaleUp ? { ok: true, stdout: "100.64.0.5\n", stderr: "" } : { ok: false, stdout: "", stderr: "Tailscale is stopped." })
+      : { ok: false, stdout: "", stderr: "" }));
+    const { apps, catalogDirectory, catalogRoot } = await setup({ runCommand });
+    await writeFile(path.join(catalogDirectory, "forge.yaml"), forge);
+    await apps.install({ id: "forge" });
+    const before = await readFile(path.join(catalogRoot, "forge", "compose.yaml"), "utf8");
+
+    await expect(apps.reconfigure({ id: "forge", values: { exposure: "tailnet" } }, { checkpoint: false })).rejects.toThrow(/no tailnet address.*Git over SSH/);
+    expect(await readFile(path.join(catalogRoot, "forge", "compose.yaml"), "utf8")).toBe(before);
+
+    tailscaleUp = true;
+    await apps.reconfigure({ id: "forge", values: { exposure: "tailnet" } }, { checkpoint: false });
+    const compose = await readFile(path.join(catalogRoot, "forge", "compose.yaml"), "utf8");
+    expect(compose).toContain("100.64.0.5:2222:22");
+    expect(compose).toContain("127.0.0.1:3002:3000");
+    expect(compose).not.toContain("192.168.1.10:2222");
+  });
+});
