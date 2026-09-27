@@ -53,6 +53,14 @@ describe("VM backup retention service", () => {
     expect(selection.kept.find((item) => item.backupId === backup(5).id)?.reasons).toContain("not-restore-tested");
   });
 
+  it("counts the minimum copies among restore-tested backups, so untested newer ones cannot leave none", () => {
+    const untested = { protected: false, restoreDrill: null };
+    const backups = [backup(1, untested), backup(2, untested), backup(3, untested), backup(4), backup(5), backup(6), backup(7)];
+    const selection = vmRetentionInternals.selectRetentionCandidates({ backups, recoveries: [], now });
+    expect(selection.candidates.map((item) => item.backupId)).toEqual([backup(7).id]);
+    for (const number of [4, 5, 6]) expect(selection.kept.find((item) => item.backupId === backup(number).id)?.reasons).toContain("minimum-copies");
+  });
+
   it("pins every recorded snapshot when forgetting an unrecorded one, however many records exist", () => {
     const backups = Array.from({ length: 250 }, (_, index) => backup(index + 1));
     const store = {

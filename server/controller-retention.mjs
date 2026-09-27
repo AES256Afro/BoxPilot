@@ -8,21 +8,39 @@ function sameArray(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+/** A copy counts toward the minimum only if it has been restored successfully. */
+function restoreTested(protection) {
+  return Boolean(protection.protected) && protection.restoreDrill?.passed === true;
+}
+
+/**
+ * Index of the oldest entry the minimum-copies rule keeps: the Nth newest restore-tested one, so
+ * that newer untested copies never count toward the minimum. Everything at or before it is kept.
+ */
+function minimumCopiesCutoff(entries, minimum) {
+  let tested = 0;
+  for (const [index, entry] of entries.entries()) {
+    if (restoreTested(entry) && ++tested === minimum) return index;
+  }
+  return entries.length;
+}
+
 function selectRetentionCandidates({ protections, activeConsumers = [], now }) {
   const activeBackupIds = new Set(activeConsumers.map((consumer) => consumer.backupId).filter(Boolean));
   const activeProtectionIds = new Set(activeConsumers.map((consumer) => consumer.protectionId).filter(Boolean));
   const activeSnapshotIds = new Set(activeConsumers.flatMap((consumer) => consumer.snapshotIds ?? []).filter(Boolean));
   const active = protections.filter((protection) => protection.retained !== false)
     .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
+  const cutoff = minimumCopiesCutoff(active, minimumCopies);
   const candidates = [];
   const kept = [];
   active.forEach((protection, index) => {
     const created = new Date(protection.createdAt).getTime();
     const ageDays = Number.isFinite(created) ? Math.max(0, Math.floor((now.getTime() - created) / dayMs)) : 0;
     const reasons = [];
-    if (index < minimumCopies) reasons.push("minimum-copies");
+    if (index <= cutoff) reasons.push("minimum-copies");
     if (ageDays < minimumAgeDays) reasons.push("minimum-age");
-    if (!protection.protected || protection.restoreDrill?.passed !== true) reasons.push("not-restore-tested");
+    if (!restoreTested(protection)) reasons.push("not-restore-tested");
     if (activeBackupIds.has(protection.backupId) || activeProtectionIds.has(protection.id) || activeSnapshotIds.has(protection.snapshotId)) reasons.push("active-controller-operation");
     const entry = {
       protectionId: protection.id,
