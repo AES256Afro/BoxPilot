@@ -19,6 +19,15 @@ interface Checklist { items: ChecklistItem[]; done: number; total: number; allEs
 
 const jobTone: Record<string, string> = { completed: "status-good", failed: "status-danger", applying: "status-warning", verifying: "status-warning" };
 
+interface WatchedCondition { family: string; title: string; since: string | null; announced: boolean }
+
+/** Where the owner goes about a watched condition: schedules live on System, flows on Automations. */
+function watchView(family: string): ViewName {
+  if (family === "schedule.failed") return "system";
+  if (family === "flow.failed") return "automations";
+  return "repairs"; // host conditions, and a result not saved: Repair keeps the Activity with each job's steps
+}
+
 function timeLabel(iso?: string): string {
   if (!iso) return "";
   const time = Date.parse(iso);
@@ -39,7 +48,9 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
   const [unprotected, setUnprotected] = useState<string | null>(null);
   const [offBox, setOffBox] = useState<string | null>(null);
   const [setup, setSetup] = useState<{ firstRun: boolean; installedApps: number } | null>(null);
-  const [watch, setWatch] = useState<Array<{ title: string; announced: boolean }>>([]);
+  const [watch, setWatch] = useState<WatchedCondition[]>([]);
+  const [targetConfigured, setTargetConfigured] = useState(false);
+  const [showUnannounced, setShowUnannounced] = useState(false);
   const [rebuild, setRebuild] = useState<{ count: number; source: string } | null>(null);
   const [checklist, setChecklist] = useState<Checklist | null>(null);
 
@@ -154,8 +165,10 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
 
     fetch("/api/v1/settings/watch")
       .then((response) => (response.ok ? response.json() : { conditions: [] }))
-      .then((data: { conditions?: Array<{ active: boolean; details: Array<{ title: string; announced?: boolean }> }> }) =>
-        guard(setWatch)((data.conditions ?? []).filter((condition) => condition.active).flatMap((condition) => condition.details.map((detail) => ({ title: detail.title, announced: detail.announced !== false })))))
+      .then((data: { targetConfigured?: boolean; conditions?: Array<{ key: string; active: boolean; details: Array<{ title: string; since?: string | null; announced?: boolean }> }> }) => {
+        guard(setTargetConfigured)(data.targetConfigured === true);
+        guard(setWatch)((data.conditions ?? []).filter((condition) => condition.active).flatMap((condition) => condition.details.map((detail) => ({ family: condition.key, title: detail.title, since: detail.since ?? null, announced: detail.announced !== false }))));
+      })
       .catch(() => {});
 
     fetch("/api/v1/setup")
@@ -191,7 +204,11 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
   const attention: Array<{ label: string; view: ViewName }> = [];
   // What the health watcher currently sees, announced or not. Without a notification target these
   // conditions used to exist only in a setting nobody read; the owner found out from an I/O error.
-  for (const alert of watch) attention.push({ label: alert.announced ? alert.title : `${alert.title} (no alert target is set, so only this page knows)`, view: "repairs" });
+  // The ones that reached no one are also counted in the line at the top of the page.
+  for (const alert of watch) attention.push({ label: alert.title, view: watchView(alert.family) });
+  // Everything BoxPilot knew and could not tell anyone (M27.2): host conditions, failed schedules,
+  // stopped automations and results it could not save, with no target set or a target that failed.
+  const unannounced = watch.filter((alert) => !alert.announced);
   if (updates?.rebootRequired) attention.push({ label: "A reboot is pending", view: "updates" });
   if ((updates?.updates ?? 0) > 0) attention.push({ label: `${updates?.updates} update${updates?.updates === 1 ? "" : "s"} available${updates?.security ? ` (${updates.security} security)` : ""}`, view: "updates" });
   if ((failedServices ?? 0) > 0) attention.push({ label: `${failedServices} failed service${failedServices === 1 ? "" : "s"}`, view: "services" });
@@ -217,6 +234,30 @@ export default function HomeDashboard({ onNavigate }: { onNavigate: (view: ViewN
 
   return (
     <div className="home-dashboard">
+      {unannounced.length > 0 && (
+        <section className="notice warning-notice unannounced-notice" aria-label="Alerts that reached no one">
+          <div className="unannounced-line">
+            <strong>BoxPilot could not tell you about {countOf(unannounced.length, "thing")}</strong>
+            <span className="unannounced-actions">
+              <button type="button" className="text-button" aria-expanded={showUnannounced} onClick={() => setShowUnannounced((open) => !open)}>{showUnannounced ? "Hide" : "Show"}</button>
+              <button type="button" className="text-button" onClick={() => onNavigate("settings")}>{targetConfigured ? "Check where alerts go" : "Set where alerts go"}</button>
+            </span>
+          </div>
+          {showUnannounced && (
+            <>
+              <span>{targetConfigured ? "Your notification target did not accept these. BoxPilot tries again every 15 minutes." : "No notification target is set, so these reached no one."}</span>
+              <ul className="unannounced-list">
+                {unannounced.map((alert) => (
+                  <li key={`${alert.family}:${alert.title}`}>
+                    <button type="button" className="text-button" onClick={() => onNavigate(watchView(alert.family))}>{alert.title}</button>
+                    {alert.since && <span className="muted"> since {timeLabel(alert.since)}</span>}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </section>
+      )}
       {setup?.firstRun && rebuild && (
         <section className="panel">
           <header className="panel-header">
