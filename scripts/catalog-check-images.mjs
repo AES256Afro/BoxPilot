@@ -5,9 +5,9 @@
  */
 import { loadCatalog } from "../server/catalog/index.mjs";
 
-const accept = "application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json";
+export const accept = "application/vnd.docker.distribution.manifest.v2+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.oci.image.manifest.v1+json, application/vnd.oci.image.index.v1+json";
 
-function parseReference(reference) {
+export function parseReference(reference) {
   const [name] = reference.split("@");
   const [repo, tag = "latest"] = name.split(/:(?=[^/]+$)/);
   const first = repo.split("/")[0];
@@ -20,7 +20,7 @@ function parseReference(reference) {
   return { host, path, tag };
 }
 
-async function bearer(host, path, challenge) {
+export async function bearer(host, path, challenge) {
   const realm = challenge?.match(/realm="([^"]+)"/)?.[1] ?? (host === "registry-1.docker.io" ? "https://auth.docker.io/token" : `https://${host}/token`);
   const service = challenge?.match(/service="([^"]+)"/)?.[1] ?? (host === "registry-1.docker.io" ? "registry.docker.io" : host);
   const response = await fetch(`${realm}?service=${encodeURIComponent(service)}&scope=repository:${path}:pull`);

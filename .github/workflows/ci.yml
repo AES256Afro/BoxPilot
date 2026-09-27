@@ -4,6 +4,9 @@ on:
   push:
     branches: [main, phase-0]
   pull_request:
+  # The Catalog updates workflow opens its pull request with the workflow token, which starts no
+  # pull_request runs, so it starts this one on the branch instead.
+  workflow_dispatch:
 
 # Same reason as the install smoke test: a release pushes two branches with one tree. Keyed by
 # SHA so only the duplicate pair collapses — a different commit's run is a different answer and
