@@ -90,3 +90,17 @@ export function createCatalogService({ directory = defaultCatalogDirectory, ttlM
   }
   return { all, get, directory };
 }
+
+/**
+ * Which of an app's settings are secrets, from its manifest: `(appId) => names`, or null when the
+ * catalog does not have the app. Null is "cannot tell", never "none": a mistyped id, a retired app
+ * or a flow step that names its app as {{ steps.pick.id }} must not let a token through as an
+ * ordinary setting.
+ */
+export function secretEnvNamesLookup(catalog) {
+  return async (appId) => {
+    const manifest = typeof appId === "string" ? await catalog.get(appId) : null;
+    if (!manifest) return null;
+    return (manifest.env ?? []).filter((entry) => entry.secret || entry.type === "password").map((entry) => entry.name);
+  };
+}

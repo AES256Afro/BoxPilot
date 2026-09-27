@@ -68,6 +68,11 @@ export function defineOperation(definition) {
   if (readOnly && risk !== "low") throw new Error(`Operation ${id} is read-only and must be low risk`);
   if (minimumRole !== null && !["owner", "operator"].includes(minimumRole)) throw new Error(`Operation ${id} minimumRole must be owner or operator`);
   if (confirm !== null && typeof confirm !== "function") throw new Error(`Operation ${id} confirm must be a function of the parameters returning the text to type`);
+  for (const [name, field] of Object.entries(parameters?.fields ?? {})) {
+    if (field?.secretEnvOf === undefined) continue;
+    if (field.type !== "object" || field.secret) throw new Error(`Operation ${id} parameter ${name}: secretEnvOf belongs on an object field that is not itself secret`);
+    if (!Object.hasOwn(parameters.fields, field.secretEnvOf)) throw new Error(`Operation ${id} parameter ${name}: secretEnvOf names ${field.secretEnvOf}, which is not a parameter`);
+  }
   // minimumRole: who may stage/approve regardless of tier (e.g. anything that sends data off the box is owner-only).
   // confirm(parameters): text the approver must type for destructive jobs; checked server-side at approval.
   // restartsService: the operation restarts (or reboots) the BoxPilot service, so approving it while
@@ -126,7 +131,88 @@ export function createRegistry(modules = []) {
   return registry;
 }
 
-/** Names of parameters flagged `secret: true`: kept in memory by the job service, never persisted. */
-export function secretFields(spec) {
-  return Object.entries(spec?.fields ?? {}).filter(([, field]) => field && field.secret === true).map(([name]) => name);
+/** What a secret looks like wherever parameters are stored or shown: the jobs table, the job API. */
+export const secretPlaceholder = "[secret]";
+
+const isPlainObject = (value) => value !== null && typeof value === "object" && !Array.isArray(value);
+// Absent, null and "" hold nothing to protect: a blank secret is asked for again at run time. Any
+// other value does, whatever its type; values.env takes numbers, and the deployer stringifies them.
+const holdsValue = (value) => value !== undefined && value !== null && value !== "";
+
+/**
+ * Where the secrets sit in one operation's parameters (M29.1): the key path of every value that
+ * must never be stored or shown. A secret is a shape the parameter spec declares, not a flag each
+ * caller remembers to look for, so the job service, the scheduler and flows all ask here and a new
+ * nesting is declared once, in the spec, rather than taught to each of them.
+ *
+ * - `secret: true` on a field: the whole value is a secret.
+ * - `secretEnvOf: "<field>"` on an object field: an app's install values. `<field>.env.<NAME>` is
+ *   a secret when the manifest of the app named by parameter `<field>` calls NAME a password or a
+ *   secret. `secretEnvNamesFor(appId)` asks the catalog, answering the names, or null when it does
+ *   not know the app. Not knowing is not permission to store: with no answer, or no one to ask,
+ *   every env value that holds something counts as a secret.
+ *
+ * Paths are arrays of keys, in the spec's order. The placeholder holds a value, so the paths of a
+ * stored record are the paths it was staged with.
+ */
+export async function secretPaths(operation, parameters, { secretEnvNamesFor = null } = {}) {
+  if (!isPlainObject(parameters)) return [];
+  const paths = [];
+  for (const [name, field] of Object.entries(operation?.parameters?.fields ?? {})) {
+    if (!field || !Object.hasOwn(parameters, name)) continue;
+    const value = parameters[name];
+    if (field.secret === true) {
+      if (holdsValue(value)) paths.push([name]);
+      continue;
+    }
+    if (typeof field.secretEnvOf !== "string" || !isPlainObject(value) || !isPlainObject(value.env)) continue;
+    const held = Object.keys(value.env).filter((key) => holdsValue(value.env[key]));
+    if (!held.length) continue;
+    const appId = parameters[field.secretEnvOf];
+    const declared = typeof secretEnvNamesFor === "function" && typeof appId === "string" ? await secretEnvNamesFor(appId) : null;
+    for (const key of Array.isArray(declared) ? held.filter((entry) => declared.includes(entry)) : held) paths.push([name, "env", key]);
+  }
+  return paths;
+}
+
+function readPath(object, path) {
+  return path.reduce((node, key) => (isPlainObject(node) && Object.hasOwn(node, key) ? node[key] : undefined), object);
+}
+
+/** A copy with `value` at `path`: each object on the way is copied, everything else shared. */
+function withValueAt(object, path, value) {
+  const [key, ...rest] = path;
+  const copy = { ...object };
+  const child = isPlainObject(object) && Object.hasOwn(object, key) && isPlainObject(object[key]) ? object[key] : {};
+  const next = rest.length ? withValueAt(child, rest, value) : value;
+  // Defined, not assigned: a key spelled __proto__ (JSON.parse makes it an own key) stays a key.
+  Object.defineProperty(copy, key, { value: next, enumerable: true, writable: true, configurable: true });
+  return copy;
+}
+
+/** The parameters as they may be stored, shown or logged: each secret replaced by the placeholder. */
+export function maskSecrets(parameters, paths) {
+  return paths.reduce((masked, path) => withValueAt(masked, path, secretPlaceholder), parameters ?? {});
+}
+
+/** Split parameters into the record that may be stored and the secrets that stay in memory. */
+export function splitSecrets(parameters, paths) {
+  return { stored: maskSecrets(parameters, paths), secrets: paths.map((path) => ({ path, value: readPath(parameters, path) })) };
+}
+
+/** Put staged secrets back wherever the stored record holds the placeholder, at run time. */
+export function restoreSecrets(stored, secrets = []) {
+  return secrets.reduce((restored, { path, value }) => (readPath(restored, path) === secretPlaceholder ? withValueAt(restored, path, value) : restored), stored ?? {});
+}
+
+/** Paths still holding the placeholder: a secret whose staged copy is gone. Nothing may run with one. */
+export function placeholderPaths(parameters) {
+  const found = [];
+  const walk = (value, path) => {
+    if (value === secretPlaceholder) found.push(path);
+    else if (Array.isArray(value)) value.forEach((item, index) => walk(item, [...path, index]));
+    else if (isPlainObject(value)) for (const key of Object.keys(value)) walk(value[key], [...path, key]);
+  };
+  walk(parameters, []);
+  return found;
 }

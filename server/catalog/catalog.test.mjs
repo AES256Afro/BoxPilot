@@ -383,6 +383,20 @@ describe("catalog freshness", () => {
   });
 });
 
+describe("which of an app's settings are secrets", () => {
+  it("names the password and secret entries, and says so when it does not know the app", async () => {
+    const { secretEnvNamesLookup } = await import("./index.mjs");
+    const { manifest } = validateManifest({ ...base, env: [{ name: "ADMIN_PASSWORD", type: "password" }, { name: "API_TOKEN", secret: true }, { name: "TZ", default: "UTC" }] });
+    const lookup = secretEnvNamesLookup({ get: async (id) => (id === "demo" ? manifest : null) });
+    expect(await lookup("demo")).toEqual(["ADMIN_PASSWORD", "API_TOKEN"]);
+    // "No secrets" and "no idea" are different answers: an app the catalog does not have (a typo,
+    // a retired app, a flow step naming its app as {{ steps.pick.id }}) must not read as the first.
+    expect(await lookup("not-in-the-catalog")).toBeNull();
+    expect(await lookup("{{ steps.pick.id }}")).toBeNull();
+    expect(await lookup(undefined)).toBeNull();
+  });
+});
+
 describe("NVIDIA GPU", () => {
   const base = { schemaVersion: 2, id: "llm", name: "LLM", category: "AI", description: "x", image: { reference: "ollama/ollama:1" }, ports: [{ id: "api", container: 11434 }] };
 
