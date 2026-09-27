@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { OperationRegistry, createRegistry, defineOperation, validateParameters } from "./registry.mjs";
+import { OperationRegistry, createRegistry, defineOperation, maskSecrets, placeholderPaths, restoreSecrets, secretPaths, secretPlaceholder, splitSecrets, validateParameters } from "./registry.mjs";
 import { registry } from "./index.mjs";
 import { helperOperations, legacyHelperOperations, validateHelperRequest } from "../helper-protocol.mjs";
 
@@ -97,5 +97,61 @@ describe("what the approval dialog has to show", () => {
       .filter((operation) => retired.test(operation.description ?? ""))
       .map((operation) => operation.id);
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("where the secrets are (M29.1)", () => {
+  const operation = defineOperation({
+    id: "demo.set", title: "Demo", risk: "medium", run() {},
+    parameters: { fields: { id: { type: "string" }, password: { type: "string", optional: true, nullable: true, secret: true }, values: { type: "object", optional: true, secretEnvOf: "id" }, note: { type: "string", optional: true } } },
+  });
+  const lookup = async (id) => (id === "known" ? ["TOKEN", "PIN"] : null);
+
+  it("finds top-level secrets and an app's own, and nothing that holds no value", async () => {
+    const parameters = { id: "known", password: "pw", note: "not secret", values: { env: { TOKEN: "tok", PIN: 1234, TZ: "UTC" }, ports: { web: 8080 } } };
+    expect(await secretPaths(operation, parameters, { secretEnvNamesFor: lookup })).toEqual([["password"], ["values", "env", "TOKEN"], ["values", "env", "PIN"]]);
+    expect(await secretPaths(operation, { id: "known", password: "", values: { env: { TOKEN: null, PIN: "" } } }, { secretEnvNamesFor: lookup })).toEqual([]);
+    expect(await secretPaths(operation, { id: "known", password: null }, { secretEnvNamesFor: lookup })).toEqual([]);
+  });
+
+  it("counts every app setting when the catalog cannot say which is the secret", async () => {
+    const values = { env: { TOKEN: "tok", TZ: "UTC" } };
+    const expected = [["values", "env", "TOKEN"], ["values", "env", "TZ"]];
+    expect(await secretPaths(operation, { id: "unknown", values }, { secretEnvNamesFor: lookup })).toEqual(expected);
+    expect(await secretPaths(operation, { id: "{{ steps.pick.id }}", values }, { secretEnvNamesFor: lookup })).toEqual(expected);
+    expect(await secretPaths(operation, { id: "known", values })).toEqual(expected);   // nobody to ask
+  });
+
+  it("masks, splits and restores along those paths without touching the caller's object", async () => {
+    const parameters = { id: "known", password: "pw", values: { env: { TOKEN: "tok", TZ: "UTC" }, ports: { web: 8080 } } };
+    const paths = await secretPaths(operation, parameters, { secretEnvNamesFor: lookup });
+    const { stored, secrets } = splitSecrets(parameters, paths);
+    expect(stored).toEqual({ id: "known", password: secretPlaceholder, values: { env: { TOKEN: secretPlaceholder, TZ: "UTC" }, ports: { web: 8080 } } });
+    expect(maskSecrets(parameters, paths)).toEqual(stored);
+    expect(parameters.values.env.TOKEN).toBe("tok");
+    expect(placeholderPaths(stored)).toEqual([["password"], ["values", "env", "TOKEN"]]);
+    const restored = restoreSecrets(JSON.parse(JSON.stringify(stored)), secrets);
+    expect(restored).toEqual(parameters);
+    expect(placeholderPaths(restored)).toEqual([]);
+    // With the staged copy gone the placeholder stays, and placeholderPaths is what refuses to run it.
+    expect(placeholderPaths(restoreSecrets(stored, []))).toHaveLength(2);
+  });
+
+  it("keeps a key spelled __proto__ a key when it writes one", async () => {
+    const parameters = JSON.parse('{ "id": "unknown", "values": { "env": { "__proto__": "tok" } } }');
+    const paths = await secretPaths(operation, parameters, { secretEnvNamesFor: lookup });
+    const { stored } = splitSecrets(parameters, paths);
+    expect(Object.hasOwn(stored.values.env, "__proto__")).toBe(true);
+    expect(Object.getPrototypeOf(stored.values.env)).toBe(Object.prototype);
+    expect(JSON.stringify(stored)).not.toContain("tok");
+  });
+
+  it("refuses a secretEnvOf that names no parameter or sits on the wrong kind of field", () => {
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "low", run() {}, parameters: { fields: { values: { type: "object", secretEnvOf: "id" } } } })).toThrow("not a parameter");
+    expect(() => defineOperation({ id: "a.b", title: "x", risk: "low", run() {}, parameters: { fields: { id: { type: "string" }, values: { type: "string", secretEnvOf: "id" } } } })).toThrow("object field");
+  });
+
+  it("declares the app install values of the real registry as holding the app's own secrets", () => {
+    for (const id of ["app.install", "app.reconfigure"]) expect(registry.get(id).parameters.fields.values.secretEnvOf).toBe("id");
   });
 });

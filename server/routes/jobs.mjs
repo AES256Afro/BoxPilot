@@ -140,9 +140,9 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, helper 
   // Flows (ADR-002): ordered lists of registered operations, each step an ordinary job. The
   // routes mirror schedules: reading needs a session, changing needs CSRF, and running is barred
   // to viewers by the service itself.
-  router.get("/flows", (_request, response) => {
+  router.get("/flows", async (_request, response) => {
     if (!flows) return response.status(503).json({ error: "Flows are not available", code: "flows_unavailable" });
-    response.json({ flows: flows.list(), palette: flows.stepPalette(), shelf: flows.shelf() });
+    response.json({ flows: await flows.list(), palette: flows.stepPalette(), shelf: flows.shelf() });
   });
 
   // Which automation this server in particular should have, and why (M24.1). Nothing is created:
@@ -164,7 +164,7 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, helper 
       housekeeping,
       updates: { total: packages.length, security: packages.filter((entry) => entry?.security).length },
     });
-    response.json({ suggestions: suggestFlows({ shelf: flows.shelf(), flows: flows.list(), facts }) });
+    response.json({ suggestions: suggestFlows({ shelf: flows.shelf(), flows: await flows.list(), facts }) });
   });
 
   router.post("/flows", auth.requireCsrf, async (request, response) => {
@@ -218,9 +218,9 @@ export function createJobsRouter({ state, jobs, scheduler, flows = null, helper 
   // 202: the run has started, not finished. It used to await the whole flow, and a proxy that gave
   // up on a long request made the page report a refusal while the flow was still running. The
   // flow list is the source of truth for progress; every refusal still comes back with its status.
-  router.post("/flows/:id/run", auth.requireCsrf, (request, response) => {
+  router.post("/flows/:id/run", auth.requireCsrf, async (request, response) => {
     try {
-      const started = flows.launch(request.params.id, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
+      const started = await flows.launch(request.params.id, request.boxpilotSession.owner.id, { role: request.boxpilotSession.owner.role });
       response.status(202).json({ started });
     } catch (error) {
       const status = error.message.includes("not found") ? 404 : /Viewers|always ask/.test(error.message) ? 403 : 409;
