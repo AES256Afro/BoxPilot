@@ -14,10 +14,23 @@ function countManifests() {
   try { return readdirSync(new URL("./catalog", import.meta.url)).filter((name) => name.endsWith(".yaml")).length; } catch { return 0; }
 }
 const manifestCount = countManifests();
+// The category count is read the same way, so "in 19 categories" cannot outlive a twentieth.
+function countCategories() {
+  try {
+    const directory = new URL("./catalog/", import.meta.url);
+    const categories = new Set<string>();
+    for (const name of readdirSync(directory).filter((file) => file.endsWith(".yaml"))) {
+      const match = /^category:\s*["']?(.+?)["']?\s*$/m.exec(readFileSync(new URL(name, directory), "utf8"));
+      if (match) categories.add(match[1]);
+    }
+    return categories.size;
+  } catch { return 0; }
+}
+const categoryCount = countCategories();
 const catalogSize = manifestCount >= 10 ? `${Math.floor(manifestCount / 10) * 10}+` : "Many";
 
 export default defineConfig({
-  define: { __BOXPILOT_VERSION__: JSON.stringify(version), __BOXPILOT_CATALOG_SIZE__: JSON.stringify(catalogSize) },
+  define: { __BOXPILOT_VERSION__: JSON.stringify(version), __BOXPILOT_CATALOG_SIZE__: JSON.stringify(catalogSize), __BOXPILOT_CATALOG_CATEGORIES__: JSON.stringify(categoryCount) },
   plugins: [react()],
   server: {
     host: "127.0.0.1",

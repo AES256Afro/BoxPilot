@@ -94,4 +94,16 @@ describe("BoxPilot console", () => {
     expect(connectionLabel({ protocol: "https:", hostname: "192.168.1.10" })).toBe("HTTPS connection");
     expect(connectionLabel({ protocol: "http:", hostname: "100.200.1.1" })).toBe("HTTP connection");
   });
+
+  it("counts the catalog's categories instead of naming a fixed number", async () => {
+    const manifests = import.meta.glob<string>("../catalog/*.yaml", { query: "?raw", import: "default", eager: true });
+    const categories = new Set(Object.values(manifests).map((text) => /^category:\s*(.+?)\s*$/m.exec(text)?.[1]).filter(Boolean));
+    expect(categories.size).toBeGreaterThan(0);
+    vi.stubGlobal("fetch", vi.fn(authenticatedFetch));
+    window.history.replaceState(null, "", "/?view=catalog");
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "App catalog" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Features" }).textContent).toContain(`apps in ${categories.size} categories`);
+    window.history.replaceState(null, "", "/");
+  });
 });
