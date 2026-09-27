@@ -33,10 +33,13 @@ export function createHostInspectHelper({
       // docker ps puts health in the status text: "Up 2 hours (healthy)". Pull it out here so
       // callers can ask about health without parsing prose.
       const health = /\((healthy|unhealthy|health: starting)\)/i.exec(status)?.[1]?.toLowerCase() ?? "none";
+      // Labels arrive as one "k=v,k=v" string. Keep only the two that say who owns a container.
+      const label = (key) => new RegExp(`(?:^|,)${key.replace(/\./g, "\\.")}=([^,]*)`).exec(String(item.Labels ?? ""))?.[1] || null;
       return {
         id: String(item.ID ?? "").slice(0, 12), name: item.Names ?? null, image: item.Image ?? null,
         state: item.State ?? "unknown", status, health: health === "health: starting" ? "starting" : health,
         ports: item.Ports ?? "", networks: item.Networks ?? "",
+        app: label("io.boxpilot.app"), composeProject: label("com.docker.compose.project"),
       };
     });
     const images = parseJsonLines(imageResult.stdout).map((item) => ({ repository: item.Repository ?? null, tag: item.Tag ?? null, digest: item.Digest === "<none>" ? null : item.Digest ?? null, id: String(item.ID ?? "").slice(0, 19), size: item.Size ?? null }));

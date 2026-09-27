@@ -4,6 +4,7 @@ import { useOperation } from "./ApproveDialog";
 import { useDialogFocus } from "./useDialogFocus";
 import { inspectOperation } from "./operations";
 import { appUrl, appAddresses } from "./appLinks";
+import { describePortConflict, type PortConflict } from "./portConflict";
 
 /** Types mirror server/catalog/schema.mjs (normalized manifest) and server/app-helper.mjs (live state). */
 interface ManifestPort { id: string; label: string; container: number; host: number; protocol: "tcp" | "udp"; exposure: "lan" | "loopback"; fixed: boolean; tailnet?: "serve" | "address" | "unchanged"; containerFollowsHost?: boolean }
@@ -86,7 +87,7 @@ function compactValues(manifest: Manifest, values: Values, baseline?: Values): V
   return { ports, env, volumes, ...((manifest.networkModes?.length ?? 0) > 1 && values.networkMode ? { networkMode: values.networkMode } : {}), ...(manifest.setup ? { setup: values.setup ?? [] } : {}) };
 }
 
-function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure"; csrfToken: string; onSubmit: (values: Values) => void; onCancel: () => void }) {
+function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel, appNameFor = () => null }: { manifest: Manifest; live: LiveState | null; mode: "install" | "reconfigure"; csrfToken: string; onSubmit: (values: Values) => void; onCancel: () => void; appNameFor?: (id: string) => string | null }) {
   const dialogRef = useRef<HTMLElement | null>(null);
   useDialogFocus(dialogRef);
   const [values, setValues] = useState<Values>(() => initialValues(manifest, live));
@@ -131,16 +132,9 @@ function ConfigForm({ manifest, live, mode, csrfToken, onSubmit, onCancel }: { m
     setChecking(true); setProblems([]);
     try {
       const response = await fetch(`/api/v1/catalog/${encodeURIComponent(manifest.id)}/precheck`, { method: "POST", headers: { "Content-Type": "application/json", "X-BoxPilot-CSRF": csrfToken }, body: JSON.stringify({ values: precheckValues }) });
-      const body = (await response.json().catch(() => ({}))) as { ok: boolean; errors: string[]; conflicts: Array<{ label: string; port: number; protocol: string; listeners: string[] }>; error?: string };
+      const body = (await response.json().catch(() => ({}))) as { ok: boolean; errors: string[]; conflicts: PortConflict[]; error?: string };
       if (!response.ok && !body.errors?.length) throw new Error(body.error ?? "Precheck failed");
-      const found = [...(body.errors ?? []), ...(body.conflicts ?? []).map((conflict) => {
-        const held = conflict.listeners.join(", ");
-        // "Pick another port" is useless advice for a DNS server, and resolved is the usual culprit.
-        const resolved = conflict.port === 53 && held.includes("127.0.0.53");
-        return resolved
-          ? `Port 53 is held by Ubuntu's own resolver (${held}). Set DNSStubListener=no in /etc/systemd/resolved.conf, restart systemd-resolved, then install again.`
-          : `${conflict.label}: port ${conflict.port}/${conflict.protocol} is already in use on this server (${held}). Pick another port.`;
-      })];
+      const found = [...(body.errors ?? []), ...(body.conflicts ?? []).map((conflict) => describePortConflict(conflict, appNameFor))];
       if (found.length) { setProblems(found); return; }
       onSubmit(compact);
     } catch (requestError) {
@@ -817,7 +811,7 @@ export default function AppCatalog({ csrfToken }: { csrfToken: string }) {
           </ul>
         </section>
       )}
-      {config && <ConfigForm manifest={config.manifest} live={config.live} mode={config.mode} csrfToken={csrfToken} onCancel={() => setConfig(null)} onSubmit={(values) => {
+      {config && <ConfigForm manifest={config.manifest} live={config.live} mode={config.mode} csrfToken={csrfToken} appNameFor={(id) => data?.applications.find((entry) => entry.manifest.id === id)?.manifest.name ?? null} onCancel={() => setConfig(null)} onSubmit={(values) => {
         const { manifest, mode } = config;
         setConfig(null);
         start({ operationId: mode === "install" ? "app.install" : "app.reconfigure", title: mode === "install" ? `Install ${manifest.name}` : `Change ${manifest.name} settings`, parameters: { id: manifest.id, values }, preview: <span>{mode === "install" ? `Pulls ${manifest.image.reference}, starts it with the settings you chose, and waits until it is healthy. Rolled back automatically if it fails.` : "Recreates the container with the new settings; the previous configuration is restored if it fails."}</span> });
