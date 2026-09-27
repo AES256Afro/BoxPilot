@@ -10,7 +10,7 @@
  * remove. Anything that could still be wanted — an image a container uses, the release BoxPilot
  * would roll back to, the newest backups — is never a candidate, and says so.
  */
-import { lstat, rm, stat } from "node:fs/promises";
+import { lstat, readFile, rm, stat } from "node:fs/promises";
 // The writer decides where job logs live; a second copy of that path here is the one that drifts.
 // This category spent a month scanning a directory nothing had ever written to.
 import { defaultJobLogDirectory } from "./job-log.mjs";
@@ -78,6 +78,8 @@ export function createHousekeepingService({
   catalogRoot = process.env.BOXPILOT_CATALOG_ROOT ?? "/var/lib/boxpilot-managed/catalog",
   applicationBackupRoot = path.join(process.env.BOXPILOT_APPLICATION_BACKUP_ROOT ?? "/var/lib/boxpilot-managed/backups", "catalog"),
   jobLogDirectory = process.env.BOXPILOT_JOB_LOG_DIRECTORY ?? defaultJobLogDirectory,
+  machineSnapshotRoot = process.env.BOXPILOT_MACHINE_SNAPSHOT_ROOT ?? "/var/lib/boxpilot-managed/machine-snapshots",
+  tarBinary = process.env.BOXPILOT_TAR_BINARY ?? "/usr/bin/tar",
   apps = null,
   runUnit = null,
   keepBackupsPerApp = 3,
@@ -147,15 +149,55 @@ export function createHousekeepingService({
     return images.map((image) => ({ ...image, used: image.used || usedIds.has(normalizeId(image.id)) }));
   }
 
-  /** Backup archives past the newest few for each app. */
+  /**
+   * The application backups each retained machine snapshot would restore from: the newest one each
+   * app had when the snapshot was taken, which is usually older than the newest few kept here.
+   * Throws when a snapshot cannot be read, so nothing is offered that a restore might still need.
+   */
+  async function machineSnapshotReferences({ budget }) {
+    const references = new Map();
+    const snapshots = (await listTreeEntries(machineSnapshotRoot, { budget }))
+      .filter((entry) => entry.isFile() && /^machine-snapshot-\d{8}T\d{6}Z-[a-f0-9]{8}\.tar\.gz$/.test(entry.name));
+    const readMember = async (artifactPath, member) => {
+      const result = await run(tarBinary, ["-xzf", artifactPath, "--no-same-owner", "--no-same-permissions", "-O", member], { timeout: 5 * 60_000, maxBuffer: 16 * 1024 * 1024 });
+      if (!result.ok) throw new Error(`Machine snapshot ${path.basename(artifactPath)} could not be read, so no application backup is offered for removal`);
+      return JSON.parse(result.stdout);
+    };
+    for (const snapshot of snapshots) {
+      const artifactPath = path.join(machineSnapshotRoot, snapshot.name);
+      const manifest = await readMember(artifactPath, "./manifest.json");
+      for (const app of manifest.contents?.apps ?? []) {
+        if (typeof app?.id !== "string" || !/^[a-z0-9][a-z0-9-]{1,62}$/.test(app.id)) continue;
+        const newest = (await readMember(artifactPath, `./apps/${app.id}/backups.json`)).backups?.[0]?.artifact;
+        if (typeof newest !== "string") continue;
+        if (!references.has(app.id)) references.set(app.id, new Set());
+        references.get(app.id).add(newest);
+      }
+    }
+    return references;
+  }
+
+  /**
+   * Backup archives past the newest few for each app. Pre-change checkpoints and the owner's own
+   * backups are counted separately, as the app deployer prunes them, so a run of settings changes
+   * cannot push every real backup out; and nothing a retained machine snapshot restores from goes.
+   */
   async function oldApplicationBackups({ budget = createTreeScanBudget(treeScanLimits) } = {}) {
+    const references = await machineSnapshotReferences({ budget });
     const entries = await listTreeEntries(applicationBackupRoot, { budget });
     const stale = [];
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
       const directory = path.join(applicationBackupRoot, entry.name);
       const names = (await listTreeEntries(directory, { budget })).filter((entry) => entry.isFile() && /^\d{8}T\d{6}Z\.tar\.gz$/.test(entry.name)).map((entry) => entry.name).sort().reverse();
-      for (const name of names.slice(keepBackupsPerApp)) {
+      const byKind = { checkpoint: [], backup: [] };
+      for (const name of names) {
+        const meta = await readFile(path.join(directory, name.replace(/\.tar\.gz$/, ".json")), "utf8").then(JSON.parse).catch(() => null);
+        byKind[meta?.checkpoint ? "checkpoint" : "backup"].push(name);
+      }
+      const referenced = references.get(entry.name) ?? new Set();
+      const behind = [...byKind.checkpoint.slice(keepBackupsPerApp), ...byKind.backup.slice(keepBackupsPerApp)].filter((name) => !referenced.has(name)).sort();
+      for (const name of behind) {
         const full = path.join(directory, name);
         const info = await lstat(full).catch((error) => { if (error.code === "ENOENT") return null; throw error; });
         if (info?.isFile()) stale.push({ app: entry.name, path: full, meta: full.replace(/\.tar\.gz$/, ".json"), bytes: info.size });
@@ -262,7 +304,7 @@ export function createHousekeepingService({
       {
         id: "app-backups",
         title: "Older application backups",
-        summary: `Backup archives beyond the newest ${keepBackupsPerApp} for each app. The newest ${keepBackupsPerApp} are always kept, and any copy already mirrored off this server is unaffected.`,
+        summary: `Backup archives beyond the newest ${keepBackupsPerApp} for each app. The newest ${keepBackupsPerApp} backups and the newest ${keepBackupsPerApp} pre-change checkpoints are always kept, as is any backup a kept machine snapshot restores from, and any copy already mirrored off this server is unaffected.`,
         items: backups.length,
         bytes: backups.reduce((sum, entry) => sum + entry.bytes, 0),
         detail: [...new Set(backups.map((entry) => entry.app))].map((app) => `${app}: ${backups.filter((entry) => entry.app === app).length} archive(s)`),
