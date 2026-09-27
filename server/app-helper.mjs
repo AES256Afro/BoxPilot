@@ -25,6 +25,8 @@ const idPattern = /^[a-z0-9][a-z0-9-]{1,62}$/;
 export const backupNamePattern = /^\d{8}T\d{6}Z\.tar\.gz$/;
 /** How many updates to remember per app. Enough to step back through a bad week, small enough to store. */
 export const updateHistoryLimit = 10;
+/** Pre-change checkpoints kept per app, counted separately from the owner's own backups. */
+const checkpointKeep = 5;
 
 /**
  * Canonicalise a path for the deny-list check even when its leaf does not exist yet: resolve every
@@ -624,10 +626,15 @@ export function createAppHelper({
    * Pre-change checkpoint (M6.7): an ordinary app backup taken right before an update, a
    * settings change, or a compose edit, so the change can be undone from the card's Restore.
    * Only managed volumes flagged for backup are archived (config-sized, not media libraries).
+   *
+   * Checkpoints are tagged and pruned only against each other. Pruning them with the owner's
+   * backups meant a handful of settings tweaks replaced every good nightly with copies of a broken
+   * state, and a file restore from the oldest backup deleted that backup before extracting from it.
+   * `preserve` names an archive the caller is about to read, which no prune may remove.
    */
-  async function checkpoint({ id, reason }, { progress = null } = {}) {
+  async function checkpoint({ id, reason, preserve = null }, { progress = null } = {}) {
     progress?.(`Checkpoint before ${reason}: backing up current data first`, "stdout");
-    const result = await backup({ id, keep: 5 }, { progress });
+    const result = await backup({ id, keep: checkpointKeep, checkpointReason: reason, preserve }, { progress });
     return { artifact: result.artifact, checksumSha256: result.checksumSha256, sizeBytes: result.sizeBytes, downtimeMs: result.downtimeMs };
   }
 
@@ -1193,7 +1200,8 @@ export function createAppHelper({
     }
   }
 
-  async function backup({ id, keep = 5 }, { progress = null } = {}) {
+  /** `checkpointReason` and `preserve` are for checkpoint() only; the registry operation passes neither. */
+  async function backup({ id, keep = 5, checkpointReason = null, preserve = null }, { progress = null } = {}) {
     const manifest = await ensureManifest(id);
     const state = await readState(id);
     if (!state) throw new Error(`${manifest.name} has no data to back up`);
@@ -1255,12 +1263,20 @@ export function createAppHelper({
       if (!start.ok) throw new Error(`The backup succeeded (${path.basename(artifact)}), but ${manifest.name} did not start again: ${redact(start.stderr).split("\n").slice(-3).join(" ")}`);
     }
     const [checksumSha256, artifactStat] = await Promise.all([sha256File(artifact), stat(artifact)]);
-    const meta = { id, createdAt: clock().toISOString(), artifact: path.basename(artifact), checksumSha256, sizeBytes: artifactStat.size, downtimeMs, contents, skippedVolumes, skippedHostPaths, image: state.image?.reference ?? null };
+    const meta = { id, createdAt: clock().toISOString(), artifact: path.basename(artifact), checksumSha256, sizeBytes: artifactStat.size, downtimeMs, contents, skippedVolumes, skippedHostPaths, image: state.image?.reference ?? null, ...(checkpointReason ? { checkpoint: { reason: checkpointReason } } : {}) };
     await writeFile(path.join(backupDirectory, `${stamp}.json`), JSON.stringify(meta, null, 2), { mode: 0o600 });
     let pruned = [];
     if (keep !== null) {
+      // Each kind is counted against its own kind only. An archive without metadata is treated as
+      // the owner's, so a checkpoint never removes something it cannot identify as a checkpoint.
       const names = (await readdir(backupDirectory)).filter((name) => backupNamePattern.test(name)).sort().reverse();
-      pruned = names.slice(keep);
+      const sameKind = [];
+      for (const name of names) {
+        let entryMeta = null;
+        try { entryMeta = JSON.parse(await readFile(path.join(backupDirectory, name.replace(/\.tar\.gz$/, ".json")), "utf8")); } catch { entryMeta = null; }
+        if (Boolean(entryMeta?.checkpoint) === Boolean(checkpointReason)) sameKind.push(name);
+      }
+      pruned = sameKind.slice(keep).filter((name) => name !== preserve);
       for (const name of pruned) {
         await rm(path.join(backupDirectory, name), { force: true });
         await rm(path.join(backupDirectory, name.replace(/\.tar\.gz$/, ".json")), { force: true });
@@ -1529,7 +1545,7 @@ export function createAppHelper({
       progress?.("Verifying the backup checksum...", "stdout");
       if ((await sha256File(artifact)) !== meta.checksumSha256) throw new Error(`Backup ${backupName} failed its checksum; it may be damaged. Nothing was changed.`);
     }
-    const saved = await checkpoint({ id, reason: "file restore" }, { progress });
+    const saved = await checkpoint({ id, reason: "file restore", preserve: backupName }, { progress });
     const status = await containerStatus(id);
     if (status.running) {
       const stop = await compose(id, ["stop"], { timeout: 120_000, progress });
