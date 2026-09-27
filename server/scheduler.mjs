@@ -10,24 +10,31 @@ import { overdueScheduleIds } from "./schedule-freshness.mjs";
 
 export const frequencies = Object.freeze(["hourly", "daily", "weekly"]);
 
-/** Next local-time occurrence strictly after `from`. Weekday: 0 = Sunday. */
+/**
+ * Next local-time occurrence strictly after `from`. Weekday: 0 = Sunday.
+ *
+ * Across a daylight-saving change: an hourly run moves on by elapsed time, so the hour the clocks
+ * repeat in autumn runs twice rather than being skipped. A daily or weekly run picks the day first
+ * and only then sets the time on it; setting the time first and then moving the date carried a
+ * time the spring change had shifted (02:30 -> 03:30) into every later run.
+ */
 export function computeNextRun({ frequency, minute, hour = null, weekday = null }, from) {
-  const next = new Date(from.getTime());
-  next.setSeconds(0, 0);
   if (frequency === "hourly") {
-    next.setMinutes(minute);
-    if (next <= from) next.setHours(next.getHours() + 1);
-    return next;
+    const next = new Date(from.getTime());
+    next.setMinutes(minute, 0, 0);
+    return next <= from ? new Date(next.getTime() + 60 * 60_000) : next;
   }
-  next.setHours(hour ?? 3, minute, 0, 0);
-  if (frequency === "daily") {
-    if (next <= from) next.setDate(next.getDate() + 1);
+  // Noon is never inside a DST transition, so moving the date from there cannot slip a day.
+  const onDay = (days) => {
+    const next = new Date(from.getTime());
+    next.setHours(12, 0, 0, 0);
+    next.setDate(next.getDate() + days);
+    next.setHours(hour ?? 3, minute, 0, 0);
     return next;
-  }
-  const targetDay = weekday ?? 0;
-  next.setDate(next.getDate() + ((targetDay - next.getDay() + 7) % 7));
-  if (next <= from) next.setDate(next.getDate() + 7);
-  return next;
+  };
+  const offset = frequency === "daily" ? 0 : ((weekday ?? 0) - from.getDay() + 7) % 7;
+  const next = onDay(offset);
+  return next <= from ? onDay(offset + (frequency === "daily" ? 1 : 7)) : next;
 }
 
 export function describeCadence({ frequency, minute, hour, weekday }) {

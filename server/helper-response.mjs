@@ -1,12 +1,21 @@
 /** Incremental newline-delimited helper replies. Only one incomplete frame is retained. */
 export const maxHelperResponseBytes = 32 * 1024 * 1024;
 
-export function createHelperResponseReader(id, { maxFrameBytes = maxHelperResponseBytes } = {}) {
+/**
+ * Progress frames the helper may send before its final reply. `queued` repeats while the request
+ * waits behind another operation on its lane; `started` is sent once, when a request that queued
+ * leaves the queue, because the operation's own time budget starts there and not at submission.
+ */
+export const helperQueuedFrame = (id, lane) => ({ version: 1, id, queued: true, ...(lane ? { lane } : {}) });
+export const helperStartedFrame = (id) => ({ version: 1, id, started: true });
+
+export function createHelperResponseReader(id, { maxFrameBytes = maxHelperResponseBytes, onQueued = () => {}, onStarted = () => {} } = {}) {
   let pending = "";
   let pendingBytes = 0;
   let result;
   let complete = false;
   let heartbeats = 0;
+  let started = false;
 
   function frame(line) {
     if (!line.trim()) return;
@@ -14,7 +23,14 @@ export function createHelperResponseReader(id, { maxFrameBytes = maxHelperRespon
     const response = JSON.parse(line);
     if (response?.id !== id) throw new Error("Helper response id did not match the request");
     if (response.version !== 1) throw new Error("Helper response version is unsupported");
-    if (response.queued === true && response.ok === undefined) { heartbeats += 1; return; }
+    if (response.queued === true && response.ok === undefined) {
+      if (started) throw new Error("Helper reported a queued request after it started");
+      heartbeats += 1; onQueued(); return;
+    }
+    if (response.started === true && response.ok === undefined) {
+      if (started) throw new Error("Helper reported the same request starting twice");
+      started = true; onStarted(); return;
+    }
     if (response.ok !== true) throw new Error(response.error ?? "Helper operation failed");
     complete = true;
     result = response.result;
@@ -45,5 +61,5 @@ export function createHelperResponseReader(id, { maxFrameBytes = maxHelperRespon
     return result;
   }
 
-  return { push, finish, stats: () => ({ pendingBytes, heartbeats, complete }) };
+  return { push, finish, stats: () => ({ pendingBytes, heartbeats, started, complete }) };
 }

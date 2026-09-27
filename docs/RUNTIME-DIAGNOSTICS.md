@@ -8,7 +8,7 @@ The table separates RSS, JavaScript heap, external buffers, anonymous memory and
 
 ## Helper replies
 
-Replies use incremental newline-delimited JSON. Queue heartbeat frames are validated and discarded. A single response frame is limited to 32 MiB in UTF-8, and an overall request deadline cannot be extended by heartbeat traffic. Existing socket inactivity deadlines remain. Exceeding the bound fails the request and closes the connection. The helper already skips abandoned queued mutations before starting them; a mutation that has started may continue, so a client timeout does not prove the command was cancelled.
+Replies use incremental newline-delimited JSON. Queue heartbeat frames are validated and discarded. A mutation that has to wait behind another operation on its lane is told so at once (`queued`) and again when it leaves the queue (`started`): while queued, the web side holds it to a queue ceiling (24 hours) instead of the operation's own budget, and the budget starts over at `started`, which is when the helper starts the operation's own socket timeout too. A single response frame is limited to 32 MiB in UTF-8, and neither deadline can be extended by heartbeat traffic. Existing socket inactivity deadlines remain. Exceeding the bound fails the request and closes the connection. The helper already skips abandoned queued mutations before starting them; a mutation that has started may continue, so a client timeout does not prove the command was cancelled.
 
 ## Live job streams
 

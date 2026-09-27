@@ -189,6 +189,19 @@ sidecars:
     expect(compose.services.runner.deploy.resources.reservations.devices[0].driver).toBe("nvidia");
   });
 
+  it("keeps the devices the web process resolved when the sign-in password changes", async () => {
+    // The helper's own /dev is empty (PrivateDevices): a password change that re-resolved there
+    // refused a Zigbee stick and silently dropped a GPU render node.
+    const { apps, catalogDirectory, catalogRoot } = await setup({ listDevices: async () => ["null", "zero"] });
+    await writeFile(path.join(catalogDirectory, "stick.yaml"), "schemaVersion: 2\nid: stick\nname: Stick\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 80\n    host: 8085\ndevices:\n  - /dev/ttyUSB?\noptionalDevices:\n  - /dev/dri/renderD*\nenv:\n  - name: ADMIN_PASSWORD\n    type: password\n    generate: true\nsignIn:\n  passwordEnv: ADMIN_PASSWORD\n");
+    const devices = ["/dev/ttyUSB0", "/dev/dri/renderD128"];
+    await apps.install({ id: "stick", devices });
+    await expect(apps.setPassword({ id: "stick", password: "correct horse battery", devices })).resolves.toMatchObject({ changed: true });
+    const compose = await readFile(path.join(catalogRoot, "stick", "compose.yaml"), "utf8");
+    expect(compose).toContain("/dev/ttyUSB0:/dev/ttyUSB0");
+    expect(compose).toContain("/dev/dri/renderD128:/dev/dri/renderD128");
+  });
+
   it("changes the sign-in password and nothing else", async () => {
     // The generated password sat behind the elevated Secrets view and could only be changed by
     // finding the right variable in Settings. For Pi-hole that is also the only change that
@@ -1432,5 +1445,129 @@ describe("remembering what an image says its user is", () => {
     await apps.internals.imageDeclaredOwner("x/missing:1", { mayRun: false });
     await apps.internals.imageDeclaredOwner("x/missing:1", { mayRun: false });
     expect(inspects).toBe(2);
+  });
+});
+describe("an app set to tailnet only while Tailscale is not up", () => {
+  // A helper that started before Tailscale cached "no tailnet address" for good, and the renderer
+  // fell back to the LAN binding: a port meant for tailnet members only was published to the house.
+  const forge = "schemaVersion: 2\nid: forge\nname: Forge\ncategory: T\ndescription: d\nimage:\n  reference: nginx:1.27\nports:\n  - id: web\n    container: 3000\n    host: 3002\n  - id: ssh\n    label: Git over SSH\n    container: 22\n    host: 2222\n    tailnet: address\n";
+
+  it("refuses rather than binding a tailnet-address port to the LAN, and asks Tailscale again next time", async () => {
+    let tailscaleUp = false;
+    const runCommand = vi.fn(async (_binary, args) => (args[0] === "ip"
+      ? (tailscaleUp ? { ok: true, stdout: "100.64.0.5\n", stderr: "" } : { ok: false, stdout: "", stderr: "Tailscale is stopped." })
+      : { ok: false, stdout: "", stderr: "" }));
+    const { apps, catalogDirectory, catalogRoot } = await setup({ runCommand });
+    await writeFile(path.join(catalogDirectory, "forge.yaml"), forge);
+    await apps.install({ id: "forge" });
+    const before = await readFile(path.join(catalogRoot, "forge", "compose.yaml"), "utf8");
+
+    await expect(apps.reconfigure({ id: "forge", values: { exposure: "tailnet" } }, { checkpoint: false })).rejects.toThrow(/no tailnet address.*Git over SSH/);
+    expect(await readFile(path.join(catalogRoot, "forge", "compose.yaml"), "utf8")).toBe(before);
+
+    tailscaleUp = true;
+    await apps.reconfigure({ id: "forge", values: { exposure: "tailnet" } }, { checkpoint: false });
+    const compose = await readFile(path.join(catalogRoot, "forge", "compose.yaml"), "utf8");
+    expect(compose).toContain("100.64.0.5:2222:22");
+    expect(compose).toContain("127.0.0.1:3002:3000");
+    expect(compose).not.toContain("192.168.1.10:2222");
+  });
+});
+
+describe("an update or a step back that fails part-way", () => {
+  // update() rewrote compose.yaml to the new tags before pulling, and a failed pull threw outside
+  // the rollback: compose.yaml named the new version while the containers and boxpilot.json were
+  // still the old one, so the next restart quietly moved the app forward. rollbackApp() restored
+  // nothing at all when its pull, start or health check failed.
+  const manifest = (image) => [
+    "schemaVersion: 2", "id: step", "name: Step", "category: T", "description: d",
+    "image:", `  reference: ${image}`,
+    "ports:", "  - id: web", "    container: 80", "    host: 8080",
+    "health:", "  kind: running", "  stableSeconds: 4", "  timeoutSeconds: 30",
+  ].join("\n") + "\n";
+  async function installed() {
+    const context = await setup();
+    const publish = async (image) => {
+      await rm(path.join(context.catalogDirectory, "step.yaml"), { force: true });
+      await writeFile(path.join(context.catalogDirectory, "step.yaml"), manifest(image));
+    };
+    const composeFile = () => readFile(path.join(context.catalogRoot, "step", "compose.yaml"), "utf8");
+    const original = context.runDocker.getMockImplementation();
+    const failing = (verb, times = Infinity) => {
+      let left = times;
+      context.runDocker.mockImplementation(async (binary, args) => {
+        if (args[0] === "compose" && args.includes(verb) && left > 0) { left -= 1; context.calls.push(args.join(" ")); return { ok: false, stdout: "", stderr: `fixture ${verb} failure` }; }
+        return original(binary, args);
+      });
+    };
+    await publish("app:1.0");
+    await context.apps.install({ id: "step" });
+    return { ...context, publish, composeFile, failing };
+  }
+
+  it("keeps the deployed compose file when the new images cannot be pulled", async () => {
+    const { apps, publish, composeFile, failing } = await installed();
+    const before = await composeFile();
+    await publish("app:2.0.0");
+    failing("pull");
+    await expect(apps.update({ id: "step" }, { checkpoint: false })).rejects.toThrow(/unchanged.*fixture pull failure/);
+    expect(await composeFile()).toBe(before);
+  });
+
+  it("puts the current version back when the previous one cannot be fetched", async () => {
+    const { apps, publish, composeFile, failing } = await installed();
+    await publish("app:2.0.0");
+    await apps.update({ id: "step" }, { checkpoint: false });
+    const current = await composeFile();
+    failing("pull");
+    await expect(apps.rollbackApp({ id: "step" }, { checkpoint: false })).rejects.toThrow(/unchanged.*fixture pull failure/);
+    expect(await composeFile()).toBe(current);
+  });
+
+  it("brings the current version back up when the previous one will not start", async () => {
+    const { apps, publish, composeFile, failing, calls } = await installed();
+    await publish("app:2.0.0");
+    await apps.update({ id: "step" }, { checkpoint: false });
+    const current = await composeFile();
+    failing("up", 1);
+    calls.length = 0;
+    await expect(apps.rollbackApp({ id: "step" }, { checkpoint: false })).rejects.toThrow(/was restored.*fixture up failure/);
+    expect(await composeFile()).toBe(current);
+    expect(calls.filter((call) => / up /.test(call))).toHaveLength(2); // the failed start, then the restore
+  });
+});
+
+describe("restoring one path from an application backup", () => {
+  // tar ran as root straight into the live app directory, and follows a directory symlink it finds
+  // there. A container can plant one in its own volume (data/config -> /etc), so restoring
+  // data/config/app.conf wrote wherever the container pointed.
+  async function backedUp() {
+    const context = await setup();
+    await context.apps.install({ id: "demo" });
+    const config = path.join(context.catalogRoot, "demo", "data", "config");
+    await mkdir(config, { recursive: true });
+    await writeFile(path.join(config, "app.conf"), "from the backup");
+    const { artifact } = await context.apps.backup({ id: "demo" });
+    return { ...context, config, artifact };
+  }
+
+  it("refuses to write through a symlink planted in the app's folder", async () => {
+    const { apps, config, artifact } = await backedUp();
+    const elsewhere = await mkdtemp(path.join(os.tmpdir(), "boxpilot-planted-")); directories.push(elsewhere);
+    await rm(config, { recursive: true });
+    await symlink(elsewhere, config, "junction"); // a junction on Windows, which needs no privilege; ignored elsewhere
+    await expect(apps.restoreAppBackupPath({ id: "demo", backup: artifact, path: "data/config/app.conf" })).rejects.toThrow(/symbolic link/);
+    expect(await readdir(elsewhere)).toEqual([]);
+  });
+
+  it("puts the path back, recreating folders removed since, and leaves no staging behind", async () => {
+    const { apps, catalogRoot, config, artifact } = await backedUp();
+    await writeFile(path.join(config, "app.conf"), "changed later");
+    await apps.restoreAppBackupPath({ id: "demo", backup: artifact, path: "data/config/app.conf" });
+    expect(await readFile(path.join(config, "app.conf"), "utf8")).toBe("from the backup");
+    await rm(config, { recursive: true });
+    await apps.restoreAppBackupPath({ id: "demo", backup: artifact, path: "data/config/app.conf" });
+    expect(await readFile(path.join(config, "app.conf"), "utf8")).toBe("from the backup");
+    expect((await readdir(catalogRoot)).sort()).toEqual(["demo"]);
   });
 });

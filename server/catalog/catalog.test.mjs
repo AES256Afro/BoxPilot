@@ -71,6 +71,9 @@ describe("manifest schema", () => {
     expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: "/etc/ssl" } }).errors).toContainEqual(expect.stringContaining("protected"));
     expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: "/srv/../etc" } }).errors).toContainEqual(expect.stringContaining("clean"));
     expect(resolveValues(manifest, { env: { NEEDED: "y", EXTRA: "1" } }).errors).toContainEqual(expect.stringContaining("EXTRA"));
+    // Compose's short volume syntax splits on ":", so "/mnt/media:old" became "/mnt/media:old:/media"
+    // - a mount of /mnt/media at "old" with "/media" as its options - and the deploy failed.
+    expect(resolveValues(manifest, { env: { NEEDED: "y" }, volumes: { media: "/mnt/media:old" } }).errors).toContainEqual(expect.stringMatching(/values\.volumes\.media: cannot contain ":"/));
   });
 
   it("renders compose with secrets only in .env and generates missing passwords", () => {

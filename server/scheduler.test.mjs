@@ -230,3 +230,42 @@ describe("a schedule that would store an app's secret", () => {
     expect(store.listSchedules()).toHaveLength(0);
   });
 });
+
+describe("next runs across a daylight-saving change", () => {
+  // Pinned to a zone with DST so the transitions are the same wherever the tests run. Node picks
+  // up a change to process.env.TZ for every Date created afterwards.
+  let previousZone;
+  const zone = "America/New_York"; // 2026: clocks go forward on 8 March and back on 1 November
+  const withZone = (test) => () => {
+    previousZone = process.env.TZ;
+    process.env.TZ = zone;
+    try { return test(); } finally { if (previousZone === undefined) delete process.env.TZ; else process.env.TZ = previousZone; }
+  };
+
+  it("runs a daily schedule at its own time the day after the clocks go forward", withZone(() => {
+    // 02:30 does not exist on 8 March; that day's candidate became 03:30, and adding a day kept the
+    // 03:30 instead of going back to 02:30.
+    const from = new Date("2026-03-08T08:00:00.000Z"); // 04:00 EDT on the day of the change
+    expect(computeNextRun({ frequency: "daily", minute: 30, hour: 2 }, from).toISOString()).toBe("2026-03-09T06:30:00.000Z"); // 02:30 EDT
+  }));
+
+  it("runs a weekly schedule at its own time the week after the clocks go forward", withZone(() => {
+    const from = new Date("2026-03-08T08:00:00.000Z"); // Sunday 04:00 EDT
+    expect(computeNextRun({ frequency: "weekly", minute: 30, hour: 2, weekday: 0 }, from).toISOString()).toBe("2026-03-15T06:30:00.000Z"); // Sunday 02:30 EDT
+  }));
+
+  it("runs an hourly schedule in the repeated hour when the clocks go back", withZone(() => {
+    // Adding one to the local hour jumped from the first 01:50 straight to 02:15, skipping 01:15 EST.
+    const from = new Date("2026-11-01T05:50:00.000Z"); // 01:50 EDT, before the clocks go back
+    expect(computeNextRun({ frequency: "hourly", minute: 15 }, from).toISOString()).toBe("2026-11-01T06:15:00.000Z"); // 01:15 EST
+    // And an ordinary hour, and the hour the clocks skip in spring, still come out right.
+    expect(computeNextRun({ frequency: "hourly", minute: 15 }, new Date("2026-11-01T07:20:00.000Z")).toISOString()).toBe("2026-11-01T08:15:00.000Z");
+    expect(computeNextRun({ frequency: "hourly", minute: 15 }, new Date("2026-03-08T06:50:00.000Z")).toISOString()).toBe("2026-03-08T07:15:00.000Z"); // 03:15 EDT
+  }));
+
+  it("keeps daily and weekly runs on the wall-clock time across the autumn change", withZone(() => {
+    const from = new Date("2026-10-31T12:00:00.000Z"); // Saturday 08:00 EDT
+    expect(computeNextRun({ frequency: "daily", minute: 0, hour: 3 }, from).toISOString()).toBe("2026-11-01T08:00:00.000Z"); // 03:00 EST
+    expect(computeNextRun({ frequency: "weekly", minute: 0, hour: 4, weekday: 1 }, from).toISOString()).toBe("2026-11-02T09:00:00.000Z"); // Monday 04:00 EST
+  }));
+});
