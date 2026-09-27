@@ -114,7 +114,7 @@ export function securityOptFor(manifest, hostNetwork) {
   return needsPrivilegedBind ? [] : ["no-new-privileges:true"];
 }
 
-export function renderCompose(manifest, values, { existingEnv = {}, lanAddress = "0.0.0.0", tailnetAddress = null, devices = manifest.devices, sidecarEnvOverrides = {} } = {}) {
+export function renderCompose(manifest, values, { existingEnv = {}, lanAddress = "0.0.0.0", tailnetAddress = null, devices = manifest.devices, sidecarEnvOverrides = {}, gpu = false } = {}) {
   const env = { ...values.env };
   for (const entry of manifest.env) {
     // A secret the request does not re-enter keeps its stored value. Secrets never live in the
@@ -180,6 +180,7 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   if (manifest.extraHosts.length) service.extra_hosts = [...manifest.extraHosts];
   if ((manifest.sysctls ?? []).length) service.sysctls = Object.fromEntries(manifest.sysctls.map((entry) => entry.split("=")));
   if (manifest.shmSize) service.shm_size = manifest.shmSize;
+  if (gpu && manifest.gpu) service.deploy = nvidiaGpuReservation();
   service.security_opt = securityOptFor(manifest, hostNetwork);
   const compose = { name: projectNameFor(manifest.id), services: { [manifest.id]: service } };
   // Sidecars: helper services on the project network, reachable from the app at their id.
@@ -209,6 +210,7 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
       : `./${volume.path}:${volume.container}`));
     if ((sidecar.capabilities ?? []).length) { sidecarService.cap_drop = ["ALL"]; sidecarService.cap_add = [...sidecar.capabilities]; }
     if ((sidecar.devices ?? []).length) sidecarService.devices = sidecar.devices.map((device) => `${device}:${device}`);
+    if (gpu && sidecar.gpu) sidecarService.deploy = nvidiaGpuReservation();
     if (manifest.networkVia === sidecar.id && publishedPorts.length) sidecarService.ports = publishedPorts;
     sidecarService.security_opt = ["no-new-privileges:true"];
     compose.services[sidecar.id] = sidecarService;
@@ -217,6 +219,20 @@ export function renderCompose(manifest, values, { existingEnv = {}, lanAddress =
   const secretEntries = manifest.env.filter((entry) => entry.secret && entry.name in env);
   const envFile = secretEntries.map((entry) => envFileLine(entry.name, env[entry.name])).join("\n") + (secretEntries.length ? "\n" : "");
   return { compose, composeYaml: YAML.stringify(compose, { lineWidth: 0 }), envFile, env, hostPorts, files };
+}
+
+/**
+ * Compose's way of handing a service every NVIDIA GPU (needs the NVIDIA Container Toolkit, which
+ * the deployer checks before asking for it: Docker refuses to start a service reserving a
+ * device driver it doesn't have).
+ */
+export function nvidiaGpuReservation() {
+  return { resources: { reservations: { devices: [{ driver: "nvidia", count: "all", capabilities: ["gpu"] }] } } };
+}
+
+/** Whether any service of this manifest can use an NVIDIA GPU. */
+export function wantsGpu(manifest) {
+  return Boolean(manifest.gpu) || (manifest.sidecars ?? []).some((sidecar) => sidecar.gpu);
 }
 
 /**

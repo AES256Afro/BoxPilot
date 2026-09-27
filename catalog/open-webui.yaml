@@ -41,6 +41,7 @@ env:
 sidecars:
   - id: ollama
     image: ollama/ollama:0.32.15
+    gpu: optional
     volumes:
       - id: models
         container: /root/.ollama

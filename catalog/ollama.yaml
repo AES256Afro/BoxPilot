@@ -6,6 +6,8 @@ icon: "🦙"
 description: Runs open language models on this server and offers them over a simple API, so several apps can share one engine and one set of downloads. Install this on its own if you already have a chat interface, or want Home Assistant and other tools to use a local model.
 website: https://ollama.com
 risk: medium
+# Runs on an NVIDIA GPU when the server has one set up for Docker (Repair Center shows the state).
+gpu: optional
 image:
   reference: ollama/ollama:0.32.15
   version: 0.32.15

@@ -2,6 +2,7 @@ import { readFile, unlink, writeFile } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { createMaintenanceService } from "./maintenance.mjs";
+import { createNvidiaInspector } from "./nvidia.mjs";
 
 const execFile = promisify(execFileCallback);
 const defaultDpkgQuery = "/usr/bin/dpkg-query";
@@ -408,6 +409,12 @@ export function createPrerequisiteHelper({
     };
   }
 
+  const nvidia = createNvidiaInspector({ run, dpkgQueryBinary });
+  /** NVIDIA GPU readiness for apps (driver, container toolkit, Docker runtime). Read-only. */
+  async function inspectNvidia() {
+    return nvidia.inspect();
+  }
+
   async function inspectAptMetadata() {
     const evidence = await maintenance.inspect();
     const packageManagerState = evidence.packageManager.state;
@@ -458,7 +465,7 @@ export function createPrerequisiteHelper({
     };
   }
 
-  return { inspectSmartmontools, installSmartmontools, inspectRestic, installRestic, inspectDocker, installDocker, inspectVirtualization, installVirtualization, inspectAptMetadata, refreshAptMetadata };
+  return { inspectSmartmontools, installSmartmontools, inspectRestic, installRestic, inspectDocker, installDocker, inspectVirtualization, installVirtualization, inspectNvidia, inspectAptMetadata, refreshAptMetadata };
 }
 
 export const prerequisiteHelperInternals = { candidateVersion, cleanVersion, defaultAptCache, defaultAptApprovalPath, defaultApprovalPath, defaultResticApprovalPath, defaultDockerApprovalPath, defaultVirtualizationApprovalPath, defaultDpkgQuery, defaultEvidencePath, defaultSystemctl, installedVersion, versionPattern, virtualizationPackageNames };

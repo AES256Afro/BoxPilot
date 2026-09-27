@@ -3,6 +3,7 @@ import { access, readFile, statfs } from "node:fs/promises";
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { shared } from "./cache.mjs";
+import { nvidiaNextStep } from "./nvidia.mjs";
 
 const execFile = promisify(execFileCallback);
 
@@ -39,7 +40,7 @@ export function port53Occupied(text) {
 
 export function createPrerequisiteService({ stateDirectory, helper, runCommand = fixedCommand, checkAccess = access, getFilesystem = statfs, readProbe = (file) => readFile(file, "utf8"), now = () => Date.now() } = {}) {
   /**
-   * The six helper inspections this page needs are independent of each other, so they are sent
+   * The seven helper inspections this page needs are independent of each other, so they are sent
    * together: the page waits for the slowest, not for the sum. The helper caps concurrent
    * read-only work at eight, so this cannot flood it.
    */
@@ -52,6 +53,7 @@ export function createPrerequisiteService({ stateDirectory, helper, runCommand =
       aptMetadata: quiet("prerequisite.apt-metadata.inspect"),
       docker: quiet("prerequisite.docker.inspect"),
       virtualization: quiet("prerequisite.virtualization.inspect"),
+      nvidia: quiet("prerequisite.nvidia.inspect"),
     };
   }
 
@@ -198,6 +200,25 @@ export function createPrerequisiteService({ stateDirectory, helper, runCommand =
         ? { kind: "approved", description: "Review the exact five-package Ubuntu virtualization plan, reauthenticate, and verify KVM plus qemu:///system" }
         : { kind: "manual", description: virtualization && !virtualization.kvmDeviceAvailable ? "Enable hardware virtualization in firmware and verify the KVM kernel interface before planning installation" : "Repair the existing provider or configured Ubuntu package metadata before planning installation" },
     ));
+
+    // Only shown when the server has an NVIDIA card: without one there is nothing to set up.
+    const nvidia = await pending.nvidia;
+    if (nvidia?.present) {
+      const gpu = nvidia.gpus?.[0];
+      const next = nvidiaNextStep(nvidia);
+      checks.push(check(
+        "hardware.nvidia",
+        "Hardware",
+        "NVIDIA GPU for apps",
+        nvidia.ready ? "ready" : "missing",
+        nvidia.ready
+          ? `${gpu ? `${gpu.name}${gpu.memoryGiB ? ` (${gpu.memoryGiB} GB)` : ""}` : "The NVIDIA GPU"} is available to GPU-capable apps (driver ${nvidia.driverVersion ?? "loaded"}); reinstall or reconfigure an app to move it onto the GPU`
+          : !nvidia.driverLoaded ? "An NVIDIA card is installed but no NVIDIA driver is loaded, so apps run on the CPU"
+            : !nvidia.toolkitInstalled ? `The NVIDIA driver ${nvidia.driverVersion ?? ""} is loaded, but the NVIDIA Container Toolkit isn't installed, so Docker apps can't use the GPU`
+              : "The NVIDIA Container Toolkit is installed but Docker doesn't have the nvidia runtime yet",
+        next ? { kind: "manual", description: next } : null,
+      ));
+    }
 
     const tailscale = await runCommand("tailscale", ["status", "--json"], { timeout: 8000 });
     // An exit code only says the command ran. Whether the tailnet is actually up is BackendState,

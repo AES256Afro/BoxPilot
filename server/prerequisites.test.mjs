@@ -93,6 +93,29 @@ describe("reading port 53 from ss output", () => {
   });
 });
 
+describe("NVIDIA check", () => {
+  const service = (nvidia) => createPrerequisiteService({
+    stateDirectory: "/tmp",
+    helper: { request: async (operation) => (operation === "prerequisite.nvidia.inspect" ? nvidia : operation === "canary.verify" ? { verified: true } : null) },
+    runCommand: async () => ({ ok: true, stdout: "" }), checkAccess: async () => {}, getFilesystem: async () => ({ bavail: 10n ** 7n, bsize: 4096n }),
+  });
+  const find = async (nvidia) => (await service(nvidia).inspect()).checks.find((c) => c.id === "hardware.nvidia");
+
+  it("stays out of the way on servers without an NVIDIA card", async () => {
+    expect(await find({ present: false })).toBeUndefined();
+    expect(await find(null)).toBeUndefined();
+  });
+
+  it("says what is missing and how to fix it", async () => {
+    const noDriver = await find({ present: true, driverLoaded: false, toolkitInstalled: false, dockerRuntime: false, ready: false, gpus: [] });
+    expect(noDriver).toMatchObject({ status: "missing", repair: { kind: "manual" } });
+    expect(noDriver.repair.description).toContain("ubuntu-drivers");
+    const ready = await find({ present: true, driverLoaded: true, driverVersion: "570.86", toolkitInstalled: true, dockerRuntime: true, ready: true, gpus: [{ name: "NVIDIA GeForce RTX 4080", memoryGiB: 16 }] });
+    expect(ready).toMatchObject({ status: "ready", repair: null });
+    expect(ready.summary).toContain("RTX 4080 (16 GB)");
+  });
+});
+
 describe("collecting prerequisite evidence", () => {
   function slowHelper(delayMs = 40) {
     const request = vi.fn(async (operation) => {
@@ -108,16 +131,16 @@ describe("collecting prerequisite evidence", () => {
     const service = createPrerequisiteService({ stateDirectory: "/tmp", helper, runCommand: async () => ({ ok: true, stdout: "" }), checkAccess: async () => {}, getFilesystem: async () => ({ bavail: 10n ** 7n, bsize: 4096n }) });
     const started = Date.now();
     await service.inspect();
-    // Six 40 ms reads: together that is ~40 ms, one after another it was ~240 ms.
+    // Seven 40 ms reads: together that is ~40 ms, one after another it was ~280 ms.
     expect(Date.now() - started).toBeLessThan(200);
-    expect(helper.request).toHaveBeenCalledTimes(6);
+    expect(helper.request).toHaveBeenCalledTimes(7);
   });
 
   it("shares one collection between callers that arrive together", async () => {
     const helper = slowHelper(10);
     const service = createPrerequisiteService({ stateDirectory: "/tmp", helper, runCommand: async () => ({ ok: true, stdout: "" }), checkAccess: async () => {}, getFilesystem: async () => ({ bavail: 10n ** 7n, bsize: 4096n }) });
     const [first, second, third] = await Promise.all([service.inspect(), service.inspect(), service.inspect()]);
-    expect(helper.request).toHaveBeenCalledTimes(6); // not eighteen
+    expect(helper.request).toHaveBeenCalledTimes(7); // not twenty-one
     expect(second).toBe(first);
     expect(third).toBe(first);
   });
