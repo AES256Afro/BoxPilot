@@ -683,3 +683,29 @@ describe("editing a flow to carry an app's secret", () => {
     expect(JSON.stringify(store.listFlows())).not.toContain("918273645546372");
   });
 });
+
+describe("a flow step whose app the catalog cannot name", () => {
+  // The catalog answers null for an app it does not have. A step that names its app through an
+  // earlier step's result asked for an app literally called "{{ steps.pick.id }}", was told "no
+  // secrets", and the token beside it was stored in the flow and served by GET /flows.
+  const catalogLookup = async (id) => (id === "cloudflared" ? ["TUNNEL_TOKEN"] : null);
+  const pick = { operationId: "controller.backup.create", name: "pick", parameters: {} };
+
+  it("cannot carry a value that might be that app's secret", async () => {
+    const store = fakeStore();
+    const flows = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, secretEnvNamesFor: catalogLookup });
+    const referenced = [pick, { operationId: "app.reconfigure", parameters: { id: "{{ steps.pick.id }}", values: { env: { TUNNEL_TOKEN: "eyJ-referenced-token" } } } }];
+    await expect(flows.create({ name: "Rotate", steps: referenced, createdBy: "owner-1" })).rejects.toThrow("needs a password or key each time");
+    const unknown = [{ operationId: "app.reconfigure", parameters: { id: "cloudfared", values: { env: { TUNNEL_TOKEN: "eyJ-typo-token" } } } }];
+    await expect(flows.create({ name: "Typo", steps: unknown, createdBy: "owner-1" })).rejects.toThrow("needs a password or key each time");
+    const flow = await flows.create({ name: "Fine", steps: [pick], createdBy: "owner-1" });
+    await expect(flows.update(flow.id, { steps: referenced }, "owner-1")).rejects.toThrow("needs a password or key each time");
+    expect(JSON.stringify(store.listFlows())).not.toMatch(/eyJ-(referenced|typo)-token/);
+  });
+
+  it("still takes an app's ordinary settings when the catalog knows the app", async () => {
+    const store = fakeStore();
+    const flows = createFlowService({ store, jobs: fakeJobs(store), pollMs: 2, secretEnvNamesFor: catalogLookup });
+    await expect(flows.create({ name: "Rename", steps: [{ operationId: "app.reconfigure", parameters: { id: "cloudflared", values: { env: { TUNNEL_NAME: "home" } } } }], createdBy: "owner-1" })).resolves.toBeTruthy();
+  });
+});

@@ -428,3 +428,21 @@ describe("an app secret typed as a number", () => {
     } finally { store.close(); }
   });
 });
+
+describe("an app the catalog cannot name", () => {
+  it("has every setting staged, since any of them might be its secret", async () => {
+    // A mistyped id: the catalog answers null, which used to read as "no secrets", so the token
+    // typed beside it went into the jobs table before the install failed to find the app.
+    const seen = [];
+    const helper = { request: async (operation, parameters) => { seen.push({ operation, parameters }); return { installed: true }; } };
+    const { store, owner } = await setup(helper);
+    try {
+      const jobs = createJobService(store, helper, { secretEnvNamesFor: async (id) => (id === "cloudflared" ? ["TUNNEL_TOKEN"] : null) });
+      const job = await jobs.createOperationJob("app.install", { id: "cloudfared", values: { env: { TUNNEL_TOKEN: "eyJ-typo-token", TUNNEL_NAME: "home" } } }, owner.id);
+      expect(store.getJob(job.id).parameters.values.env).toEqual({ TUNNEL_TOKEN: "[secret]", TUNNEL_NAME: "[secret]" });
+      await jobs.approveAndRun(job.id, owner.id, { password: "correct horse battery" });
+      expect(seen.find((call) => call.operation === "app.install").parameters.values.env).toEqual({ TUNNEL_TOKEN: "eyJ-typo-token", TUNNEL_NAME: "home" });
+      expect(JSON.stringify(store.listJobs())).not.toContain("eyJ-typo-token");
+    } finally { store.close(); }
+  });
+});

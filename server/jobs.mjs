@@ -13,12 +13,15 @@ const appValueOperations = new Set(["app.install", "app.reconfigure"]);
 // typed as a number is as much a secret as one typed as a string.
 const holdsValue = (value) => value !== undefined && value !== null && value !== "";
 
-/** Dotted paths of every secret in these parameters: top-level flagged fields plus nested app env. */
+/**
+ * Dotted paths of every secret in these parameters: top-level flagged fields plus nested app env.
+ * `secretEnvNames` null means the catalog does not know the app, so any setting might be its secret.
+ */
 function nestedSecretPaths(operationId, parameters, secretEnvNames) {
   if (!appValueOperations.has(operationId)) return [];
   const env = parameters?.values?.env;
   if (!env || typeof env !== "object") return [];
-  return secretEnvNames.filter((name) => holdsValue(env[name])).map((name) => `values.env.${name}`);
+  return (secretEnvNames ?? Object.keys(env)).filter((name) => holdsValue(env[name])).map((name) => `values.env.${name}`);
 }
 const readPath = (object, path) => path.split(".").reduce((node, key) => (node && typeof node === "object" ? node[key] : undefined), object);
 function writePath(object, path, value) {
